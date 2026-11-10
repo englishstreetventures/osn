@@ -106,12 +106,13 @@ paints `ui-danger` through the contract (§7).
 | Heading of a dialog view | `text-2xl font-bold` | `SignIn`, `Register` |
 | Heading of a panel | `text-lg font-semibold` | `PasskeysView`, `TotpView`, `SessionsView`, `ChangeEmailForm`, `StepUpDialog`; the `enrol`, `enrolled` and `expired` steps of `RecoveryLoginForm` |
 | Body copy | `text-sm` | the views' own paragraphs and lines |
-| Meta lines (dates, "(synced)", field hints) | `text-xs` | the list rows, the banner, `Register`'s field hints |
+| Meta lines (dates, "(synced)") | `text-xs` | the list rows, the banner |
+| Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
 | Names in a row | `font-medium` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
 | Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key; with `tracking-widest`, the code fields `ChangeEmailForm` and `StepUpDialog` draw themselves (§5) |
 
-The `@shared/ui` parts inside the views (Button, Input, Label, OtpInput, Card
-and Dialog titles) take the contract steps.
+The `@shared/ui` parts inside the views (Button, Field, Input, Label,
+OtpInput, Card and Dialog titles) take the contract steps.
 
 ## 4. Layout
 
@@ -120,8 +121,12 @@ As built:
 - **Dialog views** (`SignIn`, `Register`) carry their own column,
   `mx-auto max-w-sm px-4 py-8`, inside whatever frame the host gives them: a
   header row with the view's heading and its Cancel, then one step at a time
-  as a `flex-col gap-4` stack. Fields are a Label above the control; the
-  primary Button spans the column.
+  as a `flex-col gap-4` stack. Each field is `@shared/ui`'s `Field` with a
+  plain label (`labelTreatment="plain"`), 6px above the control. The two
+  labels `Field` does not draw sit 6px above their controls too: `Register`'s
+  Email, a bare `Label` beside its "i", and the span over a row of code boxes.
+  The primary Button spans the column; a standalone link under it sits centred
+  (§5).
 - **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
   `flex-col gap-3` section: a header row with the heading and, on the right,
   the panel's action (a `size="sm"` Button in `PasskeysView` and `TotpView`,
@@ -131,8 +136,8 @@ As built:
   The rows' `border` names no colour, so the host decides it: Musubi's base
   rule draws the hairline, `--border`.
 - **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
-  one phase at a time. The email and code phases are each a labelled field
-  over a full-width Button; the step-up phase is `StepUpDialog`'s panel, and
+  one phase at a time. The email and code phases are each a `Field` over a
+  full-width Button; the step-up phase is `StepUpDialog`'s panel, and
   the last a single line.
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
@@ -153,17 +158,17 @@ besides the default:
 
 | View | Parts | Button variants |
 | --- | --- | --- |
-| `SignIn` | Button, Input, Label, Notice | `ghost`, `secondary` |
-| `Register` | Button, InfoPopover, Input, Label, Notice, OtpInput, UsernameInput | `ghost` |
-| `RecoveryLoginForm` | Button, Input, Label, Notice, OtpInput | `outline`, `ghost` |
-| `StepUpDialog` | Button, Notice | `outline`, `ghost` |
+| `SignIn` | Button, Field, Input, Notice | `ghost`, `secondary`, `link` |
+| `Register` | Button, Field, InfoPopover, Input, Label, Notice, OtpInput, UsernameInput | `ghost`, `link` |
+| `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput | `outline`, `ghost` |
+| `StepUpDialog` | Button, Field, Notice | `outline`, `ghost` |
 | `PasskeysView` | Button, Input, Notice | `outline`, `ghost` |
-| `TotpView` | Button, Input, Label, Notice, OtpInput, QrCode | `outline`, `ghost` |
+| `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode | `outline`, `ghost` |
 | `RecoveryCodesView` | Button, Dialog, Notice | `outline`, `ghost` |
 | `SessionsView` | Button, Notice | `outline` |
 | `SecurityEventsBanner` | Button, Notice | `outline` |
-| `ChangeEmailForm` | Button, Label, Notice | — |
-| `CreateProfileForm` | Button, Input, Label, Notice, UsernameInput | `ghost` |
+| `ChangeEmailForm` | Button, Field, Notice | — |
+| `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `destructive` |
 | `TurnstileWidget` | Notice | — |
@@ -173,18 +178,17 @@ themselves:
 
 - Raw `<input>`s: the new email and the code in `ChangeEmailForm`, and the
   emailed code and the authenticator code in `StepUpDialog`, each
-  `bg-background rounded-md border px-3 py-2`. Each sits in a
-  `flex flex-col gap-1` group under a `@shared/ui` `Label`, with its error
-  line under it, as `Register` groups its fields. The `border` names no
+  `bg-background rounded-md border px-3 py-2`. Each sits in a `Field` with a
+  plain label, its error line under it, as every other field does. The
+  `border` names no
   colour at rest; in Musubi a bare-bordered field keeps its ink edge
   (`currentColor`), since `--input`, the edge `@shared/ui`'s `Input` draws,
   sits under 3:1 (`musubi/social/DESIGN.md` §Borders). A refused value turns
   it red (`aria-[invalid=true]:border-ui-danger`), as `Input` does.
 - A raw checkbox, "I've saved these codes somewhere safe.", in
   `RecoveryCodesView`.
-- Text `<button>`s: "Lost your passkey?" in `SignIn` and "Resend code" in
-  `Register`, `text-primary text-sm font-medium` with an underline on hover;
-  each profile row and its delete control in `ProfileSwitcher`.
+- Text `<button>`s: each profile row and its delete control in
+  `ProfileSwitcher`.
 - `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
   error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
   in a failed load. It keeps the line's ink and is underlined, so the action
@@ -194,9 +198,25 @@ themselves:
 - A `<details>` disclosure, "Signing in somewhere new?", under the list in
   `PasskeysView`.
 
+**Links.** A link standing alone is Button's `link` at `sm`: 13px at 500 in
+the accent ink, a 32px box with 12px sides, underlined only under the pointer,
+centred under the action it follows (`self-center`) so no column edge sits
+12px off its words. Two: "Lost your passkey?" under `SignIn`'s Continue, and
+"Resend code" under `Register`'s "Verify email". `InlineAction`, above, is the
+link that ends an error line. Musubi's rules for both, and for a link inside a
+sentence, are `musubi/social/DESIGN.md` §Links.
+
 ## 6. States per view
 
 Each state is named from the view's own code, with the copy it shows.
+
+**A wait.** A button that starts a call shows the wait as Button's `busy`: the
+label in brackets below, ending in "…", the 20px orb before it, focus kept,
+every press and Enter refused (`musubi/social/DESIGN.md` §Busy buttons). Only
+the button that started the call is busy; the view's other actions are
+`disabled` meanwhile, and each button's other reasons to be `disabled` apply
+only while it is not busy. Each handler also returns early while its own call
+runs. Buttons named here with no label in brackets show no wait.
 
 **`SignIn`** — heading "Sign in to {productName}", or "Recover your account"
 in the recovery view.
@@ -218,7 +238,7 @@ own.
 | --- | --- |
 | No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
 | Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification code" ("Sending…") |
-| Verify | "We sent a 6-digit code to {email}. Enter it below to verify.", the code boxes, then "Verifying your code…", "Accepted" or the code's error line; "Verify email" ("Verifying…"); the Turnstile challenge again, for a resend; "Resend code" (with a countdown while it waits, and held until the challenge hands it a token); "← Use a different email" |
+| Verify | "We sent a 6-digit code to {email}. Enter it below to verify.", the code boxes, then "Verifying your code…", "Accepted" or the code's error line; "Verify email" ("Verifying…"); the Turnstile challenge again, for a resend; "Resend code" ("Sending…"; with a countdown while it waits, and held until the challenge hands it a token); "← Use a different email" |
 | Passkey | "Enroll a passkey or security key so you can sign back in. This is required to finish creating your account."; "Enroll credential" ("Setting up…") |
 | Done | "You're all set. Loading {productName}…" |
 
@@ -282,14 +302,14 @@ the first Confirm, after which the change completes; done ("Your email is now
 {email}.").
 
 **`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
-"Create profile" ("Creating..."), Cancel when the host gives `onCancel`.
+"Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
 
 **`ProfileOnboarding`** — shows only with a session, exactly one profile and
 no earlier dismissal: the card "Add another profile", "Create profile", and
 a dismiss control when `dismissible`.
 
 **`ProfileSwitcher`** — a popover of the account's profiles with the active
-one marked, a create dialog and a delete dialog.
+one marked, a create dialog and a delete dialog (Delete, "Deleting…").
 
 **`TurnstileWidget`** — renders nothing without a site key; with one, the
 challenge, and "Couldn't load the verification challenge. Reload and try
@@ -358,6 +378,13 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   `RecoveryLoginForm` and `TotpView`: announced, but not yet tied — `OtpInput`
   takes no `aria-describedby` until englishstreetventures/osn#2041.
 
+**How the tie meets `Field`.** Each field sits in a `Field`, which mints its id
+and draws its label and any hint; the view passes it no `errors`. The control's
+`aria-describedby` joins what `Field` hands it (the hint) with the line's id
+(`describedBy`), and its `aria-invalid` comes from the line's `FieldError`.
+`Field`'s own errors would mark every message invalid, a rate limit and an
+outage included, and draw it as plain red text without the `Notice` mark.
+
 `SignIn`'s passkey error ends with a "Lost your passkey?" button: the
 signing-in sentence names no cause, and recovery is the way in without one.
 The standalone link below Continue stays. Switching to the recovery form
@@ -386,9 +413,11 @@ toast.
 **The verification challenge.** Every call that spends a Turnstile token —
 `SignIn`'s Continue, `Register`'s send and resend, `RecoveryLoginForm`'s
 emailed-code send — asks the widget for a fresh token when it fails: the
-server checks the token before it answers, so a refusal has spent it too. The
-submit stays disabled until the widget hands over a fresh one. `SignIn` and
-`RecoveryLoginForm` reset after a success as well. `Register` drops the spent
+server checks the token before it answers, so a refusal has spent it too.
+Once the call is over the submit stays disabled until the widget hands over a
+fresh one; while the call runs it stays busy, not disabled, though the widget
+has already dropped the spent token. `SignIn` and `RecoveryLoginForm` reset
+after a success as well. `Register` drops the spent
 token after a success instead, since its widget goes with it: the details
 step's when the code step opens, the code step's while "Resend code" counts
 down. The code step mounts its own widget only once the countdown ends, so a
@@ -447,7 +476,6 @@ the ring the rule above asks for:
 
 - the raw code and email `<input>`s in `ChangeEmailForm` and `StepUpDialog`
   (#2041; `ChangeEmailForm`'s code field in #2056);
-- "Lost your passkey?" in `SignIn` and "Resend code" in `Register` (#2036);
 - the raw checkbox in `RecoveryCodesView`, the profile rows and delete
   controls in `ProfileSwitcher`, and the "Signing in somewhere new?" summary in
   `PasskeysView` (#2045).
@@ -502,7 +530,24 @@ As built:
   checks the error lines in Chromium: a wrong emailed code at sign-up reads
   the code sentence; a rate-limited sign-in reads the wait sentence, with
   "Lost your passkey?" inside the line, as the identifier field's accessible
-  description, and with no toast.
+  description, and with no toast. It also reads the shared parts the views
+  draw, through `tools/e2e/tests/support/musubi-surfaces.ts`, each shot at 390
+  and 1440px in both schemes: on opening the create-account dialog
+  (`registerFieldSurfaces`), "Date of birth" a plain label 6px above its
+  field and described by its hint, and Email's label row 6px above its field;
+  on opening the sign-in dialog (`signInLinkSurfaces`), "Email or @handle" a
+  plain label, and "Lost your passkey?" a 32px link at 500 in the accent ink,
+  centred under Continue, underlined only under the pointer; with
+  `/login/passkey/begin` held after Continue (`busyButtonSurfaces`), Continue
+  reading "Verifying…", `aria-busy` and `aria-disabled` but not `disabled`,
+  keeping focus, at 50% opacity, with one 20px orb, shot under reduced motion;
+  and on `/authorize` before signing in to Pulse (`authorizeSignInSurfaces`),
+  "Create one" with no padding and one line tall, underlined 2px under, in its sentence's size and
+  weight.
+- **Waits in the package tests.** `SignIn.test.tsx` holds Continue busy and
+  not disabled while the passkey prompt is open, though the verification
+  challenge has dropped its spent token; `Register.test.tsx` holds "Resend
+  code" busy while it sends, with "Verify email" left as it was.
 - **Error lines in the package tests.** Each view's tests plant text in a
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its

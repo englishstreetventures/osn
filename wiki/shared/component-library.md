@@ -656,7 +656,7 @@ invalid: hold its message until blur or submit before passing it.
 | Value | Looks like | For |
 |---|---|---|
 | `caps` (default) | `font-ui-body`, the secondary ink, `text-ui-xs`, `tracking-ui-wider`, upper case | cire's portals and `@cire/ui`, every `Field` cire draws (`cire/host/DESIGN.md`) |
-| `plain` | `Label`'s default: weight 500, the full ink, `text-ui-base`, line height 1; family and tracking inherited; the words as written | Musubi and `@osn/auth-ui`, whose forms put a `Label` over each control; neither uses `Field` yet (englishstreetventures/osn#2036) |
+| `plain` | `Label`'s default: weight 500, the full ink, `text-ui-base`, line height 1; family and tracking inherited; the words as written | Musubi and `@osn/auth-ui`: every form field in both (`musubi/social/DESIGN.md` §Form fields) |
 
 Only the label changes; the hint, the errors, the gaps and the wiring are the
 same code in both. `labelHidden` wins over either: the label becomes `sr-only`,
@@ -672,6 +672,15 @@ its box sits 6px above the control, and an error 6px under it at 13px in
 `--destructive`.
 
 *Measured 2026-11-07 — Playwright over `vite build` + `vite preview` of `tools/lab`, story `shared/ui/forms` → `PlainLabels`, 390 and 1440px, light and dark; `getComputedStyle` on the Email label and its first error, `getBoundingClientRect` for the gaps*
+
+**A caller that draws its own error line** passes no `errors` and ties the line
+itself. `@osn/auth-ui` does: its line is a `Notice` with the danger mark, and
+it marks the control `aria-invalid` only when the input was the problem, not for
+a rate limit or an outage, where `errors` always marks it. So the control takes
+`field.id`, an `aria-describedby` that joins `field["aria-describedby"]` (the
+hint) with the line's id, and its own `aria-invalid`; the line goes in the
+child function after the control, so it sits above the hint
+(`osn/auth-ui/DESIGN.md` §7).
 
 The label holds only its words. A `<button>` inside a `<label>` is invalid
 HTML and its name would join the control's, so `Field` has no place beside the
@@ -1172,12 +1181,13 @@ Thin wrappers that apply consistent base styling and accept a `class` prop for o
 
 A file picker in cire is `@cire/ui`'s `FileInput`, whose button is cire's `quiet` pill; `Input type="file"` keeps `@shared/ui`'s plain `file:` base for the other apps.
 
-Cire puts each labelled form control in a `Field` (§`Field`, above), which names
-it, describes it and marks it wrong. Musubi, `@osn/auth-ui` and pulse do not use
-`Field` yet: each of their forms puts a bare `Label` over its control
-(englishstreetventures/osn#2036 moves Musubi's and `@osn/auth-ui`'s). A bare
-`Label` is also the label half of a label/value pair (`tone="muted"`), and the
-label of a field `Field` cannot hold, such as one with an `InfoPopover` beside it.
+Cire, Musubi and `@osn/auth-ui` put each labelled form control in a `Field`
+(§`Field`, above), which names it, describes it and marks it wrong; Musubi and
+`@osn/auth-ui` with the `plain` label. Pulse does not use `Field` yet: its forms
+put a bare `Label` over each control. A bare `Label` is also the label half of
+a label/value pair (`tone="muted"`, as on Musubi's Settings cards), and the
+label of a field `Field` cannot hold, such as one with an `InfoPopover` beside
+it.
 
 ```tsx
 import { Card } from "@shared/ui/ui/card";

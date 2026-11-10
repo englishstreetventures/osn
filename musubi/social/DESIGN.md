@@ -363,7 +363,7 @@ holds at 3:1. A focus mark appears at once, never animated.
 ## Motion
 
 The app adds colour and opacity transitions only, and no spatial motion of its
-own. Rows, tabs and controls fade their colours with `transition-ui-colors`
+own, with one exception: the orb a busy button draws (§The orb). Rows, tabs and controls fade their colours with `transition-ui-colors`
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
@@ -377,6 +377,26 @@ scale from 96% as they open and to 98% as they close (`zoom-in`, `zoom-out`),
 and the popover and menu grow from their trigger
 (`wiki/shared/design-tokens.md` §Motion). They move to a fade with no scale,
 the owner's decision on #2034, when #2040 lands.
+
+## The orb
+
+A busy button (§Busy buttons) draws `@shared/ui`'s `Orb` before its label: a
+20px sphere of dots, state `working`, in the button's own text colour, so it
+reads on a filled button and on the page alike. It is the app's one canvas
+animation and, beside the shared overlays' scale that §Motion lists as not yet
+following it, its one motion that is not a colour or opacity change.
+
+- **It stops.** It moves for five seconds at most, then holds one still frame,
+  so it needs no pause control (WCAG 2.2.2). Under reduced motion it draws that
+  still frame from the start.
+- **It says nothing.** The canvas is `aria-hidden`; the button's label and its
+  `aria-busy` say what is happening.
+- **Only in a busy button.** No page, empty state or loading placeholder draws
+  it. A loading placeholder stays the opacity pulse (§Motion).
+- **It loads on demand.** The orb is a chunk of its own, fetched at idle time
+  once a page holds a `Button` that takes `busy`; until it lands a 20px box
+  holds its room, so the label does not move (`wiki/shared/component-library.md`
+  §The orb chunk).
 
 ## Layout
 
@@ -538,6 +558,80 @@ Where the app does not follow this yet:
   drawn and lead elsewhere. It resets on its own when the path changes, and
   never shows the error's text.
 
+## Links
+
+Two kinds, both `@shared/ui`'s `Button` `link` variant, in the accent ink
+(`--ui-accent-ink`, which Musubi maps to `--primary`, the same value as
+`--foreground`). Since the ink matches the words around it, a link is told
+apart by its underline or by standing alone at 500.
+
+- **A link inside a sentence** is `variant="link" size="inline"`: no box,
+  underlined at rest 2px under the text, in the sentence's own size, line
+  height and weight. An action that goes nowhere is the `Button`; a way to
+  another address is an `<A>` or `<a>` wearing
+  `buttonVariants({ variant: "link", size: "inline" })`. Uses:
+  `/authorize`'s "No account yet? Create one" (a button: it swaps the panel to
+  sign-up), Discover's empty note "Search for someone" (an `<A>`), and the
+  contact address on `/privacy` ("email …") and `/terms` ("Email us at …").
+- **A link standing alone** is `variant="link" size="sm"`: 13px at 500 in a
+  32px box with 12px sides, underlined only under the pointer. It sits centred
+  under the action it follows (`self-center`), so no column edge sits 12px off
+  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue and
+  "Resend code" under "Verify email".
+- **The action that ends an error line is neither.** It keeps the line's ink
+  and is underlined at rest: `@osn/auth-ui`'s `InlineAction`, and "Try again"
+  in `ShellNotices` and `PageErrorBoundary`. `link` would paint it the accent
+  ink, and a call site may not recolour a `Button` (`shadcn/no-restyle`).
+
+## Busy buttons
+
+A button that starts a wait shows it: `Button`'s `busy`, in place of
+`disabled`, with a label that names the wait and ends in "…" ("Creating…",
+never "Creating..."). While busy it keeps focus, is announced busy and
+unavailable (`aria-busy`, `aria-disabled`), refuses a press and the Enter that
+would submit its form, dims to 50% except under keyboard focus, and draws the
+orb (§The orb).
+
+- **Only the button that started the wait.** Another action in the same form
+  is `disabled` while it runs: `@osn/auth-ui`'s "Verify email" while "Resend
+  code" sends, and the reverse.
+- **The other reasons stay in `disabled`, and apply only while idle**
+  (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
+  the page, so a reason that turns true mid-wait — the verification challenge
+  dropping a spent token — would take focus away.
+- **The handler checks too.** Each one returns early while its own wait runs,
+  so no second request goes out whatever reaches it.
+- **Not for a wait the button did not start.** Settings → Security's
+  "Checking…", while the recovery-code status first loads, stays `disabled`.
+  Buttons that show no working label (`StepUpDialog`'s factors,
+  `ChangeEmailForm`'s, `/authorize`'s Allow and Cancel) take none.
+
+Uses in the app: the create-organisation dialog's Create ("Creating…"), the
+edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), and Connected
+apps' Revoke ("Revoking…"). The auth views' are in `osn/auth-ui/DESIGN.md` §6.
+
+## Form fields
+
+A form field is `@shared/ui`'s `Field` with `labelTreatment="plain"`: `Label`'s
+default look (the control step, 14px, at 500, full ink, the words as written)
+6px above the control, then a hint at `text-meta`'s 12px in the secondary ink.
+`Field` mints the control's id and names the hint in its `aria-describedby`.
+
+- **An error about what was typed** goes in `Field`'s `errors`, announced and
+  turning the edge red. No app form passes one today: the organisation dialogs
+  report a refused save in a toast. The auth views draw their own `Notice` line
+  and tie it to the field themselves (`osn/auth-ui/DESIGN.md` §7).
+- **What stays a bare `Label`.** A field with an `InfoPopover` beside its
+  label, since a label cannot hold a button (`@osn/auth-ui`'s Register Email),
+  wired by hand and 6px above its control all the same; and the label of a
+  label/value pair (Settings' Profile and Account cards, a muted `sm` `Label`
+  over a disabled value). The code boxes (`OtpInput`) keep a span label 6px
+  above them until they take an `aria-describedby` (#2041).
+
+Uses in the app: the create-organisation dialog (Handle, with its hint; Name;
+Description) and the edit dialog (Name, Description); in the auth views, every
+form field but those above.
+
 ## Auth surfaces
 
 Sign-in, registration, step-up and the Security settings are `@osn/auth-ui`
@@ -552,7 +646,8 @@ defines, and Tailwind's default type steps (`text-xs`, `text-sm`, `text-lg`,
 `text-2xl`), which Musubi's `@theme` leaves as Tailwind sets them: 12/16,
 14/20, 18/28 and 24/32. The `@shared/ui` parts inside the views render through
 the contract mapping (§Token contract). So the views do not follow this file's
-four-step scale or its weights today (#2045).
+four-step scale or its weights today (#2045). Their form fields, links and busy
+buttons do follow this file: §Form fields, §Links and §Busy buttons.
 
 `App.css`'s base rules reach the views too: their bare-bordered rows
 (`PasskeysView`, `TotpView`, `RecoveryCodesView`) draw the hairline, the raw

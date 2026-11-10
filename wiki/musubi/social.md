@@ -326,3 +326,14 @@ sign-in, and stays away on a cold load with no session. Each notice's ink is
 read against its contract token at 390 and 1440 px in both schemes and shot
 into `e2e-artifacts/screenshots/musubi-surfaces/` (`musubiNotice` in
 `tests/support/musubi-surfaces.ts`).
+
+The same flow reads the shared parts the forms draw, on steps it already takes
+and with no sign-in of its own: the create-account dialog's plain `Field`
+labels and the date of birth's hint, the sign-in dialog's label and its
+standalone "Lost your passkey?" link, Continue busy while
+`/login/passkey/begin` is held (focus kept, the orb drawn, shot under reduced
+motion), and `/authorize`'s "Create one" inside its sentence.
+`musubi-org-detail` reads the create-organisation dialog's plain labels and
+the handle's hint. The rules they hold are in
+[DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
+fields.
