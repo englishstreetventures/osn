@@ -509,7 +509,7 @@ tell them from the tree.
 Subagents cannot prompt the user; they surface `NEEDS INPUT` in their report. Then:
 
 1. **Answer it yourself** from the task, the codebase, repo conventions, prior decisions this session and sensible defaults — by continuing that agent (`SendMessage` to its id) or by dispatching the next step with the decision baked in.
-2. **Escalate to the human only when it is genuinely their call** — a product or scope choice, a value only they hold (real domains, account ids, legal copy), spend, anything outward-facing or irreversible. Ask concisely with clear options, then feed the answer back.
+2. **Escalate to the human only when it is genuinely their call** — a product or scope choice, a value only they hold (real domains, account ids, legal copy), spend, anything outward-facing or irreversible, and a value a design skill would set differently from the surface's `DESIGN.md` (`design-system` Step 2), which you never answer yourself. Ask concisely with clear options, then feed the answer back.
 3. Never let a subagent block silently or guess on a consequential decision.
 
 ## Gotchas

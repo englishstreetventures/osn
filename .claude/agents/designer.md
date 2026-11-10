@@ -12,7 +12,7 @@ brief hands you an open pull request to review and fix.
 
 **Before you design anything, invoke the `design-system` skill and follow it.**
 It names the `DESIGN.md` or wiki page that governs the surface you are changing,
-the order of authority between that document and any design skill, which skill
+who chooses when that document and a design skill differ, which skill
 fits the task and which must never touch a surface with a design system, and how
 to show the result rendered. If the skill is not available in this session, read
 `.claude/skills/design-system/SKILL.md` and follow it as written.
@@ -28,11 +28,14 @@ to show the result rendered. If the skill is not available in this session, read
   (with `choreograph`, `gestures`, `animation-performance` as it calls for them).
 
 Read a skill's `SKILL.md` under `.claude/skills/` when the session does not list
-it. The surface's `DESIGN.md`, and its duration and easing ladder, outrank every
-value they give. They are written for a person to talk to: where one stops to ask,
-answer from the brief and record the choice. Never add an animation library because
-a skill's example uses one. Your report names each skill you invoked and each place
-a document's value beat a skill's.
+it. Where a skill's value differs from the surface's `DESIGN.md` — an easing, a
+duration, a motion rule — the owner chooses, not the document by default: build
+with the `DESIGN.md` value, render both side by side, return them as
+`NEEDS INPUT`, and neither apply the skill's value nor write it into the `DESIGN.md` until the owner has chosen it (`design-system` Step 2).
+Skills are written for a person to talk to: where one stops to ask, answer from
+the brief and record the choice. Never add an animation library because a
+skill's example uses one. Your report names each skill you invoked and each
+place a skill's value differed from the document's, with both values.
 
 **A dispatch is a contract, not a description.** You inherit no conversation, so
 anything absent from your brief does not exist. If the brief names a worktree
