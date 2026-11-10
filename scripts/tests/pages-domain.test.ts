@@ -600,20 +600,35 @@ describe("detach and attach", () => {
     expect(precheck.code).toBe(0);
   });
 
-  test("PD6: detach at each apex takes the domain off its project and deletes its CNAME alone; the mail records stay", async () => {
-    for (const [site, host, project, zone] of [
-      ["cire_landing", "cireweddings.com", "cire-landing", "zone-cire"],
-      ["osn_social", "musubi.social", "osn-social", "zone-musubi"],
+  test("PD6: detach at each apex takes the domain off its project and deletes its CNAME alone; the mail records, a CAA and the apex's NS stay, and the flip's precheck passes beside them", async () => {
+    // A CAA record and the zone's own NS records at the apex route nothing either.
+    const others: DnsRecord[] = [
+      { id: "rec-caa", type: "CAA", content: '0 issue "letsencrypt.org"' },
+      { id: "rec-ns", type: "NS", content: "lou.ns.cloudflare.com" },
+    ];
+    for (const [site, host, project, zone, stack] of [
+      ["cire_landing", "cireweddings.com", "cire-landing", "zone-cire", "cire"],
+      ["osn_social", "musubi.social", "osn-social", "zone-musubi", "musubi"],
     ] as const) {
-      const result = await run(["detach", site], HOST_MOVED);
-      expect({ site, code: result.code }).toEqual({ site, code: 0 });
-      expect(nonGets(result.calls)).toEqual([
-        `DELETE /accounts/${ACCOUNT}/pages/projects/${project}/domains/${host}`,
-        `DELETE /zones/${zone}/dns_records/rec-${project}`,
-      ]);
-      expect(result.output).toContain(
-        `Took ${host} off ${project} and deleted 1 CNAME record to ${project}.pages.dev.`,
-      );
+      for (const world of [
+        HOST_MOVED,
+        {
+          ...HOST_MOVED,
+          records: { ...HOST_MOVED.records, [host]: [...MAIL, ...others, CNAME(project)] },
+        },
+      ]) {
+        const result = await run(["detach", site], world);
+        expect({ site, code: result.code }).toEqual({ site, code: 0 });
+        expect(nonGets(result.calls)).toEqual([
+          `DELETE /accounts/${ACCOUNT}/pages/projects/${project}/domains/${host}`,
+          `DELETE /zones/${zone}/dns_records/rec-${project}`,
+        ]);
+        expect(result.output).toContain(
+          `Took ${host} off ${project} and deleted 1 CNAME record to ${project}.pages.dev.`,
+        );
+        const precheck = await run(["precheck"], world, { STACKS: stack, FLIP: site });
+        expect({ site, code: precheck.code }).toEqual({ site, code: 0 });
+      }
     }
   });
 

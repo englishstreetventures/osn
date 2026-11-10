@@ -519,8 +519,9 @@ quietly accepting tokens from anywhere.
 > already the default). If a guest-site deploy fails on a config field again, check
 > the generated `dist/server/wrangler.json` against the installed wrangler's schema.
 
-`cire/host` and `cire/vendor` are **static** builds (`output: "static"`), each served by its
-site Worker once its flip release has moved its host (§5.3); cire/invites's
+`cire/host`, `cire/vendor` and `cire/landing` are **static** builds (`output: "static"`),
+each served by its site Worker, cire landing once its flip release has moved the apex
+(§5.3); cire/invites's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but
 still bake in **at build time**. The prod values are wired in
 `.github/workflows/production-release.yml` (the `deploy-cire-invites` job and the `sites` job set
@@ -1721,13 +1722,17 @@ Each Pages project stays until `musubi.social` has moved and soaked, so a rollba
 Pages site to return to (decided by the owner). A site's Pages job goes with the pull
 request that turns it to `worker`, since the release runs a Pages job only for a staged
 site, so after that merge the project keeps the last build deployed before it. The
-dashboard and `attach` rollback serves that build. An unflip pull request reverts the
-flip pull request and brings the Pages job back, so the unflip release deploys the
-current build to Pages when the site changed since.
+dashboard and `attach` rollback serves that build. An unflip pull request sets the site
+back to `staged` and brings its Pages job back — a revert of the flip pull request when
+that pull request turned this site alone, or, for cire landing or musubi social, a pull
+request for that one site (step 3 above) — so the unflip release deploys the current
+build to Pages when the site changed since.
 
 Before the dashboard and `attach` rollback, see what that build lacks. The Pages project
-serves the commit of the site's last successful Pages job, `Deploy <site> — production`,
-in the last release before the flip pull request merged. List what changed in the site
+serves the commit of the site's last successful Pages job — `Deploy cire/host —
+production`, `Deploy cire/vendor — production`, `Deploy cire/landing — production (apex)`
+or `Deploy musubi/social — production` — in the last release before the flip pull request
+merged. List what changed in the site
 since: `git log --oneline <that commit>..origin/main -- <the site's paths>`, the site's
 paths and the shared ones in `scripts/deploy-surfaces.ts` (for cire host,
 `cire/host cire/build-tools cire/dietary cire/envelope/src/index.ts cire/envelope/package.json cire/guest-email cire/invite-designs cire/theme cire/ui shared patches bun.lock package.json turbo.json tsconfig.json .browserslistrc`;
