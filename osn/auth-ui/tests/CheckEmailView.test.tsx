@@ -497,7 +497,7 @@ describe("CheckEmailView — the number", () => {
   it.each([
     ["sign-up", CAPTION, TYPE_CAPTION],
     ["recovery", TYPE_CAPTION, CAPTION],
-    ["step-up", CAPTION, TYPE_CAPTION],
+    ["step-up", TYPE_CAPTION, CAPTION],
     ["email-change", CAPTION, TYPE_CAPTION],
   ] as const)(
     "%s's caption says what the page the link opens asks for",
@@ -801,11 +801,13 @@ describe("CheckEmailView — controls and focus", () => {
         email={EMAIL}
         purpose="sign-up"
         status={status()}
+        pairingCode="47"
         onResend={onResend}
         onChangeEmail={() => {}}
       />
     ));
 
+    expect(numberParagraph("47")).toBeDefined();
     vi.advanceTimersByTime(30_000);
     fireEvent.click(resend());
     await settle();
@@ -813,6 +815,7 @@ describe("CheckEmailView — controls and focus", () => {
     vi.advanceTimersByTime(30_000);
     fireEvent.click(resend());
     await settle();
+    expect(numberParagraph("47")).toBeDefined();
     setStatus("expired");
     unmount();
 
