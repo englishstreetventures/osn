@@ -653,7 +653,10 @@ vendor portal:
   survives the transition, so a resized window, a changed font size or a late
   image never fights a stale number. The measured wrapper is a `flow-root`, so a
   child's top margin cannot escape it and change the answer depending on whether
-  the frame was clipped at the time.
+  the frame was clipped at the time. While a disclosure inside it grows open,
+  the frame follows the content with no transition of its own, and so for the
+  growth's last step: one growth has one clock, and a frame animating each
+  frame of it would trail the growth and cut the panel's foot.
 - **`createSlidingPill`** (`@cire/ui/sliding-pill`, shared with the vendor
   portal) — moves one highlight between tabs instead of cross-fading one
   highlight per tab. That is what makes a strip read as a single control rather
@@ -717,7 +720,12 @@ clipped only while it grows, so no line spills past the box: `overflow` steps
 from `clip` to `visible` on a zero-length transition delayed by `--dur-slow`.
 Open and at rest nothing is cut — a focus ring at the body's edge, a row lifted
 by a drag in "Arrange tables" — the same rule as `createAutoSize`, which holds
-nothing at rest.
+nothing at rest. The module panel's `createAutoSize` frame stands aside while a
+disclosure in it grows, so only the disclosure moves.
+`tests/components/ModuleShell.disclosure.browser.test.tsx` holds it: on no
+frame of an opening does the frame cut the panel, in a panel under the
+frame's 480px cap and in the seating screen's real panel, and the frame still
+moves between two views when one holds a disclosure open.
 
 It sits inside `prefers-reduced-motion: no-preference`: the global switch
 selects `*`, which reaches no pseudo-element, so under `reduce` a disclosure

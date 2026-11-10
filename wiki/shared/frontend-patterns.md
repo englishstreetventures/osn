@@ -661,7 +661,7 @@ relying on the clamp to undo it.
 ### A box grown to `auto` holds its clip only while it grows
 
 `interpolate-size: allow-keywords` lets `height` transition from `0` to
-`auto`, so a `<details>` body can grow open with no measuring. Two things go
+`auto`, so a `<details>` body can grow open with no measuring. Three things go
 wrong if it is written the obvious way:
 
 - **The clip stays.** The growing box needs `overflow: clip`, or its content
@@ -677,6 +677,17 @@ wrong if it is written the obvious way:
   and `interpolate-size` itself inside `@supports (interpolate-size:
   allow-keywords)`, so elsewhere the height never changes and the box opens at
   once.
+- **A frame round it chases it.** A box that animates its own height to its
+  content, such as `createAutoSize()`'s frame, sees each frame of the growth
+  as a change of content and starts a fresh transition from the last height:
+  it trails the growth, its clip cuts the content's foot, by 50px on one
+  short panel, and it catches up a transition later. `createAutoSize()`
+  follows with no transition of its own while a `<details>` inside it grows
+  (its `::details-content` is shorter than the body it holds) and for the
+  change straight after. A disclosure that opens at once is an ordinary
+  change to it.
+
+*Measured 2026-11-11 — a throwaway browser-tier probe in `cire/host`: a `createAutoSize()` frame round "Arrange tables" with a line above and below, 360px wide, motion scale 1, before the follow. The committed `tests/components/ModuleShell.disclosure.browser.test.tsx` runs at 3× and cut 24px before the follow.*
 
 Chromium does not list a transition on `::details-content` in
 `getAnimations()`, so a test reads the opening frame by frame from layout and

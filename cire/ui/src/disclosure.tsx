@@ -36,7 +36,9 @@ import { cardBoxClass } from "./card";
  * the body drops 4px and fades in, all three on the app's `--dur-slow` and
  * `--ease-out`, so the text is never fully in while the box is still short,
  * nor faint in a box already full. A nested one grows the boxes round it on
- * the same frames, since theirs are `auto`. It closes at once: a fading body
+ * the same frames, since theirs are `auto`, and a `createAutoSize` frame round
+ * it follows the growth instead of animating it (`lib/auto-size.ts`, "A
+ * disclosure that grows itself"). It closes at once: a fading body
  * would leave its controls focusable in a box that is going away.
  *
  * The body is clipped only while it grows, so no line spills past the box:
