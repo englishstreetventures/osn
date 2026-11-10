@@ -566,7 +566,9 @@ event and the panel to open on.
   `md` with the 44px floor (`min-h-11`), as `aria-pressed` toggles. The chosen
   answer wears the accent edge, the readable gold and a 2px ring at 60% of the
   gold, and no fill; an unchosen one under the pointer goes halfway, its edge
-  and ink a mix of rest and chosen with a 1px ring at 30%, on `--dur-base`.
+  and ink a mix of rest and chosen with a 1px ring at 30%. The hover runs on
+  `--dur-fast` and the choosing on `--dur-base`
+  ([`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §5).
   While a reply saves the pair is locked with `aria-disabled`: it keeps its
   look, so the answer just given stays legible, and takes no click. The pair
   sits side by side while its own box is 16rem or wider and stacks below
@@ -889,26 +891,14 @@ The FAQ's questions are its `Disclosure` in the rule tone: each entry draws the
 rule under it, the trailing `+` turns into × at the question's own size, and
 classic draws one rule above the first.
 
-**Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
-and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so
-Tailwind's `ease-out` class reads the house curve. A hover, a focus or a press
-runs on `--dur-fast` and `--ease-out`; a choice being made — the answer pair
-(`Button` `choice`) and a ticked dietary pill — moves its colours and ring on
-`--dur-base` and `--ease-in-out` (`cire/host/DESIGN.md` §4, One motion rule).
-Under the pointer an unticked dietary pill goes halfway, as the pair does, and
-its focus is the house outline 2px off its edge, drawn from the checkbox's
-own `:focus-visible`; the phone's scrolling track keeps 4px of room round
-each pill so the ring and the outline are not cut. The sheet's panel
-swap, the badge's words after a press, Respond's label ink following the bloom
-fill and the FAQ body's arrival run on `--dur-base`. Choreography longer than `--dur-slow` keeps
-its own timing:
+**The dietary pills.** Under the pointer an unticked pill goes halfway, as the
+answer pair does, and its focus is the house outline 2px off its edge, drawn
+from the checkbox's own `:focus-visible`; the phone's scrolling track keeps 4px
+of room round each pill so the ring and the outline are not cut.
 
-- the bloom fill, 500ms (`SWEEP_DURATION_MS` in `rsvp-responded.ts`);
-- the tick, 340ms after 180ms (`TICK_DURATION_MS`, `TICK_DELAY_MS`);
-- the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
-  scroll;
-- the hero backdrop's 700ms fade-in and the closing band's 500ms width;
-- each pack's unlock reveal, below.
+**Motion.** The guest site's motion rules — the ladder, what moves on which
+rung, what must not move, and the reduced-motion clamp — are in
+[`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §5.
 
 **The unlock reveal.** Once a household's code is accepted, the code form
 closes at once, the welcome rises while its heading shimmers, and a beat later
