@@ -28,7 +28,7 @@ import { Modal } from "@shared/ui/ui/modal";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
 import { Tooltip } from "@shared/ui/ui/tooltip";
-import { createEffect, createSignal, type JSX, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, type JSX, onCleanup } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
 import { type CireTheme, cireStyle } from "../cire-ui/cire-mapping.ts";
@@ -104,22 +104,30 @@ function lend(tokens: () => Record<string, string>) {
   });
 }
 
-/** The title's weight, read back from the page once the dialog has opened. */
-function ReadBack(props: { title: () => HTMLHeadingElement | undefined }) {
-  const [weight, setWeight] = createSignal("");
-  onMount(() => {
-    const title = props.title();
-    if (title) setWeight(getComputedStyle(title).fontWeight);
+/**
+ * The title's weight, read back from the page once the dialog has opened and
+ * again each time `weight` changes. It reads one frame later, because `lend`
+ * may set the token after this runs.
+ */
+function ReadBack(props: { title: () => HTMLHeadingElement | undefined; weight: () => string }) {
+  const [read, setRead] = createSignal("");
+  createEffect(() => {
+    props.weight();
+    const frame = requestAnimationFrame(() => {
+      const title = props.title();
+      if (title) setRead(getComputedStyle(title).fontWeight);
+    });
+    onCleanup(() => cancelAnimationFrame(frame));
   });
-  return <p class="text-ui-sm text-ui-ink-secondary">Title weight, read back: {weight()}</p>;
+  return <p class="text-ui-sm text-ui-ink-secondary">Title weight, read back: {read()}</p>;
 }
 
 /**
  * `DialogTitle`'s weight comes from the contract's title weight,
  * `--ui-weight-title`, never from a class at the call site. `unmapped` is what
  * an app that maps nothing draws, pulse among them: 600, the semibold the
- * title always had. Pick a weight, then open the dialog; it reads the weight
- * back from the page.
+ * title always had. Open the dialog and change the weight; it reads the
+ * weight back from the page each time.
  */
 export const DialogTitleWeight: Story<{ weight: string } & StoryArgs> = {
   args: { weight: "500" },
@@ -129,7 +137,7 @@ export const DialogTitleWeight: Story<{ weight: string } & StoryArgs> = {
     let title: HTMLHeadingElement | undefined;
     return (
       <LeaveDialog title={(el) => (title = el)}>
-        <ReadBack title={() => title} />
+        <ReadBack title={() => title} weight={() => args.weight} />
       </LeaveDialog>
     );
   },
