@@ -14,13 +14,16 @@ import "../src/App.css";
  * change. And where focus lands when a dialog closes depends on Kobalte's
  * focus scope and the browser's focus rules together.
  *
- * Order matters: a lazy module is cached for the rest of the file once it has
- * loaded, so the two cases that watch a shell arrive run first, each the first
- * to load its shell.
+ * A wait for a shell awaits the shell's chunks before it looks for the shell
+ * (`test-support/shell-chunks.ts`), so a slow transform costs time, not a
+ * failure, and any case passes on its own. A lazy module stays loaded for the
+ * rest of the file, so the two cases that watch a shell arrive run first, each
+ * the first to load its shell.
  *
- * The factories below are written literally: the shared-factory idiom in
- * `test-support/` does not resolve in the browser project. The ceremonies are
- * stand-ins: this file tests where the dialogs mount, not the forms.
+ * The factories below are written literally: a `vi.mock` factory that imports
+ * from `test-support/` does not resolve in the browser project. A plain import
+ * from there, as of `shell-chunks`, does. The ceremonies are stand-ins: this
+ * file tests where the dialogs mount, not the forms.
  */
 
 vi.mock("@osn/client/solid", async () => {
@@ -79,6 +82,7 @@ vi.mock("../src/lib/authClients", () => ({
 }));
 
 import { Layout } from "../src/App";
+import { railChunks, topBarChunks } from "./test-support/shell-chunks";
 
 /** Relative to this file: the repository's `e2e-artifacts/`. */
 const SHOTS = "../../../e2e-artifacts/musubi-shell";
@@ -115,6 +119,19 @@ const topBarSignIn = () =>
     .queryAllByRole("button", { name: "Sign in", hidden: true })
     .find((b) => b.closest("header"));
 
+/**
+ * The rail, or the top bar, has drawn its Sign in. A shell draws once its
+ * chunks are in, so this awaits them first and gives `waitFor` only the render.
+ */
+async function railArrives() {
+  await railChunks();
+  await waitFor(() => expect(railSignIn()).toBeDefined());
+}
+async function topBarArrives() {
+  await topBarChunks();
+  await waitFor(() => expect(topBarSignIn()).toBeDefined());
+}
+
 beforeAll(() => {
   document.documentElement.classList.remove("dark");
 });
@@ -135,7 +152,7 @@ describe("the shell holds still while its chunk loads", () => {
     expect(aside!.getBoundingClientRect().width).toBe(240);
     const wordmarkBefore = wordmark();
 
-    await waitFor(() => expect(railSignIn()).toBeDefined());
+    await railArrives();
     const after = main();
     expect(after.left).toBe(before.left);
     expect(after.top).toBe(before.top);
@@ -154,7 +171,7 @@ describe("the shell holds still while its chunk loads", () => {
     ).not.toBeNull();
     const wordmarkBefore = wordmark();
 
-    await waitFor(() => expect(topBarSignIn()).toBeDefined());
+    await topBarArrives();
     const after = main();
     expect(after.top).toBe(before.top);
     // Below the bar's 48px row and its hairline.
@@ -168,7 +185,7 @@ describe("one set of shell dialogs", () => {
   it("keeps an open sign-in dialog, and what was typed, across the 768px switch", async () => {
     await page.viewport(1440, 900);
     renderApp();
-    await waitFor(() => expect(railSignIn()).toBeDefined());
+    await railArrives();
 
     await userEvent.click(railSignIn()!);
     // Named for assistive technology: the view inside heads itself with a plain heading.
@@ -181,7 +198,7 @@ describe("one set of shell dialogs", () => {
     await page.screenshot({ path: `${SHOTS}/sign-in-1440.png` });
 
     await page.viewport(390, 844);
-    await waitFor(() => expect(topBarSignIn()).toBeDefined());
+    await topBarArrives();
     expect(dialogs()).toHaveLength(1);
     expect((screen.getByLabelText("Email or handle") as HTMLInputElement).value).toBe("alice");
     // A sheet, as wide as the phone.
@@ -189,7 +206,7 @@ describe("one set of shell dialogs", () => {
     await page.screenshot({ path: `${SHOTS}/sign-in-390.png` });
 
     await page.viewport(1440, 900);
-    await waitFor(() => expect(railSignIn()).toBeDefined());
+    await railArrives();
     expect(dialogs()).toHaveLength(1);
     expect((screen.getByLabelText("Email or handle") as HTMLInputElement).value).toBe("alice");
     expect(dialogWidth()).toBe(384);
@@ -198,7 +215,7 @@ describe("one set of shell dialogs", () => {
   it("gives focus back to the shell's own Sign in button when the dialog closes", async () => {
     await page.viewport(1440, 900);
     renderApp();
-    await waitFor(() => expect(railSignIn()).toBeDefined());
+    await railArrives();
 
     // Opened and closed on one shell: back to the button that opened it.
     await userEvent.click(railSignIn()!);
@@ -213,7 +230,7 @@ describe("one set of shell dialogs", () => {
     await userEvent.click(railSignIn()!);
     await waitFor(() => expect(dialogs()).toHaveLength(1));
     await page.viewport(390, 844);
-    await waitFor(() => expect(topBarSignIn()).toBeDefined());
+    await topBarArrives();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toBe(topBarSignIn()));
     expect(dialogs()).toHaveLength(0);
@@ -224,7 +241,7 @@ describe("the phone top bar", () => {
   it("fits its signed-out controls at 320px, each at the 40px touch floor", async () => {
     await page.viewport(320, 640);
     renderApp();
-    await waitFor(() => expect(topBarSignIn()).toBeDefined());
+    await topBarArrives();
 
     const header = document.querySelector("header")!;
     const row = header.firstElementChild as HTMLElement;

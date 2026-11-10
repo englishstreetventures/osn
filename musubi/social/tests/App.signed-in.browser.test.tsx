@@ -14,8 +14,9 @@ import "../src/App.css";
  * across a crossing, and where focus lands when it closes, take a real
  * viewport and Kobalte's focus scope.
  *
- * The factories below are written literally: the shared-factory idiom in
- * `test-support/` does not resolve in the browser project.
+ * The factories below are written literally: a `vi.mock` factory that imports
+ * from `test-support/` does not resolve in the browser project. A plain import
+ * from there, as of `shell-chunks`, does.
  */
 
 vi.mock("@osn/client/solid", async () => {
@@ -69,6 +70,7 @@ vi.mock("../src/lib/authClients", () => ({
 }));
 
 import { Layout } from "../src/App";
+import { railChunks, topBarChunks } from "./test-support/shell-chunks";
 
 /** Relative to this file: the repository's `e2e-artifacts/`. */
 const SHOTS = "../../../e2e-artifacts/musubi-shell";
@@ -88,13 +90,6 @@ function renderApp() {
   ));
 }
 
-/**
- * How long a shell may take to arrive. Signed in, the rail's chunk reaches the
- * search and its result rows as well, and the dev server compiles every module
- * on first request, so a cold run on CI takes more than `waitFor`'s second.
- */
-const SHELL_LOAD = { timeout: 10_000 };
-
 /** The account-menu trigger in the rail (`aside`) or the top bar (`header`). */
 const accountTrigger = (shell: "aside" | "header") =>
   document.querySelector<HTMLElement>(`${shell} [data-dialog-return="switcher"]`);
@@ -113,7 +108,10 @@ describe("the profile switcher", () => {
   it("opens from the account menu, stays open across 768px, and gives focus back to the shell's trigger", async () => {
     await page.viewport(1440, 900);
     renderApp();
-    await waitFor(() => expect(accountTrigger("aside")).not.toBeNull(), SHELL_LOAD);
+    // Signed in, the rail's chunk reaches the search and its result rows too,
+    // all transformed on first request: wait for the chunks, then the render.
+    await railChunks();
+    await waitFor(() => expect(accountTrigger("aside")).not.toBeNull());
 
     await userEvent.click(accountTrigger("aside")!);
     await userEvent.click(
@@ -133,7 +131,8 @@ describe("the profile switcher", () => {
     await page.screenshot({ path: `${SHOTS}/switcher-1440.png` });
 
     await page.viewport(390, 844);
-    await waitFor(() => expect(accountTrigger("header")).not.toBeNull(), SHELL_LOAD);
+    await topBarChunks();
+    await waitFor(() => expect(accountTrigger("header")).not.toBeNull());
     expect(dialogs()).toHaveLength(1);
     const sheet = screen.getByRole("dialog", { name: "Switch profile" });
     expect(within(sheet).getAllByRole("button")).toHaveLength(2);

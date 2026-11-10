@@ -716,6 +716,11 @@ Apple-silicon Mac_
   `transitionDuration` first, so a clamped transition fails on its cause rather
   than as a confusing `scale === 1`.
 
+A wait for a lazy chunk's first arrival is the exception to the first rule's
+explicit `timeout`: it waits on the chunk's import, not on a clock, since a cold
+transform on CI can outlast any budget picked from a local run. [[testing-patterns#A `lazy()` component's first render in a test]]
+gives both forms.
+
 ## Driving the whole app by hand
 
 This tier proves a component in isolation. The other half — opening the built
