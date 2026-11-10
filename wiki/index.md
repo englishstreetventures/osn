@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-10
 ---
 
 # OSN Wiki
@@ -157,7 +157,7 @@ How we work: tests, comments, commands, pull requests, agent tooling.
 - [[bundle-size-guards]] — the two rules any guard with a threshold obeys, and the guards that hold them: per-app Astro bundle size (which warns) and the public source-map refusal beside it, the src/pages test-route check, D1 migration-cost, and the monorepo-wide lint-warning ceiling
 - [[wiki-search]] — the three ways to search this vault, which exist where, and the guard that stops a branch reading stale
 - [[house-lint-rules]] — the `house/*` oxlint rules this repo writes for itself, and the code rule each one enforces
-- [[agent-tooling]] — where agent sessions start, skills and their evals, third-party skills, subagent definitions, the vendored lint plugin
+- [[agent-tooling]] — where agent sessions start, skills and their evals, third-party skills, subagent definitions, vendored trees
 - [[github-issues-setup]] — the labels, issue types and Project behind the two issue repositories
 
 ## Decisions

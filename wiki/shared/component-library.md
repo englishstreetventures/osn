@@ -656,7 +656,7 @@ invalid: hold its message until blur or submit before passing it.
 | Value | Looks like | For |
 |---|---|---|
 | `caps` (default) | `font-ui-body`, the secondary ink, `text-ui-xs`, `tracking-ui-wider`, upper case | cire's portals and `@cire/ui`, every `Field` cire draws (`cire/host/DESIGN.md`) |
-| `plain` | `Label`'s default: weight 500, the full ink, `text-ui-base`, line height 1; family and tracking inherited; the words as written | Musubi and `@osn/auth-ui`: every form field in both (`musubi/social/DESIGN.md` §Form fields) |
+| `plain` | `Label`'s default: weight 500, the full ink, `text-ui-base`, line height 1; family and tracking inherited; the words as written | Musubi and `@osn/auth-ui`: every form field in both but those `Field` cannot hold (an `InfoPopover` beside the label, the `OtpInput` code boxes) (`musubi/social/DESIGN.md` §Form fields) |
 
 Only the label changes; the hint, the errors, the gaps and the wiring are the
 same code in both. `labelHidden` wins over either: the label becomes `sr-only`,
