@@ -15,9 +15,9 @@ export function createEmailChangeRoutes(ctx: AuthRouteContext) {
       // `POST /account/email/begin` sends an OTP to the NEW email address.
       // `POST /account/email/complete` swaps the account's email on a matching
       //   OTP + a valid step-up token (passkey or OTP amr). All other sessions
-      //   are revoked atomically in the same transaction as the email update,
-      //   which also records an `email_changed` security event naming this
-      //   request's device; the address replaced gets a notice afterwards.
+      //   are revoked in the same D1 batch as the email update, which also
+      //   records an `email_changed` security event naming this request's
+      //   device; the address replaced gets a notice afterwards.
       // -------------------------------------------------------------------------
       .post(
         "/account/email/begin",

@@ -299,14 +299,6 @@ A stolen access token alone cannot:
 
 The attacker must additionally compromise either a passkey (hardware-bound) or the user's verified email inbox. Combined with [[sessions]] (`Sign out everywhere else`) this gives the user a narrow, survivable window.
 
-**A completed email change mails the address it replaced.** The commit writes an
-`email_changed` security event in the same batch as the change, and the notice
-(`email-changed`, [[email]]) goes to the previous address once the change is on
-record — the one inbox whoever made the change may not hold. The notice is the
-signal they cannot clear. The banner row they can: acknowledging takes a step-up
-on `recoveryGenerateAllowedAmr`, which admits `otp`, and after the change an
-emailed code goes to the new address.
-
 A stolen access token **plus** the mailbox, or plus a cloud-synced authenticator
 seed, used to be enough for both: register a credential of your own and assert
 it. That is what credential provenance closes, and the two limits of the closure
@@ -327,3 +319,10 @@ the headline threat, the attacker's inbox. It is a real lever for a TOTP
 recovery with the mailbox intact, and for an owner who also reads the mail; it is
 not a defence against someone who owns the inbox. What protects that owner is
 the asymmetry itself.
+
+**A completed email change mails the address it replaced.** The commit writes an
+`email_changed` security event in the same batch as the change, and the notice
+(`email-changed`, [[email]]) goes to the previous address once the change is on
+record. The `email_changed` row is acknowledged through the same gate as every
+other kind (`recoveryGenerateAllowedAmr`), so after an email change the signal
+to rely on is the notice to the replaced address, not the banner.

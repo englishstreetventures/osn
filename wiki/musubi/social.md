@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Social
@@ -84,7 +84,7 @@ ceremony to clear, so it stays until the user deals with it; a recovery-code
 offer is housekeeping. The prompt waits for a *settled* count from the events
 banner rather than an empty one, so it never appears for an instant and then
 gives way to an event that was still in flight. Coexistence would be ordinary
-rather than rare: most of the 18 kinds in `SecurityEventKind`
+rather than rare: most of the kinds in `SecurityEventKind`
 (`shared/observability/src/metrics/attrs.ts`) — adding a passkey, enrolling an
 authenticator, signing in from a second device — sit happily on an account with
 no recovery codes.

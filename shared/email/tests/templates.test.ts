@@ -69,8 +69,8 @@ describe("renderTemplate", () => {
     expect(out.subject).not.toContain("example.com");
   });
 
-  // `EmailSchema` refuses whitespace and a second `@` and nothing else, so the
-  // domain may carry markup.
+  // `EmailSchema` refuses whitespace, a second `@` and a domain with no dot,
+  // but not markup, so the domain may carry it.
   it("email-changed escapes markup in the new address's domain", () => {
     const out = renderTemplate("email-changed", {
       newEmail: "x@<img/src=y>.com",
