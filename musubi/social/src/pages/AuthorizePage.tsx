@@ -252,6 +252,29 @@ export function AuthorizePage() {
     return "consent";
   });
 
+  // Set by the error card's Try again. A failed load keeps `context.error`
+  // until the next try settles, so the card stays up through a retry. Its
+  // alert speaks the first failure as it appears; each later one is said
+  // through the live region, because the alert's text does not change.
+  const [retried, setRetried] = createSignal(false);
+
+  const announcement = () => {
+    const now = screen();
+    if (now !== "error") return SCREEN_ANNOUNCEMENT[now];
+    if (context.loading) return SCREEN_ANNOUNCEMENT.loading;
+    return retried() ? loadError() : null;
+  };
+
+  // Try again disables itself while the load runs, and a disabled button
+  // loses focus to the page. The card's heading takes it instead.
+  let errorHeading: HTMLHeadingElement | undefined;
+
+  function retryLoad() {
+    setRetried(true);
+    errorHeading?.focus();
+    void refetch();
+  }
+
   /** A retryable failure — the request survives, the page does not restart. */
   function softFail(message: string) {
     setNotice(message);
@@ -353,7 +376,7 @@ export function AuthorizePage() {
           `aria-live="polite"`), which is the semantic element for a value the
           page computes rather than one the user typed. */}
       <output class="sr-only" aria-live="polite">
-        {SCREEN_ANNOUNCEMENT[screen()]}
+        {announcement()}
       </output>
       <Switch>
         <Match when={screen() === "loading"}>
@@ -374,13 +397,24 @@ export function AuthorizePage() {
         <Match when={screen() === "error"}>
           <Card padding="lg" class="flex flex-col gap-6">
             <div class="flex flex-col gap-2">
-              <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
+              <h1
+                ref={errorHeading}
+                tabindex="-1"
+                class="text-foreground text-title font-medium focus:outline-none"
+              >
+                Could not load this request
+              </h1>
               <Notice tone="danger" size="inline" alert>
                 {loadError()}
               </Notice>
             </div>
-            <Button size="lg" class="w-full max-md:h-11" onClick={() => void refetch()}>
-              Try again
+            <Button
+              size="lg"
+              class="w-full max-md:h-11"
+              disabled={context.loading}
+              onClick={retryLoad}
+            >
+              {context.loading ? "Checking…" : "Try again"}
             </Button>
           </Card>
         </Match>

@@ -295,6 +295,34 @@ describe("<AuthorizePage />", () => {
         "Too many attempts. Wait a while, then try again.",
       );
     });
+
+    it("shows a retry as pending and says a second failure aloud", async () => {
+      let failAgain: (err: Error) => void = () => {};
+      mocks.getContext.mockRejectedValueOnce(
+        new AuthorizeError("rate_limited", 429, "Too many attempts."),
+      );
+      mocks.getContext.mockReturnValueOnce(
+        new Promise((_, reject) => {
+          failAgain = reject;
+        }),
+      );
+
+      renderPage();
+      const heading = await screen.findByText("Could not load this request");
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+      const pending = await screen.findByRole("button", { name: "Checking…" });
+      expect((pending as HTMLButtonElement).disabled).toBe(true);
+      expect(document.activeElement).toBe(heading);
+      expect(screen.getByRole("status").textContent).toBe("Checking this request.");
+
+      failAgain(new AuthorizeError("rate_limited", 429, "Too many attempts."));
+
+      await waitFor(() =>
+        expect(screen.getByRole("status").textContent).toBe("Too many attempts."),
+      );
+      expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    });
   });
 
   // The client honours a caller signal; only the page decides when
