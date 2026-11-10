@@ -269,9 +269,9 @@ flight when the claim resolves, `<Suspense fallback={null}>` renders no cards, a
 the reveal animates an empty section with nothing to stagger. The cards then slam
 into the layout at full opacity when the chunk lands. `awaitEventCards`
 (`cire/invites` `components/await-event-cards.ts`) is the fix: the sequence awaits
-it through the `waitForEvents` hook, **under** the fade-out of the step before it
-rather than on top of it, and both halves of the wait are capped so a chunk that
-never arrives still reveals the page.
+it through the `waitForEvents` hook, **alongside** the welcome's rise and the
+layout beat rather than after them, and both halves of the wait are capped so a
+chunk that never arrives still reveals the page.
 
 ### A closed dialog with a display class is still drawn
 

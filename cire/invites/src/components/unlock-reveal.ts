@@ -1,7 +1,9 @@
 /**
  * The unlock reveal: what a household sees once its code is accepted. The code
- * form lifts away, the welcome rises with a shimmer on its heading, then the
- * events rise with their cards one after another.
+ * form closes at once, the welcome rises with a shimmer on its heading, then
+ * the events rise with their cards one after another. The form holds a live
+ * field and button, so it never fades: a fading form would still take a tap or
+ * a key in a box that is going away.
  *
  * The motion is CSS (`styles/global.css`, "The unlock reveal"). This module
  * only orders it: it marks each element with the step it plays
@@ -31,21 +33,25 @@ export interface RevealPack {
 
 /**
  * The one thing this sequence cannot do itself: swap the code form out for the
- * welcome banner.
+ * welcome banner, the reveal's first move.
  *
  * Both elements' `display` is a reactive SolidJS binding, and Solid diffs a
  * style binding against the last value IT wrote. So an imperative
- * `loginForm.style.display = "none"` from here does not just duplicate the
+ * `style.display = "none"` on the form from here does not just duplicate the
  * binding — it desynchronises it: Solid still believes `display` is `""`, and
  * every later attempt to restore the form is a no-op it skips. The form could
  * never be shown again for the life of the page.
  *
  * So the sequence reports the moment instead of performing it, and the island
- * flips one signal. One owner for `display`, and the form stays on screen for
- * the length of its leave.
+ * flips one signal. One owner for `display`.
  */
 export interface RevealHooks {
-  /** Fired once the code form has faded out and should leave the layout. */
+  /**
+   * Fired once, before any step: the code form leaves the layout and the
+   * welcome takes its place. The welcome's step starts straight after, and a
+   * CSS animation never starts on a `display: none` element, so the island
+   * must apply the swap before this returns.
+   */
   onFormHidden?: () => void;
   /**
    * Awaited just before the events step, so the entrance has something to
@@ -53,7 +59,7 @@ export interface RevealHooks {
    * their chunk can still be in flight when the claim resolves — see
    * `awaitEventCards`, which is what the island passes here and which caps its
    * own wait. Awaiting it HERE rather than before the sequence is deliberate:
-   * the wait then runs while the form fades out and alongside the layout beat,
+   * the wait then runs alongside the welcome's rise and the layout beat,
    * instead of on top of them, so a warm cache costs nothing and a cold one
    * usually costs nothing either. The island starts the fetch at claim time,
    * so by this point it is normally already in flight.
@@ -66,7 +72,7 @@ export interface RevealHooks {
 }
 
 /** The steps `global.css` styles under `[data-unlock]`. */
-type Step = "leave" | "welcome" | "shimmer" | "section" | "card";
+type Step = "welcome" | "shimmer" | "section" | "card";
 
 /** How long past a step's own end the sequence waits before going on without it. */
 const SLACK_MS = 1000;
@@ -81,7 +87,7 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * The reveal's end state, applied with no animation: login form gone, welcome
+ * The reveal's end state, applied with no animation: code form gone, welcome
  * and events visible. Every animated step below settles on the same state, so
  * a reduced-motion guest sees exactly the same invite — it simply arrives at
  * once. The `display` of the form and the welcome stays with SolidJS
@@ -147,13 +153,12 @@ function release(elements: readonly HTMLElement[]) {
 
 /**
  * Plays the unlock reveal on `pack`'s timing:
- * 1. the code form lifts away;
+ * 1. the code form closes at once, through `hooks.onFormHidden`;
  * 2. the welcome rises, and its heading shimmers;
  * 3. after the layout beat, the events rise, their cards one after another.
  */
 export async function runUnlockReveal(
   pack: RevealPack,
-  loginForm: HTMLElement,
   welcomeEl: HTMLElement,
   eventsSection: HTMLElement,
   hooks?: RevealHooks,
@@ -164,11 +169,7 @@ export async function runUnlockReveal(
     return;
   }
 
-  // 1. The form leaves. It stays transparent once its marks are off, until
-  // the island takes it out of the layout.
-  await play(pack, "leave", [loginForm]);
-  loginForm.style.opacity = "0";
-  release([loginForm]);
+  // 1. The form closes at once, and the welcome is in the layout to rise.
   hooks?.onFormHidden?.();
 
   // 2. The welcome rises and its heading shimmers, neither awaited: the

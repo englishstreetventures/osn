@@ -591,14 +591,14 @@ describe.each([
     expect(rect.bottom, "toast is below the fold").toBeLessThanOrEqual(window.innerHeight);
     expect(rect.top, "toast is not anchored to the viewport top").toBeLessThan(200);
   });
-  it("T-U1: the code form comes back PAINTED after sign-out", async () => {
+  it("the code form comes back PAINTED after sign-out", async () => {
     // The unit tier mocks `UnlockReveal.motion` and `motion` away, so it asserts
     // the form is back in the layout and never that it is visible. The real
-    // sequence fades the form out and leaves `opacity: 0` inline on the
-    // wrapper. Solid's binding there owns only `display`, so without an
-    // explicit clear the form returns fully transparent — a blank panel, and
-    // the guest's only way out is a reload, which (the session cookie being
-    // untouched) re-opens the invite they were trying to leave.
+    // sequence closes the form at once and writes no style on it. Solid's
+    // binding there owns only `display`, so anything the reveal ever left
+    // inline (an `opacity: 0`) would bring the form back fully transparent — a
+    // blank panel, and the guest's only way out is a reload, which (the session
+    // cookie being untouched) re-opens the invite they were trying to leave.
     await openByCode(Pack, []);
 
     const button = [...document.querySelectorAll("button")].find((b) =>
@@ -620,8 +620,7 @@ describe.each([
       "the restored code form is in the layout but not painted",
     ).toBe(true);
 
-    // And the residue is actually gone from the wrapper, not merely overridden
-    // somewhere down the tree.
+    // And the wrapper itself is at full opacity, not merely the field inside it.
     const wrapper = input.closest("form")?.parentElement as HTMLElement;
     expect(Number.parseFloat(getComputedStyle(wrapper).opacity)).toBe(1);
 

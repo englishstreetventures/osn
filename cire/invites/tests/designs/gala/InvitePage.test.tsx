@@ -1629,7 +1629,6 @@ describe("gala InvitePage", () => {
   describe("form/welcome swap", () => {
     async function claimWith(
       sequence: (
-        loginForm: HTMLElement,
         welcomeEl: HTMLElement,
         eventsSection: HTMLElement,
         hooks?: RevealHooks,
@@ -1663,15 +1662,15 @@ describe("gala InvitePage", () => {
     const formPanel = (screen: { getByText: (t: string) => HTMLElement }) =>
       screen.getByText("Enter your code").parentElement as HTMLElement;
 
-    it("hides the form when the sequence reports it faded out", async () => {
-      const { getByText } = await claimWith((_f, _w, _e, hooks) => {
+    it("hides the form when the sequence reports it closed", async () => {
+      const { getByText } = await claimWith((_w, _e, hooks) => {
         hooks?.onFormHidden?.();
         return Promise.resolve();
       });
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
     });
 
-    it("keeps the form up until that moment — the fade needs it on screen", async () => {
+    it("keeps the form up until that moment — the welcome must not show before its rise", async () => {
       let release: (() => void) | undefined;
       const { getByText } = await claimWith(
         () => new Promise<void>((resolve) => (release = resolve)),
@@ -1689,7 +1688,7 @@ describe("gala InvitePage", () => {
       // difference, which is why dropping the `onFormHidden` wiring was
       // otherwise invisible.
       let release: (() => void) | undefined;
-      const { getByText } = await claimWith((_f, _w, _e, hooks) => {
+      const { getByText } = await claimWith((_w, _e, hooks) => {
         hooks?.onFormHidden?.();
         return new Promise<void>((resolve) => (release = resolve));
       });

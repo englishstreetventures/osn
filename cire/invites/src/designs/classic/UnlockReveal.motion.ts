@@ -11,10 +11,9 @@ export type { RevealHooks } from "../../components/unlock-reveal";
 const CLASSIC = { name: "classic", layoutBeatMs: 200 } as const;
 
 export function unlockRevealSequence(
-  loginForm: HTMLElement,
   welcomeEl: HTMLElement,
   eventsSection: HTMLElement,
   hooks?: RevealHooks,
 ): Promise<void> {
-  return runUnlockReveal(CLASSIC, loginForm, welcomeEl, eventsSection, hooks);
+  return runUnlockReveal(CLASSIC, welcomeEl, eventsSection, hooks);
 }

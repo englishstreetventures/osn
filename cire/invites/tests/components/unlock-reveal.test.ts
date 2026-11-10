@@ -16,7 +16,6 @@ const PACK: RevealPack = { name: "classic", layoutBeatMs: 200 };
 
 /** When each step's animation ends, as classic's block in `global.css` times it. */
 const ENDS: Record<string, (el: HTMLElement) => number> = {
-  leave: () => 350,
   welcome: () => 500,
   shimmer: () => 1200,
   section: () => 500,
@@ -60,7 +59,6 @@ function useAnimations(impl: (this: HTMLElement) => Animation[]) {
   });
 }
 
-let loginForm: HTMLElement;
 let welcomeEl: HTMLElement;
 let eventsSection: HTMLElement;
 
@@ -74,8 +72,8 @@ function addCards(count: number) {
 }
 
 /** Run the sequence to its end on the fake clock. */
-async function runToEnd(hooks?: Parameters<typeof runUnlockReveal>[4]) {
-  const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, hooks);
+async function runToEnd(hooks?: Parameters<typeof runUnlockReveal>[3]) {
+  const run = runUnlockReveal(PACK, welcomeEl, eventsSection, hooks);
   await vi.advanceTimersByTimeAsync(10_000);
   await run;
 }
@@ -86,12 +84,11 @@ beforeEach(() => {
   started = [];
   unrelated = new Map();
   useAnimations(fakeAnimations);
-  loginForm = document.createElement("div");
   welcomeEl = document.createElement("div");
   welcomeEl.append(document.createElement("h2"));
   eventsSection = document.createElement("section");
   eventsSection.className = "opacity-0";
-  document.body.append(loginForm, welcomeEl, eventsSection);
+  document.body.append(welcomeEl, eventsSection);
 });
 
 afterEach(() => {
@@ -102,20 +99,19 @@ afterEach(() => {
 });
 
 describe("runUnlockReveal", () => {
-  // `display` on the form and the welcome belongs to SolidJS: an imperative
-  // write desynchronises its style binding for the life of the page. The
-  // sequence reports the swap instead.
-  it("reports the form hidden once its leave ends, and never writes its display", async () => {
-    const onFormHidden = vi.fn();
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, { onFormHidden });
-    await vi.advanceTimersByTimeAsync(340);
-    expect(onFormHidden).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(20);
+  // The code form holds a live field and button, so it closes at once rather
+  // than fading. `display` on it belongs to SolidJS — an imperative write
+  // desynchronises its style binding for the life of the page — so the
+  // sequence reports the swap, and does so before the welcome's step, which
+  // a hidden welcome could not play.
+  it("reports the form hidden once, before any step starts", async () => {
+    const stepsWhenReported: string[][] = [];
+    const onFormHidden = vi.fn(() => {
+      stepsWhenReported.push(started.map((s) => s.step));
+    });
+    await runToEnd({ onFormHidden });
     expect(onFormHidden).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(10_000);
-    await run;
-    expect(onFormHidden).toHaveBeenCalledTimes(1);
-    expect(loginForm.style.display).toBe("");
+    expect(stepsWhenReported).toEqual([[]]);
   });
 
   it("leaves the welcome's display alone and lifts its opacity", async () => {
@@ -129,7 +125,7 @@ describe("runUnlockReveal", () => {
     delete (Element.prototype as { getAnimations?: unknown }).getAnimations;
     welcomeEl.replaceChildren();
     eventsSection.style.display = "none";
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection);
+    const run = runUnlockReveal(PACK, welcomeEl, eventsSection);
     // Nothing to wait for but the layout beat.
     await vi.advanceTimersByTimeAsync(PACK.layoutBeatMs);
     await run;
@@ -150,27 +146,14 @@ describe("runUnlockReveal", () => {
     expect(cards.map((c) => c.style.opacity)).toEqual(["1", "1"]);
   });
 
-  it("moves on from a leave that never ends once its end time and a second have passed", async () => {
-    endings.leave = "stall";
-    const onFormHidden = vi.fn();
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, { onFormHidden });
-    await vi.advanceTimersByTimeAsync(1340);
-    expect(onFormHidden).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(20);
-    expect(onFormHidden).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(10_000);
-    await run;
-    expect(eventsSection.style.opacity).toBe("1");
-  });
-
   // Six cards stagger to 150 + 5 × 120 + 450 = 1200ms; a flat one-second cap
   // would write the end state with the last cards still moving.
   it("waits out the whole stagger before capping a card step that never ends", async () => {
     endings.card = "stall";
     const cards = addCards(6);
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection);
-    // The leave (350ms) and the beat (200ms) come first.
-    await vi.advanceTimersByTimeAsync(350 + PACK.layoutBeatMs + 2190);
+    const run = runUnlockReveal(PACK, welcomeEl, eventsSection);
+    // The beat comes first.
+    await vi.advanceTimersByTimeAsync(PACK.layoutBeatMs + 2190);
     expect(cards[5]!.style.opacity).toBe("0");
     await vi.advanceTimersByTimeAsync(20);
     await run;
@@ -178,13 +161,18 @@ describe("runUnlockReveal", () => {
   });
 
   it("moves on at once from a step whose animation is cancelled", async () => {
-    endings.leave = "cancel";
-    const onFormHidden = vi.fn();
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, { onFormHidden });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(onFormHidden).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(10_000);
+    endings.section = "cancel";
+    endings.card = "cancel";
+    const cards = addCards(2);
+    let settled = false;
+    const run = runUnlockReveal(PACK, welcomeEl, eventsSection).finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(PACK.layoutBeatMs);
+    expect(settled).toBe(true);
     await run;
+    expect(eventsSection.style.opacity).toBe("1");
+    expect(cards.map((c) => c.style.opacity)).toEqual(["1", "1"]);
   });
 
   // Only the section carries `opacity-0`, so a card not hidden first shows at
@@ -205,7 +193,6 @@ describe("runUnlockReveal", () => {
   it("writes the end state inline and leaves no step behind", async () => {
     const cards = addCards(3);
     await runToEnd({ onFormHidden: () => {} });
-    expect(loginForm.style.opacity).toBe("0");
     expect(eventsSection.style.opacity).toBe("1");
     expect(cards.map((c) => c.style.opacity)).toEqual(["1", "1", "1"]);
     const marked = document.querySelectorAll("[data-unlock], [data-unlock-pack]");
@@ -218,7 +205,7 @@ describe("runUnlockReveal", () => {
     const ready = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, {
+    const run = runUnlockReveal(PACK, welcomeEl, eventsSection, {
       waitForEvents: () => ready,
     });
     await vi.advanceTimersByTimeAsync(3000);
@@ -234,7 +221,7 @@ describe("runUnlockReveal", () => {
   });
 
   it("hides and reveals cards that render during the layout beat", async () => {
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, {
+    const run = runUnlockReveal(PACK, welcomeEl, eventsSection, {
       waitForEvents: async () => {
         addCards(1);
       },
@@ -247,18 +234,20 @@ describe("runUnlockReveal", () => {
   });
 
   it("neither waits on nor caps by an animation that is not the reveal's", async () => {
-    unrelated.set(loginForm, [
+    unrelated.set(eventsSection, [
       {
         animationName: "spin",
         finished: new Promise<void>(() => {}),
         effect: { getComputedTiming: () => ({ endTime: 60_000 }) },
       } as unknown as Animation,
     ]);
-    const onFormHidden = vi.fn();
-    const run = runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, { onFormHidden });
-    await vi.advanceTimersByTimeAsync(360);
-    expect(onFormHidden).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(10_000);
+    let settled = false;
+    const run = runUnlockReveal(PACK, welcomeEl, eventsSection).finally(() => {
+      settled = true;
+    });
+    // The beat, then the section's own 500ms step.
+    await vi.advanceTimersByTimeAsync(PACK.layoutBeatMs + 510);
+    expect(settled).toBe(true);
     await run;
   });
 
@@ -273,9 +262,8 @@ describe("runUnlockReveal", () => {
     it("lands on the end state at once and starts no step", async () => {
       eventsSection.style.display = "none";
       const onFormHidden = vi.fn();
-      await runUnlockReveal(PACK, loginForm, welcomeEl, eventsSection, { onFormHidden });
+      await runUnlockReveal(PACK, welcomeEl, eventsSection, { onFormHidden });
       expect(onFormHidden).toHaveBeenCalledTimes(1);
-      expect(loginForm.style.display).toBe("");
       expect(welcomeEl.style.opacity).toBe("1");
       expect(eventsSection.style.display).toBe("");
       expect(eventsSection.style.opacity).toBe("1");

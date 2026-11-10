@@ -667,28 +667,28 @@
 
 /* ── The unlock reveal ──────────────────────────────────────────────────────
  * What a household sees once its code is accepted (`components/unlock-reveal`):
- * the code form lifts away, the welcome rises while its heading shimmers, and
- * a beat later the events rise, their cards one after another. The sequence
- * marks each element it moves with the step (`data-unlock`) and the design
- * pack (`data-unlock-pack`), waits for the step to end, writes the end state
- * inline and takes both marks off.
+ * the code form closes at once, the welcome rises while its heading shimmers,
+ * and a beat later the events rise, their cards one after another. The form
+ * has no step here: it holds a live field and button, and a box with live
+ * controls closes at once rather than fading. The sequence marks each element
+ * it moves with the step (`data-unlock`) and the design pack
+ * (`data-unlock-pack`), waits for the step to end, writes the end state inline
+ * and takes both marks off.
  *
- * Its own times, not the ladder's: every step runs past `--dur-slow`, the cards
- * are a stagger, and the beat before the events is a time script waits out
- * (each pack's `UnlockReveal.motion.ts`), the three cases in which a time is
- * kept (wiki/conventions/house-lint-rules.md §Literal motion). Each scales
- * with `--motion-scale`. Every rise, in both packs, is something arriving, so
- * it runs on `--ease-out`.
+ * Its own times, not the ladder's, each kept for one of the reasons
+ * wiki/conventions/house-lint-rules.md §Literal motion allows:
+ * - the welcome, shimmer, section and card times (350ms to 1.2s) are
+ *   choreography slower than the ladder's longest step, `--dur-slow` (320ms on
+ *   touch, 200ms at a desk);
+ * - the cards' start and step are a stagger;
+ * - the beat before the events is a time script waits out (each pack's
+ *   `UnlockReveal.motion.ts`), so it lives there, not here.
+ * Each scales with `--motion-scale`. Every rise, in both packs, is something
+ * arriving, so it runs on `--ease-out`.
  *
  * Reduced motion: the sequence sets no mark and lands on the end state at
  * once, and the clamp below would end any of these at once regardless. */
-[data-unlock-pack] {
-  --unlock-leave-ease: ease-in;
-}
-
 [data-unlock-pack="classic"] {
-  --unlock-leave-time: calc(350ms * var(--motion-scale));
-  --unlock-leave-y: -12px;
   --unlock-welcome-time: calc(500ms * var(--motion-scale));
   --unlock-welcome-y: 16px;
   --unlock-shimmer-time: calc(1.2s * var(--motion-scale));
@@ -703,8 +703,6 @@
 }
 
 [data-unlock-pack="gala"] {
-  --unlock-leave-time: calc(300ms * var(--motion-scale));
-  --unlock-leave-y: -8px;
   --unlock-welcome-time: calc(400ms * var(--motion-scale));
   --unlock-welcome-y: 10px;
   --unlock-shimmer-time: calc(1s * var(--motion-scale));
@@ -716,10 +714,6 @@
   --unlock-card-y: 16px;
   --unlock-card-start: calc(100ms * var(--motion-scale));
   --unlock-card-step: calc(80ms * var(--motion-scale));
-}
-
-[data-unlock="leave"] {
-  animation: unlock-leave var(--unlock-leave-time) var(--unlock-leave-ease) both;
 }
 
 [data-unlock="welcome"] {
@@ -741,17 +735,6 @@
 
 [data-unlock="shimmer"] {
   animation: unlock-shimmer var(--unlock-shimmer-time) both;
-}
-
-@keyframes unlock-leave {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(var(--unlock-leave-y));
-  }
 }
 
 @keyframes unlock-rise {

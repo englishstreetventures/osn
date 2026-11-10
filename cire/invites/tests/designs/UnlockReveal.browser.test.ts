@@ -3,8 +3,8 @@
  * to one timing model: the durations, delays, curves and keyframes the reveal
  * plays, written out below apart from the stylesheet that plays them. A frame
  * off that model — a step too fast or too slow, a different curve, a missing
- * stagger, the events painted before their step — fails here, and jsdom can
- * see none of it.
+ * stagger, the events painted before their step, a code form that fades
+ * instead of closing at once — fails here, and jsdom can see none of it.
  *
  * Every value a frame may take is the model's value at that frame's time, give
  * or take one frame (`FRAME_MS`), so the check holds on a slow runner and still
@@ -54,7 +54,6 @@ function bezier(x1: number, y1: number, x2: number, y2: number): Curve {
   };
 }
 
-const EASE_IN = bezier(0.42, 0, 1, 1);
 const EASE_IN_OUT = bezier(0.42, 0, 0.58, 1);
 /** The house `--ease-out`, which every rise in both packs runs on. */
 const HOUSE_OUT = bezier(0.22, 1, 0.36, 1);
@@ -74,7 +73,6 @@ interface Tween {
 }
 
 interface PackModel {
-  leave: Tween;
   welcome: Tween;
   shimmer: Tween;
   section: Tween;
@@ -85,7 +83,6 @@ interface PackModel {
 
 const MODELS: Record<"classic" | "gala", PackModel> = {
   classic: {
-    leave: { duration: 350, ease: EASE_IN, opacity: [1, 0], y: [0, -12] },
     welcome: { duration: 500, ease: HOUSE_OUT, opacity: [0, 1], y: [16, 0] },
     shimmer: { duration: 1200, ease: EASE_IN_OUT, opacity: [0.4, 1, 0.85, 1] },
     section: { duration: 500, ease: HOUSE_OUT, opacity: [0, 1], y: [32, 0] },
@@ -99,7 +96,6 @@ const MODELS: Record<"classic" | "gala", PackModel> = {
     beatMs: 200,
   },
   gala: {
-    leave: { duration: 300, ease: EASE_IN, opacity: [1, 0], y: [0, -8] },
     welcome: { duration: 400, ease: HOUSE_OUT, opacity: [0, 1], y: [10, 0] },
     shimmer: { duration: 1000, ease: EASE_IN_OUT, opacity: [0.5, 1, 0.9, 1] },
     section: { duration: 400, ease: HOUSE_OUT, opacity: [0, 1], y: [20, 0] },
@@ -182,7 +178,7 @@ function sample(el: HTMLElement): Sample {
 
 const CARD_COUNT = 3;
 
-/** The four parts the reveal moves, laid out as the island renders them. */
+/** The code form and the three parts the reveal moves, laid out as the island renders them. */
 function mount() {
   const root = document.createElement("div");
   root.innerHTML = `
@@ -223,7 +219,7 @@ afterEach(async () => {
 describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
   const model = MODELS[pack];
 
-  it("plays the same frames as the reveal it replaced", async () => {
+  it("plays every frame on the pack's timing model", async () => {
     const m = mount();
     const frames: Frame[] = [];
     const record = (t: number) => {
@@ -234,11 +230,9 @@ describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
 
     record(await nextFrame());
     let settled = false;
-    const run = reveal(m.form, m.welcome, m.section, { onFormHidden: m.onFormHidden }).finally(
-      () => {
-        settled = true;
-      },
-    );
+    const run = reveal(m.welcome, m.section, { onFormHidden: m.onFormHidden }).finally(() => {
+      settled = true;
+    });
     // Until the sequence is done and nothing it started is still running.
     const deadline = performance.now() + 6000;
     while (performance.now() < deadline) {
@@ -257,7 +251,6 @@ describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
     }
 
     const tweens: Record<string, Tween> = {
-      form: model.leave,
       welcome: model.welcome,
       heading: model.shimmer,
       section: model.section,
@@ -280,8 +273,8 @@ describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
         const s = frame.els[name]!;
         // The frames its step has started in, through its end. A frame whose
         // animation is still pending is the browser's to place, so it is left
-        // to the checks below; the form leaves the layout at its end.
-        if (s.start === null || frame.t > end || s.display === "none") continue;
+        // to the checks below.
+        if (s.start === null || frame.t > end) continue;
         const elapsed = frame.t - start;
         const [oMin, oMax] = rangeOf((e) => opacityAt(tween, e), elapsed);
         const [yMin, yMax] = rangeOf((e) => yAt(tween, e), elapsed);
@@ -304,12 +297,23 @@ describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
     );
     expect(misses).toEqual([]);
 
-    // Each step follows the last: the welcome as the leave ends, the events
-    // the beat after it, every card with the section.
+    // The code form holds a live field and button, so it closes at once: out
+    // of the layout by the first frame after the reveal starts, and never
+    // faded or moved while it is in it. The welcome rises only once the form
+    // is gone.
+    const [before, first] = frames;
+    expect(before!.els.form!.display).not.toBe("none");
+    expect(first!.els.form!.display).toBe("none");
+    const formShown = frames.map((f) => f.els.form!).filter((form) => form.display !== "none");
+    for (const form of formShown) expect(form).toMatchObject({ opacity: 1, y: 0, start: null });
+    const risingOverForm = frames.filter(
+      (f) => f.els.welcome!.start !== null && f.els.form!.display !== "none",
+    );
+    expect(risingOverForm.map((f) => f.t)).toEqual([]);
+
+    // Each step follows the last: the events the beat after the welcome,
+    // every card with the section.
     const at = (name: string) => starts[name]!;
-    const leaveEnd = at("form") + model.leave.duration;
-    expect(at("welcome") - leaveEnd).toBeGreaterThan(-FRAME_MS);
-    expect(at("welcome") - leaveEnd).toBeLessThan(4 * FRAME_MS);
     expect(Math.abs(at("heading") - at("welcome"))).toBeLessThanOrEqual(FRAME_MS);
     expect(at("section") - at("welcome")).toBeGreaterThan(model.beatMs - FRAME_MS);
     expect(at("section") - at("welcome")).toBeLessThan(model.beatMs + 5 * FRAME_MS);
@@ -322,11 +326,6 @@ describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
     for (const frame of frames) {
       if (frame.els.section!.start !== null) break;
       expect(frame.els.section!.opacity, `the events showed at ${frame.t}`).toBe(0);
-    }
-    // The form is whole until its own step.
-    for (const frame of frames) {
-      if (frame.els.form!.start !== null) break;
-      expect(frame.els.form!.opacity).toBe(1);
     }
 
     // The end state, with nothing left running.
@@ -343,7 +342,7 @@ describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
   it("lands on the end state at once under reduced motion", async () => {
     await emulate({ reducedMotion: "reduce" });
     const m = mount();
-    await reveal(m.form, m.welcome, m.section, { onFormHidden: m.onFormHidden });
+    await reveal(m.welcome, m.section, { onFormHidden: m.onFormHidden });
 
     for (let i = 0; i < 5; i++) {
       await nextFrame();

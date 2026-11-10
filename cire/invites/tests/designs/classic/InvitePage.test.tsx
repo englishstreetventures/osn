@@ -862,8 +862,8 @@ describe("InvitePage", () => {
   });
 
   it("a reset during the unlock choreography is not undone by its trailing setRevealed", async () => {
-    // `onFormHidden` makes the button visible at the end of step 1, then the
-    // sequence runs on for ~200ms. A reset click in that gap must survive
+    // `onFormHidden` makes the button visible first, then the sequence runs on
+    // through the beat and the events' step. A reset click in that gap must survive
     // handleClaimed's unconditional `finally { setRevealed(true) }` — the form
     // must not end up hidden with claimResult null, which would render the
     // welcome banner from nothing, unrecoverable without a reload.
@@ -871,9 +871,9 @@ describe("InvitePage", () => {
       await import("../../../src/designs/classic/UnlockReveal.motion");
     let releaseSequence: (() => void) | undefined;
     vi.mocked(unlockRevealSequence).mockImplementationOnce(
-      async (_form: unknown, _welcome: unknown, _events: unknown, hooks?: unknown) => {
+      async (_welcome: unknown, _events: unknown, hooks?: unknown) => {
         (hooks as { onFormHidden?: () => void } | undefined)?.onFormHidden?.();
-        // Stand in for the ~200ms tail the real sequence still has to run.
+        // Stand in for the tail the real sequence still has to run.
         await new Promise<void>((resolve) => (releaseSequence = resolve));
       },
     );
@@ -1887,7 +1887,6 @@ describe("InvitePage", () => {
   describe("form/welcome swap", () => {
     async function claimWith(
       sequence: (
-        loginForm: HTMLElement,
         welcomeEl: HTMLElement,
         eventsSection: HTMLElement,
         hooks?: RevealHooks,
@@ -1921,17 +1920,17 @@ describe("InvitePage", () => {
     const formPanel = (screen: { getByText: (t: string) => HTMLElement }) =>
       screen.getByText("Enter your code").parentElement as HTMLElement;
 
-    it("hides the form when the sequence reports it faded out", async () => {
-      const { getByText } = await claimWith(async (_f, _w, _e, hooks) => {
+    it("hides the form when the sequence reports it closed", async () => {
+      const { getByText } = await claimWith(async (_w, _e, hooks) => {
         hooks?.onFormHidden?.();
       });
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
     });
 
-    it("keeps the form up until that moment — the fade needs it on screen", async () => {
-      // The old arrangement derived `display` from `claimResult`, so Solid hid
-      // the form the instant the claim resolved — a beat BEFORE the sequence
-      // ran, leaving step 1 animating an already-invisible element.
+    it("keeps the form up until that moment — the welcome must not show before its rise", async () => {
+      // Deriving `display` from `claimResult` would swap the instant the claim
+      // resolved — a beat BEFORE the sequence ran, so the welcome would paint
+      // at full opacity until its rise dropped it back to zero.
       let release: (() => void) | undefined;
       const { getByText } = await claimWith(
         () => new Promise<void>((resolve) => (release = resolve)),
@@ -1948,10 +1947,10 @@ describe("InvitePage", () => {
       // `finally`" — once the promise settles the `finally` masks the
       // difference, which is why dropping the `onFormHidden` wiring altogether
       // was otherwise invisible to every test. Without the hook the form sits
-      // in the layout through the whole sequence, so the welcome banner's
-      // fade-in plays underneath a form still occupying its space.
+      // in the layout through the whole sequence, and the welcome, still
+      // `display: none`, never gets its rise.
       let release: (() => void) | undefined;
-      const { getByText } = await claimWith((_f, _w, _e, hooks) => {
+      const { getByText } = await claimWith((_w, _e, hooks) => {
         hooks?.onFormHidden?.();
         return new Promise<void>((resolve) => (release = resolve));
       });

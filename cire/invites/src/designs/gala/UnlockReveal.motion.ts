@@ -12,10 +12,9 @@ export type { RevealHooks } from "../../components/unlock-reveal";
 const GALA = { name: "gala", layoutBeatMs: 150 } as const;
 
 export function unlockRevealSequence(
-  loginForm: HTMLElement,
   welcomeEl: HTMLElement,
   eventsSection: HTMLElement,
   hooks?: RevealHooks,
 ): Promise<void> {
-  return runUnlockReveal(GALA, loginForm, welcomeEl, eventsSection, hooks);
+  return runUnlockReveal(GALA, welcomeEl, eventsSection, hooks);
 }
