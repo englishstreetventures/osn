@@ -111,7 +111,7 @@ export function Sidebar() {
             </Avatar>
             <div class="flex min-w-0 flex-1 flex-col">
               <span class="text-foreground text-body truncate font-medium">
-                {activeProfile()?.displayName || `@${claims().handle ?? "..."}`}
+                {activeProfile()?.displayName || `@${claims().handle ?? "…"}`}
               </span>
               <Show when={activeProfile()?.displayName}>
                 <span class="text-muted-foreground text-meta truncate">@{claims().handle}</span>
