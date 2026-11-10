@@ -11,8 +11,8 @@ that frame from the start under `prefers-reduced-motion: reduce` and follows a
 change of that preference. It stops drawing off screen and in a hidden tab,
 keeps every orb on one animation loop and one clock, sizes its bitmap from the
 box it measures, and caps it at two device pixels per CSS pixel. The canvas is `aria-hidden`; it
-belongs inside a control whose own label says what is happening. Nothing
-imports it yet.
+belongs inside a control whose own label says what is happening. `Button`'s
+`busy` draws it.
 
 The drawing engine is upstream's thinking-orbs engine (MIT), vendored byte for
 byte into `shared/ui/vendor/thinking-orbs/` at a pinned commit. The export

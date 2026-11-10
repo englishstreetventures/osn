@@ -58,9 +58,10 @@ export const States = () => (
 );
 
 /**
- * The 20px orb inside a `Button` of each variant, beside its label, the way a
- * busy button would hold it. Each orb takes its ink from its button's text
- * colour: light on the filled variants in the light theme, dark on the rest.
+ * The 20px orb inside a `Button` of each variant, beside its label, at full
+ * strength, so its ink can be judged: each orb takes it from its button's text
+ * colour, light on the filled variants in the light theme, dark on the rest.
+ * A busy `Button` draws this orb itself, dimmed: `shared/ui/Button` → `Busy`.
  */
 export const InButtons = () => (
   <div class="flex flex-col gap-6">

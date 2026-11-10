@@ -51,3 +51,21 @@ export const movePointer = defineBrowserCommand<
   if (!box) throw new Error(`nothing to point at: ${selector}`);
   await ctx.page.mouse.move(box.x + box.width * x, box.y + box.height * y, { steps });
 });
+
+/**
+ * Fail every request the calling test file's frame makes for a URL matching
+ * `pattern` (a Playwright glob), as a dropped connection does, until
+ * `allowRequests` is called with the same pattern. Other files' frames fetch as
+ * usual, so a file that runs beside this one is not affected.
+ */
+export const failRequests = defineBrowserCommand<[string]>(async (ctx, pattern) => {
+  const frame = await ctx.frame();
+  await ctx.page.route(pattern, (route) =>
+    route.request().frame() === frame ? route.abort("failed") : route.fallback(),
+  );
+});
+
+/** Undo `failRequests` for `pattern`. */
+export const allowRequests = defineBrowserCommand<[string]>(async (ctx, pattern) => {
+  await ctx.page.unroute(pattern);
+});

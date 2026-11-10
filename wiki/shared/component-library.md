@@ -408,7 +408,9 @@ leave a declaration file unchecked. `orb.tsx` declares its `Orb` as the type
 `orb-api.ts` declares, so the package's own check fails if the two disagree.
 **Nothing under `src/` imports `orb.tsx` by a relative path** (the package's
 own tests may): a consumer's type check would follow that import into the
-engine and fail.
+engine and fail. `Button` imports it through the export instead, dynamically,
+so the orb is a chunk of its own that only a page holding a `Button` that
+passes a `busy` prop fetches ([[#The orb chunk]]).
 
 **One loop draws every orb.** While at least one orb is mounted, the module
 holds one `requestAnimationFrame` loop, one `IntersectionObserver`, one
@@ -472,6 +474,146 @@ before each paint; nothing in the accessibility tree. It also
 writes the nine still frames at both sizes on a light and a dark ground to
 `e2e-artifacts/shared-ui-orb/`. The lab story is `shared/ui/Orb`
 ([[component-lab]]).
+
+### Button — a link inside a sentence, and a wait
+
+`Button` is a CVA component ([[#Variant components (Button, Badge)]]): seven
+variants, five sizes, `busy`, and the focus every one of them draws.
+`buttonVariants` carries every class but `busy`'s, so a link styled as a
+button looks the same.
+
+#### Sizes
+
+`default`, `sm`, `lg` and `icon` draw a box: one centred row, glyph and label,
+weight 500, no wrapping, at the control type step (`text-ui-base`; `sm` takes
+`text-ui-sm` instead). That box group, and the type step, live in each of the
+four sizes rather than in the base string, because `inline` must draw none,
+and two `base:` utilities for one property tie: the winner would be whichever
+Tailwind emits last. `link` takes `underline-offset-4` through a compound
+variant on those four sizes for the same reason. Every existing (variant, size)
+pair carries the class set it carried before `inline` existed, less one class:
+`sm` no longer carries the base string's `text-ui-base`, which its own
+`text-ui-sm` overrode. `shared/ui/tests/ui/button-classes.test.ts` holds the
+class sets, and the snapshot in `button-default.browser.test.tsx` holds what
+they compute to, `sm`'s 13px included.
+
+#### `size="inline"`
+
+A `link` standing alone underlines on hover. A link set inside a sentence
+underlines at rest, since its colour alone would not tell it from the words
+around it (WCAG 1.4.1), and that is `variant="link" size="inline"`:
+
+```tsx
+<p>
+  By continuing you accept the{" "}
+  <Button variant="link" size="inline" onClick={openTerms}>terms</Button>.
+</p>
+<p>
+  Use a <A href="/recovery" class={buttonVariants({ variant: "link", size: "inline" })}>recovery code</A>.
+</p>
+```
+
+It draws no box: `display: inline`, no height or padding, underlined with a
+2px offset, start-aligned. Size, line height and **weight come from the
+sentence**, not from `Button`: a link in a 400 sentence is 400, marked by its
+colour and its underline, and adds no height to the line. An `<a>` wearing the
+classes wraps with the text, and its focus ring closes round each line it spans
+(`box-decoration-clone`). The ring is the base `--ui-focus` ring at
+`--ui-radius-control`, flush with the glyphs, and the contrast-theme outline is
+the one every size draws ([[#Focus]]).
+
+**A `<button>` stays one box**, as HTML lays out every button, even at
+`display: inline`: its words never break with the sentence, and at a phone's
+width a label too long for what is left of the line drops whole to the next.
+So keep an inline `Button`'s label to a word or two, and give a way to another
+screen an `<a href>` wearing `buttonVariants`. `@shared/ui` takes the
+`<button>` where `@cire/ui` does not (its `proseLinkClass` is for an `<a href>`
+only, and an action that goes nowhere stays a button outside the sentence),
+because Musubi writes such actions into a sentence: "No account yet? Create
+one" on `/authorize` switches the panel to sign-up, has no address of its own,
+and is one of the links inside a sentence `musubi/social/DESIGN.md` names.
+`shared/ui/tests/button-inline.browser.test.tsx` holds each of these in Chrome.
+
+#### `busy`
+
+```tsx
+<Button type="submit" busy={pending()} disabled={!pending() && !valid()}>
+  {pending() ? "Creating…" : "Create profile"}
+</Button>
+```
+
+While `busy` is true the button:
+
+- keeps keyboard focus — it is not `disabled`, which drops focus to the page;
+- is announced as busy and unavailable: `aria-busy="true"` and
+  `aria-disabled="true"` (the caller's own `aria-busy` and `aria-disabled` pass
+  through when it is not busy);
+- refuses activation by any route that reaches its own click handler:
+  `Button` always attaches one and, while busy, cancels the click and calls no
+  `onClick`. A key press on a focused button and a form's implicit submission
+  (Enter in a text field) both reach it as a click, so a `type="submit"`
+  button with no `onClick` submits nothing either. A native `on:click`
+  listener, another submit button and `form.requestSubmit()` are not refused,
+  as `disabled` does not refuse them either, so work that must not run twice
+  stays idempotent on the server;
+- dims as a disabled button does: `opacity-50`, and `pointer-events-none`, so a
+  pointer passes through to what is behind it. **Except while focused from the
+  keyboard**: the focus ring is a box shadow, which the button's opacity fades
+  with the rest, to between 1.86:1 and 2.69:1 on Musubi's and pulse's grounds.
+  So a busy button with keyboard focus stays at full strength
+  (`focus-visible:opacity-100`), its ring as strong as when it is not busy, and
+  its orb and label still say it is busy;
+- draws the 20px `Orb`, state `working`, before its label, in the button's text
+  colour (§`Orb`, above). It sets no ink of its own.
+
+*Computed 2026-11-07 — each app's `--ring` blended at 50% over its `--background` in sRGB, as the browser composites opacity, then `contrastRatio` from `@shared/color`: Musubi 2.22:1 light, 2.69:1 dark (2.60:1 on the dark `--card`); pulse 1.86:1 light, 2.18:1 dark. `button-busy.browser.test.tsx` flattens the ring the same way under the package's test stylesheet (2.36:1 at 50%) and holds it at 3:1.*
+
+The caller owns the label: pass the words the wait wants ("Creating…"). Use
+`busy` in place of `disabled={pending()}`, and keep `disabled` for the other
+reasons a button cannot act; when both are true, `disabled` wins and focus
+drops, as it does for any disabled button. So guard those reasons with the
+busy signal (`disabled={!pending() && …}`): a reason that turns true mid-wait,
+such as a verification widget dropping a spent token, then cannot take focus
+away. `busy` is not accepted at `icon`
+(no label for the orb to sit beside) or `inline` (no room in a line of text).
+It is for plain buttons, not a Kobalte trigger: `DropdownMenu`'s trigger opens
+on pointer-down and key-down, which the click refusal does not see.
+
+#### The orb chunk
+
+`button.tsx` imports `@shared/ui/ui/orb` dynamically, through the package's own
+export, so the bundler puts the orb and its engine in a chunk of their own and
+a consumer's type check stops at `orb-api.ts`. The chunk is fetched once a page
+holds a `Button` that passes a `busy` prop (`busy={false}` counts): the first
+such button to mount queues one fetch for idle time, or for a timer where the
+browser has no `requestIdleCallback`, and a button that turns busy before then
+fetches at once. A `Button` with no `busy` prop never fetches it: pulse, which
+passes none, emits the chunk and never requests it. Until the module arrives a
+20px `aria-hidden` box holds the orb's room, so the label does not move when it
+lands. If the fetch fails the box stays and the label and ARIA still say busy;
+the next button to turn busy asks for the module again, and Chromium fetches it
+anew. No `lazy()` or `Suspense`: a lazy component suspends the nearest
+`Suspense` above it, which in musubi is the route's, and blanks the page while
+the chunk loads.
+
+*Measured 2026-11-07 — `vite build` of a page holding one busy `Button`: the orb chunk is 16.99 kB, 7.03 kB gzip, as in musubi's build. Served by `vite preview`, the 20px box shows before the orb for 7–11 ms unthrottled, 77–79 ms at 9 Mbps / 60 ms, 193–195 ms at 1.6 Mbps / 150 ms and 539–570 ms at 400 kbps / 400 ms (Chrome network emulation, Playwright, 3 runs each), for a button busy from its first render. A button that mounts first and turns busy after idle time draws the orb at once (`button-busy-preload.browser.test.tsx`).*
+
+#### The props union
+
+`inline` goes with `variant="link"` only, and `busy` with `default`, `sm` and
+`lg` only; anything else is a type error where `Button` is used directly.
+Through Kobalte's `as={Button}` the rules do not hold: its props type `Omit`s
+keys from the union, which keeps the shared keys and widens each to the union
+of its types. Every member names `variant`, `size` and `busy`, so none of them
+drops out there. A caller holding a variant and a size in variables narrows
+them per member, as the lab's Playground, `button.browser.test.tsx` and
+`button-default.browser.test.tsx` do.
+
+#### Focus
+
+Keyboard focus draws a 2px `--ui-focus` ring, which is a box shadow, and hides the outline only while focused (`focus-visible:outline-hidden`) rather than removing it. A Windows contrast theme (forced colours) drops box shadows and paints that hidden outline in a system colour, 2px wide and 2px off, so focus stays visible there; outside the theme it computes as no outline at all. A pointer press draws neither. `buttonVariants` carries the classes, so a link styled as a button gets the same. The drawn `Checkbox` box, the drawn radio circle and the switch track spell their contrast-theme mark another way (`forced-colors:peer-focus-visible:outline-2`, whose colour is `currentColor`): the same style, width and offset, but the theme paints the checkbox's and `Button`'s in different system colours — under Chromium's emulation on macOS, `rgb(0, 0, 0)` for the box and `rgba(5, 0, 73, 0.8)` for `Button`. `Button`'s ring and outline are fixed at 2px and do not follow `--ui-focus-width` or `--ui-focus-offset`. The defaults are `base:` and so lose to any call site: an `outline-*` class passed to `Button`, or an unlayered app rule that sets `outline` on `:focus-visible`, takes the theme's only focus mark away. `shared/ui/tests/button.browser.test.tsx` holds the contrast theme; `shared/ui/tests/button-default.browser.test.tsx` holds every computed style outside it as a snapshot; and the `token-contract` browser tests in `@musubi/social` and `@pulse/web` check the outline under each app's own stylesheet. See [[browser-tests#Current coverage]].
+
+*Measured 2026-11-06 — a probe in `shared/ui`'s browser tier on macOS: under `emulateMedia({ forcedColors: "active" })`, Tab to a drawn `Checkbox` and to a `Button` and read `getComputedStyle(el).outlineColor` on the box and on the button*
 
 ### `DropdownMenu` — two looks, and rows that are checked, chosen or followed
 
@@ -883,9 +1025,8 @@ import { buttonVariants } from "@shared/ui/ui/button";
 </A>;
 ```
 
-**Focus.** Keyboard focus draws a 2px `--ui-focus` ring, which is a box shadow, and hides the outline only while focused (`focus-visible:outline-hidden`) rather than removing it. A Windows contrast theme (forced colours) drops box shadows and paints that hidden outline in a system colour, 2px wide and 2px off, so focus stays visible there; outside the theme it computes as no outline at all. A pointer press draws neither. `buttonVariants` carries the classes, so a link styled as a button gets the same. The drawn `Checkbox` box, the drawn radio circle and the switch track spell their contrast-theme mark another way (`forced-colors:peer-focus-visible:outline-2`, whose colour is `currentColor`): the same style, width and offset, but the theme paints the checkbox's and `Button`'s in different system colours — under Chromium's emulation on macOS, `rgb(0, 0, 0)` for the box and `rgba(5, 0, 73, 0.8)` for `Button`. `Button`'s ring and outline are fixed at 2px and do not follow `--ui-focus-width` or `--ui-focus-offset`. The defaults are `base:` and so lose to any call site: an `outline-*` class passed to `Button`, or an unlayered app rule that sets `outline` on `:focus-visible`, takes the theme's only focus mark away. `shared/ui/tests/button.browser.test.tsx` holds the contrast theme; `shared/ui/tests/button-default.browser.test.tsx` holds every computed style outside it as a snapshot; and the `token-contract` browser tests in `@musubi/social` and `@pulse/web` check the outline under each app's own stylesheet. See [[browser-tests#Current coverage]].
-
-*Measured 2026-11-06 — a probe in `shared/ui`'s browser tier on macOS: under `emulateMedia({ forcedColors: "active" })`, Tab to a drawn `Checkbox` and to a `Button` and read `getComputedStyle(el).outlineColor` on the box and on the button*
+Every size, the link inside a sentence, the `busy` wait and keyboard focus
+are in [[#Button — a link inside a sentence, and a wait]].
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
