@@ -107,7 +107,7 @@ Built on oklch for perceptual uniformity. Extends the base shadcn token system w
 | Token                   | Value                                                        | Usage                                                         |
 | ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------- |
 | `--pulse-accent`        | `oklch(0.68 0.18 38)`                                        | Primary accent (coral) — brand mark, hero italic, CTA buttons |
-| `--pulse-accent-strong` | `oklch(0.58 0.19 35)`                                        | Ember — date stamp month, meta-line text                      |
+| `--pulse-accent-strong` | `oklch(0.58 0.19 35)`                                        | Ember — date stamp month, meta-line text, active tab underline |
 | `--pulse-accent-soft`   | `oklch(0.95 0.05 45)`                                        | Peach background — soft highlight surfaces                    |
 | `--pulse-accent-fg`     | Light: `oklch(0.99 0.004 80)` / Dark: `oklch(0.17 0.008 60)` | Text on accent backgrounds                                    |
 
@@ -135,12 +135,71 @@ Two-pane desktop layout:
 
 Below 1180px, map collapses and events go full-width.
 
+Below 768px (Tailwind's `md`) the page takes its phone layout:
+
+- **Gutters are 16px** (`px-4`) on the brand row, the hero, the events pane and
+  the create form's wrapper, and 32px (`px-8`) from 768px up. At 320px the
+  signed-in brand line needs 260px of the 288px a 16px gutter leaves.
+- **The hero stacks**: the stats sit under the headline, not beside it. Beside
+  it, they ran past the screen's edge at 320px.
+- **The create form's start and end times stack**, and sit side by side from
+  768px up. A `datetime-local` field is 206px wide at its narrowest, so the
+  pair side by side needs 424px.
+
+The page never scrolls sideways at any width.
+`tools/e2e/tests/support/pulse-explore.ts` holds this and the navigation rules
+below at 320, 390, 768 and 1440px, signed in and signed out, and shoots the page
+at 320, 390 and 1440px in light and dark.
+
 ### Navigation
 
-Horizontal top nav (no sidebar). Three sections:
+Horizontal top nav (no sidebar). Two sections:
 
 1. **Brand row**: Logo mark (pulsing coral dot) + "Pulse" wordmark, tab bar (Home / Calendar / Hosting), search, actions
-2. **Hero**: Time-of-day greeting, editorial headline with italic accent word, live stats
+2. **Hero**: Time-of-day greeting, editorial headline with italic accent word, live stats. On a narrow phone the greeting's date wraps to a line of its own
+
+**From 768px up the brand row is one line**: brand, tabs, then the search and
+the actions on the right. The search takes the row's spare width up to 360px
+(`max-w-90`), and is the first thing to give way when the row is short: at
+768px, signed in, it is about 170px wide and its placeholder ends in an
+ellipsis. The whole header pins (`sticky`).
+
+**Below 768px the brand row wraps to three lines:**
+
+1. The brand on the left, the actions on the right (bell, Host and avatar, or
+   "Continue with musubi").
+2. The search, from gutter to gutter.
+3. The tabs, last, so the active tab's underline
+   (`.explore-tab-active::after`, 15px below the tab) lands on the row's bottom
+   border. From 768px up the tab sits centred beside taller controls, so the
+   underline sits 5px above the border when signed in.
+
+**The active tab** is marked three ways: `aria-current="page"`, the foreground
+text on a `--secondary` fill, and a 2px underline in the ember,
+`--pulse-accent-strong`. The coral measures 2.97:1 on the light `--background`,
+under the 3:1 a state mark needs; the ember measures 4.48:1 in light and 4.09:1
+in dark.
+
+**The search shows focus with an outline**: 2px of `--ui-focus`, 2px out from
+the field (4.11:1 on the light `--background`, 5.24:1 on the dark), so the mark
+holds in forced-colours mode, where a box-shadow ring vanishes. The search has
+no keyboard shortcut.
+
+**Below 768px the header scrolls with the page** instead of pinning. Three lines
+and the hero make it about 410px tall at 390px, half of an 844px screen, and
+three quarters of a 320×568 screen.
+
+**Focus follows the desktop order.** The markup runs brand, tabs, search,
+actions, and the phone lines are placed with `order`, so on a phone the focus
+moves tabs, search, actions while the lines read actions, search, tabs. Each
+control stands alone, so no meaning depends on the order. One markup order
+cannot match both layouts; it matches the desktop's, where the row reads in
+markup order.
+
+The owner chose this arrangement (#2135). Rejected: tabs
+and search sharing the second line, which leaves the search 62px wide at 320px;
+collapsing the tabs into a menu, which needs a component that does not exist;
+and the search as an icon, which hides the field.
 
 ### Event Cards
 
@@ -230,20 +289,24 @@ These rules govern `pulse/web`. The landing site's motion is in
   no `transition-ui-colors` utility yet; until it does, a control names the
   properties it fades, so the focus mark never arrives late. A bare
   `transition` fades `outline-color` too, and so does `transition-shadow` on a
-  ring.
+  ring. The explore tabs fade `color` and `background-color`, and the search
+  box fades its `border-color` while its focus outline shows at once.
 - **Entrances are short and quiet**: opacity with an 8px rise, as the onboarding
   step does (`onb-step-in`).
-- **Only the onboarding illustrations loop.** A looping animation is
-  illustration, never a control or a loading state, and it stops under
-  `prefers-reduced-motion: reduce` (`onboarding.css` holds the rule).
+- **Only illustrations loop**: the onboarding illustrations, the brand mark's
+  pulsing dot (§Navigation) and the live dot beside the hero's greeting and on a
+  live card. A looping animation is illustration, never a control or a loading
+  state, and it stops under `prefers-reduced-motion: reduce`, holding a still
+  frame (`onboarding.css` and `explore/explore.css` hold the rule).
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
 
-Where the app does not follow this yet: the explore page's `brand-pulse` and
-`live-pulse` loop with no reduced-motion rule (`explore/explore.css`), and these
-controls fade their focus mark with the colour: `FilterChip.tsx`,
-`ShareEventButton.tsx`, `CalendarEventCard.tsx`, the tab buttons in
-`ExploreNav.tsx` (`transition-colors`), its search box (`transition-shadow`
-under a focus ring), and `routes/series/[id].tsx` (bare `transition`).
+Where the app does not follow this yet: these controls fade their focus mark
+with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
+`CalendarEventCard.tsx` and `routes/series/[id].tsx` (bare `transition`).
+
+`tools/e2e/tests/support/pulse-explore.ts` holds the explore header to these
+rules: what its tab and search box fade, and its two loops stopping under
+reduced motion.
 
 ## Future
 
