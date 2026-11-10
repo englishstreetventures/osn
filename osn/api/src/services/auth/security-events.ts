@@ -121,11 +121,14 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
       }
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      const existing = yield* Effect.tryPromise({
+      // One statement, guarded on the row still being unacknowledged: of two
+      // acks at once, only the one whose write changed the row reports it,
+      // and the first acknowledgement time stands.
+      const changed = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: securityEvents.id, kind: securityEvents.kind })
-            .from(securityEvents)
+            .update(securityEvents)
+            .set({ acknowledgedAt: nowSec })
             .where(
               and(
                 eq(securityEvents.id, eventId),
@@ -133,28 +136,21 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
                 isNull(securityEvents.acknowledgedAt),
               ),
             )
-            .limit(1),
+            .returning({ kind: securityEvents.kind }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const match = existing[0];
+      const match = changed[0];
       if (!match) {
         return { acknowledged: false };
       }
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(securityEvents)
-            .set({ acknowledgedAt: nowSec })
-            .where(eq(securityEvents.id, match.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
       metricSecurityEventAcknowledged(match.kind as SecurityEventKind);
       return { acknowledged: true };
     }).pipe(Effect.withSpan("auth.security_event.ack"));
 
   /**
-   * Bulk-acks every unacknowledged security event for an account in a single
-   * transaction. One step-up → one call dismisses the entire banner. This is
+   * Bulk-acks every unacknowledged security event for an account in one
+   * statement, and reports and counts the rows that statement changed. One
+   * step-up → one call dismisses the entire banner. This is
    * the UX path the banner uses; `acknowledgeSecurityEvent` remains for API
    * clients that want per-row control.
    *
@@ -174,33 +170,21 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
 
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      const unacked = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({ id: securityEvents.id, kind: securityEvents.kind })
-            .from(securityEvents)
-            .where(
-              and(eq(securityEvents.accountId, accountId), isNull(securityEvents.acknowledgedAt)),
-            ),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      if (unacked.length === 0) {
-        return { acknowledged: 0 };
-      }
-      yield* Effect.tryPromise({
+      const acked = yield* Effect.tryPromise({
         try: () =>
           db
             .update(securityEvents)
             .set({ acknowledgedAt: nowSec })
             .where(
               and(eq(securityEvents.accountId, accountId), isNull(securityEvents.acknowledgedAt)),
-            ),
+            )
+            .returning({ kind: securityEvents.kind }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      for (const row of unacked) {
+      for (const row of acked) {
         metricSecurityEventAcknowledged(row.kind as SecurityEventKind);
       }
-      return { acknowledged: unacked.length };
+      return { acknowledged: acked.length };
     }).pipe(Effect.withSpan("auth.security_event.ack_all"));
 
   /**

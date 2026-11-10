@@ -151,6 +151,51 @@ describe("email change on D1", () => {
     expect(events).toHaveLength(1);
   });
 
+  // A's preflight reads the address, then its commit waits while B's whole
+  // change commits. A's swap names the address A read, so it moves nothing
+  // once B has moved it: the address B replaced is the one mailed, once.
+  it("refuses a change whose preflight address another change has since replaced", async () => {
+    const profile = await run(auth.registerProfile("ec-d1-stale@example.com", "ecd1stale"));
+    const tokenA = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const tokenB = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+
+    await run(auth.beginEmailChange(profile.accountId, "ec-d1-stale-a@example.com"));
+    const codeA = latestCode();
+    const commitA = hold(/^update "accounts" set "email"/);
+    const a = outcomeOf(settle(auth.completeEmailChange(profile.accountId, codeA, tokenA, null)));
+    await commitA.reached;
+
+    await run(auth.beginEmailChange(profile.accountId, "ec-d1-stale-b@example.com"));
+    const b = await run(
+      settle(auth.completeEmailChange(profile.accountId, latestCode(), tokenB, null)),
+    );
+    expect(b.email).toBe("ec-d1-stale-b@example.com");
+
+    commitA.release();
+    const outcome = await a;
+    expect(outcome._tag).toBe("Failure");
+
+    const [account] = await db
+      .select({ email: accounts.email })
+      .from(accounts)
+      .where(eq(accounts.id, profile.accountId));
+    expect(account?.email).toBe("ec-d1-stale-b@example.com");
+    const events = await db
+      .select({ id: securityEvents.id })
+      .from(securityEvents)
+      .where(
+        and(
+          eq(securityEvents.accountId, profile.accountId),
+          eq(securityEvents.kind, "email_changed"),
+        ),
+      );
+    expect(events).toHaveLength(1);
+    const notices = mail
+      .recorded()
+      .filter((e) => e.template === "email-changed" && e.to.startsWith("ec-d1-stale"));
+    expect(notices.map((e) => e.to)).toEqual(["ec-d1-stale@example.com"]);
+  });
+
   it("rolls the change back with its security event, and mails no notice", async () => {
     const profile = await run(auth.registerProfile("ec-d1-roll@example.com", "ecd1roll"));
     const token = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
@@ -185,6 +230,31 @@ describe("email change on D1", () => {
       .recorded()
       .filter((e) => e.template === "email-changed" && e.to === "ec-d1-roll@example.com");
     expect(notices).toHaveLength(0);
+  });
+});
+
+describe("security-event acknowledgements on D1", () => {
+  // Each acknowledgement is one UPDATE whose RETURNING rows decide what it
+  // reports, so D1 must answer those rows.
+  it("reports the rows one ack and one ack-all changed", async () => {
+    const profile = await run(auth.registerProfile("sev-d1-ack@example.com", "sevd1ack"));
+    await run(auth.generateRecoveryCodesForAccount(profile.accountId));
+    await run(auth.generateRecoveryCodesForAccount(profile.accountId));
+    const { events } = await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
+    expect(events).toHaveLength(2);
+
+    const one = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
+    const single = await run(auth.acknowledgeSecurityEvent(profile.accountId, events[0]!.id, one));
+    expect(single.acknowledged).toBe(true);
+    const again = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
+    const repeat = await run(
+      auth.acknowledgeSecurityEvent(profile.accountId, events[0]!.id, again),
+    );
+    expect(repeat.acknowledged).toBe(false);
+
+    const rest = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
+    const all = await run(auth.acknowledgeAllSecurityEvents(profile.accountId, rest));
+    expect(all.acknowledged).toBe(1);
   });
 });
 

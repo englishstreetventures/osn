@@ -325,4 +325,6 @@ the asymmetry itself.
 (`email-changed`, [[email]]) goes to the previous address once the change is on
 record. The `email_changed` row is acknowledged through the same gate as every
 other kind (`recoveryGenerateAllowedAmr`), so after an email change the signal
-to rely on is the notice to the replaced address, not the banner.
+to rely on is the notice to the replaced address, not the banner. The notice is
+sent once, best effort: a send that fails is counted
+(`osn.auth.security_event.notified`, `result: failed`) and not retried.

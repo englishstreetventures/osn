@@ -320,10 +320,20 @@ export function createEmailChangeModule(
               outsideFamilyOf(db, sessions.familyId, currentSessionHash),
             )
           : eq(sessions.accountId, accountId);
+      // The swap moves only the address the preflight read, which is the one
+      // `previous_email` records and the notice goes to. A change that
+      // committed after that read has moved it, so this swap moves nothing
+      // and the request is refused with the cap's error, as below.
       const swap = db
         .update(accounts)
         .set({ email: pending.newEmail, updatedAt: new Date(nowSec * 1000) })
-        .where(and(eq(accounts.id, accountId), lt(recentChanges, EMAIL_CHANGE_LIMIT)));
+        .where(
+          and(
+            eq(accounts.id, accountId),
+            eq(accounts.email, currentAccountRow.email),
+            lt(recentChanges, EMAIL_CHANGE_LIMIT),
+          ),
+        );
       // Records the change only while the account holds the address this
       // request wrote. Where two requests' statements interleave (bun:sqlite
       // runs them one at a time; D1 might), only the one whose address landed
@@ -366,10 +376,11 @@ export function createEmailChangeModule(
           .from(emailChanges)
           .where(eq(emailChanges.id, changeId)),
       );
-      // The notice goes to the address the preflight read, the one
-      // `previous_email` records, so it shares that column's limit: where two
-      // changes' statements interleave it can name the other one's address.
-      // Forked with a timeout, so mailer health never reaches the response.
+      // The notice goes to the address the preflight read, which the swap
+      // above replaced, so it shares `previous_email`'s limit: where two
+      // changes' statements interleave (bun:sqlite runs them one at a time) it
+      // can name the other one's address. Forked with a timeout, so mailer
+      // health never reaches the response.
       const notifyPrevious = forkBackground(
         securityEventsModule
           .notifySecurityEventTo(currentAccountRow.email, "email_changed", "email-changed", {

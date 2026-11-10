@@ -874,6 +874,39 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  // A's preflight reads the address, then its commit waits while B's whole
+  // change commits. A's swap names the address A read, so it moves nothing
+  // once B has moved it, and only B's change is recorded and mailed.
+  it.live("a completion whose preflight address was since replaced is refused", () => {
+    const { layer, sqlite, hold, latest, notices } = makeHeldEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* auth.registerProfile("ec-stale@example.com", "ecstale");
+      const [tokenA, tokenB] = yield* Effect.all(
+        [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+      );
+
+      yield* auth.beginEmailChange(profile.accountId, "ec-stale-a@example.com");
+      const codeA = latest();
+      const commitA = hold(/^update "accounts" set "email"/);
+      const a = yield* Effect.forkChild(
+        Effect.result(settle(auth.completeEmailChange(profile.accountId, codeA, tokenA!, null))),
+      );
+      yield* Effect.promise(() => commitA.reached);
+
+      yield* auth.beginEmailChange(profile.accountId, "ec-stale-b@example.com");
+      yield* settle(auth.completeEmailChange(profile.accountId, latest(), tokenB!, null));
+
+      commitA.release();
+      const outcome = yield* Fiber.join(a);
+      expect(outcome._tag).toBe("Failure");
+      expect(emailOf(sqlite, profile.accountId)).toBe("ec-stale-b@example.com");
+      expect(changesOf(sqlite, profile.accountId)).toEqual(["ec-stale-b@example.com"]);
+      expect(changeEventsOf(sqlite, profile.accountId)).toBe(1);
+      expect(recipientsOf(notices())).toEqual(["ec-stale@example.com"]);
+    }).pipe(Effect.provide(layer));
+  });
+
   // A commit that reports a failure after its change went on record still
   // mails the address it replaced, even once a later change has moved the
   // account on: the account's address alone no longer shows the change stood.
