@@ -181,8 +181,8 @@ Served at the apex **`https://musubi.social`**. The `sites` job in
 `.github/workflows/production-release.yml` builds it, and the musubi stack deploys that
 build to the **`osn-social`** Worker, which is `worker` in
 `shared/infra/src/production-sites.ts` and serves the apex since release 42817386650
-(2026-11-10). No job deploys the `osn-social` Pages project; it keeps its last build,
-serving no host, for a rollback ([[production-deploy]] §5.7). `record-osn-social` records each production
+(2026-11-10); the `osn-social` Pages project it moved from is deleted
+([[production-deploy]] §5.7). `record-osn-social` records each production
 deploy whose smoke check passed. On dev the musubi stack serves it as the
 `osn-social-dev` Worker, with static assets, on `musubi.<DEV_DOMAIN>`: `deploy.yml`'s
 musubi stack job builds and deploys it on every merge to `main` that touches it,

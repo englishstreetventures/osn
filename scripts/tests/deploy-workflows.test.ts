@@ -1125,15 +1125,14 @@ describe("W2: one record job per dev surface", () => {
 });
 
 describe("production-release.yml", () => {
-  test("PW11: runs on a schedule and by hand, with the three inputs the planner reads", () => {
+  test("PW11: runs on a schedule and by hand, with the two inputs the planner reads", () => {
     expect(Object.keys(production.on).toSorted()).toEqual(["schedule", "workflow_dispatch"]);
     const dispatch = production.on.workflow_dispatch as {
       inputs: Record<string, { type: string; default?: unknown }>;
     };
-    expect(Object.keys(dispatch.inputs).toSorted()).toEqual(["attach", "force", "surfaces"]);
+    expect(Object.keys(dispatch.inputs).toSorted()).toEqual(["force", "surfaces"]);
     expect(dispatch.inputs.surfaces?.type).toBe("string");
     expect(dispatch.inputs.force?.type).toBe("boolean");
-    expect(dispatch.inputs.attach).toMatchObject({ type: "string", default: "" });
   });
 
   test("PW10: every Alchemy run in it sends no telemetry", () => {
@@ -1185,8 +1184,6 @@ describe("production-release.yml", () => {
         "any",
         "any_site",
         "any_stack",
-        "stacks",
-        "attach",
       ].toSorted(),
     );
     for (const key of Object.keys(outputs))
@@ -1208,7 +1205,6 @@ describe("production-release.yml", () => {
       GITHUB_TOKEN: "${{ github.token }}",
       SURFACES: "${{ inputs.surfaces }}",
       FORCE: "${{ inputs.force }}",
-      ATTACH: "${{ inputs.attach }}",
     });
   });
 
@@ -1240,13 +1236,12 @@ describe("production-release.yml", () => {
     expect(build.if).toBe("needs.plan.outputs.any == 'true'");
   });
 
-  test("its production jobs are the map's own jobs, alchemy-plan, each stack's job and the attach job; its record jobs the map's stack sites", () => {
+  test("its production jobs are the map's own jobs, alchemy-plan and each stack's job; its record jobs the map's stack sites", () => {
     const ids = jobsIn(production, "production").map(([id]) => id);
     expect(ids.toSorted()).toEqual(
       [
         ...ownJobSurfaces.map((s) => s.production.id),
         "alchemy-plan",
-        "attach-pages-domain",
         ...PRODUCTION_STACKS.map((s) => s.production.id),
       ].toSorted(),
     );
@@ -1284,10 +1279,9 @@ describe("production-release.yml", () => {
     // Counted with one attempt per job: a re-run, or a rejected approval,
     // leaves a record of its own.
     const inProduction = jobsIn(production, "production").map(([id]) => id);
-    // A release runs every production job but the attach job; an attach
-    // release runs the attach job alone.
-    const release = inProduction.filter((id) => id !== "attach-pages-domain").length;
-    const most = Math.max(release, 1);
+    // A release runs at most every production job.
+    const release = inProduction.length;
+    const most = release;
     expect(release).toBe(7);
     expect(most).toBeLessThanOrEqual(7);
     expect(Math.floor(MAX_RECORDS / most)).toBeGreaterThanOrEqual(42);
@@ -1484,18 +1478,6 @@ describe("PW2: alchemy-plan, the first approval, plans each shipping stack and g
     expect(planJob.if).toBe("needs.plan.outputs.any_stack == 'true'");
     expect(environmentOf(planJob)).toBe("production");
     expect(planJob.env).toBeUndefined();
-  });
-
-  test("checks the worker sites' domains with the narrow token before any install", () => {
-    const domains = stepById(planJob, "domains");
-    expect(domains?.run).toBe("bun run scripts/pages-domain.ts precheck");
-    expect(domains?.env).toEqual({
-      STACKS: "${{ needs.plan.outputs.stacks }}",
-      CLOUDFLARE_ACCOUNT_ID: "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
-      CLOUDFLARE_PAGES_DNS_TOKEN: "${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}",
-    });
-    const install = steps.findIndex((step) => /\bbun install\b/.test(step.run ?? ""));
-    expect(at("domains")).toBeLessThan(install);
   });
 
   test("checks the token and the state store, then snapshots, plans to a file and guards each shipping stack, keeping only the guard's record", () => {
@@ -1834,51 +1816,6 @@ describe("PW13: a site's smoke check waits longer only when the approved plan gi
   });
 });
 
-/**
- * Whether a job's `if:` lets it run, given the plan job's outputs and the
- * results of the jobs it needs: the expression as GitHub evaluates it, with
- * GitHub's implicit `success()` of every need when the expression names no
- * status function.
- */
-function runs(
-  job: Job,
-  outputs: Readonly<Record<string, string>>,
-  results: Readonly<Record<string, string>>,
-): boolean {
-  const body = (job.if ?? "").replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "");
-  const js = body
-    .replaceAll("!cancelled()", "true")
-    .replace(/needs\.plan\.outputs\.([a-z_]+)/g, (_, key: string) =>
-      JSON.stringify(outputs[key] ?? ""),
-    )
-    .replace(/needs\.([a-z-]+)\.result/g, (_, id: string) =>
-      JSON.stringify(results[id] ?? "skipped"),
-    )
-    .replaceAll("'", '"')
-    .replace(/!=(?!=)/g, "!==")
-    .replace(/(?<![!=])==(?!=)/g, "===");
-  const allowed = new Function(`return (${js});`)() as boolean;
-  if (/\b(cancelled|always|failure|success)\(\)/.test(body)) return allowed;
-  return allowed && needsOf(job).every((id) => (results[id] ?? "success") === "success");
-}
-
-describe("PW-F: the Pages and DNS token", () => {
-  test("only alchemy-plan's precheck and the attach job name it, and neither installs first", () => {
-    const naming = Object.entries(production.jobs).flatMap(([id, job]) =>
-      stepsOf(job)
-        .filter((step) => JSON.stringify(step).includes("CLOUDFLARE_PAGES_DNS_TOKEN"))
-        .map((step) => `${id} ${step.id}`),
-    );
-    expect(naming.toSorted()).toEqual(["alchemy-plan domains", "attach-pages-domain attach"]);
-    for (const [id, job] of Object.entries(production.jobs)) {
-      expect({
-        id,
-        env: JSON.stringify(job.env ?? {}).includes("CLOUDFLARE_PAGES_DNS_TOKEN"),
-      }).toEqual({ id, env: false });
-    }
-  });
-});
-
 describe("PW6: one record job per site its Worker serves", () => {
   test.each(recordSurfaces.map((s) => [s.key, s] as const))(
     "%s: named as the map says, in production-records, needs only its stack job and runs when its check passed",
@@ -1933,38 +1870,6 @@ describe("PW-A: a job that holds a credential lets in only the site builds of th
   );
 });
 
-describe("PW-B: a site's domain goes back on Pages in a job of its own", () => {
-  const attach = production.jobs["attach-pages-domain"]!;
-
-  test("runs when the plan names a site to attach, after the plan job alone, in the production Environment, installing nothing", () => {
-    expect(attach.name).toBe("Put a site's domain back on its Pages project");
-    expect(needsOf(attach)).toEqual(["plan"]);
-    expect(attach.if).toBe("needs.plan.outputs.attach != ''");
-    expect(environmentOf(attach)).toBe("production");
-    expect(attach.env).toBeUndefined();
-    const steps = stepsOf(attach);
-    expect(steps.flatMap((step) => (step.uses === undefined ? [] : [step.uses]))).toEqual([
-      "actions/checkout@v4",
-      "oven-sh/setup-bun@v2",
-    ]);
-    expect(steps.filter((step) => /\bbun install\b/.test(step.run ?? ""))).toEqual([]);
-    const holding = steps.filter((step) => JSON.stringify(step).includes("secrets."));
-    expect(holding.map((step) => step.id)).toEqual(["attach"]);
-    expect(holding[0]?.env).toEqual({
-      ATTACH: "${{ needs.plan.outputs.attach }}",
-      CLOUDFLARE_ACCOUNT_ID: "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
-      CLOUDFLARE_PAGES_DNS_TOKEN: "${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}",
-    });
-    const ran = runStep(holding[0]!, { ATTACH: "cire_vendor" });
-    expect(ran.bunCalls).toEqual(["run scripts/pages-domain.ts attach cire_vendor"]);
-    expect(runStep(holding[0]!, { ATTACH: "cire_vendor" }, 1).exitCode).not.toBe(0);
-    // An attach release ships nothing else.
-    expect(runs(attach, { attach: "cire_vendor" }, { plan: "success" })).toBe(true);
-    expect(runs(attach, { attach: "" }, { plan: "success" })).toBe(false);
-    expect(runs(attach, { attach: "cire_vendor" }, { plan: "failure" })).toBe(false);
-  });
-});
-
 describe("PW-D: a job that holds a credential and installs a narrower tree than the sites job restores no dependency cache", () => {
   // Jobs holding no secret write the shared cache; a narrower tree would
   // take from it packages its own install never fetched.
@@ -1987,16 +1892,11 @@ describe("PW-F: a Pages job's credentials reach its deploy alone", () => {
       const job = production.jobs[s.production.id]!;
       expect(job.env).toBeUndefined();
       const holding = stepsOf(job).filter((step) => JSON.stringify(step).includes("secrets."));
-      const ensure = 'bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh"';
       expect(
         holding.map((step) =>
-          step.run?.startsWith(ensure) === true
-            ? "ensure the project"
-            : step.run?.startsWith("bunx wrangler pages deploy ") === true
-              ? "deploy"
-              : step.run,
+          step.run?.startsWith("bunx wrangler pages deploy ") === true ? "deploy" : step.run,
         ),
-      ).toEqual(s.key === "osn_social" ? ["ensure the project", "deploy"] : ["deploy"]);
+      ).toEqual(["deploy"]);
       for (const step of holding) expect(step.env).toEqual(PRODUCTION_CREDENTIALS);
     },
   );

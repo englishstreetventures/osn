@@ -249,12 +249,11 @@ describe("a surface whose production deploy never ran", () => {
           "any_site",
           "any_stack",
           "stacks",
-          "attach",
         ].toSorted(),
       );
-      const { stacks, attach, ...flags } = outputs;
+      const { stacks, ...flags } = outputs;
       expect(Object.values(flags).every((value) => value === "false")).toBe(true);
-      expect({ stacks, attach }).toEqual({ stacks: "", attach: "" });
+      expect(stacks).toBe("");
       // Nothing ships, so no dev record is read.
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
@@ -1478,7 +1477,6 @@ describe("what the plan job writes", () => {
         "any_site",
         "any_stack",
         "stacks",
-        "attach",
       ]);
       expect(plan.summary).toContain("musubi_landing");
       expect(plan.summary).not.toContain("pulse_landing");
@@ -1491,7 +1489,7 @@ describe("what the plan job writes", () => {
     );
   });
 
-  test("RP7: one line per surface and production stack, then any, any_site, any_stack, stacks and attach", async () => {
+  test("RP7: one line per surface and production stack, then any, any_site, any_stack and stacks", async () => {
     const lines = outputLines(release(decide(["osn/api/x.ts"])))
       .trim()
       .split("\n");
@@ -1503,7 +1501,6 @@ describe("what the plan job writes", () => {
       "any_site=false",
       "any_stack=false",
       "stacks=",
-      "attach=",
     ]);
     expect(parseOutputs(outputLines(release(decide([]))))).toMatchObject({ any: "false" });
     // A stack-path change ships both stacks on their own records, and of the
@@ -1910,45 +1907,8 @@ describe("a production stack ships on its own record", () => {
 
 // ── moving a domain back ────────────────────────────────────────────────────
 
-describe("attach", () => {
-  test("RP9: an attach names one site with a Pages project and nothing else, and ships nothing", () => {
-    expect(parseRequest("", "false", "cire_host")).toEqual({
-      surfaces: [],
-      force: false,
-      attach: "cire_host",
-    });
-    for (const [surfaces, force, attach, message] of [
-      ["", "", "musubi_landing", "not a site with a Pages project"],
-      ["", "", "cire_api", "not a site with a Pages project"],
-      ["cire_host", "", "cire_host", "leave SURFACES and FORCE empty"],
-      ["", "true", "cire_host", "leave SURFACES and FORCE empty"],
-    ] as const) {
-      expect(() => parseRequest(surfaces, force, attach)).toThrow(message);
-    }
-  });
-
-  test("RP9: an attach release ships nothing whatever changed, reads no record, and asks one approval", async () => {
-    await withRepo(async (repo) => {
-      const a = await commit(repo, { "shared/infra/src/x.ts": "1" });
-      const b = await commit(repo, { "shared/infra/src/x.ts": "2", "cire/host/a.ts": "2" });
-      const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]);
-      const plan = await runReleasePlan({
-        env: env(b, { ATTACH: "cire_host", FORCE: "false" }),
-        fetch: github.fetch,
-        cwd: repo,
-      });
-      const { attach, stacks, ...flags } = parseOutputs(plan.outputs);
-      expect({ attach, stacks }).toEqual({ attach: "cire_host", stacks: "" });
-      expect(Object.values(flags).every((value) => value === "false")).toBe(true);
-      expect(github.calls).toEqual([]);
-      expect(plan.summary).toContain(
-        "Attach release: `cire_host`'s domain goes back on its Pages project",
-      );
-      expect(plan.summary).toContain("One approval: the attach job.");
-    });
-  });
-
-  test("RP18: FLIP and UNFLIP are read by nothing: a release with them set plans as one without", async () => {
+describe("retired inputs", () => {
+  test("RP18: FLIP, UNFLIP and ATTACH are read by nothing: a release with them set plans as one without", async () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "cire/vendor/src/a.ts": "1" });
       const b = await commit(repo, { "cire/vendor/src/a.ts": "2" });
@@ -1959,7 +1919,12 @@ describe("attach", () => {
         cwd: repo,
       });
       const moved = await runReleasePlan({
-        env: env(b, { SURFACES: "cire_vendor", FLIP: "cire_vendor", UNFLIP: "cire_host" }),
+        env: env(b, {
+          SURFACES: "cire_vendor",
+          FLIP: "cire_vendor",
+          UNFLIP: "cire_host",
+          ATTACH: "cire_landing",
+        }),
         fetch: fakeGitHub(records).fetch,
         cwd: repo,
       });
@@ -1967,6 +1932,7 @@ describe("attach", () => {
       expect(moved.summary).toBe(plain.summary);
       expect(Object.keys(parseOutputs(moved.outputs))).not.toContain("flip");
       expect(Object.keys(parseOutputs(moved.outputs))).not.toContain("unflip");
+      expect(Object.keys(parseOutputs(moved.outputs))).not.toContain("attach");
       expect(parseOutputs(moved.outputs)).toMatchObject({
         stack_cire: "true",
         cire_vendor: "true",

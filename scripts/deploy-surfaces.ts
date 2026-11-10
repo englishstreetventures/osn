@@ -129,8 +129,8 @@ const isSite = (key: SurfaceKey): key is SiteSurface => SITE_SURFACES.some((site
 
 /**
  * A site's production deploy at its mode in PRODUCTION_SITE_MODES: none while
- * off; its Pages job while staged, since that job still serves the host; its
- * record job once its Worker does.
+ * off; its record job once its Worker serves its host; while staged, a Pages
+ * job, which no release runs: englishstreetventures/osn#2196 removes the mode.
  */
 function siteDeploy(
   key: SiteSurface,
