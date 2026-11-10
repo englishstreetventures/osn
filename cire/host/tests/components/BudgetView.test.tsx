@@ -513,6 +513,62 @@ describe("BudgetView — per-head lines", () => {
     expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
+
+  // Closing the panel from a control inside it takes that control out of the
+  // document. Focus goes back to the toggle that opened it, not to the page.
+  it("puts focus back on the toggle when Cancel closes the panel", async () => {
+    setCachedBudget("wed_1", snap({ items: [row()], events: EVENTS }));
+    authFetch.mockReturnValue(new Promise(() => {}));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    const toggle = screen.getByRole("button", { name: "per head" });
+    fireEvent.click(toggle);
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    cancel.focus();
+    fireEvent.click(cancel);
+    expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("puts focus on the rebuilt line's toggle when a save closes the panel", async () => {
+    const fixed = row({ unitPriceMinor: null, headcount: null, estimateMinor: 900 });
+    setCachedBudget("wed_1", snap({ items: [fixed], events: EVENTS }));
+    authFetch.mockResolvedValueOnce(
+      json({ item: row({ unitPriceMinor: 2_000, headcount: { expected: 40, confirmed: 10 } }) }),
+    );
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    const before = screen.getByRole("button", { name: "per head" });
+    fireEvent.click(before);
+    fireEvent.input(screen.getByLabelText(/Price per head \(AUD\)/), { target: { value: "20" } });
+    const save = screen.getByRole("button", { name: "Save" });
+    save.focus();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument());
+    const after = screen.getByRole("button", { name: "per head" });
+    // The returned row rebuilt the line, toggle and all.
+    expect(after).not.toBe(before);
+    expect(document.activeElement).toBe(after);
+  });
+
+  it("leaves focus where it went while a save was on its way", async () => {
+    const fixed = row({ unitPriceMinor: null, headcount: null, estimateMinor: 900 });
+    setCachedBudget("wed_1", snap({ items: [fixed], events: EVENTS }));
+    let answer!: (res: Response) => void;
+    authFetch.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Dinner");
+    fireEvent.click(screen.getByRole("button", { name: "per head" }));
+    fireEvent.input(screen.getByLabelText(/Price per head \(AUD\)/), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const item = screen.getByRole("textbox", { name: "Item" });
+    item.focus();
+
+    answer(json({ item: row({ unitPriceMinor: 2_000 }) }));
+    await waitFor(() => expect(screen.queryByTestId("per-head-panel")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(item);
+  });
 });
 
 /**
@@ -922,5 +978,29 @@ describe("BudgetView — a payment's paid box", () => {
     expect(box).toBeDisabled();
     fireEvent.click(box);
     expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  // A payment's ✕ removes the row it sits in. Focus moves on to what came
+  // after that row, the next payment's box and then the label field, rather
+  // than falling to the page.
+  it("moves focus on from a deleted payment to the next one, then to the label field", async () => {
+    const balance = { ...payment, id: "p2", label: "Balance", createdAt: 3 };
+    setCachedBudget("wed_1", snap({ items: [item], payments: [payment, balance] }));
+    authFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: "payments (2)" }));
+
+    let [cross] = screen.getAllByRole("button", { name: "Delete payment" });
+    cross!.focus();
+    fireEvent.click(cross!);
+    expect(screen.queryByRole("checkbox", { name: "Deposit paid" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Balance paid" }));
+
+    [cross] = screen.getAllByRole("button", { name: "Delete payment" });
+    cross!.focus();
+    fireEvent.click(cross!);
+    expect(screen.queryByRole("button", { name: "Delete payment" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Payment label" }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
   });
 });

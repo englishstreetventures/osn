@@ -18,7 +18,7 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import {
@@ -84,6 +84,9 @@ export default function BudgetView(props: BudgetViewProps) {
   const [newPerHead, setNewPerHead] = createSignal(false);
   const [expanded, setExpanded] = createSignal<string | null>(null);
   const [perHeadOpen, setPerHeadOpen] = createSignal<string | null>(null);
+  /** Each line's "per head" toggle, by item id. A save rebuilds the line,
+   *  toggle and all, so focus finds the new one here, not through the old line. */
+  const perHeadToggles = new Map<string, HTMLButtonElement>();
 
   const budgetUrl = () => apiUrl(weddingPath(props.weddingId, "/budget"));
   const currency = () => snapshot()?.currency ?? "AUD";
@@ -261,13 +264,25 @@ export default function BudgetView(props: BudgetViewProps) {
         ...s,
         items: s.items.map((it) => (it.id === updated.id ? updated : it)),
       }));
-      setPerHeadOpen(null);
+      closePerHead(item.id);
       haptic("commit");
     } catch {
       haptic("reject");
       setError(failure);
       void reload();
     }
+  };
+
+  /** Closes a line's per-head panel. When that takes the focused control out of
+   *  the document (Cancel, Save, "Use a fixed amount", or a save rebuilding the
+   *  line), focus goes back to the line's toggle instead of falling to the page.
+   *  Focus the organiser moved elsewhere while a save was out stays put. */
+  const closePerHead = (itemId: string) => {
+    setPerHeadOpen(null);
+    const active = document.activeElement;
+    const lost = active === null || active === document.body || !active.isConnected;
+    const toggle = perHeadToggles.get(itemId);
+    if (lost && toggle?.isConnected) toggle.focus();
   };
 
   const savePerHead = (item: BudgetItemRow, perHead: PerHeadChange) =>
@@ -692,6 +707,11 @@ export default function BudgetView(props: BudgetViewProps) {
                                     // Non-null: rendered inside the DragDropProvider above.
                                     const [dndState] = useDragDropContext()!;
                                     const sortableItem = reorder.item(item.id, i, count);
+                                    let perHeadToggle: HTMLButtonElement | undefined;
+                                    onCleanup(() => {
+                                      if (perHeadToggles.get(item.id) === perHeadToggle)
+                                        perHeadToggles.delete(item.id);
+                                    });
                                     return (
                                       <li
                                         ref={sortable.ref}
@@ -768,6 +788,10 @@ export default function BudgetView(props: BudgetViewProps) {
                                           </Button>
                                           <Show when={props.canEdit && perHeadSupported()}>
                                             <Button
+                                              ref={(el: HTMLButtonElement) => {
+                                                perHeadToggle = el;
+                                                perHeadToggles.set(item.id, el);
+                                              }}
                                               variant="bare"
                                               type="button"
                                               aria-expanded={perHeadOpen() === item.id}
@@ -809,7 +833,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                               currency={currency()}
                                               onSave={(change) => void savePerHead(item, change)}
                                               onUseFixed={() => void useFixedAmount(item)}
-                                              onCancel={() => setPerHeadOpen(null)}
+                                              onCancel={() => closePerHead(item.id)}
                                             />
                                           </div>
                                         </Reveal>
@@ -900,6 +924,7 @@ function PaymentPanel(props: {
   const [label, setLabel] = createSignal("");
   const [amount, setAmount] = createSignal("");
   const [due, setDue] = createSignal("");
+  let labelField: HTMLInputElement | undefined;
   const submit = (e: Event) => {
     e.preventDefault();
     if (!props.onAdd(props.item, label(), amount(), due())) return;
@@ -907,11 +932,25 @@ function PaymentPanel(props: {
     setAmount("");
     setDue("");
   };
+  /** Deleting a payment removes the row its ✕ sits in. If focus is in that
+   *  row, it moves first to what follows: the next payment's box, or the label
+   *  field once no payment follows. */
+  const remove = (p: PaymentRow, cross: HTMLElement) => {
+    const row = cross.closest("[data-payment]");
+    if (row?.contains(document.activeElement)) {
+      const next = row.nextElementSibling;
+      const box = next?.hasAttribute("data-payment")
+        ? next.querySelector<HTMLInputElement>('input[type="checkbox"]')
+        : null;
+      (box ?? labelField)?.focus();
+    }
+    props.onDelete(props.item, p);
+  };
   return (
     <div class="border-border/60 ml-2 flex flex-col gap-2 border-l pl-3">
       <For each={props.payments}>
         {(p) => (
-          <div class="text-ui-sm flex flex-wrap items-center gap-2">
+          <div data-payment class="text-ui-sm flex flex-wrap items-center gap-2">
             <Checkbox
               box="native"
               size="sm"
@@ -934,7 +973,7 @@ function PaymentPanel(props: {
                 variant="bareDanger"
                 type="button"
                 aria-label="Delete payment"
-                onClick={() => props.onDelete(props.item, p)}
+                onClick={(e) => remove(p, e.currentTarget)}
               >
                 ✕
               </Button>
@@ -948,6 +987,7 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
+                ref={labelField}
                 size="form-compact"
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
