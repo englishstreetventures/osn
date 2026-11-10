@@ -1,5 +1,79 @@
 # @tools/lab
 
+## 0.3.43
+
+### Patch Changes
+
+- 3abdb2b: `Button` gains two opt-in props; a button that uses neither draws as before.
+
+  `variant="link" size="inline"` is a link set inside a sentence: underlined at
+  rest, in the sentence's own size, line height and weight, adding no height to
+  the line. An `<a>` wearing `buttonVariants({ variant: "link", size: "inline" })`
+  wraps with the text, and its focus ring closes round each line. A standalone
+  `link` still underlines on hover only.
+
+  `busy` marks a wait the button started. While busy it keeps keyboard focus, sets
+  `aria-busy` and `aria-disabled`, refuses activation (a click, Enter, Space, and
+  the form submission they would make, with or without an `onClick`), dims as a
+  disabled button does except while focused from the keyboard, where it stays at
+  full strength so its focus ring keeps its contrast, and draws the 20px `Orb`
+  before the label the caller passes. The orb loads as a chunk of its own,
+  fetched only by a page holding a `Button` that carries a `busy` prop.
+
+  `ButtonProps` is now a union: `inline` goes with `link` only, and `busy` is not
+  accepted at `icon` or `inline`. A caller holding a variant and a size in
+  variables narrows them per member. The box classes (`inline-flex`, gap, no
+  wrap, type step, weight) move from the base string into each box size; every
+  existing variant and size keeps the same class set, except that `sm` drops the
+  `text-ui-base` its own `text-ui-sm` overrode. No computed style changes.
+
+  The lab's `shared/ui/Button` gains `Inline` and `Busy` stories, and its
+  Playground a `busy` control.
+
+- bceeafe: `Field` takes `labelTreatment`, `"caps"` by default or `"plain"`. A field that
+  does not pass it draws exactly as before, so cire's forms do not change.
+
+  `plain` draws the label as `Label` draws it by default: the words as written,
+  full ink, weight 500, the control type step. The hint, the errors, the gaps and
+  the wiring (`id`, `aria-describedby`, `aria-invalid`) are the same in both, and
+  `labelHidden` wins over either. `Label` and the plain label take their classes
+  from one file, `label-classes.ts`, so the two cannot drift; `Label` draws as
+  before.
+
+  `Field` now reads its `hint` once and holds it, so a hint written as JSX is
+  built once rather than on every read. It still follows a hint that changes or
+  goes away, and the DOM it draws is unchanged.
+
+  The lab's `shared/ui/forms` gains `PlainLabels` and `FieldPlayground`.
+
+- 4ce452e: Add `Orb` (`@shared/ui/ui/orb`): a dotted sphere drawn into a canvas that moves
+  while something is in progress, in one of nine states at 20 or 64px. Its ink
+  is the text colour it inherits, so it reads on whatever ground that text is set
+  for. It moves for five seconds at most, then holds one still frame; it holds
+  that frame from the start under `prefers-reduced-motion: reduce` and follows a
+  change of that preference. It stops drawing off screen and in a hidden tab,
+  keeps every orb on one animation loop and one clock, sizes its bitmap from the
+  box it measures, and caps it at two device pixels per CSS pixel. The canvas is `aria-hidden`; it
+  belongs inside a control whose own label says what is happening. `Button`'s
+  `busy` draws it.
+
+  The drawing engine is upstream's thinking-orbs engine (MIT), vendored byte for
+  byte into `shared/ui/vendor/thinking-orbs/` at a pinned commit. The export
+  points TypeScript at a types-only `src/ui/orb-api.ts`, so a consumer's type
+  check never reads the engine.
+
+  The lab gains `shared/ui/Orb` (`States`, `InButtons`, `Playground`) and an
+  `Orb` row on the `shared/ui` overview.
+
+  `scripts/verify-vendored-anti-slop.sh` becomes `scripts/verify-vendored.sh
+  <tree> [base-ref] [repo-root]`, which checks any vendored tree; CI's
+  `script-tests` job runs it on every tree `scripts/vendored-trees.txt` lists.
+
+- Updated dependencies [3abdb2b]
+- Updated dependencies [bceeafe]
+- Updated dependencies [4ce452e]
+  - @shared/ui@0.12.0
+
 ## 0.3.42
 
 ### Patch Changes
