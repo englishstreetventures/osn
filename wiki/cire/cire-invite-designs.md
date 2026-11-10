@@ -924,10 +924,10 @@ own times, the same at a desk as on a phone, each scaled by `--motion-scale`:
 | Step | classic | gala |
 |---|---|---|
 | The code form fades out and lifts | 350ms, `ease-in`, 12px | 300ms, `ease-in`, 8px |
-| The welcome fades in, rising | 500ms, `--ease-out`, from 16px below | 400ms, `cubic-bezier(0.16, 1, 0.3, 1)`, from 10px below |
+| The welcome fades in, rising | 500ms, `--ease-out`, from 16px below | 400ms, `--ease-out`, from 10px below |
 | Its heading shimmers, alongside: opacity through four values on one ease-in-out | 1.2s, 0.4, 1, 0.85, 1 | 1s, 0.5, 1, 0.9, 1 |
 | The beat between the welcome's start and the events' | 200ms | 150ms |
-| The events section fades in, rising | 500ms, `--ease-out`, from 32px below | 400ms, gala's curve, from 20px below |
+| The events section fades in, rising | 500ms, `--ease-out`, from 32px below | 400ms, `--ease-out`, from 20px below |
 | Card *n* (from 0) fades in, rising, after a delay | 450ms from 24px below, 150ms + *n* × 120ms | 350ms from 16px below, 100ms + *n* × 80ms |
 
 Under reduced motion the sequence starts no step and lands on the end state at

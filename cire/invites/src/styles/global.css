@@ -677,8 +677,8 @@
  * are a stagger, and the beat before the events is a time script waits out
  * (each pack's `UnlockReveal.motion.ts`), the three cases in which a time is
  * kept (wiki/conventions/house-lint-rules.md §Literal motion). Each scales
- * with `--motion-scale`. Classic's rises take the house `--ease-out`; gala's
- * take a steeper curve of their own.
+ * with `--motion-scale`. Every rise, in both packs, is something arriving, so
+ * it runs on `--ease-out`.
  *
  * Reduced motion: the sequence sets no mark and lands on the end state at
  * once, and the clamp below would end any of these at once regardless. */
@@ -700,7 +700,6 @@
   --unlock-card-y: 24px;
   --unlock-card-start: calc(150ms * var(--motion-scale));
   --unlock-card-step: calc(120ms * var(--motion-scale));
-  --unlock-rise-ease: var(--ease-out);
 }
 
 [data-unlock-pack="gala"] {
@@ -717,7 +716,6 @@
   --unlock-card-y: 16px;
   --unlock-card-start: calc(100ms * var(--motion-scale));
   --unlock-card-step: calc(80ms * var(--motion-scale));
-  --unlock-rise-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-unlock="leave"] {
@@ -726,18 +724,18 @@
 
 [data-unlock="welcome"] {
   --unlock-y: var(--unlock-welcome-y);
-  animation: unlock-rise var(--unlock-welcome-time) var(--unlock-rise-ease) both;
+  animation: unlock-rise var(--unlock-welcome-time) var(--ease-out) both;
 }
 
 [data-unlock="section"] {
   --unlock-y: var(--unlock-section-y);
-  animation: unlock-rise var(--unlock-section-time) var(--unlock-rise-ease) both;
+  animation: unlock-rise var(--unlock-section-time) var(--ease-out) both;
 }
 
 /* `--unlock-i` is the card's place in the list, which the sequence sets. */
 [data-unlock="card"] {
   --unlock-y: var(--unlock-card-y);
-  animation: unlock-rise var(--unlock-card-time) var(--unlock-rise-ease)
+  animation: unlock-rise var(--unlock-card-time) var(--ease-out)
     calc(var(--unlock-card-start) + var(--unlock-i, 0) * var(--unlock-card-step)) both;
 }
 

@@ -56,9 +56,8 @@ function bezier(x1: number, y1: number, x2: number, y2: number): Curve {
 
 const EASE_IN = bezier(0.42, 0, 1, 1);
 const EASE_IN_OUT = bezier(0.42, 0, 0.58, 1);
-/** The house `--ease-out`. */
+/** The house `--ease-out`, which every rise in both packs runs on. */
 const HOUSE_OUT = bezier(0.22, 1, 0.36, 1);
-const GALA_OUT = bezier(0.16, 1, 0.3, 1);
 
 /**
  * One element's motion. The curve eases the whole tween, and the opacity
@@ -101,13 +100,13 @@ const MODELS: Record<"classic" | "gala", PackModel> = {
   },
   gala: {
     leave: { duration: 300, ease: EASE_IN, opacity: [1, 0], y: [0, -8] },
-    welcome: { duration: 400, ease: GALA_OUT, opacity: [0, 1], y: [10, 0] },
+    welcome: { duration: 400, ease: HOUSE_OUT, opacity: [0, 1], y: [10, 0] },
     shimmer: { duration: 1000, ease: EASE_IN_OUT, opacity: [0.5, 1, 0.9, 1] },
-    section: { duration: 400, ease: GALA_OUT, opacity: [0, 1], y: [20, 0] },
+    section: { duration: 400, ease: HOUSE_OUT, opacity: [0, 1], y: [20, 0] },
     card: (i) => ({
       duration: 350,
       delay: 100 + 80 * i,
-      ease: GALA_OUT,
+      ease: HOUSE_OUT,
       opacity: [0, 1],
       y: [16, 0],
     }),
