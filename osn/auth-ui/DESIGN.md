@@ -23,10 +23,8 @@ types.
 **Hosts today.** `@musubi/social` is the one workspace that depends on the
 package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
-Five views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
-(#2056), `ProfileSwitcher` (#2045), and `CheckEmailView` and `ConfirmLinkPage`
-(#2085). Only their tests render them, and `CheckEmailView` and
-`ConfirmLinkPage` their lab stories too (§11).
+Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
+(#2056) and `ProfileSwitcher` (#2045). Only their tests render them.
 
 **What a host supplies.**
 
@@ -665,8 +663,8 @@ no product.
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
-- Going back: Cancel, Back, "Back to sign in", "← Use a different email"
-  (`Register`), "Use a different email" (`CheckEmailView`), "Start again".
+- Going back: Cancel, Back, "Back to sign in", "Use a different email"
+  (`CheckEmailView`), "Start again".
 - Saying no: "I didn't ask for this" (`ConfirmLinkPage`), answered by
   "Cancelled".
 
@@ -778,7 +776,7 @@ As built:
   tabular figures with its label read first). No flow reaches
   `ConfirmLinkPage` yet either;
   `musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx`
-  renders it on a bare route in Chromium and holds, at 320px, five six-digit
+  renders `ConfirmLinkPage` on a bare route and holds, at 320px, five six-digit
   numbers and a long address with nothing to scroll sideways, and at 320px and
   1280px the numbers one under another, at least 44px tall in 24px tabular
   figures, the decline and Try again at 44px below `md`, the error notice above

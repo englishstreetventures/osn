@@ -376,6 +376,21 @@ authenticator's setup, a step-up's code): a fade would only hold back what the
 reader is waiting for, and the jump in height it leaves could be bridged only
 by spatial motion.
 
+On the emailed-link page (`/verify/:requestId`) the loaded shape is the whole
+card, so the placeholder is one `Skeleton` standing for a card
+(`ResponsiveSkeleton`), at the ready card's height with five numbers on a 360–430px phone and on desktop:
+552px below `md` and 520px from it (138 and 130 spacing steps). The product name above
+it stays put when the card arrives. Meanwhile the page's live region says
+"Checking this link…".
+
+*Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
+Chromium (Vitest browser tier, `ConfirmLinkPage` with five numbers, Musubi's
+`App.css`): 568.9px at 320px wide; 550.7px at 360, 375, 390, 414 and 430px;
+532.5px at 600px; 520.5px at 768 and 1280px. At 320×640 the column is taller
+than the screen either way, so the name does not move;
+`tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
+390×844 and 1280×800.*
+
 Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
 sheet), Popover and default menu run the shared overlay motion. They fade and
 scale from 96% as they open and to 98% as they close (`zoom-in`, `zoom-out`),
@@ -430,10 +445,12 @@ following it, its one motion that is not a colour or opacity change.
 - **Page title** = the page's `h1` text, then " · Musubi" ("Discover ·
   Musubi"), set by `usePageTitle` (`src/lib/page-title.ts`); "Musubi" alone
   while the head is unknown. An organisation's page names the organisation
-  once it loads and "Organisations" until then, as its `h1` does. `/authorize`
-  keeps the plain "Musubi" from `index.html`.
-- `/authorize` = no shell; one centred column, `max-w-md px-6 py-10`, centred
-  vertically in the viewport.
+  once it loads and "Organisations" until then, as its `h1` does. The bare
+  routes, `/authorize` and `/verify/:requestId`, keep the plain "Musubi" from
+  `index.html`.
+- Bare routes (`/authorize`, `/verify/:requestId`) = no shell; one centred
+  column, `max-w-md px-6 py-10`, centred vertically in the viewport.
+  `/verify/:requestId` sets the product name above its card, `gap-6` apart.
 
 ## Responsive layout
 
@@ -502,8 +519,9 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
   `active:` classes for touch feedback. A full-width pill that is a page's
-  one next step, such as the emailed-link confirm page's Try again, draws it
-  at `size="lg"` with `max-md:h-11`: 40px from `md`, 44px below it. The
+  one next step, such as Try again on a bare route's card (`/authorize`, the
+  emailed-link page), draws it at `size="lg"` with `max-md:h-11`: 40px from
+  `md`, 44px below it. The
   numbers that page offers to pick from are full-width `outline` Buttons 48px
   tall at every width (`h-12`), and its "I didn't ask for this" a full-width
   `ghost` `sm` Button, 44px below `md`. Tab rows scroll (`overflow-x-auto`)
@@ -534,7 +552,8 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
-- The bare `/authorize` route renders with **no shell at any width**.
+- The bare routes, `/authorize` and `/verify/:requestId`, render with **no
+  shell at any width**.
 
 Where the app does not follow this yet:
 
@@ -614,6 +633,14 @@ Where the app does not follow this yet:
   never a "something went wrong, try again" beside the button. Uses: the
   profile list ("Your profiles didn't load.", `ShellNotices`), and the
   Security views' lists (§Auth surfaces).
+- **On a bare route**, whose one card is what failed to load (`/authorize`,
+  `/verify/:requestId`), the card offers its own Try again, so the line does
+  not say "Reload". The card is `Card` at `padding="lg"`, left-aligned: its
+  `h1`, then the line as an inline danger `Notice` with `alert`, the copy
+  map's sentence (`describeAuthError`), then Try again, full width at
+  `size="lg"` with `max-md:h-11`. On `/verify/:requestId`, Try again is busy
+  ("Checking…") while the read runs, the card stays up, and the page's live
+  region says the try and, when it fails again, the line.
 - **A page that throws while it renders** shows "This page didn't load." with
   "Try again" in the content column, inside the shell: `PageErrorBoundary`
   wraps each route, so the rail, the tab bar and the account banners stay
@@ -742,7 +769,7 @@ control the views draw by hand shows the base focus outline (§Borders,
 | `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
 | `SignIn`, `Register` | `/authorize`, in a bordered `rounded-card` frame under the client card; "No account yet? Create one" swaps to `Register` | `components/AuthorizeSignIn.tsx` |
 | `CheckEmailView` | Inside `Register`, once its link is sent | — |
-| `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column | `pages/VerifyEmailLinkPage.tsx` |
+| `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column. Its expired card also answers a link whose id names no flow | `pages/VerifyEmailLinkPage.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
 | `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-code step, when a site key is set | — |
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, the last under the app's own "Recovery codes" heading | `components/SecuritySection.tsx` (lazy) |
