@@ -161,8 +161,8 @@ declares as `--font-weight-ui-title: var(--ui-weight-title, 600)` in its
 the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
 fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
 those parts semibold. `@shared/ui`'s `Badge` reads it
-([[component-library]], §Variant components). No app maps it: pulse, musubi and
-the lab all draw a badge at 600. `shared/ui/tests/badge-default.browser.test.tsx`
+([[component-library]], §Variant components). No app maps it: pulse and the lab
+draw a badge at 600, and Musubi draws none. `shared/ui/tests/badge-default.browser.test.tsx`
 holds the unmapped badge's whole computed style, and pulse's
 `tests/styles/token-contract.browser.test.tsx` holds 600 under pulse's own
 stylesheet.

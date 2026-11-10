@@ -1212,7 +1212,7 @@ import { Input } from "@shared/ui/ui/input";
 `<OtpInput value onChange status disabled autofocus aria-labelledby aria-describedby>`
 takes a six-digit code, one digit per box, in
 [otp-input.tsx](../../shared/ui/src/ui/otp-input.tsx). `@osn/auth-ui` is its
-only caller, for every one-time code it asks for: sign-up (`Register`),
+only caller, for every six-digit code it asks for: sign-up (`Register`),
 recovery sign-in (`RecoveryLoginForm`), authenticator enrolment (`TotpView`),
 step-up (`StepUpDialog`) and an email change (`ChangeEmailForm`). Each ties its
 error line to the boxes and passes `error` only for a refused code
@@ -1399,7 +1399,10 @@ holds the skeletons and the content that replaces them carries `aria-busy`
 while it loads; that is the caller's. Its `class` carries the block's place
 only — a margin, a flex or grid placement. Width and height are always inline,
 the full width included, so a `w-*` or `h-*` passed there never resizes the
-block. No other prop reaches the block. That is a
+block. A row that is taller at one width takes one block per width, each
+hidden at the other (`md:hidden`, `max-md:hidden`): whether a block takes a
+place is placement, and Musubi's `ResponsiveSkeleton` draws the pair. No other
+prop reaches the block. That is a
 deliberate exception to step 2 of §Adding a new component (`splitProps`,
 `...others`, `SafeProps<"div">`), as `Meter` is: no role, handler, title or
 child should be able to turn a placeholder into something a reader reaches.

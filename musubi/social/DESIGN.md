@@ -543,12 +543,29 @@ Where the app does not follow this yet:
   row is `row`, a card `card`, a heading or a status line `line`. It fills
   with the sunk well (`--muted`), pulses in opacity, and stands still under
   reduced motion. Never a "Loading…" line and never a block drawn by hand.
-  The region that holds the placeholders and the content that replaces them
+  A row whose buttons grow to the touch height below `md` (§Responsive
+  layout) is taller on a phone, so its placeholder is
+  `src/components/ResponsiveSkeleton.tsx`: one block per width, each hidden
+  at the other, since `Skeleton` takes one height. Rows: a connection or a
+  member with Remove 56px and 60px below `md`, a Discover card 114px and
+  126px, a connected app 62px and 66px; an organisation card is 74px at
+  both. A placeholder list takes the gap of the list it stands for. Words
+  that do not load stay on screen: Connected apps' lead paragraph is the
+  page's, outside the section's `Suspense`, so only its list is a
+  placeholder. The region that holds the placeholders and the content that replaces them
   carries `aria-busy` while it loads; a `Suspense` fallback, which no element
   outlives, carries it on its own wrapper and takes it away with it
   (Settings' Security and Connected apps tabs, `/authorize`'s sign-in frame).
-  `/authorize`'s takes the shape of the half of the panel that leads: sign-up's
-  four fields for `reason=create`, sign-in's one otherwise. A list a person
+  `/authorize`'s takes the shape of the half of the panel that leads:
+  sign-up's heading beside Cancel and its four fields for `reason=create`;
+  sign-in's heading, one field, Continue, "Lost your passkey?" and the
+  "Create one" line otherwise, at the panel's `max-w-sm`. Words that wrap
+  stay words there, so they wrap where the panel's do: the heading, and the
+  date of birth's hint; labels, fields and buttons are blocks. Two browser
+  tests hold every placeholder's height against what lands, at 320 and
+  1440px, and `/authorize`'s at 390 too
+  (`tests/components/LoadingShapes.browser.test.tsx`,
+  `tests/components/AuthorizeLoading.browser.test.tsx`). A list a person
   acts on keeps its rows on screen while it is read again (Connected apps
   after a revoke, the passkey list after a delete), and a row that may be gone
   is not one anyone can act on: its action stays busy or disabled until the
@@ -680,7 +697,9 @@ default look (the control step, 14px, at 500, full ink, the words as written)
   label/value pair (Settings' Profile and Account cards, a muted `sm` `Label`
   over a disabled value). The code boxes (`OtpInput`) take a span in the label's
   look 6px above them, its id the boxes' `aria-labelledby`: `Field`'s
-  `<label for>` names one control, and the boxes are a group.
+  `<label for>` names one control, and the boxes are a group. `Register`'s
+  code step has none, since its sentence leads the step, and its group keeps
+  `OtpInput`'s own name (`osn/auth-ui/DESIGN.md` §4).
 
 Uses in the app: the create-organisation dialog (Handle, with its hint; Name;
 Description) and the edit dialog (Name, Description); in the auth views, every

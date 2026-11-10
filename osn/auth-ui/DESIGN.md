@@ -111,7 +111,7 @@ paints `ui-danger` through the contract (§7).
 | Meta lines (dates, "(synced)") | `text-xs` | the list rows, the banner |
 | Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
 | Names in a row | `font-medium` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
-| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key. Every one-time code is typed into `OtpInput`'s boxes, at the contract's `text-ui-md` |
+| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key. Every six-digit code is typed into `OtpInput`'s boxes, at the contract's `text-ui-md`. `RecoveryLoginForm`'s recovery code, 16 characters in four groups, is an `Input` in a `Field` |
 
 The `@shared/ui` parts inside the views (Button, Field, Input, Label,
 OtpInput, Card and Dialog titles) take the contract steps.
@@ -145,7 +145,10 @@ As built:
   under the heading, 8px below it, when the two do not fit on one line
   ("Add an authenticator app" at 320px); then the list,
   each row a bordered `rounded-md` box with a name, a meta line and `outline`
-  `sm` actions. `RecoveryCodesView` draws no heading; its host gives it one.
+  `sm` actions. The name and meta line give way (`min-w-0 flex-1`) and the name
+  breaks inside a word (`wrap-break-word`), so `PasskeysView`'s 64-character
+  name, or `SessionsView`'s device line, wraps and keeps the actions inside
+  the card at 320px. `RecoveryCodesView` draws no heading; its host gives it one.
   `TotpView`'s enrolment step is a bordered `rounded-md` `p-4` box at `md`
   and up, and drops the border and padding below `md`, so its code boxes
   take the panel's whole column on a phone (`musubi/social/DESIGN.md`
@@ -528,9 +531,10 @@ the "Signing in somewhere new?" summary in `PasskeysView` (#2045).
 host's utility (`musubi/social/src/App.css`), which leaves the outline out, so
 their focus mark lands at once.
 
-**Code boxes.** Every row of code boxes takes `OtpInput`'s `autofocus`, so focus
-is in box 1 as its step opens, and a refused code (`status` `error`) puts it
-back there. A refusal that says nothing about the code leaves focus where it
+**Code boxes.** Every row of code boxes that opens its step takes `OtpInput`'s
+`autofocus`, so focus is in box 1 as the step opens. `RecoveryLoginForm`'s
+authenticator step does not, since its handle or email field comes first. A
+refused code (`status` `error`) puts focus back in box 1 in every row. A refusal that says nothing about the code leaves focus where it
 was: on the busy button that sent it, which kept focus through the wait. Only
 `Register`'s code step is a form, where Enter in a box sends the code and the
 boxes disable for the check: Chromium drops focus to the page, and WebKit can
