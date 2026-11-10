@@ -707,7 +707,10 @@ export default function BudgetView(props: BudgetViewProps) {
                                         {/* Each part of the line carries 4px above,
                                             below and to its right, and the line's own
                                             padding is 4px less, so a line reads 8px in
-                                            from its edge with 8px between its parts.
+                                            from its top and bottom and 12px from its
+                                            sides, with 8px between its parts, as the
+                                            `px-3 py-2` row it replaced did, and a
+                                            payment's ✕ stays under the line's ✕.
                                             The room sits inside each part because a
                                             `Reveal` clips: there it holds the focus
                                             ring (2px wide, 2px out) of a control at the

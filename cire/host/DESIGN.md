@@ -297,7 +297,9 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   inside the centred `Modal`, the RSVP reply editor in its table cell or phone
   row, the colour area in its popover, a step card inside the import guide, a
   `Disclosure` set inside another box (`nested`);
-- a compact row (`px-3 py-2`) of text and glyphs — a budget line, a checklist
+- a compact row (`px-3 py-2`) of text and glyphs — a budget line (written as
+  `py-1 pr-2 pl-3` with 4px inside each part, because its panels open through
+  `Reveal`; see "A panel that opens inside a row" below), a checklist
   task, a registry item, a seat, a vendor, an FAQ entry — and the run sheet's
   bands and rows, whose coming-up wash is a table highlight;
 - a menu row's or a nav row's highlight — the command palette, every portal
