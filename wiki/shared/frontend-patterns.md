@@ -564,9 +564,11 @@ Two things about the box that clips:
 - **It keeps 4px of room.** The wrapper carries `p-1` inside a matching `-m-1`,
   so a focus outline 2px wide and 2px out at the content's edge is not cut and
   nothing moves. The row's box takes `min-w-0` as well as `min-h-0`, or a
-  scrolling track inside widens the column instead of scrolling. Closed, the
-  wrapper takes no pointer events: at opacity 0 its empty box paints over 4px
-  of each neighbour.
+  scrolling track inside widens the column instead of scrolling. The room
+  overlaps 4px of each neighbour, and while the wrapper is shut or fading in it
+  paints above them, so the wrapper never takes pointer events and the row
+  takes them back (`pointer-events-auto`): a tap on the bottom of the control
+  above lands on that control.
 
 *Measured 2026-11-11 — Chromium, `cire/invites`' RSVP sheet at 1280px, the
 dietary section's transitions paused at a tenth of their duration*

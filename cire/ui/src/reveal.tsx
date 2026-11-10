@@ -48,8 +48,9 @@ import { createMemo, Show, type JSX } from "solid-js";
  * The wrapper is 4px bigger than the content on every side, and a matching
  * negative margin keeps it in the content's place. The house focus outline is
  * 2px wide and 2px out, so a field or a pill at the content's edge keeps its
- * whole ring. Closed, the wrapper takes no pointer events: its empty box still
- * reaches 4px past each edge, and at opacity 0 it paints above its neighbours.
+ * whole ring. That room overlaps 4px of each neighbour, and while the wrapper
+ * is shut or fading in it paints above them, so the wrapper never takes
+ * pointer events: only the row inside it, which sits where the content does.
  */
 export interface RevealProps {
   /** Open when true. Also gates whether the children are in the document. */
@@ -79,22 +80,22 @@ export default function Reveal(props: RevealProps): JSX.Element {
   return (
     // `overflow-clip` rather than `hidden` so the hidden half of the content
     // cannot be scrolled to: both axes clip, so this is not a scroll
-    // container. `-m-1 p-1`: the ring's room.
+    // container. `-m-1 p-1`: the ring's room, which takes no taps.
     <div
-      class="-m-1 grid overflow-clip p-1 transition-[grid-template-rows,opacity] ease-out"
+      class="pointer-events-none -m-1 grid overflow-clip p-1 transition-[grid-template-rows,opacity] ease-out"
       classList={{
         "duration-(--dur-base,200ms)": props.pace !== "slow",
         "duration-(--dur-slow,320ms)": props.pace === "slow",
         "grid-rows-[1fr] opacity-100": open(),
-        "grid-rows-[0fr] opacity-0 pointer-events-none": !open(),
+        "grid-rows-[0fr] opacity-0": !open(),
       }}
     >
       {/* `min-h-0` so the row may resolve smaller than the content — a grid
           item's automatic minimum size is its content, which would pin the
           track open at `0fr`; `min-w-0` for the same reason across, or a
           scrolling track inside widens the column to every item in it instead
-          of scrolling. */}
-      <div class="min-h-0 min-w-0">
+          of scrolling. `pointer-events-auto` hands the content its taps back. */}
+      <div class="pointer-events-auto min-h-0 min-w-0">
         <Show when={open()}>{props.children}</Show>
       </div>
     </div>

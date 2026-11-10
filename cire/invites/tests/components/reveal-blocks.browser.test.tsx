@@ -271,6 +271,34 @@ describe("the dietary picker", () => {
     expectShut(wrapper);
   });
 
+  it("takes no tap meant for the answer above it, shut, opening or open", async () => {
+    // `Reveal`'s box reaches 4px past its content, over the bottom of the
+    // answer pair, and while it fades it paints above it.
+    const fieldset = mountSheet();
+    await settleSheet();
+    const answer = within(fieldset).getByText("Not attending").closest("button")!;
+    const tapsBottomEdge = () => {
+      const r = answer.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.bottom - 2);
+      return hit !== null && answer.contains(hit);
+    };
+    expect(tapsBottomEdge(), "shut").toBe(true);
+
+    fireEvent.click(within(fieldset).getByText("Attending"));
+    const wrapper = revealOf(dietaryGroup(fieldset)!);
+    await frame();
+    const running = wrapper.getAnimations();
+    for (const a of running) {
+      a.pause();
+      a.currentTime = Number(a.effect?.getTiming().duration ?? 0) / 2;
+    }
+    expect(tapsBottomEdge(), "halfway open").toBe(true);
+
+    for (const a of running) a.finish();
+    await frame();
+    expect(tapsBottomEdge(), "open").toBe(true);
+  });
+
   it("is simply open, with nothing moving, for a reply on file", async () => {
     const fieldset = mountSheet([
       {
