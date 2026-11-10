@@ -1,0 +1,174 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 2134,
+    "branch": "fix/musubi-call-sites",
+    "base_sha": "6a6bb4b5b07ee39071a0478bb8d5cb14ae33a280",
+    "head_sha": "e556cc62989ade23cb055f1a643a3264b6689e99",
+    "generated_at": "2026-11-10T01:33:26.918Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2039,
+    "type": null,
+    "labels": [
+      "complexity:3",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 7,
+    "first_ts": "2026-11-09T12:49:01.032Z",
+    "last_ts": "2026-11-10T01:33:21.808Z",
+    "span_seconds": 45861,
+    "active_seconds": 6299,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 61.03759659999999,
+    "tokens": {
+      "input": 1390,
+      "output": 463121,
+      "thinking": 211868,
+      "cache_write_5m": 2375931,
+      "cache_write_1h": 0,
+      "cache_read": 99724904
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1390,
+          "output": 463121,
+          "thinking": 211868,
+          "cache_write_5m": 2375931,
+          "cache_write_1h": 0,
+          "cache_read": 99724904
+        },
+        "usd_equivalent": 61.03759659999999,
+        "messages": 681
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 18,
+          "output": 2981,
+          "thinking": 1638,
+          "cache_write_5m": 110381,
+          "cache_write_1h": 0,
+          "cache_read": 65709
+        },
+        "usd_equivalent": 0.6378806,
+        "messages": 9
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1372,
+          "output": 460140,
+          "thinking": 210230,
+          "cache_write_5m": 2265550,
+          "cache_write_1h": 0,
+          "cache_read": 99659195
+        },
+        "usd_equivalent": 60.39971599999999,
+        "messages": 672
+      }
+    },
+    "effort": {
+      "medium": 9,
+      "xhigh": 479,
+      "high": 193
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 7,
+      "docs": 5,
+      "config": 1,
+      "source": 15
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 701,
+        "deleted": 49
+      },
+      "docs": {
+        "added": 137,
+        "deleted": 46
+      },
+      "config": {
+        "added": 1,
+        "deleted": 0
+      },
+      "source": {
+        "added": 283,
+        "deleted": 145
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 613,
+      "Read": 46,
+      "Edit": 23,
+      "Skill": 18,
+      "StructuredOutput": 13,
+      "Write": 8,
+      "ToolSearch": 5,
+      "Monitor": 3,
+      "TaskStop": 1,
+      "WebFetch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 6
+    },
+    "skills": {
+      "design-system": 4,
+      "new-feat": 2,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "review-docs": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "web-design-guidelines": 1,
+      "retro-v2": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 9,
+      "subagent": 672,
+      "with_tools": 680,
+      "with_one_tool": 637,
+      "context_median": 141264,
+      "context_p90": 262808
+    }
+  },
+  "review": null
+}
