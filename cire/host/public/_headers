@@ -26,8 +26,9 @@
   ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
 
-# The organiser portal is a STATIC Astro build on Cloudflare Pages, so the asset
-# layer serves every response and this file covers all of them. (The guest site
+# The organiser portal is a STATIC Astro build served from static assets (its
+# Worker, or its Pages project until the host moves), so the asset layer
+# serves every response and this file covers all of them. (The guest site
 # can't do that — it's an SSR Worker, which is why cire/invites carries its
 # policy in `src/lib/security-headers.ts` middleware as well. Nothing here needs
 # a middleware twin.)
