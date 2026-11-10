@@ -51,7 +51,7 @@ Five views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 | `SessionsView` | `client` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
 | `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
-| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
+| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
@@ -409,10 +409,10 @@ that asked."
 | Ready | "Confirm this email"; the flow's sentence; "Only confirm if you asked for this. If you didn't, choose “I didn't ask for this” below." (step-up: "If you didn't, someone else may be signed in to your account. Choose … below, then sign out your other sessions."); "Pick the number shown on the screen where you started." and the numbers; "I didn't ask for this" |
 | Ready, typed (`typeNumber`) | As Ready, but "Type the number shown on the screen where you started." labels one field for up to six digits, and Confirm, disabled until the field holds one to six digits, comes before "I didn't ask for this"; Enter in the field does what Confirm does |
 | Confirming | The same, every button disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…", "You typed {n}. Confirming…" or "Cancelling…"; after 10 seconds "This is taking longer than usual. Keep this page open." |
-| Error | The same, disabled (typed: Confirm gives way to Try again); "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again |
+| Error | The same, the numbers (typed: the field) disabled and Confirm gone, "I didn't ask for this" still open; "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again, which sends the same attempt, while the decline sends `null` as a new one |
 | Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
 | Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
-| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link." The same for every refusal, a list the page cannot offer included |
+| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link." (step-up adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions."). The same for every refusal, a list the page cannot offer included |
 
 **`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
 "Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
@@ -677,8 +677,8 @@ As built:
   state, every flow, a 320px phone, and the number at rest, on recovery and
   step-up, across a resend and on a phone; and for `ConfirmLinkPage`,
   `osn/auth-ui/ConfirmLinkPage` in `confirm-link-page.story.tsx`: one per
-  state, three and five numbers, the decline, an opening answer, every flow,
-  a 320px phone, and the typed field ready, confirming, after an error,
+  state, three and five numbers, the decline, step-up's expired page, an
+  opening answer, every flow, a 320px phone, and the typed field ready, confirming, after an error,
   refused and on a 320px phone. The other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
