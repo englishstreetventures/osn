@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-10
 ---
 
 # Component Library (Zaidan)
@@ -255,7 +255,10 @@ held to 4.5:1 on what it sits on, and a stronger wash darkens the ground under a
 coloured word on a pale theme. `cire/host/tests/styles/chip-contrast.browser.test.tsx`
 holds every tone, variant and treatment to 4.5:1 on cire's page and a card's
 wash, and the flags' tones on the run sheet's coming-up row, in both themes;
-filled `danger` reads 4.65:1 on cire's light page.
+filled `danger` reads 4.65:1 on cire's light page. Musubi draws only the
+outline neutral tag, whose word is `--ui-ink-secondary` on the page or a card
+with no ground of its own: `musubi/social/tests/styles/design-token-contract.test.ts`
+holds that ink at 4.5:1 on every ground and surface, in both themes.
 
 *Measured 2026-10-30 — the composite `cire/host/tests/styles/chip-contrast.browser.test.tsx` paints, read for a filled `danger` tag on the light page (headless Chromium)*
 

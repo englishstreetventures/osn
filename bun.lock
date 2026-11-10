@@ -352,6 +352,7 @@
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@shared/color": "workspace:*",
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",

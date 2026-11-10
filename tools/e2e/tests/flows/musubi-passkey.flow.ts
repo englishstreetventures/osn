@@ -5,10 +5,13 @@
  * load, add and remove an authenticator app behind passkey step-ups, keep the
  * session past its access token's expiry, list the connected apps, sign the
  * page out — and say so — when the issuer refuses to renew it, sign out a
- * reload that has no cookie, and sign in to Pulse through Musubi's
- * `/authorize`. Signed in, before the authenticator steps, it measures and
- * shoots Musubi's base styles and the notices the shell draws
- * (`musubi-surfaces.ts`).
+ * reload that has no cookie, sign in to Pulse through Musubi's `/authorize`,
+ * then open a third-party client's consent screen and leave it undecided.
+ * Signed in, before the authenticator steps, it measures and shoots Musubi's
+ * base styles and the notices the shell draws (`musubi-surfaces.ts`); signed
+ * out by the refused renewal, the signed-out note's Sign in; on Pulse's
+ * consent screen, its first-party mark and the chosen profile's name; on the
+ * third-party one, its "Third-party app" chip and its scope rows.
  *
  * The failures are made by answering one osn-api route in the page
  * (`refuse`), so no limiter or session on the stack is spent on them. Every
@@ -28,7 +31,7 @@
 
 import type { Request, Response, Route } from "@playwright/test";
 
-import { ORIGINS, PEOPLE, TURNSTILE_ORIGIN } from "../../src/config";
+import { ORIGINS, PEOPLE, THIRD_PARTY_OIDC, TURNSTILE_ORIGIN } from "../../src/config";
 import {
   addVirtualAuthenticator,
   cookieNamed,
@@ -38,7 +41,13 @@ import {
   test,
   totpCode,
 } from "../support/fixtures";
-import { musubiNotice, musubiSurfaces } from "../support/musubi-surfaces";
+import {
+  authorizeThirdPartySurfaces,
+  authorizeVerifiedSurfaces,
+  musubiNotice,
+  musubiSurfaces,
+  signedOutSurfaces,
+} from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
 
@@ -102,6 +111,9 @@ test.use({ turnstile: true });
 
 test("musubi-passkey", async ({ page, context, flow }) => {
   const authenticator = await addVirtualAuthenticator(page);
+  // The shell's Sign in, in the rail or the top bar: a signed-out page draws
+  // its own in its note as well.
+  const shellSignIn = () => page.locator("aside, header").getByRole("button", { name: "Sign in" });
   // The virtual authenticator answers a conditional-UI (autofill) request on
   // its own, which a person never does: it would sign in the moment the dialog
   // opens, racing the "@handle → Continue" path this flow drives. Report
@@ -203,7 +215,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   await flow.step("sign out", async () => {
     await page.getByRole("button", { name: `@${ada.handle}` }).click();
     await page.getByRole("menuitem", { name: "Log out" }).click();
-    await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+    await expect(shellSignIn()).toBeVisible();
   });
   flow.check(
     "session cookie cleared on sign-out",
@@ -219,7 +231,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     const handler = refuse("POST", 429, "rate_limited");
     await page.route(passkeyBegin, handler);
     try {
-      await page.getByRole("button", { name: "Sign in" }).first().click();
+      await shellSignIn().click();
       await identifierField.fill(`@${ada.handle}`);
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(dialogAlert).toContainText(WAIT);
@@ -288,7 +300,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
 
   // Signed in, after the check above has read the request log: the surfaces
   // reload the page for the legal routes, and each reload posts to /token.
-  await musubiSurfaces(flow, page);
+  await musubiSurfaces(flow, page, ada.name);
 
   const nav = page.getByRole("link", { name: "Settings" }).first();
   const profilesList = `${ORIGINS.osnApi}/profiles/list`;
@@ -491,7 +503,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await settingsTab("Profile").click();
     await settingsTab("Security").click();
     await expect(page.getByText("Sign in to manage your settings.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+    await expect(shellSignIn()).toBeVisible();
     await expect(signedOutNotice).toBeVisible();
   });
   flow.check(
@@ -508,6 +520,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   );
   flow.check("no Security GET sent after the refusal", 0, sum(securityGets()) - sentBefore);
   flow.check("the stored account is gone", "", await storedAccount());
+  await signedOutSurfaces(flow, page, "Sign in to manage your settings.");
 
   // A phone mounts the top bar in place of the rail; both open their dialogs
   // from one store, which the notice opens too.
@@ -564,7 +577,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
         signedInAccount,
       ] as const);
       await page.reload();
-      await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+      await expect(shellSignIn()).toBeVisible();
     },
   );
   flow.check(
@@ -599,7 +612,12 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.getByRole("button", { name: "Continue with musubi" }).click();
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();
+    // The sign-in screen draws the client card too, mark and all; Allow is
+    // what says the consent screen has replaced it, so nothing read below is
+    // swapped out mid-read.
+    await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
     await expect(page.getByText("Verified by Musubi")).toBeVisible();
+    await authorizeVerifiedSurfaces(flow, page, ada.name);
     await page.getByRole("button", { name: "Allow" }).click();
     await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
   });
@@ -615,6 +633,29 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     true,
     turnstileAfter.script > turnstileBefore.script && turnstileAfter.frame > turnstileBefore.frame,
   );
+
+  // A third-party client always asks for consent. Signed in to OSN by the step
+  // above, the browser goes from osn-api straight to the consent screen. The
+  // flow reads it and leaves without deciding, so the client's redirect URI is
+  // never loaded.
+  await flow.step("open a third-party client's consent screen", async () => {
+    const request = new URLSearchParams({
+      client_id: THIRD_PARTY_OIDC.clientId,
+      redirect_uri: THIRD_PARTY_OIDC.redirectUri,
+      response_type: "code",
+      scope: "openid profile",
+      state: "e2e-third-party",
+      // RFC 7636's example challenge: any 43-character S256 value is accepted
+      // here, and no code is ever redeemed against it.
+      code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+      code_challenge_method: "S256",
+    });
+    await page.goto(`${ORIGINS.osnApi}/authorize?${request}`);
+    await expect(page).toHaveURL(new RegExp(`^${ORIGINS.musubi}/authorize\\?`));
+    await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
+    await expect(page.getByText("Third-party app", { exact: true })).toBeVisible();
+  });
+  await authorizeThirdPartySurfaces(flow, page);
   flow.check(
     "no Content-Security-Policy message on a Musubi page",
     "",

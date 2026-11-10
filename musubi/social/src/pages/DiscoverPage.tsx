@@ -8,6 +8,7 @@ import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
+import { SignedOutNote } from "../components/SignedOutNote";
 import { graphClient, recommendationClient } from "../lib/api";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
@@ -64,7 +65,7 @@ export function DiscoverPage() {
         </p>
       </div>
 
-      <Show when={session()} fallback={<EmptyNote>Sign in to discover people.</EmptyNote>}>
+      <Show when={session()} fallback={<SignedOutNote>Sign in to discover people.</SignedOutNote>}>
         <Show
           when={!recommendations.loading}
           fallback={

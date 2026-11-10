@@ -173,6 +173,19 @@ export const CIRE_OIDC = {
 } as const;
 
 /**
+ * A third-party relying party the seed registers and no flow signs in to.
+ * `musubi-passkey` opens its consent screen to read the "Third-party app" mark,
+ * then leaves without deciding, so its redirect URI, on a host reserved for
+ * examples, is never loaded. A public client: PKCE alone, no secret.
+ */
+export const THIRD_PARTY_OIDC = {
+  rowId: "oc_third_party_e2e",
+  clientId: "cid_third_party_e2e",
+  name: "Elsewhere",
+  redirectUri: "https://third-party.example/callback",
+} as const;
+
+/**
  * osn-api's dev sign-in (`GET /dev/login`, the form, local and dev tiers only, mounted
  * when this is set). It signs in as the fixed dev principal, whose profile id
  * owns cire's sample wedding (`DEV_OWNER_PROFILE_ID`) and the `CIRE_ORGANISER`
