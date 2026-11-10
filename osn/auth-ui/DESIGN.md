@@ -659,8 +659,13 @@ As built:
 The package has no motion of its own. A view takes its host's: in Musubi, colour
 and opacity transitions only (`musubi/social/DESIGN.md` §Motion). The host's
 `transition-ui-colors` utility fades colours and leaves the outline out, so a
-control's focus mark lands at once (§9). A busy button draws `@shared/ui`'s
-`Orb`, the one animation a view draws itself, and stops it under reduced motion.
+control's focus mark lands at once (§9). A view draws two animations, both
+from `@shared/ui` parts: a busy button's `Orb`, and `Skeleton`, the loading
+placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
+`RecoveryCodesView`, which pulses in opacity. Both stand still under reduced
+motion. What a skeleton stands for, a refused code's line and a step that
+replaces another arrive at once, with no fade (`musubi/social/DESIGN.md`
+§Motion).
 As it stands, `ProfileOnboarding` and `ProfileSwitcher` open `@shared/ui`'s
 `Dialog`, which still scales as it opens and closes (`musubi/social/DESIGN.md`
 §Motion, #2040). A view

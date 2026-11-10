@@ -371,7 +371,11 @@ same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
 focus mark arrives late. A loading placeholder is `@shared/ui`'s `Skeleton`
 (§Empty states and failed loads), which pulses in opacity and stands still
-under reduced motion.
+under reduced motion. What replaces it arrives at once, with no fade, and so
+do an error line and a step that replaces another (a sign-in step, the
+authenticator's setup, a step-up's code): a fade would only hold back what the
+reader is waiting for, and the jump in height it leaves could be bridged only
+by spatial motion.
 
 Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
 sheet), Popover and default menu run the shared overlay motion. They fade and
