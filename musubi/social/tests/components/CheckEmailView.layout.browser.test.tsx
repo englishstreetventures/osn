@@ -66,7 +66,7 @@ function nextFrame() {
 async function mountInSheet(email: string, pairingCode?: string) {
   render(() => (
     <Dialog open onOpenChange={() => {}}>
-      <ResponsiveDialogContent class="max-w-sm">
+      <ResponsiveDialogContent aria-label="Check your email">
         <div class="mx-auto max-w-sm px-4 py-8">
           <CheckEmailView
             email={email}
