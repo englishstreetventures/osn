@@ -248,9 +248,11 @@ A refusal prints both numbers on stderr, writes nothing, renders no
 `--format markdown` block, and exits 1. A card whose `pr.number` is null was
 written before its pull request opened — by `retro` before the push, with the
 issue and its rating, or by the fallback, with neither — and a run that names
-the pull request writes over it. On a reused branch name `retro` cannot write
-before the push, since a run that names no pull request is refused there; it
-writes once the pull request is open.
+the pull request writes over it. On a reused branch name `retro` writes the card once
+the pull request is open: before then `card` cannot keep the two pull requests
+apart, and refuses only when the earlier card is on disk. `backfill` never
+counts a card that names no pull request, written after an earlier pull
+request on the name merged, as that earlier one's, and never writes over it.
 
 `new-feat` Step 1 and `orchestrate` Step 2 still check a name is unused before
 cutting it — no card for it on `origin/main`, and no pull request with that head
@@ -570,7 +572,7 @@ the rate table prices at zero rather than guessing, and is named in
 
 ### Two phases
 
-A card written when the PR opens cannot see review-cycle cost. `phase` says
+A card written before the push cannot see the CI wait or review-cycle cost. `phase` says
 which you are looking at:
 
 - `at-open` — written by `retro`, covers work up to the branch's first push.

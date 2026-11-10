@@ -133,7 +133,7 @@ Parse the input into discrete tasks and plan **structure only**:
 
 - **Order by dependency.** A task another builds on, or that touches files another touches, goes first. Independent tasks still run through this loop one at a time; parallelise only when they share no files and you will manage separate worktrees.
 - **Hot files, one open branch at a time.** A file many tasks edit — a product's `DESIGN.md`, `@osn/auth-ui`, `@osn/client` — is edited by one open branch at a time: the next task that edits it waits until the pull request ahead of it merges. Each pull request edits only its own section of a shared `DESIGN.md`.
-- **CI flakes first.** A check that fails for reasons the change does not cause, and ejects merge-queue groups, is fixed before feature work: its issue goes to the head of the order (Step 5, a check failure).
+- **CI flakes first.** A check that fails for reasons the change does not cause, and ejects merge-queue groups, is fixed before feature work: its issue goes to the head of the order (Step 5, a flake).
 - **One task, one branch, one PR** by default. Group two only when they are genuinely one unit of work.
 - **A task with no clear acceptance criteria is not dispatched.** Ask the user to clarify before a subagent guesses at scope; if it needs product direction, that is Step 00.
 - **A list from `next-batch` arrives triaged**, ordered, and grouped by the files each task touches. Keep its order and its limit on agents running at once.
@@ -266,7 +266,7 @@ gets followed to the letter. Every dispatch carries:
   (`prep-pr` Step 4): 3 or less is light — no `stress-plan` attacker, the builder
   checking its own premises against the code, and one combined review — unless
   the task touches tokens, sessions, rate limits, step-up, recovery or OpenID
-  Connect; 5 or more, no rating, or any of those areas is the full set.
+  Connect; above 3, no rating, or any of those areas is the full set.
 - **The wiki pages to read, by repo path**, and the ones this work makes stale.
   Paths, never pasted prose — the subagent has its own context window and can open
   a file; yours is the run's bottleneck.

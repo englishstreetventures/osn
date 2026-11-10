@@ -295,12 +295,12 @@ Trivial means every change is a plain Markdown file (`*.md`; `*.mdx` carries scr
 
 On `trivial`, run the gates inline instead: Step 2's changeset check, and the wikilink check in `references/wikilink-check.md` when a wiki page changed. Each review that did not run gets its `## Test plan` row as `inline — trivial diff`, with one sentence of your own verdict on the diff.
 
-**Then the tier, from the issue's complexity.** Read the `complexity:` rating of the issue the branch closes (`gh issue view <n> --repo englishstreetventures/osn --json labels`), confirmed or not; when it closes several here, add them up.
+**Then the tier, from the issue's complexity.** Read the `complexity:` rating of the issue the branch was cut for — `NEW-FEAT.md`'s `Issue:` line — in the repository that holds it, confirmed or not: `gh issue view <n> --repo englishstreetventures/osn --json labels` for a public issue, `--repo englishstreetventures/osn-tracker` for a tracker one, never a tracker number looked up in the public repository. When the branch closes several issues, add their ratings up.
 
 | Tier | When | Reviews |
 |---|---|---|
 | Light | 3 or less, and the diff touches no tokens, sessions, rate limits, step-up, recovery or OpenID Connect | One `reviewer` agent, alone in the worktree, runs `review-tests`, `review-docs` and `review-security` in one pass, each into its own report, with `review-design` added on a `-design` verdict and `review-state` on a `-state` one. Step 6 dispatches nothing more |
-| Full | 5 or more, no rating, or any of those areas at any rating | This step's `review-tests` agent, then Step 6's lenses as separate agents in parallel, `review-security` at effort `xhigh` |
+| Full | Above 3, no rating, or any of those areas at any rating | This step's `review-tests` agent, then Step 6's lenses as separate agents in parallel, `review-security` at effort `xhigh` |
 
 The verdict still caps either tier: `trivial` runs no agent, and `trivial-tests` only the `review-tests` agent. On either tier, `bun run test:e2e` runs once when the diff touches code a flow drives, and `bun run test:e2e:repro` only when the branch adds or changes a flow. The suite's ports are fixed for the whole machine, so while another worktree's run holds them, wait; never stop it (`wiki/conventions/testing-patterns.md` §What one run does).
 
@@ -372,7 +372,7 @@ Three traps in reading the number:
 
 **Unless Step 4 sized the diff `trivial` or `trivial-tests`** — then dispatch no agent. The Performance, Security, State and Design rows of `## Test plan` read `inline — trivial diff`, each with one sentence of your own verdict, and you go to Step 7.
 
-**Unless Step 4 put the branch on the light tier** — then dispatch no agent either: its one pass has run. The Security, and any State or Design, rows name that pass; the Performance row reads `not run — light tier, complexity <n>`, with one sentence of your own verdict. Go to [Fix what the reviews found](#fix-what-the-reviews-found).
+**Unless Step 4 put the branch on the light tier** — then dispatch no agent either: its one pass has run. The Security, and any State or Design, rows name that pass; the Performance row reads `not run — light tier, complexity <n>`, with one sentence of your own verdict. Skip the agent list below and go on from **Write each reviewer's result into the report**: the pass's findings are recorded, its `## For the tracker` entries numbered, and every finding fixed as any reviewer's are.
 
 Otherwise run the **`reviewer`** agents below **in parallel** (one after the other on a large diff, see below) using the Agent tool, as Step 4 describes: Agents 1 and 2 on every `full` verdict, Agent 3 as well when the verdict carries `-state`, and Agent 4 as well when it carries `-design`. A review the verdict does not call for gets its `## Test plan` row as `not needed — review-scope printed <verdict>`, with one sentence of your own: why nothing the diff writes is a state, or why nothing it changes draws a screen.
 Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for
@@ -385,7 +385,7 @@ to measure afterwards:
 Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
 **Agent 2 — Security review** (`reviewer` agent):
-Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. **This is the double review's second pass: pass `effort: xhigh` on this Agent call** (the owner's instruction; the definition's `high` covers Agents 1, 3 and 4). Agents 1, 3 and 4 pass no effort.
+Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. **This is the full tier's security review: pass `effort: xhigh` on this Agent call** (the owner's instruction; the definition's `high` covers Agents 1, 3 and 4). Agents 1, 3 and 4 pass no effort.
 
 **Agent 3 — State review** (`reviewer` agent), on a `-state` verdict only:
 Invoke the `review-state` skill (`.claude/skills/review-state/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. It lists every writer of each state the diff writes across the whole repository, so it reads files outside the diff; that is its job, not scope creep.
@@ -651,6 +651,8 @@ the body file, last, unless it is there already
 (`grep -c '^<details><summary>Session metrics' PR-BODY.md`). The push below
 then carries the card, and the pull request's first CI run is its only one: a
 card committed after the pull request opens is a second push and a second run.
+When the body closes a tracker issue, run Step 8's wording check again after
+`retro`'s commits, since they are public once pushed.
 
 This is not optional tidying. The card is the only durable record of what the
 work cost — `~/.claude/projects` is local, unversioned, and dies with a remote

@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Use when running the retrospective on a piece of work that has just finished — the retro, normally run by `prep-pr` just before its first push — to write and commit the session-metrics card for the branch, read what the session actually cost against the difficulty declared before it started, and turn that into concrete changes to the skills, `AGENTS.md`, the wiki, the tests or the brief. Also the owner of the card — nothing else writes one carrying the pull request's identity.
+description: Use when running the retrospective on a piece of work that has just finished — the retro, normally run by `prep-pr` just before its first push — to write and commit the session-metrics card for the branch, read what the session actually cost against the difficulty declared before it started, and turn that into concrete changes to the skills, `AGENTS.md`, the wiki, the tests or the brief. Also the owner of the card: the `SessionEnd` hook and `backfill` only fill gaps in it.
 ---
 
 Run the retrospective for the branch named in `$ARGUMENTS`, or the current
@@ -93,17 +93,23 @@ The usual case: `prep-pr` Step 9 runs this before its first push, so the card
 goes out in that push and the pull request runs CI once. `--resolve-issue`
 finds nothing yet — `resolveIdentity` in `tools/pr-metrics/index.ts` returns as
 soon as `gh pr list --head` lists no pull request, before it reads
-`NEW-FEAT.md` — so name the issue and pass its labels:
+`NEW-FEAT.md` — so name the issue and pass its labels. Only this
+repository's issue: the `card` run takes any number it is given, and a tracker
+number on a card is a disclosure. The `grep` below matches a bare `#N` and
+nothing else, so a tracker reference (`englishstreetventures/osn-tracker#N`)
+leaves `FLAGS` empty:
 
 ```bash
-ISSUE=<the number on NEW-FEAT.md's Issue: line>
-LABELS=$(gh issue view "$ISSUE" --repo englishstreetventures/osn --json labels --jq '[.labels[].name] | join(",")')
+ISSUE=$(grep -m1 -oE '^Issues?: #[0-9]+' NEW-FEAT.md | grep -oE '[0-9]+$')
+FLAGS=()
+[ -n "$ISSUE" ] && FLAGS=(--issue "$ISSUE" --issue-labels \
+  "$(gh issue view "$ISSUE" --repo englishstreetventures/osn --json labels --jq '[.labels[].name] | join(",")')")
 
 # 1. The committed card.
-bun run --cwd tools/pr-metrics card -- --issue "$ISSUE" --issue-labels "$LABELS" --base "$BASE"
+bun run --cwd tools/pr-metrics card -- "${FLAGS[@]}" --base "$BASE"
 
 # 2. The `<details>` block for the pull-request body, warnings excluded.
-bun run --cwd tools/pr-metrics card -- --issue "$ISSUE" --issue-labels "$LABELS" --base "$BASE" --format markdown > "$BLOCK"
+bun run --cwd tools/pr-metrics card -- "${FLAGS[@]}" --base "$BASE" --format markdown > "$BLOCK"
 ```
 
 The card names the issue, carries its labels and declares its rating; its
@@ -115,15 +121,15 @@ that names no pull request is there to be replaced (`otherPullRequest`); and
 `backfill` fills it in after the merge, keeping the card's review counts and
 rating.
 
-- **The issue is this repository's.** A branch whose `Issue:` line names a
-  tracker issue passes neither flag, since a tracker issue's labels never reach
-  a public card. Its card names no issue and records no rating until
-  `backfill` reads the tracker's rating after the merge.
+- **A tracker issue passes neither flag**, as above: its number and labels
+  never reach a public card. The card names no issue and records no rating
+  until `backfill` reads the tracker's rating after the merge.
 - **Several issues here:** name the branch's own and pass its labels. The card
   declares that one rating until `backfill` sums every issue the merge closed.
-- **A branch name an earlier pull request used:** `card` refuses a run that
-  names no pull request and exits 1, since it cannot keep the two apart. Write
-  the card once the pull request is open, below.
+- **A branch name an earlier pull request used** — `new-feat` Step 1's check
+  names one: write the card once the pull request is open, below. Before then
+  `card` cannot keep the two apart; it refuses, with exit 1, only when the
+  earlier card is on disk.
 
 Commit the card and stop: no push and no body edit. The caller appends
 `$BLOCK` to its body file and pushes.

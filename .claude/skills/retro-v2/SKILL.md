@@ -81,13 +81,18 @@ BASE="origin/$(git config --get "branch.$BRANCH.gh-merge-base" || echo main)"   
 
 **Before the pull request opens** — the usual case — `--resolve-issue` finds
 nothing yet: `resolveIdentity` in `tools/pr-metrics/index.ts` returns as soon as
-`gh pr list --head` lists no pull request. Name the issue and pass its labels:
+`gh pr list --head` lists no pull request. Name the issue and pass its labels —
+only this repository's issue, since `card` takes any number it is given and a
+tracker number on a card is a disclosure. The `grep` matches a bare `#N` and
+nothing else, so a tracker reference leaves `FLAGS` empty:
 
 ```bash
-ISSUE=<the number on NEW-FEAT.md's Issue: line>
-LABELS=$(gh issue view "$ISSUE" --repo englishstreetventures/osn --json labels --jq '[.labels[].name] | join(",")')
-bun run --cwd tools/pr-metrics card -- --issue "$ISSUE" --issue-labels "$LABELS" --base "$BASE"
-bun run --cwd tools/pr-metrics card -- --issue "$ISSUE" --issue-labels "$LABELS" --base "$BASE" --format markdown > "$BLOCK"
+ISSUE=$(grep -m1 -oE '^Issues?: #[0-9]+' NEW-FEAT.md | grep -oE '[0-9]+$')
+FLAGS=()
+[ -n "$ISSUE" ] && FLAGS=(--issue "$ISSUE" --issue-labels \
+  "$(gh issue view "$ISSUE" --repo englishstreetventures/osn --json labels --jq '[.labels[].name] | join(",")')")
+bun run --cwd tools/pr-metrics card -- "${FLAGS[@]}" --base "$BASE"
+bun run --cwd tools/pr-metrics card -- "${FLAGS[@]}" --base "$BASE" --format markdown > "$BLOCK"
 ```
 
 The card carries the issue and its rating, and `pr.number: null` until a later
