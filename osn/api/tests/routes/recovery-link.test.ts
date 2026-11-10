@@ -87,7 +87,7 @@ function harness(overrides: Partial<AuthConfig> = {}, emailLayer?: Layer.Layer<E
     (await db.select().from(securityEvents).where(eq(securityEvents.accountId, accountId))).map(
       (e) => e.kind,
     );
-  return { app, auth, db, svc, seed, events, recorded: () => mail.recorded() };
+  return { app, auth, db, sqlite, svc, seed, events, recorded: () => mail.recorded() };
 }
 
 type Harness = ReturnType<typeof harness>;
@@ -600,6 +600,51 @@ describe("only the tab holding the claim secret gets a session", () => {
     const polled = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(1));
     expect(polled.headers.getSetCookie()).toEqual([]);
     expect(await polled.json()).toEqual({ status: "expired" });
+  });
+});
+
+describe("a poll whose finish fails after the claim", () => {
+  it("a session that would not write after the recovery committed is finished by the next poll", async () => {
+    const h = harness();
+    const profile = await h.seed("rl-fault@example.com", "rlfault");
+    const r = await begun(h, "rl-fault@example.com", 1);
+    await confirm(h, r.requestId, r.link.linkSecret, r.pairingCode, 9);
+
+    // The wipe, the audit row and the cooldown commit; the session's insert
+    // fails, as a database fault would.
+    h.sqlite.run(`
+      CREATE TRIGGER refuse_sessions BEFORE INSERT ON sessions
+      BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed: sessions'); END;
+    `);
+    const failed = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(1));
+    expect(failed.status).toBe(500);
+    expect(failed.headers.getSetCookie()).toEqual([]);
+    h.sqlite.run("DROP TRIGGER refuse_sessions");
+    const [committed] = await h.db
+      .select({ lastRecoveredAt: accounts.lastRecoveredAt })
+      .from(accounts)
+      .where(eq(accounts.id, profile.accountId));
+    expect(committed!.lastRecoveredAt).not.toBeNull();
+
+    // The next poll is the same recovery, not a second one the cooldown refuses.
+    const done = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(1));
+    expect(done.status).toBe(201);
+    expect(done.headers.getSetCookie().some((c) => c.startsWith("osn_session="))).toBe(true);
+    const body = (await done.json()) as { session: { access_token: string } };
+    expect(payloadOf(body.session.access_token)["aud"]).toBe(RECOVERY_TOKEN_AUDIENCE);
+    expect(
+      (await h.events(profile.accountId)).filter((kind) => kind === "account_recovered"),
+    ).toHaveLength(1);
+    const [after] = await h.db
+      .select({ lastRecoveredAt: accounts.lastRecoveredAt })
+      .from(accounts)
+      .where(eq(accounts.id, profile.accountId));
+    expect(after!.lastRecoveredAt).toBe(committed!.lastRecoveredAt);
+
+    // Delivered once: the request is spent.
+    const again = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(1));
+    expect(again.headers.getSetCookie()).toEqual([]);
+    expect(await again.json()).toEqual({ status: "expired" });
   });
 });
 

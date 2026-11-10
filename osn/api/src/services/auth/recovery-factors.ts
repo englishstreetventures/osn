@@ -277,7 +277,7 @@ export function createRecoveryFactorsModule(
         "recovery",
         profile ? profile.accountId : bound,
         RECOVERY_LINK_TTL_MS,
-        bound,
+        { bound },
       );
       const answer: RecoveryEmailBegun = {
         requestId: opened.requestId,
@@ -357,35 +357,61 @@ export function createRecoveryFactorsModule(
 
   /**
    * Hands the restricted recovery session to the caller — the tab that holds
-   * the claim secret — for a confirmed request it has just claimed. The account
-   * must still have the address the link went to. A database fault puts the
-   * request back, so the next poll can try again; a recovery that then meets
-   * its own committed cooldown is refused like any other.
+   * the claim secret — for a confirmed request, or finishes a request an
+   * earlier poll claimed and could not finish.
+   *
+   *  - The account must still have the address the link went to (`bound`).
+   *  - The claim fixes the profile and the id of the `account_recovered` row
+   *    every later try uses. Of two polls at once one claims the request; the
+   *    other answers `expired`, as does a poll that finds it held by another.
+   *  - The session is answered only once this poll has spent the request, so
+   *    of all the polls that ever hold it exactly one delivers. A refusal
+   *    (the cooldown, a default profile changed since the claim) spends it
+   *    too. Any other failure keeps the claim and lets go of it, so the next
+   *    poll takes over at once; a try after the recovery committed finds its
+   *    own row and goes on to the session rather than meeting the cooldown.
    */
-  const completeEmailRecovery = (
+  const finishEmailRecovery = (
     requestId: string,
-    entry: EmailLinkChallenge,
+    link: EmailLinkChallenge,
     sessionMeta?: SessionMeta,
   ): Effect.Effect<
-    { session: TokenSet; profile: PublicProfile },
+    RecoveryEmailStatus,
     AuthError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
-      const profile = yield* findDefaultProfile(entry.subject);
-      if (!profile || entry.bound !== addressDigest(profile.email)) {
+      const profile = yield* findDefaultProfile(link.subject);
+      if (!profile || link.bound !== addressDigest(profile.email)) {
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
-      return yield* completeRecoveryFactor(profile, "otp", sessionMeta);
-    }).pipe(
-      Effect.tapError((e) =>
-        e._tag === "DatabaseError"
-          ? links.unclaim(requestId, entry).pipe(Effect.ignore)
-          : Effect.void,
-      ),
-      withAuthRecovery("email_complete"),
-      withAuthLogin("email_recovery"),
-    );
+      const claimed = yield* links.claim(requestId, link, {
+        accountId: profile.accountId,
+        profileId: profile.id,
+        eventId: genId("sev_"),
+      });
+      if (!claimed) return EXPIRED;
+      const { claim } = claimed;
+
+      const done = yield* Effect.gen(function* () {
+        if (claim.profileId !== profile.id || claim.eventId === undefined) {
+          return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+        }
+        const finished = yield* completeRecoveryFactor(profile, "otp", sessionMeta, claim.eventId);
+        // Another poll took the request over and delivers it.
+        if (!(yield* links.spend(requestId, claimed))) return null;
+        return finished;
+      }).pipe(
+        Effect.tapError((e) =>
+          (e._tag === "AuthError"
+            ? links.spend(requestId, claimed)
+            : links.letGo(requestId, claimed)
+          ).pipe(Effect.ignore),
+        ),
+      );
+      if (!done) return EXPIRED;
+      return { status: "complete", session: done.session, profile: done.profile } as const;
+    }).pipe(withAuthRecovery("email_complete"), withAuthLogin("email_recovery"));
 
   /**
    * `POST /login/recovery/email/:requestId/status` — polled by the tab that
@@ -394,7 +420,9 @@ export function createRecoveryFactorsModule(
    * without keeping it; then claims the request and answers `complete` with
    * the restricted recovery session, once. `expired` for every refusal: an
    * unknown, expired, declined or other-flow request, a wrong claim secret, a
-   * poll that lost the claim to another, and a recovery the cooldown refuses.
+   * poll that lost the claim to another or found another holding it, and a
+   * recovery the cooldown refuses. A poll that fails after the claim leaves
+   * the request claimed, and the next one finishes it.
    *
    * No attempts counter: a waiting tab polls every few seconds. The finishing
    * part counts as the recovery's `email_complete` step.
@@ -412,13 +440,35 @@ export function createRecoveryFactorsModule(
           : ({ status: "pending", pairingCode: polled.pairingCode } as const);
       }
       if (polled.state === "expired") return EXPIRED;
-      if (!(yield* links.claim(requestId, polled.entry))) return EXPIRED;
-      const done = yield* completeEmailRecovery(requestId, polled.entry, sessionMeta).pipe(
-        Effect.catchTag("AuthError", () => Effect.succeed(null)),
+      return yield* finishEmailRecovery(requestId, polled.entry, sessionMeta).pipe(
+        Effect.catchTag("AuthError", () => Effect.succeed(EXPIRED)),
       );
-      if (!done) return EXPIRED;
-      return { status: "complete", session: done.session, profile: done.profile } as const;
     }).pipe(Effect.withSpan("auth.recovery.email_status"));
+
+  /** Whether the account holds the `account_recovered` row `eventId`. */
+  const hasRecoveryRow = (
+    accountId: string,
+    eventId: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: securityEvents.id })
+            .from(securityEvents)
+            .where(
+              and(
+                eq(securityEvents.id, eventId),
+                eq(securityEvents.accountId, accountId),
+                eq(securityEvents.kind, "account_recovered"),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows.length > 0;
+    });
 
   /**
    * Everything both factors do once they have been believed: the emailed link
@@ -434,11 +484,20 @@ export function createRecoveryFactorsModule(
    * audit row with the wipe rather than the insert means a failure between the
    * two leaves a recorded recovery and no session — loud and safe — rather than
    * a session nobody can see was created.
+   *
+   * `eventId`, from an emailed link's claim, names the `account_recovered` row
+   * this recovery writes. A try that finds the cooldown running and that row
+   * already written is the same recovery, committed by an earlier try whose
+   * session never went out: it skips the batch and goes on from the committed
+   * instant, so its disown link names that recovery. It sets a disown token
+   * and sends the notice again, since the earlier try may have failed before
+   * either.
    */
   const completeRecoveryFactor = (
     profile: ProfileWithEmail,
     amr: RecoveryFactorAmr,
     sessionMeta?: SessionMeta,
+    eventId?: string,
   ): Effect.Effect<
     { session: TokenSet; profile: PublicProfile },
     AuthError | DatabaseError | CoordinationError,
@@ -466,41 +525,47 @@ export function createRecoveryFactorsModule(
       // account from a stranger's guess by latency, which is the oracle the
       // whole module is written to avoid.
       const previousRecovery = profile.lastRecoveredAt;
+      let recoveredAt = nowSec;
       if (
         previousRecovery !== null &&
         Date.now() - previousRecovery * 1000 < RECOVERY_COOLDOWN_MS
       ) {
-        metricRecoveryCooldown("second_recovery_refused");
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+        // Read only on a claimed link's retry, past the link and its number,
+        // so this read is no oracle either.
+        if (eventId === undefined || !(yield* hasRecoveryRow(profile.accountId, eventId))) {
+          metricRecoveryCooldown("second_recovery_refused");
+          return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+        }
+        recoveredAt = previousRecovery;
+      } else {
+        const securityEventRow: typeof securityEvents.$inferInsert = {
+          id: eventId ?? genId("sev_"),
+          accountId: profile.accountId,
+          kind: "account_recovered",
+          createdAt: nowSec,
+          acknowledgedAt: null,
+          ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+          uaLabel: sessionMeta?.uaLabel ?? null,
+        };
+
+        yield* Effect.tryPromise({
+          try: () =>
+            commitBatch(db, [
+              db.delete(sessions).where(eq(sessions.accountId, profile.accountId)),
+              db.insert(securityEvents).values(securityEventRow),
+              // Opens both windows: the second-recovery refusal above, and the
+              // email-change gate's reason to stop trusting an emailed OTP.
+              db
+                .update(accounts)
+                .set({ lastRecoveredAt: nowSec })
+                .where(eq(accounts.id, profile.accountId)),
+            ]),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+
+        metricSessionSecurityInvalidation("account_recovered");
+        metricSecurityEventRecorded("account_recovered");
       }
-
-      const securityEventRow: typeof securityEvents.$inferInsert = {
-        id: genId("sev_"),
-        accountId: profile.accountId,
-        kind: "account_recovered",
-        createdAt: nowSec,
-        acknowledgedAt: null,
-        ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
-        uaLabel: sessionMeta?.uaLabel ?? null,
-      };
-
-      yield* Effect.tryPromise({
-        try: () =>
-          commitBatch(db, [
-            db.delete(sessions).where(eq(sessions.accountId, profile.accountId)),
-            db.insert(securityEvents).values(securityEventRow),
-            // Opens both windows: the second-recovery refusal above, and the
-            // email-change gate's reason to stop trusting an emailed OTP.
-            db
-              .update(accounts)
-              .set({ lastRecoveredAt: nowSec })
-              .where(eq(accounts.id, profile.accountId)),
-          ]),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      metricSessionSecurityInvalidation("account_recovered");
-      metricSecurityEventRecorded("account_recovered");
 
       // The "this wasn't me" lever. Parked before the notice is dispatched, so
       // a token can never reach an inbox before the store can honour it.
@@ -518,7 +583,7 @@ export function createRecoveryFactorsModule(
           {
             secretHash: hashSessionToken(disown.secret),
             accountId: profile.accountId,
-            recoveredAt: nowSec,
+            recoveredAt,
             expiresAt: Date.now() + RECOVERY_DISOWN_TTL_MS,
           },
           RECOVERY_DISOWN_TTL_MS,

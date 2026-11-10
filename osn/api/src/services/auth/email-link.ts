@@ -26,12 +26,13 @@
  *   request is confirmed, the poll claims it and the flow finishes. The
  *   device that opened the link and the device that gets the result can
  *   differ.
- * - A claim records what the flow finishes with (the account and profile)
- *   and stays on the request until a poll has delivered the result, so a
- *   finish that failed part way is finished by the next poll, on the same
- *   rows. Nothing else ends a claimed request: a decline, a wrong pick, wrong
- *   secrets and a retire leave it as it is, and its finish does not need the
- *   flow's pending entry.
+ * - A claim records what the flow finishes with (the account and profile,
+ *   and for recovery the id of the audit row it writes) and stays on the
+ *   request until a poll has delivered the result, so a finish that failed
+ *   part way is finished by the next poll, on the same rows. Nothing else
+ *   ends a claimed request: a decline, a wrong pick, wrong secrets and a
+ *   retire leave it as it is, and its finish does not need the flow's
+ *   pending entry.
  *
  * Every refusal answers alike: an unknown request, a wrong secret, a spent or
  * expired one, and another flow's request all read as `expired`. Wrong link
@@ -742,7 +743,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
   const claim = (
     requestId: string,
     entry: EmailLinkChallenge,
-    ids: Pick<EmailLinkClaim, "accountId" | "profileId">,
+    ids: Pick<EmailLinkClaim, "accountId" | "profileId" | "eventId">,
   ): Effect.Effect<ClaimedEmailLink | null, CoordinationError> =>
     Effect.gen(function* () {
       const now = Date.now();

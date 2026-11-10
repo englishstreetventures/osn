@@ -203,6 +203,12 @@ export interface EmailLinkClaim {
   /** The profile the session is for. */
   profileId: string;
   /**
+   * Recovery only: the id of the `account_recovered` row its finish writes.
+   * A try after a fault that finds this row knows the recovery it would
+   * refuse as a second one is its own, committed by an earlier try.
+   */
+  eventId?: string;
+  /**
    * Milliseconds. While it is ahead, one poll is finishing the request and
    * every other poll is refused. A poll whose finish failed sets it to 0, so
    * the next poll takes over at once.

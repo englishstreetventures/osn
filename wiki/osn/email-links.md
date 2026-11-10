@@ -64,9 +64,9 @@ list and the order says nothing about which is right; hosts pass the list to
 Either way the number is never stored in clear and a wrong one ends the
 request at once. A `type` request's candidates read answers `expired` after
 the one read an unknown request makes. A typed `7`, `07` or `007` is the
-number `07`. A `pairingPick` that is not digits (or, for `pick`, not two
-digits), or `none`, is refused like any other refusal, before any store
-call.
+number `07`. A `pairingPick` that is neither `none` nor digits in the flow's
+form (two for `pick`, one to six for `type`) answers `expired` like any other
+refusal, before any store call.
 
 ## The link: `<frontend origin>/verify/<request id>#<link secret>`
 
@@ -134,23 +134,29 @@ There is no `GET` on any of them: mail scanners open links before people do.
   so a confirm whose answer was lost does not read as a failure.
 - **Single delivery.** The poll that finds the request confirmed claims it: a
   `swap` naming the entry it read, to `claimed`, which fixes the account and
-  profile ids and holds the request for that poll for five seconds
+  profile ids (for recovery, also the id of its `account_recovered` row) and
+  holds the request for that poll for five seconds
   (`EMAIL_LINK_CLAIM_HOLD_MS`). Of two polls at once one claims it and the
   other answers `expired`, as does any poll that finds the request held. The
-  claiming poll inserts the account and profile, issues the session, then
-  removes the entry (`consume` naming the claimed entry), and answers 201
-  only when that removal was its own; a poll after it answers `expired`.
+  claiming poll finishes the flow — sign-up inserts the account and profile;
+  recovery commits the wipe, the audit row and the cooldown — issues the
+  session, then removes the entry (`consume` naming the claimed entry), and
+  answers 201 only when that removal was its own; a poll after it answers
+  `expired`.
 - **A fault after the claim is finished by the next poll, on the same
-  account.** Any failure before the removal — the insert, the session's
-  write, a store call — leaves the request claimed, and the poll lets go of
-  its hold, so the tab's next poll takes it over at once; a poll that died
-  without letting go is taken over once the hold passes. The next poll
-  inserts with the same ids. A UNIQUE clash on rows an earlier try committed
-  (a batch whose answer was lost) goes on to the session; a clash with
-  someone else's account answers `conflict`, ends the request and frees the
-  address. Of all the polls that ever hold a request, one delivers its
-  session; a slower one that lost the request answers `expired`, and the
-  session row it wrote is never handed out.
+  account.** Any failure before the removal — a database write, the
+  session's write, a store call — leaves the request claimed, and the poll
+  lets go of its hold, so the tab's next poll takes it over at once; a poll
+  that died without letting go is taken over once the hold passes. The next
+  poll writes with the same ids. For sign-up, a UNIQUE clash on rows an
+  earlier try committed (a batch whose answer was lost) goes on to the
+  session; a clash with someone else's account answers `conflict`, ends the
+  request and frees the address. For recovery, a poll that meets the
+  cooldown and finds the claim's own audit row goes on to the session from
+  the committed recovery, and sends the notice with a disown link again; any
+  other cooldown refusal ends the request. Of all the polls that ever hold a
+  request, one delivers its session; a slower one that lost the request
+  answers `expired`, and the session row it wrote is never handed out.
 - **Nothing else ends a claimed request.** A decline and a wrong pick answer
   `expired` and count nothing; wrong secrets reaching the cap wipe nothing;
   `previous` retires nothing; a right pick and a candidates read answer
@@ -241,7 +247,8 @@ There is no `GET` on any of them: mail scanners open links before people do.
   secret, once: `aud: "osn-recovery"`, 15 minutes, able only to enrol a
   passkey ([[account-recovery-factors]] §B). The device that confirms gets
   `{ status }` and nothing else. The claim checks the account still has the
-  address the link went to (`bound`).
+  address the link went to (`bound`), and a fault after it is finished by the
+  next poll ([[#Rules every flow keeps]]).
 - **Lockout.** A wrong typed number counts on `recovery_otp_lockout`, keyed on
   the account: five in 15 minutes and, for the rest of the window, no recovery
   link is sent to it and a right number is refused (the request ends). A
