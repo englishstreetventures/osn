@@ -1,5 +1,11 @@
 # @tools/lab
 
+## 0.3.44
+
+### Patch Changes
+
+- 6f1cacc: Install sixteen third-party motion and interface skills from `emilkowalski/skill`, pinned to their upstream commit, and keep their example source out of the lint run. State the package's motion rules in its `DESIGN.md`.
+
 ## 0.3.43
 
 ### Patch Changes
