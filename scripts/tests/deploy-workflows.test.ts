@@ -908,6 +908,49 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     }
   });
 
+  // scripts/install-chromium-system-libraries.sh runs as root on what this
+  // cache restores. A prefix fallback would hand a run the packages saved for
+  // another image or Playwright version, so every step on the cache names one
+  // exact key, and both jobs build it with the same command.
+  test("Chromium's system packages are cached under one exact key, built the same way by the browser legs and the E2E job", () => {
+    const onCache = Object.entries(ci.jobs).flatMap(([id, job]) =>
+      stepsOf(job)
+        .filter((step) => step.with?.path === "~/.cache/chromium-apt")
+        .map((step) => ({
+          id,
+          uses: step.uses,
+          key: step.with?.key,
+          fallback: step.with?.["restore-keys"],
+        })),
+    );
+    expect(onCache).toEqual([
+      {
+        id: "browser",
+        uses: "actions/cache/restore@v4",
+        key: "${{ steps.chromium-apt-key.outputs.key }}",
+        fallback: undefined,
+      },
+      {
+        id: "e2e",
+        uses: "actions/cache/restore@v4",
+        key: "${{ steps.chromium-apt-key.outputs.key }}",
+        fallback: undefined,
+      },
+      {
+        id: "e2e",
+        uses: "actions/cache/save@v4",
+        key: "${{ steps.chromium-apt.outputs.cache-primary-key }}",
+        fallback: undefined,
+      },
+    ]);
+    const keyed = (id: string) =>
+      stepsOf(ci.jobs[id]).find((step) => step.id === "chromium-apt-key")?.run;
+    expect(keyed("browser")).toContain(
+      "chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-",
+    );
+    expect(keyed("e2e")).toBe(keyed("browser"));
+  });
+
   // The secret scan must finish on every pushed commit, so nothing that cancels
   // a superseded run may reach it: no workflow group, and none on the job.
   test("no concurrency group can cancel the secret scan", () => {

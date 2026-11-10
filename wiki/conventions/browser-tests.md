@@ -414,10 +414,24 @@ mirror. The script keeps those packages in a cache the E2E job saves and the
 legs restore, so apt downloads only what the cache lacks, and it runs the
 install under [`retry.sh`](../../scripts/retry.sh): three attempts of 150 s,
 so a stalled attempt is cut and run again, resuming the downloads it left.
-apt checks each cached package's hash against the index, so a stale one is
-fetched again, never installed.
 
 *Measured 2026-11-06 — the `Browser tests (cire-invites)` log of merge-queue run 42197392019: every library "already the newest version", nine packages "Need to get 21.9 MB of archives", fetched at about 40 KB/s until the step's 10 minutes ran out*
+
+The install runs as root, and a restored cache comes from outside the runner,
+so nothing in it reaches apt unchecked. In each attempt, after `apt-get
+update`,
+[`verify-cached-debs.sh`](../../scripts/verify-cached-debs.sh) moves a cached
+package into apt's archive only when its name is one apt writes, it is a
+regular file, and the SHA-256 of the copy it moves matches the record that
+`apt-cache show <name>=<version>` holds for its architecture in the signed
+index. It drops any other file with a warning, and apt downloads that package
+instead. The cache key names the runner image (`ImageOS`, `ImageVersion`) and
+the Playwright version, with no `restore-keys`, so a run restores the set
+saved for its own image and version or none.
+[`install-chromium-system-libraries.cli.test.ts`](../../scripts/tests/install-chromium-system-libraries.cli.test.ts)
+holds the check, a tampered package among its cases, and
+[`deploy-workflows.test.ts`](../../scripts/tests/deploy-workflows.test.ts)
+holds the key.
 
 The browser download is cached on the lockfile. Both installs run from
 `cire/host`, because at the repo root `bunx` fetches npm's latest Playwright

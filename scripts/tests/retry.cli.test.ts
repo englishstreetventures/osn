@@ -1,4 +1,4 @@
-// scripts/retry.sh, one test per way it can fail (NEW-FEAT.md R1–R6). It runs
+// scripts/retry.sh, one test per way it can fail (NEW-FEAT.md R1–R7). It runs
 // a CI step whose failure comes from the network or the runner, not the change
 // — `playwright install-deps`, whose apt mirror can stall — so a wrong exit
 // code turns a red step green or a passing one red, and a process it leaves
@@ -129,6 +129,31 @@ describe("retry.sh", () => {
     ]);
     expect({ exitCode, runs: runsIn(at) }, output).toEqual({ exitCode: 0, runs: 2 });
     expect(alive(Number(readFileSync(join(at, "child"), "utf8")))).toBe(false);
+  });
+
+  test("R7: a command line holding a newline, a carriage return or a % is printed on one line per annotation, escaped as workflow-command data", async () => {
+    const at = dir();
+    const { exitCode, output } = await retry([
+      "2",
+      "10",
+      "bash",
+      "-c",
+      `n=$(( $(cat "${at}/runs" 2>/dev/null || echo 0) + 1 )); echo "$n" > "${at}/runs"
+exit 1 # 100%\r`,
+    ]);
+    expect({ exitCode, runs: runsIn(at) }, output).toEqual({ exitCode: 1, runs: 2 });
+    const lines = output.split("\n");
+    const annotations = lines.filter((line) => line.startsWith("::"));
+    expect(annotations.length, output).toBe(3);
+    for (const line of annotations) {
+      expect(line).toContain("%0Aexit 1 # 100%25%0D");
+      expect(line).not.toContain("\r");
+    }
+    // Nothing of the command spills onto a line of its own.
+    expect(
+      lines.filter((line) => line.startsWith("exit 1")),
+      output,
+    ).toEqual([]);
   });
 
   // CMD stands for a command that leaves a file behind if it runs.

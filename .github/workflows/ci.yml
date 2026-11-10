@@ -611,17 +611,30 @@ jobs:
       # what `install-deps` still downloads is a few font packages (21.9 MB)
       # from the runner's apt mirror. On 2026-11-06 that mirror sent them at
       # about 40 KB/s, the step ran out its ten minutes, and the merge queue
-      # ejected the group. scripts/install-chromium-system-libraries.sh copies
-      # the packages kept in ~/.cache/chromium-apt into apt's archive, where
-      # apt takes each one whose hash matches the index, and retries an
-      # attempt that stalls. Restore only, as above: the E2E job saves this key.
+      # ejected the group. scripts/install-chromium-system-libraries.sh puts
+      # into apt's archive only the packages in ~/.cache/chromium-apt whose
+      # SHA-256 apt's signed index names, and retries an attempt that stalls.
+      #
+      # The key names the runner image and the Playwright version, which
+      # together decide the packages `install-deps` fetches. No restore-keys:
+      # a run restores the set saved for its own image and version or none.
+      # The key is one line of [A-Za-z0-9._-], whatever the command prints, and
+      # no version line fails the step. Restore only, as above: the E2E job
+      # saves this key.
+      - name: Key Chromium's system packages
+        id: chromium-apt-key
+        working-directory: cire/host
+        run: |
+          version=$(bunx --no-install playwright --version | sed -n 's/^Version \([0-9][0-9A-Za-z.-]*\)$/\1/p')
+          test -n "$version" || { echo "::error::playwright --version printed no 'Version <n>' line"; exit 1; }
+          key="$RUNNER_OS-chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-$version"
+          echo "key=$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+
       - name: Restore Chromium's system packages
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/chromium-apt
-          key: ${{ runner.os }}-chromium-apt-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-chromium-apt-
+          key: ${{ steps.chromium-apt-key.outputs.key }}
 
       # Both installs run from `cire/host`, and the working directory is the
       # whole point. `playwright` is a devDependency of each package with a
@@ -964,19 +977,26 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      # This job saves the system packages the browser legs restore. It saves
-      # them in a step of its own, straight after the install, so a run whose
-      # flows fail still fills the cache. This job does not run on a
-      # merge-queue group, so a push to main writes main's cache, which every
-      # branch and queue group can read.
+      # This job saves the system packages the browser legs restore, under the
+      # same key, built the same way. It saves them in a step of its own,
+      # straight after the install, so a run whose flows fail still fills the
+      # cache. This job does not run on a merge-queue group, so a push to main
+      # writes main's cache, which every branch and queue group can read.
+      - name: Key Chromium's system packages
+        id: chromium-apt-key
+        working-directory: tools/e2e
+        run: |
+          version=$(bunx --no-install playwright --version | sed -n 's/^Version \([0-9][0-9A-Za-z.-]*\)$/\1/p')
+          test -n "$version" || { echo "::error::playwright --version printed no 'Version <n>' line"; exit 1; }
+          key="$RUNNER_OS-chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-$version"
+          echo "key=$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+
       - name: Restore Chromium's system packages
         id: chromium-apt
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/chromium-apt
-          key: ${{ runner.os }}-chromium-apt-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-chromium-apt-
+          key: ${{ steps.chromium-apt-key.outputs.key }}
 
       - name: Install Chromium's system libraries
         timeout-minutes: 10
