@@ -581,7 +581,11 @@ export function LoginSection(props: LoginSectionProps) {
           (a display swap, not a second panel). */}
       <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
         <Show when={props.result?.preview}>
-          <div class={`mb-6 ${layout().measure}`} role="status">
+          <div
+            class={`mb-6 ${layout().measure}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and preview mode is a notice about the page, not the result of anything the guest did.
+            role="status"
+          >
             <Notice size="sm" tone="accent" fill="none">
               Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
             </Notice>

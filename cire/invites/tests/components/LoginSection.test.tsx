@@ -788,8 +788,8 @@ describe("LoginSection claim", () => {
 
   it("names the button Checking… and disables it while the code is checked", async () => {
     const claimed = result([member("Chidi")]);
-    let settle: (response: Response) => void = noop;
-    fetchMock.mockReturnValue(new Promise<Response>((resolve) => (settle = resolve)));
+    let answerClaim: (response: Response) => void = noop;
+    fetchMock.mockReturnValue(new Promise<Response>((resolve) => (answerClaim = resolve)));
     const onClaimed = vi.fn();
     const { getByLabelText, getByText, getByRole } = render(() => (
       <LoginSection apiUrl="https://api.test" result={null} onClaimed={onClaimed} />
@@ -804,7 +804,7 @@ describe("LoginSection claim", () => {
     expect((checking as HTMLButtonElement).disabled).toBe(true);
     expect(onClaimed).not.toHaveBeenCalled();
 
-    settle(
+    answerClaim(
       new Response(JSON.stringify(claimed), {
         status: 200,
         headers: { "Content-Type": "application/json" },
