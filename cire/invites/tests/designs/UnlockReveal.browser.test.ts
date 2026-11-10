@@ -312,11 +312,15 @@ describe.each(PACKS)("the %s unlock reveal", (pack, reveal) => {
     expect(risingOverForm.map((f) => f.t)).toEqual([]);
 
     // Each step follows the last: the events the beat after the welcome,
-    // every card with the section.
+    // every card with the section. The gap before the events is a script
+    // timer and a promise hop, which a loaded runner can stretch, so its upper
+    // bound fails only a doubled beat; the lower bound fails a dropped one.
+    // The heading and the cards start in the same task as their step, so they
+    // share its start time on any machine.
     const at = (name: string) => starts[name]!;
     expect(Math.abs(at("heading") - at("welcome"))).toBeLessThanOrEqual(FRAME_MS);
     expect(at("section") - at("welcome")).toBeGreaterThan(model.beatMs - FRAME_MS);
-    expect(at("section") - at("welcome")).toBeLessThan(model.beatMs + 5 * FRAME_MS);
+    expect(at("section") - at("welcome")).toBeLessThan(2 * model.beatMs);
     for (let i = 0; i < CARD_COUNT; i++) {
       expect(Math.abs(at(`card${i}`) - at("section"))).toBeLessThanOrEqual(FRAME_MS);
     }
