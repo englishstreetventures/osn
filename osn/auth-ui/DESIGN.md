@@ -124,7 +124,8 @@ As built:
   as a `flex-col gap-4` stack. Each field is `@shared/ui`'s `Field` with a
   plain label (`labelTreatment="plain"`), 6px above the control. The two
   labels `Field` does not draw sit 6px above their controls too: `Register`'s
-  Email, a bare `Label` beside its "i", and the span over a row of code boxes.
+  Email, a bare `Label` beside its "i", and the span over a row of code boxes
+  (`RecoveryLoginForm`, `TotpView`).
   The primary Button spans the column; a standalone link under it sits centred
   (§5).
 - **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
@@ -198,8 +199,9 @@ themselves:
 - A `<details>` disclosure, "Signing in somewhere new?", under the list in
   `PasskeysView`.
 
-**Links.** A link standing alone is Button's `link` at `sm`: 13px at 500 in
-the accent ink, a 32px box with 12px sides, underlined only under the pointer,
+**Links.** A link standing alone is Button's `link` at `sm`: `text-ui-sm` (13px
+in Musubi) at 500 in the accent ink, a 32px box with 12px sides, underlined
+only under the pointer,
 centred under the action it follows (`self-center`) so no column edge sits
 12px off its words. Two: "Lost your passkey?" under `SignIn`'s Continue, and
 "Resend code" under `Register`'s "Verify email". `InlineAction`, above, is the
