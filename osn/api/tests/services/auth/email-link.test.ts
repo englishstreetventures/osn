@@ -2,11 +2,10 @@
  * The emailed-link request under writes that land together: two people
  * acting on one link at once, a Resend landing between a read and its write,
  * and the tab's claim landing between a wrong pick's read and its delete.
- * Each store answer here can be made to come back late, as a round trip does,
- * so the calls interleave the way they would on the Durable Object; every
- * call still runs, in full, at the moment it is made. A swap can also be held
- * before it runs, so other calls land in a set order between a decline's two
- * tries.
+ * A store call here can be held until the test releases it, as a round trip
+ * can be slow: its answer held after it ran, or a swap held before it runs.
+ * Other calls then land in a set order, whatever the machine's load, and
+ * every call still runs in full.
  *
  * Then a request the tab's poll has claimed, whose finish failed part way:
  * the next poll finishes it on the same account, and nothing else that can
@@ -18,7 +17,7 @@
 import { it, expect, describe } from "@effect/vitest";
 import type { CoordinationNamespace, CoordinationOp } from "@shared/coordination";
 import { makeLogEmailLive } from "@shared/email";
-import { Effect, Fiber, Layer } from "effect";
+import { Cause, Effect, Fiber, Layer, Logger, References } from "effect";
 import { afterEach, beforeAll, vi } from "vitest";
 
 import { createDurableCoordination } from "../../../src/lib/coordination/durable";
@@ -40,85 +39,73 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-type Late = Partial<Record<CoordinationOp, number>>;
-
-/**
- * `ns` with each operation `late()` names answering that many milliseconds
- * after it ran. The operation itself runs, and is recorded, when it is called.
- */
-function answeringLate(ns: CoordinationNamespace, late: () => Late): CoordinationNamespace {
-  return {
-    getByName(name, options) {
-      const stub = ns.getByName(name, options);
-      const delayed =
-        <A extends unknown[], R>(op: CoordinationOp, run: (...args: A) => Promise<R>) =>
-        async (...args: A): Promise<R> => {
-          const value = await run(...args);
-          const ms = late()[op];
-          if (ms) await new Promise((resolve) => setTimeout(resolve, ms));
-          return value;
-        };
-      return {
-        increment: delayed("increment", stub.increment.bind(stub)),
-        count: delayed("count", stub.count.bind(stub)),
-        read: delayed("read", stub.read.bind(stub)),
-        write: delayed("write", stub.write.bind(stub)),
-        remove: delayed("remove", stub.remove.bind(stub)),
-        claim: delayed("claim", stub.claim.bind(stub)),
-        guess: delayed("guess", stub.guess.bind(stub)),
-        take: delayed("take", stub.take.bind(stub)),
-        swap: delayed("swap", stub.swap.bind(stub)),
-      };
-    },
-  };
-}
-
-/** One swap on its way to an `email_link` object, held until released. */
-interface HeldSwap {
+/** One store call held until released. */
+interface Held {
+  readonly op: CoordinationOp;
+  /** `before`: held before the call runs. `after`: it ran, and its answer is held. */
+  readonly when: "before" | "after";
   readonly arrived: () => void;
   readonly gate: Promise<void>;
 }
 
+const OPS: readonly CoordinationOp[] = [
+  "increment",
+  "count",
+  "read",
+  "write",
+  "remove",
+  "claim",
+  "guess",
+  "take",
+  "swap",
+];
+
 /**
- * `ns` with the swap `next()` hands over held before it runs, as a write still
- * on its way to the store; every other call goes straight through.
+ * `ns` with the call `next(op, when)` hands over held at that point, on a
+ * request's `email_link` object; every other call goes straight through.
  */
-function holdingSwaps(
+function holdingCalls(
   ns: CoordinationNamespace,
-  next: () => HeldSwap | null,
+  next: (op: CoordinationOp, when: Held["when"]) => Held | null,
 ): CoordinationNamespace {
   return {
     getByName(name, options) {
       const stub = ns.getByName(name, options);
       if (!name.startsWith("email_link:")) return stub;
-      return {
-        ...stub,
-        swap: async (...args: Parameters<typeof stub.swap>) => {
-          const held = next();
-          if (held) {
-            held.arrived();
-            await held.gate;
-          }
-          return stub.swap(...args);
-        },
-      };
+      const held = Object.fromEntries(
+        OPS.map((op) => [
+          op,
+          async (...args: unknown[]) => {
+            const before = next(op, "before");
+            if (before) {
+              before.arrived();
+              await before.gate;
+            }
+            const value = await (stub[op] as (...a: unknown[]) => Promise<unknown>)(...args);
+            const after = next(op, "after");
+            if (after) {
+              after.arrived();
+              await after.gate;
+            }
+            return value;
+          },
+        ]),
+      ) as unknown as typeof stub;
+      return held;
     },
   };
 }
 
 function harness() {
   const fake = createFakeNamespace();
-  let late: Late = {};
-  let heldSwap: HeldSwap | null = null;
+  let pending: Held | null = null;
   const bundle = createDurableCoordination(
-    answeringLate(
-      holdingSwaps(fake.ns, () => {
-        const held = heldSwap;
-        heldSwap = null;
-        return held;
-      }),
-      () => late,
-    ),
+    holdingCalls(fake.ns, (op, when) => {
+      if (!pending || pending.op !== op || pending.when !== when) return null;
+      const held = pending;
+      pending = null;
+      return held;
+    }),
     () => {},
   );
   const auth = createAuthService({
@@ -150,32 +137,36 @@ function harness() {
       }
     ).n;
 
+  const hold = (op: CoordinationOp, when: Held["when"]) => {
+    let arrived!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    pending = { op, when, arrived, gate };
+    return { reached: Effect.promise(() => reached), release };
+  };
+
   return {
     auth,
     db,
     fake,
     layer,
     recorded: () => email.recorded(),
-    /** From now on, each operation named answers that many milliseconds late. */
-    answerLate: (next: Late) => {
-      late = next;
-    },
     /**
      * Holds the next swap on a request's entry before it runs. `reached`
      * waits until that swap has been made; `release` lets it run.
      */
-    holdNextSwap: () => {
-      let arrived!: () => void;
-      let release!: () => void;
-      const reached = new Promise<void>((resolve) => {
-        arrived = resolve;
-      });
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      heldSwap = { arrived, gate };
-      return { reached: Effect.promise(() => reached), release };
-    },
+    holdNextSwap: () => hold("swap", "before"),
+    /**
+     * Lets the next `op` on a request's entry run, and holds its answer: the
+     * caller learns what the store held then only once `release` runs.
+     * `reached` waits until the call has run.
+     */
+    holdNextAnswer: (op: CoordinationOp) => hold(op, "after"),
     /** The request's entry as the store holds it. */
     entry: (requestId: string) =>
       Effect.promise(() => bundle.ceremonyStores.emailLinks.get(requestId)),
@@ -247,26 +238,27 @@ describe("a right pick and a decline at once", () => {
     const address = "race-decline@example.com";
     return Effect.gen(function* () {
       const s = yield* h.begun(address, "racedecline");
-      h.answerLate({ read: 10 });
-
-      // The decline's swap lands first; the right pick's swap then loses and
-      // re-reads the declined entry.
-      const [declined, picked] = yield* settle(
-        Effect.all(
-          [
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: "none",
-            }),
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: s.pairingCode,
-            }),
-          ],
-          { concurrency: "unbounded" },
+      // The right pick reads the pending request and hears back only after
+      // the decline has finished; its swap then loses and re-reads the
+      // declined entry.
+      const held = h.holdNextAnswer("guess");
+      const picking = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: s.pairingCode,
+          }),
         ),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const declined = yield* settle(
+        h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: s.link.linkSecret,
+          pairingPick: "none",
+        }),
+      );
+      held.release();
+      const picked = yield* Fiber.join(picking);
 
       expect(declined).toBe("declined");
       expect(picked).toBe("expired");
@@ -287,17 +279,15 @@ describe("a wrong pick's strike", () => {
     const h = harness();
     return Effect.gen(function* () {
       const s = yield* h.begun("race-wrong@example.com", "racewrong");
-      // Both guesses run before either answers, so both read the live request.
-      h.answerLate({ guess: 20 });
+      // The first guess reads the live request and hears back only after the
+      // second pick has ended it.
       const pick = { linkSecret: s.link.linkSecret, pairingPick: wrongPick(s.pairingCode) };
-
-      const answers = yield* settle(
-        Effect.all(
-          [h.auth.confirmEmailLink(s.requestId, pick), h.auth.confirmEmailLink(s.requestId, pick)],
-          { concurrency: "unbounded" },
-        ),
-      );
-      h.answerLate({});
+      const held = h.holdNextAnswer("guess");
+      const first = yield* Effect.forkChild(settle(h.auth.confirmEmailLink(s.requestId, pick)));
+      yield* held.reached;
+      const second = yield* settle(h.auth.confirmEmailLink(s.requestId, pick));
+      held.release();
+      const answers = [yield* Fiber.join(first), second];
 
       expect(answers).toEqual(["expired", "expired"]);
       expect(yield* h.entry(s.requestId)).toBeNull();
@@ -314,24 +304,21 @@ describe("a wrong pick's strike", () => {
         linkSecret: s.link.linkSecret,
         pairingPick: s.pairingCode,
       });
-      // The wrong pick reads the confirmed request at once and hears back
-      // late; the poll's two reads answer sooner, so its claim lands in
-      // between.
-      h.answerLate({ guess: 40, read: 10 });
-
-      const [wrong, done] = yield* settle(
-        Effect.all(
-          [
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: wrongPick(s.pairingCode),
-            }),
-            h.auth.registrationStatus(s.requestId, s.claimSecret),
-          ],
-          { concurrency: "unbounded" },
+      // The wrong pick reads the confirmed request and hears back only after
+      // the poll has claimed and finished it.
+      const held = h.holdNextAnswer("guess");
+      const picking = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: wrongPick(s.pairingCode),
+          }),
         ),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const done = yield* settle(h.auth.registrationStatus(s.requestId, s.claimSecret));
+      held.release();
+      const wrong = yield* Fiber.join(picking);
 
       expect(wrong).toBe("expired");
       expect(done.status === "complete" && done.handle).toBe("raceclaim");
@@ -392,6 +379,40 @@ describe("a send that cannot tell whether an account has the address", () => {
       expect(linksTo(h.recorded(), address)).toHaveLength(2);
     }).pipe(Effect.provide(h.layer));
   });
+
+  it.live("logs one fixed line with no cause, so the driver's error stays out of the log", () => {
+    const h = harness();
+    const address = "probe-log@example.com";
+    const lines: { level: string; message: string; cause: Cause.Cause<unknown> }[] = [];
+    const capture = Logger.layer([
+      Logger.make(({ logLevel, message, cause }) => {
+        lines.push({ level: logLevel, message: JSON.stringify(message), cause });
+      }),
+    ]);
+    return Effect.gen(function* () {
+      const s = yield* h.begun(address, "probelog");
+      lines.length = 0;
+
+      h.db.sqlite.run("ALTER TABLE accounts RENAME TO accounts_away");
+      yield* settle(h.auth.resendRegistration(s.requestId, s.claimSecret));
+      h.db.sqlite.run("ALTER TABLE accounts_away RENAME TO accounts");
+
+      const errors = lines.filter((line) => line.level === "Error");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]!.message).toBe(
+        JSON.stringify(["sign-up link not sent: the account probe failed"]),
+      );
+      for (const line of lines) {
+        expect(line.cause.reasons).toHaveLength(0);
+        expect(line.message).not.toContain(address);
+        expect(line.message).not.toContain("probelog");
+      }
+    }).pipe(
+      Effect.provide(capture),
+      Effect.provideService(References.MinimumLogLevel, "Debug"),
+      Effect.provide(h.layer),
+    );
+  });
 });
 
 describe("a write that loses its swap to a Resend", () => {
@@ -402,21 +423,19 @@ describe("a write that loses its swap to a Resend", () => {
       const s = yield* h.begun(address, "lostconfirm");
       // The pick reads first and hears back last; the Resend's read and swap
       // land in between.
-      h.answerLate({ guess: 30, read: 10 });
-
-      const [picked, resent] = yield* settle(
-        Effect.all(
-          [
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: s.pairingCode,
-            }),
-            h.auth.resendRegistration(s.requestId, s.claimSecret),
-          ],
-          { concurrency: "unbounded" },
+      const held = h.holdNextAnswer("guess");
+      const picking = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: s.pairingCode,
+          }),
         ),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const resent = yield* settle(h.auth.resendRegistration(s.requestId, s.claimSecret));
+      held.release();
+      const picked = yield* Fiber.join(picking);
 
       expect(picked).toBe("confirmed");
       expect(resent).toEqual({ status: "sent" });
@@ -440,21 +459,21 @@ describe("a write that loses its swap to a Resend", () => {
     const h = harness();
     return Effect.gen(function* () {
       const s = yield* h.begun("lost-decline@example.com", "lostdecline");
-      h.answerLate({ guess: 30, read: 10 });
-
-      const [declined, resent] = yield* settle(
-        Effect.all(
-          [
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: "none",
-            }),
-            h.auth.resendRegistration(s.requestId, s.claimSecret),
-          ],
-          { concurrency: "unbounded" },
+      // The decline reads first and hears back last; the Resend's read and
+      // swap land in between.
+      const held = h.holdNextAnswer("guess");
+      const declining = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: "none",
+          }),
         ),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const resent = yield* settle(h.auth.resendRegistration(s.requestId, s.claimSecret));
+      held.release();
+      const declined = yield* Fiber.join(declining);
 
       expect(declined).toBe("declined");
       expect(resent).toEqual({ status: "sent" });
@@ -475,19 +494,16 @@ describe("a write that loses its swap to a Resend", () => {
     const address = "lost-resend@example.com";
     return Effect.gen(function* () {
       const s = yield* h.begun(address, "lostresend");
-      // Both Resends read before either writes.
-      h.answerLate({ read: 10 });
-
-      const answers = yield* settle(
-        Effect.all(
-          [
-            h.auth.resendRegistration(s.requestId, s.claimSecret),
-            h.auth.resendRegistration(s.requestId, s.claimSecret),
-          ],
-          { concurrency: "unbounded" },
-        ),
+      // Both Resends read before either writes: the first hears its read
+      // back only after the second has written.
+      const held = h.holdNextAnswer("read");
+      const first = yield* Effect.forkChild(
+        settle(h.auth.resendRegistration(s.requestId, s.claimSecret)),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const second = yield* settle(h.auth.resendRegistration(s.requestId, s.claimSecret));
+      held.release();
+      const answers = [yield* Fiber.join(first), second];
 
       expect(answers).toEqual([{ status: "sent" }, { status: "sent" }]);
       const stored = yield* h.entry(s.requestId);
@@ -568,22 +584,16 @@ describe("a poll whose finish fails after the claim", () => {
         linkSecret: s.link.linkSecret,
         pairingPick: s.pairingCode,
       });
-      // The first poll's claim lands at once and hears back late; the second
-      // poll reads the request in between.
-      h.answerLate({ swap: 40 });
-
-      const [first, second] = yield* settle(
-        Effect.all(
-          [
-            h.auth.registrationStatus(s.requestId, s.claimSecret),
-            Effect.sleep("15 millis").pipe(
-              Effect.andThen(h.auth.registrationStatus(s.requestId, s.claimSecret)),
-            ),
-          ],
-          { concurrency: "unbounded" },
-        ),
+      // The first poll's claim lands and its answer is held; the second poll
+      // reads the request in between.
+      const held = h.holdNextAnswer("swap");
+      const firstPoll = yield* Effect.forkChild(
+        settle(h.auth.registrationStatus(s.requestId, s.claimSecret)),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const second = yield* settle(h.auth.registrationStatus(s.requestId, s.claimSecret));
+      held.release();
+      const first = yield* Fiber.join(firstPoll);
 
       expect(first.status === "complete" && first.handle).toBe("claimheld");
       expect(second).toEqual({ status: "expired" });
@@ -754,20 +764,21 @@ describe("a request the tab's poll has claimed", () => {
       // The decline reads the confirmed request at once and hears back late;
       // the poll claims it in between, and its finish fails.
       const fault = refuseSessions(h);
-      h.answerLate({ guess: 40, read: 10 });
-      const [declined, polled] = yield* settle(
-        Effect.all(
-          [
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: "none",
-            }),
-            Effect.result(h.auth.registrationStatus(s.requestId, s.claimSecret)),
-          ],
-          { concurrency: "unbounded" },
+      const held = h.holdNextAnswer("guess");
+      const declining = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: "none",
+          }),
         ),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const polled = yield* Effect.result(
+        settle(h.auth.registrationStatus(s.requestId, s.claimSecret)),
+      );
+      held.release();
+      const declined = yield* Fiber.join(declining);
       fault.allow();
 
       expect(polled._tag).toBe("Failure");
@@ -829,20 +840,21 @@ describe("a request the tab's poll has claimed", () => {
         pairingPick: s.pairingCode,
       });
       const fault = refuseSessions(h);
-      h.answerLate({ guess: 40, read: 10 });
-      const [wrong, polled] = yield* settle(
-        Effect.all(
-          [
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: wrongPick(s.pairingCode),
-            }),
-            Effect.result(h.auth.registrationStatus(s.requestId, s.claimSecret)),
-          ],
-          { concurrency: "unbounded" },
+      const held = h.holdNextAnswer("guess");
+      const picking = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: wrongPick(s.pairingCode),
+          }),
         ),
       );
-      h.answerLate({});
+      yield* held.reached;
+      const polled = yield* Effect.result(
+        settle(h.auth.registrationStatus(s.requestId, s.claimSecret)),
+      );
+      held.release();
+      const wrong = yield* Fiber.join(picking);
       fault.allow();
 
       expect(polled._tag).toBe("Failure");
@@ -919,27 +931,18 @@ describe("a poll that overran its hold", () => {
         linkSecret: s.link.linkSecret,
         pairingPick: s.pairingCode,
       });
-      // The first poll's claim hears back late. Meanwhile its hold passes, and
-      // a second poll takes the request over.
-      h.answerLate({ swap: 40 });
-      const [first, second] = yield* settle(
-        Effect.all(
-          [
-            h.auth.registrationStatus(s.requestId, s.claimSecret),
-            Effect.sleep("15 millis").pipe(
-              Effect.andThen(
-                Effect.sync(() => {
-                  vi.useFakeTimers({ toFake: ["Date"] });
-                  vi.setSystemTime(Date.now() + EMAIL_LINK_CLAIM_HOLD_MS + 1_000);
-                }),
-              ),
-              Effect.andThen(h.auth.registrationStatus(s.requestId, s.claimSecret)),
-            ),
-          ],
-          { concurrency: "unbounded" },
-        ),
+      // The first poll's claim lands and its answer is held. Meanwhile its
+      // hold passes, and a second poll takes the request over.
+      const held = h.holdNextAnswer("swap");
+      const firstPoll = yield* Effect.forkChild(
+        settle(h.auth.registrationStatus(s.requestId, s.claimSecret)),
       );
-      h.answerLate({});
+      yield* held.reached;
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + EMAIL_LINK_CLAIM_HOLD_MS + 1_000);
+      const second = yield* settle(h.auth.registrationStatus(s.requestId, s.claimSecret));
+      held.release();
+      const first = yield* Fiber.join(firstPoll);
 
       expect(first).toEqual({ status: "expired" });
       expect(second.status === "complete" && second.handle).toBe("claimoverrun");
@@ -963,20 +966,19 @@ describe("a claimed request whose pending entry was freed", () => {
       // deletes then fail in the store, so it frees the pending entry.
       const fault = refuseSessions(h);
       h.fake.failWhen((call) => call.store === "email_link" && call.op === "remove");
-      h.answerLate({ guess: 40, read: 10 });
-      yield* settle(
-        Effect.all(
-          [
-            h.auth.confirmEmailLink(s.requestId, {
-              linkSecret: s.link.linkSecret,
-              pairingPick: wrongPick(s.pairingCode),
-            }),
-            Effect.result(h.auth.registrationStatus(s.requestId, s.claimSecret)),
-          ],
-          { concurrency: "unbounded" },
+      const held = h.holdNextAnswer("guess");
+      const picking = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: wrongPick(s.pairingCode),
+          }),
         ),
       );
-      h.answerLate({});
+      yield* held.reached;
+      yield* Effect.result(settle(h.auth.registrationStatus(s.requestId, s.claimSecret)));
+      held.release();
+      yield* Fiber.join(picking);
       h.fake.failWhen(null);
       fault.allow();
       expect(yield* h.parked(address)).toBeNull();
