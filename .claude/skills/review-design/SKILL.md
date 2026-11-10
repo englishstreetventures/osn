@@ -335,8 +335,9 @@ its own tiers, where this report writes `U-` findings. For a gesture, also read
 - **The document is what ships, and the owner chooses.** Hold the animation to
   the duration, easing, transform origin or reduced-motion rule in the
   `DESIGN.md` or its stylesheet: a miss against the document is High, as any
-  broken document rule is, unless the branch records the owner's choice of
-  another value there. Where `STANDARDS.md` asks for something different, do not
+  broken document rule is, unless the branch changes that value in the
+  `DESIGN.md` and its pull request body quotes the owner's answer and where it
+  was given; a `DESIGN.md` change with no such record is High. Where `STANDARDS.md` asks for something different, do not
   drop it: write a finding for the owner's call, as the paragraph below on a look
   the documents do not settle says, with both values, the document's file and
   line, and the skill's. Say in `## Coverage` which value you held the animation to.
@@ -575,10 +576,13 @@ Tiers:
 In a `--full` sweep every line is in scope, so the tier is the one a changed
 line would take.
 
-**A look the documents do not settle is the owner's.** When two answers are
-defensible and no rule chooses between them, the finding says so, names the
-options in the Solution, and leaves the choice to the owner; whoever fixes it
-shows the owner each option rendered, light and dark, before asking.
+**A look the documents do not settle, or settle differently from a skill, is the
+owner's.** When two answers are defensible and no rule chooses between them, or
+the governing document names one value and a skill's checklist another, the
+finding says so, names the options in the Solution (the document's with its file
+and line), and leaves the choice to the owner; whoever fixes it shows the owner
+each option rendered, light and dark, before asking. A branch that followed its
+document where a skill differs gets this finding at Low, never High.
 
 If the review finds nothing, write "No design concerns found." at the top of
 `## Design findings` — and still fill every other section.
