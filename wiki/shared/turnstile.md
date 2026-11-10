@@ -17,7 +17,7 @@ packages:
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-10
 ---
 # Turnstile bot protection
 
@@ -173,11 +173,11 @@ from under it.
 > token was sent, and osn-api fail-closed on every gated call. Both halves were
 > individually correct; the pairing was severed by relocation.
 >
-> Fixed by threading `VITE_TURNSTILE_SITEKEY` through the `deploy-osn-social`
-> build into all three call sites. Guarded by
+> Fixed by threading `VITE_TURNSTILE_SITEKEY` through the production build, now the
+> release's `sites` job, into all three call sites. Guarded by
 > `musubi/social/tests/components/turnstile-wiring.test.tsx`, which fails if any
 > ceremony call site drops the prop, and by a non-empty check on the variable in
-> the deploy job — the test proves the prop is threaded, only the deploy check
+> the `sites` job — the test proves the prop is threaded, only the build check
 > can prove a real value reached it. (The osn-social preview workflow was deleted
 > in the same change, so `musubi.social` is the only origin building this app.)
 >

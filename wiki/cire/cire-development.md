@@ -586,9 +586,7 @@ hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
 
 The organiser portal (`@cire/host`) and the vendor portal (`@cire/vendor`) are
 static Astro builds served from static assets by their Workers, on dev and on
-production. On production the organiser portal's Pages project serves
-`host.cireweddings.com` until its flip release moves the host to the Worker. Every
-response header they send comes from
+production. Every response header they send comes from
 `public/_headers`, which the Workers and Pages alike apply to every path
 ([[infrastructure-as-code#Production sites]]). `astro dev` does
 not read that file, so the devloop runs with no CSP at all.

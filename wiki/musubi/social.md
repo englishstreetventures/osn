@@ -177,10 +177,14 @@ Environment variables (all prefixed `VITE_`):
 
 ## Deployment
 
-Cloudflare Pages, project **`osn-social`**, served at the apex
-**`https://musubi.social`**. The `deploy-osn-social` job in
-`.github/workflows/production-release.yml` builds and publishes it in each
-production release that ships it. On dev the musubi stack serves it as the
+Served at the apex **`https://musubi.social`**. The `sites` job in
+`.github/workflows/production-release.yml` builds it, and the musubi stack deploys that
+build to the **`osn-social`** Worker, which is `worker` in
+`shared/infra/src/production-sites.ts` and serves the apex once its flip release has
+moved it off the `osn-social` Pages project ([[production-deploy]] §5.7); until then the
+Pages project serves the apex with the last build its Pages job deployed. No job deploys
+the Pages project; it stays for a rollback. `record-osn-social` records each production
+deploy whose smoke check passed. On dev the musubi stack serves it as the
 `osn-social-dev` Worker, with static assets, on `musubi.<DEV_DOMAIN>`: `deploy.yml`'s
 musubi stack job builds and deploys it on every merge to `main` that touches it,
 and `deploy-osn-social-dev` records the deploy once its smoke check passes. The
@@ -188,12 +192,12 @@ Worker serves deep links through its single-page not-found handling, not the
 `_redirects` file Pages reads ([[infrastructure-as-code#Sites]]). See
 [[production-deploy]] and [[dev-environment]].
 
-On production the musubi stack also serves the same build as the staged `osn-social`
-Worker on `next.musubi.social`, until the apex moves to it
-([[infrastructure-as-code#Production sites]]). Sign-in does not work there, by design:
-the session cookie is host-only on `id.musubi.social`, osn-api's CORS and WebAuthn
-accept only `https://musubi.social`, so only the `osn_has_session` marker reaches the
-staged host and its `/token` call is refused. Its smoke check asks static paths alone:
+Staged on a spare host (`next.musubi.social`, [[infrastructure-as-code#Production sites]]),
+the Worker could not sign anyone in, by design: the session cookie is host-only on
+`id.musubi.social`, osn-api's CORS and WebAuthn accept only `https://musubi.social`, so
+only the `osn_has_session` marker reaches a spare host and its `/token` call is refused.
+On the apex none of that changes: osn-api names `https://musubi.social` as an origin, not
+the server behind it. Its smoke check asks static paths alone:
 `/`, a deep link, and `/.well-known/apple-app-site-association`, which must come back
 as `application/json`. That file sits in a dot-directory, so the release's build
 artifact keeps hidden files; without it iOS stops offering the app's passkeys on the
@@ -217,13 +221,14 @@ would have barred the apex from ever running one. The apex also covers every
 future `*.musubi.social` surface with a single credential.
 
 - `VITE_OSN_ISSUER_URL` is baked in **at build time** (`https://id.musubi.social`
-  in the deploy job). Unset, the bundle dials `http://localhost:4000` and the
+  in the release's `sites` job). Unset, the bundle dials `http://localhost:4000` and the
   deployed app calls the visitor's own machine.
 - `public/_redirects` rewrites every path to `index.html` (200) so client-side
-  routes deep-link; `public/_headers` ships the framing denial, and the build
+  routes deep-link on Pages (the Worker serves them through its single-page fallback); `public/_headers` ships the framing denial, and the build
   adds the script and connection rules to it ([[#Response headers]]).
-- The custom domain is attached in the Cloudflare dashboard, not by wrangler —
-  see [[production-deploy]] §5.4.
+- The musubi stack attaches the apex to the Worker on deploy, once its flip release has
+  taken it off the Pages project, where the dashboard attached it — see
+  [[production-deploy]] §5.4 and §5.7.
 - **No feature-branch preview.** `deploy-osn-social-preview.yml` (project
   `osn-social-preview`) was removed on 2026-07-27. A `*.pages.dev` preview could
   never sign anyone in — the RP ID is `musubi.social` and the `__Host-` session

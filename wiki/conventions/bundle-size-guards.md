@@ -85,7 +85,7 @@ stops a deploy or release:
 - **a source map where the app is served publicly**, in either form — a
   `*.map` file (any case), or a `.js`, `.mjs` or `.css` file carrying an inline
   `sourceMappingURL=data:` map. For a `static` app that is anywhere under
-  `dist`, which Pages serves whole; for cire/invites it is `dist/client`, its
+  `dist`, which its site Worker serves whole; for cire/invites it is `dist/client`, its
   Static Assets (maps under `dist/server` are uploaded for symbolication, never
   served). Either form publishes the app's unminified source. This runs before
   anything is measured, so no budget can hide it. A file is read through a
@@ -163,7 +163,7 @@ touching a threshold. In short:
 - **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
   `pulse/landing`. All five are `output: "static"`: no server code, no
   `dist/server`, no `dist/client` split — each deploys `dist` wholesale as static
-  assets, to its site Worker or, while its host is still on Pages, its Pages project.
+  assets to its site Worker.
   Measures `dist/_astro/*.js` and `dist/_astro/*.css` **only** — an allowlist,
   not a directory sum, because `dist/_astro/fonts/` holds Google Fonts binaries
   fetched at build time (hashed names, moves whenever Google's metadata moves,

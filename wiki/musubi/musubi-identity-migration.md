@@ -13,7 +13,7 @@ related:
   - "[[social]]"
   - "[[recovery-codes]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-11-10
 ---
 
 # Migrating OSN identity to musubi.social
@@ -68,11 +68,12 @@ ceremonies are illegal, and the redirect flow dead-ends.
 
 ### Blocker 2 — `@musubi/social` is not deployed ✅ cleared 2026-07-26
 
-The `deploy-osn-social` job publishes the `osn-social` Pages project. It went into
-`deploy.yml` on 2026-07-26 (step 5 below), and production's copy is in
-`production-release.yml` today. It was written against `me.cireweddings.com` and **never served
+The `deploy-osn-social` job published the `osn-social` Pages project. It went into
+`deploy.yml` on 2026-07-26 (step 5 below). Production now deploys the app through the
+musubi stack to the `osn-social` Worker, which takes the apex at its flip release
+([[production-deploy]] §5.7). The job was written against `me.cireweddings.com` and **never served
 that hostname**: the 2026-07-27 decision to go straight to musubi.social landed
-before the Pages custom domain was attached, so the job now targets the
+before the Pages custom domain was attached, so production targets the
 **`musubi.social` apex** with
 `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`. Feature-branch previews
 lived in a separate `osn-social-preview` project so a push to a branch could never

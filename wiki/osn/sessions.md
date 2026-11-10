@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-10
 ---
 
 # Session introspection + revocation
@@ -57,7 +57,7 @@ Every route that establishes or clears a session sets **two** cookies, via `buil
 | `__Host-osn_session` (`osn_session` locally) | HttpOnly, Secure, SameSite=Lax, Path=/, host-only | the opaque `ses_*` refresh token |
 | `osn_has_session` | Secure, SameSite=Lax, Path=/, `Domain=` from `OSN_COOKIE_DOMAIN` | the single bit `1` |
 
-The marker exists so the client can tell "never signed in" from "signed in, cookie not yet replayed" **without a request**. Before this, every cold page load with no stored account fired a bootstrap `POST /token`. A bot fleet loading a `*.pages.dev` copy of the app turned that into ~33k requests a day at the issuer — half the free-tier Worker budget — and rotating IPs defeated the per-IP limiters. `loadSession` now skips the grant when the marker is absent. The marker's domain is `musubi.social`, so it also reaches the staged app on `next.musubi.social` ([[social#Deployment]]); the session cookie, host-only on `id.musubi.social`, does not, and osn-api's CORS refuses that origin's `/token` call.
+The marker exists so the client can tell "never signed in" from "signed in, cookie not yet replayed" **without a request**. Before this, every cold page load with no stored account fired a bootstrap `POST /token`. A bot fleet loading a `*.pages.dev` copy of the app turned that into ~33k requests a day at the issuer — half the free-tier Worker budget — and rotating IPs defeated the per-IP limiters. `loadSession` now skips the grant when the marker is absent. The marker's domain is `musubi.social`, so it also reaches the app on a spare host such as `next.musubi.social`, where a staged Worker serves it ([[social#Deployment]]); the session cookie, host-only on `id.musubi.social`, does not, and osn-api's CORS refuses that origin's `/token` call.
 
 Design points worth keeping:
 
