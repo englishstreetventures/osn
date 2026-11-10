@@ -402,7 +402,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `OSN_PAIRWISE_SALT` | **Preferred: the `Set an osn-api Worker secret` GitHub workflow** (`.github/workflows/set-osn-api-secret.yml`, `workflow_dispatch`, `secret: OSN_PAIRWISE_SALT`, production environment) — idempotent, refuses to rotate, never prints the value. Manual `wrangler secret put` remains for non-prod envs. | **Yes** | ≥32 bytes or throws (`build-deps.ts`). HMAC key behind every OIDC pairwise `sub`. **Never rotate it** once clients hold tokens — every subject changes and every client sees its users as strangers. The workflow enforces this: it exits without touching an existing secret. [[oidc-provider]] |
 | `OSN_TOTP_ENCRYPTION_KEY` | **Preferred: the `Set an osn-api Worker secret` GitHub workflow** (`.github/workflows/set-osn-api-secret.yml`, `secret: OSN_TOTP_ENCRYPTION_KEY`) — it validates the decoded length and will not overwrite an existing key unless `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` is already staged. Manual `wrangler secret put` checks nothing. | **Yes** | Exactly 32 base64-encoded random bytes (`openssl rand -base64 32`) or the boot throws (`build-deps.ts`). AES-256-GCM key for every stored TOTP secret. **Keep your copy** — Cloudflare never hands it back, and a key nobody escrowed cannot be rotated, only replaced, which makes every enrolled user re-enrol. Missing ⇒ 503 on **every** route, not just TOTP. Rotate in the fixed order in §10. [[totp]] |
 | `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` | Same workflow, `secret: OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` | Only while a rotation drains | The outgoing key, held in the second slot of the key ring so old ciphertext still decrypts. Set in §10.1, deleted in §10.4. Present-but-malformed fails the boot exactly as the current key does. [[totp]] |
-| `OSN_AUTHORIZE_UI_URL` | `[env.<env>.vars]` | Optional, but **set it** | Absolute URL of the OIDC consent screen. Prod = **`https://musubi.social/authorize`** (`@musubi/social` on the `osn-social` Pages project, serving the musubi.social apex). Unset ⇒ `/authorize` on the **first** `OSN_ORIGIN` — which happens to be right under the current config, and would silently break the moment that list is reordered. Keep it explicit. [[oidc-provider]], [[authorize-ui]] |
+| `OSN_AUTHORIZE_UI_URL` | `[env.<env>.vars]` | Optional, but **set it** | Absolute URL of the OIDC consent screen. Prod = **`https://musubi.social/authorize`** (`@musubi/social` on the `osn-social` Worker, serving the musubi.social apex). Unset ⇒ `/authorize` on the **first** `OSN_ORIGIN` — which happens to be right under the current config, and would silently break the moment that list is reordered. Keep it explicit. [[oidc-provider]], [[authorize-ui]] |
 | `OSN_RP_ID` | `[env.<env>.vars]` | **Yes** | WebAuthn RP ID — must be a **registrable domain**. Prod = **`musubi.social`** since 2026-07-27 (was `cireweddings.com`). The apex, not `id.musubi.social`, so a ceremony is legal on the apex identity app *and* on any future `*.musubi.social` surface. **The change invalidated every passkey enrolled under `cireweddings.com`** — a private key is bound to its RP ID inside the authenticator, so recovery-code login is the only way back in. [[musubi-identity-migration]] |
 | `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. Prod = **`https://musubi.social`** — the identity app, and the only origin same-site with the RP ID. The cire origins were **removed** on 2026-07-27; a ceremony from `host.`/`vendor.`/`invite.cireweddings.com` is now illegal no matter what this list says, so listing them would only mislead. |
 | `OSN_ISSUER_URL` | `[env.<env>.vars]` | **Yes** | Public https base URL of osn-api → JWT `iss`; must match what cire verifies. Prod = **`https://id.musubi.social`** (custom-domain route in `wrangler.toml` `[env.production]`). |
@@ -490,9 +490,8 @@ quietly accepting tokens from anywhere.
 > in `production-release.yml`). The committed `cire/invites/wrangler.jsonc` carries the worker
 > name (`cire-invites`) + the **`invite.cireweddings.com` custom-domain route**, and the
 > adapter merges in `main`/the ASSETS binding. The old
-> `wrangler pages deploy dist --project-name cire` is gone — **the Cloudflare
-> Pages project `cire` serves nothing; the apex belongs to the `cire-landing` Pages
-> project since the 2026-07-16 reshuffle.** The invite route resolves the
+> `wrangler pages deploy dist --project-name cire` is gone — **the apex belongs
+> to the `cire-landing` Worker.** The invite route resolves the
 > wedding **from the path** (`/<slug>`) at request time and the bare domain (`/`)
 > 302-redirects **off-origin to the marketing site** (`PUBLIC_MARKETING_URL`,
 > default + prod value `https://cireweddings.com`), so there is **no
@@ -1304,7 +1303,7 @@ same surfaces again with whatever merged since.
 | Input | Effect |
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
-| `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
+| `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy` or `wrangler rollback`, or a Worker rolled back in the dashboard — none of which leaves a Deployment record. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
 dispatch made while another release is in progress queues behind it, and the next
@@ -1470,7 +1469,10 @@ A site Worker that answers wrongly after a deploy is rolled back by its stack jo
 check (§5.0 item 7). To roll one back by hand, open **Workers & Pages**, the Worker
 (`cire-host`, `cire-vendor`, `cire-landing`, `osn-social` or `musubi-landing`),
 **Deployments**, and roll back to the version before the fault; site Workers hold no
-secret, so Cloudflare allows it. A hand rollback leaves no Deployment record, so the
+secret, so Cloudflare allows it. That version lacks every change since it was deployed:
+before rolling back, list them (`git log --oneline <its commit>..origin/main -- <the
+site's paths>`, the paths in `scripts/deploy-surfaces.ts`), and if a security fix is
+among them, fix forward instead. A hand rollback leaves no Deployment record, so the
 next release that ships the stack deploys `main` again: fix forward first, or leave that
 stack's sites out of releases until the fix is on `main`.
 

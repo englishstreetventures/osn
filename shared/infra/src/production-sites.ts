@@ -83,8 +83,8 @@ export const PRODUCTION_ADOPTIONS: readonly string[] = [];
 
 /**
  * Today's production host of every surface, keyed as `StageHosts` in
- * hosts.ts. Each is the custom domain its Wrangler config or Pages project
- * serves, and musubi landing's the one its build names
+ * hosts.ts. Each is the custom domain its Wrangler config or its site
+ * Worker serves, and musubi landing's the one its build names
  * (musubi/landing/astro.config.mjs). Pulse landing's is the one
  * pulse/landing/astro.config.mjs names; it is `off`, so nothing serves it.
  */
@@ -123,7 +123,7 @@ export const PRODUCTION_STAGING_HOSTS: SomeSites<string> = {
   osn_social: "next.musubi.social",
 };
 
-/** The Pages project that serves each site's production host today. */
+/** The Pages project a staged site's Pages job deployed; englishstreetventures/osn#2196 removes it with the mode. */
 export const PAGES_PROJECTS: SomeSites<string> = {
   cire_host: "cire-host",
   cire_vendor: "cire-vendor",

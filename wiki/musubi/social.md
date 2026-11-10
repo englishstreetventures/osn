@@ -226,7 +226,7 @@ future `*.musubi.social` surface with a single credential.
   routes deep-link on Pages (the Worker serves them through its single-page fallback); `public/_headers` ships the framing denial, and the build
   adds the script and connection rules to it ([[#Response headers]]).
 - The musubi stack attached the apex to the Worker on deploy, once the owner had taken
-  it off the Pages project — see [[production-deploy]] §5.4 and §5.7.
+  it off the Pages project — see [[production-deploy]] §5.4.
 - **No feature-branch preview.** `deploy-osn-social-preview.yml` (project
   `osn-social-preview`) was removed on 2026-07-27. A `*.pages.dev` preview could
   never sign anyone in — the RP ID is `musubi.social` and the `__Host-` session

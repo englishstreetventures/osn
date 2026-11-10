@@ -248,12 +248,9 @@ describe("a surface whose production deploy never ran", () => {
           "any",
           "any_site",
           "any_stack",
-          "stacks",
         ].toSorted(),
       );
-      const { stacks, ...flags } = outputs;
-      expect(Object.values(flags).every((value) => value === "false")).toBe(true);
-      expect(stacks).toBe("");
+      expect(Object.values(outputs).every((value) => value === "false")).toBe(true);
       // Nothing ships, so no dev record is read.
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
@@ -396,7 +393,7 @@ describe("dev still gates production", () => {
         "any_site",
         "any_stack",
       ]);
-      expect(outputs.stacks).toBe("cire");
+      expect(outputs).toMatchObject({ stack_cire: "true", stack_musubi: "false" });
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
   });
@@ -1373,7 +1370,6 @@ describe("which production stacks ship", () => {
       stack_musubi: "false",
       any_site: "true",
       any_stack: "true",
-      stacks: "cire",
     });
     // Staged, the site ships its own Pages job and its stack both.
     const staged = await atModes({ cire_landing: "staged" });
@@ -1382,7 +1378,7 @@ describe("which production stacks ship", () => {
       cire_landing: "true",
       stack_cire: "true",
       any_site: "true",
-      stacks: "cire",
+      stack_musubi: "false",
     });
   });
 
@@ -1415,7 +1411,7 @@ describe("which production stacks ship", () => {
       stack_cire: "false",
       any_site: "false",
       any_stack: "false",
-      stacks: "",
+      stack_musubi: "false",
     });
     // Forced, nothing holds it.
     expect(release(cire, true).stacks.find((s) => s.key === "cire")?.ship).toBe(true);
@@ -1436,7 +1432,7 @@ describe("which production stacks ship", () => {
       stack_cire: "false",
       any_site: "true",
       any_stack: "false",
-      stacks: "",
+      stack_musubi: "false",
     });
     expect(
       staged.planner.stackPlans(decided, true).stacks.find((s) => s.key === "cire")?.ship,
@@ -1469,15 +1465,7 @@ describe("what the plan job writes", () => {
           .trim()
           .split("\n")
           .map((line) => line.split("=")[0]),
-      ).toEqual([
-        ...SHIPPED,
-        "stack_musubi",
-        "stack_cire",
-        "any",
-        "any_site",
-        "any_stack",
-        "stacks",
-      ]);
+      ).toEqual([...SHIPPED, "stack_musubi", "stack_cire", "any", "any_site", "any_stack"]);
       expect(plan.summary).toContain("musubi_landing");
       expect(plan.summary).not.toContain("pulse_landing");
       // Two approvals when a stack ships.
@@ -1489,7 +1477,7 @@ describe("what the plan job writes", () => {
     );
   });
 
-  test("RP7: one line per surface and production stack, then any, any_site, any_stack and stacks", async () => {
+  test("RP7: one line per surface and production stack, then any, any_site and any_stack", async () => {
     const lines = outputLines(release(decide(["osn/api/x.ts"])))
       .trim()
       .split("\n");
@@ -1500,7 +1488,6 @@ describe("what the plan job writes", () => {
       "any=true",
       "any_site=false",
       "any_stack=false",
-      "stacks=",
     ]);
     expect(parseOutputs(outputLines(release(decide([]))))).toMatchObject({ any: "false" });
     // A stack-path change ships both stacks on their own records, and of the
@@ -1509,7 +1496,8 @@ describe("what the plan job writes", () => {
     expect(
       parseOutputs(outputLines(stackPlans(decide(infra), false, stacksFor(infra)))),
     ).toMatchObject({
-      stacks: "musubi cire",
+      stack_musubi: "true",
+      stack_cire: "true",
       any_stack: "true",
       musubi_landing: "true",
       cire_host: "true",
@@ -1535,7 +1523,8 @@ describe("what the plan job writes", () => {
         ),
       ),
     ).toMatchObject({
-      stacks: "musubi cire",
+      stack_musubi: "true",
+      stack_cire: "true",
       cire_host: "true",
       cire_landing: "false",
       osn_social: "false",
@@ -1682,7 +1671,11 @@ describe("a production stack ships on its own record", () => {
         fetch: github.fetch,
         cwd: repo,
       });
-      expect(parseOutputs(api.outputs)).toMatchObject({ cire_api: "true", stacks: "" });
+      expect(parseOutputs(api.outputs)).toMatchObject({
+        cire_api: "true",
+        stack_cire: "false",
+        stack_musubi: "false",
+      });
     });
   });
 
@@ -1714,7 +1707,6 @@ describe("a production stack ships on its own record", () => {
         cwd: repo,
       });
       expect(parseOutputs(plan.outputs)).toMatchObject({
-        stacks: "cire",
         stack_cire: "true",
         stack_musubi: "false",
         cire_host: "true",
@@ -1756,12 +1748,13 @@ describe("a production stack ships on its own record", () => {
       // The daily run, or any release with empty surfaces: both stacks ship,
       // so alchemy-plan's precheck refuses it while either apex is on Pages.
       expect(parseOutputs((await plan(before)).outputs)).toMatchObject({
-        stacks: "musubi cire",
+        stack_musubi: "true",
+        stack_cire: "true",
       });
 
       const first = await plan(before, { SURFACES: "cire_landing" });
       expect(parseOutputs(first.outputs)).toMatchObject({
-        stacks: "cire",
+        stack_cire: "true",
         stack_musubi: "false",
         cire_landing: "true",
         osn_social: "false",
@@ -1790,7 +1783,7 @@ describe("a production stack ships on its own record", () => {
       ];
       const second = await plan(landed, { SURFACES: "osn_social" });
       expect(parseOutputs(second.outputs)).toMatchObject({
-        stacks: "musubi",
+        stack_musubi: "true",
         stack_cire: "false",
         osn_social: "true",
         musubi_landing: "false",
@@ -1851,7 +1844,10 @@ describe("a production stack ships on its own record", () => {
       const b = await commit(repo, { "cire/infra/x.ts": "2" });
       const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", a, 2)]);
       const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
-      expect(parseOutputs(plan.outputs)).toMatchObject({ stack_cire: "false", stacks: "" });
+      expect(parseOutputs(plan.outputs)).toMatchObject({
+        stack_cire: "false",
+        stack_musubi: "false",
+      });
       expect(plan.summary).toContain(
         "no recent dev deployment of the stack was built from these paths",
       );
@@ -1905,7 +1901,7 @@ describe("a production stack ships on its own record", () => {
   });
 });
 
-// ── moving a domain back ────────────────────────────────────────────────────
+// ── inputs no release reads ────────────────────────────────────────────────────
 
 describe("retired inputs", () => {
   test("RP18: FLIP, UNFLIP and ATTACH are read by nothing: a release with them set plans as one without", async () => {

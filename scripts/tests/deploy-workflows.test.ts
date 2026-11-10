@@ -1281,10 +1281,8 @@ describe("production-release.yml", () => {
     const inProduction = jobsIn(production, "production").map(([id]) => id);
     // A release runs at most every production job.
     const release = inProduction.length;
-    const most = release;
     expect(release).toBe(7);
-    expect(most).toBeLessThanOrEqual(7);
-    expect(Math.floor(MAX_RECORDS / most)).toBeGreaterThanOrEqual(42);
+    expect(Math.floor(MAX_RECORDS / release)).toBeGreaterThanOrEqual(42);
     // One record job per site whose Worker serves its host: at most every
     // site a production stack deploys.
     const records = jobsIn(production, "production-records").length;
@@ -1887,7 +1885,7 @@ describe("PW-D: a job that holds a credential and installs a narrower tree than 
 
 describe("PW-F: a Pages job's credentials reach its deploy alone", () => {
   test.each(ownJobSurfaces.filter(stackDeployed).map((s) => [s.key, s] as const))(
-    "%s: no job-level env; only the deploy step, and osn-social's project check, hold the pair",
+    "%s: no job-level env; only the deploy step holds the pair",
     (_, s) => {
       const job = production.jobs[s.production.id]!;
       expect(job.env).toBeUndefined();
@@ -2240,9 +2238,8 @@ describe("every other workflow", () => {
   };
 
   // A Worker deployed from anywhere else skips the smoke check, and the planner
-  // never sees it. This reads Wrangler deploys alone: an Alchemy deploy, such
-  // as the domain move rehearsal's throwaway marker Worker, does not show here;
-  // domain-move-rehearsal-workflow.test.ts holds that workflow instead.
+  // never sees it. This reads Wrangler deploys alone: an Alchemy deploy does
+  // not show here.
   test("deploys no Worker", () => {
     for (const path of otherWorkflows()) {
       const text = readFileSync(join(root, path), "utf8");

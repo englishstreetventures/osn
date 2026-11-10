@@ -42,7 +42,7 @@ last-reviewed: 2026-11-11
 
 | Dependency | Used by | NOT used by |
 |---|---|---|
-| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, `cire-vendor`, `cire-host`, `cire-landing`, `osn-social` | the Pages projects |
+| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, `cire-vendor`, `cire-host`, `cire-landing`, `osn-social` | — |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
 | **Cloudflare Pages** | nothing: every production site is a Worker | the Workers |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) and the other bindings in its `wrangler.toml`; **osn-api**'s one-minute limiters, `RL_AUTH_IP_*` and `RL_USER_*` ([[rate-limiting]]) | — |

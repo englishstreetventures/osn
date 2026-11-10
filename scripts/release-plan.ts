@@ -65,10 +65,9 @@
  *                       diff and dev say — for a change no path rule sees
  *                       (a repo Variable, a hand-run wrangler deploy)
  * Writes `<key>=true|false` per surface, `stack_<stack>=true|false` per
- * production stack, `any`, `any_site` (a site build is needed), `any_stack`
- * and `stacks` (the shipping stacks, space separated) to $GITHUB_OUTPUT
- * (stdout when unset), and a table of what ships and why to
- * $GITHUB_STEP_SUMMARY and stdout.
+ * production stack, `any`, `any_site` (a site build is needed) and
+ * `any_stack` to $GITHUB_OUTPUT (stdout when unset), and a table of what
+ * ships and why to $GITHUB_STEP_SUMMARY and stdout.
  *
  * Read-only against GitHub. Any API error fails the run: a planner that
  * shipped everything whenever it could not read the records would hide the
@@ -941,8 +940,8 @@ export function stackPlans(
 
 /**
  * `<key>=true|false` per surface, `stack_<stack>=true|false` per production
- * stack, then `any`, `any_site`, `any_stack` and `stacks`, as $GITHUB_OUTPUT
- * takes them. `any_site` says a site build is
+ * stack, then `any`, `any_site` and `any_stack`, as $GITHUB_OUTPUT takes
+ * them. `any_site` says a site build is
  * needed: a stack ships, or a staged site's own Pages job does.
  */
 export function outputLines(release: ReleaseDecisions): string {
@@ -957,7 +956,6 @@ export function outputLines(release: ReleaseDecisions): string {
     `any=${ships.size > 0 || stacks.length > 0}`,
     `any_site=${stacks.length > 0 || pagesSite}`,
     `any_stack=${stacks.length > 0}`,
-    `stacks=${stacks.join(" ")}`,
     "",
   ].join("\n");
 }
