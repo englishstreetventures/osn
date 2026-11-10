@@ -60,7 +60,7 @@ The hook command, inline in `settings.json`, runs **main's copy** of the script:
 
 `branch-gates` works only in a repository whose `origin` is `englishstreetventures/osn` on github.com, as `https://github.com/…`, `git@github.com:…` or `ssh://git@github.com/…`. At session start it reads the repository's root (`git rev-parse --show-toplevel` in the session's directory) and that root's origin, keeps both for the session, and runs every later git, `gh` and `bash` call in that root, wherever the session's directory moves. Anywhere else it opens no pane, registers no command and makes no git call after those two, and a project's own `/gates` answers instead. Unprompted, it runs only git, `gh` and the copy of `scripts/changeset-required.sh` in the worktree the mods are loaded from, read from disk and run as `bash -c` with the file list on stdin; never a script from the session's checkout. It reads `NEW-FEAT.md` only when it is a regular file of at most 256 KB, and removes control characters from every text it draws from the checkout or from `gh`.
 
-**`/gates`** runs CI's lint commands from the worktree root, one after another: `bash scripts/verify-vendored-anti-slop.sh && bun run lint`, `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base <sha>`, where `<sha>` is `git merge-base refs/remotes/origin/main HEAD` (the row reads "not run" when there is none). They are the **checkout's own scripts**, so `/gates` runs only when you type it at the prompt; started by a plugin, the SDK or a relayed message, it runs nothing and says why. It takes about 30 s, and each row reads "not run: no node_modules" in a worktree that has none.
+**`/gates`** runs CI's lint commands from the worktree root, one after another: `bash scripts/verify-vendored.sh tools/oxlint/anti-slop && bun run lint`, `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base <sha>`, where `<sha>` is `git merge-base refs/remotes/origin/main HEAD` (the row reads "not run" when there is none). They are the **checkout's own scripts**, run by command lines the mod holds, and the mod loads from the `claude-mods` worktree (below): a checkout whose scripts differ from that worktree's commit, such as a branch from before a script was renamed, reads `fail` on that row until the two agree. `/gates` runs only when you type it at the prompt; started by a plugin, the SDK or a relayed message, it runs nothing and says why. It takes about 30 s, and each row reads "not run: no node_modules" in a worktree that has none.
 
 *Measured 2026-10-26 — the three commands run in turn from the repository root in a cloud container: lint 7.0 s, `fmt:check` 0.5 s, the warning ceiling 18.6 s.*
 
@@ -180,6 +180,22 @@ To move a pin, read the upstream change first — `git diff <old-sha>..<new-sha>
 
 Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the symlink path (it follows the link and would report each file twice), and the two lefthook pre-commit commands that lint and format exclude `.agents/**` (the secret scan reads every staged file). A fix made in someone else's file fails `check-skills-lock`, and the next install throws it away: it goes upstream and comes back as a new pin.
 
-## Vendored lint plugin
+## Vendored trees
 
-`tools/oxlint/anti-slop` is a verbatim upstream copy, unlike `tools/oxlint/house` ([[house-lint-rules]]). It is excluded from bun fmt and oxlint, with its MIT licence beside it. Its `SHA256SUMS` covers every tracked file, and CI checks both the checksums and the file set, so a re-vendor must regenerate it with the recipe in that directory's `README.md`. `.github/CODEOWNERS` puts it under a human owner, along with `scripts/`, `.github/`, `bunfig.toml` and the files that decide whether a guard runs at all (`package.json`, `oxlintrc.json`, `lefthook.yml`).
+Two directories are verbatim upstream copies, never edited, except that the orb tree also holds one repo-authored `types.ts` (two type aliases copied from upstream's, which change only when the pin moves):
+
+| Tree | What it is | Who runs it |
+|---|---|---|
+| `tools/oxlint/anti-slop` | An oxlint plugin, unlike `tools/oxlint/house` ([[house-lint-rules]]) | oxlint, on every lint run |
+| `shared/ui/vendor/thinking-orbs` | The orb's drawing engine ([[component-library]], §`Orb`) | the bundler, inside any app that draws `Orb` |
+
+Each is ignored by oxlint (`oxlintrc.json`) and kept from the formatter (`lefthook.yml`, and `.oxfmtrc.json` or the root `fmt` path list), with its MIT licence beside it. Each has a `SHA256SUMS` covering every tracked file and a `README.md` naming the upstream commit as ``pinned to commit `<sha>` ``, with the recipe that regenerates the manifest on a re-vendor.
+
+`scripts/verify-vendored.sh <tree> [base-ref]` is the one guard for both. It fails when a file differs from the manifest, the tracked file set differs from it, or a file is anything but `100644` (or `120000`); with a base ref, it also fails when vendored source changed and the pin did not. It refuses (exit 2) a tree named absolutely, with a `..` part, or with no `SHA256SUMS`. Where it runs:
+
+- **lefthook's pre-commit `lint`** and **CI's `lint` job** and **`release.yml`** check `tools/oxlint/anti-slop` before oxlint runs it.
+- **CI's `script-tests` job** checks every tree `scripts/vendored-trees.txt` lists, with the pin half on pull requests, and fails on an empty list. The list is a file of its own rather than a search for `SHA256SUMS` files, so a branch that deletes a tree's manifest cannot also take the tree out of the check: the guard refuses a listed tree with no manifest. `scripts/tests/vendored-trees.test.ts` fails when a tree with a manifest is missing from the list. The job also runs `scripts/tests/verify-vendored.test.sh`.
+
+The orb engine runs in three places: `bun run dev:lab` in a browser, `@shared/ui`'s browser tests (`bun run test:browser`), and the lab's story smoke test (`tools/lab/tests/stories.test.tsx`, which `bun run test` runs in happy-dom). No commit step runs any of them, so lefthook does not check that tree. In CI, the `build-test` job (the smoke test) and the `browser` job both run it in parallel with `script-tests`, not after it.
+
+The checksums prove only that a tree matches its own manifest. The orb tree's README has a command that fetches its upstream files at the pin and checks them against `SHA256SUMS`, for whoever reviews a re-vendor. `.github/CODEOWNERS` puts both trees under a human owner, along with `scripts/`, `.github/`, `bunfig.toml` and the files that decide whether a guard runs at all (`package.json`, `oxlintrc.json`, `lefthook.yml`).

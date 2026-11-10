@@ -25,6 +25,7 @@ import { Label } from "@shared/ui/ui/label";
 import { Meter } from "@shared/ui/ui/meter";
 import { Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
+import { Orb } from "@shared/ui/ui/orb";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
@@ -208,6 +209,11 @@ export const Everything = () => {
         <div class="w-64">
           <Meter value={68} max={100} label="Budget spent" />
         </div>
+      </Entry>
+
+      <Entry name="Orb" from="@shared/ui/ui/orb">
+        <Orb size={64} />
+        <Orb size={20} />
       </Entry>
 
       <Entry name="EmptyState" from="@shared/ui/ui/empty-state">

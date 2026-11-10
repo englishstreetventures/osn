@@ -45,13 +45,16 @@ bunfig.toml          @chav-aniket
 wrangler.toml        @chav-aniket
 wrangler.jsonc       @chav-aniket
 
-# Vendored upstream source (see tools/oxlint/anti-slop/README.md). An edit here
-# bypasses bun fmt and oxlint by design; the CI guard (verify-vendored-anti-slop.sh)
+# Vendored upstream source (see the README in each tree). An edit here
+# bypasses bun fmt and oxlint by design; the CI guard (verify-vendored.sh)
 # catches the shape of a change — `SHA256SUMS` that the tree no longer matches
 # its manifest, or a pin in `README.md` left unmoved by a change to the source —
 # but it can't say whether the new code is upstream's. That is what a human
-# owner is for.
+# owner is for: `shared/ui/vendor/thinking-orbs/README.md` has the command that
+# checks the orb engine against upstream's files at the pin, and whoever merges
+# a change here runs that command first.
 /tools/oxlint/**     @chav-aniket
+/shared/ui/vendor/** @chav-aniket
 
 # Agent instructions — slash-commands, skills, settings, eval cases. A file
 # here changes what an agent is told to do in this repo, and an agent runs with

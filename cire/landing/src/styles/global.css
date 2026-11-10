@@ -36,6 +36,9 @@
 /* Nor the shared `Button`. A page that draws it, or `buttonVariants`, needs
    this line gone. */
 @source not "../../../../shared/ui/src/ui/button.tsx";
+/* Nor the orb: no page here draws it. A page that draws `Orb` needs this
+   line gone. */
+@source not "../../../../shared/ui/src/ui/orb.tsx";
 
 /* Brand tokens — kept byte-identical to cire/invites's theme block so the marketing
    site, the invites it advertises, and the organiser portal all read as one
