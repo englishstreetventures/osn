@@ -1131,7 +1131,7 @@ import { buttonVariants } from "@shared/ui/ui/button";
 Every size, the link inside a sentence, the `busy` wait and keyboard focus
 are in [[#Button — a link inside a sentence, and a wait]].
 
-**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse and the lab draw (Musubi draws no `Badge`) ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
+**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse draws; Musubi maps 500 and draws no `Badge`, and the lab draws Musubi's 500 except in `BadgeWeights`' unmapped column, which lends `initial` ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
@@ -1175,8 +1175,10 @@ the unmapped title's whole computed style as a snapshot written before the title
 read the token, and the panel entering from 0.96 over 120ms and leaving to 0.98
 over 80ms — so a `-u` that rewrites it changes pulse and needs the owner's
 approval. `dialog.browser.test.tsx` checks the title follows the token set on an
-ancestor. Overlays that fade without scaling are an app's choice too, made with
-the two scale tokens rather than a prop ([[design-tokens#Motion]]).
+ancestor. Musubi maps the token to 500 and `--ui-text-md` to its 14px title
+step, so its dialog titles draw 14px at 500. Overlays that fade without
+scaling are an app's choice too, made with the two scale tokens rather than a
+prop; Musubi makes it ([[design-tokens#Motion]]).
 
 ### Checkbox and RadioGroup — native, in two boxes
 
@@ -1240,10 +1242,11 @@ so an app that maps nothing draws a semibold title, and an app
 whose house style stops at 500 maps the token once
 ([[design-tokens#The tokens]]). No call site sets it with a class:
 `shadcn/no-restyle` refuses typography on `CardTitle`
-([[#What a call site may set, and what it may not]]). No app maps the token, so
-every card title draws at 600: `@osn/auth-ui`'s profile onboarding in Musubi's
-settings, the metrics dashboard and the lab. Pulse imports `Card` but draws no
-`CardTitle`. `shared/ui/tests/card-default.browser.test.tsx` holds the unmapped
+([[#What a call site may set, and what it may not]]). Musubi maps the token to
+500 and `--ui-text-md` to 14px, so `@osn/auth-ui`'s profile onboarding card in
+Musubi's settings draws its title at 14px and 500, and the metrics dashboard
+and the lab, through Musubi's stylesheet, draw 500. Pulse imports `Card` but
+draws no `CardTitle`. `shared/ui/tests/card-default.browser.test.tsx` holds the unmapped
 title's whole computed style as a snapshot written before the title read the
 token, so a `-u` that rewrites it changes every app that draws a card title and
 needs the owner's approval. `card.browser.test.tsx` checks the title draws 600
@@ -1284,8 +1287,11 @@ narrow boxes as short as they are wide.
 
 *Measured 2026-11-09 — `bun run --cwd shared/ui test:browser -- tests/otp-input.browser.test.tsx`, OtpInput geometry*
 
-The digit is `text-ui-md` (1.05rem unless the app maps `--ui-text-md`; musubi
-maps 16px). Keep it at 16px or more: below that, iOS zooms a field on focus.
+The digit is `text-ui-md` (1.05rem unless the app maps `--ui-text-md`). iOS
+zooms a focused field set under 16px, so an app that maps `md` below 16px
+raises its form controls to 16px on a phone. Musubi maps 14px, its title step,
+and its mobile input rule sets every `input` to 16px below 768px, as it does
+for `Input` ([[social]]).
 
 The corner is the contract's `field` radius, the one `Input`, `Textarea` and
 `Select` take, so the boxes round like the text fields beside them. An empty
