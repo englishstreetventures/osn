@@ -136,8 +136,7 @@ to the owner when its facts stand and the choice is theirs. Implementation start
 when none is open and every escalation has an answer.
 
 It decides for itself whether the plan is worth attacking — from the issue's
-complexity first (3 or less is skipped unless it touches tokens, sessions, rate
-limits, step-up, recovery or OpenID Connect; above 3 never is), and for an
+complexity first (3 or less is skipped unless it touches tokens, sessions, rate limits, step-up, recovery, OpenID Connect, authorisation and permissions, cookies, CSP, input rejection or crypto; above 3 never is), and for an
 unrated issue from what the plan touches. Do not pre-empt that call; invoke it
 and let it skip.
 

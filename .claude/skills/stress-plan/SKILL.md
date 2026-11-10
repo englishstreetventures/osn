@@ -30,8 +30,7 @@ confirmed or not, in the repository that holds the issue — a tracker issue's i
 `englishstreetventures/osn-tracker` — and add the ratings up when the plan
 covers several issues.
 
-- **3 or less: skip**, unless the plan touches tokens, sessions, rate limits,
-  step-up, recovery or OpenID Connect. The builder checks the plan's premises
+- **3 or less: skip**, unless the plan touches tokens, sessions, rate limits, step-up, recovery, OpenID Connect, authorisation and permissions, cookies, CSP, input rejection or crypto. The builder checks the plan's premises
   against the code itself instead: each claim the design rests on, with the
   file and line or the command output that confirms it, written into the plan
   (`new-feat` Step 2). Record `stress-plan: skipped, complexity <n>` in the
