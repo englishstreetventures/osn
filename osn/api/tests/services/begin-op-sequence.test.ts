@@ -94,6 +94,23 @@ describe("POST /login/passkey/begin with an identifier", () => {
     },
   );
 
+  it.live("makes the same calls for an address typed in capitals, whoever it names", () => {
+    // An address with capitals is looked up as typed and lower-cased; that
+    // must cost the same whether or not either names an account.
+    const h = harness();
+    return Effect.gen(function* () {
+      const withKey = yield* h.auth.registerProfile("seq-pkcaps@example.com", "seqpkcaps");
+      yield* h.auth.beginPasskeyRegistration(withKey.accountId);
+      yield* h.auth.completePasskeyRegistration(withKey.accountId, fakeAttestation(), null);
+
+      const real = yield* h.record(h.auth.beginPasskeyLogin("SEQ-PkCaps@Example.com"));
+      const nobody = yield* h.record(h.auth.beginPasskeyLogin("SEQ-PkCapsNobody@Example.com"));
+
+      expect(real).toEqual({ ops: ["login_challenge.write"], outcome: "ok" });
+      expect(nobody).toEqual(real);
+    }).pipe(Effect.provide(h.layer));
+  });
+
   it.live("fails on every branch alike while every store call fails", () => {
     const h = harness();
     return Effect.gen(function* () {

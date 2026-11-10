@@ -9,11 +9,13 @@
  * the account or derives a store key from it, so a ceremony begun in one case
  * and finished in another still meets its own challenge.
  *
- * Every test outside the last block goes red when `normaliseIdentifier` stops
- * lower-casing; the two that send spaces go red when it stops trimming. The
- * last block pins the refusals: an unknown identifier in any case, and a wrong
- * code for a known one typed in capitals, answer the one failure every refusal
- * shares.
+ * The passkey, recovery-code, email-recovery, authenticator-recovery and
+ * several-profiles blocks go red when `normaliseIdentifier` stops lower-casing;
+ * the test that sends spaces goes red when it stops trimming. The block on
+ * accounts stored with capitals pins the match on the address as typed, and the
+ * account binding a shared challenge key leans on. The last block pins the
+ * refusals: an unknown identifier in any case, and a wrong code for a known
+ * one typed in capitals, answer the one failure every refusal shares.
  */
 
 import { Database } from "bun:sqlite";
@@ -390,6 +392,33 @@ describe("an account stored with capitals before the database refused them", () 
     expect(await offered(h, "Pair@example.com")).toEqual([upper]);
     expect(await offered(h, "pair@example.com")).toEqual([lower]);
     expect(await offered(h, "PAIR@Example.com")).toEqual([lower]);
+  });
+
+  it("signs neither twin in with the other's passkey, though they share a challenge key", async () => {
+    // Both twins' begins park their challenge under the lower-cased address,
+    // so the only thing stopping one twin's passkey from completing as the
+    // other is the check that the credential belongs to the account the
+    // identifier resolves. Goes red on removing that check.
+    const h = makeApp();
+    await withPasskey(h, "pair@example.com", "pairlower");
+    const upper = await withStoredCapitals(h, "acc_pair", "Pair@example.com");
+
+    expect(await offered(h, "Pair@example.com")).toEqual([upper]);
+    const crossed = await h.post("/login/passkey/complete", {
+      identifier: "pair@example.com",
+      assertion: fakeAssertion(upper),
+    });
+    expect(crossed.status).toBe(400);
+    expect(await crossed.json()).toEqual({ error: "invalid_request" });
+    expect(crossed.headers.get("set-cookie")).toBeNull();
+
+    expect(await offered(h, "Pair@example.com")).toEqual([upper]);
+    const own = await h.post("/login/passkey/complete", {
+      identifier: "Pair@example.com",
+      assertion: fakeAssertion(upper),
+    });
+    expect(own.status).toBe(200);
+    expect(await handleOf(own)).toBe("acc_pair");
   });
 
   it("is told apart from a twin with several profiles whose address sorts first", async () => {

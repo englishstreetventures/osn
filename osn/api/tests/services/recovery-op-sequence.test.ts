@@ -251,6 +251,51 @@ describe("POST /login/recovery/complete", () => {
 });
 
 /**
+ * An address with capitals is looked up as typed and lower-cased, in one
+ * statement with two values where a lower-case address has one. Each refusal
+ * must still make the same calls, on objects of the same name length, and
+ * send the same statements, whether or not the address names an account.
+ */
+describe("an address typed in capitals", () => {
+  it.live("costs the same at every recovery route, whoever it names", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("seq-caps@example.com", "seqcaps");
+
+      const sent = yield* h.record(h.auth.beginEmailRecovery("SEQ-Caps@Example.com"));
+      const unsent = yield* h.record(h.auth.beginEmailRecovery("SEQ-CapsNobody@Example.com"));
+      expect(sent.ops).toEqual(BEGIN);
+      expect(unsent).toEqual(sent);
+
+      yield* h.nthCode(0);
+      const wrong = yield* h.record(h.auth.completeEmailRecovery("SEQ-Caps@Example.com", "000000"));
+      const nobody = yield* h.record(
+        h.auth.completeEmailRecovery("SEQ-CapsNobody@Example.com", "000000"),
+      );
+      expect(wrong.ops).toEqual(COMPLETE_REFUSED);
+      expect(nobody).toEqual(wrong);
+
+      const totp = yield* h.record(h.auth.completeTotpRecovery("SEQ-Caps@Example.com", "000000"));
+      const totpNobody = yield* h.record(
+        h.auth.completeTotpRecovery("SEQ-CapsNobody@Example.com", "000000"),
+      );
+      expect(totp.ops).toEqual(["totp_lockout.increment"]);
+      expect(totpNobody).toEqual(totp);
+
+      const code = yield* h.record(
+        h.auth.consumeRecoveryCode("SEQ-Caps@Example.com", "wrong-code"),
+      );
+      const codeNobody = yield* h.record(
+        h.auth.consumeRecoveryCode("SEQ-CapsNobody@Example.com", "wrong-code"),
+      );
+      expect(code.ops).toEqual(RECOVERY_CODE_REFUSED);
+      expect(codeStatements(code.statements)).toHaveLength(2);
+      expect(codeNobody).toEqual(code);
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+/**
  * A refused recovery code reads `recovery_codes` to classify the refusal and
  * records the failure on the store; neither waits on the other, so they run
  * side by side, on the real branch and on the padded one alike. Here every
