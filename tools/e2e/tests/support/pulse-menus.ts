@@ -12,19 +12,22 @@
  * read would follow whatever pulse mapped.
  *
  * `pulse-event-rsvp` calls it once the host has signed in, so it spends no
- * sign-in. The ExploreNav menu is on `/`, the Header menu on `/settings`; each
- * is opened at 390 and 1440, in light and with `.dark` on `<html>`, the only
- * switch `pulse/web/src/app.css` reads, and shot into `screenshots/pulse-menus/`.
- * It leaves the page on `/` in light, at the viewport it found.
+ * sign-in, and it starts on the `/` sign-in leaves. The ExploreNav menu and
+ * "More filters" are read there, then the Header menu on `/settings`, so the
+ * whole pass loads two pages. Each menu is opened at 390 and 1440, in light
+ * and with `.dark` on `<html>`, the only switch `pulse/web/src/app.css` reads,
+ * and shot into `e2e-artifacts/screenshots/pulse-menus/`. It leaves the page
+ * on `/` in light, at the viewport it found.
  */
 
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { expect, type Flow } from "./fixtures";
+import { menuSeparator } from "./menu-separator";
 import { type HeldFrame, holdOverlay } from "./overlay-frames";
 
 const SHOTS = resolve(SCREENSHOT_DIR, "pulse-menus");
@@ -36,32 +39,11 @@ const SCHEMES = ["light", "dark"] as const;
 /** The contract's `--ui-scale-enter` default, which an app that maps none draws. */
 const CONTRACT_SCALE_ENTER = 0.96;
 
-const MENUS = [
-  { where: "explore", path: "/", what: "ExploreNav menu" },
-  { where: "header", path: "/settings", what: "Header menu" },
-] as const;
-
 /** The avatar trigger, the last menu trigger in the page's header. */
 const trigger = (page: Page) => page.locator('header button[aria-haspopup="true"]').last();
 
 async function dark(page: Page, on: boolean): Promise<void> {
   await page.evaluate((value) => document.documentElement.classList.toggle("dark", value), on);
-}
-
-/** `value` resolved by the browser as a colour, on a probe beside `target`. */
-function painted(target: Locator, value: string): Promise<string> {
-  return target.evaluate((el, colour) => {
-    const probe = document.createElement("span");
-    probe.style.color = colour;
-    el.parentElement!.append(probe);
-    const resolved = getComputedStyle(probe).color;
-    probe.remove();
-    return resolved;
-  }, value);
-}
-
-function computed(target: Locator, property: string): Promise<string> {
-  return target.evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop), property);
 }
 
 /** The held opening frame, read as the contract's zoom: scaled, and at 96%. */
@@ -70,59 +52,48 @@ function zooms(flow: Flow, what: string, frame: HeldFrame): void {
   flow.check(`${what}: grows from 96%`, CONTRACT_SCALE_ENTER, frame.scale);
 }
 
+/** One avatar menu on the page already open, at both widths and in both schemes. */
+async function avatarMenu(flow: Flow, page: Page, where: string, what: string): Promise<void> {
+  for (const size of SIZES) {
+    for (const scheme of SCHEMES) {
+      const at = `${what} at ${size.width} (${scheme})`;
+      await page.setViewportSize(size);
+      await dark(page, scheme === "dark");
+      const menu = page.getByRole("menu");
+      const rule = menu.getByRole("separator").first();
+      const opened = await holdOverlay(page, '[role="menu"]', "ui-enter", 0);
+      await flow.step(`pulse menus: open the ${at}`, async () => {
+        await expect(trigger(page)).toBeVisible();
+        await trigger(page).click();
+        await expect(rule).toBeVisible();
+      });
+      zooms(flow, at, await opened());
+      await menuSeparator(flow, `${at} separator`, rule);
+      await flow.step(`pulse menus: shoot and close the ${at}`, async () => {
+        await menu.screenshot({
+          path: resolve(SHOTS, `${where}-${size.width}-${scheme}.png`),
+          animations: "disabled",
+        });
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0);
+      });
+    }
+  }
+}
+
 export async function pulseMenus(flow: Flow, page: Page): Promise<void> {
   const viewport = page.viewportSize();
   mkdirSync(SHOTS, { recursive: true });
   try {
-    for (const { where, path, what } of MENUS) {
-      await flow.step(`pulse menus: open ${path}`, async () => {
-        await page.goto(`${ORIGINS.pulseWeb}${path}`);
-        await expect(trigger(page)).toBeVisible();
-      });
-      for (const size of SIZES) {
-        for (const scheme of SCHEMES) {
-          const at = `${what} at ${size.width} (${scheme})`;
-          await page.setViewportSize(size);
-          await dark(page, scheme === "dark");
-          const menu = page.getByRole("menu");
-          const rule = menu.getByRole("separator").first();
-          const opened = await holdOverlay(page, '[role="menu"]', "ui-enter", 0);
-          await flow.step(`pulse menus: open the ${at}`, async () => {
-            await expect(trigger(page)).toBeVisible();
-            await trigger(page).click();
-            await expect(rule).toBeVisible();
-          });
-          zooms(flow, at, await opened());
-          flow.check(
-            `${at}: separator has no border of its own`,
-            "0px",
-            await computed(rule, "border-top-width"),
-          );
-          flow.check(`${at}: separator is 1px tall`, "1px", await computed(rule, "height"));
-          flow.check(
-            `${at}: separator is filled with the hairline`,
-            await painted(rule, "var(--ui-hairline)"),
-            await computed(rule, "background-color"),
-          );
-          await flow.step(`pulse menus: shoot and close the ${at}`, async () => {
-            await menu.screenshot({
-              path: resolve(SHOTS, `${where}-${size.width}-${scheme}.png`),
-              animations: "disabled",
-            });
-            await page.keyboard.press("Escape");
-            await expect(menu).toHaveCount(0);
-          });
-        }
-      }
-    }
+    await flow.step("pulse menus: on /", async () => {
+      await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/`);
+      await expect(trigger(page)).toBeVisible();
+    });
+    await avatarMenu(flow, page, "explore", "ExploreNav menu");
 
     await page.setViewportSize(SIZES[1]);
     await dark(page, false);
     const filters = page.getByRole("dialog", { name: "More filters" });
-    await flow.step("pulse menus: back to / for the filters dialog", async () => {
-      await page.goto(`${ORIGINS.pulseWeb}/`);
-      await expect(page.getByRole("button", { name: "More filters" })).toBeVisible();
-    });
     const opened = await holdOverlay(page, '[role="dialog"]', "ui-enter", 0);
     await flow.step("pulse menus: open More filters", async () => {
       await page.getByRole("button", { name: "More filters" }).click();
@@ -133,6 +104,12 @@ export async function pulseMenus(flow: Flow, page: Page): Promise<void> {
       await page.keyboard.press("Escape");
       await expect(filters).toHaveCount(0);
     });
+
+    await flow.step("pulse menus: open /settings", async () => {
+      await page.goto(`${ORIGINS.pulseWeb}/settings`);
+      await expect(trigger(page)).toBeVisible();
+    });
+    await avatarMenu(flow, page, "header", "Header menu");
   } finally {
     await dark(page, false);
     if (viewport) await page.setViewportSize(viewport);

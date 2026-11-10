@@ -36,6 +36,7 @@ import type { Locator, Page } from "@playwright/test";
 
 import { ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { expect, type Flow } from "./fixtures";
+import { menuSeparator } from "./menu-separator";
 import { type HeldFrame, holdOverlay } from "./overlay-frames";
 
 const SHOTS = resolve(SCREENSHOT_DIR, "musubi-surfaces");
@@ -164,20 +165,6 @@ function fadesOnly(flow: Flow, what: string, run: "open" | "close", frame: HeldF
   flow.check(`${what}: no transform ${when}`, true, frame.identity);
   if (run === "open") flow.check(`${what}: opacity 0 as it opens`, 0, frame.opacity);
   else flow.check(`${what}: part-faded half-way out`, true, frame.opacity > 0 && frame.opacity < 1);
-}
-
-/**
- * A menu's separator: a 1px fill in the hairline, with no border of its own,
- * so the line is the hairline in both themes and not the panel's ink.
- */
-async function hairlineRule(flow: Flow, what: string, rule: Locator): Promise<void> {
-  flow.check(`${what}: no border of its own`, "0px", await computed(rule, "border-top-width"));
-  flow.check(`${what}: 1px tall`, "1px", await computed(rule, "height"));
-  flow.check(
-    `${what}: filled with the hairline`,
-    await painted(rule, "var(--ui-hairline)"),
-    await computed(rule, "background-color"),
-  );
 }
 
 /** Focus `before` from script, then Tab to `target`, as a keyboard user arrives. */
@@ -413,11 +400,11 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     await expect(rule).toBeVisible();
   });
   fadesOnly(flow, "rail's account menu", "open", await railOpened());
-  await hairlineRule(flow, "rail's account menu separator (light)", rule);
+  await menuSeparator(flow, "rail's account menu separator (light)", rule);
   await flow.step("surfaces: shoot the rail's account menu", () =>
     shoot(page, "account-menu", () => expect(rule).toBeVisible(), { widths: [DESKTOP] }),
   );
-  await hairlineRule(flow, "rail's account menu separator (dark)", rule);
+  await menuSeparator(flow, "rail's account menu separator (dark)", rule);
   const railClosed = await holdOverlay(page, '[role="menu"]', "ui-exit", 0.5);
   await flow.step("surfaces: close the rail's account menu", async () => {
     await page.keyboard.press("Escape");
@@ -443,11 +430,11 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     await expect(switchProfile).toBeFocused();
   });
   fadesOnly(flow, "top bar's account menu", "open", await barOpened());
-  await hairlineRule(flow, "top bar's account menu separator (light)", rule);
+  await menuSeparator(flow, "top bar's account menu separator (light)", rule);
   await flow.step("surfaces: shoot the top bar's account menu", () =>
     shoot(page, "account-menu", () => expect(switchProfile).toBeFocused(), { widths: [PHONE] }),
   );
-  await hairlineRule(flow, "top bar's account menu separator (dark)", rule);
+  await menuSeparator(flow, "top bar's account menu separator (dark)", rule);
 
   await at(page, PHONE, "light");
   const switcher = page.getByRole("dialog", { name: "Switch profile" });
@@ -1166,7 +1153,10 @@ export async function signedOutSurfaces(flow: Flow, page: Page, message: string)
  * The create-account dialog's details step, before anything is typed: every
  * field's label a plain `Field` label 6px above its control — Email's too,
  * though it is a bare `Label` beside its "i" — and the date of birth read with
- * its hint as its description.
+ * its hint as its description. Then the "i" opens its popover, the one
+ * Popover Musubi draws, held at its first frame opening and half-way closing
+ * and found to fade with no scale, as the menus and dialogs do (DESIGN.md
+ * §Motion); the dialog stays open behind it.
  */
 export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Create account" });
@@ -1194,6 +1184,24 @@ export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<voi
       shoot(page, "register-details", () => expect(dob).toBeVisible()),
     ),
   );
+
+  // Kobalte gives the popover's panel `role="dialog"` too; the positioner
+  // Popper wraps it in tells it from the register dialog.
+  const panel = '[data-popper-positioner] [role="dialog"]';
+  const uses = page.locator(panel);
+  const opened = await holdOverlay(page, panel, "ui-enter", 0);
+  await flow.step("register: open what the address is used for", async () => {
+    await dialog.getByRole("button", { name: "What this address is used for" }).click();
+    await expect(uses).toBeVisible();
+  });
+  fadesOnly(flow, "register's email popover", "open", await opened());
+  const closed = await holdOverlay(page, panel, "ui-exit", 0.5);
+  await flow.step("register: close what the address is used for", async () => {
+    await page.keyboard.press("Escape");
+    await expect(uses).toHaveCount(0);
+    await expect(dob).toBeVisible();
+  });
+  fadesOnly(flow, "register's email popover", "close", await closed());
 }
 
 /**
