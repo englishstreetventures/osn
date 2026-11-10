@@ -920,7 +920,8 @@ a box that is going away. The motion is CSS keyframes (`unlock-rise` and
 orders it: it marks each element with its step and its pack (`data-unlock`,
 `data-unlock-pack`), waits for the step to end, capped one second past that
 end, writes the end state inline and takes the marks off. Each pack keeps its
-own times, the same at a desk as on a phone, each scaled by `--motion-scale`.
+own times, the same at a desk as on a phone, each scaled by `--motion-scale`;
+the sequence reads the scale off the root for the beat, which script times.
 Every step runs longer than `--dur-slow`, the cards are a stagger and the beat
 is a time script waits out, the cases [[house-lint-rules]] §Literal motion
 keeps a time for. Every rise runs on `--ease-out`:

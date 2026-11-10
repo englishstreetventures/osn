@@ -95,6 +95,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   delete (Element.prototype as { getAnimations?: unknown }).getAnimations;
+  document.documentElement.style.removeProperty("--motion-scale");
   document.body.replaceChildren();
 });
 
@@ -248,6 +249,20 @@ describe("runUnlockReveal", () => {
     // The beat, then the section's own 500ms step.
     await vi.advanceTimersByTimeAsync(PACK.layoutBeatMs + 510);
     expect(settled).toBe(true);
+    await run;
+  });
+
+  // `--motion-scale` slows every time in the stylesheet so a reveal can be
+  // judged frame by frame. A beat that kept its own pace would start the
+  // events partway through a slowed welcome, a sequence that never ships.
+  it("stretches the layout beat with --motion-scale, as the stylesheet's times stretch", async () => {
+    document.documentElement.style.setProperty("--motion-scale", "3");
+    const run = runUnlockReveal(PACK, welcomeEl, eventsSection);
+    await vi.advanceTimersByTimeAsync(3 * PACK.layoutBeatMs - 10);
+    expect(started.some((s) => s.step === "section")).toBe(false);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(started.some((s) => s.step === "section")).toBe(true);
+    await vi.advanceTimersByTimeAsync(10_000);
     await run;
   });
 

@@ -26,7 +26,8 @@ export interface RevealPack {
   /**
    * The pause between the welcome's rise and the events' step: the events
    * section takes its place in the layout first. Script waits it out, so it
-   * lives here rather than in the stylesheet.
+   * lives here rather than in the stylesheet, and is stretched by
+   * `--motion-scale` as the stylesheet's times are.
    */
   layoutBeatMs: number;
 }
@@ -109,6 +110,17 @@ function isRevealAnimation(animation: Animation): boolean {
   );
 }
 
+/**
+ * `--motion-scale` on the root, which every time in `global.css` is multiplied
+ * by; 1 when it is unset or unreadable.
+ */
+function motionScale(): number {
+  const scale = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--motion-scale"),
+  );
+  return Number.isFinite(scale) && scale >= 0 ? scale : 1;
+}
+
 /** When an animation ends, delay included, in ms from its start. */
 function endTimeOf(animation: Animation): number {
   return Number(animation.effect?.getComputedTiming().endTime) || 0;
@@ -186,7 +198,7 @@ export async function runUnlockReveal(
   eventsSection.style.display = "";
   await Promise.all([
     hooks?.waitForEvents?.() ?? Promise.resolve(),
-    new Promise((resolve) => setTimeout(resolve, pack.layoutBeatMs)),
+    new Promise((resolve) => setTimeout(resolve, pack.layoutBeatMs * motionScale())),
   ]);
 
   // Queried after both waits, so a card that rendered during them is in the

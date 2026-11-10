@@ -683,7 +683,8 @@
  * - the cards' start and step are a stagger;
  * - the beat before the events is a time script waits out (each pack's
  *   `UnlockReveal.motion.ts`), so it lives there, not here.
- * Each scales with `--motion-scale`. Every rise, in both packs, is something
+ * Each scales with `--motion-scale`, the beat too: the sequence reads the
+ * scale off the root. Every rise, in both packs, is something
  * arriving, so it runs on `--ease-out`.
  *
  * Reduced motion: the sequence sets no mark and lands on the end state at
