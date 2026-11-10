@@ -1,10 +1,11 @@
 // scripts/install-chromium-system-libraries.sh, one test per way a cached
-// package could reach apt unchecked (NEW-FEAT.md V1–V7). The script runs as
-// root in CI and puts packages from a cache in apt's archive, from which apt
-// installs them; a cache is restored from GitHub's store, so it is input, not
-// trust. Each test runs the whole script against a fake apt (fake-apt.ts) that
-// installs whatever it finds in the archive, and checks that only bytes the
-// signed index names got there, and that apt downloaded the rest.
+// package could reach apt unchecked, or the cache the workflow saves could
+// end up wrong. The script runs as root in CI and puts packages from a cache
+// in apt's archive, from which apt installs them; a cache is restored from
+// GitHub's store, so it is input, not trust. Each test runs the whole script
+// against a fake apt (fake-apt.ts) that installs whatever it finds in the
+// archive, and checks that only bytes the signed index names got there, that
+// apt downloaded the rest, and what the cache holds afterwards.
 
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -179,7 +180,7 @@ const LIB64: Pkg = { name: "libfoo1", version: "1.0", arch: "amd64" };
 const LIB32: Pkg = { name: "libfoo1", version: "1.0", arch: "i386", needed: false };
 
 describe("install-chromium-system-libraries.sh", () => {
-  test("V1: a cached package whose bytes the signed index names, one with an epoch among them, is installed from the archive and not downloaded", () => {
+  test("a cached package whose bytes the signed index names, one with an epoch among them, is installed from the archive and not downloaded", () => {
     const w = world([ALPHA, EPOCH]);
     cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
     cacheFile(w, fileOf(EPOCH), bytesOf(EPOCH));
@@ -196,9 +197,22 @@ describe("install-chromium-system-libraries.sh", () => {
       run.log.findIndex((line) => line.startsWith("apt-cache show")),
     );
     expect(run.log).toContain(`apt-cache show ${EPOCH.name}=${EPOCH.version}`);
+    // Without the first line apt deletes what it downloads and the cache saves
+    // nothing; without the timeouts a stalled mirror holds an attempt for 120 s.
+    expect(
+      readFileSync(join(w.dir, "root", "etc", "apt", "apt.conf.d", "80-ci-chromium"), "utf8"),
+    ).toBe(
+      [
+        'APT::Keep-Downloaded-Packages "true";',
+        'Acquire::Retries "5";',
+        'Acquire::http::Timeout "30";',
+        'Acquire::https::Timeout "30";',
+        "",
+      ].join("\n"),
+    );
   });
 
-  test("V2: a tampered package is dropped with a warning naming it, apt downloads it, and the install and the cache saved after it hold the mirror's bytes", () => {
+  test("a tampered package is dropped with a warning naming it, apt downloads it, and the install and the cache saved after it hold the mirror's bytes", () => {
     const w = world([ALPHA, BETA]);
     cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
     cacheFile(w, fileOf(BETA), "a package someone changed\n");
@@ -215,7 +229,7 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(readFileSync(join(w.cache, fileOf(ALPHA)), "utf8")).toBe(bytesOf(ALPHA));
   });
 
-  test("V3: a cached package of a version the index no longer lists is dropped, and apt downloads the version it does", () => {
+  test("a cached package of a version the index no longer lists is dropped, apt downloads the version it does, and the cache saved after it holds only that one", () => {
     const old: Pkg = { ...BETA, version: "0.9" };
     const w = world([BETA]);
     cacheFile(w, fileOf(old), bytesOf(old));
@@ -224,9 +238,36 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.archiveAtInstall).toEqual([]);
     expectGenuine(run, [[BETA, "network"]]);
     expect(run.output).toMatch(new RegExp(`^::warning::.*dropped ${fileOf(old)}`, "m"));
+    // A superseded version left in the cache would be saved with it, run after run.
+    expect(readdirSync(w.cache)).toEqual([fileOf(BETA)]);
+    expect(readFileSync(join(w.cache, fileOf(BETA)), "utf8")).toBe(bytesOf(BETA));
   });
 
-  test("V4: a cached package holding the bytes the index names for another architecture is dropped", () => {
+  test("an install that fails on every attempt fails the step after three, and leaves the cache as it found it", () => {
+    const old: Pkg = { ...BETA, version: "0.9" };
+    const w = world([ALPHA, BETA]);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    cacheFile(w, fileOf(old), bytesOf(old));
+    writeFileSync(join(w.dir, "fail"), "");
+    const before = Object.fromEntries(
+      readdirSync(w.cache).map((file) => [file, readFileSync(join(w.cache, file), "utf8")]),
+    );
+    const run = install(w);
+    // apt's own status, through retry.sh and out of the step.
+    expect(run.status, run.output).toBe(100);
+    expect(run.log.filter((line) => line === "install-deps")).toHaveLength(3);
+    expect(run.output.match(/^::warning::retry\.sh: /gm)?.length, run.output).toBe(3);
+    expect(run.output.match(/^::error::/gm)?.length, run.output).toBe(1);
+    expect(run.output).not.toContain("kept for the cache");
+    // Neither emptied nor swapped for a partial archive the E2E job would save.
+    expect(
+      Object.fromEntries(
+        readdirSync(w.cache).map((file) => [file, readFileSync(join(w.cache, file), "utf8")]),
+      ),
+    ).toEqual(before);
+  });
+
+  test("a cached package holding the bytes the index names for another architecture is dropped", () => {
     const w = world([LIB64, LIB32]);
     cacheFile(w, fileOf(LIB64), bytesOf(LIB32));
     const run = install(w);
@@ -235,7 +276,7 @@ describe("install-chromium-system-libraries.sh", () => {
     expectGenuine(run, [[LIB64, "network"]]);
   });
 
-  test("V5: a file whose name is not <name>_<version>_<arch>.deb is dropped without running or printing what its name holds", () => {
+  test("a file whose name is not <name>_<version>_<arch>.deb is dropped without running or printing what its name holds", () => {
     const w = world([ALPHA]);
     const bad = [
       "evil.deb",
@@ -259,7 +300,7 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.output).toContain("dropped fonts-alpha_1%252e0-1_all.deb");
   });
 
-  test("V6: a cache entry named as a genuine package that is a symlink, a FIFO or a directory is dropped, and the run does not hang on it", () => {
+  test("a cache entry named as a genuine package that is a symlink, a FIFO or a directory is dropped, and the run does not hang on it", () => {
     const w = world([ALPHA, BETA, GAMMA]);
     // The symlink's target holds the genuine bytes: only the kind of entry is wrong.
     symlinkSync(join(w.dir, "mirror", fileOf(ALPHA)), join(w.cache, fileOf(ALPHA)));
@@ -278,7 +319,7 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.output.match(/^::warning::.*not a regular file/gm)?.length, run.output).toBe(3);
   });
 
-  test("V7: the bytes checked are the bytes copied: a copy that differs from the cached file is dropped", () => {
+  test("the bytes checked are the bytes copied: a copy that differs from the cached file is dropped", () => {
     const w = world([ALPHA]);
     cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
     // A cp that writes other bytes whenever it copies out of the cache, as a

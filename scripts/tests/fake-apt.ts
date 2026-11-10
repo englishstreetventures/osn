@@ -11,6 +11,7 @@
 //   root/var/lib/apt/lists/Packages  the index once `apt-get update` has run
 //   root/var/cache/apt/archives/     apt's archive
 //   log                              one line per call, per archive entry and per package installed
+//   fail                             when present, install-deps fails as apt does when a download does (exit 100)
 //
 // install-deps behaves as the worst apt could: it installs whatever file of
 // the right name it finds in the archive, unchecked, and downloads from the
@@ -92,6 +93,10 @@ function installDeps(): number {
   // Playwright's command runs `apt-get update` before `apt-get install`.
   update();
   log("install-deps");
+  if (existsSync(join(world, "fail"))) {
+    process.stderr.write("E: Unable to fetch some archives\n");
+    return 100;
+  }
   mkdirSync(archives, { recursive: true });
   for (const entry of readdirSync(archives).toSorted()) log(`archive ${entry}`);
   const needed = readFileSync(join(world, "needed"), "utf8").split("\n").filter(Boolean);

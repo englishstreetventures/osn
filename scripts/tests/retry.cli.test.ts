@@ -1,6 +1,6 @@
-// scripts/retry.sh, one test per way it can fail (NEW-FEAT.md R1–R7). It runs
-// a CI step whose failure comes from the network or the runner, not the change
-// — `playwright install-deps`, whose apt mirror can stall — so a wrong exit
+// scripts/retry.sh, one test per way it can fail. It runs a CI step whose
+// failure comes from the network or the runner, not the change —
+// `playwright install-deps`, whose apt mirror can stall — so a wrong exit
 // code turns a red step green or a passing one red, and a process it leaves
 // running holds apt's lock against the next attempt. Each command here is a
 // small bash script that counts its runs in a file of the test's own.
@@ -70,7 +70,7 @@ function alive(pid: number): boolean {
 }
 
 describe("retry.sh", () => {
-  test("R1: a command that passes on its first attempt runs once, and the script exits 0 with no warning", async () => {
+  test("a command that passes on its first attempt runs once, and the script exits 0 with no warning", async () => {
     const at = dir();
     const { exitCode, output } = await retry(["3", "10", ...counted(at, ["exit 0"])]);
     expect({ exitCode, runs: runsIn(at) }, output).toEqual({ exitCode: 0, runs: 1 });
@@ -78,7 +78,7 @@ describe("retry.sh", () => {
     expect(output).not.toContain("::error::");
   });
 
-  test("R2: a command that fails and then passes runs twice, exits 0, and the warning names the failed attempt and its status", async () => {
+  test("a command that fails and then passes runs twice, exits 0, and the warning names the failed attempt and its status", async () => {
     const at = dir();
     const { exitCode, output } = await retry(["3", "10", ...counted(at, ["exit 3", "exit 0"])]);
     expect({ exitCode, runs: runsIn(at) }, output).toEqual({ exitCode: 0, runs: 2 });
@@ -89,14 +89,45 @@ describe("retry.sh", () => {
     expect(output).not.toContain("::error::");
   });
 
-  test("R3: a command that always fails runs exactly as many times as allowed, and the script exits with its last status", async () => {
+  test("a command that always fails runs exactly as many times as allowed, and the script exits with its last status", async () => {
     const at = dir();
     const { exitCode, output } = await retry(["3", "10", ...counted(at, ["exit 4", "exit 5"])]);
     expect({ exitCode, runs: runsIn(at) }, output).toEqual({ exitCode: 5, runs: 3 });
     expect(output).toContain("::error::");
   });
 
-  test("R4: an attempt that hangs and ignores SIGTERM is killed at its limit plus the grace, and the next attempt runs", async () => {
+  // The stall that never clears is the case the script exists for: the step
+  // must fail, with the status `timeout` gives an attempt it cut, 124 after
+  // SIGTERM and 137 after SIGKILL.
+  test.each([
+    ["stops at SIGTERM", "sleep 30", 124],
+    ["ignores SIGTERM until SIGKILL", "trap '' TERM; sleep 30", 137],
+  ] as const)(
+    "a command that %s and is cut at the limit on every attempt fails the step with that attempt's status",
+    async (_, body, status) => {
+      const at = dir();
+      const { exitCode, output } = await retry(["-k", "1", "2", "1", ...counted(at, [body])]);
+      expect({ exitCode, runs: runsIn(at) }, output).toEqual({ exitCode: status, runs: 2 });
+      expect(output.match(/^::warning::.*cut at its 1 s limit$/gm)?.length, output).toBe(2);
+      expect(output.match(/^::error::/gm)?.length, output).toBe(1);
+    },
+    // Two attempts of a second's limit and a second's grace each.
+    15_000,
+  );
+
+  test("a process the passing attempt started that ignores SIGTERM is killed before the script exits", async () => {
+    const at = dir();
+    const { exitCode, output } = await retry([
+      "1",
+      "10",
+      ...counted(at, [`(trap '' TERM; exec sleep 30) & echo $! > "${at}/child"; exit 0`]),
+    ]);
+    expect({ exitCode, runs: runsIn(at) }, output).toEqual({ exitCode: 0, runs: 1 });
+    // Left running, it would hold apt's lock against the step after this one.
+    expect(alive(Number(readFileSync(join(at, "child"), "utf8")))).toBe(false);
+  });
+
+  test("an attempt that hangs and ignores SIGTERM is killed at its limit plus the grace, and the next attempt runs", async () => {
     const at = dir();
     const { exitCode, output, ms } = await retry([
       "-k",
@@ -113,7 +144,7 @@ describe("retry.sh", () => {
     expect(ms).toBeLessThan(10_000);
   });
 
-  test("R6: a process an attempt started that ignores SIGTERM and outlives the attempt is killed before the next attempt runs", async () => {
+  test("a process an attempt started that ignores SIGTERM and outlives the attempt is killed before the next attempt runs", async () => {
     const at = dir();
     // The attempt's own shell dies at the limit; its child, which ignores
     // SIGTERM, would keep running (as an apt-get holding its lock would).
@@ -131,7 +162,7 @@ describe("retry.sh", () => {
     expect(alive(Number(readFileSync(join(at, "child"), "utf8")))).toBe(false);
   });
 
-  test("R7: a command line holding a newline, a carriage return or a % is printed on one line per annotation, escaped as workflow-command data", async () => {
+  test("a command line holding a newline, a carriage return or a % is printed on one line per annotation, escaped as workflow-command data", async () => {
     const at = dir();
     const { exitCode, output } = await retry([
       "2",
@@ -165,7 +196,7 @@ exit 1 # 100%\r`,
     ["zero seconds, which would mean no limit", ["3", "0", "CMD"]],
     ["a grace that is not a number", ["-k", "soon", "3", "10", "CMD"]],
     ["-k with nothing after it", ["-k"]],
-  ] as const)("R5: %s is a usage error, exit 2, and nothing runs", async (_, args) => {
+  ] as const)("%s is a usage error, exit 2, and nothing runs", async (_, args) => {
     const ran = join(dir(), "ran");
     const { exitCode, output } = await retry(
       args.flatMap((one) => (one === "CMD" ? ["bash", "-c", `touch "${ran}"`] : [one])),
