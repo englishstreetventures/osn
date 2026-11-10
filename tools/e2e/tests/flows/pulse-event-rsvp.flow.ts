@@ -13,6 +13,9 @@
  * No Pulse screen writes a status, so the cancel steps go through the API the
  * web app's session cookie authorises, with the web app's Origin, which
  * pulse-api's origin guard requires on a cookie-carrying write.
+ *
+ * On the way it measures the explore page from 320px to 1440px, signed in on
+ * the host's page and signed out on the guest's (`support/pulse-explore.ts`).
  */
 
 import type { APIRequestContext, APIResponse, BrowserContext } from "@playwright/test";
@@ -27,6 +30,7 @@ import {
   test,
   type Flow,
 } from "../support/fixtures";
+import { exploreCreateForm, exploreLayout } from "../support/pulse-explore";
 
 const EVENT_TITLE = "E2E Launch Party";
 
@@ -83,6 +87,9 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   flow.check("events row title", EVENT_TITLE, event?.title ?? "missing");
   flow.check("events row written on the suite clock", true, onSuiteClock(event?.created_at));
 
+  await exploreLayout(flow, page, "host");
+  await exploreCreateForm(flow, page);
+
   /** The guest's reply: every RSVP row on the event but the host's own. */
   const guestRsvp = () =>
     queryOne<{ status: string; created_at: number }>(
@@ -101,6 +108,7 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   await flow.step("guest: create an OSN account", () =>
     registerThroughApi(flow, guestContext.request, PEOPLE.pulseGuest),
   );
+  await exploreLayout(flow, guestPage, "guest");
   await signInToPulse(flow, guestPage, "guest");
 
   await flow.step("guest: RSVP going", async () => {
