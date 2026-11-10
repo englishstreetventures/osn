@@ -13,7 +13,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-11
 ---
 
 # Passkey-Primary Login
@@ -396,7 +396,10 @@ userVerification, … } }` in all three branches:
 - Known account with 0 passkeys (unreachable in practice — the ≥1 invariant
   holds — legacy/corrupt data only): same synthetic shape, same probe-key park.
 - Known account with ≥1 passkey: real `allowCredentials` from the DB, and the
-  challenge parked at the normalised identifier.
+  challenge parked at the normalised identifier (trimmed, leading `@`
+  stripped, lower-cased), which `complete` normalises the same way, so a
+  sign-in begun as `Alice@X.com` and finished as `alice@x.com` meets its
+  challenge ([[identity-model#Accounts]]).
 
 An anonymous caller cannot probe the handle/email namespace through this
 endpoint. A DB SELECT runs on both branches (real query for known; a
@@ -406,6 +409,14 @@ is the same, and while the store is failing every branch answers the same 503
 ([[coordination-store#Refusals cost the same, and single use is atomic]]). An
 identifier over 255 characters, longer than any account holds, is refused with
 400 before any of it.
+
+`/login/passkey/complete` with an identifier costs the same either way too. It
+takes the challenge at the normalised identifier, then looks up the presented
+credential: on a known identifier because the challenge is there, on an unknown
+one because a miss runs the same lookup before it refuses. So `begin` then
+`complete` with a credential the caller does not hold makes one store call and
+one D1 statement whether or not the identifier names an account
+(`osn/api/tests/services/begin-op-sequence.test.ts`).
 
 ## Access-token audience
 

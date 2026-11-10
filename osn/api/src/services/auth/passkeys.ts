@@ -695,7 +695,7 @@ export function createPasskeysModule(
       if (normalised.length > MAX_IDENTIFIER_LENGTH) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
-      const profile = yield* resolveIdentifier(normalised);
+      const profile = yield* resolveIdentifier(identifier);
 
       // Resolve passkeys for the account when the identifier is known, or
       // nothing when it isn't. Both branches run a DB SELECT so the query
@@ -806,6 +806,16 @@ export function createPasskeysModule(
       // claimed once the signature verifies, below.
       let expectedChallenge: string;
       let discoverable: { readonly nonce: string } | null = null;
+      const { db } = yield* Db;
+      // Look up the credential row by `credentialId` — stable across both
+      // flows. For the identified flow we also verify the credential belongs
+      // to the claimed account (prevents a valid assertion for credential X
+      // from signing in account Y).
+      const findCredential = Effect.tryPromise({
+        try: () =>
+          db.select().from(passkeys).where(eq(passkeys.credentialId, assertion.id)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
       if (context.kind === "identified") {
         const key = normaliseIdentifier(context.identifier);
         if (key.length > MAX_IDENTIFIER_LENGTH) {
@@ -814,7 +824,15 @@ export function createPasskeysModule(
         const entry = yield* storeCall(stores.loginChallenges, "take", () =>
           stores.loginChallenges.take(key),
         );
-        if (!entry || Date.now() > entry.expiresAt) return yield* Effect.fail(notFound);
+        if (!entry || Date.now() > entry.expiresAt) {
+          // An identifier that names nobody ends here: its `begin` parked the
+          // challenge at the probe key, which this never reads. The credential
+          // lookup a live challenge leads to runs here too, so this refusal
+          // costs the same statement as a known identifier's refusal of a
+          // credential it does not hold.
+          yield* findCredential;
+          return yield* Effect.fail(notFound);
+        }
         expectedChallenge = entry.challenge;
       } else {
         const signed = signedChallenge(assertion);
@@ -825,16 +843,7 @@ export function createPasskeysModule(
         discoverable = opened;
       }
 
-      const { db } = yield* Db;
-      // Look up the credential row by `credentialId` — stable across both
-      // flows. For the identified flow we also verify the credential belongs
-      // to the claimed account (prevents a valid assertion for credential X
-      // from signing in account Y).
-      const pkResult = yield* Effect.tryPromise({
-        try: () =>
-          db.select().from(passkeys).where(eq(passkeys.credentialId, assertion.id)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      const pkResult = yield* findCredential;
       const pk = pkResult[0];
       if (!pk) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
@@ -849,8 +858,7 @@ export function createPasskeysModule(
         // `profile.accountId === pk.accountId` proves the passkey's account
         // exists. The account row itself is only needed by the discoverable
         // branch (userHandle pin), so it is fetched there.
-        const normalised = normaliseIdentifier(context.identifier);
-        profile = yield* resolveIdentifier(normalised);
+        profile = yield* resolveIdentifier(context.identifier);
         if (!profile || profile.accountId !== pk.accountId) {
           return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
         }

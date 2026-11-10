@@ -251,6 +251,76 @@ describe("POST /login/recovery/complete", () => {
 });
 
 /**
+ * An address with capitals is looked up as typed and lower-cased, in one
+ * statement with two values where a lower-case address has one. Each refusal
+ * must still make the same calls, on objects of the same name length, and
+ * send the same statements, whether or not the address names an account.
+ */
+describe("an address typed in capitals", () => {
+  it.live("costs the same at every recovery route, whoever it names", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("seq-caps@example.com", "seqcaps");
+
+      const sent = yield* h.record(h.auth.beginEmailRecovery("SEQ-Caps@Example.com"));
+      const unsent = yield* h.record(h.auth.beginEmailRecovery("SEQ-CapsNobody@Example.com"));
+      expect(sent.ops).toEqual(BEGIN);
+      expect(unsent).toEqual(sent);
+
+      yield* h.nthCode(0);
+      const wrong = yield* h.record(h.auth.completeEmailRecovery("SEQ-Caps@Example.com", "000000"));
+      const nobody = yield* h.record(
+        h.auth.completeEmailRecovery("SEQ-CapsNobody@Example.com", "000000"),
+      );
+      expect(wrong.ops).toEqual(COMPLETE_REFUSED);
+      expect(nobody).toEqual(wrong);
+
+      const totp = yield* h.record(h.auth.completeTotpRecovery("SEQ-Caps@Example.com", "000000"));
+      const totpNobody = yield* h.record(
+        h.auth.completeTotpRecovery("SEQ-CapsNobody@Example.com", "000000"),
+      );
+      expect(totp.ops).toEqual(["totp_lockout.increment"]);
+      expect(totpNobody).toEqual(totp);
+
+      const code = yield* h.record(
+        h.auth.consumeRecoveryCode("SEQ-Caps@Example.com", "wrong-code"),
+      );
+      const codeNobody = yield* h.record(
+        h.auth.consumeRecoveryCode("SEQ-CapsNobody@Example.com", "wrong-code"),
+      );
+      expect(code.ops).toEqual(RECOVERY_CODE_REFUSED);
+      expect(codeStatements(code.statements)).toHaveLength(2);
+      expect(codeNobody).toEqual(code);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("longer than any account's identifier, is refused at every route with no lookup", () => {
+    // No stored email or handle is longer than 255 characters, so a longer
+    // identifier names nobody; it gets an unknown identifier's refusal without
+    // the account lookup. Goes red on dropping the length check from
+    // `resolveIdentifier`.
+    const h = harness();
+    const long = `${"A".repeat(300)}@Example.com`;
+    const lookups = (statements: readonly string[]) =>
+      statements.filter((sql) => sql.includes('"accounts"'));
+    return Effect.gen(function* () {
+      const begun = yield* h.record(h.auth.beginEmailRecovery(long));
+      const email = yield* h.record(h.auth.completeEmailRecovery(long, "000000"));
+      const totp = yield* h.record(h.auth.completeTotpRecovery(long, "000000"));
+      const code = yield* h.record(h.auth.consumeRecoveryCode(long, "wrong-code"));
+
+      expect(begun.ops).toEqual(BEGIN);
+      expect(email.ops).toEqual(COMPLETE_REFUSED);
+      expect(totp.ops).toEqual(["totp_lockout.increment"]);
+      expect(code.ops).toEqual(RECOVERY_CODE_REFUSED);
+      for (const recorded of [begun, email, totp, code]) {
+        expect(lookups(recorded.statements)).toEqual([]);
+      }
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+/**
  * A refused recovery code reads `recovery_codes` to classify the refusal and
  * records the failure on the store; neither waits on the other, so they run
  * side by side, on the real branch and on the padded one alike. Here every

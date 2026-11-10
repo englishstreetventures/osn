@@ -15,6 +15,7 @@ import { expect, it } from "vitest";
 
 const PACKAGE_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const REFUSAL = "organisation member role is not admin or member";
+const EMAIL_REFUSAL = "account email is not lower case";
 
 function push(url: string): void {
   const result = spawnSync("bun", ["run", "db:push"], {
@@ -25,7 +26,7 @@ function push(url: string): void {
   expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
 }
 
-it("a database built by db:push, then pushed again, refuses a member role outside the set", () => {
+it("a database built by db:push, then pushed again, refuses a member role outside the set and a capital in an email", () => {
   const dir = mkdtempSync(join(tmpdir(), "osn-db-push-"));
   try {
     const url = join(dir, "osn.db");
@@ -39,7 +40,12 @@ it("a database built by db:push, then pushed again, refuses a member role outsid
           .query("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
           .all()
           .map((row) => (row as { name: string }).name),
-      ).toEqual(["organisation_members_role_known", "organisation_members_role_known_update"]);
+      ).toEqual([
+        "accounts_email_lower_case",
+        "accounts_email_lower_case_update",
+        "organisation_members_role_known",
+        "organisation_members_role_known_update",
+      ]);
 
       const add = db.query(
         "INSERT INTO organisation_members (id, organisation_id, profile_id, role, created_at) VALUES (?, 'org_local', ?, ?, 1)",
@@ -49,6 +55,15 @@ it("a database built by db:push, then pushed again, refuses a member role outsid
       expect(() =>
         db.run("UPDATE organisation_members SET role = 'owner' WHERE id = 'orgm_member'"),
       ).toThrow(REFUSAL);
+
+      const addAccount = db.query(
+        "INSERT INTO accounts (id, email, passkey_user_id, created_at, updated_at) VALUES (?, ?, ?, 1, 1)",
+      );
+      expect(() => addAccount.run("acc_caps", "Caps@x.com", "pku_caps")).toThrow(EMAIL_REFUSAL);
+      addAccount.run("acc_plain", "plain@x.com", "pku_plain");
+      expect(() =>
+        db.run("UPDATE accounts SET email = 'Plain@x.com' WHERE id = 'acc_plain'"),
+      ).toThrow(EMAIL_REFUSAL);
     } finally {
       db.close();
     }

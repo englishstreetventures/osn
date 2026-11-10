@@ -246,9 +246,10 @@ describe("OSN DDL lockstep", () => {
   // Drizzle cannot declare a trigger, so the emitter's triggers are a
   // hand-written copy (src/triggers.ts); this holds that copy to the
   // migrations, and a trigger, view or CHECK added by a migration alone fails
-  // here. Compared without case, string literals included, so the spelling of
-  // a trigger's value list is not held here: osn/api's D1 test
-  // organisation-member-role.test.ts runs the migration itself.
+  // here. Compared without case, string literals included, so the exact text
+  // of a trigger is not held here: osn/api's D1 tests
+  // organisation-member-role.test.ts and account-email-lower-case.test.ts run
+  // each migration itself.
   it("has the same CHECK constraints, triggers and views on both surfaces", () => {
     const nonTableObjects = (db: Database): string[] =>
       (

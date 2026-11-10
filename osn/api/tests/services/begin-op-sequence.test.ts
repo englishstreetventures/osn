@@ -43,7 +43,7 @@ const { createDurableCoordination } = await import("../../src/lib/coordination/d
 const { createAuthService } = await import("../../src/services/auth");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createFakeNamespace } = await import("../helpers/coordination-namespace");
-const { createTestLayer } = await import("../helpers/db");
+const { createCapturingTestLayer, createTestLayer } = await import("../helpers/db");
 
 let base: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -94,6 +94,23 @@ describe("POST /login/passkey/begin with an identifier", () => {
     },
   );
 
+  it.live("makes the same calls for an address typed in capitals, whoever it names", () => {
+    // An address with capitals is looked up as typed and lower-cased; that
+    // must cost the same whether or not either names an account.
+    const h = harness();
+    return Effect.gen(function* () {
+      const withKey = yield* h.auth.registerProfile("seq-pkcaps@example.com", "seqpkcaps");
+      yield* h.auth.beginPasskeyRegistration(withKey.accountId);
+      yield* h.auth.completePasskeyRegistration(withKey.accountId, fakeAttestation(), null);
+
+      const real = yield* h.record(h.auth.beginPasskeyLogin("SEQ-PkCaps@Example.com"));
+      const nobody = yield* h.record(h.auth.beginPasskeyLogin("SEQ-PkCapsNobody@Example.com"));
+
+      expect(real).toEqual({ ops: ["login_challenge.write"], outcome: "ok" });
+      expect(nobody).toEqual(real);
+    }).pipe(Effect.provide(h.layer));
+  });
+
   it.live("fails on every branch alike while every store call fails", () => {
     const h = harness();
     return Effect.gen(function* () {
@@ -109,6 +126,65 @@ describe("POST /login/passkey/begin with an identifier", () => {
       expect(nobody).toEqual(real);
     }).pipe(Effect.provide(h.layer));
   });
+});
+
+describe("POST /login/passkey/complete with an identifier", () => {
+  it.live(
+    "makes the same calls and statements refusing a stranger's credential, whoever the identifier names",
+    () => {
+      // A known identifier's `begin` parks its challenge where `complete`
+      // reads it, and an unknown one's at the probe key, where nothing does.
+      // The refusal of a credential the caller does not hold must still cost
+      // the same, or `begin` then `complete` reads out whether an address has
+      // an account.
+      const fake = createFakeNamespace();
+      const bundle = createDurableCoordination(fake.ns, () => {});
+      const auth = createAuthService({ ...base, ceremonyStores: bundle.ceremonyStores });
+      const database = createCapturingTestLayer();
+      const record = <A, E extends { readonly _tag: string }, R>(run: Effect.Effect<A, E, R>) =>
+        Effect.gen(function* () {
+          const from = fake.calls.length;
+          const fromStatement = database.captured.length;
+          const result = yield* Effect.result(run);
+          return {
+            ops: fake.calls.slice(from).map((call) => `${call.store}.${call.op}`),
+            statements: database.captured.slice(fromStatement).map((statement) => statement.sql),
+            outcome: result._tag === "Success" ? "ok" : result.failure._tag,
+          };
+        });
+      const stranger = {
+        id: "not-a-stored-credential",
+        rawId: "not-a-stored-credential",
+        response: {},
+        type: "public-key",
+        clientExtensionResults: {},
+      } as never;
+      return Effect.gen(function* () {
+        const withKey = yield* auth.registerProfile("seq-pkc@example.com", "seqpkc");
+        yield* auth.beginPasskeyRegistration(withKey.accountId);
+        yield* auth.completePasskeyRegistration(withKey.accountId, fakeAttestation(), null);
+
+        yield* auth.beginPasskeyLogin("SEQ-PKC@Example.com");
+        yield* auth.beginPasskeyLogin("SEQ-PKCNobody@Example.com");
+        const real = yield* record(
+          auth.completePasskeyLoginDirect({
+            identifier: "SEQ-PKC@Example.com",
+            assertion: stranger,
+          }),
+        );
+        const nobody = yield* record(
+          auth.completePasskeyLoginDirect({
+            identifier: "SEQ-PKCNobody@Example.com",
+            assertion: stranger,
+          }),
+        );
+
+        expect(real.outcome).toBe("AuthError");
+        expect(real.statements).toHaveLength(1);
+        expect(nobody).toEqual(real);
+      }).pipe(Effect.provide(database.layer));
+    },
+  );
 });
 
 describe("POST /register/begin", () => {

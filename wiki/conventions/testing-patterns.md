@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Testing Patterns
@@ -784,7 +784,7 @@ Adding a column is then a one-file change in `src/schema/`. The emitter carries 
 
 **If you extend one emitter, extend all three** — they are copies, and all three (`osn/db`, `pulse/db`, `zap/db`) now carry the lockstep test.
 
-Triggers are the one exception, to both that rule and the rule against hand-written DDL mirrors. Drizzle cannot declare a trigger, so a migration creates it and osn's emitter appends a hand-written copy from `osn/db/src/triggers.ts`; of the three emitters, only osn's carries triggers (cire mirrors its own in `cire/api/src/db/setup.ts`), and pulse's and zap's lockstep tests fail on the first migration that adds one until their emitter carries it. The lockstep test holds the copy to the migrations, but its normalised SQL ignores case, string literals included, so it cannot tell `'admin'` from `'Admin'` in a trigger's value list. A trigger's refusal is therefore tested on Miniflare D1 over the migration chain itself (`osn/api/tests/d1/organisation-member-role.test.ts`), never over `applySchema`. The local database is built by `drizzle-kit push`, which cannot declare a trigger either, so osn's `db:push` runs `src/push-triggers.ts` after it to add the same copies.
+Triggers are the one exception, to both that rule and the rule against hand-written DDL mirrors. Drizzle cannot declare a trigger, so a migration creates it and osn's emitter appends a hand-written copy from `osn/db/src/triggers.ts`; of the three emitters, only osn's carries triggers (cire mirrors its own in `cire/api/src/db/setup.ts`), and pulse's and zap's lockstep tests fail on the first migration that adds one until their emitter carries it. The lockstep test holds the copy to the migrations, but its normalised SQL ignores case, string literals included, so it cannot tell `'admin'` from `'Admin'` in a trigger's value list. A trigger's refusal is therefore tested on Miniflare D1 over the migration chain itself (`osn/api/tests/d1/organisation-member-role.test.ts`, `osn/api/tests/d1/account-email-lower-case.test.ts`), never over `applySchema`. The local database is built by `drizzle-kit push`, which cannot declare a trigger either, so osn's `db:push` runs `src/push-triggers.ts` after it to add the same copies.
 
 Writing pulse's found that a `user_id` → `profile_id` rename had reached `src/schema` without ever reaching migration `0000`, and three `events` columns existed with no migration at all — so `wrangler d1 migrations apply pulse-db` against a fresh D1 would have failed. Every Pulse test builds from `applySchema()`, so nothing exercised the chain until this test did.
 

@@ -81,6 +81,26 @@ describe("registerProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("stores and returns the email in lower case", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("Reg-Case@Example.COM", "regcase");
+      expect(profile.email).toBe("reg-case@example.com");
+      expect(yield* auth.findProfileByEmail("reg-case@example.com")).toMatchObject({
+        id: profile.id,
+        email: "reg-case@example.com",
+      });
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses an email that differs from a registered one only in case", () =>
+    Effect.gen(function* () {
+      yield* auth.registerProfile("reg-twin@example.com", "regtwin");
+      const error = yield* Effect.flip(auth.registerProfile("REG-Twin@example.com", "regtwin2"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Email already registered");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("fails if handle already taken", () =>
     Effect.gen(function* () {
       yield* auth.registerProfile("dan@example.com", "dan");

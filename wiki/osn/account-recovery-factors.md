@@ -7,7 +7,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[identity-model]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-11
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -482,11 +482,12 @@ Two rules the padding follows:
   Durable Object call's cost depends on whether it reads or writes and on
   whether the object was used a moment ago, so a read standing in for a write,
   or a fresh random key, would leave a difference a stopwatch can find. Each
-  padding call goes to the caller's probe key, `serverMac.probeKey(identifier)`:
+  padding call goes to the caller's probe key, `serverMac.probeKey(normalised)`:
   `prb_` and 12 hex digits of an HMAC-SHA256, under the session IP pepper, of
-  what the caller submitted — the same length as an account id, the same object
-  on every request that names that identifier, and not reversible from a list
-  of addresses. Every object, a probe key's or an account's, is created in
+  the identifier as `normaliseIdentifier` leaves it (trimmed, leading `@`
+  stripped, lower-cased; [[identity-model#Accounts]]) — the same length as an
+  account id, the same object on every request that names that identifier in
+  any case, and not reversible from a list of addresses. Every object, a probe key's or an account's, is created in
   Cloudflare's Oceania region, so the two are the same distance from any caller
   ([[coordination-store]]). The writes leave small entries under probe keys;
   each expires with the TTL the real one would have, and the per-IP limits on
