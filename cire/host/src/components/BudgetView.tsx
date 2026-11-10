@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
+import Reveal from "@cire/ui/reveal";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -695,7 +696,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                       <li
                                         ref={sortable.ref}
                                         style={maybeTransformStyle(sortable.transform())}
-                                        class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
+                                        class="border-border bg-surface/10 relative flex flex-col rounded-sm border py-1 pr-2 pl-3"
                                         classList={{
                                           "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                             sortable.isActiveDraggable(),
@@ -703,7 +704,18 @@ export default function BudgetView(props: BudgetViewProps) {
                                             dndState.dragging() && !sortable.isActiveDraggable(),
                                         }}
                                       >
-                                        <div class="flex flex-wrap items-center gap-3">
+                                        {/* Each part of the line carries 4px above,
+                                            below and to its right, and the line's own
+                                            padding is 4px less, so a line reads 8px in
+                                            from its edge with 8px between its parts.
+                                            The room sits inside each part because a
+                                            `Reveal` clips: there it holds the focus
+                                            ring (2px wide, 2px out) of a control at the
+                                            panel's edge. A closed `Reveal` stays in
+                                            the line at no height and adds nothing,
+                                            since the line has no gap; an opening
+                                            panel's own room grows with it. */}
+                                        <div class="flex flex-wrap items-center gap-3 py-1 pr-1">
                                           <Show when={props.canEdit}>
                                             <ReorderControls
                                               sortable={sortable}
@@ -744,6 +756,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                           <Button
                                             variant="bare"
                                             type="button"
+                                            aria-expanded={expanded() === item.id}
                                             onClick={() =>
                                               setExpanded(expanded() === item.id ? null : item.id)
                                             }
@@ -776,34 +789,40 @@ export default function BudgetView(props: BudgetViewProps) {
                                           </Show>
                                         </div>
                                         <Show when={item.unitPriceMinor != null}>
-                                          <PerHeadSummary
-                                            item={item}
-                                            events={weddingEvents()}
-                                            currency={currency()}
-                                            rsvpsClosed={rsvpsClosed()}
-                                          />
+                                          <div class="py-1 pr-1">
+                                            <PerHeadSummary
+                                              item={item}
+                                              events={weddingEvents()}
+                                              currency={currency()}
+                                              rsvpsClosed={rsvpsClosed()}
+                                            />
+                                          </div>
                                         </Show>
-                                        <Show when={perHeadOpen() === item.id}>
-                                          <PerHeadPanel
-                                            item={item}
-                                            events={weddingEvents()}
-                                            currency={currency()}
-                                            onSave={(change) => void savePerHead(item, change)}
-                                            onUseFixed={() => void useFixedAmount(item)}
-                                            onCancel={() => setPerHeadOpen(null)}
-                                          />
-                                        </Show>
-                                        <Show when={expanded() === item.id}>
-                                          <PaymentPanel
-                                            item={item}
-                                            payments={paymentsFor(item.id)}
-                                            currency={currency()}
-                                            canEdit={props.canEdit}
-                                            onAdd={addPayment}
-                                            onTogglePaid={togglePaid}
-                                            onDelete={deletePayment}
-                                          />
-                                        </Show>
+                                        <Reveal when={perHeadOpen() === item.id}>
+                                          <div class="py-1 pr-1">
+                                            <PerHeadPanel
+                                              item={item}
+                                              events={weddingEvents()}
+                                              currency={currency()}
+                                              onSave={(change) => void savePerHead(item, change)}
+                                              onUseFixed={() => void useFixedAmount(item)}
+                                              onCancel={() => setPerHeadOpen(null)}
+                                            />
+                                          </div>
+                                        </Reveal>
+                                        <Reveal when={expanded() === item.id}>
+                                          <div class="py-1 pr-1">
+                                            <PaymentPanel
+                                              item={item}
+                                              payments={paymentsFor(item.id)}
+                                              currency={currency()}
+                                              canEdit={props.canEdit}
+                                              onAdd={addPayment}
+                                              onTogglePaid={togglePaid}
+                                              onDelete={deletePayment}
+                                            />
+                                          </div>
+                                        </Reveal>
                                       </li>
                                     );
                                   }}

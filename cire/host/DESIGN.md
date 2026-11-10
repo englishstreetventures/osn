@@ -704,6 +704,22 @@ only on the open state, so closing has none to run and a disclosure that is
 open when it first paints does not fade. Every `<details>` in the portal is
 `Disclosure`, so the stylesheet keeps no fade of its own.
 
+**A panel that opens inside a row grows through `Reveal`** (`@cire/ui/reveal`),
+the owner's choice (2026-11-10, englishstreetventures/osn#2164). Its height
+grows from nothing as it fades in, on `--dur-base` with `--ease-out`, so the
+rows below move down with it rather than jump; it closes at once, because it
+holds fields. Where the portal draws it: a budget line's "per head" and
+"payments (n)" panels, and a message's time on a phone (§7, `MessageThread`).
+The owner asked for motion a little slower than the comparison page's fast
+defaults; `--dur-base`, one rung above `--dur-fast` (200ms on touch, 150ms at a
+desk), is the rung `Reveal` runs on for every caller, so a slower one is a
+change to `Reveal`, not to a call site. `Reveal` clips what it holds, so a
+control at a panel's edge needs 4px of room inside it for the focus ring: each
+part of a budget line carries 4px above, below and to its right, and the
+line's padding is 4px less, so every gap still measures 8px and a closed panel
+adds nothing. `BudgetView.reveal.browser.test.tsx` samples the opening frame by
+frame and measures the room.
+
 **A toggled box that is not in the top layer fades out in CSS alone.**
 `transition-behavior: allow-discrete` holds `display` until an opacity fade has
 run, and `@starting-style` gives the opening its from-state. A dialog or popover in
