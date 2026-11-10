@@ -258,9 +258,9 @@ export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
  * Recovery links an account may be sent from one client address in 24 hours,
  * first links and Resends alike, keyed on the resolved account and the
  * address that asked (`serverMac.recoverySendKey`), never on the submitted
- * identifier alone. A stranger who types the owner's address spends only the
- * allowance of the address they ask from, so the owner's own request, from
- * theirs, still gets its link. It is also what bounds the recovery mail one
+ * identifier alone. Each address that asks has its own allowance, so requests
+ * from one address never use another's, and a request from an address with
+ * allowance left gets its link. It is also what bounds the recovery mail one
  * address can cause an account to be sent.
  *
  * Three is above any honest retry from one place: a link lives ten minutes and

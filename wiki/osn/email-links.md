@@ -265,10 +265,9 @@ There is no `GET` on any of them: mail scanners open links before people do.
   | 20 a day per account (`recoveryLinkCeiling`) | every link | `serverMac.probeKey(accountId)` |
   | 5 begins an hour per client address (`recoveryEmailBegin`), Turnstile | begins | client address |
 
-  A begin's first link never spends the account's Resends, so a stranger who
-  types the owner's address cannot stop the owner's next first link; the
-  ceiling bounds what one mailbox can be sent, 20 links a day, however many
-  addresses ask.
+  A begin's first link never spends the account's Resends, and each client
+  address has its own allowance; the ceiling bounds what one mailbox can be
+  sent, 20 links a day, however many addresses ask.
 - **The odds.** A blind typed number is right 1 time in 100 per request; a
   wrong one ends the request; five wrong numbers in 15 minutes lock email
   recovery for the account; the reader can always decline.

@@ -25,7 +25,8 @@
  *   answer, so a mail round trip is no oracle.
  * - **The recipient is the victim.** The address is the account holder's own,
  *   so recovery links are capped per account and client address, and Resends
- *   per account — in ways a stranger cannot spend to stop the owner's link.
+ *   per account: each address that asks has its own allowance, and a begin's
+ *   first link never counts against the account's Resends.
  * - **Completion matches `consumeRecoveryCode`**: every session on the account
  *   is revoked and the audit row is written in the same batch, before the new
  *   session exists.
@@ -183,8 +184,8 @@ export function createRecoveryFactorsModule(
    *  - no link goes to an account its recovery lockout holds, or whose
    *    lockout cannot be read;
    *  - every link counts against the allowance of the account at the client
-   *    address that asked (`recoverySendKey`), so a stranger elsewhere cannot
-   *    spend the owner's;
+   *    address that asked (`recoverySendKey`), so requests from one address
+   *    never use another's;
    *  - a Resend's link also counts against the account's Resends a day. A
    *    begin's first link does not, so the newest request always gets its
    *    first link whoever has spent the Resends;

@@ -256,12 +256,12 @@ describe("an address with no account answers as one with", () => {
 });
 
 describe("the limits on recovery mail", () => {
-  it("a stranger who types the owner's address cannot stop the owner's link", async () => {
+  it("a begin from another address gets its link after one address used its allowance and the account's Resends", async () => {
     const h = harness();
     await h.seed("rl-owner@example.com", "rlowner");
     const owner = "rl-owner@example.com";
 
-    // A stranger at one address uses up that address's allowance...
+    // One address uses up its allowance...
     const theirs = [];
     for (let i = 0; i < RECOVERY_LINKS_PER_ADDRESS_MAX; i++) theirs.push(await begun(h, owner, 1));
     const fourth = await beginRecoveryThroughRoutes(h.app, owner, from(1));
@@ -296,7 +296,7 @@ describe("the limits on recovery mail", () => {
     const mailed = RECOVERY_LINKS_PER_ADDRESS_MAX + RECOVERY_RESENDS_PER_ACCOUNT_MAX;
     expect(recoveryLinksTo(h.recorded(), owner)).toBe(mailed);
 
-    // The owner, at their own address, still gets their link.
+    // A begin from another address still gets its link.
     await begun(h, owner, 2);
     expect(recoveryLinksTo(h.recorded(), owner)).toBe(mailed + 1);
   });

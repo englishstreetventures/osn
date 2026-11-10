@@ -440,9 +440,10 @@ account's own address, so an unthrottled endpoint floods the victim's inbox.
 - Dispatch the send **detached with a timeout**, the pattern `notifyRecovery`
   already uses, so both branches return at probe cost.
 - Cap the links, keyed on the **resolved** account — never on the submitted
-  identifier — and still answer 202 when a cap holds a link back. None of the
-  caps lets a stranger who types the owner's address stop the owner's next
-  link, and together they bound what one mailbox is sent: 3 links a day per
+  identifier — and still answer 202 when a cap holds a link back. Each client
+  address has its own allowance per account, a begin's first link never counts
+  against the account's Resends, and together the caps bound what one mailbox
+  is sent: 3 links a day per
   account and client address, 3 Resends a day per account (a begin's first
   link never counts), and 20 links a day per account in all. Per-IP limits
   alone are defeated by a rotating fleet, which this issuer already sees.

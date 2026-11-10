@@ -208,8 +208,8 @@ export interface AuthConfig {
   /**
    * Recovery links per (account, client address): 3 per 24 h, keyed on
    * `serverMac.recoverySendKey(accountId, ip)` and checked only where a link
-   * goes out. A stranger who types the owner's address spends the allowance
-   * of their own address, not the owner's. See
+   * goes out. Each client address has its own allowance for an account, so
+   * requests from one address never use another's. See
    * {@link RECOVERY_LINKS_PER_ADDRESS_MAX}.
    */
   recoveryLinkAddressCap?: AccountCapLimiter;

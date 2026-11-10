@@ -55,9 +55,10 @@ export type AuthRateLimiters = Readonly<{
   recoveryComplete: RateLimiterBackend;
   /**
    * Email account-recovery begin (unauthenticated, SENDS MAIL to the address on
-   * file). Hour window, so no native binding can carry it. With Turnstile and
-   * the per-(account, address) link cap (`recoveryLinkAddressCap`), it is what
-   * bounds first links: no per-account count may stop the owner's first link.
+   * file). Hour window, so no native binding can carry it. With Turnstile, the
+   * per-(account, address) link cap (`recoveryLinkAddressCap`) and the daily
+   * ceiling (`recoveryLinkCeiling`), it is what bounds first links; the
+   * account's Resend cap never counts one.
    */
   recoveryEmailBegin: RateLimiterBackend;
   /**
