@@ -16,7 +16,9 @@
  *
  * On the way it measures the explore page from 320px to 1440px, signed in on
  * the host's page and signed out on the guest's, and reads the header's motion
- * on the host's (`support/pulse-explore.ts`).
+ * on the host's (`support/pulse-explore.ts`). Once the host has signed in it
+ * opens both avatar menus and the "More filters" dialog, which read the shared
+ * separator and the shared zoom (`support/pulse-menus.ts`).
  */
 
 import type { APIRequestContext, APIResponse, BrowserContext } from "@playwright/test";
@@ -32,6 +34,7 @@ import {
   type Flow,
 } from "../support/fixtures";
 import { exploreCreateForm, exploreLayout, exploreMotion } from "../support/pulse-explore";
+import { pulseMenus } from "../support/pulse-menus";
 
 const EVENT_TITLE = "E2E Launch Party";
 
@@ -61,6 +64,7 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     registerThroughApi(flow, context.request, PEOPLE.pulseHost),
   );
   await signInToPulse(flow, page, "host");
+  await pulseMenus(flow, page);
 
   const eventId = await flow.step("host: create an event", async () => {
     await page.getByRole("button", { name: "Host", exact: true }).click();
