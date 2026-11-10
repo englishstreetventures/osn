@@ -164,7 +164,7 @@ async function run(
   return { code, calls: api.calls, output: lines.join(""), sleeps };
 }
 
-/** Today: each Pages project holds its own host; www.musubi.social is empty. */
+/** Before the first flip: each Pages project holds its own host; www.musubi.social is empty. */
 const TODAY: World = {
   projects: {
     "cire-host": ["cire-host.pages.dev", "host.cireweddings.com"],
@@ -177,6 +177,12 @@ const TODAY: World = {
     "vendor.cireweddings.com": [CNAME("cire-vendor")],
     "musubi.social": [CNAME("osn-social")],
   },
+};
+
+/** After cire vendor's flip: its Worker holds vendor.cireweddings.com, and every other Pages project its own host. */
+const VENDOR_MOVED: World = {
+  projects: { ...TODAY.projects, "cire-vendor": ["cire-vendor.pages.dev"] },
+  records: { ...TODAY.records, "vendor.cireweddings.com": [WORKER] },
 };
 
 describe("pages-domain.ts", () => {
@@ -347,7 +353,11 @@ describe("check", () => {
 describe("precheck", () => {
   test("PD5: a worker site whose host is free passes; with no worker site shipping it asks nothing", async () => {
     // Every cire site staged, as before its first flip.
-    const cireStaged = { ...PRODUCTION_SITE_MODES, cire_vendor: "staged" } as const;
+    const cireStaged = {
+      ...PRODUCTION_SITE_MODES,
+      cire_host: "staged",
+      cire_vendor: "staged",
+    } as const;
     const free = await run(["precheck"], TODAY, { STACKS: "musubi cire", FLIP: "" }, cireStaged);
     expect(free.code).toBe(0);
     expect(free.output).toContain("musubi_landing www.musubi.social free");
@@ -356,17 +366,18 @@ describe("precheck", () => {
     expect(none.calls).toEqual([]);
   });
 
-  test("PD5: while vendor.cireweddings.com is on Pages, a release shipping the cire stack is refused unless it flips cire_vendor", async () => {
-    const refused = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "" });
+  test("PD5: while host.cireweddings.com is on Pages, a release shipping the cire stack is refused unless it flips cire_host", async () => {
+    const refused = await run(["precheck"], VENDOR_MOVED, { STACKS: "cire", FLIP: "" });
     expect(refused.code).toBe(1);
-    expect(refused.output).toContain("cire_vendor vendor.cireweddings.com pages cire-vendor");
-    expect(refused.output).toContain("flip: cire_vendor and surfaces: cire_vendor");
-    const flip = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "cire_vendor" });
+    expect(refused.output).toContain("cire_host host.cireweddings.com pages cire-host");
+    expect(refused.output).toContain("cire_vendor vendor.cireweddings.com free");
+    expect(refused.output).toContain("flip: cire_host and surfaces: cire_host");
+    const flip = await run(["precheck"], VENDOR_MOVED, { STACKS: "cire", FLIP: "cire_host" });
     expect(flip.code).toBe(0);
     // A release that leaves the cire sites out asks nothing of the cire zone.
-    const musubi = await run(["precheck"], TODAY, { STACKS: "musubi", FLIP: "" });
+    const musubi = await run(["precheck"], VENDOR_MOVED, { STACKS: "musubi", FLIP: "" });
     expect(musubi.code).toBe(0);
-    expect(musubi.output).not.toContain("cire_vendor");
+    expect(musubi.output).not.toContain("cire_host");
   });
 
   test("PD5: a worker site still on Pages is refused without a flip naming it", async () => {
@@ -409,7 +420,7 @@ describe("precheck", () => {
     const free = await run(["precheck"], TODAY, { STACKS: "musubi", FLIP: "musubi_landing" });
     expect(free.code).toBe(1);
     expect(free.output).toContain("nothing to move");
-    const staged = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "cire_host" });
+    const staged = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "cire_landing" });
     expect(staged.code).toBe(1);
     expect(staged.calls).toEqual([]);
   });
@@ -417,9 +428,9 @@ describe("precheck", () => {
 
 describe("detach and attach", () => {
   test("PD6: detach refuses a site this commit still stages, before changing anything", async () => {
-    const result = await run(["detach", "cire_host"], TODAY);
+    const result = await run(["detach", "cire_landing"], TODAY);
     expect(result.code).toBe(1);
-    expect(result.output).toContain("cire_host is staged");
+    expect(result.output).toContain("cire_landing is staged");
     expect(result.calls.filter((call) => call.method !== "GET")).toEqual([]);
   });
 
@@ -431,33 +442,29 @@ describe("detach and attach", () => {
   });
 
   test("PD6: detach, for a worker site on its own project, takes the domain off it and deletes only the CNAME to it", async () => {
-    const flipped = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
+    // Today's modes and hosts, as cire host's flip release finds them.
     const world: World = {
-      ...TODAY,
+      ...VENDOR_MOVED,
       records: {
-        "vendor.cireweddings.com": [
-          CNAME("cire-vendor"),
+        ...VENDOR_MOVED.records,
+        "host.cireweddings.com": [
+          CNAME("cire-host"),
           { id: "rec-txt", type: "TXT", content: "verification" },
         ],
       },
     };
-    const result = await run(["detach", "cire_vendor"], world, {}, flipped);
+    const result = await run(["detach", "cire_host"], world);
     expect(result.code).toBe(0);
     expect(
       result.calls
         .filter((call) => call.method === "DELETE")
         .map((call) => call.url.slice(API.length)),
     ).toEqual([
-      `/accounts/${ACCOUNT}/pages/projects/cire-vendor/domains/vendor.cireweddings.com`,
-      "/zones/zone-cire/dns_records/rec-cire-vendor",
+      `/accounts/${ACCOUNT}/pages/projects/cire-host/domains/host.cireweddings.com`,
+      "/zones/zone-cire/dns_records/rec-cire-host",
     ]);
     // The flip's precheck passes once the mode says worker and the host is on Pages.
-    const precheck = await run(
-      ["precheck"],
-      TODAY,
-      { STACKS: "cire", FLIP: "cire_vendor" },
-      flipped,
-    );
+    const precheck = await run(["precheck"], VENDOR_MOVED, { STACKS: "cire", FLIP: "cire_host" });
     expect(precheck.code).toBe(0);
   });
 

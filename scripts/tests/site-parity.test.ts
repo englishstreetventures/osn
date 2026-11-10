@@ -240,18 +240,13 @@ describe("runSiteParity", () => {
     expect(JSON.parse(report)).toMatchObject({ stack: "cire", differing: 0 });
   });
 
-  test("SP2: a site whose Worker serves its production host is not compared: today's modes leave cire vendor out", async () => {
+  test("SP2: a site whose Worker serves its production host is not compared: today's modes leave cire host and cire vendor out", async () => {
     const hosts = fakeHosts();
     const today = await parity(["--stack", "cire"], hosts, build(SITES), PRODUCTION_SITE_MODES);
     expect(today.code).toBe(0);
     const origins = [...new Set(hosts.calls.map((url) => new URL(url).origin))].toSorted();
     expect(origins).toEqual(
-      [
-        "https://next.host.cireweddings.com",
-        "https://host.cireweddings.com",
-        "https://next.cireweddings.com",
-        "https://cireweddings.com",
-      ].toSorted(),
+      ["https://next.cireweddings.com", "https://cireweddings.com"].toSorted(),
     );
   });
 

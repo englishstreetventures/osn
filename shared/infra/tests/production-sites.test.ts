@@ -34,9 +34,9 @@ describe("production-sites.ts", () => {
     expect(PRODUCTION_ADOPTIONS).toEqual([]);
   });
 
-  test("PS3: cire vendor and musubi landing serve their hosts, the other three Pages sites are staged, pulse landing is off", () => {
+  test("PS3: cire host, cire vendor and musubi landing serve their hosts, the other two Pages sites are staged, pulse landing is off", () => {
     expect(PRODUCTION_SITE_MODES).toEqual({
-      cire_host: "staged",
+      cire_host: "worker",
       cire_vendor: "worker",
       cire_landing: "staged",
       osn_social: "staged",
@@ -87,7 +87,7 @@ describe("production-sites.ts", () => {
 
   test("production-hosts names each non-off site's origin at its mode, the origin its smoke check probes", () => {
     expect(Object.fromEntries(productionHostOutputs())).toEqual({
-      cire_host_origin: "https://next.host.cireweddings.com",
+      cire_host_origin: "https://host.cireweddings.com",
       cire_vendor_origin: "https://vendor.cireweddings.com",
       cire_landing_origin: "https://next.cireweddings.com",
       osn_social_origin: "https://next.musubi.social",
@@ -95,9 +95,13 @@ describe("production-sites.ts", () => {
     });
     expect(
       Object.fromEntries(
-        productionHostOutputs({ ...PRODUCTION_SITE_MODES, cire_host: "worker", osn_social: "off" }),
+        productionHostOutputs({
+          ...PRODUCTION_SITE_MODES,
+          cire_landing: "worker",
+          osn_social: "off",
+        }),
       ),
-    ).toMatchObject({ cire_host_origin: "https://host.cireweddings.com" });
+    ).toMatchObject({ cire_landing_origin: "https://cireweddings.com" });
   });
 
   test("PS6: production runs on today's production hosts and reads no DEV_DOMAIN; every other stage derives its own", () => {

@@ -1544,20 +1544,20 @@ describe("a production site the production stack deployed", () => {
 describe("the organiser portal", () => {
   // cire-api's enquiry emails link `/vendors/enquiries/<id>` on the portal's
   // host. No file answers that path; the portal's single-page fallback does.
-  const STAGED_HOST = "https://next.host.cireweddings.com";
+  const PORTAL = "https://host.cireweddings.com";
   const THREAD = "/vendors/enquiries/smoke-check";
-  const hostEnv = { SMOKE_ORIGIN: STAGED_HOST, SMOKE_DEPLOYMENT: DEP_THIS_JOB };
+  const hostEnv = { SMOKE_ORIGIN: PORTAL, SMOKE_DEPLOYMENT: DEP_THIS_JOB };
 
   test("SM4: production asks `/` and an enquiry email's path, and passes when both answer 200 HTML", async () => {
     const result = await smoke(
       ["cire_host", "production"],
-      { [`${STAGED_HOST}/`]: html(200), [`${STAGED_HOST}${THREAD}`]: html(200) },
+      { [`${PORTAL}/`]: html(200), [`${PORTAL}${THREAD}`]: html(200) },
       { env: hostEnv },
     );
     expect(result.code).toBe(0);
     expect([...new Set(result.calls.map((call) => call.url))].toSorted()).toEqual([
-      `${STAGED_HOST}/`,
-      `${STAGED_HOST}${THREAD}`,
+      `${PORTAL}/`,
+      `${PORTAL}${THREAD}`,
     ]);
     expect(result.posts).toEqual([]);
   });
@@ -1566,8 +1566,8 @@ describe("the organiser portal", () => {
     const result = await smoke(
       ["cire_host", "production"],
       {
-        [`${STAGED_HOST}/`]: html(200),
-        [`${STAGED_HOST}${THREAD}`]: new Response(null, { status: 404 }),
+        [`${PORTAL}/`]: html(200),
+        [`${PORTAL}${THREAD}`]: new Response(null, { status: 404 }),
       },
       { env: hostEnv },
     );
