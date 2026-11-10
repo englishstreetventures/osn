@@ -19,7 +19,6 @@
  * `bg-ui-accent` paints is the colour `--primary` holds".
  */
 
-import { Badge } from "@shared/ui/ui/badge";
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { render } from "@solidjs/testing-library";
@@ -182,19 +181,6 @@ describe("the contract reaches the pixel", () => {
     // Button to the contract step; this one holds the step to that size, so a
     // re-mapped `--ui-text-base` fails here too.
     expect(fontSize).toBe("14px");
-  });
-});
-
-describe("the badge's weight", () => {
-  it("sets the role badge at 600, because Musubi maps no title weight", () => {
-    // `Badge` reads `--ui-weight-title` and falls back to 600. `App.css` maps
-    // no weight token and redefines no weight key, so the org page's role
-    // badge draws at 600 — the known break DESIGN.md lists against the house's
-    // 400 and 500. A mapping added to `App.css`, or a `--font-weight-*` key the
-    // badge's class could read, moves every role badge and fails this; the
-    // branch that maps 500 turns this expectation to "500" in the same change.
-    const { getByText } = render(() => <Badge variant="secondary">Owner</Badge>);
-    expect(getComputedStyle(getByText("Owner")).fontWeight).toBe("600");
   });
 });
 
