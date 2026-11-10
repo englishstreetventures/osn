@@ -921,13 +921,20 @@ is reading, and the owner asked that these openings be felt. On `--dur-base` a
 desk covers three quarters of the dietary section's 340px in under 40ms.
 
 *Measured 2026-11-11 — Chromium at 1280px, the RSVP sheet's dietary section,
-its transitions paused at a quarter of `--dur-base` (150ms under `pointer: fine`)*
+its transitions paused at a quarter of `--dur-base`, which is 150ms under
+`pointer: fine` (37.5ms in)*
 
 It closes at once, because each block holds fields, and a block that is open
 when its state is restored — a reply on file, a household reopened from its
 session — paints open, with no motion. `Reveal` keeps 4px of room inside its
-clip, so a focus ring at a block's edge stays whole. Closing the reserve form
-from inside it hands focus to the card's first action. The calendar and maps
+clip, so a focus ring at a block's edge stays whole. When the reserve form
+closes with focus inside it — Cancel, Confirm once the reservation lands, Enter
+in a field — focus goes to the card's first action that can be pressed
+(Reserve or Change), or to the gift's title when none can, as when another
+household took the last one. Confirm is disabled while its claim is in flight,
+and the engine moves focus off it to the page then, so the card notes whether
+the claim went out from inside the form. After a tap the moved focus draws no
+ring (`quiet-focus.ts`). The calendar and maps
 menus (`LinkMenu`) open as the portals' menus pop — scaled up from 0.96 and
 faded in from the corner at their trigger — a rung slower, on `--dur-base` and
 `--ease-out` (`menu-pop` in `src/styles/global.css`), and close at once.

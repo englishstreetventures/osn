@@ -18,6 +18,7 @@ import type {
   FamilyMember,
   RsvpSummary,
 } from "../../src/components/types";
+import type { GiftRegistryHouseholdClaim } from "../../src/lib/gift-registry";
 import type { GiftRegistryItem } from "../../src/lib/gift-registry-read";
 
 /*
@@ -39,6 +40,11 @@ import type { GiftRegistryItem } from "../../src/lib/gift-registry-read";
  * And a field inside one keeps its whole focus ring. `Reveal` clips what it
  * holds, so the ring of a field at the clip's edge — 2px wide and 2px out —
  * is measured against every box that clips it.
+ *
+ * Closing a gift's reserve form from inside it takes the focused control out
+ * of the document, so focus goes back to the card. Confirm is disabled while
+ * its claim is in flight, and the engine moves focus off a control the moment
+ * it is disabled, which is why those cases press it for real.
  *
  * happy-dom computes no layout and runs no transitions; none of this is
  * visible below this tier.
@@ -371,6 +377,78 @@ function mountCard() {
   return document.querySelector("article") as HTMLElement;
 }
 
+/** What the server's answer to a claim brings back to the card. */
+interface ClaimAnswer {
+  landed: boolean;
+  /** The gift as the list re-read after the answer has it, if it moved. */
+  item?: GiftRegistryItem;
+}
+
+/**
+ * The card as `GiftRegistryPage` drives it, behind a button outside it. A
+ * claim marks the card busy, which disables Confirm; once the server answers,
+ * the card is idle again, the list is re-read and then the household's own
+ * claim, and only then does `onClaim` resolve.
+ */
+function mountDrivenCard() {
+  const [item, setItem] = createSignal(gift);
+  const [busy, setBusy] = createSignal(false);
+  const [claim, setClaim] = createSignal<GiftRegistryHouseholdClaim>();
+  let settle: ((answer: ClaimAnswer) => void) | undefined;
+  render(() => (
+    <>
+      <button type="button">Elsewhere</button>
+      <div style={{ width: "320px" }}>
+        <GiftRegistryItemCard
+          item={item()}
+          currency="AUD"
+          imageBase={null}
+          claim={claim()}
+          canClaim={true}
+          busy={busy()}
+          onClaim={async (body) => {
+            setBusy(true);
+            const answer = await new Promise<ClaimAnswer>((resolve) => (settle = resolve));
+            setBusy(false);
+            if (answer.item) setItem(answer.item);
+            // The household's claims are a read of their own, answered later.
+            await Promise.resolve();
+            if (answer.landed) {
+              setClaim({ itemId: gift.id, status: "reserved", ...body });
+            }
+            return answer.landed;
+          }}
+          onRelease={() => {}}
+        />
+      </div>
+    </>
+  ));
+  return {
+    setItem,
+    /** Answer the claim in flight, then let the card act on it. */
+    async answer(answer: ClaimAnswer) {
+      if (!settle) throw new Error("no claim in flight");
+      settle(answer);
+      await frame();
+    },
+  };
+}
+
+/** Open the card's reserve form and let its opening finish. */
+async function openReserveForm() {
+  fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
+  await frame();
+  for (const a of revealOf(document.querySelector("form")!).getAnimations()) a.finish();
+  await frame();
+}
+
+/** Press Confirm from the keyboard, and let the engine act on its disabling. */
+async function pressConfirm() {
+  screen.getByRole("button", { name: "Confirm" }).focus();
+  await userEvent.keyboard("{Enter}");
+  await frame();
+}
+
 describe("a gift's reserve form", () => {
   it("adds nothing to the card while it is shut", async () => {
     const card = mountCard();
@@ -397,18 +475,109 @@ describe("a gift's reserve form", () => {
     await frame();
     expect(document.querySelector("form")).toBeNull();
     expectShut(wrapper);
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Reserve" }));
+    const reserve = screen.getByRole("button", { name: "Reserve" });
+    expect(document.activeElement).toBe(reserve);
+    // Moved from the keyboard, so the ring shows where focus went.
+    expect(reserve.hasAttribute("data-quiet-focus")).toBe(false);
+  });
+
+  it("hands focus back without the ring when Cancel is tapped", async () => {
+    mountCard();
+    await openReserveForm();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await frame();
+    const reserve = screen.getByRole("button", { name: "Reserve" });
+    expect(document.activeElement).toBe(reserve);
+    expect(reserve.hasAttribute("data-quiet-focus")).toBe(true);
   });
 
   it("keeps the whole ring of its first field", async () => {
     mountCard();
-    fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
-    await frame();
-    for (const a of revealOf(document.querySelector("form")!).getAnimations()) a.finish();
-    await frame();
+    await openReserveForm();
     const field = screen.getByRole("spinbutton") as HTMLInputElement;
     field.focus();
     expect(ringClippers(field)).toEqual([]);
+  });
+
+  it("hands focus to Change once a reservation sent from Confirm lands", async () => {
+    const card = mountDrivenCard();
+    await openReserveForm();
+    await pressConfirm();
+    // Confirm is disabled while the claim is in flight, and the engine has
+    // already moved focus off it to the page.
+    expect(screen.getByRole("button", { name: "Saving" })).toHaveProperty("disabled", true);
+    expect(document.activeElement).toBe(document.body);
+
+    await card.answer({ landed: true });
+    expect(document.querySelector("form")).toBeNull();
+    const change = screen.getByRole("button", { name: "Change" });
+    expect(document.activeElement).toBe(change);
+    expect(change.hasAttribute("data-quiet-focus")).toBe(false);
+  });
+
+  it("hands focus to Change without the ring when Confirm is tapped", async () => {
+    const card = mountDrivenCard();
+    await openReserveForm();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await frame();
+
+    await card.answer({ landed: true });
+    const change = screen.getByRole("button", { name: "Change" });
+    expect(document.activeElement).toBe(change);
+    expect(change.hasAttribute("data-quiet-focus")).toBe(true);
+  });
+
+  it("hands focus to the gift's title when Confirm loses the last one to another household", async () => {
+    const card = mountDrivenCard();
+    await openReserveForm();
+    await pressConfirm();
+
+    await card.answer({ landed: false, item: { ...gift, quantityClaimed: gift.quantityWanted } });
+    expect(document.querySelector("form")).toBeNull();
+    // Nothing on the card can be pressed: "Reserved" is disabled.
+    expect(screen.getByRole("button", { name: "Reserved" })).toHaveProperty("disabled", true);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: gift.title }));
+  });
+
+  it("hands focus from a field to Change when the list is re-read before the household's own claim", async () => {
+    // Reserving the last one with Enter in a field, which keeps focus: for a
+    // moment the list counts it and the claim that makes it this household's
+    // is not read yet, which looks like nothing left to reserve.
+    const card = mountDrivenCard();
+    await openReserveForm();
+    screen.getByRole("spinbutton").focus();
+    await userEvent.keyboard("{Enter}");
+    await frame();
+
+    await card.answer({ landed: true, item: { ...gift, quantityClaimed: gift.quantityWanted } });
+    expect(document.querySelector("form")).toBeNull();
+    const change = screen.getByRole("button", { name: "Change" });
+    expect(document.activeElement).toBe(change);
+    expect(change.hasAttribute("data-quiet-focus")).toBe(false);
+  });
+
+  it("leaves focus where the guest moved it while the claim was in flight", async () => {
+    const card = mountDrivenCard();
+    await openReserveForm();
+    await pressConfirm();
+    const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+    elsewhere.focus();
+
+    await card.answer({ landed: true });
+    expect(document.querySelector("form")).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("leaves focus outside the card where it is when another household takes the last one", async () => {
+    const card = mountDrivenCard();
+    await openReserveForm();
+    const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+    elsewhere.focus();
+
+    card.setItem({ ...gift, quantityClaimed: gift.quantityWanted });
+    await frame();
+    expect(document.querySelector("form")).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
   });
 });
 

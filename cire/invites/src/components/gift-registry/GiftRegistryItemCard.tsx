@@ -16,6 +16,7 @@ import {
 } from "../../lib/gift-registry";
 import type { GiftRegistryItem } from "../../lib/gift-registry-read";
 import { buildSrcSet, variantSrc } from "../invite-images";
+import { moveFocus, pressedByPointer } from "../quiet-focus";
 
 /**
  * The image box's shape. Exported for the drift guard in the tests: it exists
@@ -72,10 +73,25 @@ interface GiftRegistryItemCardProps {
  */
 export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   const [open, setOpen] = createSignal(false);
+  /** The gift's title: where focus goes when the form closes and nothing can be pressed. */
+  let title!: HTMLHeadingElement;
   /** The card's row of actions: Reserve or Change, and Release. */
   let actions!: HTMLDivElement;
   /** The reserve form, while it is in the document. */
   let form: HTMLFormElement | undefined;
+  /**
+   * A claim sent from the form is waiting on the server. Its answer decides
+   * whether the form closes: the page re-reads the list and this household's
+   * claims apart, so until both are in, the counts can say nothing is left
+   * when this household has just taken the last one.
+   */
+  let sending = false;
+  /**
+   * Whether a pointer pressed Confirm, rather than Enter in a field or on the
+   * button. Read as the form submits: an Enter that submits clicks Confirm on
+   * the way, so each submit sets it afresh.
+   */
+  let confirmedByPointer = false;
   /**
    * The box's TEXT, not a number — so it can be empty while the guest retypes it.
    *
@@ -153,24 +169,39 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
    * one. Conditioned on the CEILING, never on the 409 itself, because the API
    * also answers 409 when other households' live claims exceed what is left
    * while some remain — there the form is still useful and stays open.
+   *
+   * While this form's own claim is in flight, `submit` makes the same check
+   * once the answer is in, not this effect (see `sending`).
    */
   createEffect(() => {
-    if (!canReserveMore()) closeForm();
+    if (!canReserveMore() && !sending) closeForm();
   });
 
+  function focusInForm(): boolean {
+    return form?.isConnected === true && form.contains(document.activeElement);
+  }
+
   /**
-   * Closes the form at once. When the focused control goes with it — Cancel,
-   * Confirm once the reservation lands, a field when the last one is taken —
-   * the browser would drop focus to the page; it goes to the card's first
-   * action that can be pressed instead. Focus anywhere else stays put, and a
-   * form that is not open moves nothing.
+   * Closes the form at once. When focus goes with it, the browser would drop
+   * it to the page; it goes to the card's first action that can be pressed
+   * instead — Reserve or Change — or to the gift's title when none can, as
+   * when another household took the last one. Focus anywhere else stays put.
+   *
+   * `sentFromForm`: the claim that closes it went out with focus inside the
+   * form. Confirm is disabled while the claim is in flight, and the engine
+   * moves focus off it to the page then, so by the time the answer lands,
+   * focus on the page is the only trace that the guest was in the form.
+   *
+   * `quiet`: a pointer pressed the control that closes it, so the moved focus
+   * draws no ring (`quiet-focus.ts`).
    */
-  function closeForm() {
-    const held = form?.isConnected === true && form.contains(document.activeElement);
+  function closeForm(sentFromForm = false, quiet = false) {
+    const active = document.activeElement;
+    const held = focusInForm() || (sentFromForm && (active === null || active === document.body));
     setOpen(false);
     if (!held) return;
     queueMicrotask(() => {
-      actions.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+      moveFocus(actions.querySelector<HTMLButtonElement>("button:not(:disabled)") ?? title, quiet);
     });
   }
 
@@ -205,17 +236,26 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
     // Show them what was actually sent, so a form left open by a 409 does not
     // still read as the empty box or the out-of-range number they typed.
     setQuantityText(String(quantity));
-    const landed = await props.onClaim({
-      quantity,
-      // Empty means "I said nothing", which is `null` on the wire, not `""`.
-      note: trimmedNote === "" ? null : trimmedNote,
-      displayName: trimmedName === "" ? null : trimmedName,
-    });
-    // Only close on success. A 409 leaves the form open on purpose: the list
-    // beside it has just been refreshed, and the box's own ceiling with it, so
-    // the guest can see what changed and decide instead of having their words
-    // thrown away by a race they lost.
-    if (landed) closeForm();
+    const sentFromForm = focusInForm();
+    const quiet = confirmedByPointer;
+    sending = true;
+    let landed = false;
+    try {
+      landed = await props.onClaim({
+        quantity,
+        // Empty means "I said nothing", which is `null` on the wire, not `""`.
+        note: trimmedNote === "" ? null : trimmedNote,
+        displayName: trimmedName === "" ? null : trimmedName,
+      });
+    } finally {
+      sending = false;
+    }
+    // Close on success, or when the re-read leaves nothing to reserve. A 409
+    // with some left leaves the form open on purpose: the list beside it has
+    // just been refreshed, and the box's own ceiling with it, so the guest can
+    // see what changed and decide instead of having their words thrown away
+    // by a race they lost.
+    if (landed || !canReserveMore()) closeForm(sentFromForm, quiet);
   }
 
   return (
@@ -253,7 +293,13 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
       </Show>
 
       <div class="flex flex-1 flex-col gap-3 p-5">
-        <h3 class="font-display text-text text-ui-md leading-ui-snug font-light">
+        {/* Focusable by script only: where the reserve form hands focus when
+            it closes and nothing on the card can be pressed. */}
+        <h3
+          ref={title}
+          tabindex="-1"
+          class="font-display text-text text-ui-md leading-ui-snug font-light"
+        >
           {props.item.title}
         </h3>
 
@@ -416,10 +462,20 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               </label>
 
               <div class="flex flex-wrap gap-3">
-                <Button type="submit" variant="cta" disabled={props.busy}>
+                <Button
+                  type="submit"
+                  variant="cta"
+                  disabled={props.busy}
+                  onClick={(e) => (confirmedByPointer = pressedByPointer(e))}
+                >
                   {props.busy ? "Saving" : "Confirm"}
                 </Button>
-                <Button variant="touchLink" type="button" disabled={props.busy} onClick={closeForm}>
+                <Button
+                  variant="touchLink"
+                  type="button"
+                  disabled={props.busy}
+                  onClick={(e) => closeForm(false, pressedByPointer(e))}
+                >
                   Cancel
                 </Button>
               </div>
