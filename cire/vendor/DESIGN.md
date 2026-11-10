@@ -47,9 +47,10 @@ the auto-sized frame are `@cire/ui`'s (`lib/theme`, `lib/theme-boot`,
 `lib/haptics`, `lib/auto-size`), shared with the host portal and tested there.
 `src/lib/` holds only this portal's wiring: `preference-keys.ts` (the storage
 keys and the boot script), `preferences.ts` and `touch-feedback.ts`. The
-sliding pill is `@cire/ui`'s too. This portal declares the spring
-(`--ease-spring` and its `@supports` block, host §4), because its glass strip
-slides on it.
+sliding pill is `@cire/ui`'s too. This portal declares both springs and
+their `@supports` block (host §4): `--ease-glide`, because its glass strip
+glides on it, and `--ease-spring`, because the enquiry thread's send button
+grows on it.
 Every form field here takes `@shared/ui`'s `size="form"` and is 34px, as host
 §4 ("One form-field height") sets; `tests/styles/form-field.test.ts` holds
 it. A button beside one would be `Button`'s `form` size; this portal has none.
@@ -115,8 +116,10 @@ The host portal has seven modules, sub-tabs and a rail, which is what makes a
 destinations is chrome for chrome's sake, and it was deliberately **not**
 ported. `ViewTabs` is `@cire/ui`'s `SegmentedTabs`, the glass strip every
 segmented control in both portals is (host §7): one 28px track, a frosted
-highlight that slides on `--ease-spring`, sentence-case labels, the chosen one
-in readable gold at medium weight.
+highlight that glides on `--dur-slow`, its place on `--ease-glide` and its
+size on `--ease-out` (320ms on touch, 200ms at a desk; the owner's choice,
+host §4), sentence-case labels, the chosen one in readable gold at medium
+weight.
 
 Nor is the strip an ARIA `tablist` (`semantics="current"`). The tab pattern promises a panel that is a
 sibling of the strip plus roving arrow-key focus, and neither is true — these

@@ -1728,8 +1728,10 @@ width, so a choice moving shifts nothing, and each choice names itself with
 55% under the accent at 14% (composited into one colour, so a test can read
 what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
 app token; white at 10% when unset), a hairline ring, the first lift and a
-12px frosted backdrop. The glass slides on the house spring
-(`--ease-spring`, falling back to the app's ease-out) at `--dur-base`, inside
+12px frosted backdrop. The glass glides at `--dur-slow`: its place on
+`--ease-glide`, a spring that goes 3% past (falling back to the app's
+ease-out, never to the bouncier `--ease-spring`), its size on `--ease-out`, so
+it never grows past the choice (host `DESIGN.md` §4). It moves inside
 its own layer clipped to the track's shape, so an overshoot is cut by the
 track and no focus ring is. Under the pointer an unchosen choice goes halfway:
 half the tint, an ink between the two. A hover's colours come and go on
@@ -1776,7 +1778,11 @@ the vendor portal's two views (`current`). Host `DESIGN.md` §7 has the look and
 §A tab strip inside a view, §The invite builder's two tiers the layouts.
 
 `createSlidingPill` (`cire/ui/src/lib/sliding-pill.ts`) is the highlight under
-it, and the module rail's marker: `ease: "out"` (the default) or `"spring"`.
+it, and the module rail's marker: `ease: "out"` (the default; place and size
+on `--dur-base` and `--ease-out`) or `"spring"` (the glide above).
+`cire/ui/tests/lib/sliding-pill.browser.test.tsx` samples the glide frame by frame: under
+4% past, a size that never passes the choice's, a second tap that starts
+from where the glass is, and no move for a reader who turned motion down.
 `cire/ui/tests/segmented-tabs.test.tsx` holds the roles and keys,
 `segmented-tabs.browser.test.tsx` where the glass lands, the 28px and 22px
 heights, each label's 4.5:1 on both ramps, the ring and the scrolling strip.

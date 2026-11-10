@@ -576,16 +576,17 @@ corner. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
 matches the shared one beside it. A pill stays flat but for the glass's own
 lift. Nothing else writes Tailwind's other shadow steps.
 
-**Motion.** Three durations and three easings, and **no animation library in
+**Motion.** Three durations and four easings, and **no animation library in
 this package by design**.
 
 ```css
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
 --dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a pill slide */
---dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a disclosure opening */
+--dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a disclosure opening, a strip's glass */
 --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
+--ease-glide: linear(0, 0.053, …, 1.028, …, 1); /* a strip's glass, travelling with barely any */
 ```
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
@@ -595,6 +596,21 @@ the whole `animation` declaration, so `@theme` declares a one-overshoot
 `cubic-bezier` and an unlayered `@supports` block swaps the spring in. It is for
 small things arriving — a popover, a tick — never for a sheet or a page, which
 should not bounce.
+
+`--ease-glide` is the same spring damped harder (ratio 0.75, the same natural
+frequency per run): it goes 3% past at about half the run and settles, against
+`--ease-spring`'s 8%. Its `@theme` fallback is `cubic-bezier(0.36, 1.3, 0.3, 1)`,
+3% past, swapped out by the same `@supports` block. It moves one thing: the
+glass of a segmented strip (§7, `SegmentedTabs`), whose place glides on it while
+its width and height ease out, all on `--dur-slow` — 320ms on touch, 200ms at a
+desk. That is the owner's choice from a rendered comparison (#2164): the house
+spring grew the glass past its own tab and threw it 8% past a far one, and a
+host taps these strips many times a session, so the move is a little slower
+than a pill slide, to be felt, and lands without a bounce. A second tap
+mid-move starts from where the glass is on screen, never from where it was
+going; a CSS transition carries the place over but not the speed, so the glass
+starts the new move at the curve's own pace. `@cire/ui`'s
+`tests/lib/sliding-pill.browser.test.tsx` samples it frame by frame.
 
 **The ladder follows the input, not the screen.** With a fine pointer — a mouse
 or a trackpad, at a desk — an organiser waits on every popover and panel before
@@ -623,15 +639,16 @@ to, so the choice giving the mark up runs on the rest state's clock, the fast
 one: no marker is kept on the old choice for it. So the owner's "a chosen or
 unchosen change runs on base" holds only for the choice arriving; whether the
 one leaving should hold the base clock too is the owner's call (#1959). The
-glass still slides on the spring.
+glass still glides on its own clock (`--ease-glide`, above).
 
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
 marketing site carry this ladder, its `pointer: fine` block and the two easings
 `--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
-fails if any copy differs. The spring is the two portals' alone, because only
-their animations read it — the glass strips slide on it in both, the droplet
-in host: the guest site and the marketing site declare neither the token nor
-the `@supports` block, and the test fails if one gains a copy. The vendor portal
+fails if any copy differs. The two springs are the two portals' alone, because
+only their animations read them — the glass strips glide on `--ease-glide` in
+both, the thread's send button grows on `--ease-spring` in both, the droplet
+in host: the guest site and the marketing site declare neither token nor the
+`@supports` block, and the test fails if one gains a copy. The vendor portal
 renders no `Modal`, so it alone
 sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
 own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
@@ -660,8 +677,9 @@ vendor portal:
 - **`createSlidingPill`** (`@cire/ui/sliding-pill`, shared with the vendor
   portal) — moves one highlight between tabs instead of cross-fading one
   highlight per tab. That is what makes a strip read as a single control rather
-  than a row of them. `SegmentedTabs` (§7) moves its glass with it on
-  `--ease-spring`; the module rail's marker keeps `--ease-out`. The pill's row
+  than a row of them. `SegmentedTabs` (§7) moves its glass with it, the place
+  on `--ease-glide` and the size on `--ease-out`, on `--dur-slow`; the module
+  rail's marker keeps `--ease-out` on `--dur-base` for both. The pill's row
   must be `relative`: an absolutely positioned element paints above
   non-positioned siblings in the same stacking context, and without it the
   underlay covers its own labels.
@@ -1015,7 +1033,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `SkeletonOutline` | A loading placeholder that is the real row drawn hollow (§4, Hollow rows): the view renders its own markup from a typed sample inside it. `aria-hidden` and `inert`, so nothing inside is read, focused or pressed; the region that holds it and what replaces it carries `aria-busy`, and an outline lent to the view bar, outside that region, needs none. It renders in the browser only (`client:only`). It takes no `class`: its children bring their own layout. A part of the row that is a disc or a chip takes `data-skeleton="block"`, a button drawn as words `data-skeleton="text"`. Its children are a still picture: a part that changes inside them after it mounts is not redrawn, so a layout that changes renders a new outline. |
 | `MessageThread`                                                 | An enquiry thread, the same in both portals: the messages oldest first in segments, each opened by a centred time line, and the reply box under them (§An enquiry thread). Your words on a 20% gold wash, theirs on half the surface inside a hairline, both at the 16px corner, `px-4 py-2.5`, the base step in full ink, 3/4 of the column wide. |
 | `Note`                                                          | Cire's standing note: `Notice`'s `accent` tone led by a ✦, drawn as `Notice`'s circled icons are (inline, `aria-hidden`, in the tone's readable gold, sized from the text step) with "Note" read in its place; `sm` unless a size is asked for. **Placed only where the owner asks for one** (englishstreetventures/osn#1868: "I'll let you know when to use a cire note"); a standing note anywhere else is `Notice`'s unmarked `accent`. Not on the marketing site, whose readable gold is its metal gold, not inside the invite preview, which re-declares the couple's palette below the root, and not on `--bg-deep`, where its words read 4.35:1 in light; `tests/styles/notice-contrast.browser.test.tsx` holds it and every `Notice` tone at 4.5:1 on the page, the card's three fills, the raised surface and the run sheet's coming-up row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), `--inner-lip` and `--elev-1` — that slides to the chosen one on `--dur-base` and `--ease-spring` (`createSlidingPill`), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone. |
+| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), `--inner-lip` and `--elev-1` — that glides to the chosen one on `--dur-slow`, its place on `--ease-glide` and its size on `--ease-out` so it never grows past the choice (`createSlidingPill`, §4; the owner's choice, #2164), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone. |
 | `Wordmark`, `WordmarkPlaceholder`                               | The top bar's way home, "✦ Cire": a button named by its label alone ("Cire — all weddings"), the ✦ in readable gold at rest and under the pointer, "Cire" in the display face at `md`, light, wide tracking, in a 6px box that takes the surface at 60% under the pointer. `Button`'s own ring; the box pulls 4px left and none right, so the ring clears the divider by 4px. Only the wash fades, on `--dur-fast`. `WordmarkPlaceholder` is the same box and glyphs with nothing to press, which `index.astro`'s boot bar renders to HTML, so the island's swap moves nothing. |
 | `SignInCard`, `SignInPanel`, `signInCardClass`                 | The login page, the same on both portals but for the portal's name: "Cire · Host portal" over a roman "Sign in", and the opaque `xl` card with its top edge lit by `--inner-lip`, at a 30rem measure set at the top of the page so the header never moves while the island fills the card. The panel: copy at the small step, one large pill, a danger `Notice` for a declined, failed or unavailable sign-in; after the press "Connecting to musubi…" at full strength, a second press ignored and announced, and the button back after a back-forward restore or ten seconds. It resumes on `?returnTo` only when it is a same-origin path. The card, the measure, the type, the label and the pending state are the owner's choices. |
 | `PersonAvatar`, `avatarTriggerClass`                           | A person's photo, drawn only from an https URL with no `Referer`, with a page-wide set of URLs that failed. `blank`, a face in a stack or a list: the empty avatar (§Who holds a task), with `ring` for the stack's 2px band in the page's colour outside the circle. `initial`, an account's circle: a hairline with no fill of its own, photo or letter, the letter as §3 sets it. `avatarTriggerClass` is the 36px button the account menu opens from: the portals' pill ground (`--pill-ground`) and `Button`'s ring; the avatar's edge turns `--gold-dim` under its pointer. The fill is the trigger's because the guest site's account card lays no ground under a gold word. |
