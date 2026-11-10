@@ -202,11 +202,11 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
     expect(link.candidates).not.toHaveBeenCalled();
   });
 
-  // At 320px the ready card is taller than the placeholder (its sentences
-  // wrap once more), but the column is taller than a 640px screen either way,
-  // so the name sits at the top padding in both. On a 390px phone and on
-  // desktop the column fits, and the placeholder is the card's height.
-  for (const [viewport, sameHeight] of [
+  // The name sits where it did at every width. On a 390px phone and on
+  // desktop the column fits the screen, so the placeholder is also the card's
+  // height; at 320px the column is taller than a 640px screen either way and
+  // only the name's place is held.
+  for (const [viewport, columnFits] of [
     [PHONE, false],
     [COMMON_PHONE, true],
     [DESKTOP, true],
@@ -228,8 +228,8 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
       await painted();
       const card = cardOf("Confirm this email");
       expect(Math.abs(wordmark().getBoundingClientRect().top - before)).toBeLessThanOrEqual(1);
-      const heldItsHeight = Math.abs(card.getBoundingClientRect().height - held) <= 2;
-      expect(heldItsHeight).toBe(sameHeight);
+      const heightOff = columnFits ? Math.abs(card.getBoundingClientRect().height - held) : 0;
+      expect(heightOff).toBeLessThanOrEqual(2);
       expect(document.documentElement.scrollWidth).toBe(viewport.width);
       await page.screenshot({ path: `${SHOTS}/ready-${viewport.width}.png` });
     });
