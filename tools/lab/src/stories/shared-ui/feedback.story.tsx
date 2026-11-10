@@ -490,30 +490,10 @@ function EveryStandIn() {
 }
 
 /**
- * The placeholder Musubi's call sites draw today (`bg-muted/50 animate-pulse`,
- * 8px corners on lines and rows, the card's on cards), written in the
- * contract's names, which the lab's Musubi mapping resolves to the same values.
- * Drawn by hand only to compare against `Skeleton`'s full-strength well.
- */
-function MusubiToday() {
-  return (
-    <>
-      <div
-        aria-hidden="true"
-        class="bg-ui-surface-sunk/50 rounded-ui-md h-5 w-48 max-w-full animate-pulse"
-      />
-      <div aria-hidden="true" class="bg-ui-surface-sunk/50 rounded-ui-md h-12 animate-pulse" />
-      <div aria-hidden="true" class="bg-ui-surface-sunk/50 rounded-ui-lg h-20 animate-pulse" />
-    </>
-  );
-}
-
-/**
- * Each stand-in on the page ground and inside a `Card`, to judge the fill against
- * both, and below them the half-strength placeholder Musubi's call sites draw
- * today, on the same two grounds. Toggle **light · dark**: under Musubi's dark
- * mapping the sunk well (`--muted`) sits close to the card (`--card`), and at
- * the pulse's low point closer still.
+ * Each stand-in on the page ground and inside a `Card`, to judge the fill
+ * against both. Toggle **light · dark**: under Musubi's dark mapping the sunk
+ * well (`--muted`) sits close to the card (`--card`), and at the pulse's low
+ * point closer still.
  */
 export const SkeletonGrounds = () => (
   <div class="grid max-w-3xl gap-6 sm:grid-cols-2">
@@ -525,23 +505,14 @@ export const SkeletonGrounds = () => (
       <h3 class="text-meta text-subtle">In a card</h3>
       <EveryStandIn />
     </Card>
-    <section class="flex flex-col gap-3">
-      <h3 class="text-meta text-subtle">Musubi today, on the page</h3>
-      <MusubiToday />
-    </section>
-    <Card padding="md" class="flex flex-col gap-3">
-      <h3 class="text-meta text-subtle">Musubi today, in a card</h3>
-      <MusubiToday />
-    </Card>
   </div>
 );
 
 /**
- * Musubi's placeholders as they would read on `Skeleton`: the connections
- * list's rows, Discover's card grid, an organisation's name and handle, its
- * members' rows, and a person's avatar beside two lines. Each region carries
- * `aria-busy`, which is the caller's to set. At a phone width the fixed lines
- * stop at the column's edge.
+ * Musubi's placeholders: the connections list's rows, Discover's card grid, an
+ * organisation's name and handle, its members' rows, and a person's avatar
+ * beside two lines. Each region carries `aria-busy`, which is the caller's to
+ * set. At a phone width the fixed lines stop at the column's edge.
  */
 export const SkeletonInPlace = () => (
   <div class="flex max-w-2xl flex-col gap-10">
