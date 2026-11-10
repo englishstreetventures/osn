@@ -209,11 +209,43 @@ and the search as an icon, which hides the field.
 
 ### Event Cards
 
-Horizontal card: 180px media thumbnail + body. Featured cards go full-width with taller media.
+Horizontal card: a media column beside the body, 180px wide from 768px up and
+112px below. Featured cards stack at every width: 220px of media above the body.
 
 **Media area**: Category-derived gradient placeholder (or image), date stamp (month/day/weekday), status tag (live/filling fast).
 
 **Body area**: Time meta-line (mono), title (600 weight), venue + neighborhood, host row with avatar, dashed footer with category and status.
+
+**Below 768px a card keeps its media beside the body**, in the 112px column.
+At 320px that leaves the body 142px of text, and 212px at 390px. A card is
+215–235px tall at 320px, so a 568px-tall screen shows about two and a half,
+and the featured card stays the one large card. The live tag reads "Live"
+there: "Happening now" is 106px wide and sits 10px in, which needs 116px. From
+768px up it reads "Happening now".
+
+*Measured 2026-11-11 — element boxes on the page `ExploreCard.phone.browser.test.tsx` renders, `bunx --bun vitest run --project browser` in `pulse/web`, headless Chromium, macOS*
+
+**The text shows whole at every width:**
+
+- The time, venue and host lines wrap rather than clip, and a word too long for
+  its line breaks (`overflow-wrap: anywhere`).
+- The time never splits from its AM or PM.
+- The venue and neighbourhood run as one line of text with a dot between them.
+- The clock and pin icons keep their size and sit on the first line.
+- The footer's category and status wrap to two lines when one does not fit.
+- The title is the one line that may be cut: it stops at two lines and ends in
+  an ellipsis (`line-clamp-2`).
+
+The owner chose this arrangement (#2161, 2026-11-11). Rejected: stacking the
+media above the body below 768px, as the featured card does, which makes a card
+302–323px tall at 320px, under two to a 568px screen, and leaves the featured
+card looking like the rest.
+
+*Measured 2026-11-11 — the same page with the stacked card, same command*
+
+`pulse/web/tests/explore/ExploreCard.phone.browser.test.tsx` holds these rules
+on the explore page with four events, at 320 and 390px, and the 180px column at
+1440px, and shoots the page at all three widths in light and dark.
 
 **Placeholder system**: 8 gradient classes (`ph-1` through `ph-8`) with overlay pattern and category glyph — used when events lack an image.
 
