@@ -908,12 +908,37 @@ runs on `--dur-fast` and `--ease-out`; a choice being made — the answer pair
 Under the pointer an unticked dietary pill goes halfway, as the pair does, and
 its focus is the house outline 2px off its edge, drawn from the checkbox's
 own `:focus-visible`; the phone's scrolling track keeps 4px of room round
-each pill so the ring and the outline are not cut. The sheet's panel
-swap, the badge's words after a press and Respond's label ink following the
-bloom fill run on `--dur-base`. An FAQ answer grows open on `--dur-slow` and
-`--ease-out`, its box and its fade together. Where the engine has no
-`interpolate-size` the box opens at once and the answer still fades in; for a
-guest who asked for less motion it opens at once with no fade
+each pill so the ring and the outline are not cut.
+
+A block that opens under a control grows through `Reveal` (`@cire/ui/reveal`),
+the owner's choice (2026-11-10, englishstreetventures/osn#2164): the dietary
+section after "Attending" and its "Anything else" field after "Other", the gift
+page's own amount after "Another amount", a gift's reserve form after Reserve,
+and the chosen member's email and musubi boxes, as one block, after "Who are
+you?". Its height grows from nothing as it fades in, on `--dur-slow` and
+`--ease-out` (`pace="slow"`), a rung slower than the portals' panels: a guest
+is reading, and the owner asked that these openings be felt. On `--dur-base` a
+desk covers three quarters of the dietary section's 340px in under 40ms.
+
+*Measured 2026-11-11 — Chromium at 1280px, the RSVP sheet's dietary section,
+its transitions paused at a quarter of `--dur-base` (150ms under `pointer: fine`)*
+
+It closes at once, because each block holds fields, and a block that is open
+when its state is restored — a reply on file, a household reopened from its
+session — paints open, with no motion. `Reveal` keeps 4px of room inside its
+clip, so a focus ring at a block's edge stays whole. Closing the reserve form
+from inside it hands focus to the card's first action. The calendar and maps
+menus (`LinkMenu`) open as the portals' menus pop — scaled up from 0.96 and
+faded in from the corner at their trigger — a rung slower, on `--dur-base` and
+`--ease-out` (`menu-pop` in `src/styles/global.css`), and close at once.
+`tests/components/reveal-blocks.browser.test.tsx` and
+`tests/components/LinkMenu.browser.test.tsx` sample both.
+
+The sheet's panel swap, the badge's words after a press and Respond's label ink
+following the bloom fill run on `--dur-base`. An FAQ answer grows open on
+`--dur-slow` and `--ease-out`, its box and its fade together. Where the engine
+has no `interpolate-size` the box opens at once and the answer still fades in;
+for a guest who asked for less motion it opens at once with no fade
 (`cire/host/DESIGN.md` §4, A disclosure grows open and closes at once).
 Choreography longer than `--dur-slow` keeps its own timing:
 

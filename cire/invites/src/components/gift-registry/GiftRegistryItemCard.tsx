@@ -1,4 +1,5 @@
 import Button, { proseLinkClass } from "@cire/ui/button";
+import Reveal from "@cire/ui/reveal";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
@@ -71,6 +72,8 @@ interface GiftRegistryItemCardProps {
  */
 export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   const [open, setOpen] = createSignal(false);
+  /** The card's row of actions: Reserve or Change, and Release. */
+  let actions!: HTMLDivElement;
   /**
    * The box's TEXT, not a number — so it can be empty while the guest retypes it.
    *
@@ -150,8 +153,22 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
    * while some remain — there the form is still useful and stays open.
    */
   createEffect(() => {
-    if (!canReserveMore()) setOpen(false);
+    if (!canReserveMore()) closeForm();
   });
+
+  /**
+   * Closes the form at once. When the focused control goes with it — Cancel,
+   * Confirm once the reservation lands, a field when the last one is taken —
+   * the browser drops focus to the page; it goes to the card's first action
+   * that can be pressed instead. Focus the guest moved elsewhere stays put.
+   */
+  function closeForm() {
+    setOpen(false);
+    queueMicrotask(() => {
+      if (document.activeElement !== document.body) return;
+      actions.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    });
+  }
 
   function openForm() {
     // Open on what they already reserved, so the form reads as "change this"
@@ -194,7 +211,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
     // beside it has just been refreshed, and the box's own ceiling with it, so
     // the guest can see what changed and decide instead of having their words
     // thrown away by a race they lost.
-    if (landed) setOpen(false);
+    if (landed) closeForm();
   }
 
   return (
@@ -283,7 +300,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
           )}
         </Show>
 
-        <div class="mt-auto flex flex-wrap items-center gap-3 pt-2">
+        <div ref={actions} class="mt-auto flex flex-wrap items-center gap-3 pt-2">
           {/* Reserved elsewhere. A real `disabled` button rather than an
               `aria-disabled` one: the word IS the whole message, so there is
               nothing behind the control for a keyboard user to reach, and the
@@ -331,79 +348,80 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
             lapses mid-visit (the 401 branch) drops this household back to the
             signed-out surface, and leaving an open form behind would leave a
             Confirm that can only 401 again. */}
-        <Show when={open() && props.canClaim}>
-          <form class="flex flex-col gap-3 pt-1" onSubmit={submit}>
-            <div class="flex flex-col gap-1">
-              <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
-                {/* The small caps are the words' alone: a field inherits a
+        {/* `Reveal`: Reserve grows the form open under the card's actions,
+            and Cancel takes it away at once. A closed `Reveal` still stands in
+            this column, so `-mt-3` gives back the column's gap and the form's
+            own `pt-4` puts the gap and its 4px back once it opens. */}
+        <div class="-mt-3">
+          <Reveal pace="slow" when={open() && props.canClaim}>
+            <form class="flex flex-col gap-3 pt-4" onSubmit={submit}>
+              <div class="flex flex-col gap-1">
+                <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+                  {/* The small caps are the words' alone: a field inherits a
                     label's case and tracking. */}
-                <span class="tracking-ui-widest uppercase">How many</span>
+                  <span class="tracking-ui-widest uppercase">How many</span>
+                  <Input
+                    fill="ink"
+                    size="touch"
+                    type="number"
+                    min="1"
+                    max={maxQuantity()}
+                    step="1"
+                    value={quantityText()}
+                    // Only while there is a hint to point at: an `aria-describedby`
+                    // naming an id that is not in the DOM describes nothing.
+                    aria-describedby={quantityHint() ? quantityHintId : undefined}
+                    onInput={(e) => setQuantityText(e.currentTarget.value)}
+                  />
+                </label>
+                {/* OUTSIDE the label. The input is labelled by wrapping, so the
+                  label's whole text is its accessible name and a hint inside
+                  would be read out as part of it. */}
+                <Show when={quantityHint()}>
+                  {(hint) => (
+                    <p id={quantityHintId} class="font-body text-text-muted text-ui-xs">
+                      {hint()}
+                    </p>
+                  )}
+                </Show>
+              </div>
+
+              <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+                <span class="tracking-ui-widest uppercase">From (optional)</span>
                 <Input
                   fill="ink"
                   size="touch"
-                  type="number"
-                  min="1"
-                  max={maxQuantity()}
-                  step="1"
-                  value={quantityText()}
-                  // Only while there is a hint to point at: an `aria-describedby`
-                  // naming an id that is not in the DOM describes nothing.
-                  aria-describedby={quantityHint() ? quantityHintId : undefined}
-                  onInput={(e) => setQuantityText(e.currentTarget.value)}
+                  type="text"
+                  maxlength="80"
+                  value={displayName()}
+                  onInput={(e) => setDisplayName(e.currentTarget.value)}
+                  placeholder="The Ashworths"
                 />
               </label>
-              {/* OUTSIDE the label. The input is labelled by wrapping, so the
-                  label's whole text is its accessible name and a hint inside
-                  would be read out as part of it. */}
-              <Show when={quantityHint()}>
-                {(hint) => (
-                  <p id={quantityHintId} class="font-body text-text-muted text-ui-xs">
-                    {hint()}
-                  </p>
-                )}
-              </Show>
-            </div>
 
-            <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
-              <span class="tracking-ui-widest uppercase">From (optional)</span>
-              <Input
-                fill="ink"
-                size="touch"
-                type="text"
-                maxlength="80"
-                value={displayName()}
-                onInput={(e) => setDisplayName(e.currentTarget.value)}
-                placeholder="The Ashworths"
-              />
-            </label>
+              <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+                <span class="tracking-ui-widest uppercase">Note for the couple (optional)</span>
+                <Textarea
+                  fill="ink"
+                  size="touch"
+                  rows="2"
+                  maxlength="500"
+                  value={note()}
+                  onInput={(e) => setNote(e.currentTarget.value)}
+                />
+              </label>
 
-            <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
-              <span class="tracking-ui-widest uppercase">Note for the couple (optional)</span>
-              <Textarea
-                fill="ink"
-                size="touch"
-                rows="2"
-                maxlength="500"
-                value={note()}
-                onInput={(e) => setNote(e.currentTarget.value)}
-              />
-            </label>
-
-            <div class="flex flex-wrap gap-3">
-              <Button type="submit" variant="cta" disabled={props.busy}>
-                {props.busy ? "Saving" : "Confirm"}
-              </Button>
-              <Button
-                variant="touchLink"
-                type="button"
-                disabled={props.busy}
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </Show>
+              <div class="flex flex-wrap gap-3">
+                <Button type="submit" variant="cta" disabled={props.busy}>
+                  {props.busy ? "Saving" : "Confirm"}
+                </Button>
+                <Button variant="touchLink" type="button" disabled={props.busy} onClick={closeForm}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </Reveal>
+        </div>
       </div>
     </article>
   );

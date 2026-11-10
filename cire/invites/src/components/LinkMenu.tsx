@@ -68,6 +68,11 @@ const MARGIN = 8;
 interface PopoverPosition {
   top: number;
   left: number;
+  /**
+   * Where the menu grows from as it pops open: the trigger's left edge, along
+   * the menu's top when it sits under the trigger and its bottom when over.
+   */
+  origin: string;
 }
 
 /**
@@ -110,7 +115,11 @@ interface PopoverPosition {
  */
 export function LinkMenu(props: LinkMenuProps) {
   const [open, setOpen] = createSignal(false);
-  const [position, setPosition] = createSignal<PopoverPosition>({ top: 0, left: 0 });
+  const [position, setPosition] = createSignal<PopoverPosition>({
+    top: 0,
+    left: 0,
+    origin: "0 0",
+  });
   const popoverId = createUniqueId();
 
   let buttonRef: HTMLButtonElement | undefined;
@@ -154,7 +163,12 @@ export function LinkMenu(props: LinkMenuProps) {
     const below = rect.bottom + MARGIN;
     const above = rect.top - MARGIN - height;
     const fitsBelow = below + height <= window.innerHeight - MARGIN;
-    setPosition({ top: !fitsBelow && above >= MARGIN ? above : below, left });
+    const over = !fitsBelow && above >= MARGIN;
+    setPosition({
+      top: over ? above : below,
+      left,
+      origin: `${rect.left - left}px ${over ? "100%" : "0"}`,
+    });
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -335,9 +349,14 @@ export function LinkMenu(props: LinkMenuProps) {
           // `inset-auto m-0` undo the user-agent styles a `popover` carries
           // (`inset: 0; margin: auto`), which would otherwise fight the
           // measured `top`/`left` below and stretch the box across the
-          // viewport.
-          class={`${MENU_TOUCH.panel} fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 max-w-[calc(100vw-1rem)]`}
-          style={{ top: `${position().top}px`, left: `${position().left}px` }}
+          // viewport. `menu-pop` scales it up from its trigger and fades it
+          // in as it is shown, and runs no exit (`global.css`).
+          class={`${MENU_TOUCH.panel} menu-pop fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 max-w-[calc(100vw-1rem)]`}
+          style={{
+            top: `${position().top}px`,
+            left: `${position().left}px`,
+            "transform-origin": position().origin,
+          }}
         >
           <Index each={props.items}>
             {(item) => (
