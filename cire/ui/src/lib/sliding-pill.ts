@@ -86,12 +86,12 @@ const DUR_SLOW = "var(--dur-slow,var(--ui-dur-slow,320ms))";
  * token first and the contract's after, so the pill moves on a surface that
  * maps only the contract.
  *
- * `spring` is the glass of a segmented strip (the owner's choice): its place
- * glides on the app's `--ease-glide`, a spring firm enough to go no more than
- * 3% past, and falls back to ease-out where an app has none, never to the
- * bouncier `--ease-spring`. Its size eases out, so the glass never grows past
- * the tab it lands on. Both run on `--dur-slow`, one clock, so the move reads
- * as one event.
+ * `spring` is the glass of a segmented strip, moving as the owner chose: its
+ * place glides on the app's `--ease-glide`, a spring firm enough to go no
+ * more than 3% past, and falls back to ease-out where an app has none, never
+ * to the bouncier `--ease-spring`. Its size eases out, so the glass never
+ * grows past the tab it lands on. Both run on `--dur-slow`, one clock, so the
+ * move reads as one event.
  */
 const MOVE = {
   out: { place: `${DUR_BASE} ${EASE_OUT}`, size: `${DUR_BASE} ${EASE_OUT}` },
