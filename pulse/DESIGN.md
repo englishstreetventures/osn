@@ -210,6 +210,41 @@ Authoring rules:
 
 Greeting copy on the welcome step uses the institutional headline ("Welcome to Pulse") with a softer personalised subhead ("Glad you're here, {displayName}.") so a missing displayName degrades to just the headline rather than a literal "Hi there".
 
+## Motion
+
+These rules govern `pulse/web`. The landing site's motion is in
+`wiki/pulse/pulse-landing.md`.
+
+- **Durations and easing come from the shared tokens, by job**
+  (`wiki/shared/design-tokens.md` §Motion): `--ui-dur-fast` (120ms) for a hover,
+  a press or a small panel arriving; `--ui-dur-base` (200ms) for a panel swap,
+  such as the onboarding step; `--ui-dur-slow` (320ms) for something crossing
+  the screen; `--ui-dur-exit` for an overlay closing. `--ui-ease-out` is for an
+  arrival, `--ui-ease-in-out` for a move between two places. A literal duration,
+  delay or curve fails `house/no-literal-motion` unless it carries a
+  `motion-literal:` comment giving its reason. Loops and choreographed
+  illustrations, such as the onboarding rings and the pin drop, are the cases
+  that do.
+- **CSS only.** Transitions and keyframes, no animation library, no Lottie or Rive.
+- **Anything that takes focus fades colours without the outline.** The app has
+  no `transition-ui-colors` utility yet; until it does, a control names the
+  properties it fades, so the focus mark never arrives late. A bare
+  `transition` fades `outline-color` too, and so does `transition-shadow` on a
+  ring.
+- **Entrances are short and quiet**: opacity with an 8px rise, as the onboarding
+  step does (`onb-step-in`).
+- **Only the onboarding illustrations loop.** A looping animation is
+  illustration, never a control or a loading state, and it stops under
+  `prefers-reduced-motion: reduce` (`onboarding.css` holds the rule).
+- **Every keyframe and every infinite animation has a reduced-motion rule.**
+
+Where the app does not follow this yet: the explore page's `brand-pulse` and
+`live-pulse` loop with no reduced-motion rule (`explore/explore.css`), and these
+controls fade their focus mark with the colour: `FilterChip.tsx`,
+`ShareEventButton.tsx`, `CalendarEventCard.tsx`, the tab buttons in
+`ExploreNav.tsx` (`transition-colors`), its search box (`transition-shadow`
+under a focus ring), and `routes/series/[id].tsx` (bare `transition`).
+
 ## Future
 
 - Friend avatar clusters on cards (needs social graph API integration)

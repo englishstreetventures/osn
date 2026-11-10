@@ -17,6 +17,23 @@ fits the task and which must never touch a surface with a design system, and how
 to show the result rendered. If the skill is not available in this session, read
 `.claude/skills/design-system/SKILL.md` and follow it as written.
 
+**Design skills run in stages, and `design-system` holds the routing.**
+
+- *Start.* Read `emil-design-eng` and `apple-design` before you design, for polish and feel.
+- *Middle.* When the owner must choose between versions, build them with `prototype`
+  and show them with `stageshow`, as `design-system` says, and return the options
+  as `NEEDS INPUT`.
+- *End of the frontend part.* Run the motion pipeline: `find-animation-opportunities`,
+  then `animation-vocabulary` to name each effect you keep, then `animate`
+  (with `choreograph`, `gestures`, `animation-performance` as it calls for them).
+
+Read a skill's `SKILL.md` under `.claude/skills/` when the session does not list
+it. The surface's `DESIGN.md`, and its duration and easing ladder, outrank every
+value they give. They are written for a person to talk to: where one stops to ask,
+answer from the brief and record the choice. Never add an animation library because
+a skill's example uses one. Your report names each skill you invoked and each place
+a document's value beat a skill's.
+
 **A dispatch is a contract, not a description.** You inherit no conversation, so
 anything absent from your brief does not exist. If the brief names a worktree
 path, work there and nowhere else. If it contradicts a design document, say so in
