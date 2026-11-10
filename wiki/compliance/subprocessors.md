@@ -133,6 +133,15 @@ User-initiated outbound links that send no OSN-held personal data on our behalf 
 - **Google Maps** — Pulse venue page "Open in Maps" builds a `google.com/maps/search` URL from the venue address; nothing loads until the user deliberately clicks, so no ePrivacy consent trigger. See [[venues]].
 - **Google Maps, Apple Maps, Waze, and the organiser's own map link** — the cire guest site's "Open in maps" menu on an event's details. It offers a Google Maps search (`www.google.com/maps/search`), Apple Maps (`maps.apple.com`) and Waze (`waze.com`), and the organiser's own maps link when the event has one, which may point at any http(s) site. Each URL carries the venue's address, or its name when there is no address, in its query; a private home's address is personal data. Nothing loads until the guest clicks an entry, and every entry opens in a new tab with `rel="noopener noreferrer"`, so neither the invite's slug- and code-bearing path nor the invite window reaches the other site. No ePrivacy consent trigger. The Google Maps *embed* beside it is a processor (the row above), behind the `maps` consent switch. See [[cire-consent]] and [[cire-invite-designs]].
 
+### Outbound lookups (not processors)
+
+Server-side requests that carry no account, no token and no address's local part. Listed so the audit question has its answer:
+
+- **Cloudflare's DNS-over-HTTPS resolver** (`cloudflare-dns.com`, the public 1.1.1.1 service, not our account) — osn-api's sign-up, only while `OSN_EMAIL_VERIFICATION_API` is on ([[email-verification-api]]). For each Email Verification API token it checks, it asks for the TXT record at `_email-verification.<domain>`, where `<domain>` is the sign-up address's domain, and for the A and AAAA records of the issuer's host and of the issuer's key server. A personal domain (`me@lastname.example`) can name a person, so the query can be personal data; it leaves from the Worker, never with the person's IP address. Off in every deployed tier today.
+- **The address's mail provider** (for Gmail, `accounts.google.com` and `verifiablecredentials-pa.googleapis.com`) — on the same path, a GET of its public metadata (`/.well-known/email-verification`) and its public signing keys. The request carries nothing of the person's; the provider learns only that some token of its was checked at that time.
+
+Nothing else leaves: the token is verified on our side, and neither recipient gets it.
+
 ## Sub-subprocessors
 
 Sub-processors of our processors (e.g. Cloudflare's hosting providers,

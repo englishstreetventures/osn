@@ -953,7 +953,11 @@ jobs:
           # RESEND_API_URL points mail at a local Resend emulator; osn-api
           # refuses to boot with it in a non-local tier (lib/email-layer.ts),
           # so deploying with it set would 503 every route.
-          forbidden="DEV_LOGIN_SECRET RESEND_API_URL"
+          # OSN_EMAIL_VERIFICATION_EMULATOR_URL points the sign-up token
+          # verifier at a stand-in that answers DNS and holds the keys, which
+          # would let any address verify; osn-api refuses to boot with it
+          # outside OSN_ENV=local (build-deps.ts).
+          forbidden="DEV_LOGIN_SECRET RESEND_API_URL OSN_EMAIL_VERIFICATION_EMULATOR_URL"
           present=""
           for name in $forbidden; do
             if printf '%s\n' "$set_names" | grep -qx "$name"; then

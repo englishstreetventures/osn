@@ -9,7 +9,9 @@
  * fresh objects; voids the discoverable passkey challenges in flight, which
  * live two minutes (`CHALLENGE_TTL_MS`); and voids the emailed-link requests in
  * flight, which live ten minutes (`otpTtl`): their pairing number is no longer
- * among the candidates the confirm page shows, so a person begins again.
+ * among the candidates the confirm page shows, so a person begins again; and
+ * voids the Email Verification API nonces in flight, which live ten minutes,
+ * so a token sent with one takes the emailed link instead.
  *
  * With no pepper (local dev and tests), the key is random and made once per
  * service, never a fixed one: a fixed key in the source would make every

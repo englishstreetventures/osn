@@ -269,7 +269,7 @@ sequenceDiagram
   API-->>U: 200 — account now has ≥1 WebAuthn credential
 ```
 
-The link, the pairing number and the refusals are in [[email-links]]. Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
+The link, the pairing number and the refusals are in [[email-links]]. With the Email Verification API flag on, a browser that has the API can prove the address at `begin` instead: the request is confirmed there, no email goes, and the tab's first status poll makes the account — [[email-verification-api]]. Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and
