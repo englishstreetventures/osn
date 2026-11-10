@@ -41,7 +41,9 @@
   }
 }
 
-/* Tab active underline */
+/* Tab active underline. The ember, not the coral: on `--background` the coral
+   measures 2.97:1 in light, under the 3:1 a state mark needs, and the ember
+   4.48:1 (4.09:1 in dark). */
 .explore-tab-active::after {
   content: "";
   position: absolute;
@@ -49,7 +51,7 @@
   right: 14px;
   bottom: -15px;
   height: 2px;
-  background: var(--pulse-accent);
+  background: var(--pulse-accent-strong);
   border-radius: 2px 2px 0 0;
 }
 

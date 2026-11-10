@@ -96,6 +96,7 @@ export function ExploreNav(props: {
                   onClick={() => {
                     if (tab.path) navigate(tab.path);
                   }}
+                  aria-current={!tab.disabled && isActiveTab(tab.path) ? "page" : undefined}
                   aria-disabled={tab.disabled ? true : undefined}
                   tabindex={tab.disabled ? -1 : undefined}
                 >
@@ -110,7 +111,7 @@ export function ExploreNav(props: {
             cap and shrinks first. Below md its two parts join the row's lines. */}
         <div class="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2.5 max-md:contents">
           {/* Search */}
-          <div class="border-border bg-background focus-within:border-foreground/20 focus-within:ring-ring/20 flex max-w-90 min-w-0 flex-1 items-center gap-2 rounded-full border px-3.5 py-2 transition-[border-color] duration-(--ui-dur-fast) ease-(--ui-ease-out) focus-within:ring-4 max-md:order-1 max-md:max-w-none max-md:basis-full">
+          <div class="border-border bg-background focus-within:border-foreground/20 focus-within:outline-ui-focus flex max-w-90 min-w-0 flex-1 items-center gap-2 rounded-full border px-3.5 py-2 transition-[border-color] duration-(--ui-dur-fast) ease-(--ui-ease-out) focus-within:outline-2 focus-within:outline-offset-2 max-md:order-1 max-md:max-w-none max-md:basis-full">
             <Icon name="search" size={14} />
             <input
               type="text"
@@ -120,14 +121,8 @@ export function ExploreNav(props: {
               value={props.query}
               onInput={(e) => props.onQueryChange(e.currentTarget.value)}
               placeholder="Search events, people, venues…"
-              class="text-foreground placeholder:text-muted-foreground text-ui-sm min-w-0 flex-1 border-0 bg-transparent outline-none"
+              class="text-foreground placeholder:text-muted-foreground text-ui-sm min-w-0 flex-1 border-0 bg-transparent text-ellipsis outline-none"
             />
-            <kbd
-              class="border-border bg-card text-muted-foreground text-ui-xs rounded-sm border px-1.5 py-0.5 max-md:hidden"
-              style={{ "font-family": "var(--font-mono)" }}
-            >
-              ⌘K
-            </kbd>
           </div>
 
           <div class="flex shrink-0 items-center gap-2.5 max-md:ml-auto">
@@ -177,7 +172,6 @@ export function ExploreNav(props: {
         </div>
       </div>
 
-      {/* Hero row */}
       {/* Hero row: stats beside the headline from md up, under it below */}
       <div class="grid items-end gap-5 px-4 pt-8 pb-6 md:grid-cols-[minmax(0,1fr)_auto] md:gap-10 md:px-8">
         <div>
@@ -196,14 +190,17 @@ export function ExploreNav(props: {
             <Show when={greetingName()} fallback={<>{greeting}</>}>
               {greeting}, {greetingName()}
             </Show>
-            {" · "}
-            <b class="text-foreground font-semibold">
-              {new Date().toLocaleDateString("en-US", {
-                weekday: "long",
-                month: "short",
-                day: "numeric",
-              })}
-            </b>
+            {/* The separator travels with the date, so a wrap moves both */}
+            <span class="inline-flex items-center gap-1.75">
+              <span aria-hidden="true">·</span>
+              <b class="text-foreground font-semibold">
+                {new Date().toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </b>
+            </span>
           </div>
           <h1
             class="max-w-hero m-0 font-normal"
