@@ -15,8 +15,10 @@
 #   or a directory;
 # - it is copied into a directory only root can write, and the copy is hashed,
 #   so a file changed after the check cannot be the one apt reads;
-# - `apt-cache show <name>=<version>` must hold a record of that architecture
-#   with that SHA-256;
+# - `apt-cache show <name>=<version>` must hold a record with that SHA-256
+#   whose architecture is <arch>, or of which <arch> is a variant: apt on an
+#   Ubuntu 26.04 runner names a file `_amd64v3.deb` when its record says
+#   `Architecture: amd64`;
 # - then it is moved into <archives dir>. Any other file is dropped with a
 #   ::warning::, and apt downloads that package instead.
 #
@@ -83,7 +85,12 @@ for path in "$cache"/*.deb; do
   records=$(apt-cache show --no-all-versions "$name=$version" 2>/dev/null |
     awk '/^Architecture: /{a=$2} /^SHA256: /{s=$2} /^$/{if(a!=""&&s!="")print a" "s; a=""; s=""} END{if(a!=""&&s!="")print a" "s}') ||
     records=""
-  if ! grep -qxF "$arch $sha" <<<"$records"; then
+  # The architecture <arch> is a variant of, when it is one (amd64v3 of
+  # amd64); otherwise <arch> itself. No record names an architecture that a
+  # name such as riscv64 would reduce to.
+  base=$arch
+  if [[ $arch =~ ^(.+)v[0-9]+$ ]]; then base=${BASH_REMATCH[1]}; fi
+  if ! grep -qxF -e "$arch $sha" -e "$base $sha" <<<"$records"; then
     drop "$file" "no record of $name=$version ($arch) in apt's index has its SHA-256"
     rm -f "$copy"
     continue

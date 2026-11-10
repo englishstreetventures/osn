@@ -424,8 +424,9 @@ update`,
 package into apt's archive only when its name is one apt writes, it is a
 regular file, and the SHA-256 of the copy it moves matches the record that
 `apt-cache show <name>=<version>` holds for its architecture in the signed
-index. It drops any other file with a warning, and apt downloads that package
-instead. The cache key names the runner image (`ImageOS`, `ImageVersion`) and
+index. The architecture may be a variant of the record's: on the Ubuntu 26.04
+image apt names a file `_amd64v3.deb` when its record says `amd64`. It drops
+any other file with a warning, and apt downloads that package instead. The cache key names the runner image (`ImageOS`, `ImageVersion`) and
 the Playwright version, with no `restore-keys`, so a run restores the set
 saved for its own image and version or none.
 [`install-chromium-system-libraries.cli.test.ts`](../../scripts/tests/install-chromium-system-libraries.cli.test.ts)

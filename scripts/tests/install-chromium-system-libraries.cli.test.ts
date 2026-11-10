@@ -41,12 +41,19 @@ interface Pkg {
   readonly name: string;
   readonly version: string;
   readonly arch: string;
+  /**
+   * The architecture variant apt names the file by, as on an Ubuntu 26.04
+   * runner, whose apt writes `_amd64v3.deb` for a package whose record says
+   * `Architecture: amd64`. Default: the architecture itself.
+   */
+  readonly variant?: string;
   /** Whether install-deps installs it. Default true. */
   readonly needed?: boolean;
 }
 
 /** The file name apt gives a package in its archive: `:` in a version is `%3a`. */
-const fileOf = (pkg: Pkg) => `${pkg.name}_${pkg.version.replaceAll(":", "%3a")}_${pkg.arch}.deb`;
+const fileOf = (pkg: Pkg) =>
+  `${pkg.name}_${pkg.version.replaceAll(":", "%3a")}_${pkg.variant ?? pkg.arch}.deb`;
 
 /** The mirror's bytes for a package: unique to its name, version and architecture. */
 const bytesOf = (pkg: Pkg) => `deb ${pkg.name} ${pkg.version} ${pkg.arch}\n`;
@@ -274,6 +281,40 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.status, run.output).toBe(0);
     expect(run.archiveAtInstall).toEqual([]);
     expectGenuine(run, [[LIB64, "network"]]);
+  });
+
+  test("a cached package that apt named by its architecture variant (amd64v3) is kept when the index names its bytes under the base architecture (amd64)", () => {
+    const UTILS: Pkg = {
+      name: "xfonts-utils",
+      version: "1:7.7+7build1",
+      arch: "amd64",
+      variant: "amd64v3",
+    };
+    const w = world([UTILS, ALPHA]);
+    cacheFile(w, fileOf(UTILS), bytesOf(UTILS));
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    expectGenuine(run, [
+      [UTILS, "archive"],
+      [ALPHA, "archive"],
+    ]);
+    expect(run.downloaded).toEqual([]);
+    expect(run.output).not.toContain("::warning::");
+  });
+
+  test("a variant's name earns nothing more: one holding another architecture's bytes, or naming no variant of the record's architecture, is dropped", () => {
+    const LIB64V3: Pkg = { ...LIB64, variant: "amd64v3" };
+    const w = world([LIB64V3, LIB32]);
+    cacheFile(w, fileOf(LIB64V3), bytesOf(LIB32));
+    // The genuine amd64 bytes, under names that are not amd64 or a variant of it.
+    cacheFile(w, "libfoo1_1.0_amd64x.deb", bytesOf(LIB64));
+    cacheFile(w, "libfoo1_1.0_amd64v.deb", bytesOf(LIB64));
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    expect(run.archiveAtInstall).toEqual([]);
+    expectGenuine(run, [[LIB64V3, "network"]]);
+    expect(run.output.match(/^::warning::/gm)?.length, run.output).toBe(3);
   });
 
   test("a file whose name is not <name>_<version>_<arch>.deb is dropped without running or printing what its name holds", () => {
