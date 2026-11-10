@@ -211,14 +211,6 @@ The `@shared/ui`, `@cire/ui`, `@musubi/social` and `@pulse/web` copies also take
 `forcedColors`: `"active"` emulates a Windows contrast theme, which repaints
 author colours in system ones and drops `box-shadow`.
 
-`@musubi/social`'s copy also has `failRequests(pathSuffix)`, which aborts every
-request whose path ends with `pathSuffix` as a dropped network does, so a
-dynamic import of that module rejects the way a missing chunk does, and
-`restoreRequests()`, which lifts it. Page routing outlives the test that set
-it: set it in a `beforeAll` and restore it in an `afterAll`, one failed module
-per file, since the page keeps a failed module for the rest of the file
-(`tests/App.load-failure.browser.test.tsx`).
-
 The organiser's copy of the command also takes `colorScheme` (its two ramps are
 `prefers-color-scheme` plus a `data-theme` override, and the ink contract has to
 hold in both) and `media` (`"print"` lays the page out as it prints, `null` puts
@@ -233,14 +225,21 @@ includes `tests/`, and the other four run `tests/tsconfig.json` in `typecheck`.
 
 A `vi.mock` factory that throws does not make the import reject: the mocker
 reports the run-level error above instead. To test what a component does when a
-module, or any request, fails to arrive, fail it in the browser. `@shared/ui`'s
-`browser-commands.ts` registers `failRequests(pattern)`, which routes every
-request the calling file's frame makes for a URL matching the Playwright glob to
-a network error, and `allowRequests(pattern)`, which undoes it. The route is
-scoped to the calling frame, so a file running beside it fetches as usual. Set
-it in a `beforeAll`, undo it in an `afterAll`, and keep the file to the one
-failure, since the module cache it leaves behind is the failed one.
-`button-busy-failed.browser.test.tsx` fails the orb's module this way.
+module, or any request, fails to arrive, fail it in the browser. Two packages'
+`browser-commands.ts` register a `failRequests` command, under one name with a
+different argument, undo and reach:
+
+| Package | `failRequests` takes | Undone by | Fails requests from | Example |
+|---|---|---|---|---|
+| `@shared/ui` | a Playwright glob over the URL | `allowRequests(pattern)`, the same glob | the calling file's frame only, so a file running beside it fetches as usual | `tests/button-busy-failed.browser.test.tsx` (the orb's module) |
+| `@musubi/social` | a path suffix (`url.pathname.endsWith`) | `restoreRequests()`, which lifts every route on the page | the whole page | `tests/App.load-failure.browser.test.tsx` (the sidebar's chunk) |
+
+Both abort the request as a dropped network does, so a dynamic import of that
+module rejects the way a missing chunk does. Either way, set it in a
+`beforeAll`, undo it in an `afterAll`, and keep the file to the one failure:
+routing outlives the test that set it, and the page keeps the failed module for
+the rest of the file. A test moved between the two packages changes its
+argument and its undo.
 
 ### Width
 

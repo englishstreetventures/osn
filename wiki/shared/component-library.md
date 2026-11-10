@@ -537,7 +537,7 @@ and is one of the links inside a sentence `musubi/social/DESIGN.md` names.
 #### `busy`
 
 ```tsx
-<Button type="submit" busy={pending()} disabled={!valid()}>
+<Button type="submit" busy={pending()} disabled={!pending() && !valid()}>
   {pending() ? "Creating…" : "Create profile"}
 </Button>
 ```
@@ -571,7 +571,10 @@ While `busy` is true the button:
 The caller owns the label: pass the words the wait wants ("Creating…"). Use
 `busy` in place of `disabled={pending()}`, and keep `disabled` for the other
 reasons a button cannot act; when both are true, `disabled` wins and focus
-drops, as it does for any disabled button. `busy` is not accepted at `icon`
+drops, as it does for any disabled button. So guard those reasons with the
+busy signal (`disabled={!pending() && …}`): a reason that turns true mid-wait,
+such as a verification widget dropping a spent token, then cannot take focus
+away. `busy` is not accepted at `icon`
 (no label for the orb to sit beside) or `inline` (no room in a line of text).
 It is for plain buttons, not a Kobalte trigger: `DropdownMenu`'s trigger opens
 on pointer-down and key-down, which the click refusal does not see.
