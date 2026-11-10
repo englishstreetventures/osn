@@ -61,7 +61,8 @@ values; `muted/60` composited first, each sRGB channel `0.6 × muted + 0.4 ×
 the five contract grounds in both themes.*
 
 `text-subtle` rests in five places: the rail's small-caps "Social" tag, part of
-the wordmark, which WCAG 1.4.3 exempts as a logotype (`Sidebar.tsx`); the
+the wordmark, which WCAG 1.4.3 exempts as a logotype (`RailHead` in
+`ShellFrame.tsx`, drawn by the rail and its loading frame); the
 rail's and the bottom bar's resting nav icons (`Sidebar.tsx`, `MobileNav.tsx`);
 the theme menu's option icons (`ThemeToggle.tsx`); and the organisation list's
 row chevron (`OrganisationsPage.tsx`).
@@ -89,45 +90,65 @@ Three hues, each held to its uses:
   in `Register`, "@handle is available" in `@shared/ui`'s `UsernameInput`, and
   the accepted border of `OtpInput`.
 - **Warn** — `--toast-accent-warn` (`oklch(52% 0.12 75)` light,
-  `oklch(80% 0.12 75)` dark). A border and a wash only, never ink. Uses
-  today: the security-events banner (`border-ui-warn/40 bg-ui-warn/10`, in
-  `@osn/auth-ui`'s `SecurityEventsBanner`) and the legal pages' draft notice
-  (`border-warn/40 bg-warn/10`, `LegalDocument.tsx`).
+  `oklch(80% 0.12 75)` dark). Ink inside `@shared/ui`'s `Notice`
+  (`tone="warn"`) and only there: its words and its circled "!" mark, on the
+  notice's own wash (`ui-warn/5`, edged `ui-warn/20`). Everywhere else warn
+  is a border and a wash, never ink. Uses today: the legal pages' draft
+  notice (`Notice tone="warn" size="sm"`, `LegalDocument.tsx`) and the
+  security-events banner (`border-ui-warn/40 bg-ui-warn/10`, in
+  `@osn/auth-ui`'s `SecurityEventsBanner`), a wash with no warn ink.
 - **Red** — `--destructive`. Remove and delete: the `destructive` Button (red
   fill, at rest) and `ghostDanger` (red on hover only, for a Remove repeated
   down a list).
 
-Red text also renders today in the failed-load line (§Empty states and failed
-loads), in the error lines on `/authorize`, and in the auth views' error lines
-(§Auth surfaces).
+Red text also renders as the error line: `@shared/ui`'s `Notice`
+(`tone="danger"`, which paints `--ui-danger` through the contract) in the
+failed-load lines, on `/authorize`, in the shell's notices and in the auth
+views (§Empty states and failed loads, §Auth surfaces); and as the shell
+frame's failed-load line, a `text-destructive text-meta` line
+(`ShellFrame.tsx`, §Layout). It sits on the page, a card or a popover, never
+on `--muted`, `--secondary` or the warn wash, where light danger ink falls
+under 4.5:1 (the table below).
 
-Success as ink, on each of the contract's five grounds, and ink on the warn
-wash:
+Success as ink, on each of the contract's five grounds, ink on the warn
+wash, and warn ink on a warn `Notice`'s wash:
 
 | | Light: `--background`, `--card`, `--popover` | Light: `--muted`, `--secondary` | Dark: `--background` | Dark: `--card`, `--popover` | Dark: `--muted`, `--secondary` |
 | --- | --- | --- | --- | --- | --- |
 | Success ink | 6.16:1 | 5.60:1 | 8.95:1 | 8.15:1 | 7.44:1 |
+| Danger ink (`--destructive`) | 4.77:1 | **4.34:1** | 5.90:1 | 5.37:1 | 4.90:1 |
 
 | On the warn wash (`warn/10` over `--background`) | Light | Dark |
 | --- | --- | --- |
 | `--foreground` | 12.69:1 | 12.50:1 |
 | `--muted-foreground` | 5.75:1 | 5.55:1 |
+| `--destructive` | **4.16:1** | 4.85:1 |
 
-*Measured 2026-11-06 — `contrastRatio` from `@shared/color` over the `App.css`
-values above; the wash is composited first, each sRGB channel
-`0.1 × warn + 0.9 × --background`. `tests/styles/design-token-contract.test.ts`
-re-checks the 4.5:1 floor for success and warn on all five grounds in both
-themes.*
+| On a warn `Notice`'s wash (`warn/5` over `--background`) | Light | Dark |
+| --- | --- | --- |
+| Warn ink (`--toast-accent-warn`) | 5.25:1 | 8.20:1 |
+
+*Measured 2026-11-06 (danger 2026-11-09, warn ink on the `Notice`'s wash
+2026-11-10) — `contrastRatio` from `@shared/color` over the `App.css` values
+above; a wash is composited first, each sRGB channel `0.1 × warn + 0.9 ×
+--background` (`0.05` and `0.95` for the `Notice`'s).
+`tests/styles/design-token-contract.test.ts` re-checks the 4.5:1 floor for
+success and warn on all five grounds in both themes, for danger ink on the
+five grounds, expecting it to fall short only on light `--muted` and
+`--secondary`, and for warn ink on the `Notice`'s wash in both themes, with
+the wash's strength read from `notice.tsx`.*
 
 ### The contrast contract
 
 `tests/styles/design-token-contract.test.ts` parses `App.css` and checks every
 role in the `@shared/design-tokens` contract in both themes: body ink, success
 and warn at 4.5:1 on every ground and surface, the focus ring at 3:1, and ink
-on a fill against that fill. One role carries a waiver, with its reason in the
-test: `--ui-hairline-strong`, which takes `--input` (1.30:1 on the page in
-light, against a 3:1 floor). No base rule draws it on an element that does
-not name it (§Borders).
+on a fill against that fill. It also checks danger ink, which the contract
+holds only as a fill, at 4.5:1 on the grounds an error line sits on, and warn
+ink at 4.5:1 on a warn `Notice`'s wash, the one place warn is ink. One role
+carries a waiver, with its reason in the test: `--ui-hairline-strong`, which
+takes `--input` (1.30:1 on the page in light, against a 3:1 floor). No base
+rule draws it on an element that does not name it (§Borders).
 
 ## Typography
 
@@ -147,6 +168,22 @@ not name it (§Borders).
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
+- **Names and section heads** — a person's or an organisation's name, wherever
+  it stands for them in a row or a card, is `text-title` at 500: the
+  organisations list, the roster, search results (the page and the rail's
+  panel), Settings' profile card, and `/authorize`'s account screen, profile
+  picker and consent screen. The handle under it is `text-meta` in
+  `text-muted-foreground`. A heading that opens a section inside a page
+  ("Members", "Signed in as", `/search`'s "People" and "Organisations") takes
+  the same step and weight, in `text-foreground`. A shell page's `h1` is
+  `text-display` (§Layout). `/authorize`, which has no shell, titles each
+  screen at `text-title` and 500 — the client's name on its client card, or
+  the screen's ask ("Choose a profile") — so the name a screen is about reads
+  as a name. The rail's account trigger is shell chrome and keeps its own
+  size.
+- **Consent marks** — `/authorize`'s "Verified by Musubi" and its "Third-party
+  app" chip (§Chips) are `text-meta` at 500, so neither reads quieter than the
+  other.
 - **Buttons** — `@shared/ui`'s Button sets its label at `--ui-text-base`,
   which Musubi maps to `text-title` (14px), weight 500; `size="sm"` steps down
   to `--ui-text-sm`, `text-body` (13px).
@@ -172,37 +209,49 @@ not name it (§Borders).
   the one place the scale's own leading gives way: a page of 13px text at 18px
   reads as a wall. The head above the body is a page head (§Layout): the
   title `text-display` at 500, "Last updated" a `text-body` subtitle in
-  `text-muted-foreground`, and the draft notice `text-body` with "Draft" at
-  500.
+  `text-muted-foreground`, and the draft notice a warn `Notice` at `sm`
+  (§Status colours): 13px on a 1.5 line height, "Draft" at 500.
 
 Where the app does not follow this yet — known breaks include:
 
 - `@shared/ui`'s `DialogTitle` and `CardTitle`: 16px (`--ui-text-md`) at
   weight 600 (#2040).
-- `@shared/ui`'s `Badge`: weight 600 (#2041). `AvatarFallback`: weight 600.
-  `OtpInput`'s digits: 16px (`--ui-text-md`).
+- `@shared/ui`'s `AvatarFallback`: weight 600. `OtpInput`'s digits: 16px
+  (`--ui-text-md`).
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).
-- `/authorize` writes `text-caption`, which no stylesheet defines, so those two
-  lines take the size around them (#2039).
 - The auth views (§Auth surfaces) (#2045).
 
 ## Radii — two families + pill
 
-- **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows,
-  dropdown triggers, small controls; text fields (`@shared/ui`'s `Input`,
-  `Textarea` and `Select`, through the contract's `--ui-radius-field`, which
-  Musubi maps to `--radius-md`); and, through `--ui-radius-md`, `@shared/ui`'s
-  Popover and menu panels and `OtpInput`'s boxes.
+- **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows
+  (`/authorize`'s bordered profile rows among them), dropdown triggers, small
+  controls; text fields (`@shared/ui`'s `Input`, `Textarea` and `Select`,
+  through the contract's `--ui-radius-field`, which Musubi maps to
+  `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s
+  Popover and menu panels and `OtpInput`'s boxes; and the rail search's
+  results panel (`GlobalSearch`), a floating panel drawn as the menus are:
+  `rounded-md`, `bg-popover`, `shadow-md`.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
-  (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions),
-  bordered rows, dialogs, empty states. A card that is not itself a control
-  takes no hover wash; a row that is a link or a button does.
+  (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
+  organisations list's rows, `/authorize`'s scope rows and its dead-end and
+  error boxes), bordered rows (Settings' connected apps), dialogs, empty
+  states. No card takes a hover wash: one that is a link says so with its
+  chevron (below). A row that is a link or a button, and not a `Card`, does
+  take one.
+- **A card that is a link** — the organisations list — is a `Card`
+  (`padding="sm"`) inside its `<A>`. `Card` owns its fill and padding (the
+  `shadcn(no-restyle)` lint refuses a colour or padding class on it), so it
+  takes no wash: its chevron turns from `--subtle` to full ink on hover and
+  press (`group-hover:`, `group-active:` from the link), and the link's focus
+  outline follows its 16px corner. Never a hand-drawn bordered box to win the
+  wash back: that box has no fill, so in dark it loses the card's raised
+  ground.
 - **pill** (`rounded-pill`; the contract's `--ui-radius-control` and
   `--ui-radius-pill`) — every Button variant, `ghost`, `ghostDanger` and
   `link` included (the radius sits on Button's base class,
-  `shared/ui/src/ui/button.tsx`); badges; avatars.
+  `shared/ui/src/ui/button.tsx`); chips (§Chips); avatars.
 - **Sheets** — below `md`, dialogs render as bottom sheets: 16px top corners
   (the contract's `--ui-radius-sheet`, which Musubi leaves to fall back to
   `--ui-radius-lg`) with square bottom corners, pinned to the bottom edge (see
@@ -211,9 +260,34 @@ Where the app does not follow this yet — known breaks include:
 Where the app does not follow this yet — known breaks include:
 
 - `@shared/ui`'s default menu rows, the account menu's and the theme menu's,
-  take `--ui-radius-sm`, 6px (#2103). The token stays 6px because
-  `@shared/ui`'s drawn Checkbox, a 16px box, reads it too, and would turn
-  round at 8px.
+  take `--ui-radius-sm`, 6px (#2103), and so do `Notice`'s `sm` and `md`
+  boxes (the shell's "You've been signed out." and the legal pages' draft
+  notice). The token stays 6px because `@shared/ui`'s drawn Checkbox, a 16px
+  box, reads it too, and would turn round at 8px.
+
+## Chips
+
+A word that names a role or a kind is `@shared/ui`'s `Chip`,
+`variant="outline" treatment="tag"` in the neutral tone: a hairline edge,
+secondary ink, 12px (`--ui-text-xs`, which Musubi maps to `text-meta`), set as
+written in sentence case, on the pill corner. Uses today: the roster's role
+("Admin", "Member", from `ROLE_LABEL` in `OrgDetailPage.tsx`, never the API's
+raw value), "Member" on an organisation the searcher belongs to (`/search`
+and the rail's results panel, `SearchResultRows.tsx`), and `/authorize`'s
+"Third-party app".
+
+- **Not filled.** The filled neutral chip paints `--ui-surface` at 60%, which
+  Musubi maps to `--card`: white on a white page, so its shape vanishes in
+  light.
+- **Not small caps.** The rail's "Social" tag is the only small-caps label,
+  and a chip's word reads as written.
+- **Never `@shared/ui`'s `Badge`.** It sets its word at 600, a weight Musubi
+  does not use.
+- **Weight.** A chip's word is 400, except "Third-party app": a trust mark
+  beside a name the app chose for itself, it keeps 500, the weight of the
+  consent screen's other mark (§Typography, Consent marks). The weight comes
+  from a `font-medium` span inside the chip; `Chip`'s `class` is for layout
+  only.
 
 ## Icons
 
@@ -271,6 +345,16 @@ holds at 3:1. A focus mark appears at once, never animated.
   `focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden`;
   the profile choice on `/authorize`'s account screen does
   (`AuthorizePage.tsx`, in the contract's `ring-ui-focus`, the same colour).
+- **Where focus goes when a dialog closes.** Back to the element that had it
+  when the dialog opened, if it is still in the page: `ResponsiveDialogContent`
+  does this for every app dialog. No app dialog has a `Dialog.Trigger`, so
+  without it Kobalte leaves focus on `<body>`. A shell dialog whose opener has
+  gone — the shell switched while the dialog was open — gives focus to the
+  current shell's control for the same dialog, which carries
+  `data-dialog-return="sign-in" | "register" | "switcher"` (the shells' Sign
+  in and Create account buttons, the account-menu trigger). After a sign-in
+  succeeds, or a removal takes the row that opened it, neither exists, and
+  focus stays on the page.
 - **Contrast themes.** Windows forced colours drop the ring and the fill, and
   `outline-hidden` there is a 2px system-colour outline, so a `Button`, a menu
   row or the profile choice still shows focus. `outline-none` removes that outline
@@ -288,17 +372,41 @@ site in the loaded row's shape (`bg-muted/50 animate-pulse`), which pulses in
 opacity.
 
 Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
-sheet), Popover and default menu fade and scale from 95% as they open and
-close (`zoom-in-95`, `zoom-out-95`) (#2040).
+sheet), Popover and default menu run the shared overlay motion. They fade and
+scale from 96% as they open and to 98% as they close (`zoom-in`, `zoom-out`),
+and the popover and menu grow from their trigger
+(`wiki/shared/design-tokens.md` §Motion). They move to a fade with no scale,
+the owner's decision on #2034, when #2040 lands.
 
 ## Layout
 
 - Desktop shell (`md+`) = fixed **240px left rail** (`Sidebar.tsx`) +
   scrollable content.
+- **The shell holds still.** Each shell is a lazy chunk, so on a cold load the
+  page can paint before its shell arrives. Until it does, `Layout` draws the
+  shell's frame in its place: the rail's 240px `aside` with its hairline and
+  wordmark row, or the top bar's 48px header with the wordmark
+  (`RailFrame`, `TopBarFrame` in `ShellFrame.tsx`). The shells are built from
+  the same parts, so the frame and the shell share one box and the page beside
+  them does not move when the shell lands. The rule covers the shell only:
+  the account banners above a signed-in page still push it down when they
+  arrive. The phone's tab bar needs no frame; it is fixed to the bottom edge,
+  out of the flow, and the scroll column carries `pb-nav` from the first paint.
+- **A shell whose chunk, or the shell dialogs' chunk, fails to load**
+  (offline, or a chunk renamed by a deploy since the page loaded) leaves its
+  frame in place with the failed-load line
+  (§Empty states and failed loads): "Musubi could not finish loading. Reload
+  and try again." The page beside it keeps working. A later load that succeeds
+  (the other shell's, after a crossing) draws the shell with its dialogs.
 - Content column centered at `max-w-2xl`, `px-4 py-6 md:px-8 md:py-8` — every
   page's `main`, and the account banners above it at the same width and side
   padding. The legal pages use `max-w-2xl px-6 py-12`.
 - Page head = `text-display` title + optional `text-body` muted subtitle.
+- **Page title** = the page's `h1` text, then " · Musubi" ("Discover ·
+  Musubi"), set by `usePageTitle` (`src/lib/page-title.ts`); "Musubi" alone
+  while the head is unknown. An organisation's page names the organisation
+  once it loads and "Organisations" until then, as its `h1` does. `/authorize`
+  keeps the plain "Musubi" from `index.html`.
 - `/authorize` = no shell; one centred column, `max-w-md px-6 py-10`, centred
   vertically in the viewport.
 
@@ -306,12 +414,22 @@ close (`zoom-in-95`, `zoom-out-95`) (#2040).
 
 One breakpoint: **`md` (768px)**. Below it the app is a mobile shell; at and
 above it, the desktop rail. Never introduce additional breakpoints without
-amending this file.
+amending this file. `tests/styles/one-breakpoint.test.ts` fails on any other
+breakpoint in `src/`, naming the file and line: a variant (`sm:`, `lg:`,
+`xl:`, `2xl:`, their `max-*:` forms, an arbitrary `min-[…]:` or `max-[…]:`)
+in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
+`@variant` in a `.css` file at any width but 767px or 768px.
 
 - **One shell at a time** — `Layout` (`App.tsx`) mounts either the rail or the
-  mobile shell, chosen by an `md` media-query signal.
+  mobile shell, chosen by an `md` media-query signal. The shell's dialogs —
+  sign in, create account, switch profile — are mounted once, above that
+  switch (`ShellDialogs.tsx`), so a dialog open when the window crosses 768px
+  stays open, with what was typed in it. A control in either shell, or a page,
+  opens one through `useShellDialogs()`.
 - **Mobile shell** = `MobileTopBar` (wordmark · theme toggle · account
-  control) above the scroll column + `MobileNav` (fixed bottom tab bar, the
+  control, in a 48px row, `--topbar-h` in `App.css`; every control 40px tall,
+  the theme toggle a 40px square, `TOGGLE_BOX` in `ShellFrame.tsx`) above the
+  scroll column + `MobileNav` (fixed bottom tab bar, the
   five primary destinations, 20px icons + `text-meta` labels). The current tab
   draws a 2px `--foreground` bar along its top edge as well as full ink, as
   `SectionTabs` underlines its current tab, so ink is not its only mark. Nav
@@ -338,25 +456,41 @@ amending this file.
   `DialogContent` with `presentation="sheet"`: a bottom sheet below `md`
   (16px top corners, square bottom corners, `max-h-[85dvh]`, scrolling, padded
   clear of the home indicator), the shared centred card at `md+`. All app
-  dialogs go through it; never mount a raw `DialogContent` in a screen.
+  dialogs go through it; never mount a raw `DialogContent` in a screen. Below
+  `md` the sheet is as wide as the screen. The card's cap at `md+` is the
+  `width` prop: `"sm"`, 384px, the default, or `"xs"`, 320px, which the
+  profile switcher takes. The component takes no `class`, `classList` or
+  `style`: the sheet's rules sit behind `base:`, so a call-site `max-w-*` would
+  cap the sheet too and pin a narrow sheet to a phone's left edge. A dialog's
+  padding and layout go on the children it wraps. Every dialog has a name: a
+  `DialogTitle` in a `DialogHeader`, or, where the view inside draws its own
+  heading (`@osn/auth-ui`'s `SignIn` and `Register`), an `aria-label` on
+  `ResponsiveDialogContent`.
+- **A form dialog** (create and edit organisation) = `DialogHeader` ›
+  `DialogTitle`, then the `<form>`: its fields in a body `div` padded 16px
+  (`flex flex-col gap-4 p-4`), its actions in `DialogFooter` (16px padding, a
+  hairline above, right-aligned; Cancel `secondary`, then the commit). The
+  footer sits inside the form, so Enter in a field submits. A confirmation
+  dialog has the same shape with its words in the body (`ConnectionsPage`'s
+  remove dialog).
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
   `active:` classes for touch feedback. Tab rows scroll (`overflow-x-auto`)
-  rather than wrap or shrink.
-- **Toasts** = top-center below `md` (clear of keyboard + tab bar),
+  rather than wrap or shrink. Buttons keep these call-site heights: no
+  `Button` size draws 40px at `sm`'s padding, and `default` would widen the
+  top bar's pair past what 320px holds.
+- **Text fields** take `Input`'s own sizes, with no height class: the rail's
+  search is `md`, 36px. One exception: `/search`'s field keeps `h-11`, 44px
+  at every width. `Input`'s `touch` size, the only one that tall, steps from
+  46px to 44px at 640px, a width this file's one breakpoint does not use.
+- **Toasts** = top-center below `md`, one spacing step under the top bar
+  (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
 - The bare `/authorize` route renders with **no shell at any width**.
 
 Where the app does not follow this yet:
 
-- Three classes switch at `sm` (640px), not `md`: Discover's two grids of
-  suggestions, the loaded one and its placeholder (`sm:grid-cols-2`,
-  `DiscoverPage.tsx`), and the organisation list's description line
-  (`sm:block`, `OrganisationsPage.tsx`) (#2057).
-- Each app dialog passes a width cap (`max-w-sm`, or `max-w-xs` on the profile
-  switcher), and the cap applies to the sheet too, so on a phone a sheet is no
-  wider than the cap (#2038).
 - The dialogs `@osn/auth-ui`'s views open themselves use `DialogContent`
   without `presentation="sheet"`, so they stay a centred card below `md`
   (#2045).
@@ -364,14 +498,45 @@ Where the app does not follow this yet:
 ## Empty states and failed loads
 
 - **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
-  `rounded-card` block, `size="page"` (`py-16`) for a page's whole content,
-  `size="section"` (`py-12`) for one list. It is an `<output>`, so a state
-  that replaces a skeleton is read out. Never draw the block by hand.
-- **A load that failed** for any reason the screen does not name is a
-  `text-destructive text-meta` line with `role="alert"` that ends "Reload and
-  try again." — never the empty-state block, which means "nothing here". A
-  screen whose head comes from what failed to load keeps its section's head
-  above the line (`OrgDetailPage` falls back to "Organisations").
+  `rounded-card` block, 16px at the sides, `size="page"` (`py-16`) for a
+  page's whole content, `size="section"` (`py-12`) for one list. Its words sit
+  centred in an `<output>`, so a state that replaces a skeleton is read out.
+  An optional `action` sits 16px under the words, outside the `<output>`, so
+  what is read out is the message and not a button's name too. Never draw the
+  block by hand.
+- **A signed-out page** = `SignedOutNote` (`src/components/SignedOutNote.tsx`):
+  the page's `EmptyNote`, whose words say what signing in gives, with one
+  Sign in under them that opens the shell's sign-in dialog. It is `secondary`
+  and `sm`, as the shell's own Sign in is, so the page never shows a second
+  filled button beside the shell's Create account. Create account stays in
+  the shell. Until the shell's dialogs have loaded the button is `invisible`
+  — not painted, not focusable, out of the accessibility tree — so it never
+  offers a dialog that cannot open, and the note keeps its height when they
+  land (§Layout, a shell that fails to load).
+- **A load that failed** for any reason the screen does not name is one
+  line, `@shared/ui`'s `Notice` (`tone="danger"`, `size="inline"`, `alert`):
+  the danger mark and the sentence at the body size, announced as it appears.
+  Never the empty-state block, which means "nothing here". Where the screen
+  offers no retry it ends "Reload and try again." (`ConnectedAppsSection`,
+  `OrgDetailPage`). A screen whose head comes from what failed to load keeps
+  its section's head above the line (`OrgDetailPage` falls back to
+  "Organisations"). A shell that failed to load says so inside its frame
+  (§Layout), the one failed-load line not drawn by `Notice`: a
+  `text-destructive text-meta` line with `role="alert"` (`ShellFrame.tsx`),
+  sized so the phone top bar's 48px row holds it at 320px.
+- **A failed load with a retry** is the same line with a lead that names what
+  did not load, then an underlined "Try again" that loads it again in place;
+  the button is gone while the retry is out, so clicks never stack. The
+  copy map's sentence (`describeAuthError`) follows the lead only when it
+  adds something — a `429` says to wait, a lost connection to check it —
+  never a "something went wrong, try again" beside the button. Uses: the
+  profile list ("Your profiles didn't load.", `ShellNotices`), and the
+  Security views' lists (§Auth surfaces).
+- **A page that throws while it renders** shows "This page didn't load." with
+  "Try again" in the content column, inside the shell: `PageErrorBoundary`
+  wraps each route, so the rail, the tab bar and the account banners stay
+  drawn and lead elsewhere. It resets on its own when the path changes, and
+  never shows the error's text.
 
 ## Auth surfaces
 
@@ -398,7 +563,7 @@ draw by hand shows the base focus outline (§Borders, §Focus).
 
 | View | Where | Host file |
 | --- | --- | --- |
-| `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet below `md`, a centred card capped at `max-w-sm` above | `components/AuthDialogs.tsx`, mounted by `Sidebar` and `MobileTopBar` |
+| `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
 | `SignIn`, `Register` | `/authorize`, in a bordered `rounded-card` frame under the client card; "No account yet? Create one" swaps to `Register` | `components/AuthorizeSignIn.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
 | `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-code step, when a site key is set | — |
@@ -406,6 +571,18 @@ draw by hand shows the base focus outline (§Borders, §Focus).
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
 | `StepUpDialog` | Inside `PasskeysView`, `TotpView`, `RecoveryCodesView` and `SecurityEventsBanner`, when an action needs it | — |
+
+**When the session ends.** The runtime ends a session when the issuer refuses
+to renew it, and when another tab signs out or signs in to another account.
+The shell then shows "You've been signed out." with a Sign in button, above
+the account banners: `Notice`, `tone="info"`, `size="sm"`, `alert`, at the
+banners' width (`ShellNotices`). One notice however many requests failed,
+cleared by the next session. A log out in this tab and a cold load with no
+session show none: the runtime reports no end for either. So a person who
+logs out in one tab sees the notice in every other open tab, which is true.
+
+The notice's Sign in opens the shell's sign-in dialog through
+`useShellDialogs()`, as the shells' own buttons do (§Responsive layout).
 
 **What Musubi supplies:**
 

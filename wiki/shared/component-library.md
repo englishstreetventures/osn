@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-10
 ---
 
 # Component Library (Zaidan)
@@ -255,7 +255,10 @@ held to 4.5:1 on what it sits on, and a stronger wash darkens the ground under a
 coloured word on a pale theme. `cire/host/tests/styles/chip-contrast.browser.test.tsx`
 holds every tone, variant and treatment to 4.5:1 on cire's page and a card's
 wash, and the flags' tones on the run sheet's coming-up row, in both themes;
-filled `danger` reads 4.65:1 on cire's light page.
+filled `danger` reads 4.65:1 on cire's light page. Musubi draws only the
+outline neutral tag, whose word is `--ui-ink-secondary` on the page or a card
+with no ground of its own: `musubi/social/tests/styles/design-token-contract.test.ts`
+holds that ink at 4.5:1 on every ground and surface, in both themes.
 
 *Measured 2026-10-30 — the composite `cire/host/tests/styles/chip-contrast.browser.test.tsx` paints, read for a filled `danger` tag on the light page (headless Chromium)*
 
@@ -307,10 +310,22 @@ What a mouse, a keyboard and a touch screen get:
   to two lines would have its first line covered.
 - **The panel** is `PopoverContent`'s raised surface at `text-ui-xs`, at most
   `max-w-ui-xs` wide, 4px above the trigger (Popper flips it below when there is
-  no room). Kobalte's defaults set the timing: a panel opens 700 ms after the
-  pointer arrives and closes 300 ms after it leaves, and a label the pointer
-  reaches within those 300 ms opens at once. Its enter and exit run under
-  `motion-safe:` only.
+  no room).
+- **Its timing is its own, not Kobalte's defaults.** A panel opens 400ms after
+  the pointer arrives and goes the moment it leaves, with no exit animation.
+  Kobalte's safe area keeps it while the pointer crosses the 4px gap onto it,
+  so the panel can still be hovered (WCAG 2.1 SC 1.4.13). A label the pointer
+  reaches within 300ms of a panel closing opens at once, and that panel does
+  not animate: it carries `data-instant`, which the entry class excludes. A
+  panel opened after the delay grows from the label with a fade and the shared
+  entry scale (§Motion in [[design-tokens]]), and a reader who asked for
+  reduced motion sees none.
+- **The instant open is measured.** Kobalte opens a panel at once inside its
+  skip window but marks nothing on it, and its warm-up state is shared by
+  every Kobalte tooltip on the page, cire's sidebar ones included. So `Tooltip`
+  times the open: one that lands sooner than half the delay after the pointer
+  arrived is instant. The root is controlled, so the panel mounts once with
+  the attribute already on it.
 
 It is not for a trigger inside a `Modal`. The panel portals to `<body>`, and a
 modal `<dialog>` paints over everything outside the top layer (§What has to sit
@@ -337,6 +352,9 @@ tree once and never as a description, with the panel closed and open.
 `shared/ui/tests/tooltip.browser.test.tsx` holds the two a caller's page can
 hide: the hidden copy as written inside an `uppercase` run, and no animation
 for a reader who asked for reduced motion.
+`shared/ui/tests/tooltip-timing.browser.test.tsx` holds the timing above with
+Playwright's real pointer, and `overlay-motion.browser.test.tsx` its motion
+beside the other overlays'.
 
 ### `DropdownMenu` — two looks, and rows that are checked, chosen or followed
 
@@ -348,6 +366,8 @@ row, label and separator inside it, so one menu cannot mix two looks:
   `shared/ui/tests/dropdown-menu-default.browser.test.tsx` reads them back as
   literal strings and checks what they paint, and imports only what the menu
   exported before the accent variant, so it runs on either side of a change.
+  The panel grows from its trigger and shrinks a little as it closes, on the
+  shared motion tokens (§Motion in [[design-tokens]]).
   A focused row is marked by its sunk fill and a `pill` trigger by its ring,
   both of which a contrast theme (forced colours) drops, so each hides its
   outline only while focused and the theme paints it there. A hidden outline
@@ -358,8 +378,9 @@ row, label and separator inside it, so one menu cannot mix two looks:
   highlighted row a 10% accent wash with the readable accent ink; a 2px focus
   ring inset by 2px for the keyboard, because Kobalte scrolls a row flush to
   the edge of a scrolling panel and the panel would clip a ring drawn outside
-  it. The panel pops from its trigger's side — a 0.96 scale and a fade on the
-  app's `--dur-fast` and `--ease-out`, under `motion-safe:` — and has no exit:
+  it. The panel pops from its trigger's side — the shared `--ui-scale-enter`
+  and a fade on the app's `--dur-fast` and `--ease-out`, under `motion-safe:`
+  — and has no exit:
   a menu held mounted for an exit animation keeps focus inside it, and focus
   then falls to `<body>` instead of going back to the trigger. The colour fade
   names its properties, so the ring never fades in.
@@ -867,13 +888,20 @@ Timing is two custom properties, so an app retimes rather than restyles:
 ```css
 :root {
   --ui-modal-enter: 350ms;
-  --ui-modal-exit: 200ms;
+  --ui-modal-exit: 150ms;
 }
 ```
 
-`prefers-reduced-motion` drops both to 1ms rather than `none`: the exit is
-_awaited_, and a transition that never started is one there is nothing to wait
-for.
+Unset, the entry fades in over 250ms and rises `--ui-distance-enter` (24px)
+from a 0.98 scale over 350ms; the exit sinks the shorter `--ui-distance-exit`
+(8px) to `--ui-scale-exit` (0.98) in 150ms, and the backdrop fades out with it
+rather than vanishing when `close()` runs. Cire sets both durations on a desk
+only, from its own ladder (`cire/host/DESIGN.md` §Motion); on touch it runs
+these. The motion tokens are in [[design-tokens]] §Motion.
+
+`prefers-reduced-motion` drops every one of them to 1ms rather than `none`:
+the exit is _awaited_, and a transition that never started is one there is
+nothing to wait for.
 
 > [!important]
 > **Keep the modal mounted across the close.** `Modal` can only animate its exit

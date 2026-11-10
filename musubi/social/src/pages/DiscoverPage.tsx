@@ -8,7 +8,9 @@ import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
+import { SignedOutNote } from "../components/SignedOutNote";
 import { graphClient, recommendationClient } from "../lib/api";
+import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
 
 /**
@@ -27,6 +29,7 @@ function suggestionReason(suggestion: Suggestion): string {
 
 export function DiscoverPage() {
   const { session } = useAuth();
+  usePageTitle(() => "Discover");
 
   // Keyed on the session object: a new session refetches, a token renewal does not.
   const [recommendations, { refetch }] = createResource(
@@ -62,11 +65,11 @@ export function DiscoverPage() {
         </p>
       </div>
 
-      <Show when={session()} fallback={<EmptyNote>Sign in to discover people.</EmptyNote>}>
+      <Show when={session()} fallback={<SignedOutNote>Sign in to discover people.</SignedOutNote>}>
         <Show
           when={!recommendations.loading}
           fallback={
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="grid gap-3 md:grid-cols-2">
               {Array.from({ length: 4 }, () => (
                 <div class="bg-muted/50 rounded-card h-28 animate-pulse" />
               ))}
@@ -85,7 +88,7 @@ export function DiscoverPage() {
               </EmptyNote>
             }
           >
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="grid gap-3 md:grid-cols-2">
               <For each={recommendations()?.suggestions}>
                 {(suggestion) => (
                   // A card, not a row: the tile itself is not a control (its

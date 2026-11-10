@@ -9,6 +9,7 @@ import {
 import { For, type JSX } from "solid-js";
 
 import { setThemePref, themePref, type ThemePref } from "../lib/theme";
+import { TOGGLE_BOX } from "./ShellFrame";
 
 function IconSystem() {
   return (
@@ -70,8 +71,10 @@ const OPTIONS: { value: ThemePref; label: string; icon: () => JSX.Element }[] = 
  * The theme menu: one choice of three, on `@shared/ui`'s radio rows, so it
  * draws the account menu's row, focus and check, and tells assistive
  * technology which theme is on (`menuitemradio`, `aria-checked`).
+ *
+ * `place` sizes the trigger for the shell it sits in (`TOGGLE_BOX`).
  */
-export function ThemeToggle() {
+export function ThemeToggle(props: { place?: keyof typeof TOGGLE_BOX }) {
   const current = () => OPTIONS.find((o) => o.value === themePref()) ?? OPTIONS[0];
   const choose = (value: string) => {
     const option = OPTIONS.find((o) => o.value === value);
@@ -84,7 +87,7 @@ export function ThemeToggle() {
         as={Button}
         variant="ghost"
         size="icon"
-        class="h-7 w-7"
+        class={TOGGLE_BOX[props.place ?? "rail"]}
         aria-label={`Theme: ${current().label}`}
         title={`Theme: ${current().label}`}
       >

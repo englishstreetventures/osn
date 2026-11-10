@@ -1,3 +1,4 @@
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
 /**
@@ -176,11 +177,11 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
           Human verification challenge
         </span>
         <Show when={failed()}>
-          <p class="text-destructive mt-2 text-xs" role="alert">
-            Couldn&apos;t load the verification challenge. Refresh and try again. If it keeps
-            failing (an ad blocker or network filter may be blocking it), recovery-code sign-in
-            still works — it isn&apos;t gated by this challenge.
-          </p>
+          <Notice tone="danger" size="inline" alert class="mt-2">
+            Couldn&apos;t load the verification challenge. Reload and try again. If it keeps failing
+            (an ad blocker or network filter may be blocking it), recovery-code sign-in still works
+            — it isn&apos;t gated by this challenge.
+          </Notice>
         </Show>
       </div>
     </Show>

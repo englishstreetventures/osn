@@ -1,12 +1,13 @@
-import { OrgClientError } from "@osn/client";
+import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Badge } from "@shared/ui/ui/badge";
 import { Button } from "@shared/ui/ui/button";
-import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Chip } from "@shared/ui/ui/chip";
+import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
@@ -14,7 +15,14 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
+import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
+
+/** A member's role as the roster shows it: a label set as written, so in sentence case. */
+const ROLE_LABEL = {
+  admin: "Admin",
+  member: "Member",
+} satisfies Record<OrgMember["role"], string>;
 
 /** The HTTP status a failed request carried, when it got as far as a response. */
 function statusOf(error: unknown): number | undefined {
@@ -24,9 +32,9 @@ function statusOf(error: unknown): number | undefined {
 /** A load that failed for a reason other than the ones the page names. */
 function LoadFailure(props: { message: string }) {
   return (
-    <p class="text-destructive text-meta" role="alert">
+    <Notice tone="danger" size="inline" alert>
       {props.message} Reload and try again.
-    </p>
+    </Notice>
   );
 }
 
@@ -63,6 +71,9 @@ export function OrgDetailPage() {
   // organisation is public, its member list is not.
   const orgReady = () => (org.state === "ready" ? org() : undefined);
   const memberRows = () => (members.state === "ready" ? members()?.members : undefined);
+  // The page's `h1`: the organisation's name, or the section's while it loads
+  // or when it could not be loaded.
+  usePageTitle(() => orgReady()?.name ?? "Organisations");
 
   const [showEdit, setShowEdit] = createSignal(false);
   const [editName, setEditName] = createSignal("");
@@ -90,7 +101,7 @@ export function OrgDetailPage() {
       setShowEdit(false);
       setOrg(organisation);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update");
+      toast.error(`Couldn't save the organisation. ${describeAuthError(err)}`);
     } finally {
       setSaving(false);
     }
@@ -103,7 +114,7 @@ export function OrgDetailPage() {
       toast.success("Organisation deleted");
       navigate("/organisations");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete");
+      toast.error(`Couldn't delete the organisation. ${describeAuthError(err)}`);
     }
   }
 
@@ -116,7 +127,7 @@ export function OrgDetailPage() {
           roster && { members: roster.members.filter((member) => member.handle !== profileHandle) },
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove member");
+      toast.error(`Couldn't remove @${profileHandle}. ${describeAuthError(err)}`);
     }
   }
 
@@ -229,7 +240,9 @@ export function OrgDetailPage() {
                               </p>
                             </Show>
                           </div>
-                          <Badge variant="secondary">{member.role}</Badge>
+                          <Chip variant="outline" treatment="tag">
+                            {ROLE_LABEL[member.role]}
+                          </Chip>
                           <Show when={member.role !== "admin"}>
                             <Button
                               variant="ghost"
@@ -254,30 +267,33 @@ export function OrgDetailPage() {
 
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
-        <ResponsiveDialogContent class="max-w-sm">
+        <ResponsiveDialogContent>
           <DialogHeader>
             <DialogTitle>Edit organisation</DialogTitle>
           </DialogHeader>
-          <form class="flex flex-col gap-4 pt-2" onSubmit={handleSave}>
-            <div class="flex flex-col gap-1.5">
-              <Label for="edit-name">Name</Label>
-              <Input
-                id="edit-name"
-                value={editName()}
-                onInput={(e) => setEditName(e.currentTarget.value)}
-                required
-              />
+          {/* The footer sits inside the form, so Enter in a field still submits. */}
+          <form onSubmit={handleSave}>
+            <div class="flex flex-col gap-4 p-4">
+              <div class="flex flex-col gap-1.5">
+                <Label for="edit-name">Name</Label>
+                <Input
+                  id="edit-name"
+                  value={editName()}
+                  onInput={(e) => setEditName(e.currentTarget.value)}
+                  required
+                />
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <Label for="edit-desc">Description</Label>
+                <Textarea
+                  id="edit-desc"
+                  value={editDesc()}
+                  onInput={(e) => setEditDesc(e.currentTarget.value)}
+                  rows={2}
+                />
+              </div>
             </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="edit-desc">Description</Label>
-              <Textarea
-                id="edit-desc"
-                value={editDesc()}
-                onInput={(e) => setEditDesc(e.currentTarget.value)}
-                rows={2}
-              />
-            </div>
-            <div class="flex justify-end gap-2 pt-1">
+            <DialogFooter>
               <Button
                 type="button"
                 variant="secondary"
@@ -290,7 +306,7 @@ export function OrgDetailPage() {
               <Button type="submit" size="sm" class="max-md:h-10" disabled={saving()}>
                 {saving() ? "Saving..." : "Save"}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         </ResponsiveDialogContent>
       </Dialog>

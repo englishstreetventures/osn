@@ -1,12 +1,20 @@
-import type { StepUpClient, StepUpToken, TotpClient, TotpEnrollment } from "@osn/client";
+import {
+  describeAuthError,
+  type StepUpClient,
+  type StepUpToken,
+  type TotpClient,
+  type TotpEnrollment,
+} from "@osn/client";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { QrCode } from "@shared/ui/ui/qr-code";
 import { createResource, createSignal, onCleanup, Show } from "solid-js";
 
+import { LoadFailed } from "./LoadFailed";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
@@ -62,6 +70,8 @@ function formatTs(ts: number | null): string {
 export function TotpView(props: TotpViewProps) {
   const [reloadKey, setReloadKey] = createSignal(0);
   const [status] = createResource(reloadKey, () => props.client.status());
+  // A failed resource throws when read, so every read goes through this.
+  const current = () => (status.error ? undefined : status());
 
   // The only place the shared secret exists in this component. Cleared on
   // every exit from the enrolment panel, including unmount.
@@ -70,7 +80,9 @@ export function TotpView(props: TotpViewProps) {
   const [label, setLabel] = createSignal("");
   const [pending, setPending] = createSignal<Pending>(null);
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  // A refused code sits under the code boxes; any other failure under the
+  // heading's note. Errors are lines, never toasts: toasts are for success.
+  const [error, setError] = createSignal<{ text: string; code: boolean } | null>(null);
 
   function clearEnrollment() {
     setEnrollment(null);
@@ -122,11 +134,7 @@ export function TotpView(props: TotpViewProps) {
         toast.success("Authenticator app removed");
       }
     } catch (e) {
-      const fallback =
-        action === "enroll" ? "Couldn't start setting up an authenticator" : "Couldn't remove it";
-      const message = e instanceof Error ? e.message : fallback;
-      setError(message);
-      toast.error(message);
+      setError({ text: describeAuthError(e), code: false });
     } finally {
       setBusy(false);
       setPending(null);
@@ -152,9 +160,7 @@ export function TotpView(props: TotpViewProps) {
       // The pending secret is parked server-side for ten minutes. Past that
       // the code cannot be checked against anything and the user has to start
       // again — so the error keeps the panel, and "Cancel" is the way out.
-      const message = e instanceof Error ? e.message : "That code didn't work";
-      setError(message);
-      toast.error(message);
+      setError({ text: describeAuthError(e, "code"), code: true });
     } finally {
       setBusy(false);
     }
@@ -164,7 +170,7 @@ export function TotpView(props: TotpViewProps) {
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold">Authenticator app</h2>
-        <Show when={status()?.enrolled === false && enrollment() === null}>
+        <Show when={current()?.enrolled === false && enrollment() === null}>
           <Button size="sm" onClick={requestEnroll} disabled={locked()}>
             Add an authenticator app
           </Button>
@@ -176,11 +182,11 @@ export function TotpView(props: TotpViewProps) {
         holding your passkey, so it works when both are out of reach.
       </p>
 
-      <Show when={error()}>
-        {(msg) => (
-          <p class="text-destructive text-sm" role="alert">
-            {msg()}
-          </p>
+      <Show when={!error()?.code && error()}>
+        {(line) => (
+          <Notice tone="danger" size="inline" alert>
+            {line().text}
+          </Notice>
         )}
       </Show>
 
@@ -188,13 +194,23 @@ export function TotpView(props: TotpViewProps) {
         <p class="text-muted-foreground text-sm">Loading…</p>
       </Show>
 
-      <Show when={status()?.enrolled === true && enrollment() === null}>
+      <Show when={!status.loading && status.error}>
+        {(err) => (
+          <LoadFailed
+            lead="Your authenticator app didn't load."
+            error={err()}
+            onRetry={() => setReloadKey((k) => k + 1)}
+          />
+        )}
+      </Show>
+
+      <Show when={current()?.enrolled === true && enrollment() === null}>
         <div class="flex items-center justify-between rounded-md border p-3">
           <div class="flex flex-col gap-0.5">
-            <span class="font-medium">{status()?.label ?? "Authenticator app"}</span>
+            <span class="font-medium">{current()?.label ?? "Authenticator app"}</span>
             <span class="text-muted-foreground text-xs">
-              Added {formatTs(status()?.createdAt ?? null)} · Last used{" "}
-              {formatTs(status()?.lastUsedAt ?? null)}
+              Added {formatTs(current()?.createdAt ?? null)} · Last used{" "}
+              {formatTs(current()?.lastUsedAt ?? null)}
             </span>
           </div>
           <Button variant="outline" size="sm" onClick={requestDisable} disabled={locked()}>
@@ -250,9 +266,18 @@ export function TotpView(props: TotpViewProps) {
               <OtpInput
                 value={code()}
                 onChange={setCode}
-                status={error() ? "error" : busy() ? "verifying" : "idle"}
+                status={error()?.code ? "error" : busy() ? "verifying" : "idle"}
                 autofocus
               />
+              {/* Announced, not yet tied: `OtpInput` takes no
+                  `aria-describedby` until englishstreetventures/osn#2041. */}
+              <Show when={error()?.code && error()}>
+                {(line) => (
+                  <Notice tone="danger" size="inline" alert>
+                    {line().text}
+                  </Notice>
+                )}
+              </Show>
             </div>
 
             <div class="flex gap-2">

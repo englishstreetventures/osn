@@ -7,6 +7,7 @@ import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Chip } from "@shared/ui/ui/chip";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 
@@ -157,7 +158,7 @@ export function PersonRow(props: {
     <>
       <ResultAvatar url={props.person.avatarUrl} label={props.person.handle} size="h-8 w-8" />
       <div class="min-w-0 flex-1">
-        <p class="text-foreground text-body truncate font-medium">
+        <p class="text-foreground text-title truncate font-medium">
           {props.person.displayName || `@${props.person.handle}`}
         </p>
         <Show when={props.person.displayName}>
@@ -184,11 +185,13 @@ export function OrganisationRow(props: { organisation: OrganisationSearchResult 
         size="h-8 w-8 rounded-md"
       />
       <div class="min-w-0 flex-1">
-        <p class="text-foreground text-body truncate font-medium">{props.organisation.name}</p>
+        <p class="text-foreground text-title truncate font-medium">{props.organisation.name}</p>
         <p class="text-muted-foreground text-meta truncate">@{props.organisation.handle}</p>
       </div>
       <Show when={props.organisation.isMember}>
-        <span class="text-muted-foreground text-meta shrink-0">Member</span>
+        <Chip variant="outline" treatment="tag" class="shrink-0">
+          Member
+        </Chip>
       </Show>
     </>
   );

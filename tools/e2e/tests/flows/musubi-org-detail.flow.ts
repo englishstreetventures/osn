@@ -11,13 +11,27 @@
  * The owner is the dev profile (`signInToMusubiAsDev`); the member and the
  * organisation the owner is not in are rows `seedOsn` writes (`MUSUBI_ORG`).
  * After the one page load that signs Musubi in, every step navigates inside
- * the app, and the last checks prove it.
+ * the app, and the checks on profile and token reads prove it.
+ *
+ * On the way it measures and shoots the surfaces these pages draw from shared
+ * parts (`musubi-surfaces.ts`): the create and edit dialogs' padded bodies and
+ * footers, the list's rows on `Card`, the roster's names and role `Chip`, a
+ * search result's name. Last, it loads `/authorize` with no request, which
+ * runs outside the session provider, and reads its dead-end box on `Card`.
  */
 
 import type { Page } from "@playwright/test";
 
 import { DB_FILES, MUSUBI_ORG, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToMusubiAsDev, test } from "../support/fixtures";
+import {
+  authorizeDeadSurfaces,
+  orgCreateDialogSurfaces,
+  orgEditDialogSurfaces,
+  orgListSurfaces,
+  orgRosterSurfaces,
+  searchSurfaces,
+} from "../support/musubi-surfaces";
 
 const { org, member, otherOrg } = MUSUBI_ORG;
 
@@ -54,17 +68,28 @@ function memberRows(): number {
 
 test("musubi-org-detail", async ({ page, flow }) => {
   const token = await signInToMusubiAsDev(flow, page, "/organisations");
+  // The page names the tab once it has rendered; the shell can land first.
+  await expect(page.getByRole("heading", { level: 1, name: "Organisations" })).toBeVisible();
+  flow.check("list tab title", "Organisations · Musubi", await page.title());
 
-  await flow.step("create the organisation", async () => {
+  const createDialog = page.getByRole("dialog", { name: "Create organisation" });
+  await flow.step("fill the create dialog", async () => {
     await page.getByRole("button", { name: "Create", exact: true }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Handle", { exact: true }).fill(org.handle);
-    await dialog.getByLabel("Name", { exact: true }).fill(org.name);
-    await dialog.getByRole("button", { name: "Create", exact: true }).click();
+    // The dialog moves focus to its first field as it opens. Typed before
+    // then, the next field's text can land in that one.
+    await expect(createDialog.getByLabel("Handle", { exact: true })).toBeFocused();
+    await createDialog.getByLabel("Handle", { exact: true }).fill(org.handle);
+    await createDialog.getByLabel("Name", { exact: true }).fill(org.name);
+  });
+  await orgCreateDialogSurfaces(flow, page);
+  const orgLink = page.getByRole("link", { name: new RegExp(org.name) });
+  await flow.step("create the organisation", async () => {
+    await createDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(page.getByText(`Created ${org.name}`)).toBeVisible();
-    await expect(page.getByRole("link", { name: new RegExp(org.name) })).toBeVisible();
+    await expect(orgLink).toBeVisible();
   });
   flow.check("organisation created", true, flow.saw("POST osn-api /organisations 201"));
+  await orgListSurfaces(flow, page, orgLink);
 
   await flow.step("add a member through the API", async () => {
     const url = `${ORIGINS.osnApi}/organisations/${org.handle}/members/${member.handle}`;
@@ -77,7 +102,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
   });
 
   await flow.step("open the organisation", async () => {
-    await page.getByRole("link", { name: new RegExp(org.name) }).click();
+    await orgLink.click();
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations/${org.handle}`);
     await expect(page.getByRole("heading", { level: 1, name: org.name })).toBeVisible();
     await expect(page.getByText(`@${member.handle}`, { exact: true })).toBeVisible();
@@ -87,6 +112,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
     org.name,
     (await page.getByRole("heading", { level: 1 }).textContent()) ?? "",
   );
+  flow.check("tab names the organisation", `${org.name} · Musubi`, await page.title());
   flow.check(
     "header shows the handle",
     true,
@@ -104,12 +130,17 @@ test("musubi-org-detail", async ({ page, flow }) => {
     1,
     await page.getByRole("button", { name: /^Remove/ }).count(),
   );
+  await orgRosterSurfaces(flow, page, member.name);
 
-  await flow.step("rename the organisation", async () => {
+  const editDialog = page.getByRole("dialog", { name: "Edit organisation" });
+  await flow.step("fill the edit dialog", async () => {
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Name", { exact: true }).fill(org.renamed);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(editDialog.getByLabel("Name", { exact: true })).toBeFocused();
+    await editDialog.getByLabel("Name", { exact: true }).fill(org.renamed);
+  });
+  await orgEditDialogSurfaces(flow, page);
+  await flow.step("rename the organisation", async () => {
+    await editDialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: org.renamed })).toBeVisible();
   });
   const saved = queryOne<{ name: string; created_at: number }>(
@@ -118,6 +149,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
     org.handle,
   );
   flow.check("organisation renamed in the database", org.renamed, saved?.name ?? "");
+  flow.check("tab follows the rename", `${org.renamed} · Musubi`, await page.title());
   flow.check("organisation row on the suite clock", true, onSuiteClock(saved?.created_at));
 
   await flow.step("remove the member", async () => {
@@ -137,11 +169,11 @@ test("musubi-org-detail", async ({ page, flow }) => {
   await flow.step("open an organisation the owner is not in, from search", async () => {
     const search = page.getByRole("combobox", { name: "Search people and organisations" });
     await search.fill("e2e_other");
-    await expect(
-      page.getByRole("option", {
-        name: `${otherOrg.name}, @${otherOrg.handle}, open organisation`,
-      }),
-    ).toBeVisible();
+    const option = page.getByRole("option", {
+      name: `${otherOrg.name}, @${otherOrg.handle}, open organisation`,
+    });
+    await expect(option).toBeVisible();
+    await searchSurfaces(flow, page, option, otherOrg.name);
     await search.press("ArrowDown");
     await search.press("Enter");
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations/${otherOrg.handle}`);
@@ -235,6 +267,8 @@ test("musubi-org-detail", async ({ page, flow }) => {
   // One page load: Musubi read its profiles and traded the cookie for a token once.
   flow.check("profiles listed once", 1, flow.count("GET osn-api /profiles/list "));
   flow.check("token granted once", 1, flow.count("POST osn-api /token "));
+
+  await authorizeDeadSurfaces(flow, page);
   flow.check(
     "no Content-Security-Policy message on a Musubi page",
     "",

@@ -20,8 +20,10 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SectionTabs } from "../components/SectionTabs";
+import { SignedOutNote } from "../components/SignedOutNote";
 import { graphClient } from "../lib/api";
 import { PRODUCT_NAME } from "../lib/auth";
+import { usePageTitle } from "../lib/page-title";
 
 type Tab = "all" | "pending" | "sent" | "blocked";
 
@@ -34,6 +36,7 @@ const TABS: { value: Tab; label: string }[] = [
 
 export function ConnectionsPage() {
   const { session } = useAuth();
+  usePageTitle(() => "Connections");
   const [tab, setTab] = createSignal<Tab>("all");
 
   // Single keyed resource for all four tabs. Rapid tab-switching
@@ -163,7 +166,10 @@ export function ConnectionsPage() {
         </p>
       </div>
 
-      <Show when={session()} fallback={<EmptyNote>Sign in to view your connections.</EmptyNote>}>
+      <Show
+        when={session()}
+        fallback={<SignedOutNote>Sign in to view your connections.</SignedOutNote>}
+      >
         <SectionTabs
           label="Connection filters"
           tabs={TABS}
@@ -312,7 +318,7 @@ export function ConnectionsPage() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <ResponsiveDialogContent class="max-w-sm">
+          <ResponsiveDialogContent>
             <DialogHeader>
               <DialogTitle>
                 Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?

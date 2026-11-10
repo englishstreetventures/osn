@@ -1,12 +1,21 @@
-import type { RecoveryClient, RecoveryProfile, RegistrationClient, Session } from "@osn/client";
+import {
+  describeAuthError,
+  type RecoveryClient,
+  type RecoveryProfile,
+  type RegistrationClient,
+  type Session,
+} from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
+import { fieldError, plainError, type FieldError } from "./error-lines";
+import { describePasskeyError } from "./passkey-errors";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
@@ -125,7 +134,10 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
   const [email, setEmail] = createSignal("");
   const [code, setCode] = createSignal("");
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  // One line, drawn by whichever step is on screen: above that step's action,
+  // or under the code boxes on the two code steps.
+  const [error, setError] = createSignal<FieldError | null>(null);
+  const errorId = createUniqueId();
   const [held, setHeld] = createSignal<HeldRecovery | null>(null);
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
@@ -295,10 +307,9 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
       await adoptSession(result.session);
       props.onSuccess?.();
     } catch (err) {
-      // Generic message — the server deliberately doesn't distinguish "wrong
-      // identifier" from "wrong code" to avoid a user-existence oracle.
-      setError("That recovery code didn't work. Double-check the code and identifier.");
-      void err;
+      // The server answers a wrong identifier and a wrong code alike, so the
+      // sentence names both and blames neither; a 429 says to wait.
+      setError(fieldError(describeAuthError(err, "recovery"), err));
     } finally {
       setBusy(false);
     }
@@ -308,24 +319,28 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     e.preventDefault();
     if (busy() || !email().trim()) return;
     if (turnstileOn() && !turnstileToken()) {
-      setError("Please complete the verification challenge below.");
+      setError(plainError("Please complete the verification challenge below."));
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await props.client.emailRecoveryBegin({
-        identifier: email().trim(),
-        turnstileToken: turnstileToken() ?? undefined,
-      });
-      // The token has now been redeemed and Cloudflare only auto-refreshes on
-      // expiry, not on consumption — so a second send (a typo, a resend)
-      // would replay a spent token and be rejected.
-      if (turnstileOn()) resetTurnstile?.();
+      try {
+        await props.client.emailRecoveryBegin({
+          identifier: email().trim(),
+          turnstileToken: turnstileToken() ?? undefined,
+        });
+      } finally {
+        // The server checks the token before it answers, so the call has
+        // spent it whether it was accepted or refused, and Cloudflare only
+        // refreshes a token when it expires — so a second send (a typo, a
+        // retry) would replay a spent token and be refused.
+        if (turnstileOn()) resetTurnstile?.();
+      }
       setCode("");
       setView("email-verify");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send a code");
+      setError(fieldError(describeAuthError(err, "details"), err));
     } finally {
       setBusy(false);
     }
@@ -343,7 +358,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
         }),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "That code didn't work");
+      setError(fieldError(describeAuthError(err, "code"), err));
     } finally {
       setBusy(false);
     }
@@ -361,7 +376,8 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
         }),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "That code didn't work");
+      // Handle or email plus a code, refused alike whichever was wrong.
+      setError(fieldError(describeAuthError(err, "recovery"), err));
     } finally {
       setBusy(false);
     }
@@ -440,25 +456,30 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
       setHeld(null);
       setView("enrolled");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't add a passkey");
+      setError(plainError(describePasskeyError(err, "registration")));
     } finally {
       setBusy(false);
     }
   }
 
+  /** This step's error line, wherever the step draws it. */
+  const errorLine = () => (
+    <Show when={error()}>
+      {(line) => (
+        <Notice tone="danger" size="inline" alert id={errorId}>
+          {line().text}
+        </Notice>
+      )}
+    </Show>
+  );
+  /** For a field the line is about: names the line, and marks a refused input. */
+  const tie = () => ({
+    "aria-describedby": error() ? errorId : undefined,
+    "aria-invalid": error()?.invalid || undefined,
+  });
+
   return (
     <div class="flex flex-col gap-4">
-      {/* Operand order is load-bearing: `&&` yields its LAST operand, so
-          putting the predicate first is what makes `msg()` the message rather
-          than the boolean `true`, which Solid renders as nothing. */}
-      <Show when={view() !== "expired" && error()}>
-        {(msg) => (
-          <p class="text-destructive text-sm" role="alert">
-            {msg()}
-          </p>
-        )}
-      </Show>
-
       <Show when={view() === "choose"}>
         <div class="flex flex-col gap-3">
           <p class="text-muted-foreground text-sm">
@@ -519,6 +540,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
               required
+              {...tie()}
             />
           </div>
           <div class="flex flex-col gap-1">
@@ -530,8 +552,10 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               value={code()}
               onInput={(e) => setCode(e.currentTarget.value)}
               required
+              {...tie()}
             />
           </div>
+          {errorLine()}
           <div class="flex gap-2">
             <Button type="submit" disabled={busy() || !identifier() || !code()}>
               {busy() ? "Signing in…" : "Sign in with recovery code"}
@@ -561,6 +585,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               value={email()}
               onInput={(e) => setEmail(e.currentTarget.value)}
               required
+              {...tie()}
             />
           </div>
           <TurnstileWidget
@@ -568,6 +593,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             onToken={setTurnstileToken}
             onReady={(c) => (resetTurnstile = c.reset)}
           />
+          {errorLine()}
           <div class="flex gap-2">
             <Button
               type="submit"
@@ -595,6 +621,9 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               status={error() ? "error" : busy() ? "verifying" : "idle"}
               autofocus
             />
+            {/* Announced, not yet tied: `OtpInput` takes no
+                `aria-describedby` until englishstreetventures/osn#2041. */}
+            {errorLine()}
           </div>
           <div class="flex gap-2">
             <Button onClick={verifyEmailCode} disabled={busy() || code().length !== 6}>
@@ -620,6 +649,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
               required
+              {...tie()}
             />
           </div>
           <div class="flex flex-col gap-2">
@@ -629,6 +659,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               onChange={setCode}
               status={error() ? "error" : busy() ? "verifying" : "idle"}
             />
+            {errorLine()}
           </div>
           <div class="flex gap-2">
             <Button
@@ -655,6 +686,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             this account — and it's short-lived, so do it now. Every other session on the account
             has been signed out.
           </p>
+          {errorLine()}
           <div class="flex gap-2">
             <Button onClick={enrolPasskey} disabled={busy()}>
               {busy() ? "Waiting for your passkey…" : error() ? "Try again" : "Add a passkey"}

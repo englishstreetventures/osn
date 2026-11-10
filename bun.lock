@@ -316,7 +316,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.19",
+      "version": "0.2.20",
       "dependencies": {
         "@astrojs/solid-js": "7.1.0",
         "@shared/legal": "workspace:*",
@@ -337,7 +337,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.18.37",
+      "version": "0.19.1",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -352,6 +352,7 @@
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@shared/color": "workspace:*",
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -399,7 +400,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "4.0.0",
+      "version": "4.1.0",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -421,7 +422,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "dependencies": {
         "effect": "4.1.2",
       },
@@ -519,7 +520,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.33",
+      "version": "0.1.34",
       "dependencies": {
         "@astrojs/solid-js": "7.1.0",
         "@shared/legal": "workspace:*",
@@ -541,7 +542,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.61",
+      "version": "0.24.64",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -644,7 +645,7 @@
     },
     "shared/design-tokens": {
       "name": "@shared/design-tokens",
-      "version": "0.3.9",
+      "version": "0.5.0",
       "dependencies": {
         "@shared/color": "workspace:*",
       },
@@ -828,7 +829,7 @@
     },
     "shared/toast": {
       "name": "@shared/toast",
-      "version": "0.3.12",
+      "version": "0.3.13",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -856,7 +857,7 @@
     },
     "shared/ui": {
       "name": "@shared/ui",
-      "version": "0.10.3",
+      "version": "0.11.1",
       "dependencies": {
         "@kobalte/core": "^0.13.14",
         "class-variance-authority": "^0.7.1",
@@ -897,7 +898,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.39",
+      "version": "0.3.42",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@shared/color": "workspace:*",
@@ -921,7 +922,7 @@
     },
     "tools/metrics": {
       "name": "@tools/metrics",
-      "version": "0.2.46",
+      "version": "0.2.48",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",

@@ -79,7 +79,7 @@ Report the issues opened and the issue numbers this branch closes — Step 8 nee
 
 ## Step 9 — Push and open the PR
 
-Run `git push -u origin HEAD`, then open the PR **against `$BASE` from Step 0**, not against `main`, with `write-pr` Step 6's REST command: `base` is `$BASE`, the title and the body file are `write-pr`'s, and `-F draft=true` is added when `SKILL.md` Step 9 says the pull request waits on the owner. Then run that step's closes check.
+Once `retro` has committed the card and its block is the last thing in the body file (`SKILL.md` Step 9), run `git push -u origin HEAD`, then open the PR **against `$BASE` from Step 0**, not against `main`, with `write-pr` Step 6's REST command: `base` is `$BASE`, the title and the body file are `write-pr`'s, and `-F draft=true` is added when `SKILL.md` Step 9 says the pull request waits on the owner. Then run that step's closes check.
 
 With no network or no `gh`, record that the PR was not opened, name the base it should target, and leave the body file in place. That is a complete run.
 

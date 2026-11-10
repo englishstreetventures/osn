@@ -8,10 +8,11 @@ import { Label } from "@shared/ui/ui/label";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
-import { EmptyNote } from "../components/EmptyNote";
 import { SectionTabs } from "../components/SectionTabs";
+import { SignedOutNote } from "../components/SignedOutNote";
 import { PRODUCT_NAME } from "../lib/auth";
 import { registrationClient } from "../lib/authClients";
+import { usePageTitle } from "../lib/page-title";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
 // Code-split the Security section so `@simplewebauthn/browser` is only
@@ -43,6 +44,7 @@ function sectionFromHash(hash: string): Section {
 
 export function SettingsPage() {
   const { session, profiles, activeProfileId } = useAuth();
+  usePageTitle(() => "Settings");
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -82,7 +84,10 @@ export function SettingsPage() {
         </p>
       </div>
 
-      <Show when={session()} fallback={<EmptyNote>Sign in to manage your settings.</EmptyNote>}>
+      <Show
+        when={session()}
+        fallback={<SignedOutNote>Sign in to manage your settings.</SignedOutNote>}
+      >
         {/* Profile onboarding banner */}
         <div class="mb-4">
           <ProfileOnboarding checkHandle={registrationClient.checkHandle} dismissible />
@@ -114,10 +119,10 @@ export function SettingsPage() {
                 <AvatarFallback size="lg">{profileInitials(activeProfile())}</AvatarFallback>
               </Avatar>
               <div>
-                <p class="text-foreground font-medium">
+                <p class="text-foreground text-title font-medium">
                   {activeProfile()?.displayName || `@${claims().handle}`}
                 </p>
-                <p class="text-muted-foreground text-body">@{claims().handle}</p>
+                <p class="text-muted-foreground text-meta">@{claims().handle}</p>
               </div>
             </div>
 

@@ -4,6 +4,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
+import { SERVER, alertsText, apiError } from "./helpers/errors";
 
 /**
  * Settings banner for out-of-band security events (M-PK1b). Tests cover:
@@ -13,7 +14,7 @@ import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
  *   - unknown kinds fall through to a generic message (forward-compat)
  *   - "Acknowledge" opens the step-up dialog, NOT the ack endpoint directly
  *   - a successful step-up ceremony calls acknowledgeAll and optimistically removes the events
- *   - a rejected acknowledgeAll surfaces the error text in the banner
+ *   - a rejected acknowledgeAll shows the map's sentence in the banner, never its text
  */
 
 interface ClientStub {
@@ -180,9 +181,11 @@ describe("SecurityEventsBanner", () => {
     });
   });
 
-  it("surfaces an error message when acknowledgeAll rejects", async () => {
+  it("reads a rejected acknowledgeAll as the map's sentence, never its text", async () => {
     stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
-    stub.acknowledgeAll.mockRejectedValue(new Error("server on fire"));
+    stub.acknowledgeAll.mockRejectedValue(
+      apiError("PLANTED server on fire", 500, "internal_error"),
+    );
     render(() => (
       <SecurityEventsBanner
         client={asClient(stub)}
@@ -200,9 +203,9 @@ describe("SecurityEventsBanner", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
-    await waitFor(() => {
-      expect(screen.getByText(/server on fire/)).toBeTruthy();
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(SERVER);
+    expect(alertsText()).not.toContain("PLANTED");
   });
 
   // A host may mount this in an application shell rather than a settings

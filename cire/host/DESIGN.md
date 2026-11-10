@@ -603,10 +603,12 @@ the next click, so `@media (pointer: fine)` shortens the ladder to 90 / 150 /
 query reads the _primary_ pointer, so a touch laptop driven by its trackpad
 gets the desk pace. `Modal` (`@shared/ui`) takes its two durations from the same
 ladder through `--ui-modal-enter` and `--ui-modal-exit`, set under the same
-query. A new motion reaches for a `--dur-*` token, never a literal or
-Tailwind's bare 150ms `transition`, so it follows the input with everything
-else. The one kind written as its own duration is a pulse far longer than
-`--dur-slow`, and there are two: the attention glow,
+query. On touch it runs its own fallbacks: a 350ms rise, and a 150ms exit
+that matches the desk rather than a touch `--dur-*` rung. A new motion
+reaches for a `--dur-*` token, never a literal or Tailwind's bare 150ms
+`transition`, so it follows the input with everything else. The one kind
+written as its own duration is a pulse far longer than `--dur-slow`, and
+there are two: the attention glow,
 `calc(2.6s * var(--motion-scale))`, and the loaders' pulse, which `Loading`
 and `Skeleton` share (`@cire/ui`'s `lib/pulse.ts`), and `SkeletonOutline`'s
 bars, blocks and glyphs run on the same values: Tailwind's `pulse`

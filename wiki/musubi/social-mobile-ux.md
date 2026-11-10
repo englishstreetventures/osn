@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-09
 ---
 
 # Social — Mobile UX analysis & plan
@@ -42,8 +42,9 @@ pulse consume them too).
 > bar), `MobileTopBar.tsx` (mobile header), `ResponsiveDialogContent.tsx`
 > (bottom-sheet dialog face), `AccountMenu` / `AuthDialogs` /
 > `ProfileSwitcherDialog` (account UI shared by the shells — only the
-> active shell mounts, gated on an `md` matchMedia signal in `Layout`,
-> which also keeps the auth-dialog surface single-instance), safe-area +
+> active shell mounts, gated on an `md` matchMedia signal in `Layout`, and
+> the three dialogs mount once above that switch, in `ShellDialogs.tsx`, so
+> one open across a switch stays open), safe-area +
 > `pb-nav` utilities and the 16 px mobile-input rule in `App.css`, and a
 > **Responsive layout** section in `DESIGN.md` that locks the system
 > (single `md` breakpoint, `max-md:` touch-target mechanism, sheet dialogs,
@@ -53,8 +54,9 @@ pulse consume them too).
 > **Prep-pr review round (2026-07-28):** security pass (duplicate dialog mounts → resolved structurally by single-shell mounting; nav icons now `aria-hidden`), perf pass (both shells always
 > mounted → conditional mount + one `MobileChrome` chunk; duplicate dialog/memo work → falls out of that; `useIsMobile` first-frame
 > flip → synchronous matchMedia init), tests (T-M1/T-M2/T-U1/T-U2/T-S1
-> written; T-S2 Layout-composition test deferred — `AuthProvider`
-> bootstraps a network `POST /token`, so it needs a heavier fixture).
+> written; T-S2, the Layout composition, is `tests/App.browser.test.tsx`,
+> which mocks `AuthProvider` because the real one bootstraps a network
+> `POST /token`).
 
 Platform priority is **iOS > Web > Android** ([[monorepo-structure#Native apps (iOS)]]), so mobile Safari is
 the primary target for every fix below.

@@ -2,8 +2,9 @@ import { useAuth } from "@osn/client/solid";
 import { Input } from "@shared/ui/ui/input";
 import { For, onMount, Show } from "solid-js";
 
-import { EmptyNote } from "../components/EmptyNote";
 import { OrganisationLink, PersonRow, useSearchActions } from "../components/SearchResultRows";
+import { SignedOutNote } from "../components/SignedOutNote";
+import { usePageTitle } from "../lib/page-title";
 import { createSearchController } from "../lib/search";
 
 /**
@@ -18,6 +19,7 @@ import { createSearchController } from "../lib/search";
  */
 export function SearchPage() {
   const { session } = useAuth();
+  usePageTitle(() => "Search");
 
   const controller = createSearchController(() => Boolean(session()), {
     limit: 15,
@@ -37,7 +39,7 @@ export function SearchPage() {
 
       <Show
         when={session()}
-        fallback={<EmptyNote>Sign in to search people and organisations.</EmptyNote>}
+        fallback={<SignedOutNote>Sign in to search people and organisations.</SignedOutNote>}
       >
         {/* The "@" sits ahead of the box rather than over it: `Input` owns its
             padding, and this is the treatment `@shared/ui`'s own `UsernameInput`
@@ -82,7 +84,7 @@ export function SearchPage() {
             }
           >
             <Show when={controller.people().length > 0}>
-              <h2 class="text-muted-foreground text-meta mb-1 px-3">People</h2>
+              <h2 class="text-foreground text-title mb-1 px-3 font-medium">People</h2>
               <ul class="mb-6 flex flex-col gap-0.5">
                 <For each={controller.people()}>
                   {(person) => (
@@ -95,7 +97,7 @@ export function SearchPage() {
             </Show>
 
             <Show when={controller.organisations().length > 0}>
-              <h2 class="text-muted-foreground text-meta mb-1 px-3">Organisations</h2>
+              <h2 class="text-foreground text-title mb-1 px-3 font-medium">Organisations</h2>
               <ul class="flex flex-col gap-0.5">
                 <For each={controller.organisations()}>
                   {(organisation) => (

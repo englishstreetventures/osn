@@ -78,6 +78,13 @@ export interface ConformanceOptions {
    * that draws a control boundary falls back to this package's neutral grey.
    */
   waived?: Readonly<Record<string, string>>;
+  /**
+   * The pairs to measure, in place of the contract's own
+   * ({@link contrastPairs}). For a pair an app adds on top of the contract —
+   * a fill drawn as ink where the app uses it so, say — measured on the
+   * grounds where the app draws it.
+   */
+  pairs?: readonly { fg: string; bg: string; min: number }[];
 }
 
 export interface ConformanceFailure {
@@ -206,13 +213,13 @@ function over(fg: Oklch, bg: Oklch): Oklch {
  * each is an afternoon.
  */
 export function checkContractConformance(options: ConformanceOptions): ConformanceFailure[] {
-  const { css, scopes, waived = {} } = options;
+  const { css, scopes, waived = {}, pairs = contrastPairs() } = options;
   const failures: ConformanceFailure[] = [];
 
   for (const scope of scopes) {
     const decls = collect(css, scope.selectors);
 
-    for (const { fg, bg, min } of contrastPairs()) {
+    for (const { fg, bg, min } of pairs) {
       const skip = waived[fg] ?? waived[bg];
       if (skip !== undefined) continue;
 

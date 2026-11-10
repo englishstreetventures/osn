@@ -31,3 +31,23 @@ export const emulateMedia = defineBrowserCommand<
 >(async (ctx, options) => {
   await ctx.page.emulateMedia(options);
 });
+
+/**
+ * Move the real pointer to a point on an element, in `steps` moves from where
+ * it is now. `x` and `y` are fractions of the element's box, so `0.5, 0.5` is
+ * its centre and `0.5, 1.2` is just below it.
+ *
+ * Playwright's mouse sends input through the browser, which then fires
+ * `pointerleave`, `pointerenter` and `pointermove` in its own order. A test that
+ * dispatched those events itself would set the order it is meant to check, so a
+ * claim about how a hover panel behaves while the pointer crosses to it needs
+ * the real thing. The box is read through the test's frame, so a scaled or
+ * offset iframe still lands on the element.
+ */
+export const movePointer = defineBrowserCommand<
+  [{ selector: string; x?: number; y?: number; steps?: number }]
+>(async (ctx, { selector, x = 0.5, y = 0.5, steps = 1 }) => {
+  const box = await ctx.iframe.locator(selector).first().boundingBox();
+  if (!box) throw new Error(`nothing to point at: ${selector}`);
+  await ctx.page.mouse.move(box.x + box.width * x, box.y + box.height * y, { steps });
+});

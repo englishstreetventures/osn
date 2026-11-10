@@ -4,9 +4,13 @@ import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
-import { createSignal, Show, onMount } from "solid-js";
+import { createSignal, createUniqueId, Show, onMount } from "solid-js";
 
+import { fieldError, plainError, type FieldError } from "./error-lines";
+import { InlineAction } from "./InlineAction";
+import { describePasskeyError } from "./passkey-errors";
 import { RecoveryLoginForm } from "./RecoveryLoginForm";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
@@ -65,7 +69,10 @@ export function SignIn(props: SignInProps) {
   const [view, setView] = createSignal<View>("passkey");
   const [identifier, setIdentifier] = createSignal("");
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  // The line under the identifier field, and whether it came from the passkey
+  // attempt — that one carries the "Lost your passkey?" pointer.
+  const [error, setError] = createSignal<(FieldError & { passkey: boolean }) | null>(null);
+  const errorId = createUniqueId();
   const [signedIn, setSignedIn] = createSignal(false);
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
@@ -74,10 +81,10 @@ export function SignIn(props: SignInProps) {
   // current one is redeemed by `/login/passkey/begin` (tokens are single-use).
   let resetTurnstile: (() => void) | undefined;
 
-  function reportError(e: unknown, fallback: string) {
-    const msg = e instanceof Error ? e.message : fallback;
-    setError(msg);
-    toast.error(msg);
+  /** The recovery form, with this form's error left behind. */
+  function openRecovery() {
+    setError(null);
+    setView("recovery");
   }
 
   async function finishWithSession(session: Parameters<typeof adoptSession>[0]) {
@@ -91,7 +98,10 @@ export function SignIn(props: SignInProps) {
     e.preventDefault();
     if (busy() || !identifier().trim()) return;
     if (turnstileOn() && !turnstileToken()) {
-      setError("Please complete the verification challenge below.");
+      setError({
+        ...plainError("Please complete the verification challenge below."),
+        passkey: false,
+      });
       return;
     }
     setBusy(true);
@@ -99,40 +109,32 @@ export function SignIn(props: SignInProps) {
     try {
       const trimmed = identifier().trim();
       const token = turnstileToken() ?? undefined;
-      // Pass the token only when present so the no-Turnstile call shape is
-      // unchanged (single-arg `passkeyBegin(identifier)`).
-      const beginResult = (await (token
-        ? client.passkeyBegin(trimmed, token)
-        : client.passkeyBegin(trimmed))) as {
-        options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
-      };
-      // The token (if any) has now been redeemed by `/begin`. Tokens are
-      // single-use, so retire it and ask the widget for a fresh one — otherwise
-      // any retry (cancelled ceremony, wrong passkey, …) replays the redeemed
-      // token, the server rejects it `timeout-or-duplicate`, and the user is
-      // trapped on the login screen. Cloudflare only auto-refreshes on the
-      // ~300s expiry, not on consumption, so we must reset explicitly.
-      if (turnstileOn()) resetTurnstile?.();
+      let beginResult: { options: Parameters<typeof startAuthentication>[0]["optionsJSON"] };
+      try {
+        // Pass the token only when present so the no-Turnstile call shape is
+        // unchanged (single-arg `passkeyBegin(identifier)`).
+        beginResult = (await (token
+          ? client.passkeyBegin(trimmed, token)
+          : client.passkeyBegin(trimmed))) as typeof beginResult;
+      } finally {
+        // The server checks the token before it answers, so `/begin` has
+        // spent it whether it accepted or refused. Tokens are single-use, so
+        // retire it and ask the widget for a fresh one — otherwise any retry
+        // replays the spent token, the server refuses it, and the user is
+        // trapped on the sign-in screen. Cloudflare only refreshes a token
+        // when it expires (~300s), never when it is spent.
+        if (turnstileOn()) resetTurnstile?.();
+      }
       const assertion = await startAuthentication({ optionsJSON: beginResult.options });
       const { session } = await client.passkeyComplete({ identifier: trimmed, assertion });
       await finishWithSession(session);
     } catch (err) {
-      // A `NotAllowedError` from the WebAuthn ceremony is the browser's opaque
-      // "timed out or not allowed" — the same error it raises when the passkey
-      // was registered under a since-retired RP ID. After the 2026-07-27 move
-      // to the `musubi.social` RP, pre-migration credentials no longer assert
-      // here, so point the user straight at the recovery escape hatch (the
-      // "Lost your passkey?" link below) rather than echoing the raw message.
-      if (err instanceof Error && err.name === "NotAllowedError") {
-        reportError(
-          new Error(
-            "That passkey didn't work. Passkeys created before the move to musubi.social no longer sign in here — use a recovery code instead (“Lost your passkey?” below).",
-          ),
-          "Sign-in failed",
-        );
-      } else {
-        reportError(err, "Sign-in failed");
-      }
+      // Never the error's own text: the server's and the browser's words stay
+      // off the screen, and two failures the server answers alike read alike.
+      setError({
+        ...fieldError(describePasskeyError(err, "authentication"), err),
+        passkey: true,
+      });
     } finally {
       setBusy(false);
     }
@@ -210,7 +212,22 @@ export function SignIn(props: SignInProps) {
               autocomplete="username webauthn"
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
+              aria-describedby={error() ? errorId : undefined}
+              aria-invalid={error()?.invalid || undefined}
             />
+            <Show when={error()}>
+              {(line) => (
+                <Notice tone="danger" size="inline" alert id={errorId}>
+                  {line().text}
+                  {/* The passkey sentence names no cause, so the way in
+                      without one sits beside it. */}
+                  <Show when={line().passkey}>
+                    {" "}
+                    <InlineAction onClick={openRecovery}>Lost your passkey?</InlineAction>
+                  </Show>
+                </Notice>
+              )}
+            </Show>
           </div>
           {/* Turnstile challenge — renders only when a sitekey is provided. */}
           <TurnstileWidget
@@ -226,7 +243,7 @@ export function SignIn(props: SignInProps) {
           </Button>
           <button
             type="button"
-            onClick={() => setView("recovery")}
+            onClick={openRecovery}
             class="text-primary self-start text-sm font-medium hover:underline"
           >
             Lost your passkey?
@@ -249,7 +266,7 @@ export function SignIn(props: SignInProps) {
             </li>
             <li>Plug in a FIDO2 security key and reload the page.</li>
           </ul>
-          <Button type="button" variant="secondary" onClick={() => setView("recovery")}>
+          <Button type="button" variant="secondary" onClick={openRecovery}>
             Use a recovery code instead
           </Button>
         </div>
@@ -268,10 +285,6 @@ export function SignIn(props: SignInProps) {
           }}
           onCancel={() => setView("passkey")}
         />
-      </Show>
-
-      <Show when={error()}>
-        <p class="text-destructive mt-3 text-xs">{error()}</p>
       </Show>
     </div>
   );

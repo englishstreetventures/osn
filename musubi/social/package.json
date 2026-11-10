@@ -1,6 +1,6 @@
 {
   "name": "@musubi/social",
-  "version": "0.18.37",
+  "version": "0.19.1",
   "private": true,
   "description": "Musubi — identity and social graph app, built on OSN",
   "type": "module",
@@ -38,6 +38,7 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@shared/color": "workspace:*",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",

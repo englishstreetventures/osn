@@ -1,5 +1,58 @@
 # @osn/social
 
+## 0.19.1
+
+### Patch Changes
+
+- 65d9924: Musubi's screens draw from the shared parts they were copying. A signed-out page now offers a Sign in under its note, outside the note's live region, which opens the sign-in dialog; until the dialogs have loaded it stays hidden and keeps its place, so it never offers a dialog that cannot open. The organisation create and edit dialogs pad their fields 16px from the edge and put their buttons in `DialogFooter`. The organisations list's rows are `Card`s: they keep the card's fill in the dark theme, and their chevron turns to full ink on hover and press. A member's role is an outlined `Chip` reading "Admin" or "Member" rather than the API's raw value, and `/authorize`'s "Third-party app" mark is the same chip, its word kept at 500. Names in search results, Settings' profile card and `/authorize`'s account, picker and consent screens, and the "Signed in as", "People" and "Organisations" headings, take the title step at 500; the handle under Settings' profile name takes `text-meta`. "Member" on a search result is the same outlined `Chip` as the roster's. The organisations list truncates a long name or handle, and its loading placeholder is the 74px height of a loaded row. `/authorize`'s two consent marks take `text-meta`, which exists, in place of `text-caption`, which did not, and its dead-end and error boxes and its consent screen's scope rows are `Card`s. The rail's search field takes its height from `Input`. The draft line on `/privacy` and `/terms` is a warn `Notice`: its words and its mark in warn ink on the notice's wash, 5.25:1 in light and 8.20:1 in dark. `DESIGN.md` records each of these, with the new §Chips, the form-dialog shape, the field heights, and warn ink allowed inside a `Notice` and nowhere else.
+
+## 0.19.0
+
+### Minor Changes
+
+- e71aee5: Errors read as plain sentences, in the place they are about.
+
+  - `@osn/auth-ui`: every view shows a sentence from `describeAuthError` or `describePasskeyError`, never an error's own text, in an inline danger `Notice` with `role="alert"` — under the field it is about (tied by `aria-describedby`, `aria-invalid` only when the input was refused) or above the action it follows. No error toasts. `SignIn`'s passkey error carries "Lost your passkey?"; `Register`'s age hint reads "You must be 13 or older to create an account."; `TurnstileWidget` says "Reload and try again". A failed passkey, authenticator or session list says it didn't load, with Try again, instead of throwing. Every call that spends a Turnstile token asks for a fresh one when it is refused. `Register` drops a spent token with its widget instead of running a challenge nobody uses, and its code step mounts a widget of its own for "Resend code" once the countdown ends. `ChangeEmailForm` and `StepUpDialog` group each field under a `Label`, and their raw inputs turn red when refused. `InlineAction` draws Button's focus ring. `SecurityEventsBanner`'s error line sits above its box, on the page.
+  - `@osn/client`: `useAuth()` gains `profilesError` and `refetchProfiles`. A profile list that fails keeps the last list instead of throwing on read; when no session exists any longer, however it went, the list and its error go, and one that settles after that is dropped. Adopting a first session lists the profiles once, not twice; adopting one over another drops the old account's list first. The provider treats a session that failed to load as none, so reading it throws nowhere inside the provider.
+  - `@musubi/social`: the shell says "You've been signed out." with Sign in when the session ends, and "Your profiles didn't load." with Try again when the list fails. A page that throws while rendering shows "This page didn't load." with Try again inside the shell instead of blanking the app. `/authorize` reads its failures from the copy map. Every failed-load and error line, on `/authorize`, Connected apps and an organisation's page included, is a danger `Notice`, apart from the shell frame's own load-failure line. Connected apps' revoke and an organisation's save, delete and member removal name what failed, then the copy map's sentence. The signed-out notice's Sign in opens the shell's sign-in dialog once its chunk has loaded.
+  - `@shared/design-tokens`: `checkContractConformance` takes an optional `pairs` list to measure in place of the contract's own.
+
+### Patch Changes
+
+- Updated dependencies [e71aee5]
+  - @osn/auth-ui@4.1.0
+  - @osn/client@3.1.0
+  - @shared/design-tokens@0.5.0
+  - @shared/ui@0.11.1
+
+## 0.18.40
+
+### Patch Changes
+
+- Updated dependencies [f2c7a76]
+  - @shared/ui@0.11.1
+  - @shared/toast@0.3.13
+  - @osn/auth-ui@4.0.2
+
+## 0.18.39
+
+### Patch Changes
+
+- d3fe597: Overlays leave faster and smaller than they arrive, and each motion token says what it is for. `tokens.css` adds `--ui-dur-exit` (80ms), `--ui-scale-enter` (0.96), `--ui-scale-exit` (0.98), `--ui-distance-enter` (24px) and `--ui-distance-exit` (8px), each with a one-line job comment, and `CONTRACT_SCALAR_TOKENS.motion` lists them. `animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` replace `zoom-in-95` and `zoom-out-95` and read the scale tokens. Under `prefers-reduced-motion: reduce`, `animate-in` and `animate-out` run nothing: the old reduced-motion rule matched no overlay, so `Dialog`, `Popover` and the default `DropdownMenu` still moved.
+
+  In `@shared/ui`, `Dialog`, `Popover` and both `DropdownMenu` looks take their scale from the tokens; `Popover`, `Tooltip` and the default menu grow from their trigger. `Tooltip` opens after 400ms, goes at once with no exit (the pointer can still cross onto it), and a neighbour opened within 300ms of another closing carries `data-instant` and does not animate. `Modal` exits in 150ms by default (was 200ms), sinking 8px to 0.98 rather than 24px, and its backdrop fades out with it. Musubi's `DESIGN.md` names the shared overlay motion; the lab's motion story reads the new duration.
+
+- Updated dependencies [d3fe597]
+  - @shared/design-tokens@0.4.0
+  - @shared/ui@0.11.0
+  - @osn/auth-ui@4.0.1
+
+## 0.18.38
+
+### Patch Changes
+
+- 0f3f24d: The app shell holds still and keeps its dialogs across the 768px switch. While the rail's or the top bar's chunk loads, a frame of the same box holds its place, so the page does not jump 240px sideways (or 49px down on a phone) on a cold load; if the shell's chunk or the dialogs' chunk fails to load, the frame stays and says to reload, and a later load that succeeds draws the shell with working dialogs. The sign-in, create-account and profile-switcher dialogs are mounted once, above the shell switch, so one open while the window crosses 768px stays open with what was typed. Every app dialog gives focus back to the control that opened it, and each has a name for assistive technology; the profile switcher marks the active profile with `aria-current`. On a phone a dialog's sheet is as wide as the screen; `ResponsiveDialogContent` takes a `width` prop for its desktop cap and takes no `class`. A pointer click on a rail search result opens or connects it, and the results panel is drawn as the rail's menus are (8px corners, the raised surface). The phone top bar's controls are 40px tall. Discover's two columns and the organisation list's description start at 768px, the app's one breakpoint, and a test fails on any other breakpoint in `src/`'s `.ts`, `.tsx` and `.css` files. Each page names the browser tab after its heading ("Discover · Musubi").
+
 ## 0.18.37
 
 ### Patch Changes

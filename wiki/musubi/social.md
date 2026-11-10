@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-10
 ---
 
 # Social
@@ -52,9 +52,21 @@ a route there only when leaving the flow would be a security problem.
 The app has two shells split at the `md` (768 px) breakpoint: the 240 px
 left rail on desktop, and a bottom-tab-bar + top-bar shell on mobile
 (`MobileNav` / `MobileTopBar`, nav items shared via `nav.tsx`; dialogs render
-as bottom sheets through `ResponsiveDialogContent`). The mobile UX audit and
-the design rules the responsive work follows live in [[social-mobile-ux]] and
-`DESIGN.md` §Responsive layout.
+as bottom sheets through `ResponsiveDialogContent`). Each shell is a lazy
+chunk; until it lands, `Layout` draws a frame of the same box
+(`ShellFrame.tsx`), so the page does not move. The sign-in, create-account and
+profile-switcher dialogs are mounted once above the shell switch
+(`ShellDialogs.tsx`, which loads all three as one lazy chunk,
+`ShellDialogSet.tsx`), and the shell waits for that chunk too, so no Sign in
+button shows before its dialog can open; a later load that succeeds mounts
+them. A signed-out page's own Sign in (`SignedOutNote`) reads
+`useShellDialogs().ready()` and stays `invisible` until the dialogs have
+mounted, so it holds its place and offers no dialog that cannot open. Every app dialog gives focus back to the control that opened it
+(`ResponsiveDialogContent`). Each page in the shell (every route but
+`/authorize`) names the browser tab after its `h1` through `usePageTitle`
+(`src/lib/page-title.ts`).
+The mobile UX audit and the design rules the responsive work follows live in
+[[social-mobile-ux]] and `DESIGN.md` §Responsive layout.
 
 ## Account-health banners
 
@@ -105,11 +117,28 @@ banners read endpoints limited to 30 requests a minute **per IP**, a Solid
 resource rethrows its fetch error on read, and shell code has no page-sized
 blast radius: one 429 on a shared address would otherwise blank every route.
 
+Each route renders inside `PageErrorBoundary` (`src/components/PageErrorBoundary.tsx`),
+below the banners, so a page that throws while it renders shows "This page
+didn't load." with Try again in the content column, and the rail, the tab bar
+and the banners stay drawn. It resets on its own when the path changes, never
+shows the error's text, and imports nothing from `@osn/client`: it is in the
+entry chunk `/authorize` downloads too.
+
+Above the banners, `ShellNotices` (`src/components/ShellNotices.tsx`, loaded
+with the shell, never on `/authorize`) says two things about the session
+itself: "You've been signed out." with Sign in when the session ends (see
+[[#Auth]]), and "Your profiles didn't load." with Try again when the account's
+profile list fails. `AuthProvider` keeps the last list it had when a list
+fails, so the shell drawn from it stays drawn, and exposes the failure as
+`profilesError` and the retry as `refetchProfiles` (`osn/client/README.md`).
+How each looks: `musubi/social/DESIGN.md` §Empty states and failed loads and
+§Auth surfaces.
+
 ## Search surfaces — two ARIA patterns, deliberately
 
 The rail (`GlobalSearch`) and the page (`SearchPage`) render the same results under different accessibility contracts, because the two patterns are mutually exclusive:
 
-- **Rail = combobox + listbox.** Activation runs through virtual focus (`aria-activedescendant` + Enter), and an ARIA listbox option may not contain operable descendants — assistive tech flattens an option to its accessible name, so a nested button or link is announced as text and cannot be triggered. So the option **is** the target (click or Enter), the Connect/Accept text is a non-interactive label, and each option carries an `aria-label` naming what activating it does ("Alice A, @alice, accept connection request").
+- **Rail = combobox + listbox.** Activation runs through virtual focus (`aria-activedescendant` + Enter), and an ARIA listbox option may not contain operable descendants — assistive tech flattens an option to its accessible name, so a nested button or link is announced as text and cannot be triggered. So the option **is** the target (click or Enter), the Connect/Accept text is a non-interactive label, and each option carries an `aria-label` naming what activating it does ("Alice A, @alice, accept connection request"). An option cannot take focus, so the results panel cancels `mousedown`: a press keeps focus in the field, the field's `focusout` does not close the panel, and the click lands on the option. A press outside the panel still blurs the field and closes it.
 - **Page = plain list.** No virtual focus, no listbox constraint, so it keeps real `<Button>`s and a real `<A>` per row.
 
 `PersonAction`'s `interactive` prop is what switches between them. Changing one surface to match the other is almost always wrong — check which pattern you're in first.
@@ -210,7 +239,7 @@ The move from `id.cireweddings.com` happened 2026-07-27 — see
 
 ## Auth
 
-Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. `src/lib/auth.ts` builds the page's one auth runtime, `osnAuth`; both providers (the shell's and the consent screen's sign-in island) take it, and every authenticated client in `src/lib/authClients.ts` and `src/lib/api.ts` is built with its `authFetch`, so no component holds or sends a token. Access tokens live only in the page's memory, and storage holds no token at all ([[identity-model#Client Storage Model]]); the refresh token lives in an HttpOnly cookie, and a reload gets its token from it. `authFetch` renews the token before it expires and on a 401, and a refused renewal signs the page out — see [[sessions#Renewal in the browser]]. Resources key on the `session()` object, which a renewal does not replace, so a renewal refetches nothing. A "Lost your passkey?" link routes to the recovery-code login form.
+Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. `src/lib/auth.ts` builds the page's one auth runtime, `osnAuth`; both providers (the shell's and the consent screen's sign-in island) take it, and every authenticated client in `src/lib/authClients.ts` and `src/lib/api.ts` is built with its `authFetch`, so no component holds or sends a token. Access tokens live only in the page's memory, and storage holds no token at all ([[identity-model#Client Storage Model]]); the refresh token lives in an HttpOnly cookie, and a reload gets its token from it. `authFetch` renews the token before it expires and on a 401, and a refused renewal signs the page out — see [[sessions#Renewal in the browser]]. The page says so: the runtime tells `onSessionChange` listeners the session `ended`, and `ShellNotices` shows "You've been signed out." with a Sign in button that opens the sign-in dialog — once, however many requests failed, and cleared by the next session. Another tab's sign-out, or a sign-in to another account there, ends this tab's session the same way, so every other open tab says it too. A log out from this tab, and a cold load with no session, show nothing. The notice opens the sign-in dialog through `useShellDialogs()` (`src/components/ShellDialogs.tsx`), the one the shell's own buttons open. Resources key on the `session()` object, which a renewal does not replace, so a renewal refetches nothing. A "Lost your passkey?" link routes to the recovery-code login form.
 
 ### Where the WebAuthn runtime ships
 
@@ -281,6 +310,19 @@ Per-user limiters on the two recommendations endpoints, both fail-closed — 20 
 
 `tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: it searches only while enabled (signed in) and never handles a token, the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
 
-`tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, queries below the two-character minimum never leave the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter and click both activate the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
+`tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, a query that normalises to nothing never leaves the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter activates the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. A pointer click is tested in Chromium instead (`tests/components/GlobalSearch.browser.test.tsx`), because happy-dom's synthetic click skips the press and the focus change that decide whether it lands: clicking an organisation opens it, clicking a person connects once and leaves focus in the field, and a click outside still closes the results.
+
+`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders; the dialogs' one also checks that a page's signed-out note holds its Sign in back until the dialogs load, then shows it once, outside the note's live region. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 
 `tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.
+
+The shell's notices and page boundary have no component test: the end-to-end
+flow `tools/e2e/tests/flows/musubi-passkey.flow.ts` reaches each branch in
+Chromium. It fails the profile list and reloads (the shell stays, "Your
+profiles didn't load.", Try again lists once more), fails the connections list
+(the boundary's line inside the shell, the nav leaves it, Try again recovers),
+and checks the signed-out notice appears once after a refused renewal, opens
+sign-in, and stays away on a cold load with no session. Each notice's ink is
+read against its contract token at 390 and 1440 px in both schemes and shot
+into `e2e-artifacts/screenshots/musubi-surfaces/` (`musubiNotice` in
+`tests/support/musubi-surfaces.ts`).

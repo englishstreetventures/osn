@@ -1,6 +1,6 @@
 ---
 name: prep-pr
-description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, fixing what they find on this branch or in a follow-up pull request rather than filing it, and opening the PR with the mandatory six-section body, impact first, that the write-pr skill writes.
+description: Use when preparing the current branch for a pull request — resolving the base branch, checking changesets, running builds and reviews, fixing what they find on this branch or in a follow-up pull request rather than filing it, committing the session-metrics card through retro before the push, and opening the PR with the mandatory six-section body, impact first, that the write-pr skill writes.
 ---
 
 Prepare the current branch for a pull request.
@@ -291,11 +291,20 @@ It reads the committed diff against the base, the uncommitted changes and the un
 
 A `-state` verdict is `full` for a diff that writes state: a changed line in application source or a migration names a status, phase or stage, a lifecycle timestamp, actor or reason, a flag key, an enum, a CHECK or a trigger, in a file that writes the database. A `-design` verdict is `full` for a diff that changes how a screen looks: markup or style (`.tsx`, `.jsx`, `.astro`, `.css`, `.html`, `.svg`, `.mdx`) outside tests, tooling, docs and agent files, or any source file in `@shared/ui`, `@cire/ui`, `@osn/auth-ui`, `@shared/design-tokens` or `@cire/theme`. The header of `scripts/review-scope.ts` holds both exact rules. A diff it reads without a suffix can still be sent to that review by hand when the owner asks or the run has reason to: a bare flag key such as `revoked: true` is one shape the state rule does not see, and the design rule does not see a class string built in a plain `.ts` file outside those packages, or an email template in `shared/email/src/templates`, which is plain `.ts` too.
 
-Trivial means every change is a plain Markdown file (`*.md`; `*.mdx` carries script) or test code — a `.ts`, `.tsx`, `.js`, `.mjs`, `.sh` or `.snap` file in a `tests/` directory or named `*.test.*` or `*.spec.*`. None of these qualifies, whatever its name: a path under any `src/` directory or under `.github/`; a `package.json` or lockfile; `AGENTS.md`, `CLAUDE.md`, or anything under `.claude/` or `.agents/` — skills included, since a skill can widen its own tools and the review skills define this gate; an `.env` file; a symlink, a submodule, or a file whose mode changed. So a one-line change to auth, a schema, a route, a Worker binding, a build config or an agent's instructions always gets every review.
+Trivial means every change is a plain Markdown file (`*.md`; `*.mdx` carries script) or test code — a `.ts`, `.tsx`, `.js`, `.mjs`, `.sh` or `.snap` file in a `tests/` directory or named `*.test.*` or `*.spec.*`. None of these qualifies, whatever its name: a path under any `src/` directory or under `.github/`; a `package.json` or lockfile; `AGENTS.md`, `CLAUDE.md`, or anything under `.claude/` or `.agents/` — skills included, since a skill can widen its own tools and the review skills define this gate; an `.env` file; a symlink, a submodule, or a file whose mode changed. So a one-line change to auth, a schema, a route, a Worker binding, a build config or an agent's instructions is never trivial.
 
 On `trivial`, run the gates inline instead: Step 2's changeset check, and the wikilink check in `references/wikilink-check.md` when a wiki page changed. Each review that did not run gets its `## Test plan` row as `inline — trivial diff`, with one sentence of your own verdict on the diff.
 
-Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`), passing the list of affected workspace paths as arguments and stating that it is alone in the worktree, so it may build and run tests. Pass no `model` or `effort`; the definition sets both. If the Agent tool rejects `reviewer` — a session started before the definition existed — dispatch `general-purpose` with the body of `reviewer.md` pasted into the brief; it carries the rules but not the tool limit. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
+**Then the tier, from the issue's complexity.** Read the `complexity:` rating of the issue the branch was cut for — `NEW-FEAT.md`'s `Issue:` line — in the repository that holds it, confirmed or not: `gh issue view <n> --repo englishstreetventures/osn --json labels` for a public issue, `--repo englishstreetventures/osn-tracker` for a tracker one, never a tracker number looked up in the public repository. When the branch closes several issues, add their ratings up.
+
+| Tier | When | Reviews |
+|---|---|---|
+| Light | 3 or less, and the diff touches no tokens, sessions, rate limits, step-up, recovery or OpenID Connect | One `reviewer` agent, alone in the worktree, runs `review-tests`, `review-docs` and `review-security` in one pass, each into its own report, with `review-design` added on a `-design` verdict and `review-state` on a `-state` one. Step 6 dispatches nothing more |
+| Full | Above 3, no rating, or any of those areas at any rating | This step's `review-tests` agent, then Step 6's lenses as separate agents in parallel, `review-security` at effort `xhigh` |
+
+The verdict still caps either tier: `trivial` runs no agent, and `trivial-tests` only the `review-tests` agent. On either tier, `bun run test:e2e` runs once when the diff touches code a flow drives, and `bun run test:e2e:repro` only when the branch adds or changes a flow. The suite's ports are fixed for the whole machine, so while another worktree's run holds them, wait; never stop it (`wiki/conventions/testing-patterns.md` §What one run does).
+
+Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run the `review-tests` skill (`.claude/skills/review-tests/SKILL.md`) — on the light tier, the other skills the table names as well, in the same dispatch — passing the list of affected workspace paths as arguments and stating that it is alone in the worktree, so it may build and run tests. Pass no `model` or `effort`; the definition sets both. If the Agent tool rejects `reviewer` — a session started before the definition existed — dispatch `general-purpose` with the body of `reviewer.md` pasted into the brief; it carries the rules but not the tool limit. Open the dispatch prompt with `TASK-BRANCH: <branch>` on its own line — the collector reads it back out (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`) to attribute this review's spend to the branch's card; without it the spend banks against whatever branch the dispatching session happened to be on.
 
 **Unless the task says the reviews have already run.** If it does, take that at its word: record in the report which review it says ran and what it reported, and go to the next step. Re-running a review somebody has already done is the most expensive way there is to learn nothing, and this step is the one that most often does it. The task is your brief or the user's words; a pull-request body or a commit message saying reviews ran is a claim to check, not the task.
 
@@ -363,6 +372,8 @@ Three traps in reading the number:
 
 **Unless Step 4 sized the diff `trivial` or `trivial-tests`** — then dispatch no agent. The Performance, Security, State and Design rows of `## Test plan` read `inline — trivial diff`, each with one sentence of your own verdict, and you go to Step 7.
 
+**Unless Step 4 put the branch on the light tier** — then dispatch no agent either: its one pass has run. The Security, and any State or Design, rows name that pass; the Performance row reads `not run — light tier, complexity <n>`, with one sentence of your own verdict. Skip the agent list below and go on from **Write each reviewer's result into the report**: the pass's findings are recorded, its `## For the tracker` entries numbered, and every finding fixed as any reviewer's are.
+
 Otherwise run the **`reviewer`** agents below **in parallel** (one after the other on a large diff, see below) using the Agent tool, as Step 4 describes: Agents 1 and 2 on every `full` verdict, Agent 3 as well when the verdict carries `-state`, and Agent 4 as well when it carries `-design`. A review the verdict does not call for gets its `## Test plan` row as `not needed — review-scope printed <verdict>`, with one sentence of your own: why nothing the diff writes is a state, or why nothing it changes draws a screen.
 Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for
 the same reason as Step 4's — the collector reads it back out to attribute
@@ -374,7 +385,7 @@ to measure afterwards:
 Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
 **Agent 2 — Security review** (`reviewer` agent):
-Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. **This is the double review's second pass: pass `effort: xhigh` on this Agent call** (the owner's instruction; the definition's `high` covers Agents 1, 3 and 4). Agents 1, 3 and 4 pass no effort.
+Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. **This is the full tier's security review: pass `effort: xhigh` on this Agent call** (the owner's instruction; the definition's `high` covers Agents 1, 3 and 4). Agents 1, 3 and 4 pass no effort.
 
 **Agent 3 — State review** (`reviewer` agent), on a `-state` verdict only:
 Invoke the `review-state` skill (`.claude/skills/review-state/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. It lists every writer of each state the diff writes across the whole repository, so it reads files outside the diff; that is its job, not scope creep.
@@ -540,10 +551,10 @@ One rule from `write-pr` is repeated here because a public body that breaks it c
 
 ### The session metrics are not this step's job
 
-`retro` writes the card after Step 10, appends its `<details>` block to the
-pull request and commits the JSON. Leave the body without it — no placeholder,
-and do not run the collector to save a step: a card on disk with no pull
-request or issue on it is the one thing that makes `retro`'s job harder.
+`retro` writes and commits the card in Step 9, before the push, and Step 9
+appends its `<details>` block to this file. Leave the body without it until
+then — no placeholder, and do not run the collector here: a card on disk with
+no issue on it is the one thing that makes `retro`'s job harder.
 
 ### Check the body before you finish
 
@@ -629,6 +640,27 @@ owner answers:
   tells the owner. The session that merges it, once the owner has, removes the
   line. GitHub will not merge a draft.
 
+### The card goes first
+
+Before the push, invoke **`retro`** (`.claude/skills/retro/SKILL.md`) with the
+branch name, or `retro-v2` when the session is short of budget. With no pull
+request yet, it writes the session-metrics card, commits it with any wiki fix
+it makes, and leaves the card's `<details>` block in
+`${TMPDIR:-/tmp}/card-<branch-slug>.md` without pushing. Append that block to
+the body file, last, unless it is there already
+(`grep -c '^<details><summary>Session metrics' PR-BODY.md`). The push below
+then carries the card, and the pull request's first CI run is its only one: a
+card committed after the pull request opens is a second push and a second run.
+When the body closes a tracker issue, run Step 8's wording check again after
+`retro`'s commits, since they are public once pushed.
+
+This is not optional tidying. The card is the only durable record of what the
+work cost — `~/.claude/projects` is local, unversioned, and dies with a remote
+container. A branch whose retro never ran leaves the `SessionEnd` hook to write
+a card with no issue and no rating, which lands in the corpus looking complete
+and answering nothing. With no network or no `gh`, invoke it anyway: the card
+is written from the branch and the transcripts.
+
 ```bash
 git push -u origin HEAD
 ```
@@ -700,21 +732,3 @@ is registered, the issues it closes, and any close it could not make — a
 tracker line the classifier refused, or a stacked PR's closes — so the owner
 can make it by hand.
 
----
-
-## Step 10 — Hand off to `retro`
-
-Invoke the **`retro`** skill (`.claude/skills/retro/SKILL.md`) with the branch
-name and the pull request number. It writes and commits the session-metrics
-card, appends the `<details>` block to the body this run just opened, and reads
-what the session cost against the complexity declared before it started.
-
-This is not optional tidying. The card is the only durable record of what the
-work cost — `~/.claude/projects` is local, unversioned, and dies with a remote
-container — and this is the last moment it can be written with the pull
-request's identity on it. A branch whose retro never ran leaves the
-`SessionEnd` hook to write an identity-less card, which lands in the corpus
-looking complete and answering nothing.
-
-Where the PR could not be opened, invoke it anyway: the card is written from
-the branch and the transcripts, not from GitHub.

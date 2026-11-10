@@ -19,7 +19,7 @@ import { applySchema as applyOsnSchema } from "@osn/db/testing";
 import { applySchema as applyPulseSchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { CIRE_OIDC, CLOCK_T0, MUSUBI_ORG, PULSE_OIDC } from "./config";
+import { CIRE_OIDC, CLOCK_T0, MUSUBI_ORG, PULSE_OIDC, THIRD_PARTY_OIDC } from "./config";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
@@ -49,9 +49,25 @@ function firstPartyClient(
   };
 }
 
+/** `THIRD_PARTY_OIDC`'s row: a public client that always asks for consent. */
+function thirdPartyClient() {
+  const client = THIRD_PARTY_OIDC;
+  return {
+    id: client.rowId,
+    clientId: client.clientId,
+    name: client.name,
+    redirectUris: [client.redirectUri],
+    clientSecretHash: null,
+    sectorIdentifier: new URL(client.redirectUri).host,
+    isFirstParty: false,
+    createdAt: Math.floor(CLOCK_T0 / 1000),
+  };
+}
+
 /**
  * osn-api: the schema, Pulse and cire registered as first-party OIDC clients,
- * and `MUSUBI_ORG`'s member profile with the organisation it owns.
+ * one third-party client, and `MUSUBI_ORG`'s member profile with the
+ * organisation it owns.
  */
 export function seedOsn(path: string): void {
   const sqlite = freshDatabase(path);
@@ -61,7 +77,11 @@ export function seedOsn(path: string): void {
       applyOsnSchema(sqlite);
       const db = drizzle({ client: sqlite });
       db.insert(oauthClients)
-        .values([firstPartyClient(PULSE_OIDC, "Pulse"), firstPartyClient(CIRE_OIDC, "Cire")])
+        .values([
+          firstPartyClient(PULSE_OIDC, "Pulse"),
+          firstPartyClient(CIRE_OIDC, "Cire"),
+          thirdPartyClient(),
+        ])
         .run();
 
       // Parents first: the connection enforces foreign keys.

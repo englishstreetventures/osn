@@ -10,21 +10,23 @@ import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-def
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
 
 /**
- * The Create-account and Sign-in dialogs, shared by the desktop rail and the
- * mobile top bar. Each shell owns its open/close signals; both dialogs close
- * themselves the moment a session exists.
+ * The Create-account and Sign-in dialogs, mounted once through
+ * `ShellDialogSet`, above the desktop/phone shell switch; `ShellDialogs` owns
+ * their open flags. Both close themselves the moment a session exists.
  */
 export function AuthDialogs(props: {
   showRegister: boolean;
   onShowRegisterChange: (open: boolean) => void;
   showSignIn: boolean;
   onShowSignInChange: (open: boolean) => void;
+  /** Where focus goes as either dialog closes; see `ResponsiveDialogContent`. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const { session } = useAuth();
 
   // A controlled Dialog never fires `onOpenChange` when the `open` prop flips
   // on its own, so the `!session()` guard below hides a dialog without ever
-  // clearing the shell's flag. Left set, that flag re-opened the sheet the
+  // clearing its flag. Left set, that flag re-opened the sheet the
   // next time the session went away — sign out, and the create-account modal
   // was waiting. Reset on any arriving session, whatever its source: this
   // flow's own `onSuccess`, another tab, a cookie bootstrap.
@@ -37,7 +39,12 @@ export function AuthDialogs(props: {
   return (
     <>
       <Dialog open={props.showRegister && !session()} onOpenChange={props.onShowRegisterChange}>
-        <ResponsiveDialogContent class="max-w-sm">
+        {/* The view heads itself with a plain heading, not a dialog title,
+            so the dialog takes its name here. */}
+        <ResponsiveDialogContent
+          aria-label="Create account"
+          onCloseAutoFocus={props.onCloseAutoFocus}
+        >
           <Register
             client={registrationClient}
             turnstileSiteKey={TURNSTILE_SITEKEY}
@@ -48,7 +55,7 @@ export function AuthDialogs(props: {
         </ResponsiveDialogContent>
       </Dialog>
       <Dialog open={props.showSignIn && !session()} onOpenChange={props.onShowSignInChange}>
-        <ResponsiveDialogContent class="max-w-sm">
+        <ResponsiveDialogContent aria-label="Sign in" onCloseAutoFocus={props.onCloseAutoFocus}>
           <SignIn
             client={loginClient}
             recoveryClient={recoveryClient}

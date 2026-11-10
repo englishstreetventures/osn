@@ -25,13 +25,27 @@ against the plan rather than the plan against the repo.
 
 ## Step 0 — Is this plan worth attacking?
 
-**Skip** a mechanical change inside one package that creates no file, adds no
+**The issue's complexity decides first.** Read its `complexity:` rating,
+confirmed or not, in the repository that holds the issue — a tracker issue's in
+`englishstreetventures/osn-tracker` — and add the ratings up when the plan
+covers several issues.
+
+- **3 or less: skip**, unless the plan touches tokens, sessions, rate limits,
+  step-up, recovery or OpenID Connect. The builder checks the plan's premises
+  against the code itself instead: each claim the design rests on, with the
+  file and line or the command output that confirms it, written into the plan
+  (`new-feat` Step 2). Record `stress-plan: skipped, complexity <n>` in the
+  plan.
+- **Above 3, or any of those areas at any rating: never skip.**
+- **No rating:** the rules below decide, and only then.
+
+With no rating, **skip** a mechanical change inside one package that creates no file, adds no
 dependency and touches no schema: a rename, a config flag on a value the plan has
 already traced to its reader, a test for behaviour that already exists. There the
 plan is short enough that a wrong assumption shows up as a failing gate rather
 than as a clean diff.
 
-**Never skip** for:
+**Never skip**, when the issue has no rating, for:
 
 - a **defect class** rather than a list of sites — "fix every place that does X" —
   however mechanical each fix looks. What a plan gets wrong there is the boundary

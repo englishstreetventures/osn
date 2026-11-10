@@ -1,15 +1,18 @@
-import type { RegistrationClient, Session } from "@osn/client";
+import { describeAuthError, type RegistrationClient, type Session } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
 import { InfoPopover } from "@shared/ui/ui/info-popover";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput, type OtpStatus } from "@shared/ui/ui/otp-input";
 import { UsernameInput } from "@shared/ui/ui/username-input";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
-import { createSignal, Show, onCleanup } from "solid-js";
+import { createSignal, createUniqueId, Show, onCleanup } from "solid-js";
 
+import { describedBy } from "./error-lines";
+import { describePasskeyError } from "./passkey-errors";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
 type Step = "details" | "verify" | "passkey" | "done";
@@ -73,13 +76,26 @@ export function Register(props: RegisterProps) {
   // Held, not published, between OTP verify and passkey enrollment. See
   // `submitOtp` for why the hand-off to `adoptSession` waits.
   const [session, setSession] = createSignal<Session | null>(null);
+  // One line per step, each where its step's action is: a refused send above
+  // "Send verification code", a refused code under the code, a refused resend
+  // under "Resend code", a failed enrolment above "Enroll credential".
+  const [detailsError, setDetailsError] = createSignal<string | null>(null);
+  const [codeError, setCodeError] = createSignal<string | null>(null);
+  const [resendError, setResendError] = createSignal<string | null>(null);
   const [passkeyError, setPasskeyError] = createSignal<string | null>(null);
+  // The email line waits until the field is left, so it is not announced on
+  // every keystroke of an address still being typed.
+  const [emailLeft, setEmailLeft] = createSignal(false);
+  const emailErrorId = createUniqueId();
+  const birthdateHintId = createUniqueId();
+  const birthdateErrorId = createUniqueId();
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
-  // Bound to the widget once it mounts; forces a fresh token after the current
-  // one is redeemed by `/register/begin` (tokens are single-use — Cloudflare
-  // only auto-refreshes on the ~300s expiry, not on consumption).
+  // Bound to the mounted widget — the details step's, then the code step's own
+  // for "Resend code". Forces a fresh token after `/register/begin` has spent
+  // the current one (tokens are single-use — Cloudflare only refreshes a token
+  // when it expires, ~300s, never when it is spent).
   let resetTurnstile: (() => void) | undefined;
 
   // Names all three jobs the address does, so the choice of address is made
@@ -133,6 +149,8 @@ export function Register(props: RegisterProps) {
   // server re-checks authoritatively (422 on under-13); this is UX only.
   const birthdateOk = () =>
     BIRTHDATE_RE.test(birthdate()) && ageInYears(birthdate()) >= MIN_AGE_YEARS;
+  const underAge = () => BIRTHDATE_RE.test(birthdate()) && !birthdateOk();
+  const emailMalformed = () => emailLeft() && email() !== "" && !EMAIL_RE.test(email());
 
   const detailsValid = () =>
     EMAIL_RE.test(email()) &&
@@ -144,23 +162,28 @@ export function Register(props: RegisterProps) {
     e.preventDefault();
     if (!detailsValid() || busy()) return;
     setBusy(true);
+    setDetailsError(null);
     try {
-      await client.beginRegistration({
-        email: email(),
-        handle: handle(),
-        birthdate: birthdate(),
-        displayName: displayName().trim() || undefined,
-        turnstileToken: turnstileToken() ?? undefined,
-      });
-      // Token redeemed by `/begin`; retire it + request a fresh one so a later
-      // resend (or a retry after a transient error) never replays a single-use
-      // token and gets rejected `timeout-or-duplicate`.
-      if (turnstileOn()) resetTurnstile?.();
+      await spendingToken(() =>
+        client.beginRegistration({
+          email: email(),
+          handle: handle(),
+          birthdate: birthdate(),
+          displayName: displayName().trim() || undefined,
+          turnstileToken: turnstileToken() ?? undefined,
+        }),
+      );
       toast.success("Verification code sent");
-      setStep("verify");
+      setResendError(null);
+      setCodeError(null);
+      // The cooldown first: the code step mounts its widget only once a
+      // resend is possible.
       startResendCooldown();
+      setStep("verify");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not send code");
+      // The server answers a taken email or handle the same as a free one, so
+      // this never says which; a 422 is the age gate, a 429 says to wait.
+      setDetailsError(describeAuthError(err, "details"));
     } finally {
       setBusy(false);
     }
@@ -185,6 +208,7 @@ export function Register(props: RegisterProps) {
     if (busy() || value.length !== 6) return;
     setBusy(true);
     setOtpStatus("verifying");
+    setCodeError(null);
     try {
       const result = await client.completeRegistration({ email: email(), code: value });
       setProfileId(result.profileId);
@@ -195,7 +219,7 @@ export function Register(props: RegisterProps) {
       setStep("passkey");
     } catch (err) {
       setOtpStatus("error");
-      toast.error(err instanceof Error ? err.message : "Invalid code");
+      setCodeError(describeAuthError(err, "code"));
     } finally {
       setBusy(false);
     }
@@ -215,27 +239,48 @@ export function Register(props: RegisterProps) {
   }
 
   async function resendCode() {
-    if (busy() || resendCooldown() > 0) return;
+    if (busy() || resendCooldown() > 0 || (turnstileOn() && turnstileToken() === null)) return;
     setBusy(true);
+    setResendError(null);
     try {
-      await client.beginRegistration({
-        email: email(),
-        handle: handle(),
-        birthdate: birthdate(),
-        displayName: displayName().trim() || undefined,
-        // Turnstile tokens are single-use. We reset the widget after every
-        // redeeming call, so the value here is a fresh, unconsumed token.
-        turnstileToken: turnstileToken() ?? undefined,
-      });
-      if (turnstileOn()) resetTurnstile?.();
+      await spendingToken(() =>
+        client.beginRegistration({
+          email: email(),
+          handle: handle(),
+          birthdate: birthdate(),
+          displayName: displayName().trim() || undefined,
+          // The code step's own widget's token: every spending call resets
+          // the widget, so this one is unspent.
+          turnstileToken: turnstileToken() ?? undefined,
+        }),
+      );
       setOtp("");
       setOtpStatus("idle");
+      setCodeError(null);
       startResendCooldown();
       toast.success("New code sent");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not resend code");
+      setResendError(describeAuthError(err, "details"));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Runs a call that spends the Turnstile token. The server checks the token
+   * before it answers, so a refusal has spent it too: on a failure the widget
+   * stays on screen and is asked for a fresh token. On a success the widget
+   * goes away (the step moves on, or the resend cooldown starts), so the
+   * spent token is dropped instead of running a challenge nobody will use.
+   */
+  async function spendingToken<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      const result = await call();
+      setTurnstileToken(null);
+      return result;
+    } catch (err) {
+      if (turnstileOn()) resetTurnstile?.();
+      throw err;
     }
   }
 
@@ -274,9 +319,7 @@ export function Register(props: RegisterProps) {
       setStep("done");
       props.onSuccess?.();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Passkey setup failed";
-      setPasskeyError(msg);
-      toast.error(msg);
+      setPasskeyError(describePasskeyError(err, "registration"));
     } finally {
       setBusy(false);
     }
@@ -325,9 +368,14 @@ export function Register(props: RegisterProps) {
                 autocomplete="email"
                 value={email()}
                 onInput={(e) => setEmail(e.currentTarget.value)}
+                onBlur={() => setEmailLeft(true)}
+                aria-describedby={emailMalformed() ? emailErrorId : undefined}
+                aria-invalid={emailMalformed() || undefined}
               />
-              <Show when={email() && !EMAIL_RE.test(email())}>
-                <span class="text-destructive text-xs">Please enter a valid email address</span>
+              <Show when={emailMalformed()}>
+                <Notice tone="danger" size="inline" alert id={emailErrorId}>
+                  Please enter a valid email address
+                </Notice>
               </Show>
             </div>
 
@@ -353,15 +401,20 @@ export function Register(props: RegisterProps) {
                 autocomplete="bday"
                 value={birthdate()}
                 onInput={(e) => setBirthdate(e.currentTarget.value)}
+                aria-describedby={describedBy(
+                  !birthdate() && birthdateHintId,
+                  underAge() && birthdateErrorId,
+                )}
+                aria-invalid={underAge() || undefined}
               />
-              <Show when={BIRTHDATE_RE.test(birthdate()) && !birthdateOk()}>
-                <span class="text-destructive text-xs">
+              <Show when={underAge()}>
+                <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
                   {props.productName} is for users 13 and older
-                </span>
+                </Notice>
               </Show>
               <Show when={!birthdate()}>
-                <span class="text-muted-foreground text-xs">
-                  You must be 13 or older to use {props.productName}
+                <span id={birthdateHintId} class="text-muted-foreground text-xs">
+                  You must be 13 or older to create an account.
                 </span>
               </Show>
             </div>
@@ -383,6 +436,13 @@ export function Register(props: RegisterProps) {
               onReady={(c) => (resetTurnstile = c.reset)}
             />
 
+            <Show when={detailsError()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
+            </Show>
             <Button type="submit" disabled={!detailsValid() || busy()}>
               {busy() ? "Sending…" : "Send verification code"}
             </Button>
@@ -401,8 +461,14 @@ export function Register(props: RegisterProps) {
               disabled={busy()}
               autofocus
             />
-            <Show when={otpStatus() === "error"}>
-              <p class="text-destructive text-sm">Incorrect code. Please try again</p>
+            {/* Announced, but not yet tied to the boxes: `OtpInput` takes no
+                `aria-describedby` until englishstreetventures/osn#2041. */}
+            <Show when={codeError()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
             </Show>
             <Show when={otpStatus() === "verifying"}>
               <p class="text-muted-foreground text-sm">Verifying your code…</p>
@@ -413,14 +479,34 @@ export function Register(props: RegisterProps) {
             <Button type="submit" disabled={otp().length !== 6 || busy()}>
               {busy() ? "Verifying…" : "Verify email"}
             </Button>
+            {/* A resend spends a token like the first send, and the details
+                step's widget went with that step. Mounted only once a resend
+                is possible, so a sign-up that never resends runs one
+                challenge. */}
+            <Show when={resendCooldown() === 0}>
+              <TurnstileWidget
+                siteKey={props.turnstileSiteKey}
+                onToken={setTurnstileToken}
+                onReady={(c) => (resetTurnstile = c.reset)}
+              />
+            </Show>
             <button
               type="button"
               onClick={resendCode}
               class="text-primary text-sm font-medium hover:underline disabled:opacity-50"
-              disabled={busy() || resendCooldown() > 0}
+              disabled={
+                busy() || resendCooldown() > 0 || (turnstileOn() && turnstileToken() === null)
+              }
             >
               {resendCooldown() > 0 ? `Resend code (${resendCooldown()}s)` : "Resend code"}
             </button>
+            <Show when={resendError()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
+            </Show>
             <Button variant="ghost" size="sm" onClick={() => setStep("details")}>
               ← Use a different email
             </Button>
@@ -433,12 +519,16 @@ export function Register(props: RegisterProps) {
               Enroll a passkey or security key so you can sign back in. This is required to finish
               creating your account.
             </p>
+            <Show when={passkeyError()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
+            </Show>
             <Button onClick={enrollPasskey} disabled={busy()}>
               {busy() ? "Setting up…" : "Enroll credential"}
             </Button>
-            <Show when={passkeyError()}>
-              {(msg) => <p class="text-destructive text-sm">{msg()}</p>}
-            </Show>
           </div>
         </Show>
 

@@ -5,6 +5,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { RecoveryCodesView, recoveryCodesFileName } from "../src/RecoveryCodesView";
+import { WAIT, alertsText, apiError } from "./helpers/errors";
 
 /**
  * Show-once recovery-code view. Tests cover:
@@ -254,26 +255,29 @@ describe("RecoveryCodesView", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
-  it("shows an error message when generate throws and does not render any codes", async () => {
-    stub.generateRecoveryCodes.mockRejectedValue(new Error("rate_limited"));
+  it("reads a refused generate as the map's sentence above the button, and renders no codes", async () => {
+    stub.generateRecoveryCodes.mockRejectedValue(apiError("PLANTED-generate", 429, "rate_limited"));
     renderView();
 
     await clickGenerate();
-    await waitFor(() => {
-      expect(screen.getByText(/rate_limited/)).toBeTruthy();
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+    // Above the action it is about, so it is read before the button again.
+    const button = screen.getByRole("button", { name: /Generate/ });
+    expect(alert.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // None of the stale-set sample codes ever rendered.
     expect(screen.queryByText(sampleCodes[0]!)).toBeNull();
   });
 
-  it("falls back to a generic error message when the thrown value has no message", async () => {
-    stub.generateRecoveryCodes.mockRejectedValue("network");
+  it("reads a thrown value that is not an error as the general sentence", async () => {
+    stub.generateRecoveryCodes.mockRejectedValue("PLANTED-network");
     renderView();
 
     await clickGenerate();
-    await waitFor(() => {
-      expect(screen.getByText(/Failed to generate recovery codes/i)).toBeTruthy();
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Something went wrong. Try again.");
+    expect(alertsText()).not.toContain("PLANTED");
   });
 
   it("still allows generating when the status read fails", async () => {

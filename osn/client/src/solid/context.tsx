@@ -1,9 +1,12 @@
 import { Effect } from "effect";
 import {
+  createComputed,
   createContext,
   createEffect,
+  createMemo,
   createResource,
   createSignal,
+  on,
   onCleanup,
   useContext,
   type Accessor,
@@ -11,13 +14,27 @@ import {
   type Resource,
 } from "solid-js";
 
+import { isAuthExpiredError } from "../errors";
 import type { AuthFetch, OsnAuthRuntime } from "../runtime";
 import { OsnAuth } from "../service";
 import type { HeldSession, PublicProfile, Session } from "../tokens";
 
 interface AuthContextValue {
   session: Resource<Session | null>;
+  /**
+   * The account's profiles. A list that fails to load never throws when read:
+   * it keeps the last list it had (null before the first) and sets
+   * {@link AuthContextValue.profilesError}.
+   */
   profiles: Resource<PublicProfile[] | null>;
+  /**
+   * Why the last profile list failed, for `describeAuthError`; undefined once
+   * a list loads, while signed out, and when the session ended on the way —
+   * the end itself is the news then, not the list.
+   */
+  profilesError: Accessor<unknown>;
+  /** Lists the account's profiles again: the retry for a failed list. */
+  refetchProfiles: () => Promise<void>;
   activeProfileId: Accessor<string | null>;
   logout: () => Promise<void>;
   /**
@@ -84,13 +101,59 @@ export function AuthProvider(props: AuthProviderProps) {
   // active profile, not the account's list. SolidJS fires the fetcher only
   // when the source turns truthy, so a signed-out page lists nothing. The
   // calls that change the list (adopt, create, delete) refetch it themselves.
-  const [profiles, { mutate: mutateProfiles, refetch: refetchProfiles }] = createResource<
+  // A session that failed to load counts as none: reading the resource then
+  // would rethrow its error here, outside any boundary.
+  //
+  // A failed list keeps the one it had, so a shell drawn from it stays drawn,
+  // and says why in `profilesError`. Losing the session, however it goes, moves
+  // `profilesEpoch` on, and a list call that settles after that counts for
+  // nothing: the runtime tells this provider a renewal was refused *before*
+  // the call that asked for it rejects, so without the epoch the old account's
+  // list, or an error about it, would land after the session was cleared.
+  const [profilesError, setProfilesError] = createSignal<unknown>(undefined);
+  let profilesEpoch = 0;
+  const hasSession = createMemo(() => (!session.error && session() ? true : null));
+  const [profiles, { mutate: mutateProfiles, refetch: refetchProfileList }] = createResource<
     PublicProfile[] | null,
     true
-  >(
-    () => (session() ? true : null),
-    () => run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles())),
+  >(hasSession, async (_, info) => {
+    const epoch = profilesEpoch;
+    try {
+      const list = await run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles()));
+      if (epoch !== profilesEpoch) return null;
+      setProfilesError(undefined);
+      return list;
+    } catch (err) {
+      if (epoch !== profilesEpoch || isAuthExpiredError(err)) return null;
+      setProfilesError(err);
+      return info.value ?? null;
+    }
+  });
+
+  /** Signed out: no list, no error, and nothing in flight may set either. */
+  const clearProfiles = () => {
+    profilesEpoch += 1;
+    mutateProfiles(null);
+    setProfilesError(undefined);
+  };
+
+  // A list belongs to the session it was listed for. Whatever takes the
+  // session away — `ended`, a log out, a session reload that finds none or
+  // fails — takes the list and its error too, so the next account's first
+  // list, if it fails, has no earlier list to keep.
+  createComputed(
+    on(
+      hasSession,
+      (has, had) => {
+        if (!has && had) clearProfiles();
+      },
+      { defer: true },
+    ),
   );
+
+  const refetchProfiles = async () => {
+    await refetchProfileList();
+  };
 
   const [activeProfileId, setActiveProfileId] = createSignal<string | null>(null);
 
@@ -105,7 +168,7 @@ export function AuthProvider(props: AuthProviderProps) {
     runtime.onSessionChange((change) => {
       if (change.kind === "ended") {
         mutateSession(null);
-        mutateProfiles(null);
+        clearProfiles();
         setActiveProfileId(null);
         return;
       }
@@ -117,7 +180,7 @@ export function AuthProvider(props: AuthProviderProps) {
   // Derive activeProfileId reactively from session state instead of
   // a fire-and-forget initialisation call.
   createEffect(() => {
-    const sess = session();
+    const sess = session.error ? null : session();
     if (sess) {
       run(Effect.flatMap(OsnAuth, (auth) => auth.getActiveProfile())).then(setActiveProfileId, () =>
         setActiveProfileId(null),
@@ -130,14 +193,21 @@ export function AuthProvider(props: AuthProviderProps) {
   const logout = async () => {
     await run(Effect.flatMap(OsnAuth, (auth) => auth.logout()));
     await refetchSession();
-    mutateProfiles(null);
+    clearProfiles();
     setActiveProfileId(null);
   };
 
   const adoptSession = async (next: Session) => {
+    // A first session turns the list's source on, so the list loads by
+    // itself; listing here as well would send the same request twice. A
+    // session that replaces another leaves the source on, so list again.
+    const replacing = !session.error && session.latest != null;
     await run(Effect.flatMap(OsnAuth, (auth) => auth.setSession(next)));
+    // The old account's list goes with its session, and nothing still in
+    // flight for it may land, so a failed list for the new one shows none.
+    if (replacing) clearProfiles();
     await refetchSession();
-    await refetchProfiles();
+    if (replacing) await refetchProfiles();
   };
 
   // No `refetchSession`, deliberately: adopting is the caller's decision and
@@ -173,6 +243,8 @@ export function AuthProvider(props: AuthProviderProps) {
       value={{
         session,
         profiles,
+        profilesError,
+        refetchProfiles,
         activeProfileId,
         logout,
         adoptSession,

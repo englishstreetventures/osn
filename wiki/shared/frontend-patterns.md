@@ -19,11 +19,13 @@ related:
   - "[[browser-tests]]"
   - "[[cire-development]]"
   - "[[cire-invite-designs]]"
+  - "[[house-lint-rules]]"
 packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-06
+  - "@musubi/social"
+last-reviewed: 2026-11-09
 ---
 
 # Frontend Patterns
@@ -82,6 +84,16 @@ An app imports these from `@osn/auth-ui/*` and injects clients from `@osn/client
 ## Lazy Loading
 
 Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded in `App.tsx` to reduce the initial bundle. Components with heavy dependencies (like `MapPreview` with Leaflet at ~150KB) dynamic-import their dependencies inside `onMount` so pages that don't need them never load the chunk.
+
+**A lazy shell needs a frame, and the frame is not a `Suspense` fallback.** A lazy component with no `Suspense` above it renders nothing until its chunk lands, so a page beside a lazy rail paints first and then jumps sideways. `@musubi/social` draws a frame of the shell's box instead (`Reserved` in its `App.tsx`): it calls the lazy component's `preload()` and the shell dialogs' `load()`, shows the frame until both resolve (so no Sign in shows before its dialog can open), and only then renders the component, which by then holds the module and renders at once. A `Suspense` fallback would work on the cold load and then come back on every refetch: the shell reads `createResource` values, and a resource read in flight outside a transition raises the nearest `Suspense` count. A rejection from either is handled in the same place — the frame stays and says to reload — so a missing chunk never reaches an error boundary or blanks the app. `lazy` keeps no failed load, so the next `preload()` (the other shell's, after a crossing) fetches the chunk again. `musubi/social/DESIGN.md` §Layout has the frame's look.
+
+On a cold desktop load of `/discover` with the rail's chunk held back 400ms, the page's layout shift goes from 0.167 to 0 (phone: 0.058 to 0).
+
+*Measured 2026-11-09 — `vite build` and `vite preview` of `@musubi/social`, Playwright Chromium at 1440×900 and 390×844, the shell chunk's request delayed 400ms by `page.route`, summing buffered `layout-shift` entries.*
+
+**Group dialogs that load together into one dynamic import.** In `@musubi/social`, two `lazy()` dialogs imported from two modules made the bundler split the entry chunk in two and keep client code it otherwise drops. With the shell frames and the dialogs' provider added, the entry closure grew 2.0 KB gzipped that way, and 1.0 KB with both dialogs behind one module (`ShellDialogSet.tsx`).
+
+*Measured 2026-11-09 — `vite build` of `@musubi/social` with and without the split, gzip -9 of every chunk the entry imports statically.*
 
 ## Supported browsers
 
@@ -144,7 +156,7 @@ a trusted workspace. TypeScript 7 ships no `tsserver`, so editors and the agents
 
 ## Rendering and animation gotchas
 
-Every one of these cost a real bug. They were all found in cire, but none of them
+Every one of these cost a real bug. Most were found in cire, but none of them
 is cire-specific — they are properties of Tailwind's scanner, Solid's reactivity,
 Motion One's finish behaviour and the CSS spec, so they apply to `@pulse/web` and
 `@musubi/social` the same way. What unites them is that **the fast test tier cannot
@@ -494,6 +506,19 @@ Animate a menu's opening only (`menu-pop`). The checklist row's
 the rule is to run a panel's keyboard test in the browser tier before giving it
 an exit, not to forbid one.
 
+### A listbox option that cannot take focus loses its click to the field's blur
+
+In a combobox the field keeps focus and an option is only marked active
+(`aria-activedescendant`), so the option has no `tabindex`. A pointer press on
+it blurs the field with `relatedTarget` null; a `focusout` handler that closes
+the panel when focus leaves the combobox then unmounts the option, and the
+`click` that follows lands on nothing. Cancel `mousedown` on the results panel
+(`event.preventDefault()`): focus stays in the field, the panel stays, the
+click lands, and a press outside the panel still closes it. happy-dom's
+`fireEvent.click` sends no press and moves no focus, so a unit test of the
+click passes on the broken code; test it in the browser tier with
+`userEvent.click` (`@musubi/social`'s `GlobalSearch.browser.test.tsx`).
+
 ### A reveal needs a wrapper that outlives the content it reveals
 
 Animating a box open needs two states on **one** element, and an element that
@@ -550,10 +575,22 @@ the screen is.
 trackpad gets the desk pace. Switch the duration tokens under the query rather
 than writing a second set of utilities: every motion that already reads a
 `--dur-*` token follows the input for free, and one written as a literal or as
-Tailwind's bare `transition` (150ms) does not. All four cire apps — the two
+Tailwind's bare `transition` (150ms) does not. A written literal fails
+`house/no-literal-motion` in `bun run lint`, and
+`scripts/check-motion-literals.ts` in CI for stylesheets and Astro files; the
+bare `transition` passes both ([[house-lint-rules]] §Literal motion). All four cire apps — the two
 portals, the guest site and the marketing site — carry the same ladder and the
 same `pointer: fine` block, and `cire/vendor/tests/styles/tokens.test.ts` fails
 if any copy differs.
+
+`Modal`'s exit runs the same on both. Cire sets `--ui-modal-exit` to its desk
+`--dur-base` (150ms) under the query, and on touch `Modal` falls back to its
+own 150ms, so a dialog closes alike at a desk and in the hand
+([[component-library]] §Overlays: `Modal`). `Dialog`, `Popover`, `Tooltip` and
+the default `DropdownMenu` read `--ui-dur-*` ([[design-tokens]] §Motion), not
+cire's ladder, so they keep one pace on every input. The accent
+`DropdownMenu`, cire's own menus, pops on the app's `--dur-fast` and so follows
+it ([[component-library]] §DropdownMenu).
 
 ### A gesture follows the finger, and the finger's speed outlives it
 
@@ -582,13 +619,16 @@ second. The reduced-motion clamp in a stylesheet does not reach it: check
 `display` is discrete, so a transition on a box that goes to `display: none`
 normally has nothing left to paint. `transition-behavior: allow-discrete` on
 `display` holds the old value until the other transitions have run, and
-`@starting-style` gives the opening a from-state:
+`@starting-style` gives the opening a from-state. The times come from a motion
+token ([[design-tokens]] §Motion; cire's `--dur-*` in a cire app):
 
 ```css
 .menu {
   display: none;
   opacity: 0;
-  transition: opacity 150ms, display 150ms allow-discrete;
+  transition:
+    opacity var(--ui-dur-fast),
+    display var(--ui-dur-fast) allow-discrete;
 }
 .menu[data-open] {
   display: grid;

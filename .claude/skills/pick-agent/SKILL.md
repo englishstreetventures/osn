@@ -30,7 +30,7 @@ than assuming either, and name both in your sentence.
 | `designer` | UI work that needs a design decision: a new page or component, a layout, a redesign, a token the design system does not have yet. It loads the `design-system` skill, which maps each surface to its `DESIGN.md` and says which design skill fits. UI logic with no visual change stays with `implementer`. |
 | `design-mechanic` | A small visual change the surface's `DESIGN.md` already settles: a token swap, spacing or a type step on the existing scale, a missing dark-mode value, a variant that already exists. Same `design-system` skill; hands back anything that needs a choice. |
 | `mechanic` | Work whose answer is fixed before it starts: patch and minor dependency sweeps, renames, changesets, a known pattern applied across files, and skill-text, docs or test-only edits whose issue already states the change. |
-| `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-state`, `review-design`, `review-docs`, or a whole branch against its plan. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`, or `designer` when the pull request changes how a screen looks. A design audit is a review: name the `review-design` skill in the brief, with `--full <surface path>` for a whole surface; it finds the surface's `DESIGN.md` through the `design-system` skill's map. `reviewer` has no `WebFetch`, so `web-design-guidelines` is not for it, and fetching its rules another way is not either. |
+| `reviewer` | Reviewing a branch or a pull request through one lens — `review-tests`, `review-security`, `review-performance`, `review-state`, `review-design`, `review-docs`, or a whole branch against its plan — or, on `prep-pr`'s light tier, several in one pass. Reports findings; fixes nothing. Reviewing *and fixing* an open pull request is whole-task work: `implementer`, or `designer` when the pull request changes how a screen looks. A design audit is a review: name the `review-design` skill in the brief, with `--full <surface path>` for a whole surface; it finds the surface's `DESIGN.md` through the `design-system` skill's map. `reviewer` has no `WebFetch`, so `web-design-guidelines` is not for it, and fetching its rules another way is not either. |
 | `explorer` | Read-only orientation. Returns `file:line`, proposes nothing. |
 | `shepherd` | Reading a pull request's red CI and returning the decisive line, or polling it to a terminal state. |
 | `attacker` | Attacking a plan, cold, in a fresh context. |
@@ -97,8 +97,9 @@ call overrides the definition's `model:`, and the transcripts show it happening 
 `attacker` sent with another model, `mechanic` sent with `opus` — each one a
 silent departure from the setting the definition records. The Agent tool also
 takes `effort`, and a value there is the same kind of override, with one
-exception the owner has set: a double review passes `effort: xhigh` on its
-second `reviewer` pass (`prep-pr` Step 6, Agent 2). Every other dispatch passes
+exception the owner has set: on the full check tier, the security review passes
+`effort: xhigh` (`prep-pr` Step 6, Agent 2). The light tier's one combined
+review passes neither. Every other dispatch passes
 neither, and a change to the level goes in the definition.
 
 Frontmatter `effort` overrides the session's effort level, but not the

@@ -2,9 +2,12 @@ import { AuthProvider } from "@osn/client/solid";
 import { Toaster } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Route, Router, useLocation } from "@solidjs/router";
-import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, lazy, onCleanup, onMount, Show, type Component, type JSX } from "solid-js";
 
 import { AccountBanners } from "./components/AccountBanners";
+import { PageErrorBoundary } from "./components/PageErrorBoundary";
+import { ShellDialogsProvider, useShellDialogs } from "./components/ShellDialogs";
+import { RailFrame, TopBarFrame } from "./components/ShellFrame";
 import { osnAuth } from "./lib/auth";
 
 import "./App.css";
@@ -14,6 +17,10 @@ import "./App.css";
 const Sidebar = lazy(() => import("./components/Sidebar").then((m) => ({ default: m.Sidebar })));
 const MobileChrome = lazy(() =>
   import("./components/MobileChrome").then((m) => ({ default: m.MobileChrome })),
+);
+// Shell-only too: the signed-out and failed-profiles notices.
+const ShellNotices = lazy(() =>
+  import("./components/ShellNotices").then((m) => ({ default: m.ShellNotices })),
 );
 
 const ConnectionsPage = lazy(() =>
@@ -55,7 +62,7 @@ const BARE_ROUTES = new Set(["/authorize"]);
  * already carries both. It mounts its own provider around the sign-in island
  * when a ceremony is actually needed.
  */
-function Layout(props: { children?: import("solid-js").JSX.Element }) {
+export function Layout(props: { children?: JSX.Element }) {
   const location = useLocation();
   // Normalise a trailing slash before the lookup: the router matches
   // `/authorize/` to the consent route, but an exact-string `BARE_ROUTES` miss
@@ -69,36 +76,81 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
         when={bare()}
         fallback={
           <AuthProvider auth={osnAuth}>
-            {/* Mount only the active shell: one chunk fetched, one
-                shell hydrating, and a single mounted auth-dialog surface at
-                any width. The CSS hidden classes on each shell remain
-                as a paint-level fallback around the breakpoint flip. */}
-            <Show when={isMobile()} fallback={<Sidebar />}>
-              <MobileChrome />
-            </Show>
-            {/* Inside the scroll column, above the page: the layout is a row on
-                desktop, so a sibling of `Content` would land beside the rail
-                rather than over the page. Renders nothing until a session
-                exists, and nothing at all on a bare route. */}
-            <Content padForMobileNav>
-              <AccountBanners />
-              {props.children}
-            </Content>
+            <AppShell isMobile={isMobile()}>{props.children}</AppShell>
           </AuthProvider>
         }
       >
-        <Content>{props.children}</Content>
+        <Content>
+          <PageErrorBoundary>{props.children}</PageErrorBoundary>
+        </Content>
       </Show>
       <Toaster
         position={isMobile() ? "top-center" : "bottom-right"}
         style={
           isMobile()
-            ? // Clear the mobile top bar (3rem) plus the notch inset.
-              { top: "calc(3rem + env(safe-area-inset-top, 0px) + 8px)" }
+            ? // Under the phone top bar and the notch inset, one step clear.
+              { top: "calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + var(--spacing) * 2)" }
             : undefined
         }
       />
     </div>
+  );
+}
+
+function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
+  return (
+    <ShellDialogsProvider>
+      {/* Mount only the active shell: one chunk fetched, one shell hydrating.
+          The dialogs sit above this switch, so one open across a crossing
+          stays open. The CSS hidden classes on each shell remain as a
+          paint-level fallback around the breakpoint flip. */}
+      <Show when={props.isMobile} fallback={<Reserved shell={Sidebar} frame={RailFrame} />}>
+        <Reserved shell={MobileChrome} frame={TopBarFrame} />
+      </Show>
+      {/* Inside the scroll column, above the page: the layout is a row on
+          desktop, so a sibling of `Content` would land beside the rail
+          rather than over the page. `ShellNotices` renders only once the
+          runtime has ended a session or the profile list has failed;
+          `AccountBanners` renders nothing until a session exists. Neither
+          renders on a bare route. */}
+      <Content padForMobileNav>
+        <ShellNotices />
+        <AccountBanners />
+        <PageErrorBoundary>{props.children}</PageErrorBoundary>
+      </Content>
+    </ShellDialogsProvider>
+  );
+}
+
+/**
+ * Draws a shell's frame until the shell can draw itself, so the page beside
+ * it never moves when the shell's chunk lands.
+ *
+ * The shell shows once its own chunk and the dialogs' chunks have both loaded:
+ * a shell drawn earlier would offer a Sign in that cannot open yet. By then
+ * `lazy()` holds the module, so the shell renders at once, with no resource
+ * and nothing to suspend. A `Suspense` fallback would not do: the shell reads
+ * the session and profile resources, and a boundary above it would put the
+ * frame back on every refetch.
+ *
+ * If either load fails (offline, or a chunk renamed by a deploy since the page
+ * loaded) the frame stays and says to reload. The rejection is handled here,
+ * so the page beside it keeps working.
+ */
+function Reserved(props: {
+  shell: Component & { preload: () => Promise<{ default: Component }> };
+  frame: Component<{ failed: boolean }>;
+}) {
+  const dialogs = useShellDialogs();
+  const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
+  Promise.all([props.shell.preload(), dialogs.load()]).then(
+    () => setState("ready"),
+    () => setState("failed"),
+  );
+  return (
+    <Show when={state() === "ready"} fallback={<props.frame failed={state() === "failed"} />}>
+      <props.shell />
+    </Show>
   );
 }
 
@@ -117,7 +169,7 @@ function useIsMobile() {
   return isMobile;
 }
 
-function Content(props: { children?: import("solid-js").JSX.Element; padForMobileNav?: boolean }) {
+function Content(props: { children?: JSX.Element; padForMobileNav?: boolean }) {
   return (
     <div
       class={clsx(
