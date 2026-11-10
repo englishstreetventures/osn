@@ -112,7 +112,7 @@ paints `ui-danger` through the contract (§7).
 | Meta lines (dates, "(synced)") | `text-xs` | the list rows, the banner |
 | Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
 | Names in a row | `font-medium` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
-| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key. Every six-digit code is typed into `OtpInput`'s boxes, at the contract's `text-ui-md`. `RecoveryLoginForm`'s recovery code, 16 characters in four groups, is an `Input` in a `Field` |
+| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key. Every six-digit code is typed into `OtpInput`'s boxes, at the contract's `text-ui-md`, which Musubi maps to its title step (14px from 768px; its mobile input rule keeps 16px below). `RecoveryLoginForm`'s recovery code, 16 characters in four groups, is an `Input` in a `Field` |
 
 The `@shared/ui` parts inside the views (Button, Field, Input, Label,
 OtpInput, Card and Dialog titles) take the contract steps.
@@ -806,9 +806,9 @@ placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
 motion. What a skeleton stands for, a refused code's line and a step that
 replaces another arrive at once, with no fade (`musubi/social/DESIGN.md`
 §Motion).
-As it stands, `ProfileOnboarding` and `ProfileSwitcher` open `@shared/ui`'s
-`Dialog`, which still scales as it opens and closes (`musubi/social/DESIGN.md`
-§Motion, #2040). A view
-never moves a panel, a field or an error across the screen, and never loads an
+`ProfileOnboarding`, `ProfileSwitcher` and `RecoveryCodesView` open
+`@shared/ui`'s `Dialog`, which in Musubi fades with no scale as it opens and
+closes: the host maps both scale tokens to 1 (`musubi/social/DESIGN.md`
+§Motion). A view never moves a panel, a field or an error across the screen, and never loads an
 animation library. A motion a view needs that the host does not have goes into
 the host's `DESIGN.md` first.
