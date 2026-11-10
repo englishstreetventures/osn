@@ -22,7 +22,7 @@ import "../src/App.css";
  *
  * The factories below are written literally: a `vi.mock` factory that imports
  * from `test-support/` does not resolve in the browser project. A plain import
- * from there, as of `shell-chunks`, does. The ceremonies are stand-ins: this
+ * from there, such as `shell-chunks`, does. The ceremonies are stand-ins: this
  * file tests where the dialogs mount, not the forms.
  */
 

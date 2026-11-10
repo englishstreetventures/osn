@@ -16,7 +16,7 @@ import "../src/App.css";
  *
  * The factories below are written literally: a `vi.mock` factory that imports
  * from `test-support/` does not resolve in the browser project. A plain import
- * from there, as of `shell-chunks`, does.
+ * from there, such as `shell-chunks`, does.
  */
 
 vi.mock("@osn/client/solid", async () => {
