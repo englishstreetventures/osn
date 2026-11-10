@@ -99,6 +99,7 @@ The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `
 e2e-artifacts/
   results.json                     flows, steps, API requests, assertions: the reproducible part
   screenshots/<flow>.png           each flow's final state
+  screenshots/<name>/*.png         the views a flow or a tests/support/ module shoots
   traces/<file>-<flow>/trace.zip   bunx playwright show-trace <path>, or trace.playwright.dev
   logs/<app>.log                   each server's output, for when a flow fails
   state/*.db                       the databases as the run left them

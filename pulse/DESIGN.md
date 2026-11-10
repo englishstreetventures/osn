@@ -135,12 +135,61 @@ Two-pane desktop layout:
 
 Below 1180px, map collapses and events go full-width.
 
+Below 768px (Tailwind's `md`) the page takes its phone layout:
+
+- **Gutters are 16px** (`px-4`) on the brand row, the hero, the events pane and
+  the create form's wrapper, and 32px (`px-8`) from 768px up. At 320px the
+  signed-in brand line needs 260px of the 288px a 16px gutter leaves.
+- **The hero stacks**: the stats sit under the headline, not beside it. Beside
+  it, they ran past the screen's edge at 320px.
+- **The create form's start and end times stack**, and sit side by side from
+  768px up. A `datetime-local` field is 206px wide at its narrowest, so the
+  pair side by side needs 424px.
+
+The page never scrolls sideways at any width.
+`tools/e2e/tests/support/pulse-explore.ts` holds this and the navigation rules
+below at 320, 390, 768 and 1440px, signed in and signed out, and shoots the page
+at 320, 390 and 1440px in light and dark.
+
 ### Navigation
 
-Horizontal top nav (no sidebar). Three sections:
+Horizontal top nav (no sidebar). Two sections:
 
 1. **Brand row**: Logo mark (pulsing coral dot) + "Pulse" wordmark, tab bar (Home / Calendar / Hosting), search, actions
-2. **Hero**: Time-of-day greeting, editorial headline with italic accent word, live stats
+2. **Hero**: Time-of-day greeting, editorial headline with italic accent word, live stats. On a narrow phone the greeting's date wraps to a line of its own
+
+**From 768px up the brand row is one line**: brand, tabs, then the search and
+the actions on the right. The search takes the row's spare width up to 360px
+(`max-w-90`), and is the first thing to give way when the row is short: at
+768px, signed in, it is about 170px wide and its placeholder runs past the
+field's end. The whole header pins (`sticky`).
+
+**Below 768px the brand row wraps to three lines:**
+
+1. The brand on the left, the actions on the right (bell, Host and avatar, or
+   "Continue with musubi").
+2. The search, from gutter to gutter. The ⌘K hint is hidden, since a phone has
+   no ⌘ key.
+3. The tabs, last, so the active tab's coral underline
+   (`.explore-tab-active::after`, 15px below the tab) lands on the row's bottom
+   border. From 768px up the tab sits centred beside taller controls, so the
+   underline sits 5px above the border when signed in.
+
+**Below 768px the header scrolls with the page** instead of pinning. Three lines
+and the hero make it about 410px tall at 390px, half of an 844px screen, and
+three quarters of a 320×568 screen.
+
+**Focus follows the desktop order.** The markup runs brand, tabs, search,
+actions, and the phone lines are placed with `order`, so on a phone the focus
+moves tabs, search, actions while the lines read actions, search, tabs. Each
+control stands alone, so no meaning depends on the order. One markup order
+cannot match both layouts; it matches the desktop's, where the row reads in
+markup order.
+
+This arrangement is the owner's call on #2135, open to review. Rejected: tabs
+and search sharing the second line, which leaves the search 62px wide at 320px;
+collapsing the tabs into a menu, which needs a component that does not exist;
+and the search as an icon, which hides the field.
 
 ### Event Cards
 
