@@ -1234,6 +1234,21 @@ import { Input } from "@shared/ui/ui/input";
 </Card>;
 ```
 
+**`CardTitle`'s weight is the contract's title weight**, as `DialogTitle`'s is.
+It reads `--ui-weight-title` through `font-ui-title`, which falls back to 600,
+so an app that maps nothing keeps the semibold title it always had, and an app
+whose house style stops at 500 maps the token once
+([[design-tokens#The tokens]]). No call site sets it with a class:
+`shadcn/no-restyle` refuses typography on `CardTitle`
+([[#What a call site may set, and what it may not]]). No app maps the token, so
+every card title draws at 600: `@osn/auth-ui`'s profile onboarding in Musubi's
+settings, the metrics dashboard and the lab. Pulse imports `Card` but draws no
+`CardTitle`. `shared/ui/tests/card-default.browser.test.tsx` holds the unmapped
+title's whole computed style as a snapshot written before the title read the
+token, so a `-u` that rewrites it changes every app that draws a card title and
+needs the owner's approval. `card.browser.test.tsx` checks the title draws 600
+with no token and follows the token set on an ancestor.
+
 ### `OtpInput` — six boxes, one value with no gaps
 
 `<OtpInput value onChange status disabled autofocus aria-labelledby aria-describedby>`
