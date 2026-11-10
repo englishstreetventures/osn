@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -189,9 +189,8 @@ screen shows even when consent is on record (pinned in
    `https://musubi.social/authorize` on 2026-07-27. Smoke check still open: full
    authorize → consent → token round-trip against a self-registered client
    (`POST /oidc/clients` makes this testable without an operator). It needs
-   the apex `musubi.social` serving `@musubi/social`: the `osn-social` Pages
-   project until its flip release, then the `osn-social` Worker — see
-   [[production-deploy]] §5.7 and [[musubi-identity-migration]].
+   the apex `musubi.social` serving `@musubi/social`, which the `osn-social`
+   Worker does — see [[production-deploy]] §5.3 and [[musubi-identity-migration]].
 
 ### What the build settled
 

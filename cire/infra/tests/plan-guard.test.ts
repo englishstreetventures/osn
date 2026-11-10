@@ -81,9 +81,7 @@ describe("plan:guard, the cire stack's production plan guard", () => {
         { fqn: "CireVendor", kind: "custom-domain", action: "noop" },
       ],
       bindings: [],
-      flip: null,
       domains: [],
-      unflip: null,
     });
   }, 30_000);
 
@@ -106,7 +104,7 @@ describe("plan:guard, the cire stack's production plan guard", () => {
     });
     expect(result.exitCode).toBe(1);
     expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
-      "::error::cire production plan refused: cire_landing's Worker would give up old.cireweddings.com; only a release dispatched with unflip: cire_landing takes a production host off its Worker",
+      "::error::cire production plan refused: cire_landing's Worker would give up old.cireweddings.com; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first",
     ]);
   }, 30_000);
 });

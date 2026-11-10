@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Cire
@@ -133,7 +133,7 @@ Free tier throughout — see [[free-tier-limits]]). Domains (#149):
 
 | Host | Surface |
 |---|---|
-| `cireweddings.com` (apex) | marketing site (`cire/landing`, the `cire-landing` Worker once its flip release has run; Pages until then) |
+| `cireweddings.com` (apex) | marketing site (`cire/landing`, the `cire-landing` Worker) |
 | `invite.cireweddings.com` | guest site (`cire/invites`, the `cire-invites` SSR Worker) |
 | `host.cireweddings.com` | organiser portal (`cire/host`, the `cire-host` Worker) |
 | `vendor.cireweddings.com` | vendor portal (`cire/vendor`, the `cire-vendor` Worker) |

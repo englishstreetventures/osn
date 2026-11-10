@@ -1,13 +1,9 @@
 #!/usr/bin/env bun
 /**
  * Read, and move, a production site's custom domain between its Cloudflare
- * Pages project and its Worker.
- *
- * A site moves from Pages to a Worker one domain at a time
- * (shared/infra/src/production-sites.ts): its mode turns from `staged` to
- * `worker`, and a release dispatched with `flip` naming it moves the domain.
- * Alchemy attaches a Worker custom domain, but cannot take one from a Pages
- * project, so this does that half.
+ * Pages project and its Worker. The release workflow runs `precheck`, and
+ * `attach` for the rollback of a site's Worker; the domain move rehearsal
+ * runs the rest on the dev account.
  *
  *   bun run scripts/pages-domain.ts check <surface>...
  *     Prints, per site, where its production host is: `pages <project>`
@@ -18,11 +14,12 @@
  *     apex, route nothing, so they never decide where a host is: an apex
  *     keeps its mail and verification records through a move.
  *   bun run scripts/pages-domain.ts precheck
- *     The release's check before any plan (FLIP, STACKS from the plan job):
- *     every `worker` site of a shipping stack must read `free`, except the
- *     flip's own, which must read `pages` and hold no record that could route
- *     it but its CNAME to the project. A cron release therefore never moves
- *     a domain, and a flip names a domain that is on Pages.
+ *     The release's check before any plan (STACKS from the plan job):
+ *     every `worker` site of a shipping stack must read `free`, so no
+ *     release ships a stack while one of its sites is rolled back to Pages.
+ *     FLIP, which no workflow passes, names one such site that must read
+ *     `pages` instead and hold no record that could route it but its CNAME
+ *     to the project.
  *   bun run scripts/pages-domain.ts detach <surface>
  *     Takes the host off its Pages project and deletes the zone's CNAME to
  *     `<project>.pages.dev`, and only that record. Refused unless the host
@@ -65,8 +62,8 @@
  *                               token minted again with that zone. Sent only
  *                               to api.cloudflare.com. No message carries it
  *                               or the account id.
- *   FLIP, STACKS                precheck only: the plan job's `flip` and
- *                               `stacks` outputs.
+ *   STACKS, FLIP                precheck only: the plan job's `stacks`
+ *                               output, and the site FLIP above.
  *
  * Imports nothing outside this repository's import-free files, so a step
  * that holds the token runs it before any install.
@@ -711,7 +708,7 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
         } else if (state.kind === "pages" && site !== flip) {
           const owner: StackKey = surface(site).stack;
           error(
-            `${site} serves from its Worker in this commit, but ${host} is still on the ${state.project} Pages project. Move it with a release dispatched with flip: ${site} and surfaces: ${site}, at low traffic; until then, dispatch releases whose surfaces leave out the ${owner} stack's sites.`,
+            `${site} serves from its Worker in this commit, but ${host} is still on the ${state.project} Pages project. Move it back to the Worker as wiki/shared/production-deploy.md §5.7 says; until then, dispatch releases whose surfaces leave out the ${owner} stack's sites.`,
           );
           refused = true;
         } else if (state.kind === "free" && site === flip) {

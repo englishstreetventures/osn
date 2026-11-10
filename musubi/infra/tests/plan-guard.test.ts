@@ -71,9 +71,7 @@ describe("plan:guard, the musubi stack's production plan guard", () => {
         { fqn: "MusubiSocial", kind: "custom-domain", action: "noop" },
       ],
       bindings: [],
-      flip: null,
       domains: [],
-      unflip: null,
     });
   }, 30_000);
 

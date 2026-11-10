@@ -35,14 +35,14 @@ Phase 1. Six surfaces run in production on Cloudflare; the rest run locally or o
 |---|---|---|
 | Identity / auth API | `@osn/api` | Live — Worker on `id.musubi.social` |
 | Wedding invites (Cire) | `@cire/api`, `@cire/invites`, `@cire/host`, `@cire/vendor`, `@cire/db`, `@cire/theme` | Live — `cireweddings.com` zone |
-| Wedding marketing site | `@cire/landing` | Live — apex `cireweddings.com`: Worker once its flip release has run, Pages until then |
-| Identity & graph UI | `@musubi/social` | Live — apex `musubi.social` (also serves the OIDC consent screen): Worker once its flip release has run, Pages until then |
+| Wedding marketing site | `@cire/landing` | Live — apex `cireweddings.com`, on its Worker |
+| Identity & graph UI | `@musubi/social` | Live — apex `musubi.social` (also serves the OIDC consent screen), on its Worker |
 | Events (Pulse) | `@pulse/web`, `@pulse/api`, `@pulse/db` | Local only |
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
 | Musubi marketing site | `@musubi/landing` | Live — Worker on `www.musubi.social` |
 | Pulse marketing site | `@pulse/landing` | Dev tier only — no production deploy |
 
-CI deploys the `osn-api`, `cire-api` and `zap-api` Workers and the guest site (Worker SSR) to production in releases from `.github/workflows/production-release.yml`, once a day or by hand. The cire and musubi Alchemy stacks deploy every other site to its Worker: musubi landing on `www.musubi.social`, the vendor portal on `vendor.cireweddings.com`, the organiser portal on `host.cireweddings.com`, and the cire marketing site and the identity app on the apexes `cireweddings.com` and `musubi.social`, each apex once its flip release has moved it from its Pages project; a release that ships a stack takes two approvals (its plan, then the deploy), any other one. Each production deploy applies its D1 migrations before the Worker. A merge to `main` deploys the dev tier at once, through the Alchemy stacks into its own Cloudflare account, every surface as a Worker. See `wiki/shared/dev-environment.md` and `wiki/shared/production-deploy.md`.
+CI deploys the `osn-api`, `cire-api` and `zap-api` Workers and the guest site (Worker SSR) to production in releases from `.github/workflows/production-release.yml`, once a day or by hand. The cire and musubi Alchemy stacks deploy every other site to its Worker: musubi landing on `www.musubi.social`, the vendor portal on `vendor.cireweddings.com`, the organiser portal on `host.cireweddings.com`, and the cire marketing site and the identity app on the apexes `cireweddings.com` and `musubi.social`; a release that ships a stack takes two approvals (its plan, then the deploy), any other one. Each production deploy applies its D1 migrations before the Worker. A merge to `main` deploys the dev tier at once, through the Alchemy stacks into its own Cloudflare account, every surface as a Worker. See `wiki/shared/dev-environment.md` and `wiki/shared/production-deploy.md`.
 
 ## Applications
 

@@ -378,9 +378,9 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     readFileSync(`${ROOT}.github/workflows/production-release.yml`, "utf8"),
   ) as Workflow;
   const productionJobs = Object.entries(PRODUCTION.jobs);
-  /** The jobs that run Alchemy: the plan job, and each stack's flip verify and deploy. */
+  /** The jobs that run Alchemy: the plan job, and each stack's deploy. */
   const alchemyJobs = productionJobs.filter(
-    ([id]) => id === "alchemy-plan" || /^stack-[a-z]+-(production|verify)$/.test(id),
+    ([id]) => id === "alchemy-plan" || /^stack-[a-z]+-production$/.test(id),
   );
   const isInstall = (step: Step) => /\bbun install\b/.test(step.run ?? "");
 
@@ -393,8 +393,6 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     expect(readers.map(({ id, step }) => `${id} ${step.id}`).toSorted()).toEqual([
       "alchemy-plan domains",
       "attach-pages-domain attach",
-      "flip-detach-cire detach",
-      "flip-detach-musubi detach",
     ]);
     for (const { id, step, at, job } of readers) {
       // Every command the step runs is pages-domain.ts.
@@ -412,10 +410,8 @@ describe("PW3: production-release.yml hands each credential only to the steps th
         ["CLOUDFLARE_ACCOUNT_ID", ...PAGES_DNS_CREDENTIALS].toSorted(),
       );
     }
-    // A detach or attach job installs nothing at all, so no dependency's code runs on its runner.
-    for (const [id, job] of productionJobs.filter(
-      ([name]) => name.startsWith("flip-detach-") || name === "attach-pages-domain",
-    )) {
+    // The attach job installs nothing at all, so no dependency's code runs on its runner.
+    for (const [id, job] of productionJobs.filter(([name]) => name === "attach-pages-domain")) {
       expect({ id, installs: (job.steps ?? []).some(isInstall) }).toEqual({ id, installs: false });
     }
     for (const [, job] of productionJobs) {
@@ -427,9 +423,7 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     expect(alchemyJobs.map(([id]) => id).toSorted()).toEqual([
       "alchemy-plan",
       "stack-cire-production",
-      "stack-cire-verify",
       "stack-musubi-production",
-      "stack-musubi-verify",
     ]);
     const holds =
       /^(token|state|snapshot(_[a-z]+)?|worker_domains(_[a-z]+)?|plan(_[a-z]+)?|deploy|deployments|smoke_[a-z_]+)$/;
@@ -453,13 +447,13 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     }
   });
 
-  test("the plan, build and sites jobs, the comparison and the record jobs read no secret", () => {
+  test("the plan, build and sites jobs and the record jobs read no secret", () => {
     const quiet = productionJobs.filter(
       ([id, job]) =>
-        ["plan", "build", "sites", "site-parity"].includes(id) ||
+        ["plan", "build", "sites"].includes(id) ||
         JSON.stringify(job).includes("production-records"),
     );
-    expect(quiet.length).toBeGreaterThan(4);
+    expect(quiet.length).toBeGreaterThan(3);
     for (const [id, job] of quiet) expect({ id, read: secretsRead(job) }).toEqual({ id, read: [] });
   });
 });

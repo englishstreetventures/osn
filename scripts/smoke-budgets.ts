@@ -17,7 +17,7 @@
  * writes `<site>_budget_ms=<TIMING.maxBudgetMs>` to $GITHUB_OUTPUT (stdout
  * when unset), which that site's smoke step passes as SMOKE_BUDGET_MS. A
  * production host is its zone's apex or one label below it, which the zone's
- * own certificate covers, so a flip keeps the minute, and a Worker answering
+ * own certificate covers, so attaching one keeps the minute, and a Worker answering
  * wrongly there is rolled back as soon as ever. A site with no new host gets
  * no line, and its step passes "": a minute.
  *
