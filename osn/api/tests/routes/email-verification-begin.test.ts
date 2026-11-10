@@ -152,7 +152,7 @@ describe("a token sent twice", () => {
     if (!minted) throw new Error("no nonce");
     const email = `twice@${issuer.domain}`;
     const token = await issuer.mint({ email, nonce: minted.nonce, aud: AUDIENCE });
-    const input = { token, nonceSecret: minted.nonceSecret };
+    const input = { emailVerificationToken: token, nonceSecret: minted.nonceSecret };
 
     expect(await Effect.runPromise(module.verify(email, input))).toBe(true);
     expect(await Effect.runPromise(module.verify(email, input))).toBe(false);
@@ -178,7 +178,7 @@ describe("a begin with a token", () => {
       Effect.result(
         auth
           .beginRegistration(email, "young", "2020-01-01", undefined, undefined, {
-            token,
+            emailVerificationToken: token,
             nonceSecret: minted.nonceSecret,
           })
           .pipe(Effect.provide(layer)),
@@ -188,7 +188,9 @@ describe("a begin with a token", () => {
     // The nonce was not spent: the same token verifies after the refusal.
     const module = createEmailVerificationModule(createAuthContext(config));
     expect(
-      await Effect.runPromise(module.verify(email, { token, nonceSecret: minted.nonceSecret })),
+      await Effect.runPromise(
+        module.verify(email, { emailVerificationToken: token, nonceSecret: minted.nonceSecret }),
+      ),
     ).toBe(true);
   });
 });

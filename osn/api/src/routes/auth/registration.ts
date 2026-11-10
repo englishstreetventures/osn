@@ -120,7 +120,10 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
                 body.displayName,
                 body.previous,
                 body.emailVerificationToken !== undefined && body.nonceSecret !== undefined
-                  ? { token: body.emailVerificationToken, nonceSecret: body.nonceSecret }
+                  ? {
+                      emailVerificationToken: body.emailVerificationToken,
+                      nonceSecret: body.nonceSecret,
+                    }
                   : undefined,
               ),
             );

@@ -202,8 +202,8 @@ There is no `GET` on any of them: mail scanners open links before people do.
   API flag on, a begin may carry a token the browser got from the address's
   mail provider. One that verifies confirms a free address's request at
   begin, so nothing is mailed and the tab's first poll makes the account; a
-  taken or held address's request, and every refused token, goes on as
-  above. The flag, the checks and what they cost are in
+  taken or held address's request, and every token that fails a check,
+  goes on as above. The flag, the checks and what they cost are in
   [[email-verification-api]].
 - **A completing answer is never dropped.** `Register` holds the session for
   the passkey step and publishes it once a passkey is enrolled. When the answer

@@ -495,7 +495,7 @@ describe("POST /register/begin with a browser token that verifies", () => {
             nonce: minted.nonce,
             aud: "http://localhost:5173",
           });
-          return { token, nonceSecret: minted.nonceSecret };
+          return { emailVerificationToken: token, nonceSecret: minted.nonceSecret };
         });
       const begin = (address: string, handle: string) =>
         Effect.gen(function* () {

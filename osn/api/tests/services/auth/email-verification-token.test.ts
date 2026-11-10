@@ -52,7 +52,7 @@ async function check(
   const { nonce, nonceSecret } = freshNonce();
   const token = await issuer.mint({ email, nonce, aud: AUDIENCE, ...mint });
   return checkEmailVerificationToken({
-    token,
+    emailVerificationToken: token,
     nonceSecret,
     email,
     audience: AUDIENCE,
@@ -129,7 +129,7 @@ describe("refusals", () => {
     const run = (token: string) =>
       checkEmailVerificationToken({
         ...base,
-        token,
+        emailVerificationToken: token,
         nonceSecret,
         email,
         now: Date.now(),
@@ -147,23 +147,72 @@ describe("refusals", () => {
     expect((await run(asA)).outcome).toBe("signature");
   });
 
-  it.each([["127.0.0.1"], ["10.0.0.5"], ["169.254.169.254"], ["192.168.1.10"], ["100.64.0.1"]])(
-    "refuses an issuer that resolves to %s, and never sends it a request",
-    async (address) => {
-      issuer.dns.set(`A ${issuer.host}`, [address]);
-      expect((await check()).outcome).toBe("issuer");
-      expect(issuerRequests()).toEqual([]);
-    },
-  );
+  it.each([
+    ["127.0.0.1"],
+    ["10.0.0.5"],
+    ["169.254.169.254"],
+    ["192.168.1.10"],
+    ["100.64.0.1"],
+    ["192.88.99.1"],
+  ])("refuses an issuer that resolves to %s, and never sends it a request", async (address) => {
+    issuer.dns.set(`A ${issuer.host}`, [address]);
+    expect((await check()).outcome).toBe("issuer");
+    expect(issuerRequests()).toEqual([]);
+  });
 
-  it.each([["::1"], ["fd00::1"], ["fe80::1"], ["::ffff:127.0.0.1"], ["2002:7f00:1::"]])(
-    "refuses an issuer with an IPv6 answer of %s, whatever its IPv4 answers",
-    async (address) => {
-      issuer.dns.set(`AAAA ${issuer.host}`, [address]);
-      expect((await check()).outcome).toBe("issuer");
-      expect(issuerRequests()).toEqual([]);
-    },
-  );
+  it.each([
+    ["::1"],
+    ["fd00::1"],
+    ["fe80::1"],
+    ["fec0::1"],
+    ["::ffff:127.0.0.1"],
+    ["::ffff:0:7f00:1"],
+    ["64:ff9b:1::a00:5"],
+    ["2002:7f00:1::"],
+  ])("refuses an issuer with an IPv6 answer of %s, whatever its IPv4 answers", async (address) => {
+    issuer.dns.set(`AAAA ${issuer.host}`, [address]);
+    expect((await check()).outcome).toBe("issuer");
+    expect(issuerRequests()).toEqual([]);
+  });
+
+  it("refuses metadata that does not name its issuer", async () => {
+    issuer.routes.set(`https://${issuer.host}/.well-known/email-verification`, () =>
+      Response.json({ jwks_uri: `https://${issuer.host}/jwks` }),
+    );
+    expect((await check()).outcome).toBe("issuer");
+    expect(issuer.requested).not.toContain(`https://${issuer.host}/jwks`);
+  });
+
+  it("gives up on an issuer that sends its headers and then stalls, when the time runs out", async () => {
+    issuer.routes.set(
+      `https://${issuer.host}/.well-known/email-verification`,
+      () =>
+        new Response(
+          // One byte, then nothing: the stream neither ends nor errors.
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("{"));
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    const started = Date.now();
+    const result = await check({}, { signal: AbortSignal.timeout(200) });
+    expect(result.outcome).toBe("unavailable");
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("gives up on a network that never answers and ignores the abort, when the time runs out", async () => {
+    const silent = (url: string, init: RequestInit) =>
+      new URL(url).hostname === issuer.host
+        ? new Promise<Response>(() => undefined)
+        : issuer.fetch(url, init);
+    const started = Date.now();
+    const result = await check({}, { signal: AbortSignal.timeout(200) }, silent);
+    expect(result.outcome).toBe("unavailable");
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
 
   it("refuses a non-https key URL, and never fetches it", async () => {
     issuer.routes.set(`https://${issuer.host}/.well-known/email-verification`, () =>
@@ -218,7 +267,7 @@ describe("refusals", () => {
     const { nonce, nonceSecret } = freshNonce();
     const token = unsignedEvt(await issuer.mint({ email, nonce, aud: AUDIENCE }));
     const result = await checkEmailVerificationToken({
-      token,
+      emailVerificationToken: token,
       nonceSecret,
       email,
       audience: AUDIENCE,

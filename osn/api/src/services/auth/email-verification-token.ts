@@ -21,8 +21,9 @@
  *    `email_verified` is true, and both `iat`s and any `exp` are in range;
  *  - the issuer is found from the sign-up address's own domain — one DNS TXT
  *    record `_email-verification.<domain>` naming `iss=<host>` — never from
- *    the token; the EVT's `iss` names that host, and a key from the jwks_uri
- *    of that host's metadata verifies the EVT.
+ *    the token; the EVT's `iss` and the metadata's `issuer` name that host,
+ *    and a key from the jwks_uri of that host's metadata verifies the EVT;
+ *  - the whole check, lookups included, ends within its time budget.
  *
  * Every refusal is an outcome, never an error: the caller takes the emailed
  * link path for all of them, and the person sees nothing.
@@ -41,6 +42,7 @@ import {
   isJsonObject,
   isLookupHost,
   parseJson,
+  untilAborted,
   type IssuerNetwork,
   type JsonObject,
   type JsonValue,
@@ -60,10 +62,13 @@ export const EMAIL_VERIFICATION_BUDGET_MS = 5_000;
 /** The most issuer keys tried for one token. */
 const MAX_KEYS_TRIED = 10;
 
-/** What the sign-up tab sends with its begin. */
+/**
+ * What the sign-up tab sends with its begin. Both keys are on the log
+ * redaction deny-list, so either object is safe to pass to a logger whole.
+ */
 export interface EmailVerificationInput {
   /** The hidden field's value: `<EVT>~<KB-JWT>`. */
-  readonly token: string;
+  readonly emailVerificationToken: string;
   /** What the nonce route gave the tab; the form's nonce is its hash. */
   readonly nonceSecret: string;
 }
@@ -149,9 +154,7 @@ const decode = (jwt: string): { header: JsonObject; payload: JsonObject } | null
   return header && payload ? { header, payload } : null;
 };
 
-export interface CheckArgs {
-  readonly token: string;
-  readonly nonceSecret: string;
+export interface CheckArgs extends EmailVerificationInput {
   /** The sign-up address, lowercased. */
   readonly email: string;
   /** The origin the browser bound the token to: the sign-up page's. */
@@ -163,11 +166,41 @@ export interface CheckArgs {
 }
 
 /**
+ * The keys of the issuer that `domain`'s one `iss=` TXT record names, after
+ * checking the EVT's `iss` and the metadata's `issuer` name that same issuer.
+ * Throws {@link IssuerLookupError} for every refusal.
+ */
+async function issuerKeys(
+  domain: string,
+  iss: string,
+  network: IssuerNetwork,
+  signal: AbortSignal,
+): Promise<JsonObject[]> {
+  const records = (await network.txt(`_email-verification.${domain}`, signal)).filter((r) =>
+    r.startsWith("iss="),
+  );
+  if (records.length !== 1) throw new IssuerLookupError("issuer", "not one issuer record");
+  const host = records[0]!.slice("iss=".length).trim().toLowerCase();
+  if (!isLookupHost(host)) throw new IssuerLookupError("issuer", "record names no host");
+  const issuer = `https://${host}`;
+  // The draft's identifier is the origin; earlier deployments used the host.
+  if (iss !== issuer && iss !== host) throw new IssuerLookupError("issuer", "token names another");
+  const metadata = await network.json(`${issuer}/.well-known/email-verification`, signal);
+  if (metadata.issuer !== issuer) throw new IssuerLookupError("issuer", "metadata names another");
+  if (typeof metadata.jwks_uri !== "string") throw new IssuerLookupError("issuer", "no jwks_uri");
+  const jwks = await network.json(metadata.jwks_uri, signal);
+  if (!Array.isArray(jwks.keys)) throw new IssuerLookupError("issuer", "no key set");
+  return jwks.keys.filter(isJsonObject);
+}
+
+/**
  * Checks a token. Local checks run first, so a token that fails one costs no
- * lookup. Every refusal is an outcome; nothing here throws.
+ * lookup. The lookups end when `signal` aborts, whether or not the network
+ * answers. Every refusal is an outcome; nothing here throws.
  */
 export async function checkEmailVerificationToken(args: CheckArgs): Promise<CheckedToken> {
-  const { token, nonceSecret, email, audience, network, serverMac, now, signal } = args;
+  const { emailVerificationToken: token, nonceSecret, email, audience, network } = args;
+  const { serverMac, now, signal } = args;
 
   if (token.length === 0 || token.length > EMAIL_VERIFICATION_TOKEN_MAX) {
     return refused("malformed");
@@ -227,22 +260,7 @@ export async function checkEmailVerificationToken(args: CheckArgs): Promise<Chec
   const domain = email.slice(email.lastIndexOf("@") + 1);
   let keys: JsonObject[];
   try {
-    const records = (await network.txt(`_email-verification.${domain}`, signal)).filter((r) =>
-      r.startsWith("iss="),
-    );
-    if (records.length !== 1) return refused("issuer");
-    const host = records[0]!.slice("iss=".length).trim().toLowerCase();
-    if (!isLookupHost(host)) return refused("issuer");
-    const issuer = `https://${host}`;
-    // The draft's identifier is the origin; earlier deployments used the host.
-    if (claims.iss !== issuer && claims.iss !== host) return refused("issuer");
-    const metadata = await network.json(`${issuer}/.well-known/email-verification`, signal);
-    if (!isJsonObject(metadata)) return refused("issuer");
-    if (metadata.issuer !== undefined && metadata.issuer !== issuer) return refused("issuer");
-    if (typeof metadata.jwks_uri !== "string") return refused("issuer");
-    const jwks = await network.json(metadata.jwks_uri, signal);
-    if (!isJsonObject(jwks) || !Array.isArray(jwks.keys)) return refused("issuer");
-    keys = jwks.keys.filter(isJsonObject);
+    keys = await untilAborted(issuerKeys(domain, claims.iss, network, signal), signal);
   } catch (e) {
     return refused(e instanceof IssuerLookupError ? e.outcome : "unavailable");
   }
@@ -294,17 +312,21 @@ export function createEmailVerificationModule(ctx: AuthContext) {
     Effect.gen(function* () {
       const settings = config.emailVerification;
       if (!settings) return false;
+      const budget = AbortSignal.timeout(EMAIL_VERIFICATION_BUDGET_MS);
       const checked = yield* Effect.promise(() =>
-        checkEmailVerificationToken({
-          token: input.token,
-          nonceSecret: input.nonceSecret,
-          email,
-          audience: frontendOrigin(config),
-          network: settings.network,
-          serverMac,
-          now: Date.now(),
-          signal: AbortSignal.timeout(EMAIL_VERIFICATION_BUDGET_MS),
-        }).catch((): CheckedToken => refused("unavailable")),
+        untilAborted(
+          checkEmailVerificationToken({
+            emailVerificationToken: input.emailVerificationToken,
+            nonceSecret: input.nonceSecret,
+            email,
+            audience: frontendOrigin(config),
+            network: settings.network,
+            serverMac,
+            now: Date.now(),
+            signal: budget,
+          }),
+          budget,
+        ).catch((): CheckedToken => refused("unavailable")),
       );
       let outcome = checked.outcome;
       if (outcome === "verified" && checked.claim) {

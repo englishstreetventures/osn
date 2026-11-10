@@ -105,6 +105,7 @@ const publicV4 = ([a, b, c]: number[]): boolean => {
   if (a === 172 && b >= 16 && b <= 31) return false;
   if (a === 192 && b === 168) return false;
   if (a === 192 && b === 0 && c === 0) return false; // IETF protocol assignments
+  if (a === 192 && b === 88 && c === 99) return false; // 6to4 relay anycast
   if (a === 198 && (b === 18 || b === 19)) return false; // benchmarking
   return a < 224; // multicast and reserved, broadcast included
 };
@@ -159,10 +160,17 @@ const publicV6 = (g: number[]): boolean => {
   if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
     return publicV4(v4From(g6, g7));
   }
+  // ::ffff:0:0:0/96 — an IPv4-translated address (SIIT): judged as that address.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0xffff && g5 === 0) {
+    return publicV4(v4From(g6, g7));
+  }
   // 64:ff9b::/96 — NAT64: judged as the IPv4 address it carries.
   if (g0 === 0x64 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
     return publicV4(v4From(g6, g7));
   }
+  // 64:ff9b:1::/48 — local-use NAT64, which a network may map to any
+  // address, private ones included.
+  if (g0 === 0x64 && g1 === 0xff9b && g2 === 1) return false;
   // 2002::/16 — 6to4: judged as the IPv4 address it carries.
   if (g0 === 0x2002) return publicV4(v4From(g1, g2));
   // 2001::/32 — Teredo, whose IPv4 address is hidden.
@@ -171,6 +179,7 @@ const publicV6 = (g: number[]): boolean => {
   if (g0 === 0x100 && g1 === 0 && g2 === 0 && g3 === 0) return false;
   if ((g0 & 0xfe00) === 0xfc00) return false; // unique local
   if ((g0 & 0xffc0) === 0xfe80) return false; // link-local
+  if ((g0 & 0xffc0) === 0xfec0) return false; // site-local, deprecated
   if ((g0 & 0xff00) === 0xff00) return false; // multicast
   return true;
 };
@@ -188,33 +197,61 @@ export function isPublicAddress(ip: string): boolean {
 const deadline = (signal: AbortSignal): AbortSignal =>
   AbortSignal.any([signal, AbortSignal.timeout(ISSUER_REQUEST_TIMEOUT_MS)]);
 
+/**
+ * `work`'s result, or an `unavailable` refusal the moment `signal` aborts,
+ * whether or not `work` heeds the signal. Time limits hold in this code, not
+ * in what the runtime does with an aborted response body.
+ */
+export function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  // `work` may still settle after the race is lost; nothing waits on it then.
+  work.catch(() => undefined);
+  let onAbort = (): void => undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new IssuerLookupError("unavailable", "timed out"));
+  });
+  if (signal.aborted) onAbort();
+  else signal.addEventListener("abort", onAbort, { once: true });
+  return Promise.race([work, aborted]).finally(() => signal.removeEventListener("abort", onAbort));
+}
+
+/** Drops a body unread, without waiting on a peer that may never answer. */
+const discard = (res: Response): void => {
+  res.body?.cancel().catch(() => undefined);
+};
+
 const isJsonMediaType = (contentType: string | null, accepted: readonly string[]): boolean => {
   const media = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
   return accepted.includes(media) || media.endsWith("+json");
 };
 
-/** The body of `res`, refused past the cap whatever `Content-Length` says. */
-async function cappedText(res: Response): Promise<string> {
+/**
+ * The body of `res`, refused past the cap whatever `Content-Length` says,
+ * and given up as `unavailable` when `signal` aborts mid-read.
+ */
+async function cappedText(res: Response, signal: AbortSignal): Promise<string> {
   const declared = Number(res.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > ISSUER_RESPONSE_MAX_BYTES) {
-    await res.body?.cancel();
+    discard(res);
     throw new IssuerLookupError("issuer", "response too large");
   }
   if (!res.body) return "";
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    // oxlint-disable-next-line no-await-in-loop -- a stream is read in order
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > ISSUER_RESPONSE_MAX_BYTES) break;
-    chunks.push(value);
-  }
-  if (size > ISSUER_RESPONSE_MAX_BYTES) {
-    await reader.cancel();
-    throw new IssuerLookupError("issuer", "response too large");
+  try {
+    for (;;) {
+      // oxlint-disable-next-line no-await-in-loop -- a stream is read in order
+      const { done, value } = await untilAborted(reader.read(), signal);
+      if (done) break;
+      size += value.byteLength;
+      if (size > ISSUER_RESPONSE_MAX_BYTES) {
+        throw new IssuerLookupError("issuer", "response too large");
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    reader.cancel().catch(() => undefined);
+    throw e;
   }
   const all = new Uint8Array(size);
   let at = 0;
@@ -239,15 +276,16 @@ export function txtText(data: string): string {
 export function createIssuerNetwork(
   send: IssuerFetch = (url, init) => fetch(url, init),
 ): IssuerNetwork {
-  /** One request through the seam; a network failure or timeout is `unavailable`. */
-  const request = async (url: string, accept: string, signal: AbortSignal): Promise<Response> => {
+  /**
+   * One request through the seam, under `limit` (from {@link deadline}); a
+   * network failure or timeout is `unavailable`.
+   */
+  const request = async (url: string, accept: string, limit: AbortSignal): Promise<Response> => {
     try {
-      return await send(url, {
-        method: "GET",
-        headers: { accept },
-        redirect: "manual",
-        signal: deadline(signal),
-      });
+      return await untilAborted(
+        send(url, { method: "GET", headers: { accept }, redirect: "manual", signal: limit }),
+        limit,
+      );
     } catch {
       throw new IssuerLookupError("unavailable", "request failed");
     }
@@ -256,14 +294,15 @@ export function createIssuerNetwork(
   /** The `data` of every answer of `type` at `name`; [] when there are none. */
   const doh = async (name: string, type: number, signal: AbortSignal): Promise<string[]> => {
     const url = `${DOH_ENDPOINT}?name=${encodeURIComponent(name)}&type=${type}`;
-    const res = await request(url, "application/dns-json", signal);
+    const limit = deadline(signal);
+    const res = await request(url, "application/dns-json", limit);
     if (res.status !== 200) {
-      await res.body?.cancel();
+      discard(res);
       throw new IssuerLookupError("unavailable", "resolver refused");
     }
     let body: JsonValue;
     try {
-      body = parseJson(await cappedText(res));
+      body = parseJson(await cappedText(res, limit));
     } catch (e) {
       if (e instanceof IssuerLookupError) throw e;
       throw new IssuerLookupError("unavailable", "resolver answer unreadable");
@@ -305,16 +344,17 @@ export function createIssuerNetwork(
       }
       if (!isLookupHost(url.hostname)) throw new IssuerLookupError("issuer", "not a host name");
       await assertPublicHost(url.hostname, signal);
-      const res = await request(url.href, "application/json", signal);
+      const limit = deadline(signal);
+      const res = await request(url.href, "application/json", limit);
       if (res.status !== 200) {
-        await res.body?.cancel();
+        discard(res);
         throw new IssuerLookupError("issuer", `answered ${res.status}`);
       }
       if (!isJsonMediaType(res.headers.get("content-type"), ["application/json"])) {
-        await res.body?.cancel();
+        discard(res);
         throw new IssuerLookupError("issuer", "not JSON");
       }
-      const text = await cappedText(res);
+      const text = await cappedText(res, limit);
       let body: JsonValue;
       try {
         body = parseJson(text);
