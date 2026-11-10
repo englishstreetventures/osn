@@ -217,6 +217,7 @@ function fixedContainingBlockAncestor(el: HTMLElement): HTMLElement | null {
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 /**
  * Wait out the slide a switch between the sheet's panels plays. The sheet
@@ -282,6 +283,16 @@ function openRestored(Pack: typeof classicInvitePage, rsvpResponses: Response[])
  * positioned against the viewport.
  */
 async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Response[]) {
+  const view = submitCode(Pack, rsvpResponses);
+  // The reveal choreography is ~1.2s of staggered animation before the cards
+  // are settled and clickable.
+  await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 5000 });
+  await wait(1500);
+  return view;
+}
+
+/** A first-time guest submits their code; returns as the claim is sent. */
+function submitCode(Pack: typeof classicInvitePage, rsvpResponses: Response[]) {
   let call = 0;
   const inner = ((input: Parameters<typeof fetch>[0]) => {
     const url = typeof input === "string" ? input : (input as Request).url;
@@ -303,11 +314,6 @@ async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Respons
       (b) => b.textContent === "Open invitation",
     ) as HTMLButtonElement
   ).click();
-
-  // The reveal choreography is ~1.2s of staggered animation before the cards
-  // are settled and clickable.
-  await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 5000 });
-  await wait(1500);
   return view;
 }
 
@@ -591,6 +597,41 @@ describe.each([
     expect(rect.bottom, "toast is below the fold").toBeLessThanOrEqual(window.innerHeight);
     expect(rect.top, "toast is not anchored to the viewport top").toBeLessThan(200);
   });
+  it("rises the welcome and shimmers its heading through the page's own swap", async () => {
+    // `UnlockReveal.browser.test.ts` stands in for the page with its own
+    // `onFormHidden`. Here the swap is the page's: `setRevealed` flips
+    // LoginSection's `display` binding, and the sequence starts the welcome's
+    // step straight after. A CSS animation never starts on a `display: none`
+    // element, so a swap that landed later (deferred to a microtask, an
+    // effect or a transition) would leave the welcome and its heading to pop
+    // in with no motion while every other test stayed green.
+    submitCode(Pack, []);
+    const seen = new Set<string>();
+    let eventsStarted = false;
+    const deadline = performance.now() + 5000;
+    while (!eventsStarted && performance.now() < deadline) {
+      await nextFrame();
+      const frame: string[] = [];
+      for (const animation of document.getAnimations()) {
+        if (!(animation instanceof CSSAnimation)) continue;
+        const target = (animation.effect as KeyframeEffect | null)?.target;
+        if (!(target instanceof HTMLElement) || !target.dataset.unlock) continue;
+        if (target.dataset.unlock === "section") eventsStarted = true;
+        frame.push(`${target.dataset.unlock} ${target.tagName} ${animation.animationName}`);
+      }
+      // Only frames before the events' step count.
+      if (!eventsStarted) for (const entry of frame) seen.add(entry);
+    }
+    expect(eventsStarted, "the events' step never started").toBe(true);
+    expect([...seen]).toEqual(
+      expect.arrayContaining(["welcome DIV unlock-rise", "shimmer H2 unlock-shimmer"]),
+    );
+    // The reveal ends with every mark off.
+    await waitFor(() => expect(document.querySelector("[data-unlock]")).toBeNull(), {
+      timeout: 5000,
+    });
+  });
+
   it("the code form comes back PAINTED after sign-out", async () => {
     // The unit tier mocks `UnlockReveal.motion` and `motion` away, so it asserts
     // the form is back in the layout and never that it is visible. The real
