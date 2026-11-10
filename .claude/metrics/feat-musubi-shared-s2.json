@@ -1,0 +1,194 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/musubi-shared-s2",
+    "base_sha": "944167c57ac425c06ba409a0bbc2688bd8b208ae",
+    "head_sha": "037648e44d573cc0424d9d7d8a78a91ae738015c",
+    "generated_at": "2026-11-10T12:19:54.636Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2041,
+    "type": null,
+    "labels": [
+      "complexity:5",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 8,
+    "first_ts": "2026-11-10T08:01:38.491Z",
+    "last_ts": "2026-11-10T12:19:51.044Z",
+    "span_seconds": 15493,
+    "active_seconds": 10926,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 102.77605039999987,
+    "tokens": {
+      "input": 2216,
+      "output": 764527,
+      "thinking": 345430,
+      "cache_write_5m": 3709990,
+      "cache_write_1h": 0,
+      "cache_read": 172316741
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 2216,
+          "output": 764527,
+          "thinking": 345430,
+          "cache_write_5m": 3709990,
+          "cache_write_1h": 0,
+          "cache_read": 172316741
+        },
+        "usd_equivalent": 102.77605039999987,
+        "messages": 1076
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 7
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 28,
+          "output": 4619,
+          "thinking": 2812,
+          "cache_write_5m": 108943,
+          "cache_write_1h": 0,
+          "cache_read": 164881
+        },
+        "usd_equivalent": 0.7031594,
+        "messages": 14
+      },
+      "subagent": {
+        "tokens": {
+          "input": 2188,
+          "output": 759908,
+          "thinking": 342618,
+          "cache_write_5m": 3601047,
+          "cache_write_1h": 0,
+          "cache_read": 172151860
+        },
+        "usd_equivalent": 102.07289099999988,
+        "messages": 1069
+      }
+    },
+    "effort": {
+      "medium": 14,
+      "high": 363,
+      "xhigh": 699
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 17,
+      "docs": 9,
+      "config": 0,
+      "source": 18
+    },
+    "loc": {
+      "generated": {
+        "added": 16,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1383,
+        "deleted": 163
+      },
+      "docs": {
+        "added": 226,
+        "deleted": 72
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 1037,
+        "deleted": 795
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "osn/auth-ui",
+      "tools/e2e",
+      "tools/lab"
+    ],
+    "touches_migration": false,
+    "commits": 18
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 961,
+      "Read": 52,
+      "Skill": 37,
+      "Edit": 23,
+      "Monitor": 20,
+      "StructuredOutput": 17,
+      "Write": 7,
+      "ToolSearch": 7,
+      "TaskStop": 4,
+      "SubagentHandback": 3,
+      "WebFetch": 3,
+      "Grep": 2,
+      "Glob": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 20
+    },
+    "skills": {
+      "new-feat": 7,
+      "design-system": 7,
+      "write-wiki": 4,
+      "obsidian:obsidian-markdown": 3,
+      "web-design-guidelines": 3,
+      "emil-design-eng": 2,
+      "apple-design": 2,
+      "find-animation-opportunities": 1,
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "review-design": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 14,
+      "subagent": 1062,
+      "with_tools": 1076,
+      "with_one_tool": 1026,
+      "context_median": 135303,
+      "context_p90": 331200
+    }
+  },
+  "review": null
+}
