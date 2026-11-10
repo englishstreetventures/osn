@@ -834,7 +834,7 @@ describe("arguments a command passes on to an Alchemy package script", () => {
     "bun run --cwd shared/infra state:check || exit 1",
     "bun run state:bootstrap",
     "bun run deploy:dev -- --force",
-    'bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" ${FLIP:+--flip "$FLIP"}',
+    'bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --domains "$RUNNER_TEMP/domains.json"',
   ])("passes %j", (line) => {
     expect(step(line)).toEqual([]);
   });

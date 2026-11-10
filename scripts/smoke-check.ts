@@ -465,8 +465,7 @@ export type Outcome =
 const PASS: Outcome = { kind: "pass" };
 
 /** Text on one line, at most `max` characters. */
-export const oneLine = (text: string, max = 200) =>
-  text.replaceAll(/\s+/g, " ").trim().slice(0, max);
+const oneLine = (text: string, max = 200) => text.replaceAll(/\s+/g, " ").trim().slice(0, max);
 
 function locationOf(response: Response, base: string): URL | undefined {
   const location = response.headers.get("location");
@@ -652,8 +651,7 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
 
 /**
  * The user agent every check of a deployed host sends: this one, and
- * scripts/site-parity.ts, scripts/guest-route-parity.ts and
- * cire/api/scripts/d1-latency-probe.ts. Cloudflare's Bot Fight Mode answers a
+ * scripts/guest-route-parity.ts and cire/api/scripts/d1-latency-probe.ts. Cloudflare's Bot Fight Mode answers a
  * request from a GitHub runner that carries Bun's own (`Bun/<version>`) with
  * a challenge in the Worker's place; it lets this one through.
  */

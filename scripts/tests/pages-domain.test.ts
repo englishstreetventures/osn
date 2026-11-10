@@ -434,7 +434,10 @@ describe("precheck", () => {
     expect(refused.code).toBe(1);
     expect(refused.output).toContain("cire_host host.cireweddings.com pages cire-host");
     expect(refused.output).toContain("cire_vendor vendor.cireweddings.com free");
-    expect(refused.output).toContain("flip: cire_host and surfaces: cire_host");
+    expect(refused.output).toContain(
+      "host.cireweddings.com is still on the cire-host Pages project. Move it back to the Worker as wiki/shared/production-deploy.md §5.7 says",
+    );
+    expect(refused.output).not.toContain("flip");
     const flip = await precheck({ STACKS: "cire", FLIP: "cire_host" });
     expect(flip.code).toBe(0);
     // A release that leaves the cire sites out asks nothing of the cire zone.
@@ -449,11 +452,16 @@ describe("precheck", () => {
     expect(cire.code).toBe(1);
     expect(cire.output).toContain("cire_landing cireweddings.com pages cire-landing");
     expect(cire.output).toContain("cire_host host.cireweddings.com free");
-    expect(cire.output).toContain("flip: cire_landing and surfaces: cire_landing");
+    expect(cire.output).toContain(
+      "cireweddings.com is still on the cire-landing Pages project. Move it back to the Worker as wiki/shared/production-deploy.md §5.7 says",
+    );
     const musubi = await run(["precheck"], HOST_MOVED, { STACKS: "musubi", FLIP: "" });
     expect(musubi.code).toBe(1);
     expect(musubi.output).toContain("osn_social musubi.social pages osn-social");
-    expect(musubi.output).toContain("flip: osn_social and surfaces: osn_social");
+    expect(musubi.output).toContain(
+      "musubi.social is still on the osn-social Pages project. Move it back to the Worker as wiki/shared/production-deploy.md §5.7 says",
+    );
+    expect(musubi.output).toContain("leave out the musubi stack's sites");
     // A daily run ships both stacks, so both apexes refuse it.
     const daily = await run(["precheck"], HOST_MOVED, { STACKS: "musubi cire", FLIP: "" });
     expect(daily.code).toBe(1);
@@ -496,7 +504,9 @@ describe("precheck", () => {
       run(["precheck"], onPages, { STACKS: "musubi", FLIP: flip }, APEXES_STAGED);
     const refused = await precheck("");
     expect(refused.code).toBe(1);
-    expect(refused.output).toContain("flip: musubi_landing");
+    expect(refused.output).toContain(
+      "Move it back to the Worker as wiki/shared/production-deploy.md §5.7 says",
+    );
     const flipped = await precheck("musubi_landing");
     expect(flipped.code).toBe(0);
   });

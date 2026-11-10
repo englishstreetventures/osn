@@ -10,8 +10,8 @@
  *  - `worker`: the Worker serves the production host.
  *
  * This file imports nothing, so scripts that run with no install
- * (scripts/deploy-surfaces.ts, scripts/pages-domain.ts,
- * scripts/site-parity.ts) load it by relative path.
+ * (scripts/deploy-surfaces.ts, scripts/pages-domain.ts) load it by relative
+ * path.
  */
 
 export type SiteMode = "off" | "staged" | "worker";
@@ -61,10 +61,10 @@ export const SITE_SURFACES: readonly SiteSurface[] = [
 ];
 
 /**
- * The switch. A site moves from `staged` to `worker` in a pull request, and
- * its domain moves in a release dispatched with `flip` naming it, one site
- * per release. Pulse landing stays `off` until englishstreetventures/osn#1794
- * settles its host and app link.
+ * The switch. A site moves from `staged` to `worker` in a pull request; its
+ * stack's next release attaches the production host to the Worker once the
+ * owner has taken the host off its Pages project by hand. Pulse landing stays
+ * `off` until englishstreetventures/osn#1794 settles its host and app link.
  */
 export const PRODUCTION_SITE_MODES: PerSite<SiteMode> = {
   cire_host: "worker",

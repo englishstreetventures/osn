@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -44,7 +44,7 @@ last-reviewed: 2026-11-10
 |---|---|---|
 | **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, `cire-vendor`, `cire-host`, `cire-landing`, `osn-social` | the Pages projects |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
-| **Cloudflare Pages** | the `cire-landing` and `osn-social` projects, deployed by no job, each serving its apex until its flip release moves it to its Worker; the `cire-host` and `cire-vendor` projects, deployed by no job and serving no host; each kept for a rollback | the Workers |
+| **Cloudflare Pages** | the `cire-host`, `cire-vendor`, `cire-landing` and `osn-social` projects, deployed by no job and serving no host, each kept for a rollback | the Workers |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) and the other bindings in its `wrangler.toml`; **osn-api**'s one-minute limiters, `RL_AUTH_IP_*` and `RL_USER_*` ([[rate-limiting]]) | — |
 | **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]); **osn-api** `COORDINATION` (`CoordinationStore`, the limiters longer than a minute, ceremonies, single-use claims and lockouts — [[coordination-store]]) | zap-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
@@ -321,7 +321,7 @@ size, 50K databases, 1 TB storage; overage is cheap ($0.001/M read, $1/M written
 
 ## Cloudflare Pages (Free)
 
-**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the `cire-landing` and `osn-social` projects, each serving its apex until its flip release moves it to a Worker, the `cire-host` and `cire-vendor` projects kept for a rollback, and the stale musubi and pulse landing preview projects; no workflow deploys any of them. Every production site serves from a production Worker, each apex once its flip release has run ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
+**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the `cire-host`, `cire-vendor`, `cire-landing` and `osn-social` projects, serving no host and kept for a rollback, and the stale musubi and pulse landing preview projects; no workflow deploys any of them. Every production site serves from a production Worker ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
 
 | Limit | Free value (re-verify) |
 |---|---|

@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Dev environment (cire + OSN identity)
@@ -65,9 +65,7 @@ its value. Each run's summary prints every host under **Dev hosts**.
 | Pulse marketing | `pulse.<D>` | `pulse-landing-dev` (pulse) | none |
 
 Every dev surface is a Worker; the sites serve from Workers static assets, not
-Pages ([[infrastructure-as-code#Sites]]). On production every site is a Worker too:
-musubi marketing and the organiser and vendor portals now, and the cire marketing and
-musubi social apexes once each one's flip release has moved it off its Pages project
+Pages ([[infrastructure-as-code#Sites]]). On production every site is a Worker too
 ([[infrastructure-as-code#Production sites]]).
 
 Backing resources, all in the dev account:

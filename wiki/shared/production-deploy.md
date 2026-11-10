@@ -104,8 +104,8 @@ marked **TBD** blocks the deploy.
 | `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production cire-api Worker (§3.2, §6.3). The row's `redirect_uris` still lists the dead `api-preview` callback; pruning it is an open prod-D1 write |
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social static build (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `sites`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social static build (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in the `sites` job. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
-| `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex to serve `@musubi/social`: the `osn-social` Pages project until its flip release, then the `osn-social` Worker (§5.7) |
-| **musubi.social zone: the apex on `osn-social` (Pages until its flip release, then the Worker), `id.` on the osn-api Worker** | Cloudflare dashboard, then the flip release | **Apex attached to Pages 2026-07-27; its flip release moves it to the Worker (§5.7).** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
+| `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex to serve `@musubi/social`, which the `osn-social` Worker does (§5.3) |
+| **musubi.social zone: the apex on the `osn-social` Worker, `id.` on the osn-api Worker** | The musubi stack's deploy | **DONE — the apex moved from its Pages project to the Worker on 2026-11-10 (release 42817386650).** The osn-api Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
 | **musubi.social on the Turnstile widget** | Cloudflare dashboard | **DONE 2026-07-27.** `id.musubi.social` is not needed — only form-rendering hostnames are. [[turnstile]] |
 
 ---
@@ -520,8 +520,7 @@ quietly accepting tokens from anywhere.
 > the generated `dist/server/wrangler.json` against the installed wrangler's schema.
 
 `cire/host`, `cire/vendor` and `cire/landing` are **static** builds (`output: "static"`),
-each served by its site Worker, cire landing once its flip release has moved the apex
-(§5.3); cire/invites's
+each served by its site Worker (§5.3); cire/invites's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but
 still bake in **at build time**. The prod values are wired in
 `.github/workflows/production-release.yml` (the `deploy-cire-invites` job and the `sites` job set
@@ -876,15 +875,11 @@ what holds it.
    release commit: an older release was re-run in full. A release never ships an older
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
    check (item 7).
-   **`ships with its stack`** appears only in a flip release: the site would ship, and
-   its stack deploys its Worker with the flip, but its own job does not run. A staged
-   site's Pages host keeps its build until a later release ships it (§5.7).
 5. **A production job stuck on `Waiting` is the approval gate**, not a hang. See §5.5.
-   When a stack ships there are two: `alchemy-plan` first, then every other job. A
-   flip release has four, one per job (§5.7).
+   When a stack ships there are two: `alchemy-plan` first, then every other job.
    - **A red `alchemy-plan`** holds every deploy job. Its failing step says why: a
-     worker site whose domain is still on Pages (the step names the dispatch that moves
-     it), the token or the state store (bootstrap it after an Alchemy bump that
+     worker site whose domain is on Pages, as after a rollback (the step names the
+     site and the way back, §5.7), the token or the state store (bootstrap it after an Alchemy bump that
      changes the store's version; an error from loading Alchemy itself is a broken
      install, which no bootstrap fixes), a plan step (the next step prints its log),
      or the guard (its summary names each refused resource and action).
@@ -1130,14 +1125,12 @@ the cire stack deploys each build to the site's Worker
 ([[infrastructure-as-code#Production sites]]):
 
 - `cire/host`, `cire/vendor` and `cire/landing` are `worker` in
-  `shared/infra/src/production-sites.ts`. The `cire-host` and `cire-vendor` Workers hold
-  `host.cireweddings.com` and `vendor.cireweddings.com`, their flip releases having moved
-  each off its Pages project (§5.7); the `cire-landing` Worker holds the apex
-  `cireweddings.com` once its own flip release has run, and until then the
-  `cire-landing` Pages project serves the apex with the last build its Pages job
-  deployed.
-- No job deploys the `cire-host`, `cire-vendor` or `cire-landing` Pages project; each stays
-  for a rollback until `musubi.social` has moved and soaked.
+  `shared/infra/src/production-sites.ts`. The `cire-host`, `cire-vendor` and
+  `cire-landing` Workers hold `host.cireweddings.com`, `vendor.cireweddings.com` and the
+  apex `cireweddings.com`; the `osn-social` Worker holds the apex `musubi.social`.
+- No job deploys the `cire-host`, `cire-vendor`, `cire-landing` or `osn-social` Pages
+  project; each stays, serving no host, for a rollback until the soak after the last move
+  ends (§5.7).
 
 Manual equivalents:
 
@@ -1192,7 +1185,7 @@ automatically once you attach them.
    of their own, so the explicit `id` record takes precedence.
 2. **Pages custom domains (dashboard, one-time).** In each Pages project's Custom domains.
    Every one of these sites is `worker` now, so each step below is a rollback's, never
-   while the site's Worker holds its host (§5.7):
+   while the site's Worker holds its host (§5.7, which the attach job does for you):
    - `cire-landing` (marketing site) → add the apex **`cireweddings.com`**.
    - `cire-host` (organiser portal): add **`host.cireweddings.com`**, never while the
      `cire-host` Worker holds it (§5.7).
@@ -1209,25 +1202,24 @@ automatically once you attach them.
    `cireweddings.com` apex is attached to Pages, confirm it does not collide with the
    email/DNS records from §1.1 (SPF/DKIM/DMARC are TXT records, the apex Pages target is a
    separate record type — they coexist).
-   A site whose domain has moved to its Worker (`worker` in
-   `shared/infra/src/production-sites.ts`) loses its Pages custom domain: the release that
-   moves it takes the domain off the Pages project, and Alchemy attaches it to the Worker
+   A site whose domain is on its Worker (`worker` in
+   `shared/infra/src/production-sites.ts`) holds no Pages custom domain
    ([[infrastructure-as-code#Production sites]]).
 3. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
    each site Worker's domain on deploy: `www.musubi.social` for musubi landing,
    `vendor.cireweddings.com` for cire vendor, `host.cireweddings.com` for cire host, the
    apex `cireweddings.com` for cire landing and the apex `musubi.social` for musubi social,
-   each apex once its flip release has moved it (§5.7), and while a site is staged its
-   spare host (`next.cireweddings.com`, `next.musubi.social`). No dashboard step. Before a release first attaches one, confirm nothing holds it: for
-   `www.musubi.social` run `bun run scripts/pages-domain.ts check musubi_landing` with
-   `CLOUDFLARE_PAGES_DNS_TOKEN`; that command reads production hosts only, so for each
-   spare host check that `dig +short <host> A`, `AAAA` and `CNAME` answer nothing and
-   that no Pages project lists it. The token must reach the production account and
-   exactly `cireweddings.com` and `musubi.social`, and be able to list its account:
-   `pages-domain.ts` refuses it otherwise, before any other request, and
-   `alchemy-plan`'s precheck then fails every release that ships the musubi stack. A
-   site turned on in another zone (pulse landing on `pulse.events`) needs the token
-   minted again with that zone, the same day.
+   and while a site is staged its spare host (`next.cireweddings.com`,
+   `next.musubi.social`). No dashboard step. Before a release first attaches one,
+   confirm nothing holds it: for a production host run
+   `bun run scripts/pages-domain.ts check <site>` with `CLOUDFLARE_PAGES_DNS_TOKEN`; that
+   command reads production hosts only, so for each spare host check that
+   `dig +short <host> A`, `AAAA` and `CNAME` answer nothing and that no Pages project
+   lists it. The token must reach the production account and exactly `cireweddings.com`
+   and `musubi.social`, and be able to list its account: `pages-domain.ts` refuses it
+   otherwise, before any other request, and `alchemy-plan`'s precheck then fails every
+   release that ships a stack. A site turned on in another zone (pulse landing on
+   `pulse.events`) needs the token minted again with that zone, the same day.
    A spare host two labels below its zone gets its own certificate about two minutes
    after the deploy that attaches it ([[dev-environment#1. Tier map]]), longer than the
    smoke check's usual minute. So the stack job gives a site whose approved plan
@@ -1298,16 +1290,14 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   every other shipping job — the Wrangler API jobs and the stack jobs —
   reaches the gate at the same moment, and one review releases them all (approval 2).
   When no stack ships, `alchemy-plan` is skipped and that one review is all. A release
-  that moves a site's domain asks four, one per job; one that puts it back on Pages
-  (`attach`) asks one; one that takes it off its Worker (`unflip`) asks the usual two
-  and one more for the attach job after it (§5.7). A release with nothing to ship skips
-  `build` and asks for nothing.
+  that puts a site's domain back on Pages (`attach`) asks one (§5.7). A release with
+  nothing to ship skips `build` and asks for nothing.
 - **A failure before the gate stops everything.** Every deploy job needs `alchemy-plan`
   to have passed or been skipped. A guard refusal, a failed site build, a state store
   left out of date by an Alchemy bump that changes its version (run the **Alchemy
   state store** workflow, tier `production`, bootstrap then check), or a site whose
-  mode says `worker` while its domain is still on Pages holds every release, the daily
-  one included, until fixed —
+  mode says `worker` while its domain is on Pages, as after a rollback (§5.7), holds
+  every release, the daily one included, until fixed —
   or until a dispatch whose `surfaces` leave the stacks' sites out.
 - **One at a time.** The workflow's concurrency group holds one release in progress —
   waiting for approval counts — and one queued behind it. A newer trigger replaces the
@@ -1328,8 +1318,7 @@ To release:
 3. When a stack ships, `alchemy-plan` waits first. Approve it, then read its summary:
    each stack's resources, their kinds and actions, and each site's custom domains added
    and removed. Expect site Workers only; the guard has already refused anything else,
-   and any production host leaving its Worker in a release not dispatched with `unflip`
-   naming that site.
+   and any production host leaving its Worker.
 4. Wait until every other job the plan ships shows **Waiting**, then click **Review
    deployments**, tick `production` and approve. The review releases the jobs that were
    waiting when the dialog opened; a job that arrives later needs a review of its own. A
@@ -1338,9 +1327,7 @@ To release:
 5. The approvals, the approver and the timestamps are recorded on the run — that record
    is the deploy audit trail (SOC 2 CC8, [[compliance/soc2]]). Each stack site whose
    Worker serves its host is recorded by its record job in `production-records`, which
-   has no reviewer and allows `main` alone; after the stack jobs, `site-parity` keeps a
-   report comparing each staged site with its Pages project, which the owner reads before
-   that site's domain moves.
+   has no reviewer and allows `main` alone.
 
 Rejecting a release leaves production where it was, and the next release offers the
 same surfaces again with whatever merged since.
@@ -1350,9 +1337,7 @@ same surfaces again with whatever merged since.
 | Input | Effect |
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
-| `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone (§5.7). Its stack's other sites deploy their Workers with it; no other job runs. |
-| `unflip` | A site set back to `staged` whose Worker this release lets give up its production host, with `surfaces` naming that site alone; the attach job then puts the host back on its Pages project (§5.7). |
-| `attach` | A site whose domain goes back on its Pages project, with every other input empty: the release runs that one job (§5.7). |
+| `attach` | A site whose domain goes back on its Pages project once it is off its Worker, with every other input empty: the release runs that one job (§5.7). |
 | `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
@@ -1415,8 +1400,7 @@ releases, host first**:
    sites together, so any of the three that dev holds back, or that production runs
    newer, holds the portal too: if the plan shows the cire stack waiting, the release
    ships no portal, so get dev to deploy what it names first (§5.0 item 3), then
-   dispatch again. Until the apex `cireweddings.com` has moved to its Worker (§5.7), the
-   cire stack fails `alchemy-plan`'s precheck, so this step waits for that flip.
+   dispatch again.
 4. Dispatch a release with `surfaces: cire_api` and approve it. It applies the D1
    migrations, then deploys the Worker.
 
@@ -1508,254 +1492,116 @@ stated here.*
 
 ---
 
-### 5.7 Moving a site's domain from Pages to its Worker (a flip) 🔑
+### 5.7 Rolling a site back to its Pages project 🔑
 
-Before the first move, the domain move rehearsal has run clean on the dev account and
-its numbers are recorded below ([[#Rehearse the move on dev first]]).
+Every production site serves from its Worker: `vendor.cireweddings.com` since release
+42329249886 (2026-11-07), `host.cireweddings.com` since release 42779388723
+(2026-11-10), and the apexes `cireweddings.com` and `musubi.social` since release
+42817386650 (2026-11-10), after the owner took each apex off its Pages project by hand.
+The `cire-host`, `cire-vendor`, `cire-landing` and `osn-social` Pages projects stay,
+deployed by no job and serving no host, so a site can go back to one until the soak after
+the last move ends (decided by the owner, englishstreetventures/osn#1787). Once the owner
+deletes the projects, this rollback ends.
 
-Each Pages site moves one at a time, in the order cire vendor, cire host, cire landing,
-then `musubi.social` (englishstreetventures/osn#1787). Cire landing and musubi social turned
-to `worker` in one pull request, and each still moves in its own release, cire landing
-first: no rehearsal covered an apex, and cire landing's is the one no sign-in passes
-through, so `musubi.social` moves only once cire landing's flip has passed the checks
-below. Dispatch the second flip only after the first's run has finished: one release runs
-at a time, and a newer trigger, the 20:17 UTC daily run included, replaces a pending one.
-Before each:
+Prefer fixing forward. In the rehearsal, about 4 minutes passed from a Worker giving up
+its host to the Pages site serving, about 3 of them with no site at all
+([[#What the first run measured]]); a real rollback adds the dispatch, the plan job and the
+wait for the attach job's approval.
 
-- The site has run `staged` through at least one release, and the `site-parity` artifact
-  of the latest release that compared it shows no difference a real path relies on.
-  Check it before the pull request below merges: from then on no release compares the
-  site. Four are expected
-  and accepted:
-  - Pages' `access-control-allow-origin: *`, which the Worker does not send (accepted by
-    the owner).
-  - HTML's `content-type`: `text/html` from the Worker, `text/html; charset=utf-8` from
-    Pages. Cloudflare's asset upload keeps the media type and drops the parameter, from
-    Alchemy and Wrangler alike, so no upload can set it, and every page of the four
-    staged sites declares `<meta charset="UTF-8">` within its first 1024 bytes, where
-    the browser looks when the header names no charset.
-  - JavaScript's `text/javascript` where Pages says `application/javascript`: the same
-    type.
-  - An unknown path on cire landing: the Worker answers 404, Pages 200 with its
-    single-page fallback. Every page the site links is a file. The organiser and vendor
-    portals, like musubi social, serve their own page there as Pages does
-    ([[infrastructure-as-code#Sites]]).
+**What the Pages build lacks.** Each Pages project serves the build of the site's last
+Pages job, `Deploy cire/host — production`, `Deploy cire/vendor — production`,
+`Deploy cire/landing — production (apex)` or `Deploy musubi/social — production`, in the
+last release before the pull request that turned the site to `worker`. List what changed
+in the site since: `git log --oneline <that commit>..origin/main -- <the site's paths>`,
+the site's paths and the shared ones in `scripts/deploy-surfaces.ts` (for cire host,
+`cire/host cire/build-tools cire/dietary cire/envelope/src/index.ts cire/envelope/package.json cire/guest-email cire/invite-designs cire/theme cire/ui shared patches bun.lock package.json turbo.json tsconfig.json .browserslistrc`;
+for cire landing, `cire/landing cire/dietary cire/ui` and the same shared ones; for
+musubi social, `musubi/social osn/client shared/ui osn/auth-ui` and the same shared ones).
+No release deploys a Pages project, so if a security fix is among them, fix forward on the
+Worker instead. A protection the move itself first brought to production is not such a
+fix: the rollback returns production to what it served before the move. Musubi social's
+build-time `script-src` and `connect-src` are one.
 
-  The comparison does not ask a directory page's address without its trailing slash
-  (`/login`, `/privacy`), which both redirect to the slash form, the Worker with a 307
-  and Pages with a 308. The owner accepted the 307 (englishstreetventures/osn#1988):
-  cire's own links name each page in the slash form, which CI checks after the build
-  ([[cire-development#Links to a site's own pages]]), so only an address typed or
-  linked from elsewhere meets the redirect.
+**Roll one site back**, in this order, with no release between the steps:
 
-  *Measured 2026-11-05 — release run 41818903897: its `site-parity` report; each HTML
-  file of its `production-sites` artifact searched for `<meta charset` in its first 1024
-  bytes (byte 38 on every cire page, 137 on musubi social's); and
-  `curl -sS -D - -o /dev/null` of each built page's address, with and without the
-  slash, on both hosts. The staged host's `/_astro/theme-boot.B7YqAPRH.css` answers
-  `text/css` with ETag `f23e95daca37f70e89cfd58fba764a14`, the manifest hash Alchemy
-  gives the file uploaded as `text/css; charset=utf-8`.*
+1. In the Cloudflare dashboard, take the host off the site's Worker: open **Workers &
+   Pages**, the Worker (`cire-host`, `cire-vendor`, `cire-landing` or `osn-social`),
+   **Settings**, **Domains & Routes**, then remove the custom domain. No release does this: the plan guard
+   refuses any plan that takes a production host off its Worker. The site serves nothing
+   from here until step 2 has run and Pages has validated the host.
+2. Dispatch **Production release** with `attach: <site>` and every other input empty, and
+   approve its one job at once. It runs the plan job and `attach-pages-domain` alone, on a
+   fresh runner with nothing installed: `pages-domain.ts attach` checks the token's reach,
+   refuses while another Pages project lists the host or the zone holds any record that
+   could route it but its CNAME to `<project>.pages.dev` (TXT, MX and CAA records stay and
+   do not count), then puts back whichever of that CNAME and the Pages project's domain is
+   missing. Pages re-validates and issues the certificate, which takes minutes.
+3. Leave the site's mode `worker`. While its host is on Pages, `alchemy-plan`'s precheck
+   refuses every release that ships the site's stack, naming the site, so nothing deploys
+   that stack until the move back below. Meanwhile dispatch releases whose `surfaces`
+   leave that stack's sites out.
 
-  Both comparisons, this one and the dev guest route comparison
-  ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
-  (`CI_USER_AGENT`) — the guest comparison's local Wrangler runtime too, whose calls to
-  cire-api go out through a relay that sets it — and a refused run — the `site-parity` job failing on exit 3, its
-  report's `refused` list naming the site, side and path — means an answer, asked twice,
-  did not come from the site. Either Cloudflare answered in its place (a challenge, an
-  Access redirect, a 429, or a 403 carrying Cloudflare's own error page: a block rule,
-  or a fault in the host's DNS or custom domain), or `/` did not answer both hosts with
-  a 2xx HTML page: a zone's custom error page or custom block response, a host or
-  custom domain not ready yet (no answer, or Cloudflare's 52x or 530 page), or a site
-  with no page there. A redirect on `/` counts as no page, even to the same path on
-  both hosts. On every other path a zone's own page leaves nothing to tell it from the
-  site's, so check the zone has none before you trust a match. The job also fails
-  whenever a comparison compared nothing: exit 2 (a usage error, before any request),
-  exit 4 (an error stopped the script), a comparison step that ran but did not finish
-  (no exit code after its 5-minute timeout, or a code the script never gives), and an
-  exit of 0 or 1 that left no report.
-- A pull request turns the site from `staged` to `worker` in
-  `shared/infra/src/production-sites.ts`. Once it merges, every release that ships the
-  site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
-  never moves a domain. That is every release whose `surfaces` name one of the stack's
-  sites or are empty, the daily run included: the site has no record in
-  `production-records` yet, so it ships, and with it the stack. A failed precheck stops
-  every job of the release. Dispatch releases whose `surfaces` leave that stack's sites
-  out meanwhile, and run the flip before the next daily run, or reject that run at its
-  first approval.
-- The stack's other site Workers hold exactly the hosts their modes declare: the latest
-  release's `alchemy-plan` artifact for the stack lists no `domains` change. The flip
-  guard refuses a flip release in which another site's custom domains change, so a
-  release without a flip settles such a change first.
+When GitHub Actions is down, or the attach job refuses the token, do step 2 in the
+dashboard instead: open **Workers & Pages**, the Pages project, **Custom domains**, **Set
+up a custom domain** with the host, then in the zone's **DNS**, a proxied CNAME from the host
+to `<project>.pages.dev` if Pages did not make one.
 
-No copy of `CLOUDFLARE_PAGES_DNS_TOKEN` is kept outside GitHub: the rollback below runs
-in the release workflow's own attach job.
+**Move back to the Worker** once the fault is fixed on `main`, at low traffic, all three
+steps in the dashboard and one straight after the other. While the host is on Pages, the
+precheck refuses every release that ships the stack, so the fix cannot reach the Worker
+first: the Worker still runs the build the site was rolled back from.
 
-**An apex** (`cireweddings.com`, `musubi.social`) holds more at its own name than a
-portal's host: Cloudflare Email Routing's MX records and its SPF TXT record, on both.
+1. Roll the Worker back to a version from before the fault: open **Workers & Pages**, the
+   Worker, **Deployments**, then roll back to that version. Site Workers hold no secret,
+   so Cloudflare allows it.
+2. Take the host off the Pages project (**Custom domains**) and delete its CNAME to
+   `<project>.pages.dev` in the zone's **DNS**.
+3. Add the host back to the site's Worker as a custom domain (**Settings**, **Domains &
+   Routes**). A release would not do it: Alchemy's state still lists the domain, so a
+   Worker whose build has not changed plans no change and its domains are not reconciled.
+
+Then the next release that ships the stack passes the precheck and deploys the fix.
+
+When no version predates the fault, skip step 1 and step 3: take the host off Pages
+(step 2), then at once dispatch **Production release** with `surfaces: <site>` from a
+`main` that holds the fix. The precheck then passes, and the stack job's deploy updates
+the Worker, whose build the fix changes, and reconciles its custom domains, attaching the
+host. The site serves nothing from step 2 until that deploy, approvals included.
+
+**An apex** (`cireweddings.com`, `musubi.social`) also holds Cloudflare Email Routing's MX
+records and its SPF TXT record. `pages-domain.ts` counts those as routing nothing, and
+neither direction touches them: mail keeps arriving.
 
 *Measured 2026-11-10 — `dig MX <apex> +short` (route1, route2 and route3 `.mx.cloudflare.net`),
 `dig TXT <apex> +short` (`v=spf1 include:_spf.mx.cloudflare.net ~all`) and
 `dig CAA <apex> +short` (none), for each apex.*
 
-`pages-domain.ts` counts those as routing nothing, so the precheck reads the apex as
-on Pages, and its detach deletes the apex's CNAME to `<project>.pages.dev` and nothing
-else: mail keeps arriving through the move. The precheck of the flip site and the detach
-refuse, writing nothing, while the host holds any other record that could route it (an
-address, a CNAME elsewhere, another Worker's record, HTTPS or SVCB), since a detach would
-leave it standing and the Worker's custom domain could not attach beside it; they name
-the record's type, never its content. Cloudflare's Worker custom domain is refused on a
-host holding a CNAME and documents the apex as a valid host
-([Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/), read 2026-11-10);
-that it attaches beside MX and TXT records is unverified until cire landing's flip. In
-the outage, the apex still answers its MX and TXT records, so a resolver that asks for
-its address gets an empty answer, which it may keep for the zone's negative-answer time
-of 1800 s (*measured 2026-11-10 — `dig SOA <apex>`: minimum 1800*), as a portal's host
-gets "no such name" for the same time.
-
-**The flip release.** At low traffic, dispatch **Production release** with
-`flip: <site>` and `surfaces: <site>`. It runs only the site's stack, and asks four
-approvals, one per job, in this order:
-
-1. `alchemy-plan` — the precheck confirms the host is still on the site's Pages project.
-   The plan must show the site's Worker as an `update` that gains its production host.
-   The stack's other site Workers may show `update` too, since every site build bakes the
-   release commit, but only with their custom domains read and unchanged; nothing is
-   created, deleted, replaced, adopted or orphaned, no binding changes, and every other
-   resource is a noop. So a flip release also ships the other sites' Workers at the flip
-   commit, which this plan shows (decided by the owner, englishstreetventures/osn#1787):
-   a staged site's spare host takes the new build, while its Pages host keeps its build
-   until a later release runs the site's own job. The planner weighs those sites as if
-   asked for, so one that dev has not run at this content, or that production runs
-   newer, holds the stack and the flip; the release summary names each with its status.
-2. `stack-<stack>-verify` — plans the stack again with the same force, and refuses unless
-   the guard still allows the plan and it equals the plan approved in step 1. It deploys
-   nothing and holds no Pages token. A refusal here ends the release with nothing moved.
-3. `flip-detach-<stack>` — on a fresh runner with nothing installed, one of the two jobs
-   holding `CLOUDFLARE_PAGES_DNS_TOKEN` with the attach job (`alchemy-plan`'s precheck
-   reads with it too, before its install): `pages-domain.ts detach` checks the token's
-   reach, reads and prints where the host is, refuses unless it is on the site's own
-   Pages project, then takes the host off the project and deletes its CNAME. **The site
-   is down from here** until step 4's
-   deploy attaches the domain, so approve step 4 at once: the outage is your wait plus
-   step 4's install, state store check, snapshot and plan. In cire vendor's flip that
-   was 39 s from the detach to the end of the deploy, the approval included. The approved
-   plan from step 1 is kept 7 days; step 4 refuses without it.
-4. `stack-<stack>-production` — installs, checks the state store, plans the stack once
-   more and runs the guard as in step 2, then deploys (which attaches the domain to the
-   Worker, and updates the stack's other site Workers), and smoke-checks every site of
-   the stack, the flip site on its production host, rolling each back on failure. The
-   other sites' uploads add a few seconds: cire vendor's flip deployed all three cire
-   Workers in 9 s, where a release with no flip took 7 s. The site's
-   record job, which the pull request turning it to `worker` adds
-   (`record-<site>`, [[infrastructure-as-code#Production sites]]), then records it in
-   `production-records`. A guard refusal here
-   stops before the deploy and leaves the host on neither Pages nor the Worker: roll
-   back with an attach release (step 2 below; there is no Worker domain to remove).
-
-*Measured 2026-11-10 — `gh run view 42329249886 --json jobs` (cire vendor's flip, 2026-11-07):
-the detach printed its result at 02:44:54, the stack job started at 02:45:05, and its
-`Deploy the cire stack` step ran 02:45:24–02:45:33; the same step in release 42568375476,
-with no flip, ran 04:34:32–04:34:39. GitHub gives step times to the second, and they show
-when the jobs ran, not what the host answered.*
-
-**If `flip-detach-<stack>` fails**, its Pages domain delete or its CNAME delete failed,
-and the job names which. Dispatch an attach release (step 2 below): it makes only what
-is missing, so it puts the host back on Pages from either half. Then dispatch the flip
-again.
-
-**Never re-run a failed step 4.** Once its deploy has run, the Worker may hold the domain
-already, so the flip guard refuses the re-plan: a Worker that holds its production host
-does not gain it. Fix forward with a release dispatched without `flip`, or roll back.
-
-**If only another site's smoke check failed in step 4**, the flip stands: that check
-rolled its own Worker back and failed the job, and the flip site's record job still runs
-when its own check passed. Fix that site forward; do not undo the flip for it.
-
-**After step 4, check the Worker answers.** The smoke check passes on a Pages answer
-too, and for about 30 s after the deploy the host gives mixed answers. Run
-`curl -sSI https://<host>/` a few times: the Worker sends no `access-control-allow-origin`
-header and `content-type: text/html`; Pages sends `access-control-allow-origin: *` and
-`text/html; charset=utf-8` (the accepted differences above). After an apex's flip, also
-run `dig MX <apex> +short` and `dig TXT <apex> +short`: both answer as before the flip.
-After `musubi.social`'s, also check what passes through it: a passkey sign-in on
+**After either move, check the host.** The smoke check passes on a Pages answer too. Run
+`curl -sSI https://<host>/` a few times: the Worker sends no
+`access-control-allow-origin` header and `content-type: text/html`; Pages sends
+`access-control-allow-origin: *` and `text/html; charset=utf-8`. For an apex, also run
+`dig MX <apex> +short` and `dig TXT <apex> +short`: both answer as before. For
+`musubi.social`, also check what passes through it: a passkey sign-in on
 `https://musubi.social`, staying signed in after a reload; a sign-in to the organiser
 portal, whose OIDC consent screen is `https://musubi.social/authorize`; and
 `curl -sSI https://musubi.social/.well-known/apple-app-site-association`, which answers
 200 `application/json`. `curl -sSI https://musubi.social/authorize` must carry
 `x-frame-options: DENY` and a `content-security-policy` holding `frame-ancestors 'none'`:
-the consent screen must never be framed, and neither the smoke check nor `site-parity`
-reads a header once no site is staged. osn-api names the apex as an origin, never as a server
-(`OSN_RP_ID`, `OSN_ORIGIN`, `OSN_CORS_ORIGIN`, `OSN_COOKIE_DOMAIN`,
-`OSN_AUTHORIZE_UI_URL` in `osn/api/wrangler.toml`), so none of them changes.
-
-**If step 4 fails or the site misbehaves**, roll back in this order:
-
-1. Take the custom domain off the Worker. Fastest: the dashboard (Workers → the site's
-   Worker → Settings → Domains & Routes). Or merge a pull request that sets the mode back
-   to `staged` and dispatch **Production release** with `unflip: <site>` and
-   `surfaces: <site>`: the plan guard refuses a production host leaving its Worker in any
-   other release, and shows the removal for approval 1. Its stack job takes the host off
-   the Worker, and the attach job after it asks its own approval and does step 2, so
-   approve it at once: the site is down from that deploy until Pages validates the host.
-2. Dispatch **Production release** with `attach: <site>` and every other input empty. It
-   runs the plan job and `attach-pages-domain` alone, behind one approval, on a fresh
-   runner with nothing installed: `pages-domain.ts attach` checks the token's reach,
-   refuses while another Pages project lists the host or the zone holds any record that
-   could route it but its CNAME to `<project>.pages.dev` (TXT, MX and CAA records stay
-   and do not count), then puts back whichever of that CNAME and the Pages project's
-   domain is missing. Pages re-validates and issues the certificate, which takes minutes.
-3. Revert the flip pull request, if step 1 did not, so the mode is `staged` again and no
-   release tries to attach the domain. Until it merges, every release that ships the
-   site's stack fails `alchemy-plan`'s precheck (the host is on Pages while the mode says
-   `worker`); dispatch releases whose `surfaces` leave that stack's sites out. Cire
-   landing and musubi social turned to `worker` in one pull request, and a revert of it
-   stages both: once one of them has moved, the guard then refuses every release of that
-   site's stack, whose Worker would give up its production host. To roll back one of
-   them, write a pull request that sets that site alone back to `staged` and restores its
-   Pages job, `deploy-cire-landing` or `deploy-osn-social`, from the commit before that
-   pull request (`git log -S deploy-osn-social -- .github/workflows/production-release.yml`
-   finds it).
-
-When GitHub Actions is down, or the attach job refuses the token, do step 2 in the
-dashboard instead: **Workers & Pages → the Pages project → Custom domains → Set up a
-custom domain** with the host, then in the zone's **DNS**, a proxied CNAME from the host
-to `<project>.pages.dev` if Pages did not make one.
-
-Each Pages project stays until `musubi.social` has moved and soaked, so a rollback has a
-Pages site to return to (decided by the owner). A site's Pages job goes with the pull
-request that turns it to `worker`, since the release runs a Pages job only for a staged
-site, so after that merge the project keeps the last build deployed before it. The
-dashboard and `attach` rollback serves that build. An unflip pull request sets the site
-back to `staged` and brings its Pages job back — a revert of the flip pull request when
-that pull request turned this site alone, or, for cire landing or musubi social, a pull
-request for that one site (step 3 above) — so the unflip release deploys the current
-build to Pages when the site changed since.
-
-Before the dashboard and `attach` rollback, see what that build lacks. The Pages project
-serves the commit of the site's last successful Pages job — `Deploy cire/host —
-production`, `Deploy cire/vendor — production`, `Deploy cire/landing — production (apex)`
-or `Deploy musubi/social — production` — in the last release before the flip pull request
-merged. List what changed in the site
-since: `git log --oneline <that commit>..origin/main -- <the site's paths>`, the site's
-paths and the shared ones in `scripts/deploy-surfaces.ts` (for cire host,
-`cire/host cire/build-tools cire/dietary cire/envelope/src/index.ts cire/envelope/package.json cire/guest-email cire/invite-designs cire/theme cire/ui shared patches bun.lock package.json turbo.json tsconfig.json .browserslistrc`;
-for cire landing, `cire/landing cire/dietary cire/ui` and the same shared ones; for
-musubi social, `musubi/social osn/client shared/ui osn/auth-ui` and the same shared ones).
-If a security fix is among them, roll back by the `unflip` pull request instead, which
-deploys the current build to Pages before the attach job puts the host back. A protection
-the flip release itself first brought to production is not such a fix: the attach returns
-production to what it served before the flip. Musubi social's build-time `script-src` and
-`connect-src` are one, when its Pages build predates them; a release that ships the site's
-Pages job before its flip pull request merges puts them on Pages first.
+the consent screen must never be framed, and the smoke check reads neither header. osn-api
+names the apex as an origin, never as a server (`OSN_RP_ID`, `OSN_ORIGIN`,
+`OSN_CORS_ORIGIN`, `OSN_COOKIE_DOMAIN`, `OSN_AUTHORIZE_UI_URL` in
+`osn/api/wrangler.toml`), so none of them changes.
 
 #### Rehearse the move on dev first
 
-What a flip depends on, only Cloudflare can answer: what `scripts/pages-domain.ts`'s
-reach check reads, what Cloudflare does when a Worker custom domain is attached right
-after the host's Pages domain and CNAME go, how long the host is unreachable, and
-whether `attach` brings the Pages site back and how long that takes. **Domain move
-rehearsal** answers them on the dev account, with the same code and job shape a flip
-release uses ([[infrastructure-as-code#The domain move rehearsal]]):
+**Domain move rehearsal** moves a host from a Pages project to a Worker and back on the
+dev account, with `scripts/pages-domain.ts` and Alchemy: what the reach check reads, what
+Cloudflare does when a Worker custom domain is attached right after the host's Pages
+domain and CNAME go, how long the host is unreachable, and whether `attach` brings the
+Pages site back and how long that takes
+([[infrastructure-as-code#The domain move rehearsal]]). Its `flip` step moves the host from
+the Pages project to the Worker, and its `unflip` step gives the Worker its spare host back
+before its `attach` step returns the host to Pages:
 
 1. Make sure the dev deploy token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, holds
    `Cloudflare Pages: Edit` on the dev account; the rehearsal makes every Cloudflare call
@@ -1778,7 +1624,7 @@ release uses ([[infrastructure-as-code#The domain move rehearsal]]):
 
 The rehearsal moves `domain-move.<DEV_DOMAIN>`, a host one label under its zone, as
 cire vendor and cire host are. It does not rehearse an apex (cire landing,
-`musubi.social`), and its gap leaves out the approval wait before step 4. A failed step
+`musubi.social`), and its gap leaves out any wait for an approval between its steps. A failed step
 fails the run, and its cleanup jobs still remove what it made; a re-run attempt refuses,
 so dispatch a new run. A rerun reproduces the artifact's shape, verdicts and exit codes;
 the timings differ.
@@ -1822,25 +1668,11 @@ The rollback:
 The spare host: a flip moves the Worker's one custom domain from the spare host to the
 production host, since `siteDomain()` in
 [`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts) gives a
-`worker` site its production host alone and the plan guard lets a flip give the spare
+`worker` site its production host alone and the plan guard lets a Worker give its spare host
 up. So the spare stops serving: in the run, `next.domain-move.<DEV_DOMAIN>` failed the TLS
 handshake from 08:57:04 until the unflip put the Worker back on it, and served again about
 2½ minutes after that deploy. Nothing reads a `worker` site's spare host: its smoke checks
-ask the production host, and `site-parity` compares only `staged` sites. An unflip
-release's smoke check asks the spare host again, and waits up to 240 s for a host its plan
-attaches (`scripts/smoke-budgets.ts`), which covers that.
-
-What it means for the first move, `vendor.cireweddings.com`:
-
-- Pages keeps serving for some seconds after step 3's detach, then the host serves no site
-  until step 4's deploy attaches the Worker. So the approval of step 4 and that job's
-  install, state check and plan are downtime, which the rehearsal does not include.
-  Once the deploy runs, expect about 30 s of mixed answers (the Pages site, the Worker,
-  and Cloudflare's 530 and 522 pages) before the Worker serves every request.
-- A rollback is the slow path: about 4 minutes from the unflip's deploy to the Pages site,
-  of which about 3 minutes serve no site at all, plus the wait for the attach job's
-  approval. Approve that job as soon as it asks, and prefer fixing the Worker forward when
-  the fault allows it.
+ask the production host.
 
 *Measured 2026-11-06 — Domain move rehearsal run 42190767065 on `main` at `a28e0175b`: its
 `domain-move-rehearsal-attempt-1` artifact (`intervals`; each step's `events`;
@@ -1932,9 +1764,9 @@ yourself (§5.1). A person runs the rest.
 
 No release deploys a Pages project. The site Workers the production stacks deploy are
 each checked after the stack's deploy, on the host their mode gives them: the spare host
-while staged, the production host as a worker. Until its flip release has run, an apex
-is still on its Pages project, which keeps its last build and has no check: no release
-ships its stack before then (§5.7). On dev every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
+while staged, the production host as a worker. A site rolled back to its Pages project
+(§5.7) has no check, and no release ships its stack until it moves back. On dev every
+surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
 `musubi.social` and the organiser portal.
 
 ### The automatic check
@@ -1954,11 +1786,11 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
-| cire host | `https://host.cireweddings.com/` and `/vendors/enquiries/smoke-check` | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
-| cire vendor | `https://vendor.cireweddings.com/` | `/` | 200 HTML. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
-| cire landing | `https://cireweddings.com/` | `/` | 200 HTML. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
+| cire host | `https://host.cireweddings.com/` and `/vendors/enquiries/smoke-check` | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves. A Pages answer passes too, so after a rollback the check cannot tell the two apart (§5.7) |
+| cire vendor | `https://vendor.cireweddings.com/` | `/` | 200 HTML. A Pages answer passes too, so after a rollback the check cannot tell the two apart (§5.7) |
+| cire landing | `https://cireweddings.com/` | `/` | 200 HTML. A Pages answer passes too, so after a rollback the check cannot tell the two apart (§5.7) |
 | musubi landing | `https://www.musubi.social/` | `/` | 200 HTML |
-| musubi social | `https://musubi.social/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association` | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
+| musubi social | `https://musubi.social/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association` | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys. A Pages answer passes too, so after a rollback the check cannot tell the two apart (§5.7) |
 | pulse landing | none (`off` on production) | `/` and `/api/geo` | 200 HTML; 200 with a JSON object, from the Worker's own code |
 | every dev browser host: cire-invites, cire host, cire vendor, cire landing, musubi social, musubi landing, pulse landing | none | `/` with no service token, following no redirect | a 301, 302, 303 or 307 to a `*.cloudflareaccess.com` host: Access's sign-in |
 
@@ -1979,9 +1811,9 @@ How it decides:
   [`scripts/smoke-budgets.ts`](../../scripts/smoke-budgets.ts) over the plan approved at
   `alchemy-plan`, and each site whose plan attaches a host other than a production
   host passes `SMOKE_BUDGET_MS=240000` to its check, which still asks every 10 seconds
-  and passes on the first two good rounds. A flip attaches the production host, which
-  the zone's own certificate covers, so a flip keeps the minute, and so does every
-  other check, the Wrangler Workers' and dev's included. The check refuses a value
+  and passes on the first two good rounds. A production host is covered by the zone's
+  own certificate, so a site gaining one keeps the minute, and so does every other
+  check, the Wrangler Workers' and dev's included. The check refuses a value
   outside 60 to 240 s before any request. Each stack smoke step has seven minutes:
   with every request at its timeout, a 240 s check, its rollback and the re-check take
   366 s (SB4 in `scripts/tests/smoke-check.test.ts`). When the budget step fails,
@@ -2147,7 +1979,7 @@ How it decides:
 | cire migrate scripts | `cire/db/package.json` (`db:migrate:local|prod`); the dev database: `cire/infra` |
 | cire seed (local; the dev tier imports it through the cire stack) | `cire/db/seed/dev-seed.sql`; `scripts/cire-db-seed.sh`; `cire/infra/src/declaration.ts` |
 | Dev deploys per push | `.github/workflows/deploy.yml` (`changes` → `stack-<stack>-dev` → `deploy-<surface>-dev`); the stacks under `*/infra/` ([[infrastructure-as-code]]) |
-| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan` → `build` and `sites` side by side → `alchemy-plan` → `deploy-<surface>`, `stack-<stack>-production` → `record-<site>`, `site-parity`; `attach-pages-domain` for an attach or unflip release); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts`; Pages domain moves `scripts/pages-domain.ts`; Pages comparison `scripts/site-parity.ts` |
+| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan`, then `build` and `sites` side by side, then `alchemy-plan`, then `deploy-<surface>` and `stack-<stack>-production`, then `record-<site>`; `attach-pages-domain` for an attach release); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts`; Pages precheck and attach `scripts/pages-domain.ts` |
 
 ## Related
 
@@ -2166,7 +1998,7 @@ How it decides:
 > **These steps are NOT automated.** A team member with Cloudflare account access runs them by hand. See [[cire-vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
 
 > [!note]
-> Cire vendor is `worker` in `shared/infra/src/production-sites.ts`: the cire stack deploys the portal to the `cire-vendor` Worker, which holds `vendor.cireweddings.com` since its flip release (run 42329249886, 2026-11-07; §5.7), and no job deploys the `cire-vendor` Pages project. §8.1 and §8.2 describe that project, which stays for a rollback; §8.6 rolls back the portal's allowlist entries, and its domain through §5.7.
+> Cire vendor is `worker` in `shared/infra/src/production-sites.ts`: the cire stack deploys the portal to the `cire-vendor` Worker, which holds `vendor.cireweddings.com` since release 42329249886 (2026-11-07), and no job deploys the `cire-vendor` Pages project. §8.1 and §8.2 describe that project, which stays for a rollback; §8.6 rolls back the portal's allowlist entries, and its domain through §5.7.
 
 ### 8.1 Create the Pages project
 
@@ -2206,7 +2038,7 @@ Expected: `access-control-allow-origin: https://vendor.cireweddings.com`.
 No new secret is required for the vendor portal itself:
 
 - `RESEND_API_KEY` — the `vendor-claim-invite` email needs it on **cire-api** (`cire/api/src/index.ts` picks the Resend layer only when it is present). Confirm with `bunx wrangler secret list --env production` from `cire/api` before the first vendor invite; without it the invite email is not sent. See §1.1 and §3.2.
-- The vendor portal (`cire/vendor`) is a static Pages app with no server-side secrets. It reads from `cire-api` and `osn-api` via `authFetch` in the browser.
+- The vendor portal (`cire/vendor`) is a static site, served by the `cire-vendor` Worker, with no server-side secrets. It reads from `cire-api` and `osn-api` via `authFetch` in the browser.
 
 ### 8.5 ARC re-registration (org:read scope)
 
@@ -2218,7 +2050,7 @@ To roll the vendor portal back:
 
 1. Remove the `https://vendor.cireweddings.com` entry from `cire/api/wrangler.toml` `WEB_ORIGIN`.
 2. Merge the revert PR — the merge redeploys the dev Worker. Then dispatch a release with `surfaces: cire_api` and approve it (§5.5), which ships the narrowed allowlist to production.
-3. To take the portal off the internet as well, move its domain off the `cire-vendor` Worker as §5.7's rollback says, with a pull request that sets `cire_vendor` back to `staged`. Removing the Worker's custom domain in the dashboard alone does not last: while `cire_vendor` is `worker`, the next release that ships the cire stack finds the host free and attaches it again. The Pages project's own domain setting serves nothing once the Worker holds the host.
+3. To take the portal off `vendor.cireweddings.com` as well, remove that host from the `cire-vendor` Worker in the dashboard (§5.7 step 1), then merge a pull request that sets `cire_vendor` to `staged` and brings back its Pages job (a staged site must have one: `scripts/tests/deploy-workflows.test.ts` PW5). A staged Worker serves only its spare host, `next.vendor.cireweddings.com`, so no release attaches the production host again. Until that pull request merges, reject every release whose Alchemy plan lists `vendor.cireweddings.com` under **Domains added**, or leave the cire sites out of it: while `cire_vendor` is `worker`, the next release that ships the cire stack updates the Worker, finds the host free and attaches it again. No release takes the host off, and setting `cire_vendor` to `off` does not either: its plan would delete the `cire-vendor` Worker, which the plan guard refuses, since an `off` site is no resource the stack declares on production. The Pages project's own domain setting serves nothing once the Worker holds the host.
 
 You need not delete the Pages project — leave it idle.
 
