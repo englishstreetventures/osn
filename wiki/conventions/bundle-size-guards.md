@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Guards with a threshold
@@ -56,10 +56,13 @@ exactly the class the guard was written for would have landed under the line
 and deployed. The fix was to re-measure against the build as it is now and set
 the headroom to ~11.7 KB, roughly half the mistake.
 
-*Unverified — the method is on record, the date is not. Gzip
-`cire/invites/dist/client/_astro/animate.*.js` from a clean build, or rebuild
-with `stubMotionForSsr()` removed and diff the total. Written into this page
-2026-09-07.*
+*Unverified — the method is on record, the date is not: `motion`'s own client
+chunk, gzipped from a clean build, written into this page 2026-09-07. The
+client build has no such chunk to gzip today, since the library ships inside
+the event sheet's. Bundling `animate` alone, minified, gives a close figure:
+20362 bytes.*
+
+*Measured 2026-11-11 in cire/invites — `echo 'export { animate } from "motion";' | bunx --bun esbuild --bundle --minify --format=esm --platform=browser | gzip -nc | wc -c`*
 
 The corollary is a check, not a rule: **you have not verified a guard until you
 have seen it fire.** Break the input and watch what it does: the non-zero exit,

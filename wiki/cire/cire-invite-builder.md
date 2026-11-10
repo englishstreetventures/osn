@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-11
 ---
 # Cire invite builder
 
@@ -171,10 +171,10 @@ Who can load the closing image:
 `hero` and `story` stay public and publicly cacheable, and the builder links
 them at the public route; only `footer` is gated. It is deliberately NOT given the events section's
 `opacity-0` class: the unlock choreography animates the events, and a section
-that needs a motion chunk to become visible is a section that can stay invisible
-when that chunk fails to load (the exact failure `UnlockReveal.motion.ts` warns
-about). It sits below every event card, so it is off-screen while the reveal
-plays.
+that needs the reveal's chunk to become visible is a section that can stay
+invisible when that chunk fails to load (the failure each pack's `InvitePage`
+catches by revealing the events without the animation). It sits below every
+event card, so it is off-screen while the reveal plays.
 
 **It has no tone setting of its own.** It paints the WELCOME section's surface
 (`sectionVars(theme, "welcome")`, passed in as `themeVars`). The welcome
@@ -732,9 +732,9 @@ more than the household has actually said.
 **The `<Toaster>` lives at the page root**, not in the events section. Inside
 that section it was broken two ways at once: the section is
 `<Show when={!preview}>`, so host preview had no toaster mounted and every
-`toast.success` was silently dropped; and Motion One's reveal leaves an
-inline `transform` on the section, which makes it the containing block AND a
-stacking context for the `position: fixed` toaster inside it — so the toast
+`toast.success` was silently dropped; and the unlock reveal moves the section
+with a `transform`, which makes it the containing block AND a stacking context
+for the `position: fixed` toaster inside it — so the toast
 was positioned against the section rather than the viewport and painted below
 the `z-100` RSVP sheet it fires underneath. It now sits beside the modals on
 its own `Z_LAYER.TOAST` (150), above `MODAL`/`MODAL_POPOVER` and below

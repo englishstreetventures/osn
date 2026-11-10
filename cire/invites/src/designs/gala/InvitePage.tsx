@@ -130,8 +130,9 @@ export default function InvitePage(props: InvitePageProps) {
   // back, and on this path nothing is.
   const [restoredSession, setRestoredSession] = createSignal(false);
   // Whether the post-claim view has taken over from the claim form. Deliberately
-  // NOT derived from `claimResult`: the swap is choreographed, so the form has
-  // to stay in the layout for the length of its fade-out. This signal is the
+  // NOT derived from `claimResult`: the swap waits for the unlock sequence,
+  // which starts the welcome's rise in the same task, so the welcome's first
+  // painted frame is its rise's first frame. This signal is the
   // SINGLE owner of both elements' `display` (`LoginSection`'s `revealed`
   // prop); the motion sequence reports the moment via `onFormHidden` and never
   // writes `display` itself, because an imperative write desynchronises Solid's
@@ -258,7 +259,6 @@ export default function InvitePage(props: InvitePageProps) {
     );
   });
 
-  let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
   let eventsSectionRef!: HTMLElement;
 
@@ -268,8 +268,8 @@ export default function InvitePage(props: InvitePageProps) {
     // Start the post-claim chunk NOW, not when the reveal reaches its events
     // step. `onMount` warms it at idle, but the whole reason this wait exists is
     // the guest whose phone never ran that idle callback — and for them the
-    // sequence would not ask for the chunk until the form had finished fading
-    // out, spending ~350ms of the cap before the request was even sent.
+    // sequence would not ask for the chunk until its events step, spending the
+    // reveal's chunk load and the layout beat before the request was even sent.
     // `awaitEventCards` then joins a fetch already in flight.
     const cardsReady = EventCard.preload().then(() => undefined);
     // A failed chunk is handled where it matters, in `awaitEventCards` — but
@@ -281,9 +281,9 @@ export default function InvitePage(props: InvitePageProps) {
     await new Promise((r) => setTimeout(r, 0));
 
     try {
-      if (loginFormRef && welcomeRef && eventsSectionRef) {
+      if (welcomeRef && eventsSectionRef) {
         const { unlockRevealSequence } = await import("./UnlockReveal.motion");
-        await unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef, {
+        await unlockRevealSequence(welcomeRef, eventsSectionRef, {
           onFormHidden: () => setRevealed(true),
           // The cards come from a `lazy` component, so on a cold cache their
           // chunk can still be in flight here. The sequence awaits this
@@ -308,10 +308,10 @@ export default function InvitePage(props: InvitePageProps) {
       // a missing ref or a throw mid-sequence must never leave the claim form
       // sitting on top of an invite this guest has already claimed. Idempotent.
       //
-      // Conditional on the claim still being current. `onFormHidden` fires at
-      // the end of step 1 and the sequence runs on for ~150ms more, so the
-      // sign-out control is already on screen and clickable while this await
-      // is pending. An unconditional write would land AFTER
+      // Conditional on the claim still being current. `onFormHidden` fires
+      // first and the sequence runs on through the beat and the events' step,
+      // so the sign-out control is already on screen and clickable while this
+      // await is pending. An unconditional write would land AFTER
       // that reset and re-hide the form with `claimResult` back at null — the
       // welcome banner rendering from nothing, with no in-page way back.
       if (claimResult()) setRevealed(true);
@@ -348,7 +348,6 @@ export default function InvitePage(props: InvitePageProps) {
         result={claimResult()}
         revealed={revealed()}
         onClaimed={handleClaimed}
-        formRef={(el) => (loginFormRef = el)}
         welcomeRef={(el) => (welcomeRef = el)}
         themeVars={welcomeVars()}
         welcomeMessage={liveInvite().welcomeMessage}
@@ -550,9 +549,9 @@ export default function InvitePage(props: InvitePageProps) {
       {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately, outside
           every section: a toaster inside a section renders only when that
           section does, and host preview must get its confirmations too.
-          Motion One's reveal leaves an inline `transform` on the events
-          section, which makes it the containing block AND a stacking context
-          for anything `position: fixed` inside it; `@shared/toast` portals its
+          The unlock reveal moves the events section with a `transform`,
+          which makes it the containing block AND a stacking context for
+          anything `position: fixed` inside it; `@shared/toast` portals its
           container to <body>, so the toast paints above the `z-100` RSVP
           sheet it fires underneath wherever this is mounted.
 

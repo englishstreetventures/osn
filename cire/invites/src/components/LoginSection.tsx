@@ -180,16 +180,16 @@ interface LoginSectionProps {
    * the welcome banner. Absent ⇒ derived from `result`, i.e. the plain instant
    * swap, which is what a caller that doesn't choreograph the unlock wants.
    *
-   * It is a separate signal from `result` because the swap is CHOREOGRAPHED: the
-   * form fades out before it leaves the layout, so it has to stay displayed for
-   * the length of that fade — a beat after the claim has already resolved. This
-   * prop is the single owner of both elements' `display`; the motion sequence
-   * reports when to flip it and never writes `display` itself — see the
-   * `RevealHooks` note in each design pack's `UnlockReveal.motion.ts` for why
-   * an imperative write there would desynchronise this binding permanently.
+   * It is a separate signal from `result` because the swap is CHOREOGRAPHED: it
+   * waits for the unlock sequence, which starts the welcome's rise in the same
+   * task — a beat after the claim has already resolved. The form itself closes
+   * at once, with no fade. This prop is the single owner of both elements'
+   * `display`; the unlock sequence reports when to flip it and never writes
+   * `display` itself — see the `RevealHooks` note in
+   * `components/unlock-reveal.ts` for why an imperative write there would
+   * desynchronise this binding permanently.
    */
   revealed?: boolean;
-  formRef?: (el: HTMLDivElement) => void;
   welcomeRef?: (el: HTMLDivElement) => void;
   /**
    * Validated CSS-variable map for the "welcome" theme section
@@ -448,7 +448,6 @@ export function LoginSection(props: LoginSectionProps) {
     "background-color": "var(--invite-section-bg)",
   });
 
-  let formEl: HTMLDivElement | undefined;
   let codeInputRef: HTMLInputElement | undefined;
   let turnstile: TurnstileControls | undefined;
 
@@ -479,16 +478,6 @@ export function LoginSection(props: LoginSectionProps) {
     // Re-challenge so a fresh single-use token can replace the one the
     // previous claim redeemed. No-op when Turnstile is unconfigured.
     turnstile?.reset();
-    // The packs' unlock sequence fades the form out with Motion, which leaves
-    // its end state inline on this wrapper (`opacity: 0` and a `translateY`).
-    // The binding here owns only `display`, so nothing else clears them, and
-    // the form would come back fully transparent. Writing these two is safe
-    // where writing `display` would not be: no binding owns them, so there is
-    // nothing to desynchronise.
-    if (formEl) {
-      formEl.style.opacity = "";
-      formEl.style.transform = "";
-    }
     // Let the page swap the view back BEFORE focusing — the form is
     // `display: none` until it does, and `focus()` on a hidden element is
     // silently dropped.
@@ -512,13 +501,7 @@ export function LoginSection(props: LoginSectionProps) {
   const body = () => (
     <>
       {/* Login form — visible before claim */}
-      <div
-        ref={(el) => {
-          formEl = el;
-          props.formRef?.(el);
-        }}
-        style={{ display: showWelcome() ? "none" : "" }}
-      >
+      <div style={{ display: showWelcome() ? "none" : "" }}>
         <Eyebrow class="mb-3">Your Invitation</Eyebrow>
         <h2 class={`${HEADING} text-text mb-5 ${layout().headingSize}`}>Enter your code</h2>
         <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
@@ -598,7 +581,11 @@ export function LoginSection(props: LoginSectionProps) {
           (a display swap, not a second panel). */}
       <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
         <Show when={props.result?.preview}>
-          <div class={`mb-6 ${layout().measure}`} role="status">
+          <div
+            class={`mb-6 ${layout().measure}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and preview mode is a notice about the page, not the result of anything the guest did.
+            role="status"
+          >
             <Notice size="sm" tone="accent" fill="none">
               Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
             </Notice>

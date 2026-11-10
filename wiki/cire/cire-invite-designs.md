@@ -13,9 +13,9 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-11
 ---
-# Invite design selector
+# Cire invite design selector
 
 A wedding's invite renders as one of several full template packs. The design id
 lives on `wedding_invite_customisations.design_id` (0045, default `classic`);
@@ -126,7 +126,7 @@ and it and `LoginSection.warm.test.tsx` pin when the download starts.
 
 The panel also records the restore hint (`noteClaimed`) when a code is
 claimed. The pack keeps the claim result, the reveal choreography
-(`revealed`, `formRef`, `welcomeRef`), the session restore and the events
+(`revealed`, `welcomeRef`), the session restore and the events
 section.
 
 The Pulse box sits above the events, so it must never arrive after them. It
@@ -908,7 +908,37 @@ its own timing:
 - the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
   scroll;
 - the hero backdrop's 700ms fade-in and the closing band's 500ms width;
-- each pack's unlock reveal (`UnlockReveal.motion.ts`, Motion One).
+- each pack's unlock reveal, below.
+
+**The unlock reveal.** Once a household's code is accepted, the code form
+closes at once, the welcome rises while its heading shimmers, and a beat later
+the events rise, their cards one after another. The form never fades: it holds
+a live field and button, and a fading form would still take a tap or a key in
+a box that is going away. The motion is CSS keyframes (`unlock-rise` and
+`unlock-shimmer`, under "The unlock reveal" in `src/styles/global.css`), and
+[`components/unlock-reveal.ts`](../../cire/invites/src/components/unlock-reveal.ts)
+orders it: it marks each element with its step and its pack (`data-unlock`,
+`data-unlock-pack`), waits for the step to end, capped one second past that
+end, writes the end state inline and takes the marks off. Each pack keeps its
+own times, the same at a desk as on a phone, each scaled by `--motion-scale`;
+the sequence reads the scale off the root for the beat, which script times.
+Every step runs longer than `--dur-slow`, the cards are a stagger and the beat
+is a time script waits out, the cases [[house-lint-rules]] §Literal motion
+keeps a time for. Every rise runs on `--ease-out`:
+
+| Step | classic | gala |
+|---|---|---|
+| The welcome fades in, rising | 500ms, `--ease-out`, from 16px below | 400ms, `--ease-out`, from 10px below |
+| Its heading shimmers, alongside: opacity through four values on one ease-in-out | 1.2s, 0.4, 1, 0.85, 1 | 1s, 0.5, 1, 0.9, 1 |
+| The beat between the welcome's start and the events' | 200ms | 150ms |
+| The events section fades in, rising | 500ms, `--ease-out`, from 32px below | 400ms, `--ease-out`, from 20px below |
+| Card *n* (from 0) fades in, rising, after a delay | 450ms from 24px below, 150ms + *n* × 120ms | 350ms from 16px below, 100ms + *n* × 80ms |
+
+Under reduced motion the sequence starts no step and lands on the end state at
+once. `tests/designs/UnlockReveal.browser.test.ts` samples every frame of both
+packs' reveal against these numbers and fails a frame more than one frame off
+them, or a code form still in the layout on the first frame after the reveal
+starts.
 
 ## Edges in mobile Safari
 
