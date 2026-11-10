@@ -5,6 +5,7 @@ import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Chip } from "@shared/ui/ui/chip";
 import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { useSearchParams } from "@solidjs/router";
 import {
   createMemo,
@@ -392,9 +393,7 @@ export function AuthorizePage() {
             </p>
           </Show>
           <div class="border-border rounded-card mt-4 border p-1">
-            <Suspense
-              fallback={<p class="text-muted-foreground text-body p-4 text-center">Loading…</p>}
-            >
+            <Suspense fallback={<SignInLoading />}>
               {/* `reason` is advisory — it only picks which half of the panel
                   leads. The server re-derives every requirement at decision
                   time, so a tampered value widens nothing.
@@ -697,6 +696,24 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
       >
         <p class="text-meta text-success mt-3 font-medium">Verified by {PRODUCT_NAME}</p>
       </Show>
+    </div>
+  );
+}
+
+/**
+ * The sign-in panel's place while its code loads, in its shape: the heading,
+ * one labelled field and the button. A Suspense fallback goes when the panel
+ * lands, and nothing holds both, so this wrapper carries `aria-busy`.
+ */
+function SignInLoading() {
+  return (
+    <div aria-busy="true" class="flex flex-col gap-4 px-4 py-8">
+      <Skeleton standsFor="line" width={48} height={8} class="mb-2" />
+      <div class="flex flex-col gap-1.5">
+        <Skeleton standsFor="line" width={28} height={4} />
+        <Skeleton standsFor="field" height={9} />
+      </div>
+      <Skeleton standsFor="control" height={9} />
     </div>
   );
 }

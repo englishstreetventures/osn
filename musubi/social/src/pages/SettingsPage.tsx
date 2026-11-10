@@ -5,6 +5,7 @@ import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
@@ -187,7 +188,7 @@ export function SettingsPage() {
               }
             >
               {(profileId) => (
-                <Suspense fallback={<p class="text-muted-foreground text-body">Loading…</p>}>
+                <Suspense fallback={<SecurityLoading />}>
                   <SecuritySection profileId={profileId()} />
                 </Suspense>
               )}
@@ -198,12 +199,37 @@ export function SettingsPage() {
         {/* Connected apps section */}
         <Show when={section() === "apps"}>
           <Card padding="md" class="flex flex-col gap-4">
-            <Suspense fallback={<p class="text-muted-foreground text-meta">Loading…</p>}>
+            <Suspense fallback={<ConnectedAppsLoading />}>
               <ConnectedAppsSection />
             </Suspense>
           </Card>
         </Show>
       </Show>
     </main>
+  );
+}
+
+/*
+ * A Suspense fallback goes when the section lands, and nothing holds both, so
+ * each fallback's own wrapper carries `aria-busy` and leaves with it.
+ */
+
+/** The Security section's place while its code loads: the passkeys' head and one row. */
+function SecurityLoading() {
+  return (
+    <div aria-busy="true" class="flex flex-col gap-3">
+      <Skeleton standsFor="line" width={24} height={7} />
+      <Skeleton height={17} />
+    </div>
+  );
+}
+
+/** The connected apps' place while their code loads: the lead line and one app. */
+function ConnectedAppsLoading() {
+  return (
+    <div aria-busy="true" class="flex flex-col gap-4">
+      <Skeleton standsFor="line" height={5} />
+      <Skeleton standsFor="card" height={16} />
+    </div>
   );
 }

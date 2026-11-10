@@ -1,6 +1,7 @@
 import { describeAuthError } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
@@ -19,6 +20,16 @@ export function ConnectedAppsSection() {
   const [connections, { refetch }] = createResource(() =>
     connectionsClient.list().then((r) => r.connections),
   );
+  /**
+   * The list once a read has landed, kept on screen while it is read again
+   * after a revoke (so the busy Revoke stays where it was), and nothing before
+   * the first read lands or after one fails. It reads `state` first: a failed
+   * resource throws when read, which would end the page in its error boundary.
+   */
+  const list = () => {
+    const state = connections.state;
+    return state === "ready" || state === "refreshing" ? connections.latest : undefined;
+  };
   const [revoking, setRevoking] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -51,63 +62,68 @@ export function ConnectedAppsSection() {
         </Notice>
       </Show>
 
-      <Show when={connections.error}>
-        <Notice tone="danger" size="inline" alert>
-          Couldn't load your connected apps. Reload and try again.
-        </Notice>
-      </Show>
-
-      <Show
-        when={!connections.loading}
-        fallback={<p class="text-muted-foreground text-meta">Loading…</p>}
-      >
-        <Show
-          when={(connections() ?? []).length > 0}
-          fallback={
-            <p class="text-muted-foreground text-meta">
-              You haven't connected any apps to your {PRODUCT_NAME} account yet.
-            </p>
-          }
-        >
-          <div class="flex flex-col gap-2">
-            <For each={connections()}>
-              {(conn) => (
-                <div class="border-border rounded-card flex items-center justify-between gap-3 border px-4 py-3">
-                  <div class="flex min-w-0 items-center gap-3">
-                    <Show when={safeAvatarUrl(conn.logoUrl)}>
-                      {(url) => (
-                        <img
-                          src={url()}
-                          alt=""
-                          class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
-                          referrerpolicy="no-referrer"
-                        />
-                      )}
-                    </Show>
-                    <div class="min-w-0">
-                      <p class="text-foreground text-title truncate font-medium">
-                        {conn.clientName ?? "Unknown app"}
-                      </p>
-                      <p class="text-muted-foreground text-meta truncate">
-                        Access: {scopesOf(conn.scope).join(", ") || "—"}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    class="h-7 shrink-0 max-md:h-10"
-                    busy={revoking() === conn.clientId}
-                    onClick={() => void revoke(conn.clientId)}
-                  >
-                    {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
-                  </Button>
-                </div>
-              )}
-            </For>
-          </div>
+      {/* The list's place: one app's placeholder until the first read lands,
+          the failure, or the list. */}
+      <div aria-busy={connections.loading || undefined}>
+        <Show when={!connections.loading && connections.error}>
+          <Notice tone="danger" size="inline" alert>
+            Couldn't load your connected apps. Reload and try again.
+          </Notice>
         </Show>
-      </Show>
+        <Show when={connections.loading && list() === undefined}>
+          <Skeleton standsFor="card" height={16} />
+        </Show>
+        <Show when={list()}>
+          {(apps) => (
+            <Show
+              when={apps().length > 0}
+              fallback={
+                <p class="text-muted-foreground text-meta">
+                  You haven't connected any apps to your {PRODUCT_NAME} account yet.
+                </p>
+              }
+            >
+              <div class="flex flex-col gap-2">
+                <For each={apps()}>
+                  {(conn) => (
+                    <div class="border-border rounded-card flex items-center justify-between gap-3 border px-4 py-3">
+                      <div class="flex min-w-0 items-center gap-3">
+                        <Show when={safeAvatarUrl(conn.logoUrl)}>
+                          {(url) => (
+                            <img
+                              src={url()}
+                              alt=""
+                              class="border-border h-8 w-8 shrink-0 rounded-lg border object-cover"
+                              referrerpolicy="no-referrer"
+                            />
+                          )}
+                        </Show>
+                        <div class="min-w-0">
+                          <p class="text-foreground text-title truncate font-medium">
+                            {conn.clientName ?? "Unknown app"}
+                          </p>
+                          <p class="text-muted-foreground text-meta truncate">
+                            Access: {scopesOf(conn.scope).join(", ") || "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        class="h-7 shrink-0 max-md:h-10"
+                        busy={revoking() === conn.clientId}
+                        onClick={() => void revoke(conn.clientId)}
+                      >
+                        {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          )}
+        </Show>
+      </div>
     </div>
   );
 }

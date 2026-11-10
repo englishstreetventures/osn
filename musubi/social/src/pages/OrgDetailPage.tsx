@@ -8,6 +8,7 @@ import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/d
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
@@ -134,137 +135,146 @@ export function OrgDetailPage() {
 
   return (
     <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
-      <Show
-        when={orgReady()}
-        fallback={
-          <Show
-            when={org.state === "errored"}
-            fallback={
-              <div class="flex flex-col gap-3">
-                <div class="bg-muted/50 h-8 w-48 animate-pulse rounded-lg" />
-                <div class="bg-muted/50 h-5 w-64 animate-pulse rounded-lg" />
-              </div>
-            }
-          >
-            {/* No organisation to title the page: the section's own head. */}
-            <h1 class="text-foreground text-display mb-6 font-medium">Organisations</h1>
+      <div aria-busy={org.loading || undefined}>
+        <Show
+          when={orgReady()}
+          fallback={
             <Show
-              when={statusOf(org.error) === 404}
-              fallback={<LoadFailure message="This organisation could not be loaded." />}
+              when={org.state === "errored"}
+              fallback={
+                <div class="flex flex-col gap-3">
+                  <Skeleton standsFor="line" width={48} height={8} />
+                  <Skeleton standsFor="line" width={64} height={5} />
+                </div>
+              }
             >
-              <EmptyNote>Organisation not found.</EmptyNote>
+              {/* No organisation to title the page: the section's own head. */}
+              <h1 class="text-foreground text-display mb-6 font-medium">Organisations</h1>
+              <Show
+                when={statusOf(org.error) === 404}
+                fallback={<LoadFailure message="This organisation could not be loaded." />}
+              >
+                <EmptyNote>Organisation not found.</EmptyNote>
+              </Show>
             </Show>
-          </Show>
-        }
-      >
-        {(orgData) => (
-          <>
-            {/* Header */}
-            <div class="mb-8 flex flex-wrap items-start justify-between gap-3">
-              <div class="flex items-center gap-4">
-                <Avatar class="h-14 w-14">
-                  <Show when={safeAvatarUrl(orgData().avatarUrl)}>
-                    {(url) => (
-                      <AvatarImage
-                        src={url()}
-                        alt={orgData().name}
-                        referrerpolicy="no-referrer"
-                        loading="lazy"
-                      />
-                    )}
-                  </Show>
-                  <AvatarFallback>{orgData().name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <h1 class="text-foreground text-display font-medium">{orgData().name}</h1>
-                  <p class="text-muted-foreground text-body">@{orgData().handle}</p>
-                  <Show when={orgData().description}>
-                    <p class="text-muted-foreground text-body mt-1">{orgData().description}</p>
-                  </Show>
+          }
+        >
+          {(orgData) => (
+            <>
+              {/* Header */}
+              <div class="mb-8 flex flex-wrap items-start justify-between gap-3">
+                <div class="flex items-center gap-4">
+                  <Avatar class="h-14 w-14">
+                    <Show when={safeAvatarUrl(orgData().avatarUrl)}>
+                      {(url) => (
+                        <AvatarImage
+                          src={url()}
+                          alt={orgData().name}
+                          referrerpolicy="no-referrer"
+                          loading="lazy"
+                        />
+                      )}
+                    </Show>
+                    <AvatarFallback>{orgData().name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h1 class="text-foreground text-display font-medium">{orgData().name}</h1>
+                    <p class="text-muted-foreground text-body">@{orgData().handle}</p>
+                    <Show when={orgData().description}>
+                      <p class="text-muted-foreground text-body mt-1">{orgData().description}</p>
+                    </Show>
+                  </div>
+                </div>
+                <div class="flex gap-1.5">
+                  <Button variant="secondary" size="sm" class="max-md:h-10" onClick={openEdit}>
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghostDanger"
+                    size="sm"
+                    class="max-md:h-10"
+                    onClick={handleDelete}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </div>
-              <div class="flex gap-1.5">
-                <Button variant="secondary" size="sm" class="max-md:h-10" onClick={openEdit}>
-                  Edit
-                </Button>
-                <Button variant="ghostDanger" size="sm" class="max-md:h-10" onClick={handleDelete}>
-                  Delete
-                </Button>
-              </div>
-            </div>
 
-            {/* Members */}
-            <div>
-              <div class="mb-3 flex items-center justify-between">
-                <h2 class="text-foreground text-title font-medium">Members</h2>
-              </div>
-              <Show
-                when={members.state !== "errored"}
-                fallback={
-                  <Show
-                    when={statusOf(members.error) === 403}
-                    fallback={<LoadFailure message="Members could not be loaded." />}
-                  >
-                    <EmptyNote size="section">
-                      Only members can see who belongs to this organisation.
-                    </EmptyNote>
-                  </Show>
-                }
-              >
+              {/* Members */}
+              <div>
+                <div class="mb-3 flex items-center justify-between">
+                  <h2 class="text-foreground text-title font-medium">Members</h2>
+                </div>
                 <Show
-                  when={members.state === "ready"}
+                  when={members.state !== "errored"}
                   fallback={
-                    <div class="flex flex-col gap-2">
-                      {Array.from({ length: 2 }, () => (
-                        <div class="bg-muted/50 h-12 animate-pulse rounded-lg" />
-                      ))}
-                    </div>
+                    <Show
+                      when={statusOf(members.error) === 403}
+                      fallback={<LoadFailure message="Members could not be loaded." />}
+                    >
+                      <EmptyNote size="section">
+                        Only members can see who belongs to this organisation.
+                      </EmptyNote>
+                    </Show>
                   }
                 >
-                  <div class="flex flex-col gap-1">
-                    <For each={memberRows()}>
-                      {(member) => (
-                        <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                          {/* Initials only: a roster row carries no avatar. */}
-                          <Avatar class="h-8 w-8">
-                            <AvatarFallback>
-                              {member.handle.slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div class="min-w-0 flex-1">
-                            <p class="text-foreground text-title truncate font-medium">
-                              {member.displayName || `@${member.handle}`}
-                            </p>
-                            <Show when={member.displayName}>
-                              <p class="text-muted-foreground text-meta truncate">
-                                @{member.handle}
-                              </p>
-                            </Show>
-                          </div>
-                          <Chip variant="outline" treatment="tag">
-                            {ROLE_LABEL[member.role]}
-                          </Chip>
-                          <Show when={member.role !== "admin"}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              class="h-7 max-md:h-10"
-                              aria-label={`Remove @${member.handle}`}
-                              onClick={() => removeMember(member.handle)}
-                            >
-                              Remove
-                            </Button>
-                          </Show>
+                  <div aria-busy={members.loading || undefined}>
+                    <Show
+                      when={members.state === "ready"}
+                      fallback={
+                        <div class="flex flex-col gap-2">
+                          {Array.from({ length: 2 }, () => (
+                            <Skeleton height={12} />
+                          ))}
                         </div>
-                      )}
-                    </For>
+                      }
+                    >
+                      <div class="flex flex-col gap-1">
+                        <For each={memberRows()}>
+                          {(member) => (
+                            <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
+                              {/* Initials only: a roster row carries no avatar. */}
+                              <Avatar class="h-8 w-8">
+                                <AvatarFallback>
+                                  {member.handle.slice(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div class="min-w-0 flex-1">
+                                <p class="text-foreground text-title truncate font-medium">
+                                  {member.displayName || `@${member.handle}`}
+                                </p>
+                                <Show when={member.displayName}>
+                                  <p class="text-muted-foreground text-meta truncate">
+                                    @{member.handle}
+                                  </p>
+                                </Show>
+                              </div>
+                              <Chip variant="outline" treatment="tag">
+                                {ROLE_LABEL[member.role]}
+                              </Chip>
+                              <Show when={member.role !== "admin"}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  class="h-7 max-md:h-10"
+                                  aria-label={`Remove @${member.handle}`}
+                                  onClick={() => removeMember(member.handle)}
+                                >
+                                  Remove
+                                </Button>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
                   </div>
                 </Show>
-              </Show>
-            </div>
-          </>
-        )}
-      </Show>
+              </div>
+            </>
+          )}
+        </Show>
+      </div>
 
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
