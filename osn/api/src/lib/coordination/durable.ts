@@ -56,6 +56,7 @@ import {
 import type {
   CeremonyStores,
   ChallengeClaimStore,
+  ChallengeClaimStoreName,
   ChallengeEntry,
   CrossDeviceRequest,
   PendingAuthorizeRequest,
@@ -259,14 +260,15 @@ export function createDurableJtiStore(
   };
 }
 
-/** Discoverable passkey challenges: the first `claim` of a nonce wins. */
+/** Discoverable passkey challenges and Email Verification API nonces: the first `claim` of a nonce wins. */
 function createDurableChallengeClaimStore(
   ns: CoordinationNamespace,
   onError: CoordinationErrorReporter,
+  name: ChallengeClaimStoreName,
 ): ChallengeClaimStore {
-  const store = client(ns, "passkey_challenge_claim", onError);
+  const store = client(ns, name, onError);
   return {
-    namespace: "passkey_challenge_claim",
+    namespace: name,
     claim: (nonce, ttlMs) => store.claim(nonce, ttlMs),
   };
 }
@@ -327,7 +329,16 @@ export function createDurableCoordination(
     accountExportIpLimiter: named(OSN_RATE_LIMITS.accountExportIp),
     accountErasureRateLimiters,
     stepUpJtiStore: createDurableJtiStore(ns, onError),
-    passkeyChallengeClaims: createDurableChallengeClaimStore(ns, onError),
+    passkeyChallengeClaims: createDurableChallengeClaimStore(
+      ns,
+      onError,
+      "passkey_challenge_claim",
+    ),
+    emailVerificationNonceClaims: createDurableChallengeClaimStore(
+      ns,
+      onError,
+      "email_verification_nonce",
+    ),
     ceremonyStores,
     recoveryLockoutStore: createDurableLockoutStore(
       ns,

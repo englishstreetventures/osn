@@ -23,6 +23,7 @@ const PROBE_KEY_LABEL = "osn-api probe key\0";
 const CHALLENGE_LABEL = "osn-api discoverable passkey challenge\0";
 const PAIRING_CANDIDATES_LABEL = "osn-api email link candidates\0";
 const PAIRING_DIGEST_LABEL = "osn-api email link pairing\0";
+const EMAIL_VERIFICATION_NONCE_LABEL = "osn-api email verification nonce\0";
 
 /** Two-digit pairing numbers: 10 to 99. */
 const PAIRING_MIN = 10;
@@ -81,24 +82,64 @@ export interface ServerMac {
    * naming it.
    */
   pairingDigest(requestId: string, value: string): string;
+  /**
+   * A browser Email Verification API nonce secret good until `expiresAt`
+   * (epoch ms), base64url: 16 random bytes, the expiry, and a MAC over both,
+   * under a label of its own, so it never opens as a passkey challenge nor a
+   * challenge as it. The sign-up tab keeps it; the form's nonce is its
+   * SHA-256. Nothing is stored until it is used.
+   */
+  mintEmailVerificationNonce(expiresAt: number): string;
+  /** {@link openChallenge}'s checks, for a nonce secret this secret minted. */
+  openEmailVerificationNonce(secret: string, now?: number): OpenedChallenge;
 }
 
 export function createServerMac(secret: string | undefined): ServerMac {
   const key: string | Uint8Array = secret ?? crypto.getRandomValues(new Uint8Array(32));
   const mac = (label: string) => createHmac("sha256", key).update(label);
-  const challengeMac = (signed: Uint8Array): Uint8Array =>
-    new Uint8Array(mac(CHALLENGE_LABEL).update(signed).digest());
+  const macUnder =
+    (label: string) =>
+    (signed: Uint8Array): Uint8Array =>
+      new Uint8Array(mac(label).update(signed).digest());
+  const challengeMac = macUnder(CHALLENGE_LABEL);
+  const nonceMac = macUnder(EMAIL_VERIFICATION_NONCE_LABEL);
+  const mint = (sign: (signed: Uint8Array) => Uint8Array, expiresAt: number) => {
+    const bytes = new Uint8Array(CHALLENGE_BYTES);
+    crypto.getRandomValues(bytes.subarray(0, NONCE_BYTES));
+    new DataView(bytes.buffer).setBigUint64(NONCE_BYTES, BigInt(Math.max(0, expiresAt)));
+    const signed = bytes.subarray(0, NONCE_BYTES + EXPIRY_BYTES);
+    bytes.set(sign(signed), NONCE_BYTES + EXPIRY_BYTES);
+    return bytes;
+  };
+  const open = (
+    sign: (signed: Uint8Array) => Uint8Array,
+    encoded: string,
+    now: number,
+  ): OpenedChallenge => {
+    const bytes = new Uint8Array(Buffer.from(encoded, "base64url"));
+    if (bytes.length !== CHALLENGE_BYTES) return { ok: false, reason: "malformed" };
+    const signed = bytes.subarray(0, NONCE_BYTES + EXPIRY_BYTES);
+    const presented = bytes.subarray(NONCE_BYTES + EXPIRY_BYTES);
+    if (!timingSafeEqual(presented, sign(signed))) return { ok: false, reason: "forged" };
+    const expiresAt = Number(new DataView(bytes.buffer).getBigUint64(NONCE_BYTES));
+    if (expiresAt <= now) return { ok: false, reason: "expired" };
+    const nonce = Array.from(bytes.subarray(0, NONCE_BYTES), (b) =>
+      b.toString(16).padStart(2, "0"),
+    ).join("");
+    return { ok: true, nonce, expiresAt };
+  };
   return {
     probeKey(normalisedIdentifier) {
       return `prb_${mac(PROBE_KEY_LABEL).update(normalisedIdentifier).digest("hex").slice(0, 12)}`;
     },
     mintChallenge(expiresAt) {
-      const bytes = new Uint8Array(CHALLENGE_BYTES);
-      crypto.getRandomValues(bytes.subarray(0, NONCE_BYTES));
-      new DataView(bytes.buffer).setBigUint64(NONCE_BYTES, BigInt(Math.max(0, expiresAt)));
-      const signed = bytes.subarray(0, NONCE_BYTES + EXPIRY_BYTES);
-      bytes.set(challengeMac(signed), NONCE_BYTES + EXPIRY_BYTES);
-      return bytes;
+      return mint(challengeMac, expiresAt);
+    },
+    mintEmailVerificationNonce(expiresAt) {
+      return Buffer.from(mint(nonceMac, expiresAt)).toString("base64url");
+    },
+    openEmailVerificationNonce(encoded, now = Date.now()) {
+      return open(nonceMac, encoded, now);
     },
     pairingCandidates(requestId, count) {
       const found = new Set<number>();
@@ -118,17 +159,7 @@ export function createServerMac(secret: string | undefined): ServerMac {
       return mac(PAIRING_DIGEST_LABEL).update(`${requestId}\0${value}`).digest("hex");
     },
     openChallenge(challenge, now = Date.now()) {
-      const bytes = new Uint8Array(Buffer.from(challenge, "base64url"));
-      if (bytes.length !== CHALLENGE_BYTES) return { ok: false, reason: "malformed" };
-      const signed = bytes.subarray(0, NONCE_BYTES + EXPIRY_BYTES);
-      const presented = bytes.subarray(NONCE_BYTES + EXPIRY_BYTES);
-      if (!timingSafeEqual(presented, challengeMac(signed))) return { ok: false, reason: "forged" };
-      const expiresAt = Number(new DataView(bytes.buffer).getBigUint64(NONCE_BYTES));
-      if (expiresAt <= now) return { ok: false, reason: "expired" };
-      const nonce = Array.from(bytes.subarray(0, NONCE_BYTES), (b) =>
-        b.toString(16).padStart(2, "0"),
-      ).join("");
-      return { ok: true, nonce, expiresAt };
+      return open(challengeMac, challenge, now);
     },
   };
 }

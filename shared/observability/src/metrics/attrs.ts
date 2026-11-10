@@ -396,6 +396,27 @@ export type EmailLinkConfirmOutcome =
 export type EmailLinkSendResult = "sent" | "capped" | "taken" | "failed";
 
 /**
+ * What became of a browser Email Verification API token sent with a sign-up:
+ * accepted (`verified`), or refused because it did not parse or lacked a claim
+ * (`malformed`), its issuer could not be found or fetched safely (`issuer`),
+ * no issuer key verified it (`signature`), its key binding failed — audience,
+ * nonce, hash or holder key (`binding`), it named another address (`email`),
+ * it was too old or not yet valid (`expired`), its nonce was already used
+ * (`replayed`), or the lookup timed out or a store did not answer
+ * (`unavailable`). Never the token, the address or the issuer.
+ */
+export type EmailVerificationTokenOutcome =
+  | "verified"
+  | "malformed"
+  | "issuer"
+  | "signature"
+  | "binding"
+  | "email"
+  | "expired"
+  | "replayed"
+  | "unavailable";
+
+/**
  * Outcome of a call to the OIDC authorization endpoint. Mirrors the OAuth
  * error codes we are allowed to emit, plus the two success shapes: straight
  * back to the relying party with a code, or handed to the consent UI.

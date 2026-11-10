@@ -19,6 +19,7 @@ import { spendEntry } from "./attempts";
 import { MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
 import type { AuthContext } from "./context";
 import type { EmailLinkModule } from "./email-link";
+import type { EmailVerificationInput, EmailVerificationModule } from "./email-verification-token";
 import {
   AgeRestrictionError,
   AuthError,
@@ -82,6 +83,7 @@ export function createRegistrationModule(
   _profiles: ProfilesModule,
   tokens: TokensModule,
   links: EmailLinkModule,
+  emailVerification: EmailVerificationModule,
 ) {
   const { config, stores, otpTtl, serverMac, registrationSendCap, registrationLinkLockoutStore } =
     ctx;
@@ -317,6 +319,16 @@ export function createRegistrationModule(
    *    per-entry TTL on the Durable Object store).
    *  - The local-only debug line with the link is gated on `OSN_ENV` being
    *    unset or `"local"`.
+   *  - `emailVerification`, a browser Email Verification API token with the
+   *    tab's nonce secret, is read only while the flag is on
+   *    (`config.emailVerification`). It is checked after the age gate and the
+   *    handle checks and before the taken probe, so every address pays the
+   *    same lookups. One that verifies makes one more write on the request
+   *    whatever the address: a free address's request is confirmed then, as
+   *    its link would be, and nothing is mailed; a taken or held one's is
+   *    written back unchanged and goes on exactly as without a token. Any
+   *    refusal is silent: the link path runs. The account is still made by
+   *    the status poll, and the first passkey after it.
    *
    * Validation errors (bad email format, bad handle format, reserved handle)
    * are still surfaced as ValidationError / AuthError because they're not
@@ -328,6 +340,7 @@ export function createRegistrationModule(
     birthdate: string,
     displayName?: string,
     previous?: { readonly requestId: string; readonly claimSecret: string },
+    emailVerificationInput?: EmailVerificationInput,
   ): Effect.Effect<
     { requestId: string; claimSecret: string; pairingCode: string; expiresAt: number },
     AgeRestrictionError | AuthError | ValidationError | DatabaseError | CoordinationError,
@@ -365,6 +378,12 @@ export function createRegistrationModule(
         yield* links.retire("registration", previous.requestId, previous.claimSecret);
       }
 
+      // A browser's proof that the person controls the address, checked
+      // before the taken probe so a taken and a free address cost the same.
+      const verified = emailVerificationInput
+        ? yield* emailVerification.verify(normalisedEmail, emailVerificationInput)
+        : false;
+
       // The user can use the login flow if they already have an account; we
       // don't confirm or deny their existence over an unauthenticated channel.
       // The taken branch below responds identically for the address or the
@@ -396,6 +415,9 @@ export function createRegistrationModule(
         pairingCode: opened.pairingCode,
         expiresAt: Math.floor(opened.expiresAt / 1000),
       };
+      // A verified begin confirms a free address's request now, and writes a
+      // taken or held one's back unchanged, so all three make this call.
+      if (verified && (yield* links.markVerified(opened, !taken && written))) return answer;
       // A request whose entry did not park sends no link now; its Resend
       // parks it once the address is free.
       if (taken || !written) return answer;

@@ -618,6 +618,46 @@ export function holdMethod(method: string): {
   return { handler, release };
 }
 
+/**
+ * Sends every request `context` makes to the first osn-api to the second,
+ * `osnApiEvt`, which takes browser Email Verification API tokens. Musubi's
+ * build names one osn-api; this is how one flow signs up against the other.
+ * The browser still sees `localhost:4000` (cookies ignore the port either
+ * way), and every begin it makes spends the second osn-api's limiter window,
+ * which `tools/e2e/tests/flows.test.ts` counts apart for the flows that call
+ * this. The route stays for the rest of the flow, as `claimFromOrganiserAddress`
+ * explains.
+ */
+export async function throughEmailVerificationApi(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.osnApi}/**`, (route: Route) =>
+    route.continue({
+      url: route.request().url().replace(ORIGINS.osnApi, ORIGINS.osnApiEvt),
+    }),
+  );
+}
+
+/**
+ * The value a browser with the Email Verification API would put in the
+ * sign-up form's hidden field: a token the issuer stand-in signs for `email`,
+ * bound to `nonce` and to Musubi's origin (`src/issuer.ts`).
+ */
+export async function emailVerificationTokenFor(email: string, nonce: string): Promise<string> {
+  const response = await fetch(`${ORIGINS.issuer}/__e2e/evt`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, nonce, aud: ORIGINS.musubi }),
+  });
+  if (!response.ok) throw new Error(`issuer stand-in answered ${response.status}`);
+  return ((await response.json()) as { token: string }).token;
+}
+
+/** How many sign-up links have reached `email` so far, without waiting for one. */
+export async function signUpLinksTo(email: string): Promise<number> {
+  const response = await fetch(`${ORIGINS.mail}/__e2e/mail?to=${encodeURIComponent(email)}`);
+  const messages = (await response.json()) as Array<{ text: string }>;
+  return messages.filter((m) => LINK_RE.test(m.text)).length;
+}
+
 /** A cookie in `context` by name, or undefined. */
 export async function cookieNamed(context: BrowserContext, url: string, name: string) {
   return (await context.cookies(url)).find((c) => c.name === name);

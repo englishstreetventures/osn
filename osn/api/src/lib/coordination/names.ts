@@ -52,6 +52,9 @@ export type CoordinationStoreName =
   | "step_up_jti"
   // Used discoverable passkey challenges, by nonce: a challenge signs in once.
   | "passkey_challenge_claim"
+  // Used Email Verification API nonces, by their random part: a browser's
+  // token completes one sign-up.
+  | "email_verification_nonce"
   // `GET /health/coordination`'s round trip: one fresh server-made key per
   // probe, removed before it answers.
   | "health_probe"

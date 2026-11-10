@@ -98,6 +98,8 @@ export interface AppDeps {
   stepUpJtiStore: CoordinationStores["stepUpJtiStore"];
   /** Single-use claims on discoverable passkey challenges. */
   passkeyChallengeClaims: CoordinationStores["passkeyChallengeClaims"];
+  /** Single-use claims on Email Verification API nonces. */
+  emailVerificationNonceClaims: CoordinationStores["emailVerificationNonceClaims"];
   /**
    * The ceremony / pending-state stores, the three lockout counters and the
    * three per-account caps, from the coordination bundle. Spread into the
@@ -187,6 +189,7 @@ export function createApp(deps: AppDeps) {
     accountErasureRateLimiters,
     stepUpJtiStore,
     passkeyChallengeClaims,
+    emailVerificationNonceClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
@@ -277,6 +280,7 @@ export function createApp(deps: AppDeps) {
     ...authConfig,
     stepUpJtiStore,
     passkeyChallengeClaims,
+    emailVerificationNonceClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
