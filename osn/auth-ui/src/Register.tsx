@@ -17,7 +17,6 @@ import { createSignal, Show, onCleanup, onMount } from "solid-js";
 
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import {
-  hasPendingSignUp,
   PENDING_KEY,
   PREVIOUS_KEY,
   readStored,
@@ -26,8 +25,6 @@ import {
   type Waiting,
 } from "./pending-sign-up";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
-
-export { hasPendingSignUp };
 
 type Step = "details" | "verify" | "passkey" | "done";
 
