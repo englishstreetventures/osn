@@ -188,7 +188,9 @@ Merging out of order, or closing a parent without merging, orphans the children:
 
 ## Rebasing a stack
 
-When `main` moves under a stack, rebase from the bottom and force-push each branch in order:
+Rebase a stack, or a component pull request in one, only when the session is about to ask the owner to mark its feature pull request ready, or when merging it. A draft stack that falls behind `main` is left as it is, and a feature pull request that cannot get CI because its parents are behind is restacked at hand-off, not before.
+
+When `main` moves under a stack you are readying or merging, rebase from the bottom and force-push each branch in order:
 
 ```bash
 git rebase refs/remotes/origin/main <bottom> && git push --force-with-lease origin <bottom>
@@ -239,7 +241,7 @@ Keep a stack short. Three deep is manageable; five means the bottom PR sat unrev
 
 ## Frontend: one component per pull request
 
-Frontend work that adds or changes a component in a UI package — `@shared/ui`, `@cire/ui`, `@osn/auth-ui` — ships as a stack. Each such component gets its own pull request, and the feature pull request sits on top. The feature PR only composes the components and adds the layout and styling between them. The owner reviews each component on its own; a change asked for in a component PR is made there and carried up by rebase.
+Frontend work that adds or changes a component in a UI package — `@shared/ui`, `@cire/ui`, `@osn/auth-ui` — ships as a stack. Each such component gets its own pull request, and the feature pull request sits on top. The feature PR only composes the components and adds the layout and styling between them. The owner reviews each component on its own; a change asked for in a component PR is made there and carried up by rebase at hand-off.
 
 A part used by one screen only, outside a UI package, is not a component here and stays in the feature PR. A fix for a private tracker finding is never a stack: it ships as one pull request named by area, as `new-feat` Step 0 says, since every branch in a stack is public while it waits.
 
@@ -289,7 +291,7 @@ bun install --frozen-lockfile
 git push --force-with-lease=<child branch>:<its recorded head> --force-if-includes origin <child branch>
 ```
 
-Record the child's new base and head, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` or `BEHIND` is rebased onto its parent branch, never onto `origin/main`. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
+Record the child's new base and head, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` or `BEHIND` is rebased onto its parent branch, never onto `origin/main`. A change is carried up a draft stack only at hand-off, as [[#Rebasing a stack]] says. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
 
 A remote session on a designated `claude/*` branch can push nowhere else, so it cannot cut a stack. It builds the bottom component pull request and reports the rest for a local `orchestrate` run.
 
