@@ -1100,37 +1100,31 @@ jobs:
 
       # The release tarball, kept under its version and SHA-256, so most runs
       # download nothing: on 2026-11-09 GitHub's release download answered 504
-      # twice, and one of those ejected a merge-queue group. A run that does
-      # download retries a 5xx or a dropped connection, waiting longer each
-      # time. The cache saves only after a passing job.
-      - name: Cache gitleaks
-        uses: actions/cache@v4
+      # twice, and one of those ejected a merge-queue group.
+      - name: Restore gitleaks
+        id: gitleaks-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/gitleaks
           key: gitleaks-${{ env.GITLEAKS_VERSION }}-linux_x64-${{ env.GITLEAKS_SHA256 }}
 
-      # The SHA-256 is checked on every run, on a cached tarball as on a
-      # downloaded one, before anything is unpacked. A tarball that fails it is
-      # deleted and fails the step.
+      # scripts/install-gitleaks.sh downloads the tarball when the cache has
+      # none, retrying any failed download, a 404 included, for up to two
+      # minutes. It checks the SHA-256 on every run, cached or downloaded,
+      # before it unpacks anything, and deletes a tarball that fails.
       - name: Install gitleaks ${{ env.GITLEAKS_VERSION }}
         run: |
-          file="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          tarball="$HOME/.cache/gitleaks/$file"
-          if [ -f "$tarball" ]; then
-            echo "gitleaks $GITLEAKS_VERSION: from the cache"
-          else
-            mkdir -p "$(dirname "$tarball")"
-            curl -fsSL --retry 5 --retry-all-errors --retry-max-time 120 \
-              --connect-timeout 10 --max-time 60 -o "$tarball.part" \
-              "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$file"
-            mv "$tarball.part" "$tarball"
-          fi
-          if ! echo "$GITLEAKS_SHA256  $tarball" | sha256sum -c -; then
-            rm -f "$tarball"
-            exit 1
-          fi
-          tar -xzf "$tarball" -C "$RUNNER_TEMP" gitleaks
+          bash scripts/install-gitleaks.sh "$HOME/.cache/gitleaks" "$RUNNER_TEMP"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Only a tarball that passed its SHA-256 is here to save. A merge-queue
+      # group saves nothing: no later run can restore from its ref.
+      - name: Save gitleaks
+        if: github.event_name != 'merge_group' && steps.gitleaks-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/gitleaks
+          key: ${{ steps.gitleaks-cache.outputs.cache-primary-key }}
 
       - name: Test the secret scan
         run: bash scripts/tests/secret-scan.test.sh

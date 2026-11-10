@@ -894,8 +894,10 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
 
   // A merge-queue group runs on a `gh-readonly-queue/*` ref that no later run
   // can restore from, so a cache saved there is space and nothing else. A save
-  // may add conditions of its own after that one, joined by `&&`.
-  test("no cache is saved on a merge-queue run", () => {
+  // may add conditions of its own after that one, joined by `&&`. This checks
+  // the separate save steps only; an `actions/cache` step saves in its post
+  // step, which no `if` here reaches.
+  test("no actions/cache/save step runs on a merge-queue run", () => {
     const saves = Object.values(ci.jobs)
       .flatMap((job) => stepsOf(job))
       .filter((step) => step.uses === "actions/cache/save@v4");
@@ -949,6 +951,43 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
       "chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-",
     );
     expect(keyed("e2e")).toBe(keyed("browser"));
+  });
+
+  // The secret scan runs the gitleaks a cached tarball holds.
+  // scripts/install-gitleaks.sh checks that tarball's SHA-256 before it unpacks
+  // anything, as install-gitleaks.cli.test.ts shows; here, the job hands the
+  // script the directory the cache restores, and the key carries the pinned
+  // SHA-256, so a new pin never restores the old tarball and fails the check.
+  test("the secret scan's gitleaks tarball is restored under its pinned SHA-256 and goes through the script that checks it", () => {
+    const steps = stepsOf(ci.jobs.secrets);
+    expect(ci.jobs.secrets?.env).toEqual({
+      GITLEAKS_VERSION: expect.stringMatching(/^\d+\.\d+\.\d+$/),
+      GITLEAKS_SHA256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    const restore = steps.findIndex((step) => step.id === "gitleaks-cache");
+    const install = steps.findIndex((step) =>
+      step.run?.includes('bash scripts/install-gitleaks.sh "$HOME/.cache/gitleaks" "$RUNNER_TEMP"'),
+    );
+    const save = steps.findIndex(
+      (step) => step.uses === "actions/cache/save@v4" && step.with?.path === "~/.cache/gitleaks",
+    );
+    expect({
+      restore: steps[restore]?.uses,
+      path: steps[restore]?.with?.path,
+      key: steps[restore]?.with?.key,
+      fallback: steps[restore]?.with?.["restore-keys"],
+      saveKey: steps[save]?.with?.key,
+    }).toEqual({
+      restore: "actions/cache/restore@v4",
+      path: "~/.cache/gitleaks",
+      key: "gitleaks-${{ env.GITLEAKS_VERSION }}-linux_x64-${{ env.GITLEAKS_SHA256 }}",
+      fallback: undefined,
+      saveKey: "${{ steps.gitleaks-cache.outputs.cache-primary-key }}",
+    });
+    expect(restore).toBeGreaterThanOrEqual(0);
+    expect(install).toBeGreaterThan(restore);
+    expect(save).toBeGreaterThan(install);
+    expect(steps.filter((step) => step.with?.path === "~/.cache/gitleaks")).toHaveLength(2);
   });
 
   // The secret scan must finish on every pushed commit, so nothing that cancels
