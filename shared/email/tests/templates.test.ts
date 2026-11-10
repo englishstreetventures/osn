@@ -16,7 +16,7 @@ describe("renderTemplate", () => {
       instanceName: "Musubi",
       handle: "ada",
     });
-    expect(out.subject).toMatchInlineSnapshot(`"Verify your Musubi email"`);
+    expect(out.subject).toMatchInlineSnapshot(`"Confirm your Musubi email"`);
     expect(out.text).toContain(url);
     expect(out.text).toContain("@ada");
     expect(out.text).toContain("10 minutes");

@@ -1017,7 +1017,7 @@ describe("LogEmailLive local-mode behaviour", () => {
       const emailLogs = logLines.filter((l) => l.includes("[email:log]"));
       expect(emailLogs.length).toBe(1);
       expect(emailLogs[0]).toContain("template=link-registration");
-      expect(emailLogs[0]).toContain('subject="Verify your Musubi email"');
+      expect(emailLogs[0]).toContain('subject="Confirm your Musubi email"');
       expect(emailLogs[0]).toContain("to=dev@example.com");
       expect(emailLogs[0]).not.toContain("/verify/");
       expect(emailLogs[0]).not.toMatch(/[a-f0-9]{64}/); // no link secret

@@ -79,7 +79,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
 
   const link = await linkFor(ada.email);
   const [verification] = await mailFor(ada.email);
-  flow.check("registration email subject", "Verify your Musubi email", verification?.subject ?? "");
+  flow.check(
+    "registration email subject",
+    "Confirm your Musubi email",
+    verification?.subject ?? "",
+  );
   flow.check(
     "the email names the handle",
     true,
