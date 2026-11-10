@@ -28,7 +28,7 @@ import { Modal } from "@shared/ui/ui/modal";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
 import { Tooltip } from "@shared/ui/ui/tooltip";
-import { createSignal } from "solid-js";
+import { createEffect, createSignal, type JSX, onCleanup, onMount } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
 import { type CireTheme, cireStyle } from "../cire-ui/cire-mapping.ts";
@@ -41,30 +41,123 @@ export const meta = { title: "shared/ui/overlays", layout: "padded" as const };
  * whole lab window. That is the component behaving correctly, and the price of
  * the lab having no iframe. Open the story with `?bare` (the toolbar's "open")
  * to see it against nothing else.
+ *
+ * The contract's default: it lends `initial` for the title weight and both
+ * scale tokens, so it draws what an app that maps none of them draws (a 600
+ * title, in from 96% and out to 98%) whatever the lab's stylesheet maps.
  */
-export const DialogStory = () => (
-  <Dialog>
-    <DialogTrigger as={Button}>Open dialog</DialogTrigger>
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Leave this event?</DialogTitle>
-      </DialogHeader>
-      <div class="p-4">
-        <DialogDescription>
-          Your RSVP is removed and the host is told. You can rejoin while there is room.
-        </DialogDescription>
-      </div>
-      <DialogFooter>
-        <DialogClose as={Button} variant="outline">
-          Stay
-        </DialogClose>
-        <DialogClose as={Button} variant="destructive">
-          Leave
-        </DialogClose>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
-);
+export const DialogStory = () => {
+  lend(() => ({
+    "--ui-weight-title": "initial",
+    "--ui-scale-enter": "initial",
+    "--ui-scale-exit": "initial",
+  }));
+  return <LeaveDialog />;
+};
+
+/** The dialog every Dialog story opens: a title, a sentence and two buttons. */
+function LeaveDialog(props: {
+  presentation?: "centred" | "sheet";
+  title?: (el: HTMLHeadingElement) => void;
+  children?: JSX.Element;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger as={Button}>Open dialog</DialogTrigger>
+      <DialogContent presentation={props.presentation}>
+        <DialogHeader>
+          <DialogTitle ref={props.title}>Leave this event?</DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-2 p-4">
+          <DialogDescription>
+            Your RSVP is removed and the host is told. You can rejoin while there is room.
+          </DialogDescription>
+          {props.children}
+        </div>
+        <DialogFooter>
+          <DialogClose as={Button} variant="outline">
+            Stay
+          </DialogClose>
+          <DialogClose as={Button} variant="destructive">
+            Leave
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Lend contract tokens to `<body>` while the story is up, following its
+ * controls. The panel portals to `<body>`, so a wrapper's style never reaches
+ * it. `initial` is the guaranteed-invalid value, which makes each
+ * `var(--ui-x, fallback)` take its fallback: what an app that maps nothing
+ * draws, whatever the lab's own stylesheet maps.
+ */
+function lend(tokens: () => Record<string, string>) {
+  createEffect(() => {
+    const lent = Object.entries(tokens());
+    for (const [name, value] of lent) document.body.style.setProperty(name, value);
+    onCleanup(() => {
+      for (const [name] of lent) document.body.style.removeProperty(name);
+    });
+  });
+}
+
+/** The title's weight, read back from the page once the dialog has opened. */
+function ReadBack(props: { title: () => HTMLHeadingElement | undefined }) {
+  const [weight, setWeight] = createSignal("");
+  onMount(() => {
+    const title = props.title();
+    if (title) setWeight(getComputedStyle(title).fontWeight);
+  });
+  return <p class="text-ui-sm text-ui-ink-secondary">Title weight, read back: {weight()}</p>;
+}
+
+/**
+ * `DialogTitle`'s weight comes from the contract's title weight,
+ * `--ui-weight-title`, never from a class at the call site. `unmapped` is what
+ * an app that maps nothing draws, pulse among them: 600, the semibold the
+ * title always had. Pick a weight, then open the dialog; it reads the weight
+ * back from the page.
+ */
+export const DialogTitleWeight: Story<{ weight: string } & StoryArgs> = {
+  args: { weight: "500" },
+  controls: { weight: { kind: "select", options: ["unmapped", "400", "500", "600"] } },
+  render: (args) => {
+    lend(() => ({ "--ui-weight-title": args.weight === "unmapped" ? "initial" : args.weight }));
+    let title: HTMLHeadingElement | undefined;
+    return (
+      <LeaveDialog title={(el) => (title = el)}>
+        <ReadBack title={() => title} />
+      </LeaveDialog>
+    );
+  },
+};
+
+/**
+ * The fade with no scale an app opts into: `--ui-scale-enter` and
+ * `--ui-scale-exit` at 1, so `Dialog` (and every Kobalte overlay) changes only
+ * its opacity as it opens and closes. `unmapped` is the contract's default,
+ * which pulse draws: in from 96%, out to 98%. Open it as a sheet at a phone
+ * width to see the difference best: the default sheet's edges sit in from the
+ * screen's as it moves. The run is 120ms in and 80ms out, so slow it in the
+ * browser's animation tools to judge it.
+ */
+export const DialogFadeOnly: Story<{ motion: string; presentation: string } & StoryArgs> = {
+  args: { motion: "fade only", presentation: "sheet" },
+  controls: {
+    motion: { kind: "select", options: ["fade only", "unmapped"] },
+    presentation: { kind: "select", options: ["sheet", "centred"] },
+  },
+  render: (args) => {
+    lend(() => {
+      const scale = args.motion === "fade only" ? "1" : "initial";
+      return { "--ui-scale-enter": scale, "--ui-scale-exit": scale };
+    });
+    return <LeaveDialog presentation={args.presentation === "centred" ? "centred" : "sheet"} />;
+  },
+};
 
 export const Dropdown = () => {
   const [picked, setPicked] = createSignal("—");
