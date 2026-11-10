@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-10
 ---
 
 # Stacked PRs
@@ -126,7 +126,15 @@ With the `main` ruleset's merge queue on, `main` takes pull requests through it,
 
 ### A whole stack
 
-Merge a linked stack whole when every pull request in it is ready, not a draft. A frontend stack ([[#Frontend: one component per pull request]]) merges one pull request at a time instead: each child needs the `range-diff` check in [[#Opening, approval and merge]] before it is released, and its component pull requests stay drafts until then, which `gh stack merge` refuses. A stack that was never linked, or one merged from a machine without `gh stack`, also merges one pull request at a time.
+Merge a linked stack whole when every pull request in it is ready, not a draft. A frontend stack ([[#Frontend: one component per pull request]]) is ready once the owner has marked its feature pull request ready and the merging session has marked the components ready ([[#Opening, approval and merge]]). A registered stack merges only this way: GitHub refuses `--auto` on any pull request in one.
+
+```
+GraphQL: Auto-merge is not supported for stacked pull requests. (enablePullRequestAutoMerge)
+```
+
+*Seen 2026-10-26 — `gh pr merge <n> --squash --auto` on a pull request in a registered stack.*
+
+A stack that was never linked, or one merged from a machine without `gh stack`, merges one pull request at a time ([[#One pull request at a time]]).
 
 ```bash
 gh api repos/englishstreetventures/osn/pulls/<any PR in the stack> --jq .stack.number
@@ -162,7 +170,7 @@ gh api repos/englishstreetventures/osn/rules/branches/main \
 
 ### One pull request at a time
 
-A child queued on its own with `gh pr merge <n> --squash --auto` waits for its parent to merge. When PR 1 merges, GitHub retargets PR 2 to `main`, provided PR 1 was merged rather than closed.
+In a stack that was never registered, a child queued on its own with `gh pr merge <n> --squash --auto` waits for its parent to merge. When PR 1 merges, GitHub retargets PR 2 to `main`, provided PR 1 was merged rather than closed.
 
 The retarget is not enough. PR 2's branch still carries PR 1's original commits, and the squash put different ones on `main`, so PR 2 still holds PR 1's changes. Any file `main` has since deleted comes back with it, a changeset `release.yml` consumed included. Before queueing PR 2, rebase it past them and push:
 
@@ -268,7 +276,7 @@ The owner approves the stack as a whole, by marking the **feature** pull request
 2. Each component PR's `## Impact` ends with `**Do not merge until** #<feature PR> is marked ready by the owner.` The feature PR's line says the owner's review of the stack. The owner leaves component PRs as drafts.
 3. When `orchestrate` parks the stack, it records each pull request's head commit in `ORCHESTRATE.md`. The owner's ready covers those commits and no others.
 4. Once the owner marks the feature PR ready, `orchestrate` Step 5 first checks that every head still matches what it recorded. A head that moved means someone pushed after the review, through `review-pr`, a remote session or the web editor: put the feature back to draft (`gh pr ready --undo <feature PR>`), record the new heads and park again.
-5. Then it merges bottom up. For each child, it rebases the child past its merged parent ([[#Merge order]]) **before** releasing anything, and compares the patches: `git range-diff <recorded base>..<old head> refs/remotes/origin/main..<new head>`. When every line pairs as `=`, the rebase changed nothing the owner saw. It pushes, removes the line, marks the PR ready and queues it once its base is `main`. When any patch changed, which means a conflict was resolved, it pushes, puts the feature back to draft and parks the stack again.
+5. Then it removes each component's line, marks each component ready, and merges the stack whole with `gh stack merge <stack number> --squash --yes` ([[#A whole stack]]); a stack of four lands in one round. When a round stops on a conflict and a pull request is rebased by hand, it compares the patches first: `git range-diff <recorded base>..<old head> refs/remotes/origin/main..<new head>`. When every line pairs as `=`, the rebase changed nothing the owner saw: it pushes and queues the next round. When any patch changed, which means a conflict was resolved, it pushes, puts the feature back to draft and parks the stack again.
 6. A review fix to any pull request after the owner marked the feature ready also puts the feature back to draft. The owner's ready covered the code they saw.
 
 ### Carrying a change up

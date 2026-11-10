@@ -25,6 +25,18 @@ against the plan rather than the plan against the repo.
 
 ## Step 0 — Is this plan worth attacking?
 
+**The issue's complexity decides first.** Read its `complexity:` rating,
+confirmed or not.
+
+- **3 or less: skip**, unless the plan touches tokens, sessions, rate limits,
+  step-up, recovery or OpenID Connect. The builder checks the plan's premises
+  against the code itself instead: each claim the design rests on, with the
+  file and line or the command output that confirms it, written into the plan
+  (`new-feat` Step 2). Record `stress-plan: skipped, complexity <n>` in the
+  plan.
+- **5 or more, or any of those areas at any rating: never skip.**
+- **No rating:** the rules below decide.
+
 **Skip** a mechanical change inside one package that creates no file, adds no
 dependency and touches no schema: a rename, a config flag on a value the plan has
 already traced to its reader, a test for behaviour that already exists. There the

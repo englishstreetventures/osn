@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-10
 ---
 
 # Session Metrics
@@ -200,16 +200,16 @@ Three writers, and only one of them is the owner.
 
 | Writer | When | Carries identity? |
 |---|---|---|
-| The **`retro`** skill | Once, straight after `prep-pr` opens the pull request | Yes — `--resolve-issue` finds the pull request, names its issue and sums the ratings of what it closes; `--pr`, `--issue` and `--issue-labels` override it. It commits the JSON and appends the `<details>` block to the pull-request body |
+| The **`retro`** skill | Once, in `prep-pr` Step 9, after the reviews and fixes and before the branch's first push | The issue and its rating, not yet the pull request's number. No pull request exists yet, so it passes `--issue` and `--issue-labels` for the branch's issue; `pr.number` stays null until a later run or `backfill` writes it. On a branch whose pull request is already open, `--resolve-issue` finds the pull request, names its issue and sums the ratings of what it closes. It commits the JSON, and its `<details>` block goes on the pull-request body |
 | The `SessionEnd` hook | At the end of every session, in every environment | Only what `--resolve-issue` finds, which is nothing before the pull request exists. It runs `card -- --if-absent --resolve-issue`, so it writes a card for a branch that has none and never touches one `retro` committed |
 | `backfill` | Retrospectively, over merged pull requests | From the GitHub API — see [[#Backfilling]] |
 
-`retro` runs after the pull request is open, so the card covers the whole
-session — on any diff that is not docs and tests alone, `prep-pr`
-dispatches `review-tests`, `review-performance` and `review-security`,
-`review-state` when the diff writes state and `review-design` when it changes
-how a screen looks, and a card written before those finish measures building
-the change rather than shipping it.
+`retro` runs after `prep-pr`'s reviews and the fixes they ask for — a card
+written before those finish measures building the change rather than shipping
+it — and before the push, so the card goes out with the work and the pull
+request runs CI once. A card committed after the pull request opens is a
+second push and a second CI run. What follows the push, the CI wait and the
+merge, reaches the card when `backfill` rewrites it after the merge.
 
 > [!warning] The fallback must never overwrite the owner's card.
 > The hook has no way to know the pull request, the issue or the rating — it
@@ -245,8 +245,12 @@ rule.
 | The file names another pull request on another branch name — `feat/a-b` and `feat-a-b` flatten to one file — or this run names no pull request | Refuses | Keeps the first and skips the second |
 
 A refusal prints both numbers on stderr, writes nothing, renders no
-`--format markdown` block, and exits 1. A card whose `pr.number` is null is the
-fallback's identity-less one, and `retro` replaces it.
+`--format markdown` block, and exits 1. A card whose `pr.number` is null was
+written before its pull request opened — by `retro` before the push, with the
+issue and its rating, or by the fallback, with neither — and a run that names
+the pull request writes over it. On a reused branch name `retro` cannot write
+before the push, since a run that names no pull request is refused there; it
+writes once the pull request is open.
 
 `new-feat` Step 1 and `orchestrate` Step 2 still check a name is unused before
 cutting it — no card for it on `origin/main`, and no pull request with that head
@@ -569,7 +573,7 @@ the rate table prices at zero rather than guessing, and is named in
 A card written when the PR opens cannot see review-cycle cost. `phase` says
 which you are looking at:
 
-- `at-open` — written by `retro`, covers work up to the pull request.
+- `at-open` — written by `retro`, covers work up to the branch's first push.
 - `at-merge` — written after merge, includes review fixes.
 
 > [!caution] Do not filter a query on `phase = 'at-merge'`.
@@ -756,8 +760,10 @@ GitHub's own case. A `--repo xchromo/osn` or `EnglishStreetVentures/osn` still
 reads this repository's issues. Where `gh` cannot answer, the typed name stands
 in, compared ignoring case.
 
-**A backfill never lowers a rating on disk.** When the card already written for
-the same pull request holds a rating and this run's has none, or holds a
+**A backfill never lowers a rating on disk.** A card that names no pull
+request, on the same branch, counts as that pull request's: it is the one
+`retro` wrote before the push, and its review counts carry across too. When
+the card already written for the same pull request holds a rating and this run's has none, or holds a
 `confirmed` one and this run's is not, it keeps the card's `complexity` and says
 so on stderr. A failed lookup, or an issue this run cannot read, must not erase
 the only record of the rating. The card's `issue` comes with it only when

@@ -322,6 +322,12 @@ condition has cleared, since it holds the merge rather than describing the work.
 A line that waits on the owner clears only as
 `wiki/conventions/review-findings.md` §What counts as the owner's answer says.
 
+Before the push, run `retro` on the branch (`retro-v2` when the session is short
+of budget). The pull request is open, so it finds it, commits the card, and
+leaves the card's `<details>` block in a file for you: append that block to
+`PR-BODY.md`, last, in place of any block the old body carried. The push below
+then carries the card, and CI runs once on it.
+
 ```bash
 git push --force-with-lease origin <branch>   # after a rebase; plain `git push origin <branch>` otherwise
 gh api -X PATCH repos/englishstreetventures/osn/pulls/<n> -F body=@PR-BODY.md --jq .html_url
@@ -348,10 +354,8 @@ d=$(mktemp -d) && git show refs/remotes/origin/main:scripts/wait-pr.sh > "$d/wai
 It stops on merged, closed, conflicting, a failed check, every check finished,
 or 30 minutes, and prints one line. A red check goes back to Step 4.
 
-Then `retro` on the branch.
-
 **Under `orchestrate`**, stop after the push and the body edit, and report:
-the orchestrator's Step 5 runs `retro`, waits on CI and merges. A second wait
+the orchestrator's Step 5 waits on CI and merges. A second wait
 from here would watch the same checks twice.
 
 ## Stop and hand back when

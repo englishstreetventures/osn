@@ -133,8 +133,8 @@ Where the data supports a change to how work is dispatched, hand it to
 
 `wiki/conventions/session-metrics.md` holds the schema and the reasoning
 behind every field. `tools/pr-metrics/README.md` has the commands. Cards are
-written by the **`retro`** skill, which runs after `prep-pr` opens a pull
-request, and — for a branch whose retro never ran — by the `SessionEnd` hook,
+written by the **`retro`** skill, which `prep-pr` runs before its first push,
+and — for a branch whose retro never ran — by the `SessionEnd` hook,
 whose `--if-absent` run never overwrites one `retro` committed.
 
 `retro` is the per-session counterpart of this skill: it reads **one** card and

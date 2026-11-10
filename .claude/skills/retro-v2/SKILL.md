@@ -1,6 +1,6 @@
 ---
 name: retro-v2
-description: Use when a branch has finished and the session-metrics card is all that is wanted — writes, commits and renders the card, and stops. The card-only half of `retro`, for sessions running close to their token budget. Where there is room to think, run `retro` instead — this one deliberately produces no findings and changes nothing.
+description: Use when a branch has finished and the session-metrics card is all that is wanted — writes and commits the card, normally just before `prep-pr`'s first push, puts its block on the pull-request body, and stops. The card-only half of `retro`, for sessions running close to their token budget. Where there is room to think, run `retro` instead — this one deliberately produces no findings and changes nothing.
 ---
 
 Write the session-metrics card for the branch named in `$ARGUMENTS`, or the
@@ -10,8 +10,9 @@ current branch if it is empty. Then stop.
 
 One thing: **the card.** `.claude/metrics/<branch-slug>.json` — or
 `<branch-slug>-<pr>.json` on a branch name an earlier pull request used —
-carrying this branch's pull request number, issue number and issue labels — committed, pushed,
-and rendered onto the pull-request body as a `<details>` block.
+carrying this branch's issue number and issue labels, and its pull request
+number once one exists — committed, and its `<details>` block put on the
+pull-request body.
 
 Nothing else. No `RETRO.md`, no findings, no changes to the skills, `AGENTS.md`,
 the wiki, the tests or the brief.
@@ -33,12 +34,14 @@ analysis is what is deferred, not the record.
 
 ## Where this sits
 
-`new-feat`, implement, `prep-pr`, then this. Under `orchestrate`, once per task,
-after that task's pull request is open and before the shepherd watches it.
+`new-feat`, implement, `prep-pr` up to its push, then this, then `prep-pr`
+pushes and opens the pull request (its Step 9). Under `orchestrate`, once per
+task, the same way.
 
-After `prep-pr` and not inside it, because `prep-pr` dispatches up to five
-review agents: a card written before they finish measures building the change
-rather than shipping it.
+After `prep-pr`'s reviews and fixes, because a card written before they finish
+measures building the change rather than shipping it. Before its push, because
+a card committed once the pull request is open is a second push, and the pull
+request runs CI twice.
 
 ## Before Step 1 — what can actually run
 
@@ -70,23 +73,42 @@ rather than recomputed.
 
 ```bash
 BRANCH=$(git branch --show-current)
-PR=$(gh pr view --json number --jq .number)
+SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
+PR=$(gh pr view --json number --jq .number 2>/dev/null)   # empty until the pull request opens
+BLOCK="${TMPDIR:-/tmp}/card-$SLUG.md"
+BASE="origin/$(git config --get "branch.$BRANCH.gh-merge-base" || echo main)"   # the parent, on a stacked branch
 ```
 
-Then the two runs, which do different jobs:
+**Before the pull request opens** — the usual case — `--resolve-issue` finds
+nothing yet: `resolveIdentity` in `tools/pr-metrics/index.ts` returns as soon as
+`gh pr list --head` lists no pull request. Name the issue and pass its labels:
+
+```bash
+ISSUE=<the number on NEW-FEAT.md's Issue: line>
+LABELS=$(gh issue view "$ISSUE" --repo englishstreetventures/osn --json labels --jq '[.labels[].name] | join(",")')
+bun run --cwd tools/pr-metrics card -- --issue "$ISSUE" --issue-labels "$LABELS" --base "$BASE"
+bun run --cwd tools/pr-metrics card -- --issue "$ISSUE" --issue-labels "$LABELS" --base "$BASE" --format markdown > "$BLOCK"
+```
+
+The card carries the issue and its rating, and `pr.number: null` until a later
+run or `backfill` fills the number in; `retro` Step 1 says why that gap is safe,
+and what a tracker-only branch, a branch closing several issues and a reused
+branch name do instead.
+
+**Once the pull request is open** — an adopted branch, or a card written again:
 
 ```bash
 # 1. The committed card. `--resolve-issue` finds the pull request, names the
 #    issue the branch was cut for and sums the `complexity:` ratings of every
 #    issue in this repository the pull request closes, or, when it links none
 #    here, of the tracker issues it closes.
-bun run --cwd tools/pr-metrics card -- --resolve-issue
+bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE"
 
 # 2. The `<details>` block for the pull-request body, on stdout, warnings excluded.
-bun run --cwd tools/pr-metrics card -- --resolve-issue --format markdown > /tmp/card.md
+bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE" --format markdown > "$BLOCK"
 ```
 
-Five rules about that pair:
+Five rules about those runs:
 
 - **Let `--resolve-issue` do the lookup; never hand-roll it in the shell.**
   `.closingIssuesReferences[0].number` drops the repository, so a follow-up
@@ -116,8 +138,8 @@ Five rules about that pair:
 - **Pass explicit flags only where you know better than `gh` does.** `--pr`,
   `--issue-labels` and `--complexity` win over the lookup; `--issue-labels`
   turns the rating lookup off and declares that one issue's rating; pass this
-  repository's issue's labels only, never a tracker issue's. The usual
-  reason is a branch whose pull request is not open yet.
+  repository's issue's labels only, never a tracker issue's. Before the pull
+  request opens they are the only source.
 - **Commit the JSON with the branch.** `~/.claude/projects` is local,
   unversioned and dies with a remote container. The committed file is the
   record; an uncommitted one is nothing. Stage the one card, never the
@@ -126,19 +148,26 @@ Five rules about that pair:
   there.
 
 ```bash
-SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
 CARD=".claude/metrics/$SLUG.json"
-[ -f ".claude/metrics/$SLUG-$PR.json" ] && CARD=".claude/metrics/$SLUG-$PR.json"
+[ -n "$PR" ] && [ -f ".claude/metrics/$SLUG-$PR.json" ] && CARD=".claude/metrics/$SLUG-$PR.json"
 git add "$CARD"
 git commit -m "chore: session-metrics card for $BRANCH"
-git push
 ```
 
-## Step 2 — Render it onto the pull request
+## Step 2 — Put the block on the body
+
+**Before the pull request opens**, stop after the commit: no push and no body
+edit. The caller — `prep-pr` Step 9 — appends `$BLOCK` to its body file and
+pushes, so the card goes out with the work.
+
+**Once it is open**, a caller about to push the branch (`review-pr` Step 7) does
+the same. Otherwise push, then append to the live body; that push starts
+another CI run, which is why `prep-pr` runs this before its own push:
 
 ```bash
+git push
 gh pr view "$PR" --json body --jq .body > /tmp/body.md
-cat /tmp/card.md >> /tmp/body.md
+cat "$BLOCK" >> /tmp/body.md
 gh pr edit "$PR" --body-file /tmp/body.md
 ```
 
@@ -174,18 +203,20 @@ network: commit the card locally; it pushes with the next push.
 `card -- --if-absent --resolve-issue`, so it writes a card for a branch that has
 none and never touches one this skill committed.
 
-A card with `pr.number: null` is one the hook wrote before a pull request
-existed. Its spend and interaction numbers are as good as any other card's —
-only its identity is missing, and Step 1 fills that in where it can run.
+A card with `pr.number: null` was written before its pull request opened: by
+Step 1, which names the issue and its rating, or by the hook, which names
+neither. Its spend and interaction numbers are as good as any other card's —
+only the hook's card misses its identity, and Step 1 fills that in where it can
+run.
 
 ---
 
 ## Finish
 
-Report the card's path, the pull request it names, the issue and
-`complexity.declared` it resolved, and `spend.usd_equivalent`. Say plainly that
-the analysis half was not run and that `retro` reads this card later from any
-session.
+Report the card's path, the pull request it names (none yet, when it was
+written before the push), the issue and `complexity.declared` it resolved, and
+`spend.usd_equivalent`. Say plainly that the analysis half was not run and that
+`retro` reads this card later from any session.
 
 Do not offer a summary of what the session cost, and do not volunteer findings.
 Someone who wants those runs `retro`.

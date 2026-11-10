@@ -132,6 +132,8 @@ For a feature with more phases than prose can hold, a `.canvas` beside the plan 
 Parse the input into discrete tasks and plan **structure only**:
 
 - **Order by dependency.** A task another builds on, or that touches files another touches, goes first. Independent tasks still run through this loop one at a time; parallelise only when they share no files and you will manage separate worktrees.
+- **Hot files, one open branch at a time.** A file many tasks edit — a product's `DESIGN.md`, `@osn/auth-ui`, `@osn/client` — is edited by one open branch at a time: the next task that edits it waits until the pull request ahead of it merges. Each pull request edits only its own section of a shared `DESIGN.md`.
+- **CI flakes first.** A check that fails for reasons the change does not cause, and ejects merge-queue groups, is fixed before feature work: its issue goes to the head of the order (Step 5, a check failure).
 - **One task, one branch, one PR** by default. Group two only when they are genuinely one unit of work.
 - **A task with no clear acceptance criteria is not dispatched.** Ask the user to clarify before a subagent guesses at scope; if it needs product direction, that is Step 00.
 - **A list from `next-batch` arrives triaged**, ordered, and grouped by the files each task touches. Keep its order and its limit on agents running at once.
@@ -142,7 +144,7 @@ Parse the input into discrete tasks and plan **structure only**:
 - **Step 1**: a component task's contract is its plan task. Only the feature task quotes the issue's Done when.
 - **Step 2**: claim the issue once, at the first cut. Name branches `<prefix>/<slug>-<component>` and the feature `<prefix>/<slug>`. Cut each from the branch below once that has commits, set `gh-merge-base`, and write `base: <git merge-base parent child>` into the task's block. Rewrite that line after every rebase.
 - **Step 4**: every pull request in the stack opens as a draft. A component's `**Do not merge until**` line names the feature pull request being marked ready by the owner. Link the stack with `gh stack link` as each one opens. Move the card to In Review when the feature pull request opens, not before.
-- **Step 5**: when parking the stack, record every pull request's head commit in its block. The owner approves the whole stack by marking the feature pull request ready, and that approval covers those heads only. Before releasing anything, check every head against its record. If any moved, run `gh pr ready --undo <feature>`, record the new heads and park again. Then merge bottom up. Before releasing each child, dispatch an `implementer` to rebase it past its merged parent (`stacked-prs.md` §Merge order, with the recorded base). It re-adds the worktree if parking removed it, resolves any conflict, and pushes with the lease pinned to the recorded head. Then compare with `git range-diff`. If every patch pairs `=`, edit out the child's line, mark it ready and queue it once its base is `main`. If any patch changed, run `gh pr ready --undo <feature>` and park again. A review fix after the feature was marked ready also gets `gh pr ready --undo <feature>`.
+- **Step 5**: when parking the stack, record every pull request's head commit in its block. The owner approves the whole stack by marking the feature pull request ready, and that approval covers those heads only. Before releasing anything, check every head against its record. If any moved, run `gh pr ready --undo <feature>`, record the new heads and park again. Then edit each component's line out, mark each component ready, and merge the stack whole with `gh stack merge <stack> --squash --yes` (`stacked-prs.md` §A whole stack). Never `gh pr merge --auto` on one of its pull requests: GitHub refuses it for any pull request in a registered stack. When a round stops on a conflict, dispatch an `implementer` to rebase as that section says, then compare with `git range-diff` against the recorded base and head: if any patch changed, run `gh pr ready --undo <feature>` and park again. A review fix after the feature was marked ready also gets `gh pr ready --undo <feature>`.
 - **A review fix** to a component goes to that component's worktree, then an `implementer` carries it up one branch at a time (`stacked-prs.md` §Carrying a change up). It never rebases a branch whose subagent is still working. `DIRTY` or `BEHIND` on a stacked pull request means rebase onto its parent branch, never `origin/main`.
 
 State the ordered list and which tasks get their own branch in one short message, then start. Do not describe how any task will be built.
@@ -260,6 +262,11 @@ gets followed to the letter. Every dispatch carries:
   You read the diff for everything else.
 - **The shared files** this task touches that another task also touches. That is a
   real dependency and belongs in the order alongside the logical ones.
+- **The check tier.** The issue's `complexity:` rating and the tier it sets
+  (`prep-pr` Step 4): 3 or less is light — no `stress-plan` attacker, the builder
+  checking its own premises against the code, and one combined review — unless
+  the task touches tokens, sessions, rate limits, step-up, recovery or OpenID
+  Connect; 5 or more, no rating, or any of those areas is the full set.
 - **The wiki pages to read, by repo path**, and the ones this work makes stale.
   Paths, never pasted prose — the subagent has its own context window and can open
   a file; yours is the run's bottleneck.
@@ -299,6 +306,8 @@ For a **large phase** — a plan with many independent tasks — tell the subage
 6. `reviewer` stages run the Step 6 reviews the verdict calls for, together and not alone in the worktree, each with the effort `prep-pr` Step 6 gives it. `trivial-tests` calls for none.
 7. The builder runs the design review's `unmeasured` checks and fixes every finding, as `prep-pr` Step 6 says, then runs `prep-pr` from Step 7, pushing and opening the pull request itself.
 
+On the light tier there is no stage 2, stage 4 is the one combined review, and stage 6 does not run.
+
 Each builder brief names the passes that run outside it, so it neither skips them nor runs them on itself; `prep-pr` takes the task's word that its reviews have run. The split stands in for this step's no-push rule and for Step 4's `prep-pr` run, for that task only.
 
 ### Step 4 — `prep-pr`, with findings fixed
@@ -312,7 +321,7 @@ shows it touched what it claimed. Each of those has caught a report that was wro
 — including one quoting a commit SHA it had invented. Then read the diff, then run
 the gates.
 
-Two rules for anything you dispatch into a worktree:
+Three rules for anything you dispatch into a worktree:
 
 - **A reviewer builds only when it is alone in the worktree.** Read-only means
   read-only about the tree, not just about your files: two builds running at once
@@ -322,6 +331,12 @@ Two rules for anything you dispatch into a worktree:
   worktree nothing else is touching. A finding quoting a measured number states the worktree and the file
   count it measured, so you can reject it on sight when the count disagrees with
   what the app emits.
+- **One E2E run on the machine at a time.** The suite's ports are fixed for the
+  whole machine (`PORTS` in `tools/e2e/src/config.ts`), so two worktrees
+  cannot run it at once. Before a gate or a brief runs `bun run test:e2e`,
+  check `lsof -nP -iTCP:4000 -sTCP:LISTEN`; while another run holds the port,
+  wait, and never stop it (`wiki/conventions/testing-patterns.md` §What one
+  run does).
 - **One code-writing agent per worktree**, and never a review alongside your own
   uncommitted edits. A review agent comparing an old shape against a new one
   reaches for `git checkout <ref> -- <path>`, and putting it back discards
@@ -331,17 +346,12 @@ Two rules for anything you dispatch into a worktree:
 
 **A task split into Workflow stages (Step 3) has been through `prep-pr` already,** and its last builder stage opened the pull request. Run the checks above on it, then move its card as the end of this step says; the rest of this step is for every other task.
 
-Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel, with the state review beside them when the diff writes state and the design review when it changes how a screen looks. `prep-pr` Steps 4 and 6 write the missing tests and fix every finding in the task's scope themselves; read the finding tally in its report rather than dispatching fixes again. A small fix outside the task's scope becomes a new task in this run's list: cut its worktree with Step 2 and dispatch it with Step 3 — one per task, batching every such fix the task found, one commit each — and it merges with the rest. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work. When a task leaves more than two open that no pull request will close, check each against those three yourself from the tally, and send the subagent back once, naming the issue that fits none; one that fits stays open. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4); in a frontend stack, only once the feature pull request is open.
+Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, and review: on the full tier, `review-tests`, then the performance and security reviews in parallel, with the state review beside them when the diff writes state and the design review when it changes how a screen looks; on the light tier, one combined pass. `prep-pr` Steps 4 and 6 write the missing tests and fix every finding in the task's scope themselves; read the finding tally in its report rather than dispatching fixes again. A small fix outside the task's scope becomes a new task in this run's list: cut its worktree with Step 2 and dispatch it with Step 3 — one per task, batching every such fix the task found, one commit each — and it merges with the rest. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work. When a task leaves more than two open that no pull request will close, check each against those three yourself from the tally, and send the subagent back once, naming the issue that fits none; one that fits stays open. Review depth follows the issue's complexity, as `prep-pr` Step 4's tiers set it. Then the PR body with the `write-pr` skill, the session-metrics card, the push, and the PR. `prep-pr` Step 9 runs `retro` before its push, so the card goes out with the work and CI runs once. Under this skill the metrics card matters more than anywhere else: an orchestrated task's spend sits in subagent transcripts, and the card is the only place it is ever added up. Skip it and the task's own cost is unrecoverable once Step 5 tears the worktree down. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4); in a frontend stack, only once the feature pull request is open.
 
-### Step 5 — Retro, then watch, merge, tear down
+### Step 5 — Watch, merge, tear down
 
-**First, the card.** Invoke the **`retro`** skill on the task's branch before
-the wait starts. It writes and commits the session-metrics card with
-the pull request's identity on it, and reads what the task cost against the
-complexity declared at Step 1. Under this skill that matters more than
-anywhere else: an orchestrated task's spend sits in subagent transcripts, and
-the card is the only place it is ever added up. Skip it and the task's own cost
-is unrecoverable once the worktree is torn down at the end of this step.
+The session-metrics card went out with the task's first push (Step 4), so
+nothing here pushes for it.
 
 **Every push must start CI.** After each push to a branch with an open pull
 request — yours, one a subagent reports, each branch a rebase carries up a
@@ -379,7 +389,8 @@ bash scripts/wait-pr.sh <n> 30     # run_in_background; one line when it ends
 ```
 
 The polling never enters your context — you get one notice and one line. A
-green line needs nothing more. On a red line, dispatch a **`shepherd`
+green line on a pull request the body check below clears is queued at once,
+by you, without asking the owner (the third bullet). On a red line, dispatch a **`shepherd`
 subagent** (`.claude/agents/shepherd.md`) to read the failing job and return its
 name and the decisive line of its output, not the whole log; reading logs does
 not need an expensive model. The shepherd does not merge, does not rebase, does
@@ -390,9 +401,10 @@ line and the shepherd report:
 
 - **Before any `gh pr ready` or merge, read the body**: `gh api repos/englishstreetventures/osn/pulls/<n> --jq .body | grep -iE '^[[:space:]>*-]*\*\*do not merge until'`, which matches the bold lead-in at the start of a line, in a list or a quote too, and not prose that only mentions it. While a line it prints stands, the pull request is not marked ready and not queued. On a draft every such line waits on the owner: the draft is parked, below. On a pull request the owner has marked ready, the line has been answered, and the session that merges it removes it. On any other ready pull request, a line that waits on the owner holds until their own words answer it (`wiki/conventions/review-findings.md` §What counts as the owner's answer). A line whose condition this run can see end — a pull request ahead of it in this run's merge queue (`bash scripts/wait-pr.sh --until-merged <m> 60` in the background), or a release workflow run already in progress, until `status: completed` — you wait for, then edit out of the body (`write-pr` Step 6) and go on. Park anything else as a waiting draft is parked, its `next:` naming the condition.
 - A draft that waits on the owner, all checks green → park it. Write `next:` in `ORCHESTRATE.md` naming what it waits on, leave its card In Review, remove the worktree this run created once the branch is pushed and `git -C <dir> status --porcelain` prints nothing, and name the draft in the closing summary. Once the owner has answered (`wiki/conventions/review-findings.md` §What counts as the owner's answer), a later run applies the answer through an `implementer` in a worktree of its own, cut from the branch (`git worktree add <dir> <branch>`), which keeps the pull request a draft, rewords its line to say the answer is applied, and tells the owner it is theirs to mark ready. Once they have, it merges as below.
-- All checks green, `mergeStateStatus: CLEAN` and no line from the body check still holding → **you** hand it to the merge queue with `gh pr merge <n> --squash --auto` (in a remote session, which has no GraphQL, the GitHub MCP `enable_pr_auto_merge` tool with the squash method). With the `main` ruleset's merge queue on, that queues it, and the queue re-runs CI on the pull request together with the ones ahead of it; without the queue, `--auto` merges once the required checks pass. A linked stack whose pull requests all meet these three conditions, and which is not a frontend stack, is queued whole instead, with `gh stack merge` as `wiki/conventions/stacked-prs.md` §A whole stack says; a frontend stack merges one pull request at a time, as §Opening, approval and merge there says. Then wait for the merge itself, in the background: `bash scripts/wait-pr.sh --until-merged <n> 60`. For a whole stack, `<n>` is the highest pull request one round can land, `max_entries_to_build` up from the bottom; then queue the next round as that page says. Exit 0 is `MERGED`; exit 1 with "left the merge queue" means the group failed. Read that group's failing check as for any red check: a migration that clashes with one that merged first is regenerated on the new `main` (`wiki/conventions/commands.md` §Migrations), then pushed and queued again.
+- All checks green, `mergeStateStatus: CLEAN` and no line from the body check still holding → **you** hand it to the merge queue, without asking anyone, with `gh pr merge <n> --squash --auto` (in a remote session, which has no GraphQL, the GitHub MCP `enable_pr_auto_merge` tool with the squash method). With the `main` ruleset's merge queue on, that queues it, and the queue re-runs CI on the pull request together with the ones ahead of it; without the queue, `--auto` merges once the required checks pass. A pull request in a registered stack is never queued with `--auto`: GitHub refuses it (`GraphQL: Auto-merge is not supported for stacked pull requests.`). A linked stack whose pull requests all meet these three conditions is queued whole instead, with `gh stack merge <stack> --squash --yes` as `wiki/conventions/stacked-prs.md` §A whole stack says; a frontend stack, only once the owner has marked its feature pull request ready (Step 0 §A frontend stack). Then wait for the merge itself, in the background: `bash scripts/wait-pr.sh --until-merged <n> 60`. For a whole stack, `<n>` is the highest pull request one round can land, `max_entries_to_build` up from the bottom; then queue the next round as that page says. Exit 0 is `MERGED`; exit 1 with "left the merge queue" means the group failed. Read that group's failing check as for any red check: a migration that clashes with one that merged first is regenerated on the new `main` (`wiki/conventions/commands.md` §Migrations), then pushed and queued again.
 - `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main` (onto its parent branch for a pull request in a stack, then carry the change up: Step 0 §A frontend stack), resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
 - A check failure → first find out whose it is: a test or error line that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 4 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
+- A flake → not this branch's, but not nobody's: a check that fails for reasons the change does not cause, and ejects merge-queue groups, is fixed, not only rerun. The first time, rerun it once (`review-pr` Step 4). The second time this run sees the same flake, find its issue (`gh issue list --repo englishstreetventures/osn --state open --search "<job or test name>"`) or file one with `write-issue`, add this run's evidence — the job, the decisive line, the run link — and put its fix next in Step 0's order, ahead of the remaining feature work.
 - Once `MERGED`, **you** remove the worktree this run created and delete the local branch: `git -C <dir> status --porcelain` must print nothing first, since `--force` would take uncommitted work with it, then `git worktree remove --force <dir>`. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.
 - Once `MERGED`, carry into the closing summary every close the subagent reported it could not make — tracker lines the classifier refused, a stacked pull request's closes that never registered (`write-pr` Step 6). Those issues stay open until the owner closes them by hand.
 
@@ -486,7 +498,12 @@ tell them from the tree.
    that describes someone else's half-finished tree.
 4. A limit that resets on a clock is a wait, not a failure. Park the task in
    `ORCHESTRATE.md` with `next:` filled in and pick up a task that touches no file
-   this one touches.
+   this one touches. Once it resets, resume the stage rather than restart it:
+   `SendMessage` the stopped agent when it can be continued, or dispatch the same
+   stage again with a brief that opens by telling the agent to read the partial
+   work before anything else — `NEW-FEAT.md`, `git log <base>..HEAD`,
+   `git status`, and any half-written plan or review file — and to finish it,
+   not redo it.
 
 ## Handling subagent questions
 
