@@ -72,12 +72,6 @@ function authValue() {
   };
 }
 
-/**
- * How long the Security tab may take to arrive: it is a lazy chunk, and the
- * dev server compiles every module on first request.
- */
-const SECTION_LOAD = { timeout: 10_000 };
-
 /** Settings → Security with the step-up's emailed-code step open; its row of boxes. */
 async function openCodeStep() {
   const history = createMemoryHistory();
@@ -90,9 +84,7 @@ async function openCodeStep() {
       </MemoryRouter>
     </AuthContext.Provider>
   ));
-  await userEvent.click(
-    await waitFor(() => screen.getByRole("button", { name: "Add passkey" }), SECTION_LOAD),
-  );
+  await userEvent.click(await waitFor(() => screen.getByRole("button", { name: "Add passkey" })));
   await userEvent.click(
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/ })),
   );
@@ -118,8 +110,11 @@ function settingsCard(el: HTMLElement): HTMLElement {
   return node;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   document.documentElement.classList.remove("dark");
+  // The Security tab is a lazy chunk; load it under the hook's budget, so each
+  // test waits only for the swap.
+  await import("../../src/components/SecuritySection");
 });
 
 afterEach(() => {
