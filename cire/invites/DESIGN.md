@@ -115,8 +115,11 @@ and checkboxes: `wiki/cire/cire-invite-designs.md` §Corners, labels and motion.
   `interpolate-size` — or the View Transitions API. No animation library.
 - **Every duration and easing is a token** from the ladder below, never a
   literal. `house/no-literal-motion` (`bun run lint`) and
-  `scripts/check-motion-literals.ts` (CI, for CSS and Astro) report one. A
-  literal stays only where no token's job fits — choreography longer than
+  `scripts/check-motion-literals.ts` (CI, for CSS and Astro) report a literal
+  they can see. Neither sees a `transition-*` class with no easing beside it,
+  which runs Tailwind's default curve, or a script's animation options: check
+  those by eye (englishstreetventures/osn#2104 covers both). A literal
+  stays only where no token's job fits — choreography longer than
   `--dur-slow`, a loop, a stagger, a time shared with script — with its reason
   beside it (`wiki/conventions/house-lint-rules.md` §Literal motion).
 - **A little slower than a motion skill's fast default**, so a guest can feel
@@ -162,28 +165,31 @@ The portals' ladder, value for value, in `global.css`:
 | Respond's label ink following the bloom fill                                   | `--dur-base`                                | `--ease-out`              |
 | A `Reveal` opening ("Anything else" in the RSVP form)                          | `--dur-base`                                | `--ease-out`              |
 | A FAQ answer opening (`Disclosure`): a fade and a 0.25rem drop; its `+` turning | `--dur-base`; the `+` `--dur-fast`          | `--ease-out`              |
-| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`)      | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ui-ease-out` in, `ease-in` out |
-| A toast (`@shared/toast`)                                                      | 160ms in and out                            | `ease-out` in, `ease-in` out |
+| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`) †    | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ui-ease-out` in, CSS `ease-in` out |
+| A toast (`@shared/toast`)                                                      | 160ms in and out                            | CSS `ease-out` in, CSS `ease-in` out |
 
 **Choreography longer than `--dur-slow` keeps its own time:**
 
 | What                                                                                | Time                                                       | Easing                                      | Scaled |
 | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------- | ------ |
-| The bloom fill sweeping across Respond once every member has replied (`SWEEP_DURATION_MS`) | 500ms                                               | `--ease-out`                                | no     |
-| The tick drawing in behind it (`--animate-tick-draw`)                               | 340ms, after 180ms                                         | CSS `ease-out`                              | no     |
-| The hero scroll cue: a fade, then a 6px drift down and back twice (`--animate-scroll-cue`) | 600ms fade after 1s, then two 2s drifts: 4.6s of motion | CSS `ease-out`, then `ease-in-out`          | no     |
-| The scroll cue leaving on the first scroll                                           | 500ms                                                      | Tailwind's default                          | yes    |
-| The hero photo fading in once it loads                                               | 700ms                                                      | Tailwind's default                          | yes    |
+| The bloom fill sweeping across Respond once every member has replied (`SWEEP_DURATION_MS`) † | 500ms                                             | `--ease-out`                                | no     |
+| The tick drawing in behind it (`--animate-tick-draw`) †                             | 340ms, after 180ms                                         | CSS `ease-out`                              | no     |
+| The hero scroll cue: a fade, then a 6px drift down and back twice (`--animate-scroll-cue`) † | 600ms fade after 1s, then two 2s drifts: 4.6s of motion | CSS `ease-out`, then CSS `ease-in-out`    | no     |
+| The scroll cue leaving on the first scroll †                                         | 500ms                                                      | Tailwind's default                          | yes    |
+| The hero photo fading in once it loads †                                             | 700ms                                                      | Tailwind's default                          | yes    |
 | The closing band settling into or out of its cap, on a live resize across 1536px     | 500ms                                                      | `--ease-out`                                | yes    |
-| The unlock reveal after a claim (`designs/<pack>/UnlockReveal.motion.ts`)            | classic: steps of 350–500ms and a 1.2s shimmer, cards 120ms apart; gala: 300–400ms and 1s, cards 80ms apart | arrivals on the house curve written as numbers in classic, on `cubic-bezier(0.16, 1, 0.3, 1)` in gala; the form leaves on `easeIn` | no     |
-| A swipe between the sheet's panels settling (`SETTLE_SPRING`)                        | a critically damped spring, about 0.3s, started at the finger's speed | —                              | no     |
+| The unlock reveal after a claim (`src/designs/<pack>/UnlockReveal.motion.ts`) †      | classic: steps of 350–500ms and a 1.2s shimmer, cards 120ms apart; gala: 300–400ms and 1s, cards 80ms apart | arrivals on the house curve written as numbers in classic, on `cubic-bezier(0.16, 1, 0.3, 1)` in gala; the shimmer on `motion`'s `easeInOut`; the form leaves on `motion`'s `easeIn` | no     |
+| A swipe between the sheet's panels settling (`SETTLE_SPRING`) †                      | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel settles in about 0.4s | —        | no     |
 | The envelope opening (`@cire/envelope`)                                              | its own timeline: `wiki/cire/cire-envelope.md` §Taps, timeline and breaks | —                    | —      |
 
-The unlock reveal and the swipe's spring run on the `motion` library, the two
-places that still do. The reveal fades the code form away, brings the welcome
-in with a shimmer on its heading, then lifts the events section and its cards
-one by one; moving it to CSS is englishstreetventures/osn#2170. The scroll cue,
-the card's mark, the sheet and the swipe are described with their tests in
+† Breaks a rule (Known breaches, below). The row records what ships, not the
+house look, and new motion copies none of it.
+
+The unlock reveal and the swipe's spring are the two moves on the `motion`
+library. The reveal fades the code form away, brings the welcome in with a
+shimmer on its heading, then lifts the events section and its cards one by
+one. The scroll cue, the card's mark, the sheet and the swipe are described
+with their tests in
 `wiki/cire/cire-invite-designs.md` (§The hero scroll cue, §Event card states,
 §The event sheet); the reveal's guards against a blank or flashing invite in
 `wiki/shared/frontend-patterns.md` §Rendering and animation gotchas.
@@ -197,9 +203,8 @@ opening pop.
 - **A box that holds live controls closes at once.** `Reveal` (`@cire/ui`)
   drops its content the moment it closes, and the empty wrapper finishes
   closing behind it; a `Disclosure` closes at once; the link menus open and
-  close with no motion. Two older moves do not follow the rule: a dialog stays
-  modal through `Modal`'s 150ms exit, so focus cannot leave it while it fades,
-  and the unlock reveal fades the code form out over 350ms (300ms in gala).
+  close with no motion. `Modal`'s exit and the unlock reveal's form break this
+  rule (Known breaches, below).
 - **Nothing already open animates on first paint.** A `Reveal` that mounts open
   is open; a `Disclosure` open when it first paints does not fade; a reply on
   file loads with Respond already filled and ticked; the sheet's first panel
@@ -214,6 +219,39 @@ opening pop.
   growing form.
 - **Nothing that starts by itself moves for more than five seconds** without a
   way to stop it (WCAG 2.2.2): the scroll cue rests after 4.6s of motion.
+
+### Known breaches
+
+These moves ship, and each breaks the rule named beside it. They are the rows
+marked † above. None is a pattern to copy, and each entry goes when its fix
+lands.
+
+- **The hero photo's fade and the scroll cue's exit name no easing**, so they
+  run Tailwind's default curve, `cubic-bezier(0.4, 0, 0.2, 1)`, where every
+  easing must be a token (`src/components/HeroCropLayer.tsx`, both packs'
+  `src/designs/<pack>/InviteHeader.tsx`, `src/components/HeroScrollCue.tsx`).
+  englishstreetventures/osn#2104 has the lint report a `transition-*` class
+  with no easing, and moves each one onto a token or keeps it with a reason.
+- **The bloom sweep, the tick and the scroll cue's entry and drift are not
+  scaled by `--motion-scale`**, which `cire/host/DESIGN.md` §4 asks of every
+  cire duration, and the tick and the cue run CSS's `ease-out` and
+  `ease-in-out` where every easing must be a token
+  (`src/components/EventCard.tsx`; `--animate-tick-draw` and
+  `--animate-scroll-cue` in `src/styles/global.css`). No issue yet.
+- **The unlock reveal runs on the `motion` library**, where motion is CSS
+  only; its gala arrivals run on `cubic-bezier(0.16, 1, 0.3, 1)`, which is no
+  token; and it fades the code form out over 350ms (300ms in gala), where a
+  box that holds live controls closes at once.
+  englishstreetventures/osn#2170 moves it to CSS under these rules.
+- **The swipe's settle spring runs on the `motion` library**, where motion is
+  CSS only (`SETTLE_SPRING` in `src/components/sheet-swipe.ts`, started in
+  `src/components/EventSheet.tsx`). It starts at the finger's speed, which a
+  fixed-length ease cannot, so whether it moves to CSS is the owner's call.
+  No issue yet.
+- **`Modal`'s exit moves a box that holds live controls**, where such a box
+  closes at once: `--dur-base` at a desk, 150ms on touch. The dialog stays
+  modal through the exit, so focus cannot leave it while it moves. No issue
+  yet.
 
 ### Reduced motion
 
@@ -245,7 +283,7 @@ A new pseudo-element animation or a script-driven motion needs a gate of its own
 
 ## 6. Design packs
 
-Each pack — `classic`, `gala` — owns its shell (`designs/<pack>/Document.astro`),
+Each pack — `classic`, `gala` — owns its shell (`src/designs/<pack>/Document.astro`),
 its hero, its layout and its unlock reveal, and draws the shared pieces in
 `src/components/`. Every pack imports this one stylesheet and declares no
 colour, corner or motion token of its own. Adding one:
