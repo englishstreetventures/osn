@@ -210,6 +210,30 @@ Authoring rules:
 
 Greeting copy on the welcome step uses the institutional headline ("Welcome to Pulse") with a softer personalised subhead ("Glad you're here, {displayName}.") so a missing displayName degrades to just the headline rather than a literal "Hi there".
 
+## Motion
+
+- **Durations and easing come from the shared tokens**: `--ui-dur-fast` (120ms)
+  for colour, border and shadow changes, `--ui-dur-base` (200ms) for an element
+  entering or a panel opening, `--ui-dur-slow` (320ms) for a move across the
+  screen, all with `--ui-ease-out`. A literal duration or curve is a defect
+  (`wiki/shared/design-tokens.md` §Motion).
+- **CSS only.** Transitions and keyframes, no animation library, no Lottie or Rive.
+- **Anything that takes focus fades colours without the outline.** The app has
+  no `transition-ui-colors` utility yet; until it does, a control names the
+  properties it fades, so the focus mark never arrives late.
+- **Entrances are short and quiet**: opacity with an 8px rise, as the onboarding
+  step does (`onb-step-in`).
+- **Only the onboarding illustrations loop.** A looping animation is
+  illustration, never a control or a loading state, and it stops under
+  `prefers-reduced-motion: reduce` (`onboarding.css` holds the rule).
+- **Every keyframe and every infinite animation has a reduced-motion rule.**
+
+Where the app does not follow this yet: the explore page's `brand-pulse` and
+`live-pulse` loop with no reduced-motion rule (`explore/explore.css`), and
+controls in `close-friends.tsx`, `FilterChip.tsx`, `ExploreNav.tsx`,
+`ShareEventButton.tsx` and `CalendarEventCard.tsx` fade with `transition-colors`,
+which fades the outline too.
+
 ## Future
 
 - Friend avatar clusters on cards (needs social graph API integration)

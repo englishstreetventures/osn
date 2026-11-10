@@ -62,6 +62,15 @@ floating depth. Its primary button is gold, as the host's is (host §2).
 
 ---
 
+## Motion
+
+The vendor portal has no motion of its own. It uses the host portal's motion ladder
+and rules (`cire/host/DESIGN.md` §4): the `--dur-*` and easing tokens, the
+`transition-ui-colors` utility for anything that takes focus, and the
+reduced-motion rule. The shared-contract check (§What is shared) fails when a
+line of the ladder or an easing differs from the host's. A motion the host does
+not already have goes into the host's §4 first, then here.
+
 ## The deltas
 
 ### Measure: 68rem, not 100rem

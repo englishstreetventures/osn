@@ -568,3 +568,14 @@ As built:
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its
   field where it has one, with no error toast (`tests/helpers/errors.ts`).
+
+## 12. Motion
+
+The package has no motion of its own. A view takes its host's: in Musubi, colour
+and opacity transitions only (`musubi/social/DESIGN.md` §Motion). The host's
+`transition-ui-colors` utility fades colours and leaves the outline out, so a
+control's focus mark lands at once (§9). A busy button draws `@shared/ui`'s
+`Orb`, the one animation a view shows, and stops it under reduced motion. A view
+never moves a panel, a field or an error across the screen, and never loads an
+animation library. A motion a view needs that the host does not have goes into
+the host's `DESIGN.md` first.
