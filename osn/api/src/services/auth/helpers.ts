@@ -477,11 +477,24 @@ export const PasskeyLabelSchema = Schema.String.check(
 );
 
 /**
- * Normalises an identifier by stripping a leading @ sigil.
- * Users may type "@alice" meaning handle "alice"; this strips it before dispatch.
+ * An identifier as the caller meant it, case kept: surrounding space trimmed and
+ * any leading `@` sigils stripped, so "@alice" names the handle "alice".
+ */
+export function identifierAsTyped(identifier: string): string {
+  return identifier.trim().replace(/^@+/, "");
+}
+
+/**
+ * An identifier as stored: {@link identifierAsTyped}, lower-cased. Handles are
+ * lower case only, and every email is now written lower-cased, so a phone that
+ * capitalises the first letter still names the same account. Every lookup and
+ * every store key a sign-in or recovery ceremony derives from an identifier
+ * starts from this one string, so a ceremony begun in one case and finished in
+ * another meets its own entries. The same result as `normaliseHandleQuery` in
+ * `@shared/db-utils/search`.
  */
 export function normaliseIdentifier(identifier: string): string {
-  return identifier.startsWith("@") ? identifier.slice(1) : identifier;
+  return identifierAsTyped(identifier).toLowerCase();
 }
 
 /** Returns true if the (already-normalised) identifier looks like an email address. */

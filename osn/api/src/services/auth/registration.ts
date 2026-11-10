@@ -57,13 +57,15 @@ export function createRegistrationModule(
   /**
    * Registers a new profile (and its owning account). Fails if the email or handle is already taken.
    * This is the only way to create a profile — OTP/magic/passkey flows are login-only.
+   * The email is stored and returned lower-cased, as `beginRegistration` stores it.
    */
   const registerProfile = (
-    email: string,
+    typedEmail: string,
     handle: string,
     displayName?: string,
   ): Effect.Effect<ProfileWithEmail, AuthError | ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
+      const email = typedEmail.toLowerCase();
       yield* Schema.decodeUnknownEffect(EmailSchema)(email).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );

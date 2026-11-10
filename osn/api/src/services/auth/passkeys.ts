@@ -695,7 +695,7 @@ export function createPasskeysModule(
       if (normalised.length > MAX_IDENTIFIER_LENGTH) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
-      const profile = yield* resolveIdentifier(normalised);
+      const profile = yield* resolveIdentifier(identifier);
 
       // Resolve passkeys for the account when the identifier is known, or
       // nothing when it isn't. Both branches run a DB SELECT so the query
@@ -849,8 +849,7 @@ export function createPasskeysModule(
         // `profile.accountId === pk.accountId` proves the passkey's account
         // exists. The account row itself is only needed by the discoverable
         // branch (userHandle pin), so it is fetched there.
-        const normalised = normaliseIdentifier(context.identifier);
-        profile = yield* resolveIdentifier(normalised);
+        profile = yield* resolveIdentifier(context.identifier);
         if (!profile || profile.accountId !== pk.accountId) {
           return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
         }

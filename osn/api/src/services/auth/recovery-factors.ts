@@ -263,14 +263,14 @@ export function createRecoveryFactorsModule(
     Db | EmailService
   > =>
     Effect.gen(function* () {
-      const normalised = normaliseIdentifier(identifier).trim().toLowerCase();
+      const normalised = normaliseIdentifier(identifier);
       if (!looksLikeEmail(normalised)) {
         return yield* Effect.fail(
           new AuthError({ message: "Enter the email address on the account" }),
         );
       }
 
-      const profile = yield* resolveIdentifier(normalised);
+      const profile = yield* resolveIdentifier(identifier);
       const probe = serverMac.probeKey(normalised);
       if (!profile) {
         // The sent branch's calls, at the probe key: the cap check and the
@@ -500,7 +500,7 @@ export function createRecoveryFactorsModule(
   > =>
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
-      const profile = yield* resolveIdentifier(normalised);
+      const profile = yield* resolveIdentifier(identifier);
       const probe = serverMac.probeKey(normalised);
 
       // Hashed up front on every branch so both pay the same SHA-256, whether or
@@ -691,7 +691,7 @@ export function createRecoveryFactorsModule(
   > =>
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
-      const profile = yield* resolveIdentifier(normalised);
+      const profile = yield* resolveIdentifier(identifier);
 
       if (!profile) {
         // Mirror the cost of the branch `checkTotpCode` would have taken —

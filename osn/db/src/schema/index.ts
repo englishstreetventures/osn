@@ -15,6 +15,9 @@ import {
 
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(), // "acc_" prefix
+  // Stored lower case. Two triggers refuse a capital letter A to Z on insert
+  // and update. A migration creates them; `src/triggers.ts` copies them for
+  // test and local databases.
   email: text("email").notNull().unique(),
   passkeyUserId: text("passkey_user_id").notNull().unique(), // random UUID, opaque WebAuthn user.id (never correlates to accountId)
   maxProfiles: integer("max_profiles").notNull().default(5),

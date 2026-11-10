@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-11
 ---
 # Identity Model
 
@@ -60,7 +60,7 @@ The `accounts` table is the **authentication principal** — the entity that log
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text PK` | `acc_` prefix + 12 hex chars |
-| `email` | `text UNIQUE` | Login credential — the only place email lives |
+| `email` | `text UNIQUE` | Login credential — the only place email lives. Written lower case; the database refuses a capital: see below |
 | `passkeyUserId` | `text NOT NULL UNIQUE` | Random UUID used as WebAuthn `user.id` — opaque, non-correlating |
 | `maxProfiles` | `integer` | Default 5; enforced by `createProfile` |
 | `createdAt` | `timestamp` | |
@@ -71,6 +71,10 @@ The `accounts` table is the **authentication principal** — the entity that log
 - `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. It stops anyone correlating two profiles on the same account through matching WebAuthn credential `user.id` fields.
 - Email is **only on accounts**, not duplicated on profiles.
 - Passkeys reference `accounts.id` (not profile IDs), because authentication is account-level.
+
+**The email at the database.** Every writer stores the address lower-cased: registration, email change and `registerProfile` call `toLowerCase()`, and the seeds use lower-case literals. Two triggers, `accounts_email_lower_case` (insert) and `accounts_email_lower_case_update` (update of `email`), refuse an email holding a capital A to Z with the message `account email is not lower case`, whoever writes it. SQLite's `lower()` folds only A to Z, so a capital outside them passes; no writer stores one. Migration [`20261110132140_account_email_lower_case.sql`](../../osn/db/drizzle/20261110132140_account_email_lower_case.sql) creates the triggers and changes no stored row, so it cannot fail on what a database holds. [`osn/db/src/triggers.ts`](../../osn/db/src/triggers.ts) copies them into every test database and into the local file `db:push` builds ([[testing-patterns#Schema-derived test databases]]).
+
+**Finding an account by what the user typed.** Passkey sign-in (begin and complete), recovery-code sign-in, and email and authenticator-code recovery all take one identifier, an email address or a handle. `normaliseIdentifier` (`osn/api/src/services/auth/helpers.ts`) trims it, strips any leading `@` and lower-cases it, so `Alice@X.com`, `@Alice` and ` alice ` name the same account, as they do in the people search. Every store key a ceremony derives (the login challenge, the probe key) starts from that one string, so a ceremony begun in one case and finished in another meets its own entries. `resolveIdentifier` (`profiles.ts`) then looks up a handle by that string, and an email in one statement that matches the address as typed (trimmed, `@` stripped, case kept) or lower-cased, preferring the row stored as typed, and of that account its default profile. The typed match is for a row stored with capitals before the triggers: it signs in by its address exactly as stored, and stays apart from an account whose address differs only in case. The owner, never an agent, can count such rows with `SELECT count(*) FROM accounts WHERE email <> lower(email)`, which reads counts only and sees capitals A to Z only.
 
 ## Profiles (DB table: `users`)
 
