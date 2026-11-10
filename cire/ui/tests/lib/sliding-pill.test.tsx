@@ -170,15 +170,6 @@ describe("pillStyle", () => {
       expect(size).not.toContain("--ease-spring");
     }
   });
-
-  it("jumps the glass, place and size, while it is not settled", () => {
-    // `createSlidingPill` passes `settled` false for a reader who turned
-    // motion down, as well as on the first frame at a new place.
-    const style = pillStyle({ x: 8, y: 44, width: 70, height: 32 }, false, "spring");
-    expect(style.transform).toBe("translate3d(8px, 44px, 0)");
-    expect(style.width).toBe("70px");
-    expect(style.transition).toBe("none");
-  });
 });
 
 /** A `transition` shorthand as each property's own timing, split at its top-level commas. */
@@ -273,49 +264,32 @@ describe("createSlidingPill", () => {
   });
 
   it("glides when created with the spring", async () => {
-    rects.track = rect(0, 100, 220, 200);
-    rects.one = rect(0, 108, 220, 36);
-    rects.two = rect(0, 152, 220, 36);
-    const [active, setActive] = createSignal("one");
-    const utils = render(() => {
-      const pill = createSlidingPill(active, { ease: "spring" });
-      return (
-        <div ref={pill.track} data-testid="track">
-          <span data-testid="pill" style={pill.style()} />
-          <button ref={pill.item("one")} data-testid="one">
-            One
-          </button>
-          <button ref={pill.item("two")} data-testid="two">
-            Two
-          </button>
-        </div>
-      );
-    });
+    const { pillEl, setActive } = mount("spring");
     await settle();
     setActive("two");
-    expect(utils.getByTestId("pill").style.transition).toContain("--ease-glide");
+    expect(pillEl().style.transition).toContain("--ease-glide");
   });
 
-  for (const ease of ["out", "spring"] as const) {
-    it(`jumps rather than slides for a reader who has turned motion down, on ${ease}`, async () => {
-      const before = window.matchMedia;
-      window.matchMedia = ((query: string) => ({
-        matches: query.includes("prefers-reduced-motion: reduce"),
-        media: query,
-        addEventListener() {},
-        removeEventListener() {},
-      })) as unknown as typeof window.matchMedia;
-      try {
-        const { pillEl, setActive } = mount(ease);
-        await settle();
-        setActive("two");
-        expect(pillEl().style.transform).toBe("translate3d(0px, 52px, 0)");
-        expect(pillEl().style.transition).toBe("none");
-      } finally {
-        window.matchMedia = before;
-      }
-    });
-  }
+  // The rail's marker. The glass's jump is checked in Chromium, in
+  // `sliding-pill.browser.test.tsx`.
+  it("jumps rather than slides for a reader who has turned motion down", async () => {
+    const before = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("prefers-reduced-motion: reduce"),
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { pillEl, setActive } = mount();
+      await settle();
+      setActive("two");
+      expect(pillEl().style.transform).toBe("translate3d(0px, 52px, 0)");
+      expect(pillEl().style.transition).toBe("none");
+    } finally {
+      window.matchMedia = before;
+    }
+  });
 
   it("hides itself when the active key names no item", async () => {
     const { pillEl, setActive } = mount();
