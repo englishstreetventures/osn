@@ -162,6 +162,18 @@ describe("an account's email on D1, after every migration", () => {
     expect(await emailOf(d1, "acc_ok")).toBe("renamed@x.com");
     expect(await emailOf(d1, "acc_accent")).toBe("zoë@x.com");
   });
+
+  // The triggers judge A to Z only: on D1, lower() leaves every other letter
+  // as it is, so a capital outside A to Z passes. Only a writer that skips
+  // the services, which all call `toLowerCase()`, could store one, and
+  // sign-in still finds such a row by the address typed exactly as stored.
+  // Goes red if the triggers ever judge more, which is when the limit stated
+  // in wiki/osn/identity-model.md changes too.
+  it("takes a capital outside A to Z, which lower() does not fold", async () => {
+    await addAccount(d1, "acc_accent_caps", "zoë.É@x.com");
+
+    expect(await emailOf(d1, "acc_accent_caps")).toBe("zoë.É@x.com");
+  });
 });
 
 describe("the email check over rows stored before it", () => {
