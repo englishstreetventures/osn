@@ -171,8 +171,8 @@ As built:
   the code phase a labelled row of code boxes over one; the step-up phase is
   `StepUpDialog`'s panel, and the last a single line.
 - **`CheckEmailView`** is a `flex-col gap-4` column for a step inside a dialog:
-  its `h3`; the live region (the sentence, then any error); the line about
-  opening the link; when there is one, the number over its caption
+  its `h3`; the sentence in its live region, with any error line 8px under
+  it (`flex-col gap-2`); the line about opening the link; when there is one, the number over its caption
   (`flex-col gap-1`), unboxed; then Resend and "Use a different email" as
   full-width `ghost` `sm` Buttons, 40px tall below `md` (`max-md:h-10`).
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
@@ -365,7 +365,7 @@ says "If that address has an account, …".
 | State | What shows |
 | --- | --- |
 | Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery and step-up, whose pages ask the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Use a different email" when the host passes `onChangeEmail` |
-| Sending | "Sending a new link…"; Resend reads "Sending…" |
+| Sending | "Sending a new link…"; Resend busy, reading "Sending…"; "Use a different email" disabled; no error line |
 | Sent again | "We sent a new link to {email}." (recovery: "If {email} has an account, a new link is on its way."), ending "Check the number again." when a number shows |
 | Error | The waiting copy, the number kept, and the host's `errorMessage` (or "Something went wrong. Try again in a moment.") under the sentence |
 | Expired | "Your link has expired"; "Ask for a new link to {email}."; no flow line and no number; "Send a new link" as the default Button, at once |
@@ -453,8 +453,9 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   red. `RecoveryLoginForm`'s authenticator line is tied to its handle or email
   as well, since either may be what was refused.
 - **Under its sentence** in `CheckEmailView`, which has no field: the host's
-  `errorMessage`, inside the view's live region, so it is read out; it raises
-  no toast.
+  `errorMessage`, a sentence from `describeAuthError`, as an alert of its own
+  beside the view's status region. Resend is the action, and the line goes
+  while it sends, so a second failure mounts it again.
 
 **How the tie meets `Field`.** Each field sits in a `Field`, which mints its id
 and draws its label and any hint; the view passes it no `errors`. The control's
@@ -564,9 +565,9 @@ host's utility (`musubi/social/src/App.css`), which leaves the outline out, so
 their focus mark lands at once.
 
 `CheckEmailView` draws no control by hand. Its heading takes focus from code
-when the view appears and when Resend disables itself (`tabindex="-1"`, so
-never by Tab), and draws no indicator (`focus:outline-none`): it is where focus
-is put, not a control.
+when the view appears, and when a send ends with Resend holding focus and the
+wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
+(`focus:outline-none`): it is where focus is put, not a control.
 
 **Code boxes.** Every row of code boxes that opens its step takes `OtpInput`'s
 `autofocus`, so focus is in box 1 as the step opens. `RecoveryLoginForm`'s
@@ -669,8 +670,9 @@ As built:
   flow reaches hold each of their waits the same way, a second press sending
   nothing: `RecoveryLoginForm.test.tsx` (five, with Back disabled),
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
-  disabled), `ChangeEmailForm.test.tsx` (two) and `StepUpDialog.test.tsx`
-  ("Email me a code" and both Confirms).
+  disabled), `ChangeEmailForm.test.tsx` (two), `StepUpDialog.test.tsx`
+  ("Email me a code" and both Confirms) and `CheckEmailView.test.tsx`
+  (Resend, with "Use a different email" disabled).
 - **Error lines in the package tests.** Each view's tests plant text in a
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its

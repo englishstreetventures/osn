@@ -36,6 +36,11 @@ function heading(): HTMLElement {
   return screen.getByRole("heading", { level: 3 });
 }
 
+/** The error line, an alert of its own; absent when there is none. */
+function errorLine(): HTMLElement | null {
+  return screen.queryByRole("alert");
+}
+
 function deferred() {
   let resolve!: () => void;
   let reject!: (reason: unknown) => void;
@@ -91,9 +96,12 @@ describe("CheckEmailView — the wait before Resend", () => {
     expect(resend().textContent).toContain("30s");
 
     // The label is one element, since the button is a flex row that spaces
-    // each child of its own.
-    expect(resend().childNodes).toHaveLength(1);
-    expect(resend().firstChild?.nodeType).toBe(Node.ELEMENT_NODE);
+    // each child of its own. An empty text node takes no room in the row.
+    const shown = Array.from(resend().childNodes).filter(
+      (node) => node.nodeType !== Node.TEXT_NODE || node.textContent !== "",
+    );
+    expect(shown).toHaveLength(1);
+    expect(shown[0]?.nodeType).toBe(Node.ELEMENT_NODE);
     const seconds = resend().querySelector(".tabular-nums");
     expect(seconds?.textContent).toBe("30");
     expect(seconds?.parentElement).not.toBe(resend());
@@ -160,6 +168,39 @@ describe("CheckEmailView — the wait before Resend", () => {
     await settle();
     fireEvent.click(resend());
     expect(onResend).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks Resend busy while it sends, keeping focus, and disables Use a different email", async () => {
+    const pending = deferred();
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        resendWaitSeconds={0}
+        onResend={() => pending.promise}
+        onChangeEmail={() => {}}
+      />
+    ));
+
+    const change = () =>
+      screen.getByRole("button", { name: "Use a different email" }) as HTMLButtonElement;
+    expect(resend().getAttribute("aria-busy")).toBeNull();
+    expect(change().disabled).toBe(false);
+
+    resend().focus();
+    fireEvent.click(resend());
+    expect(resend().textContent).toBe("Sending…");
+    expect(resend().getAttribute("aria-busy")).toBe("true");
+    expect(resend().getAttribute("aria-disabled")).toBe("true");
+    expect(resend().disabled).toBe(false);
+    expect(document.activeElement).toBe(resend());
+    expect(change().disabled).toBe(true);
+
+    pending.resolve();
+    await settle();
+    expect(resend().getAttribute("aria-busy")).toBeNull();
+    expect(change().disabled).toBe(false);
   });
 
   it("starts the wait again after a resend", async () => {
@@ -338,7 +379,7 @@ describe("CheckEmailView — what the live region says", () => {
     expect(region().textContent).not.toContain("Ask for a new link");
   });
 
-  it("shows the error inside the live region, with a fallback when none is given", () => {
+  it("shows the error as an alert of its own under the sentence, with a fallback when none is given", () => {
     const [message, setMessage] = createSignal<string | undefined>(
       "Too many requests. Try again later.",
     );
@@ -352,12 +393,43 @@ describe("CheckEmailView — what the live region says", () => {
       />
     ));
 
-    expect(region().textContent).toContain("Too many requests. Try again later.");
+    expect(errorLine()?.textContent).toContain("Too many requests. Try again later.");
+    // Its own live region, not inside the status one, so it is read once.
+    expect(region().contains(errorLine())).toBe(false);
     expect(region().textContent).toContain(`We sent a link to ${EMAIL}.`);
+    // Under the sentence: the region comes first in the page's order.
+    expect(
+      region().compareDocumentPosition(errorLine() as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     setMessage(undefined);
-    expect(region().textContent).toContain("Something went wrong. Try again in a moment.");
+    expect(errorLine()?.textContent).toContain("Something went wrong. Try again in a moment.");
     setMessage("   ");
-    expect(region().textContent).toContain("Something went wrong. Try again in a moment.");
+    expect(errorLine()?.textContent).toContain("Something went wrong. Try again in a moment.");
+  });
+
+  it("clears the error while Resend sends, so a second failure is announced again", async () => {
+    const [status, setStatus] = createSignal<CheckEmailStatus>("error");
+    const pending = deferred();
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status={status()}
+        errorMessage="Too many requests. Try again later."
+        resendWaitSeconds={0}
+        onResend={() => pending.promise}
+      />
+    ));
+
+    const first = errorLine();
+    expect(first?.textContent).toContain("Too many requests. Try again later.");
+    fireEvent.click(resend());
+    expect(errorLine()).toBeNull();
+    pending.reject(new Error("down"));
+    await settle();
+    setStatus("error");
+    expect(errorLine()?.textContent).toContain("Too many requests. Try again later.");
+    expect(errorLine()).not.toBe(first);
   });
 
   it("shows no error outside the error status, even when a message is given", () => {
@@ -372,13 +444,16 @@ describe("CheckEmailView — what the live region says", () => {
       />
     ));
 
-    expect(region().textContent).toContain("Too many requests. Try again later.");
+    expect(errorLine()?.textContent).toContain("Too many requests. Try again later.");
     for (const quiet of ["waiting", "expired"] as const) {
       setStatus("error");
-      expect(region().textContent).toContain("Too many requests. Try again later.");
+      expect(errorLine()?.textContent).toContain("Too many requests. Try again later.");
       setStatus(quiet);
-      expect(region().textContent).not.toContain("Too many requests. Try again later.");
-      expect(region().textContent).not.toContain("Something went wrong. Try again in a moment.");
+      expect(errorLine()).toBeNull();
+      expect(document.body.textContent).not.toContain("Too many requests. Try again later.");
+      expect(document.body.textContent).not.toContain(
+        "Something went wrong. Try again in a moment.",
+      );
     }
   });
 
@@ -388,11 +463,13 @@ describe("CheckEmailView — what the live region says", () => {
       <CheckEmailView email={EMAIL} purpose="sign-up" status={status()} onResend={() => {}} />
     ));
 
-    expect(region().textContent).toContain("Something went wrong. Try again in a moment.");
+    expect(errorLine()?.textContent).toContain("Something went wrong. Try again in a moment.");
     for (const quiet of ["waiting", "expired"] as const) {
       setStatus("error");
       setStatus(quiet);
-      expect(region().textContent).not.toContain("Something went wrong. Try again in a moment.");
+      expect(document.body.textContent).not.toContain(
+        "Something went wrong. Try again in a moment.",
+      );
     }
   });
 });
@@ -767,14 +844,15 @@ describe("CheckEmailView — controls and focus", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("puts focus on its heading when it appears, and again when Resend disables itself", () => {
+  it("puts focus on its heading when it appears, and again when Resend disables itself after a send", async () => {
+    const pending = deferred();
     render(() => (
       <CheckEmailView
         email={EMAIL}
         purpose="sign-up"
         status="waiting"
-        resendWaitSeconds={0}
-        onResend={() => new Promise<void>(() => {})}
+        resendWaitSeconds={5}
+        onResend={() => pending.promise}
       />
     ));
 
@@ -783,11 +861,42 @@ describe("CheckEmailView — controls and focus", () => {
     expect(heading().getAttribute("tabindex")).toBe("-1");
     expect(document.activeElement).toBe(heading());
 
+    vi.advanceTimersByTime(5_000);
     resend().focus();
     expect(document.activeElement).toBe(resend());
     fireEvent.click(resend());
+    // Busy through the send, so it keeps focus.
+    expect(document.activeElement).toBe(resend());
+    pending.resolve();
+    await settle();
     expect(resend().disabled).toBe(true);
     expect(document.activeElement).toBe(heading());
+  });
+
+  it("leaves focus where it is when Resend did not hold it", async () => {
+    const pending = deferred();
+    render(() => (
+      <>
+        <CheckEmailView
+          email={EMAIL}
+          purpose="sign-up"
+          status="waiting"
+          resendWaitSeconds={5}
+          onResend={() => pending.promise}
+        />
+        <input aria-label="elsewhere" />
+      </>
+    ));
+
+    // The send ends with the wait disabling Resend, as in the case above.
+    vi.advanceTimersByTime(5_000);
+    fireEvent.click(resend());
+    const elsewhere = screen.getByRole("textbox", { name: "elsewhere" });
+    elsewhere.focus();
+    pending.resolve();
+    await settle();
+    expect(resend().disabled).toBe(true);
+    expect(document.activeElement).toBe(elsewhere);
   });
 
   it("writes nothing to the console across a whole run", async () => {

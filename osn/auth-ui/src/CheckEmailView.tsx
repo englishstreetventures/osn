@@ -37,16 +37,20 @@ import { isPairingCode } from "./pairing-code";
  *   left is worked out from a deadline on every tick, not counted down, so a
  *   tab the browser held in the background shows the true time on its next
  *   tick. One interval runs at a time.
- * - **What is announced.** The sentence and any error sit in one polite live
- *   region, so a resend, an expiry and an error are read out. The countdown
- *   sits in the Resend button, outside the region, and a disabled button
- *   cannot hold focus, so the seconds are never read out as they change. The
- *   number sits outside the region too, read once in the page's order with a
- *   hidden "Your number:" before it; after a resend the region's sentence says
- *   to check the number again, without naming it.
+ * - **What is announced.** The sentence sits in a polite live region, so a
+ *   resend and an expiry are read out. An error is an alert of its own under
+ *   it, cleared while Resend sends, so a second failure is read out again. The
+ *   countdown sits in the Resend button, outside the region, and a disabled
+ *   button cannot hold focus, so the seconds are never read out as they
+ *   change. The number sits outside the region too, read once in the page's
+ *   order with a hidden "Your number:" before it; after a resend the region's
+ *   sentence says to check the number again, without naming it.
+ * - **The wait for a send.** Resend is busy while the host sends: it keeps
+ *   focus and refuses a press, and "Use a different email" is disabled, so
+ *   nothing leaves the view mid-call.
  * - **Focus.** The heading takes focus when the view appears, because the form
- *   that sent the link has just gone, and again when a press disables the
- *   focused Resend button, so focus never falls to the page.
+ *   that sent the link has just gone, and again when a send ends with Resend
+ *   holding focus and the wait disabling it, so focus never falls to the page.
  * - **Recovery promises nothing.** Recovery answers every address the same way,
  *   so its sentences say a link is on its way only if the address has an
  *   account.
@@ -132,6 +136,7 @@ function waitSeconds(value: number | undefined): number {
 
 export function CheckEmailView(props: CheckEmailViewProps) {
   let heading: HTMLHeadingElement | undefined;
+  let resendButton: HTMLButtonElement | undefined;
 
   const [remaining, setRemaining] = createSignal(0);
   const [pending, setPending] = createSignal(false);
@@ -171,14 +176,17 @@ export function CheckEmailView(props: CheckEmailViewProps) {
     setPending(true);
     setResent(false);
     startWait();
-    heading?.focus();
     try {
       await props.onResend();
       setResent(true);
     } catch {
       // A failed send is the parent's to report, through `status`.
     } finally {
+      // Busy kept focus on Resend through the send. The wait that started with
+      // the press now disables it, which would drop focus to the page.
+      const held = document.activeElement === resendButton;
       setPending(false);
+      if (held && !canResend()) heading?.focus();
     }
   }
 
@@ -235,28 +243,32 @@ export function CheckEmailView(props: CheckEmailViewProps) {
         {expired() ? "Your link has expired" : "Check your email"}
       </h3>
 
-      <div
-        class="flex flex-col gap-2"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: it may hold phrasing content only, and this region holds a paragraph and a Notice, which is a `<div>`.
-        role="status"
-      >
-        <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
-          <Switch>
-            <Match when={pending()}>Sending a new link…</Match>
-            <Match when={expired()}>Ask for a new link to {address()}.</Match>
-            <Match when={props.purpose === "recovery"}>
-              <Show when={props.email} fallback="If that address has an account, ">
-                If {address()} has an account,{" "}
-              </Show>
-              {linkWord()} is on its way.{checkNumber()}
-            </Match>
-            <Match when={true}>
-              We sent {linkWord()} to {address()}.{checkNumber()}
-            </Match>
-          </Switch>
-        </p>
-        <Show when={props.status === "error"}>
-          <Notice tone="danger" size="inline">
+      <div class="flex flex-col gap-2">
+        <div
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: it may hold phrasing content only, and this region holds a paragraph.
+          role="status"
+        >
+          <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
+            <Switch>
+              <Match when={pending()}>Sending a new link…</Match>
+              <Match when={expired()}>Ask for a new link to {address()}.</Match>
+              <Match when={props.purpose === "recovery"}>
+                <Show when={props.email} fallback="If that address has an account, ">
+                  If {address()} has an account,{" "}
+                </Show>
+                {linkWord()} is on its way.{checkNumber()}
+              </Match>
+              <Match when={true}>
+                We sent {linkWord()} to {address()}.{checkNumber()}
+              </Match>
+            </Switch>
+          </p>
+        </div>
+        {/* An alert of its own, outside the status region, so it is read once
+            as it appears. Cleared while Resend sends, so a second failure
+            mounts it again and is read out again. */}
+        <Show when={props.status === "error" && !pending()}>
+          <Notice tone="danger" size="inline" alert>
             {props.errorMessage?.trim() || ERROR_FALLBACK}
           </Notice>
         </Show>
@@ -287,11 +299,13 @@ export function CheckEmailView(props: CheckEmailViewProps) {
 
       <div class="flex flex-col gap-1">
         <Button
+          ref={resendButton}
           type="button"
           variant={expired() ? "default" : "ghost"}
           size="sm"
           class="max-md:h-10"
-          disabled={!canResend()}
+          busy={pending()}
+          disabled={!pending() && !canResend()}
           onClick={() => void resendLink()}
         >
           {resendLabel()}
@@ -302,6 +316,7 @@ export function CheckEmailView(props: CheckEmailViewProps) {
             variant="ghost"
             size="sm"
             class="max-md:h-10"
+            disabled={pending()}
             onClick={() => props.onChangeEmail?.()}
           >
             Use a different email

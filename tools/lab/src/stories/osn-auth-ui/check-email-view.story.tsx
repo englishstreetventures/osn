@@ -78,9 +78,10 @@ export const WaitingBeforeResend = state(
 export const WaitingResendReady = state(
   "waiting, Resend ready",
   <>
-    The wait is over (<Mono>resendWaitSeconds={"{0}"}</Mono> here). Press Resend: the sentence reads
-    "Sending a new link…", then "We sent a new link", and focus moves to the heading. With no wait
-    set, Resend is ready again at once.
+    The wait is over (<Mono>resendWaitSeconds={"{0}"}</Mono> here). Press Resend: it turns busy,
+    "Sending…" with the orb, keeping focus, while "Use a different email" is disabled; the sentence
+    reads "Sending a new link…", then "We sent a new link". With no wait set, Resend is ready again
+    at once and keeps focus.
   </>,
   () => (
     <CheckEmailView
@@ -114,8 +115,8 @@ export const Expired = state(
 export const ErrorShown = state(
   "error",
   <>
-    The parent's last call failed. Its message joins the sentence inside the live region, as an
-    inline danger <Mono>Notice</Mono>; the link already sent still stands.
+    The parent's last call failed. Its message sits under the sentence as an inline danger{" "}
+    <Mono>Notice</Mono>, an alert of its own; the link already sent still stands.
   </>,
   () => (
     <CheckEmailView

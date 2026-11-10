@@ -2122,10 +2122,16 @@ column never scrolls sideways.
   works out the seconds left from it, so a tab the browser held in the
   background shows the true time on its next tick. Starting a wait stops the one
   before, so one interval runs at a time, and the view stops it when it unmounts.
-- **What is read out.** The sentence and any error (an inline danger `Notice`)
-  sit in one `role="status"` region, so a press ("Sending a new link…", then "We
-  sent a new link"), an expiry and an error are announced. The countdown sits in
+- **What is read out.** The sentence sits in a `role="status"` region, so a
+  press ("Sending a new link…", then "We sent a new link") and an expiry are
+  announced. An error is an inline danger `Notice` with `alert`, 8px under the
+  region and outside it, so it is read once as it appears; it goes while
+  Resend sends, so a second failure is read out again. The countdown sits in
   the disabled Resend button, outside the region, so it is never read out.
+- **The wait for a send.** Resend is `Button`'s `busy` while `onResend` runs:
+  "Sending…" with the orb, focus kept, a press refused. "Use a different email"
+  is `disabled` meanwhile, so nothing leaves the view mid-call
+  (`osn/auth-ui/DESIGN.md` §6).
 - **The number.** It sits outside the region, so it is read once in the page's
   order and not again each time the region changes. A visually hidden "Your
   number:" comes before the digits in the same paragraph, so the line reads
@@ -2140,9 +2146,10 @@ column never scrolls sideways.
   person type the number, sign-up's and email change's have them pick it from
   a few, so the caption says "Type" or "Pick" to match.
 - **Focus.** The heading (`tabindex="-1"`) takes focus when the view appears,
-  because the form that sent the link has just gone, and again when a press
-  disables the focused Resend button. Focus never falls to `<body>`, which in a
-  Kobalte dialog would leave the trap restoring to a disabled button.
+  because the form that sent the link has just gone, and again when a send
+  ends with Resend holding focus and the wait disabling it. Focus never falls
+  to `<body>`, which in a Kobalte dialog would leave the trap restoring to a
+  disabled button.
 - **Recovery promises nothing.** Recovery answers every address alike, so its
   sentence reads "If ada@example.com has an account, a link is on its way". The
   other three say "We sent a link to …", as the code screens they replace did.
@@ -2163,6 +2170,8 @@ For a host:
   set `error`.
 - Set `status` back to `waiting` once a new link has been sent. While it stays
   `expired`, Resend ignores the wait.
+- Pass `errorMessage` as a sentence from `describeAuthError` (`@osn/client`),
+  never the error's own `message` (`osn/auth-ui/DESIGN.md` §7).
 - Recovery allows three sends a day per account
   (`osn/api/src/services/auth/config.ts`), so its host should pass a longer
   `resendWaitSeconds` than the default: at 30 seconds, a person spends the day's
@@ -2185,7 +2194,9 @@ For a host:
   step-up, which catches that.
 
 `osn/auth-ui/tests/CheckEmailView.test.tsx` holds the wait, the one call per
-press, the region's words, the focus moves and the timer's end, the address's
+press, Resend busy with "Use a different email" disabled, the region's words,
+the error as an alert of its own that goes while Resend sends, the focus moves
+and the timer's end, the address's
 `translate="no"`, and the number: drawn or not, outside the region, its hidden
 label first, kept from translation, refused unless it is one to six digits
 (and then written nowhere, text or attribute), hidden while expired, kept in
