@@ -146,6 +146,13 @@ export interface DecisionInput {
   bindingSecret: string | null;
 }
 
+/** A refusal from a browser with no session: which request, and its binding. */
+export interface DeclineInput {
+  requestId: string;
+  /** The binding cookie's value, or null when the browser sent none. */
+  bindingSecret: string | null;
+}
+
 /** Where to send the browser next, plus whether this was a first-time link. */
 export interface DecisionResult {
   redirectTo: string;
@@ -1561,6 +1568,65 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     });
 
   /**
+   * The one answer for a request id this caller may not act on: unknown,
+   * expired, already answered, or parked by another browser. Identical in
+   * every case, so a caller without the binding cookie cannot learn that the
+   * id exists.
+   */
+  const unknownRequest = () =>
+    new OidcError({ code: "invalid_request", description: "Unknown or expired request" });
+
+  /**
+   * Reads the parked request back for the browser that parked it, and for no
+   * other. The binding cookie's secret must hash to the stored `bindingHash`,
+   * compared in constant time; every parked request carries one, so there is
+   * no unbound path. Claims nothing, so a forged attempt leaves the real
+   * browser's flow alive; the only write is the tidy-up of an entry already
+   * past its expiry, which `loadAuthorizeRequest` makes on any read.
+   */
+  const loadBoundRequest = (
+    requestId: string,
+    bindingSecret: string | null,
+  ): Effect.Effect<PendingAuthorizeRequest, OidcError | CoordinationError, never> =>
+    Effect.gen(function* () {
+      const parked = yield* loadAuthorizeRequest(requestId);
+      if (
+        !parked ||
+        bindingSecret === null ||
+        !hexEqual(sha256Hex(bindingSecret), parked.bindingHash)
+      ) {
+        return yield* Effect.fail(unknownRequest());
+      }
+      return parked;
+    });
+
+  /**
+   * Claims the parked request for this one answer. Claimed, not read and then
+   * deleted: of two answers racing on one request id, exactly one gets past
+   * here, so one parked request yields one answer.
+   */
+  const claimRequest = (requestId: string): Effect.Effect<void, OidcError | CoordinationError> =>
+    Effect.gen(function* () {
+      const claimed = yield* storeCall(ctx.stores.authorizeRequests, "consume", () =>
+        ctx.stores.authorizeRequests.consume(requestId),
+      );
+      if (!claimed) return yield* Effect.fail(unknownRequest());
+    });
+
+  /**
+   * The refusal sent back to the relying party: its redirect URI and `state`
+   * as `/authorize` validated and parked them, the issuer from config, and a
+   * fixed error code and description.
+   */
+  const refusalRedirect = (parked: PendingAuthorizeRequest): string =>
+    buildErrorRedirect(
+      parked.redirectUri,
+      "access_denied",
+      "The user refused the request",
+      parked.state,
+    );
+
+  /**
    * Applies the user's decision and retires the parked request.
    *
    * The request is deleted whichever way the decision went, so the id is
@@ -1571,27 +1637,8 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     input: DecisionInput,
   ): Effect.Effect<DecisionResult, OidcError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
-      const parked = yield* loadAuthorizeRequest(input.requestId);
-      if (!parked) {
-        return yield* Effect.fail(
-          new OidcError({ code: "invalid_request", description: "Unknown or expired request" }),
-        );
-      }
-
-      // The decision must come from the browser that parked the
-      // request. Checked BEFORE the request is consumed, so a forged attempt
-      // does not burn the real user's pending flow. Every parked request now
-      // carries a binding hash, so the binding is always enforced. The error
-      // is byte-identical to the unknown-id case: a caller without the
-      // binding cookie must not learn that the id exists.
-      if (
-        input.bindingSecret === null ||
-        !hexEqual(sha256Hex(input.bindingSecret), parked.bindingHash)
-      ) {
-        return yield* Effect.fail(
-          new OidcError({ code: "invalid_request", description: "Unknown or expired request" }),
-        );
-      }
+      // The decision must come from the browser that parked the request.
+      const parked = yield* loadBoundRequest(input.requestId, input.bindingSecret);
 
       // A flow that demanded a fresh sign-in (`prompt=login`, or
       // `max_age` exceeded at /authorize) only accepts a session created after
@@ -1612,28 +1659,10 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         );
       }
 
-      // Claimed, not just deleted: of two decisions racing on one request id,
-      // exactly one gets past here, so one parked request yields one answer.
-      const claimed = yield* storeCall(ctx.stores.authorizeRequests, "consume", () =>
-        ctx.stores.authorizeRequests.consume(input.requestId),
-      );
-      if (!claimed) {
-        return yield* Effect.fail(
-          new OidcError({ code: "invalid_request", description: "Unknown or expired request" }),
-        );
-      }
+      yield* claimRequest(input.requestId);
 
       if (!input.approved) {
-        return {
-          redirectTo: buildErrorRedirect(
-            parked.redirectUri,
-            "access_denied",
-            "The user refused the request",
-            parked.state,
-          ),
-          isNewLink: false,
-          isFirstParty: false,
-        };
+        return { redirectTo: refusalRedirect(parked), isNewLink: false, isFirstParty: false };
       }
 
       const client = yield* findClient(parked.clientId);
@@ -1678,6 +1707,28 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       };
     });
 
+  /**
+   * Refuses a parked request for a browser that holds no session, sending the
+   * relying party `access_denied`.
+   *
+   * It takes the request id and the binding cookie's secret, and nothing
+   * else: no account, no profile, no `approved` flag. Its requirement type is
+   * `never`, so it cannot reach the database, and with it consent, profiles or
+   * code minting — a refusal is the only thing it can produce. For the same
+   * reason it does not re-check the client: the redirect carries only a
+   * refusal, to a URI registered when the request was parked, as a signed-in
+   * refusal does. It makes no freshness demand either, since refusing grants
+   * nothing and there is no session to be fresh.
+   */
+  const declineAuthorization = (
+    input: DeclineInput,
+  ): Effect.Effect<{ redirectTo: string }, OidcError | CoordinationError, never> =>
+    Effect.gen(function* () {
+      const parked = yield* loadBoundRequest(input.requestId, input.bindingSecret);
+      yield* claimRequest(input.requestId);
+      return { redirectTo: refusalRedirect(parked) };
+    }).pipe(Effect.withSpan("auth.oidc.authorize.decline"));
+
   return {
     findClient,
     authenticateClient,
@@ -1698,6 +1749,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     prepareAuthorization,
     loadAuthorizeRequest,
     completeAuthorization,
+    declineAuthorization,
     buildCodeRedirect,
     buildErrorRedirect,
   };

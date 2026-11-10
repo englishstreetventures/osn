@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/coordination"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-11
 ---
 # Rate Limiting
 
@@ -127,7 +127,7 @@ Every auth budget is set in `AUTH_RATE_LIMITS` (`osn/api/src/routes/auth/limiter
 | Budget | Auth limiters | Rationale |
 |---|---|---|
 | 5 / min | register begin, step-up OTP begin, TOTP enrolment begin, cross-device begin | Each sends mail or starts a ceremony that holds state — prevents email bombing |
-| 10 / min | register complete, passkey register begin and complete, profile switch and list, emailed and TOTP recovery complete, recovery disown, step-up passkey begin and complete, step-up OTP and TOTP complete, TOTP enrolment complete and disable, session revoke, email change complete, security-event acknowledge, passkey delete, cross-device approve and reject, OIDC consent decision, connections revoke, client disable | Code and assertion checks — room for honest retries |
+| 10 / min | register complete, passkey register begin and complete, profile switch and list, emailed and TOTP recovery complete, recovery disown, step-up passkey begin and complete, step-up OTP and TOTP complete, TOTP enrolment complete and disable, session revoke, email change complete, security-event acknowledge, passkey delete, cross-device approve and reject, OIDC consent decision and signed-out decline (one budget), connections revoke, client disable | Code and assertion checks — room for honest retries |
 | 20 / min | passkey login complete, passkey rename, OIDC `/authorize` | A top-level navigation or a cheap settings write |
 | 30 / min | handle check, recovery status, TOTP status, session list, security-event list, passkey list, OIDC connections list, client list | Cheap reads; the Security panel polls recovery status, and `@musubi/social`'s shell reads the security events once per load |
 | 60 / min | passkey login begin, cross-device poll, OIDC `/authorize/context`, OIDC token | Fired automatically: conditional-UI autofill, 2 s polling, one call per consent screen, a relying party's server |

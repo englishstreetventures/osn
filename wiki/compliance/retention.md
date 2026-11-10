@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-11
 ---
 
 # Retention
@@ -37,7 +37,7 @@ already enforces some of them; the rest need a sweeper job.
 | Ceremony entries: WebAuthn challenges, pending registrations, step-up and recovery codes, pending email changes and TOTP enrolments, cross-device requests, recovery disown tokens | Each entry's TTL: 2 to 10 min, 72 h for a disown token | Coordination store: expiry exact on read, then an alarm deletes the entry ([[coordination-store]]); in memory on the Bun dev server | OK | Identity |
 | `oauth_authorization_codes` (OIDC) | 60 s TTL. Deleted on redemption (`DELETE … RETURNING`), on consent revoke (in-flight purge), and on account erasure; abandoned rows reaped by `runExpiredAuthCodeSweep` on the Worker `scheduled` cron. | App code + scheduled sweep | OK | Identity |
 | `oauth_consents` (OIDC) | Until account deletion or explicit withdrawal (`DELETE /oidc/connections/:clientId`). Revoked rows retain `revoked_at` as the withdrawal record until account deletion. | App code (erasure `commitBatch` + revoke route) | OK | Identity |
-| Parked `/authorize` requests + binding-cookie hashes (ceremony store) | 10 min TTL (`AUTHORIZE_REQUEST_TTL_MS`); consumed on decision | Store TTL (coordination store expiry and alarm / in-memory expiry) | OK | Identity |
+| Parked `/authorize` requests + binding-cookie hashes (ceremony store) | 10 min TTL (`AUTHORIZE_REQUEST_TTL_MS`); consumed when the visitor approves, refuses or declines | Store TTL (coordination store expiry and alarm / in-memory expiry) | OK | Identity |
 | `oauth_clients.owner_account_id` (OIDC self-registration) | While owned. Owner erasure disables the client and NULLs the link in the hard-delete batch; the unlinked row persists (other users' consents reference it) holding no personal data. | App code (erasure `commitBatch`) | OK | Identity |
 | `events` (Pulse) | While host has not deleted; archived 90 d after `endTime` (read-only) | Sweeper job + host-controlled hard-delete | **TODO** — archival not built. | Pulse |
 | `event_rsvps` | Same as parent event | Cascade on event hard-delete | OK once archival lands | Pulse |
