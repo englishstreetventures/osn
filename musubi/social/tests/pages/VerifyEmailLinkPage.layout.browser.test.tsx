@@ -136,9 +136,12 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
       if (theme === "dark") document.documentElement.classList.add("dark");
       await atViewport(PHONE);
 
-      await open(UNKNOWN);
+      // A link that lost its secret: `ConfirmLinkPage`'s own expired card.
+      link.secret = null;
+      await open(SIGN_UP);
       const expired = look(cardOf(DEAD));
       cleanup();
+      link.secret = "s".repeat(64);
 
       link.candidates.mockRejectedValue(new Error("offline"));
       await open(SIGN_UP);
