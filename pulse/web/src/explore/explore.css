@@ -32,6 +32,15 @@
   animation: live-pulse 1.8s infinite;
 }
 
+/* Reduced motion: both loops hold still. The brand dot rests at full size and
+   the live dot keeps the ring its inline style draws. */
+@media (prefers-reduced-motion: reduce) {
+  .brand-pulse,
+  .live-dot {
+    animation: none;
+  }
+}
+
 /* Tab active underline */
 .explore-tab-active::after {
   content: "";

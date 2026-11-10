@@ -279,20 +279,24 @@ These rules govern `pulse/web`. The landing site's motion is in
   no `transition-ui-colors` utility yet; until it does, a control names the
   properties it fades, so the focus mark never arrives late. A bare
   `transition` fades `outline-color` too, and so does `transition-shadow` on a
-  ring.
+  ring. The explore tabs fade `color` and `background-color`, and the search
+  box fades its `border-color` while its focus ring shows at once.
 - **Entrances are short and quiet**: opacity with an 8px rise, as the onboarding
   step does (`onb-step-in`).
-- **Only the onboarding illustrations loop.** A looping animation is
-  illustration, never a control or a loading state, and it stops under
-  `prefers-reduced-motion: reduce` (`onboarding.css` holds the rule).
+- **Only illustrations loop**: the onboarding illustrations, the brand mark's
+  pulsing dot (§Navigation) and the live dot beside the hero's greeting and on a
+  live card. A looping animation is illustration, never a control or a loading
+  state, and it stops under `prefers-reduced-motion: reduce`, holding a still
+  frame (`onboarding.css` and `explore/explore.css` hold the rule).
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
 
-Where the app does not follow this yet: the explore page's `brand-pulse` and
-`live-pulse` loop with no reduced-motion rule (`explore/explore.css`), and these
-controls fade their focus mark with the colour: `FilterChip.tsx`,
-`ShareEventButton.tsx`, `CalendarEventCard.tsx`, the tab buttons in
-`ExploreNav.tsx` (`transition-colors`), its search box (`transition-shadow`
-under a focus ring), and `routes/series/[id].tsx` (bare `transition`).
+Where the app does not follow this yet: these controls fade their focus mark
+with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
+`CalendarEventCard.tsx` and `routes/series/[id].tsx` (bare `transition`).
+
+`tools/e2e/tests/support/pulse-explore.ts` holds the explore header to these
+rules: what its tab and search box fade, and its two loops stopping under
+reduced motion.
 
 ## Future
 

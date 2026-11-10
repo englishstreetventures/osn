@@ -86,7 +86,7 @@ export function ExploreNav(props: {
               <Show when={tab.id === "home" || session()}>
                 <button
                   type="button"
-                  class={`text-ui-sm relative rounded-lg px-3.5 py-2 font-medium transition-colors ${
+                  class={`text-ui-sm relative rounded-lg px-3.5 py-2 font-medium transition-[color,background-color] duration-(--ui-dur-fast) ease-(--ui-ease-out) ${
                     tab.disabled
                       ? "text-muted-foreground/40 cursor-default"
                       : isActiveTab(tab.path)
@@ -110,10 +110,12 @@ export function ExploreNav(props: {
             cap and shrinks first. Below md its two parts join the row's lines. */}
         <div class="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2.5 max-md:contents">
           {/* Search */}
-          <div class="border-border bg-background focus-within:border-foreground/20 focus-within:ring-ring/20 flex max-w-90 min-w-0 flex-1 items-center gap-2 rounded-full border px-3.5 py-2 transition-shadow focus-within:ring-4 max-md:order-1 max-md:max-w-none max-md:basis-full">
+          <div class="border-border bg-background focus-within:border-foreground/20 focus-within:ring-ring/20 flex max-w-90 min-w-0 flex-1 items-center gap-2 rounded-full border px-3.5 py-2 transition-[border-color] duration-(--ui-dur-fast) ease-(--ui-ease-out) focus-within:ring-4 max-md:order-1 max-md:max-w-none max-md:basis-full">
             <Icon name="search" size={14} />
             <input
               type="text"
+              name="q"
+              autocomplete="off"
               aria-label="Search events, people, venues"
               value={props.query}
               onInput={(e) => props.onQueryChange(e.currentTarget.value)}
@@ -185,6 +187,7 @@ export function ExploreNav(props: {
           >
             <span
               class="live-dot inline-block h-1.75 w-1.75 rounded-full"
+              aria-hidden="true"
               style={{
                 background: "var(--badge-live)",
                 "box-shadow": "0 0 0 3px color-mix(in oklab, var(--badge-live) 30%, transparent)",

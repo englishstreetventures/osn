@@ -15,7 +15,8 @@
  * pulse-api's origin guard requires on a cookie-carrying write.
  *
  * On the way it measures the explore page from 320px to 1440px, signed in on
- * the host's page and signed out on the guest's (`support/pulse-explore.ts`).
+ * the host's page and signed out on the guest's, and reads the header's motion
+ * on the host's (`support/pulse-explore.ts`).
  */
 
 import type { APIRequestContext, APIResponse, BrowserContext } from "@playwright/test";
@@ -30,7 +31,7 @@ import {
   test,
   type Flow,
 } from "../support/fixtures";
-import { exploreCreateForm, exploreLayout } from "../support/pulse-explore";
+import { exploreCreateForm, exploreLayout, exploreMotion } from "../support/pulse-explore";
 
 const EVENT_TITLE = "E2E Launch Party";
 
@@ -89,6 +90,7 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
 
   await exploreLayout(flow, page, "host");
   await exploreCreateForm(flow, page);
+  await exploreMotion(flow, page);
 
   /** The guest's reply: every RSVP row on the event but the host's own. */
   const guestRsvp = () =>

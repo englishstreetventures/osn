@@ -6,6 +6,8 @@
  * the header's bottom border, the hero's stats under the headline on a phone,
  * the header pinned only from 768px up, and the create form's two times
  * stacked on a phone. The rules are `pulse/DESIGN.md` §Explore Page Layout.
+ * Then the header's motion: what its controls fade, and its loops stopping
+ * under reduced motion (§Motion).
  *
  * `pulse-event-rsvp` calls it on its own pages, so it spends no sign-in: on the
  * host's page signed in, after the host has made an event, and on the guest's
@@ -118,6 +120,12 @@ async function shoot(page: Page, view: string, width: number): Promise<void> {
   await page.addStyleTag({ content: HIDE_DEV_TOOLBAR });
   for (const colorScheme of ["light", "dark"] as const) {
     await scheme(page, colorScheme === "dark");
+    // Two frames, so the shot shows the page painted at this width: straight
+    // after a resize the bottom of the frame can still hold the header drawn a
+    // second time.
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
     await page.screenshot({
       path: resolve(SHOTS, `${view}-${width}-${colorScheme}.png`),
       animations: "disabled",
@@ -212,6 +220,73 @@ export async function exploreLayout(flow: Flow, page: Page, who: string): Promis
   }
 
   await flow.step(`explore: ${who} back at 1280×720`, () => page.setViewportSize(DEFAULT));
+}
+
+interface Motion {
+  /** `animation-name` of the brand mark's dot and of every live dot on the page. */
+  readonly loops: readonly string[];
+  /** `transition-property` of the active tab and of the search box. */
+  readonly tabFades: readonly string[];
+  readonly searchFades: readonly string[];
+}
+
+function readMotion(page: Page): Promise<Motion> {
+  return page.evaluate(() => {
+    const row = document.querySelector("header")?.firstElementChild;
+    const tab = row?.querySelector('nav [class*="explore-tab-active"]');
+    const search = row?.querySelector('input[placeholder^="Search events"]')?.parentElement;
+    if (!tab || !search) throw new Error("explore header: tab or search missing");
+    const fades = (el: Element) =>
+      getComputedStyle(el)
+        .transitionProperty.split(",")
+        .map((p) => p.trim());
+    return {
+      loops: [...document.querySelectorAll(".brand-pulse, .live-dot")].map(
+        (el) => getComputedStyle(el).animationName,
+      ),
+      tabFades: fades(tab),
+      searchFades: fades(search),
+    };
+  });
+}
+
+/**
+ * The header's motion, against `pulse/DESIGN.md` §Motion: the tab fades its
+ * colours and the search box its border, never the focus mark, and the brand
+ * mark's and live dots' loops run, then stop under `prefers-reduced-motion:
+ * reduce`. Leaves the page with no reduced-motion emulation.
+ */
+export async function exploreMotion(flow: Flow, page: Page): Promise<void> {
+  const moving = await flow.step("explore: read the header's motion", () => readMotion(page));
+  flow.check(
+    "explore: the brand mark and live dots loop",
+    true,
+    moving.loops.length >= 2 && moving.loops.every((name) => name !== "none"),
+  );
+  flow.check(
+    "explore: the tab fades its colours, not its focus outline",
+    true,
+    moving.tabFades.includes("color") && !moving.tabFades.includes("outline-color"),
+  );
+  flow.check(
+    "explore: the search box fades its border, not its focus ring",
+    true,
+    moving.searchFades.includes("border-color") && !moving.searchFades.includes("box-shadow"),
+  );
+
+  const reduced = await flow.step("explore: read the loops under reduced motion", async () => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    try {
+      return await readMotion(page);
+    } finally {
+      await page.emulateMedia({ reducedMotion: null });
+    }
+  });
+  flow.check(
+    "explore: the loops stop under reduced motion",
+    true,
+    reduced.loops.length === moving.loops.length && reduced.loops.every((name) => name === "none"),
+  );
 }
 
 /** The create form's start and end times: stacked on a phone, side by side from 768px. */
