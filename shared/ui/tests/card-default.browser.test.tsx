@@ -3,8 +3,9 @@
  * computed style `CardTitle` carries that a plain `<h3>` beside it does not,
  * less the `*-color` keys that only repeat its `color`.
  *
- * No app maps the title weight, so this is how Musubi, the metrics dashboard
- * and the lab draw a card title, and how any app that adds one will. It
+ * Pulse and cire map no title weight, so this is how they draw a card title,
+ * and how any app that maps none will; Musubi maps 500, and the metrics
+ * dashboard and the lab draw its 500 through its stylesheet. It
  * imports only what `card.tsx` exported before the title read a token, so it
  * runs on the code before such a change as well as after it, and the snapshot
  * beside it was written by the code before. Rewriting that snapshot with `-u`
