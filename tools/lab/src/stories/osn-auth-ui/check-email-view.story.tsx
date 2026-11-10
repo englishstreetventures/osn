@@ -184,28 +184,52 @@ export const WithPairingCode = state(
   ),
 );
 
-export const RecoveryWithPairingCode = state(
-  "recovery, with a number",
-  <>
-    Recovery's page asks the person to type the number rather than pick it, so the caption says
-    "Type". The sentence still promises nothing, since recovery answers every address alike.
-  </>,
-  () => (
-    <CheckEmailView
-      email={EMAIL}
-      purpose="recovery"
-      status="waiting"
-      pairingCode="47"
-      onResend={stubResend}
-      onChangeEmail={() => {}}
-    />
+export const TypedPairingCode: Story = {
+  name: "recovery and step-up, with a number",
+  render: () => (
+    <Gallery
+      title="osn/auth-ui CheckEmailView — recovery and step-up, with a number"
+      intro={
+        <>
+          Recovery's and step-up's pages ask the person to type the number rather than pick it, so
+          the caption says "Type". Recovery's sentence still promises nothing, since recovery
+          answers every address alike; step-up mails the account's own address, so it names none and
+          offers no "Use a different email".
+        </>
+      }
+    >
+      <div class="flex flex-wrap items-start gap-6">
+        <DialogFrame>
+          <CheckEmailView
+            email={EMAIL}
+            purpose="recovery"
+            status="waiting"
+            pairingCode="47"
+            onResend={stubResend}
+            onChangeEmail={() => {}}
+          />
+        </DialogFrame>
+        <DialogFrame>
+          <CheckEmailView
+            purpose="step-up"
+            status="waiting"
+            pairingCode="47"
+            onResend={stubResend}
+          />
+        </DialogFrame>
+      </div>
+    </Gallery>
   ),
-);
+};
 
 /** A fixed run of numbers, one per request, as a host would get from each begin. */
 const NUMBERS = ["47", "83", "12", "65"];
 
-/** Each resend settles with the next request's number already passed, as a host should. */
+/**
+ * Each resend begins a new request and settles with its number already passed,
+ * as a host whose `onResend` begins one must. A Resend on a live request keeps
+ * its number instead.
+ */
 function NumberedResend() {
   const [turn, setTurn] = createSignal(0);
   async function resend() {
@@ -228,8 +252,9 @@ function NumberedResend() {
 export const WithPairingCodeResendReady = state(
   "with a number, Resend ready",
   <>
-    Press Resend: the old number stays while "Sending a new link…" shows, then the next request's
-    number replaces it and the announced sentence ends "Check the number again."
+    This host's Resend begins a new request each time. Press it: the old number stays while "Sending
+    a new link…" shows, then the new request's number replaces it and the announced sentence ends
+    "Check the number again."
   </>,
   () => <NumberedResend />,
 );
