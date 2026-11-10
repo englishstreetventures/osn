@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Frontend Patterns
@@ -161,7 +161,7 @@ a trusted workspace. TypeScript 7 ships no `tsserver`, so editors and the agents
 
 Every one of these cost a real bug. Most were found in cire, but none of them
 is cire-specific — they are properties of Tailwind's scanner, Solid's reactivity,
-Motion One's finish behaviour and the CSS spec, so they apply to `@pulse/web` and
+how an animation ends and the CSS spec, so they apply to `@pulse/web` and
 `@musubi/social` the same way. What unites them is that **the fast test tier cannot
 fully see any of them**: jsdom and happy-dom compute no styles and no layout, so a
 green unit suite proves nothing here. Pin the class contract in the fast tier and
@@ -204,9 +204,10 @@ read, which is where you would look for it.
 ### A `transform` on any ancestor breaks `position: fixed`
 
 It makes `fixed` resolve against that ancestor rather than the viewport, **and**
-makes the ancestor a stacking context that no `z-index` can escape. Motion One
-leaves its final inline `transform` on the elements it animates, so anything
-`fixed` mounted inside an animated section is doubly trapped: mispositioned
+makes the ancestor a stacking context that no `z-index` can escape. An animated
+`transform` does the same while it runs, and a library that commits its last
+keyframe inline (`motion` does) keeps doing it after, so anything `fixed`
+mounted inside an animated section is doubly trapped: mispositioned
 (measured 723–814px down the page instead of at the viewport edge — off-screen on
 a phone) and painted below page-level overlays. This is what left cire's RSVP save
 toast behind the `z-100` sheet it fires underneath.
@@ -220,10 +221,10 @@ even when painted perfectly. Assert the mechanism instead — no fixed-position
 containing block between the element and `<body>`, and a computed `z-index` above
 `Z_LAYER.MODAL`.
 
-### Motion One leaves its final keyframe as inline style, and Solid will not clean it up
+### A reveal's inline end state outlives it, and Solid will not clean it up
 
-A fade-out ending at `opacity: 0` leaves `opacity: 0` on the element forever.
-Harmless while the element never returns — and a blank-screen bug the moment
+A fade-out that settles on an inline `opacity: 0` leaves it on the element
+forever. Harmless while the element never returns — and a blank-screen bug the moment
 something brings it back, because Solid's style binding on that node typically
 owns only `display`. It happily restores `display` onto a fully transparent box.
 
@@ -240,20 +241,26 @@ claim form sat at `opacity: 0` in both design packs, with 800 unit tests green.)
 
 ### Write an animation's inline end state when it finishes, never before it starts
 
-Motion reverts to base styles on finish, which is why a reveal keeps an inline end
-state. Writing that `opacity: 1` up front instead paints one full-brightness frame
-that the animation's first keyframe drops back to zero — the viewer sees content
-blink in, vanish, and fade in again.
+A CSS animation holds its last frame only while its rule still matches, so a
+reveal that takes its marks off afterwards keeps an inline end state; cire's
+unlock reveal (`components/unlock-reveal.ts`) does. Write it once the step has
+ended. A script animation that starts a frame after it is called, as `motion`'s
+does, paints whatever is inline in between: an `opacity: 1` written up front is
+one full-brightness frame that the first keyframe then drops back to zero — the
+viewer sees content blink in, vanish, and fade in again.
 
 A staggered child is worse: nothing hides it (only its container carries
-`opacity-0`), so a `startDelay` leaves every child at full opacity from the moment
-the container appears until Motion commits its first frame. Hide the children
-inline first, run the animations, and settle the inline end state in a `finally`,
-so a stalled or throwing step can never leave them invisible.
+`opacity-0`), so a delay that does not hold the first keyframe — a script's, or
+a CSS animation without a `backwards` or `both` fill — leaves it at full opacity
+from the moment the container appears until its own first frame. Hide the
+children inline first,
+run the animations, and settle the inline end state in a `finally`, so a
+stalled or throwing step can never leave them invisible.
 
 One frame is invisible to jsdom **and** to the browser tier's assertions-after-the-
 fact — catch it by sampling `getComputedStyle` per `requestAnimationFrame` in a
-real browser (`UnlockReveal.motion.ts`, both packs).
+real browser, as `cire/invites` `tests/designs/UnlockReveal.browser.test.ts`
+does for both packs' reveal.
 
 ### Anything a choreography animates must be in the DOM before it runs
 

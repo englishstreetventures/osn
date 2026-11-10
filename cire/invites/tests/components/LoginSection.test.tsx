@@ -703,10 +703,10 @@ describe("LoginSection sign-out control", () => {
   });
 
   it("clears what the unlock animation left on the form, so it comes back painted", () => {
-    // The packs' unlock sequence fades the form out and leaves its end state
-    // inline (`opacity: 0` plus a `translateY`). Solid's binding on the element
-    // owns only `display`, so without this the form returns to the layout
-    // fully transparent. Measured for real in InvitePage.browser.test.tsx.
+    // The packs' unlock sequence fades the form out and leaves `opacity: 0`
+    // inline. Solid's binding on the element owns only `display`, so without
+    // this the form returns to the layout fully transparent. Measured for real
+    // in InvitePage.browser.test.tsx.
     let formEl: HTMLDivElement | undefined;
     const { getByText } = render(() => (
       <LoginSection
@@ -718,12 +718,10 @@ describe("LoginSection sign-out control", () => {
       />
     ));
     formEl!.style.opacity = "0";
-    formEl!.style.transform = "translateY(-8px)";
 
     fireEvent.click(getByText(/Sign out/));
 
     expect(formEl!.style.opacity).toBe("");
-    expect(formEl!.style.transform).toBe("");
   });
 
   it("moves focus to the code field once the page has swapped the form back", () => {

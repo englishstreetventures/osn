@@ -183,10 +183,10 @@ interface LoginSectionProps {
    * It is a separate signal from `result` because the swap is CHOREOGRAPHED: the
    * form fades out before it leaves the layout, so it has to stay displayed for
    * the length of that fade — a beat after the claim has already resolved. This
-   * prop is the single owner of both elements' `display`; the motion sequence
+   * prop is the single owner of both elements' `display`; the unlock sequence
    * reports when to flip it and never writes `display` itself — see the
-   * `RevealHooks` note in each design pack's `UnlockReveal.motion.ts` for why
-   * an imperative write there would desynchronise this binding permanently.
+   * `RevealHooks` note in `components/unlock-reveal.ts` for why an imperative
+   * write there would desynchronise this binding permanently.
    */
   revealed?: boolean;
   formRef?: (el: HTMLDivElement) => void;
@@ -479,16 +479,12 @@ export function LoginSection(props: LoginSectionProps) {
     // Re-challenge so a fresh single-use token can replace the one the
     // previous claim redeemed. No-op when Turnstile is unconfigured.
     turnstile?.reset();
-    // The packs' unlock sequence fades the form out with Motion, which leaves
-    // its end state inline on this wrapper (`opacity: 0` and a `translateY`).
-    // The binding here owns only `display`, so nothing else clears them, and
-    // the form would come back fully transparent. Writing these two is safe
-    // where writing `display` would not be: no binding owns them, so there is
-    // nothing to desynchronise.
-    if (formEl) {
-      formEl.style.opacity = "";
-      formEl.style.transform = "";
-    }
+    // The packs' unlock sequence fades the form out and leaves `opacity: 0`
+    // inline on this wrapper. The binding here owns only `display`, so nothing
+    // else clears it, and the form would come back fully transparent. Writing
+    // `opacity` is safe where writing `display` would not be: no binding owns
+    // it, so there is nothing to desynchronise.
+    if (formEl) formEl.style.opacity = "";
     // Let the page swap the view back BEFORE focusing — the form is
     // `display: none` until it does, and `focus()` on a hidden element is
     // silently dropped.

@@ -1854,8 +1854,8 @@ describe("gala InvitePage", () => {
       //  - it used to sit inside `<Show when={!preview}>`, so a host previewing
       //    the invite had NO toaster mounted and every `toast.success` was
       //    dropped on the floor;
-      //  - it sat inside the events <section>, which Motion One's reveal leaves
-      //    with an inline `transform`. That makes the section the containing
+      //  - it sat inside the events <section>, which the unlock reveal moves
+      //    with a `transform`. That makes the section the containing
       //    block AND a stacking context for the `position: fixed` toaster inside
       //    it, so the toast was positioned against the section instead of the
       //    viewport and painted below the z-100 RSVP sheet it fires underneath.
@@ -1878,7 +1878,7 @@ describe("gala InvitePage", () => {
 
       // Present in preview mode at all.
       const toaster = getByTestId("toaster-stub");
-      // And not nested inside the section Motion One transforms.
+      // And not nested inside the section the unlock reveal transforms.
       expect(toaster.closest("section")).toBeNull();
       expect(container.querySelector("section [data-testid='toaster-stub']")).toBeNull();
     });

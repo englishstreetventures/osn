@@ -22,9 +22,8 @@ import { noSession, withSession } from "../test-support/claim-fetch";
  * `@shared/toast` and `PulseAccountLink` — necessarily, to assert the page's
  * wiring in isolation. That leaves nothing anywhere in the suite that exercises
  * the confirmation inside the page it actually ships in: the themed events
- * `<section>`, the Motion-One-animated `[data-event-card]` wrappers each with a
- * leftover inline `transform`, and the modal overlay that unmounts on top of it
- * all.
+ * `<section>`, the `[data-event-card]` wrappers the unlock reveal moves with a
+ * `transform`, and the modal overlay that unmounts on top of it all.
  *
  * Only `PulseAccountLink` is stubbed here — it reaches the account API and has
  * its own tests. Everything the confirmation and the toast touch is the real
@@ -191,8 +190,8 @@ function paintedInk(element: Element): string {
  * `position: fixed` descendant — a `transform`, `filter`, `perspective`,
  * `contain` or `will-change` on any ancestor does it, and it makes that
  * ancestor a stacking context too. This is the exact mechanism that broke the
- * toast: `<Toaster>` used to live inside the events section, which Motion One
- * leaves with an inline `transform`, so the toast was positioned against the
+ * toast: `<Toaster>` used to live inside the events section, which the unlock
+ * reveal moves with a `transform`, so the toast was positioned against the
  * section and stacked inside it — below the page-level `z-100` modal, whatever
  * `z-index` the toast itself carried.
  *
@@ -275,12 +274,12 @@ function openRestored(Pack: typeof classicInvitePage, rsvpResponses: Response[])
 
 /**
  * A FIRST-time guest, typing their code. Unlike {@link openRestored} this runs
- * the real `unlockRevealSequence`, which is the difference that matters: Motion
- * One animates the events `<section>` and every `[data-event-card]` and leaves
- * the final inline `transform` behind. A transformed ancestor becomes the
- * containing block for `position: fixed` descendants and creates a stacking
- * context — so anything fixed that lives inside that section (the `<Toaster>`
- * does) stops being positioned against the viewport.
+ * the real `unlockRevealSequence`, which is the difference that matters: it
+ * moves the events `<section>` and every `[data-event-card]` with a
+ * `transform`. A transformed ancestor becomes the containing block for
+ * `position: fixed` descendants and creates a stacking context — so anything
+ * fixed that lives inside that section (the `<Toaster>` does) stops being
+ * positioned against the viewport.
  */
 async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Response[]) {
   let call = 0;
@@ -319,8 +318,8 @@ async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Respons
  * duplicating these into a second file would be waste. What is NOT
  * pack-independent is the tree the toast assertions walk: gala nests its cards
  * two wrappers deeper than classic and its reveal (`gala/UnlockReveal.motion.ts`)
- * leaves inline transforms on different nodes at different times. Since the
- * containing-block trap is invisible to happy-dom by construction, a gala-only
+ * moves them on its own timing. Since the containing-block trap is invisible
+ * to happy-dom by construction, a gala-only
  * wrapper that ever gains a `filter` or `will-change: transform` would put the
  * toast back behind the sheet with the fast tier still green — on the pack with
  * no measurement. `describe.each` buys the pack-specific half without
@@ -530,8 +529,9 @@ describe.each([
 
   it("shows the save toast on the first-visit path too", async () => {
     // The path the restored test cannot cover: `unlockRevealSequence` has run,
-    // so the events section carries Motion One's inline transform and anything
-    // fixed inside it is no longer positioned against the viewport.
+    // so the events section has been moved by a transform, and anything fixed
+    // inside a transformed section is no longer positioned against the
+    // viewport.
     await openByCode(Pack, [json({ rsvps: [row("guest-priya")] })]);
 
     respondButton().click();
@@ -594,12 +594,11 @@ describe.each([
   it("T-U1: the code form comes back PAINTED after sign-out", async () => {
     // The unit tier mocks `UnlockReveal.motion` and `motion` away, so it asserts
     // the form is back in the layout and never that it is visible. The real
-    // sequence fades the form out with Motion, which leaves its end state as
-    // inline styles on the wrapper (`opacity: 0`, plus a `translateY`). Solid's
-    // binding there owns only `display`, so without an explicit clear the form
-    // returns fully transparent — a blank panel, and the guest's only way out is
-    // a reload, which (the session cookie being untouched) re-opens the invite
-    // they were trying to leave.
+    // sequence fades the form out and leaves `opacity: 0` inline on the
+    // wrapper. Solid's binding there owns only `display`, so without an
+    // explicit clear the form returns fully transparent — a blank panel, and
+    // the guest's only way out is a reload, which (the session cookie being
+    // untouched) re-opens the invite they were trying to leave.
     await openByCode(Pack, []);
 
     const button = [...document.querySelectorAll("button")].find((b) =>

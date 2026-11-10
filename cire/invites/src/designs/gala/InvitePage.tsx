@@ -550,9 +550,9 @@ export default function InvitePage(props: InvitePageProps) {
       {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately, outside
           every section: a toaster inside a section renders only when that
           section does, and host preview must get its confirmations too.
-          Motion One's reveal leaves an inline `transform` on the events
-          section, which makes it the containing block AND a stacking context
-          for anything `position: fixed` inside it; `@shared/toast` portals its
+          The unlock reveal moves the events section with a `transform`,
+          which makes it the containing block AND a stacking context for
+          anything `position: fixed` inside it; `@shared/toast` portals its
           container to <body>, so the toast paints above the `z-100` RSVP
           sheet it fires underneath wherever this is mounted.
 

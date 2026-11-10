@@ -13,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-11
 ---
 # Invite design selector
 
@@ -908,7 +908,32 @@ its own timing:
 - the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
   scroll;
 - the hero backdrop's 700ms fade-in and the closing band's 500ms width;
-- each pack's unlock reveal (`UnlockReveal.motion.ts`, Motion One).
+- each pack's unlock reveal, below.
+
+**The unlock reveal.** Once a household's code is accepted, the code form lifts
+away, the welcome rises while its heading shimmers, and a beat later the events
+rise, their cards one after another. The motion is CSS keyframes
+(`unlock-leave`, `unlock-rise` and `unlock-shimmer`, under "The unlock reveal"
+in `src/styles/global.css`), and
+[`components/unlock-reveal.ts`](../../cire/invites/src/components/unlock-reveal.ts)
+orders it: it marks each element with its step and its pack (`data-unlock`,
+`data-unlock-pack`), waits for the step to end, capped one second past that
+end, writes the end state inline and takes the marks off. Each pack keeps its
+own times, the same at a desk as on a phone, each scaled by `--motion-scale`:
+
+| Step | classic | gala |
+|---|---|---|
+| The code form fades out and lifts | 350ms, `ease-in`, 12px | 300ms, `ease-in`, 8px |
+| The welcome fades in, rising | 500ms, `--ease-out`, from 16px below | 400ms, `cubic-bezier(0.16, 1, 0.3, 1)`, from 10px below |
+| Its heading shimmers, alongside: opacity through four values on one ease-in-out | 1.2s, 0.4, 1, 0.85, 1 | 1s, 0.5, 1, 0.9, 1 |
+| The beat between the welcome's start and the events' | 200ms | 150ms |
+| The events section fades in, rising | 500ms, `--ease-out`, from 32px below | 400ms, gala's curve, from 20px below |
+| Card *n* (from 0) fades in, rising, after a delay | 450ms from 24px below, 150ms + *n* × 120ms | 350ms from 16px below, 100ms + *n* × 80ms |
+
+Under reduced motion the sequence starts no step and lands on the end state at
+once. `tests/designs/UnlockReveal.browser.test.ts` samples every frame of both
+packs' reveal against these numbers and fails a frame more than one frame off
+them.
 
 ## Edges in mobile Safari
 
