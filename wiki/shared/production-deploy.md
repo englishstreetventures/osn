@@ -105,7 +105,7 @@ marked **TBD** blocks the deploy.
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social static build (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `sites`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social static build (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in the `sites` job. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
 | `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex to serve `@musubi/social`: the `osn-social` Pages project until its flip release, then the `osn-social` Worker (§5.7) |
-| **musubi.social zone: apex → `osn-social` (Pages until its flip release, then the Worker), `id.` → osn-api Worker** | Cloudflare dashboard, then the flip release | **Apex attached to Pages 2026-07-27; its flip release moves it to the Worker (§5.7).** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
+| **musubi.social zone: the apex on `osn-social` (Pages until its flip release, then the Worker), `id.` on the osn-api Worker** | Cloudflare dashboard, then the flip release | **Apex attached to Pages 2026-07-27; its flip release moves it to the Worker (§5.7).** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
 | **musubi.social on the Turnstile widget** | Cloudflare dashboard | **DONE 2026-07-27.** `id.musubi.social` is not needed — only form-rendering hostnames are. [[turnstile]] |
 
 ---
@@ -1190,7 +1190,7 @@ automatically once you attach them.
    record + cert; no manual DNS entry needed. The **proxied wildcard record on
    `musubi.social`** does not block this — a wildcard only answers names that have no record
    of their own, so the explicit `id` record takes precedence.
-2. **Pages custom domains (dashboard, one-time).** In each Pages project → Custom domains.
+2. **Pages custom domains (dashboard, one-time).** In each Pages project's Custom domains.
    Every one of these sites is `worker` now, so each step below is a rollback's, never
    while the site's Worker holds its host (§5.7):
    - `cire-landing` (marketing site) → add the apex **`cireweddings.com`**.
@@ -1681,7 +1681,10 @@ After `musubi.social`'s, also check what passes through it: a passkey sign-in on
 `https://musubi.social`, staying signed in after a reload; a sign-in to the organiser
 portal, whose OIDC consent screen is `https://musubi.social/authorize`; and
 `curl -sSI https://musubi.social/.well-known/apple-app-site-association`, which answers
-200 `application/json`. osn-api names the apex as an origin, never as a server
+200 `application/json`. `curl -sSI https://musubi.social/authorize` must carry
+`x-frame-options: DENY` and a `content-security-policy` holding `frame-ancestors 'none'`:
+the consent screen must never be framed, and neither the smoke check nor `site-parity`
+reads a header once no site is staged. osn-api names the apex as an origin, never as a server
 (`OSN_RP_ID`, `OSN_ORIGIN`, `OSN_CORS_ORIGIN`, `OSN_COOKIE_DOMAIN`,
 `OSN_AUTHORIZE_UI_URL` in `osn/api/wrangler.toml`), so none of them changes.
 
@@ -1739,7 +1742,11 @@ paths and the shared ones in `scripts/deploy-surfaces.ts` (for cire host,
 for cire landing, `cire/landing cire/dietary cire/ui` and the same shared ones; for
 musubi social, `musubi/social osn/client shared/ui osn/auth-ui` and the same shared ones).
 If a security fix is among them, roll back by the `unflip` pull request instead, which
-deploys the current build to Pages before the attach job puts the host back.
+deploys the current build to Pages before the attach job puts the host back. A protection
+the flip release itself first brought to production is not such a fix: the attach returns
+production to what it served before the flip. Musubi social's build-time `script-src` and
+`connect-src` are one, when its Pages build predates them; a release that ships the site's
+Pages job before its flip pull request merges puts them on Pages first.
 
 #### Rehearse the move on dev first
 

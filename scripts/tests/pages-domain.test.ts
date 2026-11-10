@@ -136,7 +136,12 @@ function fakeCloudflare(world: World) {
     if (method === "POST" && domains !== null) return ok({ name: (body as { name: string }).name });
     const records = /^\/zones\/[^/]+\/dns_records\?name=(.+)$/.exec(path);
     if (method === "GET" && records !== null) {
-      return ok(world.records[decodeURIComponent(records[1] ?? "")] ?? [], world.recordsInfo);
+      // Each record carries its name, as Cloudflare's listing does; a fixture's own wins.
+      const host = decodeURIComponent(records[1] ?? "");
+      return ok(
+        (world.records[host] ?? []).map((record) => Object.assign({ name: host }, record)),
+        world.recordsInfo,
+      );
     }
     if (/^\/zones\/[^/]+\/dns_records(\/.+)?$/.test(path)) return ok({ id: "rec-new" });
     throw new Error(`test fetched an unlisted URL: ${method} ${url}`);
@@ -653,6 +658,32 @@ describe("detach and attach", () => {
         expect(result.output).not.toContain(stray.content);
       }
     }
+  });
+
+  test("PD4: a records listing that holds a record for another name refuses before any write, naming no record", async () => {
+    // A listing wider than the host asked: the subdomain's CNAME to the same project.
+    const wide: DnsRecord = {
+      id: "rec-www",
+      type: "CNAME",
+      name: "www.cireweddings.com",
+      content: "cire-landing.pages.dev",
+    };
+    const world: World = {
+      ...HOST_MOVED,
+      records: {
+        ...HOST_MOVED.records,
+        "cireweddings.com": [...MAIL, CNAME("cire-landing"), wide],
+      },
+    };
+    const detach = await run(["detach", "cire_landing"], world);
+    expect(detach.code).toBe(1);
+    expect(detach.output).toContain(
+      "listing cireweddings.com's DNS records: the listing holds a record for another name",
+    );
+    expect(detach.output).not.toContain("www.cireweddings.com");
+    expect(nonGets(detach.calls)).toEqual([]);
+    const precheck = await run(["precheck"], world, { STACKS: "cire", FLIP: "cire_landing" });
+    expect(precheck.code).toBe(1);
   });
 
   test("PD4: a records listing with more than it returned refuses before any write, the precheck too", async () => {

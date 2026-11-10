@@ -93,6 +93,8 @@ const API = "https://api.cloudflare.com/client/v4";
 export interface DnsRecord {
   readonly id: string;
   readonly type: string;
+  /** The record's name, as the zone's listing gives it. */
+  readonly name?: string;
   readonly content: string;
   readonly meta?: { readonly origin_worker_id?: unknown; readonly read_only?: unknown };
 }
@@ -413,6 +415,16 @@ export function pagesDnsApi(input: PagesDnsApiInput) {
         (typeof count === "number" && count > records.length)
       ) {
         throw new ApiError(`${what}: the listing holds more records than its first page`);
+      }
+      // Every record must be the host's own, or a detach could delete another
+      // name's CNAME. The other name stays out of the message: logs are public.
+      if (
+        records.some(
+          (record) =>
+            typeof record.name === "string" && record.name.toLowerCase() !== host.toLowerCase(),
+        )
+      ) {
+        throw new ApiError(`${what}: the listing holds a record for another name`);
       }
       return records;
     },
