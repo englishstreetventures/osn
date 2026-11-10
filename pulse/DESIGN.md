@@ -212,15 +212,25 @@ Greeting copy on the welcome step uses the institutional headline ("Welcome to P
 
 ## Motion
 
-- **Durations and easing come from the shared tokens**: `--ui-dur-fast` (120ms)
-  for colour, border and shadow changes, `--ui-dur-base` (200ms) for an element
-  entering or a panel opening, `--ui-dur-slow` (320ms) for a move across the
-  screen, all with `--ui-ease-out`. A literal duration or curve is a defect
-  (`wiki/shared/design-tokens.md` §Motion).
+These rules govern `pulse/web`. The landing site's motion is in
+`wiki/pulse/pulse-landing.md`.
+
+- **Durations and easing come from the shared tokens, by job**
+  (`wiki/shared/design-tokens.md` §Motion): `--ui-dur-fast` (120ms) for a hover,
+  a press or a small panel arriving; `--ui-dur-base` (200ms) for a panel swap,
+  such as the onboarding step; `--ui-dur-slow` (320ms) for something crossing
+  the screen; `--ui-dur-exit` for an overlay closing. `--ui-ease-out` is for an
+  arrival, `--ui-ease-in-out` for a move between two places. A literal duration,
+  delay or curve fails `house/no-literal-motion` unless it carries a
+  `motion-literal:` comment giving its reason. Loops and choreographed
+  illustrations, such as the onboarding rings and the pin drop, are the cases
+  that do.
 - **CSS only.** Transitions and keyframes, no animation library, no Lottie or Rive.
 - **Anything that takes focus fades colours without the outline.** The app has
   no `transition-ui-colors` utility yet; until it does, a control names the
-  properties it fades, so the focus mark never arrives late.
+  properties it fades, so the focus mark never arrives late. A bare
+  `transition` fades `outline-color` too, and so does `transition-shadow` on a
+  ring.
 - **Entrances are short and quiet**: opacity with an 8px rise, as the onboarding
   step does (`onb-step-in`).
 - **Only the onboarding illustrations loop.** A looping animation is
@@ -229,10 +239,11 @@ Greeting copy on the welcome step uses the institutional headline ("Welcome to P
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
 
 Where the app does not follow this yet: the explore page's `brand-pulse` and
-`live-pulse` loop with no reduced-motion rule (`explore/explore.css`), and
-controls in `close-friends.tsx`, `FilterChip.tsx`, `ExploreNav.tsx`,
-`ShareEventButton.tsx` and `CalendarEventCard.tsx` fade with `transition-colors`,
-which fades the outline too.
+`live-pulse` loop with no reduced-motion rule (`explore/explore.css`), and these
+controls fade their focus mark with the colour: `FilterChip.tsx`,
+`ShareEventButton.tsx`, `CalendarEventCard.tsx`, the tab buttons in
+`ExploreNav.tsx` (`transition-colors`), its search box (`transition-shadow`
+under a focus ring), and `routes/series/[id].tsx` (bare `transition`).
 
 ## Future
 

@@ -350,7 +350,7 @@ its own tiers, where this report writes `U-` findings. For a gesture, also read
 ### Worst-case content
 
 When the diff draws a component that shows user data, read
-`.claude/skills/break-ui/SKILL.md` and `CATALOG.md` as a checklist, never
+`.claude/skills/break-ui/SKILL.md` and `.claude/skills/break-ui/CATALOG.md` as a checklist, never
 invoking the skill: it writes a demo toggle into the code, and this review
 changes nothing. Walk the changed markup against each case it lists: a long or
 unbroken name or email, a one-letter name, a missing field, a huge count, zero
