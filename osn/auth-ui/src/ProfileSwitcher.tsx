@@ -231,8 +231,8 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
             >
               Cancel
             </Button>
-            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={busy()}>
-              {busy() ? "Deleting..." : "Delete"}
+            <Button variant="destructive" size="sm" onClick={handleDelete} busy={busy()}>
+              {busy() ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -699,6 +699,21 @@ describe("Register component", () => {
       expect(toast.error).not.toHaveBeenCalled();
     });
 
+    // Only the button that started the wait is busy: a resend leaves Verify
+    // email as it was, and says "Sending…", not "Verifying…".
+    it("marks Resend busy while it sends, and leaves Verify email alone", async () => {
+      await reachVerify();
+      await vi.advanceTimersByTimeAsync(31_000);
+      stub.beginRegistration.mockReturnValueOnce(new Promise(() => {}));
+      fireEvent.click(screen.getByRole("button", { name: /^Resend code$/ }));
+      const sending = await screen.findByRole("button", { name: /Sending…/ });
+      expect(sending.getAttribute("aria-busy")).toBe("true");
+      expect((sending as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.queryByRole("button", { name: /Verifying…/ })).toBeNull();
+      const verify = screen.getByRole("button", { name: /^Verify email$/ });
+      expect(verify.getAttribute("aria-busy")).toBeNull();
+    });
+
     it("reads a refused resend as the map's sentence, with no toast", async () => {
       await reachVerify();
       await vi.advanceTimersByTimeAsync(31_000);

@@ -2,13 +2,13 @@ import { describeAuthError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { UsernameInput } from "@shared/ui/ui/username-input";
 import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
-import { fieldError, type FieldError } from "./error-lines";
+import { describedBy, fieldError, type FieldError } from "./error-lines";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 
@@ -81,11 +81,11 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
     }, 300);
   }
 
-  const canSubmit = () => handleStatus() === "available" && !busy();
+  const canSubmit = () => handleStatus() === "available";
 
   async function submit(e: Event) {
     e.preventDefault();
-    if (!canSubmit()) return;
+    if (busy() || !canSubmit()) return;
     setBusy(true);
     setError(null);
     try {
@@ -101,30 +101,33 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
 
   return (
     <form onSubmit={submit} class="flex flex-col gap-4">
-      <div class="flex flex-col gap-1">
-        <Label for="cpf-handle">Handle</Label>
-        <UsernameInput
-          id="cpf-handle"
-          required
-          value={handle()}
-          onInput={onHandleInput}
-          status={handleStatus()}
-          placeholder="lowercase, numbers, _"
-          invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
-          aria-describedby={error() ? errorId : undefined}
-          aria-invalid={error()?.invalid || undefined}
-        />
-      </div>
+      <Field labelTreatment="plain" label="Handle">
+        {(field) => (
+          <UsernameInput
+            id={field.id}
+            required
+            spellcheck={false}
+            value={handle()}
+            onInput={onHandleInput}
+            status={handleStatus()}
+            placeholder="lowercase, numbers, _"
+            invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
+            aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
+            aria-invalid={error()?.invalid || undefined}
+          />
+        )}
+      </Field>
 
-      <div class="flex flex-col gap-1">
-        <Label for="cpf-display-name">Display name (optional)</Label>
-        <Input
-          id="cpf-display-name"
-          type="text"
-          value={displayName()}
-          onInput={(e) => setDisplayName(e.currentTarget.value)}
-        />
-      </div>
+      <Field labelTreatment="plain" label="Display name (optional)">
+        {(field) => (
+          <Input
+            {...field}
+            type="text"
+            value={displayName()}
+            onInput={(e) => setDisplayName(e.currentTarget.value)}
+          />
+        )}
+      </Field>
 
       <Show when={error()}>
         {(line) => (
@@ -135,8 +138,8 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
       </Show>
 
       <div class="flex gap-2">
-        <Button type="submit" disabled={!canSubmit()} class="flex-1">
-          {busy() ? "Creating..." : "Create profile"}
+        <Button type="submit" busy={busy()} disabled={!busy() && !canSubmit()} class="flex-1">
+          {busy() ? "Creating…" : "Create profile"}
         </Button>
         {props.onCancel && (
           <Button type="button" variant="ghost" onClick={props.onCancel}>

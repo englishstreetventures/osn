@@ -6,12 +6,12 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
-import { Label } from "@shared/ui/ui/label";
+import { Field, type FieldControlProps } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { createResource, createSignal, createUniqueId, onMount, Show } from "solid-js";
 
-import { fieldError, inputError, plainError, type FieldError } from "./error-lines";
+import { describedBy, fieldError, inputError, plainError, type FieldError } from "./error-lines";
 import { describePasskeyError } from "./passkey-errors";
 
 /**
@@ -154,7 +154,6 @@ export function StepUpDialog(props: StepUpDialogProps) {
   // it; on the others, above the factor buttons.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
-  const codeId = createUniqueId();
   const onCodeStep = () => mode() === "otp" || mode() === "totp";
 
   // An unbound ceremony names no purpose, so there is no allow-list to look
@@ -280,9 +279,13 @@ export function StepUpDialog(props: StepUpDialogProps) {
       )}
     </Show>
   );
-  /** For the code field: names the line, and marks a refused code. */
-  const tie = () => ({
-    "aria-describedby": error() ? errorId : undefined,
+  /**
+   * For the code field: its id, the field's own description, then the line,
+   * and a mark on a refused code.
+   */
+  const tie = (field: FieldControlProps) => ({
+    id: field.id,
+    "aria-describedby": describedBy(field["aria-describedby"], error() && errorId),
     "aria-invalid": error()?.invalid || undefined,
   });
 
@@ -348,19 +351,21 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "otp"}>
         <div class="flex flex-col gap-2">
-          <div class="flex flex-col gap-1">
-            <Label for={codeId}>Code</Label>
-            <input
-              id={codeId}
-              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
-              inputmode="numeric"
-              maxLength={6}
-              value={code()}
-              onInput={(e) => setCode(e.currentTarget.value)}
-              {...tie()}
-            />
-            {errorLine()}
-          </div>
+          <Field labelTreatment="plain" label="Code">
+            {(field) => (
+              <>
+                <input
+                  class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
+                  inputmode="numeric"
+                  maxLength={6}
+                  value={code()}
+                  onInput={(e) => setCode(e.currentTarget.value)}
+                  {...tie(field)}
+                />
+                {errorLine()}
+              </>
+            )}
+          </Field>
           <Button onClick={completeOtp} disabled={busy()}>
             Confirm
           </Button>
@@ -371,20 +376,22 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "totp"}>
         <div class="flex flex-col gap-2">
-          <div class="flex flex-col gap-1">
-            <Label for={codeId}>Code from your authenticator app</Label>
-            <input
-              id={codeId}
-              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxLength={6}
-              value={code()}
-              onInput={(e) => setCode(e.currentTarget.value)}
-              {...tie()}
-            />
-            {errorLine()}
-          </div>
+          <Field labelTreatment="plain" label="Code from your authenticator app">
+            {(field) => (
+              <>
+                <input
+                  class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxLength={6}
+                  value={code()}
+                  onInput={(e) => setCode(e.currentTarget.value)}
+                  {...tie(field)}
+                />
+                {errorLine()}
+              </>
+            )}
+          </Field>
           <Button onClick={completeTotp} disabled={busy()}>
             Confirm
           </Button>

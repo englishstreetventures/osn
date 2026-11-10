@@ -319,7 +319,13 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                 </Notice>
               )}
             </Show>
-            <Button onClick={requestGenerate} disabled={locked()}>
+            {/* Busy only for the generate this button started; the first
+                read and an open step-up hold it disabled. */}
+            <Button
+              onClick={requestGenerate}
+              busy={busy()}
+              disabled={!busy() && (pending() || status.loading)}
+            >
               {busy()
                 ? "Generating…"
                 : // Same reason as the skeleton: say why the button is

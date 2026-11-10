@@ -414,6 +414,40 @@ describe("SignIn component", () => {
       cb?.("tok-2");
       await waitFor(() => expect(button().disabled).toBe(false));
     });
+
+    // Begin spends the token and the widget drops it at once, while the
+    // passkey prompt is still open. The button that started the wait stays
+    // busy, not disabled, so it keeps focus for the whole ceremony.
+    it("keeps Continue busy, and not disabled, while the passkey prompt is open", async () => {
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+          opts.callback?.("tok-1");
+          return "widget-1";
+        }),
+        reset: vi.fn(),
+        remove: vi.fn(),
+      };
+      login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
+      hoisted.startAuthentication.mockReturnValue(new Promise(() => {}));
+
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+          productName="Musubi"
+        />
+      ));
+      fillIdentifier("alice");
+      const idle = screen.getByRole("button", { name: /^Continue$/ }) as HTMLButtonElement;
+      await waitFor(() => expect(idle.disabled).toBe(false));
+
+      fireEvent.click(idle);
+      await waitFor(() => expect(hoisted.startAuthentication).toHaveBeenCalled());
+      const waiting = screen.getByRole("button", { name: /Verifying…/ }) as HTMLButtonElement;
+      expect(waiting.getAttribute("aria-busy")).toBe("true");
+      expect(waiting.disabled).toBe(false);
+    });
   });
 
   describe("WebAuthn-unsupported fallback", () => {
