@@ -712,10 +712,11 @@ grows from nothing as it fades in, on `--dur-base` with `--ease-out`, so the
 rows below move down with it rather than jump; it closes at once, because it
 holds fields. Where the portal draws it: a budget line's "per head" and
 "payments (n)" panels, and a message's time on a phone (§7, `MessageThread`).
-The owner asked for motion a little slower than the comparison page's fast
-defaults; `--dur-base`, one rung above `--dur-fast` (200ms on touch, 150ms at a
-desk), is the rung `Reveal` runs on for every caller, so a slower one is a
-change to `Reveal`, not to a call site. `Reveal` clips what it holds, so a
+The owner chose `--dur-base` for the budget panels on 2026-11-11: one rung
+above `--dur-fast` (200ms on touch, 150ms at a desk), a little slower than the
+comparison page's fast defaults. It is the one rung `Reveal` runs on for every
+caller; `Reveal` takes no duration prop, so a slower one is a change to
+`Reveal`, not to a call site. `Reveal` clips what it holds, so a
 control at a panel's edge needs 4px of room inside it for the focus ring: each
 part of a budget line carries 4px above, below and to its right, and the
 line's padding is 4px less, so every gap still measures 8px and a closed panel
