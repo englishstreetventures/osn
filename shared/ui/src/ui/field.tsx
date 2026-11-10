@@ -26,7 +26,9 @@
  * four.
  */
 
-import { createUniqueId, For, Show, untrack, type JSX } from "solid-js";
+import { children, createUniqueId, For, Show, untrack, type JSX } from "solid-js";
+
+import { LABEL_BASE, LABEL_SIZE_MD, LABEL_TONE_DEFAULT } from "./label-classes";
 
 /**
  * What {@link Field} hands its child: everything the control needs in order to
@@ -42,7 +44,7 @@ export interface FieldProps {
   /**
    * JSX rather than a string: a label often carries a lower-case qualifier —
    * "Note (optional)", "events.csv (optional)" — that has to opt out of the
-   * label's own `uppercase`.
+   * default label's `uppercase`.
    */
   label: JSX.Element;
   /** A standing note under the control — a format, a unit, a consequence, a running total. */
@@ -55,6 +57,15 @@ export interface FieldProps {
    * else does: this hides the label, it does not remove the need for one.
    */
   labelHidden?: boolean;
+  /**
+   * How the label looks. `caps` (the default) is cire's small-caps label in the
+   * secondary ink. `plain` is what `Label` draws by default — the words as
+   * written, full ink, weight 500, the control type step — for an app whose
+   * forms put a `Label` over each control. Only the label changes: the hint,
+   * the errors, the gaps and the wiring are the same in both. `labelHidden`
+   * wins over either.
+   */
+  labelTreatment?: "caps" | "plain";
   class?: string;
   /**
    * Called once, when the field mounts. Spread what it hands you onto the
@@ -67,20 +78,28 @@ const LABEL =
   "base:font-ui-body base:text-ui-ink-secondary base:text-ui-xs " +
   "base:tracking-ui-wider base:uppercase";
 
+// `Label`'s default look, from the strings `label.tsx` builds it with. Not
+// `labelVariants` itself, which would pull a variant helper into the apps that
+// only draw the default. `field-plain.browser.test.tsx` holds that the two
+// paint alike.
+const PLAIN_LABEL = `${LABEL_BASE} ${LABEL_TONE_DEFAULT} ${LABEL_SIZE_MD}`;
+
 /** The label, the control, the hint and the errors — in that order, wired. */
 export function Field(props: FieldProps) {
   const id = createUniqueId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
 
+  // Resolved once and held. A JSX hint reaches this component as a getter, so
+  // each `props.hint` read would build it again — once to test it, once to draw
+  // it, and once each time `describedBy` reruns.
+  const hint = children(() => props.hint);
   const hasErrors = () => (props.errors?.length ?? 0) > 0;
 
   // Errors first: when a field is wrong, that is the thing to hear before the
   // format note it just broke.
   const describedBy = () => {
-    const parts = [hasErrors() ? errorId : undefined, props.hint ? hintId : undefined].filter(
-      Boolean,
-    );
+    const parts = [hasErrors() ? errorId : undefined, hint() ? hintId : undefined].filter(Boolean);
     return parts.length > 0 ? parts.join(" ") : undefined;
   };
 
@@ -104,16 +123,25 @@ export function Field(props: FieldProps) {
 
   return (
     <div class={`base:flex base:flex-col base:gap-1.5${props.class ? ` ${props.class}` : ""}`}>
-      <label for={id} class={props.labelHidden ? "base:sr-only" : LABEL}>
+      <label
+        for={id}
+        class={
+          props.labelHidden
+            ? "base:sr-only"
+            : props.labelTreatment === "plain"
+              ? PLAIN_LABEL
+              : LABEL
+        }
+      >
         {props.label}
       </label>
       {control}
-      <Show when={props.hint}>
+      <Show when={hint()}>
         <p
           id={hintId}
           class="base:font-ui-body base:text-ui-ink-secondary base:text-ui-xs base:leading-ui-snug"
         >
-          {props.hint}
+          {hint()}
         </p>
       </Show>
       {/* A live region, because the usual way a message lands here is a save
@@ -146,8 +174,8 @@ export interface FieldsetProps {
  * A `<fieldset>` rather than a `<div>` with a heading, because the grouping is
  * what a screen reader needs in order to announce "Categories" before each
  * option rather than reading fourteen unrelated checkboxes. The browser's
- * default border and padding come off; the legend takes the same treatment as a
- * `Field` label so the two line up in a column of fields.
+ * default border and padding come off; the legend looks like a default `Field`
+ * label so the two line up in a column of fields.
  */
 export function Fieldset(props: FieldsetProps) {
   return (
