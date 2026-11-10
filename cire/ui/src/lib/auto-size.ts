@@ -151,7 +151,7 @@ export function createAutoSize(cap = AUTO_SIZE_CAP): AutoSize {
     if (event.target === frameEl && event.propertyName === "height") release();
   }
 
-  function apply(next: number, width: number) {
+  function apply(content: HTMLElement, next: number, width: number) {
     if (!frameEl) return;
     const from = last;
     const reflowed = lastWidth !== null && lastWidth !== width;
@@ -161,7 +161,7 @@ export function createAutoSize(cap = AUTO_SIZE_CAP): AutoSize {
     setHeight(next);
     // The change straight after a growth is its last step, so it follows too.
     const grew = growing;
-    growing = contentEl !== undefined && detailsGrowing(contentEl);
+    growing = detailsGrowing(content);
 
     if (reflowed || growing || grew || !autoSizeAnimates(from, next, cap)) {
       release();
@@ -193,7 +193,7 @@ export function createAutoSize(cap = AUTO_SIZE_CAP): AutoSize {
     // that collapses the moment it is put back.
     if (!contentEl?.isConnected) return;
     const rect = contentEl.getBoundingClientRect();
-    apply(rect.height, rect.width);
+    apply(contentEl, rect.height, rect.width);
   }
 
   function start() {

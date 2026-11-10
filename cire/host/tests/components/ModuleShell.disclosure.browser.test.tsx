@@ -233,7 +233,10 @@ describe("a disclosure growing inside the panel's auto-sized frame", () => {
       <Framed onFrame={(el) => (frame = el)}>
         <Show when={view() === "guide"} fallback={<p>No file chosen.</p>}>
           <Disclosure summary="How to structure your sheet" open>
-            {lines()}
+            {/* Lays out as 100.328125px, whole 64ths, and its computed length
+                is written as 100.328px: an open body at rest that reads a
+                hair shorter than it is. */}
+            <div style={{ height: "100.33px" }} />
           </Disclosure>
           <Show when={more()}>{lines()}</Show>
         </Show>
@@ -263,6 +266,12 @@ describe("a disclosure growing inside the panel's auto-sized frame", () => {
     // A view swapped in with its disclosure already open, and then a change
     // under that open disclosure: the frame moves to both.
     expect(await moves(() => setView("guide"))).toBe(true);
+    // The open body at rest reads short by less than the slack, not by nothing.
+    const details = frame.querySelector("details")!;
+    const shown = Number.parseFloat(getComputedStyle(details, "::details-content").height);
+    const body = details.lastElementChild!.getBoundingClientRect().height;
+    expect(body - shown).toBeGreaterThan(0);
+    expect(body - shown).toBeLessThan(0.01);
     expect(await moves(() => setMore(true))).toBe(true);
   });
 });
