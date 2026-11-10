@@ -7,7 +7,9 @@ import {
 import { Button } from "@shared/ui/ui/button";
 import { Field, type FieldControlProps } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
+import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
+import { OtpInput } from "@shared/ui/ui/otp-input";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
 import { describedBy, fieldError, type FieldError } from "./error-lines";
@@ -44,6 +46,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
   // Each phase's line sits under its one field, tied to it.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
+  const codeLabelId = createUniqueId();
 
   async function begin() {
     if (busy()) return;
@@ -131,23 +134,21 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
         <p class="text-muted-foreground text-sm">
           We sent a 6-digit code to {newEmail()}. Enter it below to continue.
         </p>
-        <Field labelTreatment="plain" label="Code">
-          {(field) => (
-            <>
-              <Input
-                face="code"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                spellcheck={false}
-                maxLength={6}
-                value={code()}
-                onInput={(e) => setCode(e.currentTarget.value)}
-                {...tie(field)}
-              />
-              {errorLine()}
-            </>
-          )}
-        </Field>
+        {/* `Field` names one control; the boxes are a group, named by the span. */}
+        <div class="flex flex-col gap-1.5">
+          <span class={labelVariants()} id={codeLabelId}>
+            Code
+          </span>
+          <OtpInput
+            value={code()}
+            onChange={setCode}
+            status={error()?.invalid ? "error" : busy() ? "verifying" : "idle"}
+            autofocus
+            aria-labelledby={codeLabelId}
+            aria-describedby={describedBy(error() && errorId)}
+          />
+          {errorLine()}
+        </div>
         <Button onClick={complete} busy={busy()} disabled={!busy() && code().length !== 6}>
           {busy() ? "Checking…" : "Confirm identity & change email"}
         </Button>

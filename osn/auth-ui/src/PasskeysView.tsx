@@ -9,6 +9,7 @@ import {
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, createUniqueId, For, Show } from "solid-js";
 
 import { fieldError, plainError, type FieldError } from "./error-lines";
@@ -91,6 +92,17 @@ export function PasskeysView(props: PasskeysViewProps) {
     const res = await props.client.list();
     return res.passkeys;
   });
+  /**
+   * The list once a read has landed, kept on screen while it is read again,
+   * and nothing before the first read lands or after one fails. It reads
+   * `state` first and never calls `passkeys()`: a failed resource throws when
+   * read, and a loading one joins the host's Suspense boundary, which on
+   * Settings swaps the whole tab for its fallback.
+   */
+  const list = () => {
+    const state = passkeys.state;
+    return state === "ready" || state === "refreshing" ? passkeys.latest : undefined;
+  };
   // A refused rename sits under the rename field, tied to it; any other
   // failure sits under the heading.
   const [error, setError] = createSignal<(FieldError & { rename: boolean }) | null>(null);
@@ -211,97 +223,101 @@ export function PasskeysView(props: PasskeysViewProps) {
           </Notice>
         )}
       </Show>
-      <Show when={passkeys.loading}>
-        <p class="text-muted-foreground text-sm">Loading…</p>
-      </Show>
-      {/* Read before the list: a failed resource throws when read. */}
-      <Show when={!passkeys.loading && passkeys.error}>
-        {(err) => (
-          <LoadFailed
-            lead="Your passkeys didn't load."
-            error={err()}
-            onRetry={() => setReloadKey((k) => k + 1)}
-          />
-        )}
-      </Show>
-      <Show when={!passkeys.error && passkeys()}>
-        {(list) => (
-          <ul class="flex flex-col gap-2">
-            <For each={list()}>
-              {(p: PasskeySummary) => (
-                <li class="flex items-center justify-between rounded-md border p-3">
-                  <div class="flex flex-col gap-0.5">
-                    <Show
-                      when={editingId() === p.id}
-                      fallback={
-                        <span class="font-medium">
-                          {friendlyLabel(p)}
-                          <Show when={p.backupEligible}>
-                            <span class="text-muted-foreground ml-2 text-xs">(synced)</span>
-                          </Show>
-                        </span>
-                      }
-                    >
-                      <div class="flex items-center gap-2">
-                        <Input
-                          class="h-8"
-                          value={draftLabel()}
-                          maxLength={64}
-                          onInput={(e) => setDraftLabel(e.currentTarget.value)}
-                          aria-label="Passkey name"
-                          aria-describedby={renameError() ? errorId : undefined}
-                          aria-invalid={renameError()?.invalid || undefined}
-                        />
+      {/* The list's place: one row's placeholder until the first read lands
+          (every account has a passkey), the failure, or the list. */}
+      <div aria-busy={passkeys.loading || undefined}>
+        <Show when={passkeys.loading && list() === undefined}>
+          <Skeleton height={17} />
+        </Show>
+        <Show when={!passkeys.loading && passkeys.error}>
+          {(err) => (
+            <LoadFailed
+              lead="Your passkeys didn't load."
+              error={err()}
+              onRetry={() => setReloadKey((k) => k + 1)}
+            />
+          )}
+        </Show>
+        <Show when={list()}>
+          {(rows) => (
+            <ul class="flex flex-col gap-2">
+              <For each={rows()}>
+                {(p: PasskeySummary) => (
+                  <li class="flex items-center justify-between rounded-md border p-3">
+                    <div class="flex flex-col gap-0.5">
+                      <Show
+                        when={editingId() === p.id}
+                        fallback={
+                          <span class="font-medium">
+                            {friendlyLabel(p)}
+                            <Show when={p.backupEligible}>
+                              <span class="text-muted-foreground ml-2 text-xs">(synced)</span>
+                            </Show>
+                          </span>
+                        }
+                      >
+                        <div class="flex items-center gap-2">
+                          <Input
+                            class="h-8"
+                            value={draftLabel()}
+                            maxLength={64}
+                            onInput={(e) => setDraftLabel(e.currentTarget.value)}
+                            aria-label="Passkey name"
+                            aria-describedby={renameError() ? errorId : undefined}
+                            aria-invalid={renameError()?.invalid || undefined}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => requestRename(p.id)}
+                            disabled={locked() || draftLabel().trim().length === 0}
+                          >
+                            Save
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={busy()}>
+                            Cancel
+                          </Button>
+                        </div>
+                        <Show when={renameError()}>
+                          {(line) => (
+                            <Notice tone="danger" size="inline" alert id={errorId}>
+                              {line().text}
+                            </Notice>
+                          )}
+                        </Show>
+                      </Show>
+                      <span class="text-muted-foreground text-xs">
+                        Added {formatTs(Math.floor(p.createdAt))} · Last used{" "}
+                        {formatTs(p.lastUsedAt)}
+                      </span>
+                    </div>
+                    <Show when={editingId() !== p.id}>
+                      <div class="flex gap-2">
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => requestRename(p.id)}
-                          disabled={locked() || draftLabel().trim().length === 0}
+                          onClick={() => startEdit(p)}
+                          disabled={locked()}
                         >
-                          Save
+                          Rename
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={busy()}>
-                          Cancel
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => requestDelete(p.id)}
+                          disabled={locked()}
+                        >
+                          Delete
                         </Button>
                       </div>
-                      <Show when={renameError()}>
-                        {(line) => (
-                          <Notice tone="danger" size="inline" alert id={errorId}>
-                            {line().text}
-                          </Notice>
-                        )}
-                      </Show>
                     </Show>
-                    <span class="text-muted-foreground text-xs">
-                      Added {formatTs(Math.floor(p.createdAt))} · Last used {formatTs(p.lastUsedAt)}
-                    </span>
-                  </div>
-                  <Show when={editingId() !== p.id}>
-                    <div class="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => startEdit(p)}
-                        disabled={locked()}
-                      >
-                        Rename
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => requestDelete(p.id)}
-                        disabled={locked()}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </Show>
-                </li>
-              )}
-            </For>
-          </ul>
-        )}
-      </Show>
+                  </li>
+                )}
+              </For>
+            </ul>
+          )}
+        </Show>
+      </div>
       <details class="text-muted-foreground mt-2 text-sm">
         <summary class="text-foreground cursor-pointer font-medium">
           Signing in somewhere new?

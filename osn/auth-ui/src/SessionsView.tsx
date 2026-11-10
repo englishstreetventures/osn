@@ -1,6 +1,7 @@
 import { describeAuthError, type SessionsClient, type SessionSummary } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { LoadFailed } from "./LoadFailed";
@@ -39,6 +40,16 @@ export function SessionsView(props: SessionsViewProps) {
     const res = await props.client.list();
     return res.sessions;
   });
+  /**
+   * The list once a read has landed, kept on screen while it is read again,
+   * and nothing before the first read lands or after one fails. It reads
+   * `state` first and never calls `sessions()`: a failed resource throws when
+   * read, and a loading one joins the host's Suspense boundary.
+   */
+  const list = () => {
+    const state = sessions.state;
+    return state === "ready" || state === "refreshing" ? sessions.latest : undefined;
+  };
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
 
@@ -86,50 +97,53 @@ export function SessionsView(props: SessionsViewProps) {
           </Notice>
         )}
       </Show>
-      <Show when={sessions.loading}>
-        <p class="text-muted-foreground text-sm">Loading…</p>
-      </Show>
-      {/* Read before the list: a failed resource throws when read. */}
-      <Show when={!sessions.loading && sessions.error}>
-        {(err) => (
-          <LoadFailed
-            lead="Your sessions didn't load."
-            error={err()}
-            onRetry={() => setReloadKey((k) => k + 1)}
-          />
-        )}
-      </Show>
-      <Show when={!sessions.error && sessions()}>
-        {(list) => (
-          <ul class="flex flex-col gap-2">
-            <For each={list()}>
-              {(s: SessionSummary) => (
-                <li class="flex items-center justify-between rounded-md border p-3">
-                  <div class="flex flex-col gap-0.5">
-                    <span class="font-medium">
-                      {s.uaLabel ?? "Unknown device"}
-                      <Show when={s.isCurrent}>
-                        <span class="text-primary ml-2 text-xs">(this device)</span>
-                      </Show>
-                    </span>
-                    <span class="text-muted-foreground text-xs">
-                      Created {formatTs(s.createdAt)} · Last used {formatTs(s.lastUsedAt)}
-                    </span>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => revoke(s.id)}
-                    disabled={busy() || s.isCurrent}
-                  >
-                    Revoke
-                  </Button>
-                </li>
-              )}
-            </For>
-          </ul>
-        )}
-      </Show>
+      {/* The list's place: one row's placeholder until the first read lands
+          (this session is always on it), the failure, or the list. */}
+      <div aria-busy={sessions.loading || undefined}>
+        <Show when={sessions.loading && list() === undefined}>
+          <Skeleton height={17} />
+        </Show>
+        <Show when={!sessions.loading && sessions.error}>
+          {(err) => (
+            <LoadFailed
+              lead="Your sessions didn't load."
+              error={err()}
+              onRetry={() => setReloadKey((k) => k + 1)}
+            />
+          )}
+        </Show>
+        <Show when={list()}>
+          {(rows) => (
+            <ul class="flex flex-col gap-2">
+              <For each={rows()}>
+                {(s: SessionSummary) => (
+                  <li class="flex items-center justify-between rounded-md border p-3">
+                    <div class="flex flex-col gap-0.5">
+                      <span class="font-medium">
+                        {s.uaLabel ?? "Unknown device"}
+                        <Show when={s.isCurrent}>
+                          <span class="text-primary ml-2 text-xs">(this device)</span>
+                        </Show>
+                      </span>
+                      <span class="text-muted-foreground text-xs">
+                        Created {formatTs(s.createdAt)} · Last used {formatTs(s.lastUsedAt)}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => revoke(s.id)}
+                      disabled={busy() || s.isCurrent}
+                    >
+                      Revoke
+                    </Button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          )}
+        </Show>
+      </div>
     </div>
   );
 }

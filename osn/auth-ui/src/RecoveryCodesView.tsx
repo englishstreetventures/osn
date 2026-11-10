@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@shared/ui/ui/dialog";
 import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
@@ -191,8 +192,10 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   // `status.loading` is also true on the refetch `acknowledge()` triggers, and
   // gating on it would withdraw an already-known count from the screen for a
   // round-trip — the same "don't blank a warm value" rule that put `hasCodes()`
-  // and `mayHaveCodes()` on `.latest`.
-  const firstLoad = () => status.loading && status.latest === undefined;
+  // and `mayHaveCodes()` on `.latest`. `state`, not `.latest`: until the first
+  // read lands `.latest` is the resource's own read, which joins the host's
+  // Suspense boundary and would swap the whole Settings tab for its fallback.
+  const firstLoad = () => status.state === "pending";
 
   function requestGenerate() {
     if (locked()) return;
@@ -275,44 +278,41 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                 panel would otherwise show a blank gap above a disabled
                 button — indistinguishable from a broken one. Reserve the
                 line's height so nothing shifts when the count lands. */}
-            <Show
-              when={!firstLoad()}
-              fallback={
-                <div
-                  class="bg-muted/50 h-5 w-56 animate-pulse rounded"
-                  aria-hidden="true"
-                  data-testid="recovery-status-skeleton"
-                />
-              }
-            >
+            <div aria-busy={firstLoad() || undefined}>
               <Show
-                when={status()}
-                fallback={
-                  <p class="text-muted-foreground text-sm">
-                    Couldn't check whether you have recovery codes.
-                  </p>
-                }
+                when={!firstLoad()}
+                fallback={<Skeleton standsFor="line" width={56} height={5} />}
               >
-                {(s) => (
-                  <Show
-                    when={s().total > 0}
-                    fallback={
-                      <p class="text-destructive text-sm">
-                        You don't have any recovery codes yet. Without them, losing every device
-                        with your passkey locks you out.
-                      </p>
-                    }
-                  >
+                {/* `.latest`, so a refetch keeps the count on screen. */}
+                <Show
+                  when={status.latest}
+                  fallback={
                     <p class="text-muted-foreground text-sm">
-                      {s().active} of {s().total} codes unused
-                      <Show when={s().generatedAt}>
-                        {(ts) => <> · created {formatDate(ts())}</>}
-                      </Show>
+                      Couldn't check whether you have recovery codes.
                     </p>
-                  </Show>
-                )}
+                  }
+                >
+                  {(s) => (
+                    <Show
+                      when={s().total > 0}
+                      fallback={
+                        <p class="text-destructive text-sm">
+                          You don't have any recovery codes yet. Without them, losing every device
+                          with your passkey locks you out.
+                        </p>
+                      }
+                    >
+                      <p class="text-muted-foreground text-sm">
+                        {s().active} of {s().total} codes unused
+                        <Show when={s().generatedAt}>
+                          {(ts) => <> · created {formatDate(ts())}</>}
+                        </Show>
+                      </p>
+                    </Show>
+                  )}
+                </Show>
               </Show>
-            </Show>
+            </div>
             <Show when={error()}>
               {(msg) => (
                 <Notice tone="danger" size="inline" alert>

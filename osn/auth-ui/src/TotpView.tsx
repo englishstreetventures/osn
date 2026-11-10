@@ -13,8 +13,10 @@ import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { QrCode } from "@shared/ui/ui/qr-code";
-import { createResource, createSignal, onCleanup, Show } from "solid-js";
+import { Skeleton } from "@shared/ui/ui/skeleton";
+import { createResource, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
+import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
@@ -71,8 +73,15 @@ function formatTs(ts: number | null): string {
 export function TotpView(props: TotpViewProps) {
   const [reloadKey, setReloadKey] = createSignal(0);
   const [status] = createResource(reloadKey, () => props.client.status());
-  // A failed resource throws when read, so every read goes through this.
-  const current = () => (status.error ? undefined : status());
+  /**
+   * The status once a read has landed, and nothing while one is out or after
+   * one failed. It reads `state` first and never calls `status()`: a failed
+   * resource throws when read, and a loading one joins the host's Suspense
+   * boundary, which on Settings swaps the whole tab for its fallback. While a
+   * read is out the view shows its own placeholder instead, on a refetch too,
+   * since the status it reads again is the thing that just changed.
+   */
+  const current = () => (status.state === "ready" ? status.latest : undefined);
 
   // The only place the shared secret exists in this component. Cleared on
   // every exit from the enrolment panel, including unmount.
@@ -81,9 +90,13 @@ export function TotpView(props: TotpViewProps) {
   const [label, setLabel] = createSignal("");
   const [pending, setPending] = createSignal<Pending>(null);
   const [busy, setBusy] = createSignal(false);
-  // A refused code sits under the code boxes; any other failure under the
-  // heading's note. Errors are lines, never toasts: toasts are for success.
-  const [error, setError] = createSignal<{ text: string; code: boolean } | null>(null);
+  // A refused code sits under the code boxes, tied to them; any other
+  // failure under the heading's note. Errors are lines, never toasts: toasts
+  // are for success.
+  const [error, setError] = createSignal<(FieldError & { code: boolean }) | null>(null);
+  const codeError = () => (error()?.code ? error() : null);
+  const codeLabelId = createUniqueId();
+  const codeErrorId = createUniqueId();
 
   function clearEnrollment() {
     setEnrollment(null);
@@ -135,7 +148,7 @@ export function TotpView(props: TotpViewProps) {
         toast.success("Authenticator app removed");
       }
     } catch (e) {
-      setError({ text: describeAuthError(e), code: false });
+      setError({ ...plainError(describeAuthError(e)), code: false });
     } finally {
       setBusy(false);
       setPending(null);
@@ -161,7 +174,7 @@ export function TotpView(props: TotpViewProps) {
       // The pending secret is parked server-side for ten minutes. Past that
       // the code cannot be checked against anything and the user has to start
       // again — so the error keeps the panel, and "Cancel" is the way out.
-      setError({ text: describeAuthError(e, "code"), code: true });
+      setError({ ...fieldError(describeAuthError(e, "code"), e), code: true });
     } finally {
       setBusy(false);
     }
@@ -191,38 +204,49 @@ export function TotpView(props: TotpViewProps) {
         )}
       </Show>
 
-      <Show when={status.loading && enrollment() === null}>
-        <p class="text-muted-foreground text-sm">Loading…</p>
-      </Show>
-
-      <Show when={!status.loading && status.error}>
-        {(err) => (
-          <LoadFailed
-            lead="Your authenticator app didn't load."
-            error={err()}
-            onRetry={() => setReloadKey((k) => k + 1)}
-          />
-        )}
-      </Show>
-
-      <Show when={current()?.enrolled === true && enrollment() === null}>
-        <div class="flex items-center justify-between rounded-md border p-3">
-          <div class="flex flex-col gap-0.5">
-            <span class="font-medium">{current()?.label ?? "Authenticator app"}</span>
-            <span class="text-muted-foreground text-xs">
-              Added {formatTs(current()?.createdAt ?? null)} · Last used{" "}
-              {formatTs(current()?.lastUsedAt ?? null)}
-            </span>
-          </div>
-          <Button variant="outline" size="sm" onClick={requestDisable} disabled={locked()}>
-            Remove
-          </Button>
+      {/* The status row's place: a row's placeholder while a read is out, the
+          failure, or the enrolled app. Drawn only when one of them shows, so
+          an account with none set up gets no empty slot. */}
+      <Show
+        when={
+          enrollment() === null && (status.loading || status.error || current()?.enrolled === true)
+        }
+      >
+        <div aria-busy={status.loading || undefined}>
+          <Show when={status.loading}>
+            <Skeleton height={17} />
+          </Show>
+          <Show when={!status.loading && status.error}>
+            {(err) => (
+              <LoadFailed
+                lead="Your authenticator app didn't load."
+                error={err()}
+                onRetry={() => setReloadKey((k) => k + 1)}
+              />
+            )}
+          </Show>
+          <Show when={current()?.enrolled === true}>
+            <div class="flex items-center justify-between rounded-md border p-3">
+              <div class="flex flex-col gap-0.5">
+                <span class="font-medium">{current()?.label ?? "Authenticator app"}</span>
+                <span class="text-muted-foreground text-xs">
+                  Added {formatTs(current()?.createdAt ?? null)} · Last used{" "}
+                  {formatTs(current()?.lastUsedAt ?? null)}
+                </span>
+              </div>
+              <Button variant="outline" size="sm" onClick={requestDisable} disabled={locked()}>
+                Remove
+              </Button>
+            </div>
+          </Show>
         </div>
       </Show>
 
       <Show when={enrollment()}>
         {(secret) => (
-          <div class="flex flex-col gap-4 rounded-md border p-4">
+          // Below `md` the step drops its frame, so the code row keeps the
+          // column Settings' card gives it (§4 Layout in DESIGN.md).
+          <div class="flex flex-col gap-4 rounded-md border p-4 max-md:border-0 max-md:p-0">
             <div class="flex flex-col gap-1">
               <h3 class="font-medium">Scan this with your authenticator app</h3>
               <p class="text-muted-foreground text-sm">
@@ -264,18 +288,20 @@ export function TotpView(props: TotpViewProps) {
             </Field>
 
             <div class="flex flex-col gap-1.5">
-              <span class={labelVariants()}>Code from the app</span>
+              <span class={labelVariants()} id={codeLabelId}>
+                Code from the app
+              </span>
               <OtpInput
                 value={code()}
                 onChange={setCode}
-                status={error()?.code ? "error" : busy() ? "verifying" : "idle"}
+                status={codeError()?.invalid ? "error" : busy() ? "verifying" : "idle"}
                 autofocus
+                aria-labelledby={codeLabelId}
+                aria-describedby={describedBy(codeError() && codeErrorId)}
               />
-              {/* Announced, not yet tied: `OtpInput` takes no
-                  `aria-describedby` until englishstreetventures/osn#2041. */}
-              <Show when={error()?.code && error()}>
+              <Show when={codeError()}>
                 {(line) => (
-                  <Notice tone="danger" size="inline" alert>
+                  <Notice tone="danger" size="inline" alert id={codeErrorId}>
                     {line().text}
                   </Notice>
                 )}
