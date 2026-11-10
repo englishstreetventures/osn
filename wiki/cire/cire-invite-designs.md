@@ -15,7 +15,7 @@ related:
   - "[[component-library]]"
 last-reviewed: 2026-11-11
 ---
-# Invite design selector
+# Cire invite design selector
 
 A wedding's invite renders as one of several full template packs. The design id
 lives on `wedding_invite_customisations.design_id` (0045, default `classic`);
