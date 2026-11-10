@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -135,8 +135,8 @@ the box below).
 > real provider — Resend, or the legacy Cloudflare creds — **overrides the opt-in**.
 > While the opt-in is active AND no provider is set, osn-api boots with a
 > **no-op email transport** that **DISCARDS** every transactional email (loud redacted
-> startup warning); **OTP step-up, email-change OTPs, and security-notice emails (passkey
-> added/removed, recovery-code generate/consume, cross-device login) are NOT delivered**.
+> startup warning); **OTP step-up, email-change OTPs, and every security-notice email
+> (the template table in [[email]]) are NOT delivered**.
 > **Passkey login is primary and unaffected.** **Do NOT remove `OSN_EMAIL_OPTIONAL` in the
 > same change that adds Resend** — set the secret, confirm delivery, *then* drop the opt-in
 > (step 7) so there is never a window where the Worker fails closed before the secret lands.

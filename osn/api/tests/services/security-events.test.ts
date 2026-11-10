@@ -1,12 +1,14 @@
 import { it, expect, describe } from "@effect/vitest";
+import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import type { StepUpPurpose } from "@shared/observability/metrics";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 /**
  * M-PK1b: security_events audit trail + out-of-band notification.
@@ -528,5 +530,82 @@ describe("acknowledgeAllSecurityEvents (S-M1 bulk path)", () => {
       const ownerList = yield* auth.listUnacknowledgedSecurityEvents(owner.accountId);
       expect(ownerList.events).toHaveLength(1);
     }).pipe(Effect.provide(cap.layer));
+  });
+});
+
+/**
+ * An acknowledgement reports and counts the rows its own write changed. Each
+ * case holds the acknowledging UPDATE while another write lands.
+ */
+describe("acknowledgement while another write lands", () => {
+  function makeHeld() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const held = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: held.db }), email.layer),
+      hold: held.hold,
+      sqlite,
+    };
+  }
+
+  const ackToken = (auth: ReturnType<typeof createAuthService>, accountId: string) =>
+    auth.issueStepUpToken(accountId, "otp", "security_event_ack");
+
+  it.live("of two acks of one event, exactly one acknowledges it", () => {
+    const { layer, hold } = makeHeld();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-race-one@example.com", "sevraceone");
+      yield* auth.generateRecoveryCodesForAccount(profile.accountId);
+      const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
+      const id = events[0]!.id;
+      const [first, second] = yield* Effect.all([
+        ackToken(auth, profile.accountId),
+        ackToken(auth, profile.accountId),
+      ]);
+
+      const firstWrite = hold(/^update "security_events"/);
+      const a = yield* Effect.forkChild(
+        auth.acknowledgeSecurityEvent(profile.accountId, id, first),
+      );
+      yield* Effect.promise(() => firstWrite.reached);
+      const b = yield* auth.acknowledgeSecurityEvent(profile.accountId, id, second);
+      firstWrite.release();
+      const aResult = yield* Fiber.join(a);
+
+      expect([aResult.acknowledged, b.acknowledged].filter(Boolean)).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("ack-all reports every row it acknowledged", () => {
+    const { layer, hold, sqlite } = makeHeld();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-race-all@example.com", "sevraceall");
+      yield* auth.generateRecoveryCodesForAccount(profile.accountId);
+      const token = yield* ackToken(auth, profile.accountId);
+
+      const write = hold(/^update "security_events"/);
+      const all = yield* Effect.forkChild(
+        auth.acknowledgeAllSecurityEvents(profile.accountId, token),
+      );
+      yield* Effect.promise(() => write.reached);
+      // A second event lands before the acknowledging write runs.
+      sqlite
+        .query(
+          `INSERT INTO security_events (id, account_id, kind, created_at, acknowledged_at)
+           VALUES (?, ?, 'totp_enrolled', ?, NULL)`,
+        )
+        .run("sev_aaaaaaaaaaaa", profile.accountId, Math.floor(Date.now() / 1000));
+      write.release();
+      const result = yield* Fiber.join(all);
+
+      const acked = sqlite
+        .query(
+          "SELECT count(*) AS n FROM security_events WHERE account_id = ? AND acknowledged_at IS NOT NULL",
+        )
+        .get(profile.accountId) as { n: number };
+      expect(result.acknowledged).toBe(acked.n);
+    }).pipe(Effect.provide(layer));
   });
 });

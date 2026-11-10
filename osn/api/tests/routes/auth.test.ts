@@ -265,7 +265,7 @@ describe("auth routes", () => {
       expect(((await checkRes.json()) as { available: boolean }).available).toBe(true);
     });
 
-    it("S-M1: returns sent:true silently when the email is already registered", async () => {
+    it("returns sent:true silently when the email is already registered", async () => {
       // Enumeration-resistant: never differentiate between "free" and "taken"
       // accounts on /register/begin. The handle availability check is the
       // appropriate channel for that question.
@@ -292,7 +292,7 @@ describe("auth routes", () => {
       expect(((await res.json()) as { sent: boolean }).sent).toBe(true);
     });
 
-    it("S-M1: returns sent:true silently when the handle is already taken", async () => {
+    it("returns sent:true silently when the handle is already taken", async () => {
       await app.handle(
         new Request("http://localhost/register", {
           method: "POST",
@@ -332,7 +332,7 @@ describe("auth routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("C-H8: rejects an under-13 birthdate with 422 and a generic message", async () => {
+    it("rejects an under-13 birthdate with 422 and a generic message", async () => {
       const capture = buildEmailCapture(layer);
       const gatedApp = createAuthRoutes(config, capture.layer);
       const twelveYearsAgo = new Date();
@@ -357,7 +357,7 @@ describe("auth routes", () => {
       expect(capture.code()).toBeUndefined();
     });
 
-    it("C-H8: rejects a malformed birthdate with 400 (not 422) on the wire", async () => {
+    it("rejects a malformed birthdate with 400 (not 422) on the wire", async () => {
       const res = await settledHandle(
         app,
         new Request("http://localhost/register/begin", {
@@ -572,7 +572,7 @@ describe("auth routes", () => {
       expect(rotatedAfterReuse.status).toBe(200);
     });
 
-    it("rejects refresh_token supplied in the body (cookie-only contract, S-M1)", async () => {
+    it("rejects refresh_token supplied in the body (cookie-only contract)", async () => {
       // The body fallback was removed: any refresh_token submitted outside
       // the HttpOnly cookie must fail with invalid_request, independent of
       // whether the token itself would be valid.
@@ -727,7 +727,7 @@ describe("auth routes", () => {
     // endpoint. (A subsequent /login/passkey/complete on the synthetic
     // branches fails at the challenge-lookup guard, indistinguishable
     // from a legitimate timeout.)
-    it("returns 200 with synthetic options for an unknown identifier (S-M1)", async () => {
+    it("returns 200 with synthetic options for an unknown identifier", async () => {
       const res = await app.handle(
         new Request("http://localhost/login/passkey/begin", {
           method: "POST",
@@ -743,7 +743,7 @@ describe("auth routes", () => {
       expect(body.options.userVerification).toBe("required");
     });
 
-    it("returns 200 with synthetic options when the account has no passkey (S-M1)", async () => {
+    it("returns 200 with synthetic options when the account has no passkey", async () => {
       const svc = createAuthService(config);
       await Effect.runPromise(
         svc.registerProfile("pk-begin@example.com", "pkbegin").pipe(Effect.provide(layer)),
@@ -1077,7 +1077,7 @@ describe("auth routes", () => {
     // Begin requires a step-up token once the account has ≥1
     // passkey. A bare access token is insufficient — a stolen token
     // (XSS) cannot silently enroll a new authenticator.
-    it("S-H1: rejects when account has ≥1 passkey and no step-up token", async () => {
+    it("rejects when account has ≥1 passkey and no step-up token", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
         svc.registerProfile("ulla@example.com", "ulla").pipe(Effect.provide(layer)),
@@ -1490,7 +1490,7 @@ describe("auth routes", () => {
       expect(res.status).toBe(429);
     });
 
-    it("fails closed when the backend rejects (S-M1)", async () => {
+    it("fails closed when the backend rejects", async () => {
       // A store outage where check() rejects.
       const failing: RateLimiterBackend = {
         check: () => Promise.reject(new Error("store unreachable")),
@@ -2332,6 +2332,23 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
+    it("POST /account/email/complete refuses a missing or invalid bearer token", async () => {
+      const attempts: Record<string, string>[] = [
+        { "Content-Type": "application/json" },
+        { "Content-Type": "application/json", Authorization: "Bearer not.a.jwt" },
+      ];
+      for (const headers of attempts) {
+        const res = await app.handle(
+          new Request("http://localhost/account/email/complete", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ code: "000000", step_up_token: "not.a.jwt" }),
+          }),
+        );
+        expect(res.status).toBe(401);
+      }
+    });
+
     it("end-to-end: begin → mint step-up → complete swaps the email", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
 
@@ -2366,6 +2383,50 @@ describe("auth routes", () => {
       expect(completeRes.status).toBe(200);
       const json = (await completeRes.json()) as { email: string };
       expect(json.email).toBe("ec-route-next@example.com");
+    });
+
+    it("a completed change lists an email_changed event naming the device that made it", async () => {
+      const { app: freshApp, accessToken, captured } = await setupWithStepUp();
+      await freshApp.handle(
+        new Request("http://localhost/account/email/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ new_email: "ec-route-event@example.com" }),
+        }),
+      );
+      const beginOtp = captured.last!;
+      const stepUpToken = await mintStepUpToken(freshApp, accessToken, captured, "email_change");
+
+      const completeRes = await settledHandle(
+        freshApp,
+        new Request("http://localhost/account/email/complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:128.0) Gecko/20100101 Firefox/128.0",
+          },
+          body: JSON.stringify({ code: beginOtp, step_up_token: stepUpToken }),
+        }),
+      );
+      expect(completeRes.status).toBe(200);
+
+      const listRes = await freshApp.handle(
+        new Request("http://localhost/account/security-events", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(listRes.status).toBe(200);
+      const { events } = (await listRes.json()) as {
+        events: Array<{ kind: string; uaLabel: string | null }>;
+      };
+      const changed = events.filter((e) => e.kind === "email_changed");
+      expect(changed).toHaveLength(1);
+      expect(changed[0]!.uaLabel).toBe("Firefox on macOS");
     });
 
     it("POST /account/email/complete fails without a step-up token", async () => {

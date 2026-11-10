@@ -1,21 +1,25 @@
 /**
  * Email change (step-up gated): OTP to the NEW address, 2-per-7-days hard
- * cap, atomic swap + audit row + other-session revocation.
+ * cap, atomic swap + audit row + other-session revocation + security event,
+ * then a notice to the address the change replaced.
  */
 
-import { accounts, emailChanges, sessions } from "@osn/db/schema";
+import { accounts, emailChanges, securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { driverErrorText, rowsChanged } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
+import type { SecurityEventKind } from "@shared/observability/metrics";
 import { and, count as countFn, eq, exists, gte, lt, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import { canBatch } from "../../lib/batch";
 import { bound } from "../../lib/bound";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import {
   metricAuthOtpSent,
+  metricSecurityEventRecorded,
   metricSessionSecurityInvalidation,
   withEmailChange,
 } from "../../metrics";
@@ -24,13 +28,19 @@ import { MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError, ValidationError } from "./errors";
 import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./helpers";
+import type { SecurityEventsModule } from "./security-events";
 import { outsideFamilyOf } from "./sessions";
 import type { StepUpModule } from "./step-up";
 import { storeCall } from "./store-call";
 import type { PendingEmailChange } from "./stores";
+import type { SessionMeta } from "./types";
 
-export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
-  const { config, stores, otpTtl, emailChangeBeginCap } = ctx;
+export function createEmailChangeModule(
+  ctx: AuthContext,
+  stepUp: StepUpModule,
+  securityEventsModule: SecurityEventsModule,
+) {
+  const { config, stores, otpTtl, emailChangeBeginCap, hashIp } = ctx;
   const { verifyStepUpForEmailChange } = stepUp;
 
   const EMAIL_CHANGE_LIMIT = 2;
@@ -184,15 +194,22 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
    *
    * On success: the accounts row is updated, every OTHER session is
    * revoked (the caller's stays so they don't get kicked out of the
-   * Settings flow), and an audit row is inserted — one D1 batch. One code
-   * commits one change: the code's entry is claimed before the commit.
+   * Settings flow), and an audit row and an `email_changed` security event
+   * are inserted — one D1 batch. One code commits one change: the code's
+   * entry is claimed before the commit. Once the change is on record, a
+   * notice goes to the address it replaced, off the response path.
    */
   const completeEmailChange = (
     accountId: string,
     code: string,
     stepUpToken: string,
     currentSessionHash: string | null,
-  ): Effect.Effect<{ email: string }, AuthError | DatabaseError | CoordinationError, Db> =>
+    eventMeta?: SessionMeta,
+  ): Effect.Effect<
+    { email: string },
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       // Purpose-bound: a token minted for another ceremony (recovery generate,
       // passkey delete) cannot be replayed to complete an email swap. The
@@ -303,10 +320,20 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
               outsideFamilyOf(db, sessions.familyId, currentSessionHash),
             )
           : eq(sessions.accountId, accountId);
+      // The swap moves only the address the preflight read, which is the one
+      // `previous_email` records and the notice goes to. A change that
+      // committed after that read has moved it, so this swap moves nothing
+      // and the request is refused with the cap's error, as below.
       const swap = db
         .update(accounts)
         .set({ email: pending.newEmail, updatedAt: new Date(nowSec * 1000) })
-        .where(and(eq(accounts.id, accountId), lt(recentChanges, EMAIL_CHANGE_LIMIT)));
+        .where(
+          and(
+            eq(accounts.id, accountId),
+            eq(accounts.email, currentAccountRow.email),
+            lt(recentChanges, EMAIL_CHANGE_LIMIT),
+          ),
+        );
       // Records the change only while the account holds the address this
       // request wrote. Where two requests' statements interleave (bun:sqlite
       // runs them one at a time; D1 might), only the one whose address landed
@@ -334,6 +361,55 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       // A refused request's sessions stay: the wipe runs only once its own
       // change is on record.
       const wipe = db.delete(sessions).where(and(otherSessions, ownChangeRecorded));
+      // The security event is selected from this request's own change row, so
+      // it is written exactly when that change is on record, as the wipe is.
+      const event = db.insert(securityEvents).select(
+        db
+          .select({
+            id: bound(genId("sev_"), securityEvents.id),
+            accountId: bound(accountId, securityEvents.accountId),
+            kind: bound("email_changed" satisfies SecurityEventKind, securityEvents.kind),
+            createdAt: bound(nowSec, securityEvents.createdAt),
+            ipHash: bound(eventMeta?.ip ? hashIp(eventMeta.ip) : null, securityEvents.ipHash),
+            uaLabel: bound(eventMeta?.uaLabel ?? null, securityEvents.uaLabel),
+          })
+          .from(emailChanges)
+          .where(eq(emailChanges.id, changeId)),
+      );
+      // The notice goes to the address the preflight read, which the swap
+      // above replaced, so it shares `previous_email`'s limit: where two
+      // changes' statements interleave (bun:sqlite runs them one at a time) it
+      // can name the other one's address. Forked with a timeout, so mailer
+      // health never reaches the response.
+      const notifyPrevious = forkBackground(
+        securityEventsModule
+          .notifySecurityEventTo(currentAccountRow.email, "email_changed", "email-changed", {
+            newEmail: pending.newEmail,
+          })
+          .pipe(
+            Effect.timeout("10 seconds"),
+            Effect.catch(() => Effect.void),
+          ),
+      );
+      // A commit can report a failure for a change that stands — D1 can fail
+      // a batch it has committed, and bun:sqlite runs the statements one at a
+      // time — so a failed commit still sends the notice when this request's
+      // change is on record or the account holds the address it wrote. The
+      // caller gets the failure either way.
+      const notifyIfChanged = Effect.tryPromise(() =>
+        db
+          .select({ email: accounts.email, recorded: sql<number>`${ownChangeRecorded}` })
+          .from(accounts)
+          .where(eq(accounts.id, accountId))
+          .limit(1),
+      ).pipe(
+        Effect.flatMap(([row]) =>
+          row && (row.email === pending.newEmail || Number(row.recorded) === 1)
+            ? notifyPrevious
+            : Effect.void,
+        ),
+        Effect.ignore,
+      );
 
       const changed = yield* Effect.tryPromise({
         try: async () => {
@@ -347,8 +423,8 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
             // with two changes committing together it can name the address
             // before the other one.
             const [, recorded] = canBatch(db)
-              ? await db.batch([swap, record, wipe])
-              : ([await swap, await record, await wipe] as const);
+              ? await db.batch([swap, record, wipe, event])
+              : ([await swap, await record, await wipe, await event] as const);
             if (rowsChanged(recorded) !== 1)
               return { ok: false as const, reason: "capped" as const };
             return { ok: true as const, email: pending.newEmail };
@@ -365,7 +441,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
           }
         },
         catch: (cause) => new DatabaseError({ cause }),
-      });
+      }).pipe(Effect.tapError(() => notifyIfChanged));
 
       if (!changed.ok && changed.reason === "capped") {
         return yield* Effect.fail(
@@ -385,6 +461,8 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
 
       metricSessionSecurityInvalidation("email_change");
+      metricSecurityEventRecorded("email_changed");
+      yield* notifyPrevious;
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));
 

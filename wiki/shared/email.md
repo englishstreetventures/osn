@@ -24,14 +24,15 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-11
 ---
 
 # Email Transport
 
 OSN's transactional-email surface. Dispatches OTP codes (registration,
-step-up, email-change) and security-event notifications
-(recovery-code generate/consume, passkey added/removed) to users. No
+step-up, email-change) and security-event notifications (recovery codes,
+passkeys, TOTP, cross-device sign-in, account recovery, email change) to
+users. No
 marketing mail, no product updates — only auth-critical transactional
 email.
 
@@ -40,7 +41,7 @@ email.
 ```
   ┌──────────────────────┐        ┌──────────────────────┐        ┌────────────────────────┐
   │ @osn/api services    │        │  @shared/email       │        │ Resend HTTP API        │
-  │ auth.ts call sites:  │ calls  │  EmailService (Tag)  │ Bearer │  POST /emails          │
+  │ services/auth/:      │ calls  │  EmailService (Tag)  │ Bearer │  POST /emails          │
   │  beginRegistration   ├───────▶│  ResendEmailLive     ├───────▶│                        │
   │  beginStepUpOtp      │ Effect │  CloudflareEmailLive │  JSON  │  (or Cloudflare Email   │
   │  beginEmailChange    │        │  LogEmailLive (dev)  │        │   Service REST API as   │
@@ -83,9 +84,10 @@ yield* email.send({
 These are the account emails osn-api sends. Each names the identity instance
 it comes from, and takes that name as `instanceName` in its data: osn-api fills
 it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
-`@shared/email` names no product of its own. The security notices go through
-`notifySecurityEventByAccountId`, which adds `instanceName` itself, so their
-callers pass only the rest of the data.
+`@shared/email` names no product of its own. Most security notices go through
+`notifySecurityEventByAccountId`, which mails the account's current address, or
+`notifySecurityEventTo`, which mails an address its caller names. Both add
+`instanceName` themselves, so their callers pass only the rest of the data.
 
 | Template                 | Data shape                          | Call site |
 |--------------------------|-------------------------------------|-----------|
@@ -101,6 +103,7 @@ callers pass only the rest of the data.
 | `totp-enrolled`          | `{ instanceName }`                  | `completeTotpEnrollment` |
 | `totp-disabled`          | `{ instanceName }`                  | `disableTotp` |
 | `cross-device-login`     | `{ instanceName }`                  | `notifyCrossDeviceLoginByAccountId` |
+| `email-changed`          | `{ newEmail, instanceName }` — the renderer masks the address (`a•••@example.com`) and keeps it out of the subject | `completeEmailChange`, through `notifySecurityEventTo`, to the address the change replaced |
 
 cire-api sends from the same catalogue:
 
@@ -272,8 +275,8 @@ setup steps.
 > deployed osn-api Worker (`id.musubi.social` since the 2026-07-27 identity
 > move — [[musubi-identity-migration]]) carries the full
 > transactional surface: OTP step-up codes, email-change OTPs, and
-> security-notice emails (recovery codes, passkey added/removed,
-> cross-device login) are all delivered again. This **supersedes** the
+> security-notice emails (every security notice in the template table
+> above) are all delivered again. This **supersedes** the
 > earlier degraded-mode note. Direct consequence for **cire**: organiser
 > step-up can use the **OTP factor** again (a code mailed via Resend now
 > arrives), though **passkey step-up remains preferred** — `StepUpDialog`'s
@@ -439,8 +442,9 @@ through Resend itself whenever the key is set.
   - Dev log `[email:log] template=... subject="..." to=...` from `LogEmailLive`
     only (guarded by log level).
 - **Metrics** (in `shared/email/src/metrics.ts`):
-  - `osn.email.send.attempts` — counter, `{ template: 18 values,
-    outcome: sent|failed|rate_limited|skipped }`. Cardinality: 76 series.
+  - `osn.email.send.attempts` — counter, `{ template: one value per
+    `EmailTemplate`, outcome: sent|failed|rate_limited|skipped }`. The
+    cardinality ceiling is in the header of `shared/email/src/metrics.ts`.
   - `osn.email.send.duration` — histogram, same attrs.
   - `osn.email.render.duration` — histogram,
     `{ template, outcome: ok|error }`.

@@ -7,7 +7,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-11
 ---
 
 # Step-up (sudo) tokens
@@ -42,7 +42,7 @@ widen by accident:
   requiring one costs nothing.
 - **Email change keeps a set of its own, and no knob reaches it.** Its `otp` arm
   proves control of the **current** mailbox; a TOTP seed does not. Email change
-  is the silent pivot to permanent takeover, so it is the one gate where the two
+  is the pivot to permanent takeover, so it is the one gate where the two
   factors are not interchangeable — and the one a deployment may not widen. It
   lives in `context.ts` beside its three siblings rather than inline at the
   verifier, so all four sets are read in one place.
@@ -319,3 +319,12 @@ the headline threat, the attacker's inbox. It is a real lever for a TOTP
 recovery with the mailbox intact, and for an owner who also reads the mail; it is
 not a defence against someone who owns the inbox. What protects that owner is
 the asymmetry itself.
+
+**A completed email change mails the address it replaced.** The commit writes an
+`email_changed` security event in the same batch as the change, and the notice
+(`email-changed`, [[email]]) goes to the previous address once the change is on
+record. The `email_changed` row is acknowledged through the same gate as every
+other kind (`recoveryGenerateAllowedAmr`), so after an email change the signal
+to rely on is the notice to the replaced address, not the banner. The notice is
+sent once, best effort: a send that fails is counted
+(`osn.auth.security_event.notified`, `result: failed`) and not retried.
