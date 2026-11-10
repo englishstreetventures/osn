@@ -378,7 +378,7 @@ reclaims it — its own loan is a candidate where an earlier recovery's is not.
 | `@osn/api` | TOTP service + step-up-gated routes; the `osn-recovery` audience and its rotation carry-forward; email + TOTP recovery routes; provenance cooldown; new limiters; new security-event kinds. |
 | `@shared/email` | `totp-enrolled`, `totp-disabled`, `link-recovery`, `recovery-used`. |
 | `@osn/client` | `TotpClient`; `RecoveryClient.emailRecoveryBegin/Status/Resend`, `totpRecoveryComplete`. Ships **with its API phase**, not in a trailing PR. |
-| `@osn/auth-ui` / `@musubi/social` | `<TotpView>` in Settings → Security; TOTP factor in `<StepUpDialog>`; "Email me a link" on `<RecoveryLoginForm>`, and the number typed on Musubi's `/verify` page. |
+| `@osn/auth-ui` / `@musubi/social` | `<TotpView>` in the Security tab of Settings; TOTP factor in `<StepUpDialog>`; "Email me a link" on `<RecoveryLoginForm>`, and the number typed on Musubi's `/verify` page. |
 
 ### TOTP secrets at rest
 
