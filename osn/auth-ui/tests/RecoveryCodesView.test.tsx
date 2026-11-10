@@ -203,6 +203,19 @@ describe("RecoveryCodesView", () => {
     expect(stepUp.passkeyBegin).toHaveBeenCalled();
   });
 
+  // The generate holds focus through the wait: `busy`, not `disabled`.
+  it("keeps the generate button busy, not disabled, while it generates", async () => {
+    stub.generateRecoveryCodes.mockReturnValue(new Promise(() => {}));
+    renderView();
+    await clickGenerate();
+    const generating = await screen.findByRole("button", { name: "Generating…" });
+    expect(generating.getAttribute("aria-busy")).toBe("true");
+    expect((generating as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(generating);
+    await Promise.resolve();
+    expect(stub.generateRecoveryCodes).toHaveBeenCalledTimes(1);
+  });
+
   it("Done button is disabled until the 'I've saved' checkbox is ticked", async () => {
     stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
     renderView();

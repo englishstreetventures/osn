@@ -78,6 +78,51 @@ describe("StepUpDialog", () => {
     await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJ123", expiresIn: 300 }));
   });
 
+  // Each call's button holds focus through the wait: `busy`, not `disabled`,
+  // and the factors and Cancel beside it wait too.
+  it("keeps Email me a code busy, not disabled, while it sends", async () => {
+    stub.otpBegin.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <StepUpDialog
+        client={asClient(stub)}
+        onToken={() => {}}
+        onCancel={() => {}}
+        runPasskeyCeremony={async () => assertion}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+    const sending = await screen.findByRole("button", { name: "Sending…" });
+    expect(sending.getAttribute("aria-busy")).toBe("true");
+    expect((sending as HTMLButtonElement).disabled).toBe(false);
+    const usePasskey = screen.getByRole("button", { name: "Use passkey" }) as HTMLButtonElement;
+    expect(usePasskey.disabled).toBe(true);
+    expect(usePasskey.getAttribute("aria-busy")).toBeNull();
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    fireEvent.click(sending);
+    await Promise.resolve();
+    expect(stub.otpBegin).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Confirm busy, not disabled, while it checks an emailed code", async () => {
+    stub.otpBegin.mockResolvedValue({ sent: true });
+    stub.otpComplete.mockReturnValue(new Promise(() => {}));
+    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+    fireEvent.input(await screen.findByRole("textbox"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    const checking = await screen.findByRole("button", { name: "Checking…" });
+    expect(checking.getAttribute("aria-busy")).toBe("true");
+    expect((checking as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    fireEvent.click(checking);
+    await Promise.resolve();
+    expect(stub.otpComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("passkey path: runs caller-supplied ceremony and exchanges the assertion", async () => {
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
     stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
@@ -390,6 +435,21 @@ describe("StepUpDialog — authenticator app factor", () => {
     expect(onToken).toHaveBeenCalledWith({ token: "eyJtotp", expiresIn: 300 });
     // TOTP is challenge-free: there is no `begin` half to call.
     expect(stub.otpBegin).not.toHaveBeenCalled();
+  });
+
+  it("keeps Confirm busy, not disabled, while it checks an authenticator code", async () => {
+    stub.totpComplete.mockReturnValue(new Promise(() => {}));
+    mount({ totp: totpStub({ enrolled: true }), purpose: "recovery_generate" });
+    fireEvent.click(await screen.findByRole("button", { name: TOTP_BUTTON }));
+    const input = await screen.findByLabelText(/Code from your authenticator app/i);
+    fireEvent.input(input, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    const checking = await screen.findByRole("button", { name: "Checking…" });
+    expect(checking.getAttribute("aria-busy")).toBe("true");
+    expect((checking as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(checking);
+    await Promise.resolve();
+    expect(stub.totpComplete).toHaveBeenCalledTimes(1);
   });
 
   it("survives passkeyOnly, because an authenticator code needs no delivery", async () => {

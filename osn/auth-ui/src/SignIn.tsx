@@ -190,7 +190,7 @@ export function SignIn(props: SignInProps) {
           {view() === "recovery" ? "Recover your account" : `Sign in to ${props.productName}`}
         </h2>
         <Show when={props.onCancel}>
-          <Button variant="ghost" size="sm" onClick={props.onCancel}>
+          <Button variant="ghost" size="sm" onClick={props.onCancel} disabled={busy()}>
             Cancel
           </Button>
         </Show>
@@ -248,7 +248,14 @@ export function SignIn(props: SignInProps) {
           >
             {busy() ? "Verifying…" : "Continue"}
           </Button>
-          <Button type="button" variant="link" size="sm" class="self-center" onClick={openRecovery}>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            class="self-center"
+            onClick={openRecovery}
+            disabled={busy()}
+          >
             Lost your passkey?
           </Button>
         </form>

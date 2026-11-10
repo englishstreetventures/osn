@@ -9,6 +9,7 @@ import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
+import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { QrCode } from "@shared/ui/ui/qr-code";
@@ -237,7 +238,7 @@ export function TotpView(props: TotpViewProps) {
             />
 
             <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium" id="totp-setup-key-label">
+              <span class={labelVariants()} id="totp-setup-key-label">
                 Or enter this setup key by hand
               </span>
               {/* Selectable text, not an image: this is the QR's text
@@ -263,9 +264,7 @@ export function TotpView(props: TotpViewProps) {
             </Field>
 
             <div class="flex flex-col gap-1.5">
-              <span class="text-ui-ink text-ui-base leading-none font-medium">
-                Code from the app
-              </span>
+              <span class={labelVariants()}>Code from the app</span>
               <OtpInput
                 value={code()}
                 onChange={setCode}

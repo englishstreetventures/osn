@@ -150,7 +150,9 @@ type Mode = "choose" | "passkey" | "otp" | "totp";
 export function StepUpDialog(props: StepUpDialogProps) {
   const [mode, setMode] = createSignal<Mode>(props.passkeyOnly ? "passkey" : "choose");
   const [code, setCode] = createSignal("");
-  const [busy, setBusy] = createSignal(false);
+  // The call under way, so only the button that started it shows the wait.
+  const [waiting, setWaiting] = createSignal<"passkey" | "otpBegin" | "otp" | "totp" | null>(null);
+  const busy = () => waiting() !== null;
   // On the two code steps the line sits under the code field and is tied to
   // it; on the others, above the factor buttons.
   const [error, setError] = createSignal<FieldError | null>(null);
@@ -186,12 +188,13 @@ export function StepUpDialog(props: StepUpDialogProps) {
   });
 
   async function startPasskey() {
+    if (busy()) return;
     if (!props.runPasskeyCeremony) {
       // Retrying cannot help here, so the line offers no retry.
       setError(plainError("A passkey can't be used here."));
       return;
     }
-    setBusy(true);
+    setWaiting("passkey");
     setError(null);
     try {
       const begin = await props.client.passkeyBegin();
@@ -204,12 +207,13 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(plainError(describePasskeyError(e, "authentication")));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
   async function startOtp() {
-    setBusy(true);
+    if (busy()) return;
+    setWaiting("otpBegin");
     setError(null);
     try {
       await props.client.otpBegin();
@@ -217,16 +221,17 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(plainError(describeAuthError(e)));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
   async function completeOtp() {
+    if (busy()) return;
     if (code().length !== 6) {
       setError(inputError("Enter the 6-digit code."));
       return;
     }
-    setBusy(true);
+    setWaiting("otp");
     setError(null);
     try {
       const token = await props.client.otpComplete({
@@ -237,7 +242,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
@@ -251,11 +256,12 @@ export function StepUpDialog(props: StepUpDialogProps) {
   }
 
   async function completeTotp() {
+    if (busy()) return;
     if (code().length !== 6) {
       setError(inputError("Enter the 6-digit code."));
       return;
     }
-    setBusy(true);
+    setWaiting("totp");
     setError(null);
     try {
       const token = await props.client.totpComplete({
@@ -266,7 +272,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
@@ -308,12 +314,21 @@ export function StepUpDialog(props: StepUpDialogProps) {
       <Show when={!onCodeStep()}>{errorLine()}</Show>
       <Show when={!props.passkeyOnly && mode() === "choose"}>
         <div class="flex flex-col gap-2">
-          <Button onClick={startPasskey} disabled={busy()}>
-            Use passkey
+          <Button
+            onClick={startPasskey}
+            busy={waiting() === "passkey"}
+            disabled={busy() && waiting() !== "passkey"}
+          >
+            {waiting() === "passkey" ? "Waiting for your passkey…" : "Use passkey"}
           </Button>
           <Show when={otpOffered()}>
-            <Button variant="outline" onClick={startOtp} disabled={busy()}>
-              Email me a code
+            <Button
+              variant="outline"
+              onClick={startOtp}
+              busy={waiting() === "otpBegin"}
+              disabled={busy() && waiting() !== "otpBegin"}
+            >
+              {waiting() === "otpBegin" ? "Sending…" : "Email me a code"}
             </Button>
           </Show>
           <Show when={totpOffered()}>
@@ -369,8 +384,8 @@ export function StepUpDialog(props: StepUpDialogProps) {
               </>
             )}
           </Field>
-          <Button onClick={completeOtp} disabled={busy()}>
-            Confirm
+          <Button onClick={completeOtp} busy={busy()}>
+            {busy() ? "Checking…" : "Confirm"}
           </Button>
           <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
             Cancel
@@ -396,8 +411,8 @@ export function StepUpDialog(props: StepUpDialogProps) {
               </>
             )}
           </Field>
-          <Button onClick={completeTotp} disabled={busy()}>
-            Confirm
+          <Button onClick={completeTotp} busy={busy()}>
+            {busy() ? "Checking…" : "Confirm"}
           </Button>
           <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
             Cancel

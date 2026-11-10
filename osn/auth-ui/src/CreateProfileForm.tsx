@@ -142,7 +142,7 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
           {busy() ? "Creating…" : "Create profile"}
         </Button>
         {props.onCancel && (
-          <Button type="button" variant="ghost" onClick={props.onCancel}>
+          <Button type="button" variant="ghost" onClick={props.onCancel} disabled={busy()}>
             Cancel
           </Button>
         )}

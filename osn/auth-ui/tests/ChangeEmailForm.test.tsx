@@ -103,6 +103,41 @@ describe("ChangeEmailForm", () => {
     },
   );
 
+  // Both buttons hold focus through their wait: `busy`, not `disabled`.
+  it("keeps Send verification code busy, not disabled, while it sends", async () => {
+    account.changeEmailBegin.mockReturnValue(new Promise(() => {}));
+    mount();
+    fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
+    const sending = await screen.findByRole("button", { name: "Sending…" });
+    expect(sending.getAttribute("aria-busy")).toBe("true");
+    expect((sending as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(sending);
+    await Promise.resolve();
+    expect(account.changeEmailBegin).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the confirm busy, not disabled, while it changes the email", async () => {
+    account.changeEmailBegin.mockResolvedValue({ sent: true });
+    account.changeEmailComplete.mockReturnValue(new Promise(() => {}));
+    stepUp.otpBegin.mockResolvedValue({ sent: true });
+    stepUp.otpComplete.mockResolvedValue({ token: "eyJsu", expiresIn: 300 });
+    mount();
+    fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
+    fireEvent.input(await screen.findByLabelText("Code"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Email me a code/ }));
+    fireEvent.input(await screen.findByRole("textbox"), { target: { value: "654321" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    const checking = await screen.findByRole("button", { name: "Checking…" });
+    expect(checking.getAttribute("aria-busy")).toBe("true");
+    expect((checking as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(checking);
+    await Promise.resolve();
+    expect(account.changeEmailComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("reads a refused code under the code field, tied to it", async () => {
     account.changeEmailBegin.mockResolvedValue({ sent: true });
     account.changeEmailComplete.mockRejectedValue(apiError("PLANTED-complete"));

@@ -120,15 +120,18 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
                 return (
                   <div
                     class={clsx(
-                      "flex items-center transition-ui-colors",
-                      isActive()
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-muted text-foreground",
+                      "flex items-center",
+                      isActive() ? "bg-accent text-accent-foreground" : "text-foreground",
                     )}
                   >
+                    {/* The wash is the row button's alone, so the delete's
+                        own wash shows beside it. */}
                     <button
                       type="button"
-                      class="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-xs"
+                      class={clsx(
+                        "transition-ui-colors flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 py-1.5 text-left text-xs",
+                        !isActive() && "hover:bg-muted",
+                      )}
                       aria-current={isActive() ? "true" : undefined}
                       disabled={busy()}
                       onClick={() => !isActive() && handleSwitch(profile)}
@@ -155,7 +158,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
                       <Button
                         variant="ghostDanger"
                         size="icon"
-                        class="mr-1 h-7 w-7 shrink-0"
+                        class="mr-1 h-7 w-7 shrink-0 max-md:h-10 max-md:w-10"
                         aria-label={`Delete profile @${profile.handle}`}
                         disabled={busy()}
                         onClick={() => setConfirmDelete(profile)}

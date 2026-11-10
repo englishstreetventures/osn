@@ -81,8 +81,9 @@ weights (`text-xs`, `text-sm`, `text-lg`, `text-2xl`, `font-semibold`,
 render as intended only in a host that defines that vocabulary. The `ui-*`
 utilities the views write themselves today: `text-ui-success` (`Register`),
 `border-ui-warn/40 bg-ui-warn/10` (`SecurityEventsBanner`), `text-ui-xs`
-(`ProfileSwitcher`), and the plain label's `text-ui-ink text-ui-base` on the
-spans over a row of code boxes (§4). Every error line is a `@shared/ui` `Notice`, so it
+(`ProfileSwitcher`), and `@shared/ui`'s `labelVariants()` — the plain label's
+classes — on the spans over a row of code boxes and over `TotpView`'s setup key
+(§4). Every error line is a `@shared/ui` `Notice`, so it
 paints `ui-danger` through the contract (§7).
 
 **Status roles in use.**
@@ -127,8 +128,9 @@ As built:
   labels `Field` does not draw sit 6px above their controls too: `Register`'s
   Email, a bare `Label` beside its "i", and the span over a row of code boxes
   (`RecoveryLoginForm`, `TotpView`), which takes the plain label's classes
-  (`text-ui-ink text-ui-base leading-none font-medium`) because six boxes have
-  no one id for a `<label for>` (#2041).
+  from `labelVariants()` (`@shared/ui/ui/label`) because six boxes have no one
+  id for a `<label for>` (#2041). `TotpView`'s "Or enter this setup key by
+  hand" is the same span over its key.
   The primary Button spans the column; a standalone link under it sits centred
   (§5).
 - **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
@@ -183,7 +185,9 @@ themselves:
 - Text `<button>`s: each profile row in `ProfileSwitcher`, with the chosen
   row marked by the accent wash and a ✓ (#2045). The row's delete is a
   `ghostDanger` icon `Button` beside the row's button, never inside it: a
-  button inside a button has no reliable name or keyboard path.
+  button inside a button has no reliable name or keyboard path. It is 28px,
+  40px below `md` as Musubi's row actions are. The hover wash is the row
+  button's alone, so the delete's own wash shows beside it.
 - `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
   error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
   in a failed load. It keeps the line's ink and is underlined, so the action
@@ -209,8 +213,9 @@ Each state is named from the view's own code, with the copy it shows.
 **A wait.** A button that starts a call shows the wait as Button's `busy`: the
 label in brackets below, ending in "…", the 20px orb before it, focus kept,
 every press and Enter refused (`musubi/social/DESIGN.md` §Busy buttons). Only
-the button that started the call is busy; the view's other actions are
-`disabled` meanwhile, and each button's other reasons to be `disabled` apply
+the button that started the call is busy; the view's other actions, its
+Cancel, Back and links among them, are `disabled` meanwhile, so nothing leaves
+the view while a call it started is in flight. Each button's other reasons to be `disabled` apply
 only while it is not busy. Each handler also returns early while its own call
 runs. Buttons named here with no label in brackets show no wait.
 
@@ -292,8 +297,9 @@ unnamed, "(this device)" on the current one), "Created … · Last used …",
 Revoke (disabled on the current one).
 
 **`ChangeEmailForm`** — heading "Change email". Phases: new email ("New email",
-"Send verification code"); code ("We sent a 6-digit code to {email}. Enter it
-below to continue.", "Code", "Confirm identity & change email"); step-up, on
+"Send verification code" ("Sending…")); code ("We sent a 6-digit code to
+{email}. Enter it below to continue.", "Code", "Confirm identity & change
+email" ("Checking…")); step-up, on
 the first Confirm, after which the change completes; done ("Your email is now
 {email}.").
 
@@ -444,10 +450,13 @@ host a short-lived token through `onToken`.
   code and nothing else, and starts the passkey ceremony as the panel mounts.
   Its full meaning is in
   [passkey-primary §What `passkeyOnly` means](../../wiki/osn/passkey-primary.md).
-- **States.** Choosing a factor; waiting for the passkey ("Waiting for your
-  passkey…" with `passkeyOnly`, then "Try again" after an error); entering an
-  emailed code ("Code", Confirm); entering an authenticator code ("Code from
-  your authenticator app", Confirm).
+- **States.** Choosing a factor ("Use passkey" ("Waiting for your passkey…"),
+  "Email me a code" ("Sending…")); waiting for the passkey with `passkeyOnly`
+  (the line "Waiting for your passkey…" in place of the button, then "Try
+  again" after an error); entering an emailed code ("Code", Confirm
+  ("Checking…")); entering an authenticator code ("Code from your
+  authenticator app", Confirm ("Checking…")). Cancel is `disabled` while any of
+  these calls runs (§6).
 - **Who opens it.** `PasskeysView` (`passkey_register` to add,
   `passkey_delete` to rename or delete), `TotpView` (`totp_enroll`,
   `totp_disable`), `RecoveryCodesView` (`recovery_generate`, "to generate
@@ -532,9 +541,15 @@ As built:
   `/login/passkey/begin` held after Continue (`busyButtonSurfaces`), Continue
   reading "Verifying…", `aria-busy` and `aria-disabled` but not `disabled`,
   keeping focus, at 50% opacity, with one 20px orb, shot under reduced motion;
-  and on `/authorize` before signing in to Pulse (`authorizeSignInSurfaces`),
+  on `/authorize` before signing in to Pulse (`authorizeSignInSurfaces`),
   "Create one" with no padding and one line tall, underlined 2px under, in its sentence's size and
-  weight.
+  weight; and on the authenticator setup (`totpSetupSurfaces`), the spans
+  over the setup key and the code boxes in the plain label's look, 6px above
+  them. It holds Register's send, verify and enrol calls, the step-up's
+  passkey begin and the authenticator's confirm (`busyButtonHeld`): "Sending…",
+  "Verifying…", "Setting up…", "Waiting for your passkey…" and "Checking…"
+  each busy, not disabled, with focus kept, and Cancel (and "← Use a different
+  email") disabled beside them.
 - **Waits in the package tests.** `SignIn.test.tsx` holds Continue busy and
   not disabled while the passkey prompt is open, though the verification
   challenge has dropped its spent token. `Register.test.tsx` holds "Resend
@@ -543,7 +558,12 @@ As built:
   Verify email and the code boxes disabled and the form's submit verifies
   nothing, and a pending verify leaves Resend disabled, not busy, and sending
   nothing. `ProfileSwitcher.test.tsx` holds Delete busy, not disabled, while
-  the delete runs, and each row's delete beside its row button.
+  the delete runs, and each row's delete beside its row button. The views no
+  flow reaches hold each of their waits the same way, a second press sending
+  nothing: `RecoveryLoginForm.test.tsx` (five, with Back disabled),
+  `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
+  disabled), `ChangeEmailForm.test.tsx` (two) and `StepUpDialog.test.tsx`
+  ("Email me a code" and both Confirms).
 - **Error lines in the package tests.** Each view's tests plant text in a
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its

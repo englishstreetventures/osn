@@ -46,6 +46,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
   const errorId = createUniqueId();
 
   async function begin() {
+    if (busy()) return;
     setBusy(true);
     setError(null);
     try {
@@ -61,6 +62,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
   }
 
   async function complete() {
+    if (busy()) return;
     if (!stepUp()) {
       setPhase("step_up");
       return;
@@ -120,8 +122,8 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
             </>
           )}
         </Field>
-        <Button onClick={begin} disabled={busy() || !newEmail()}>
-          Send verification code
+        <Button onClick={begin} busy={busy()} disabled={!busy() && !newEmail()}>
+          {busy() ? "Sending…" : "Send verification code"}
         </Button>
       </Show>
 
@@ -146,8 +148,8 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
             </>
           )}
         </Field>
-        <Button onClick={complete} disabled={busy() || code().length !== 6}>
-          Confirm identity &amp; change email
+        <Button onClick={complete} busy={busy()} disabled={!busy() && code().length !== 6}>
+          {busy() ? "Checking…" : "Confirm identity & change email"}
         </Button>
       </Show>
 

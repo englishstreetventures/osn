@@ -9,6 +9,7 @@ import { useAuth } from "@osn/client/solid";
 import { Button } from "@shared/ui/ui/button";
 import { Field, type FieldControlProps } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
+import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
@@ -624,9 +625,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             If that address has an account, a code is on its way. Enter it below.
           </p>
           <div class="flex flex-col gap-1.5">
-            <span class="text-ui-ink text-ui-base leading-none font-medium">
-              Code from your email
-            </span>
+            <span class={labelVariants()}>Code from your email</span>
             <OtpInput
               value={code()}
               onChange={setCode}
@@ -670,9 +669,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             )}
           </Field>
           <div class="flex flex-col gap-1.5">
-            <span class="text-ui-ink text-ui-base leading-none font-medium">
-              Code from your authenticator app
-            </span>
+            <span class={labelVariants()}>Code from your authenticator app</span>
             <OtpInput
               value={code()}
               onChange={setCode}

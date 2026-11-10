@@ -341,7 +341,12 @@ export function Register(props: RegisterProps) {
     <div class="mx-auto max-w-sm px-4 py-8">
       <div class="mb-6 flex items-center justify-between">
         <h2 class="text-foreground text-2xl font-bold">Create your {props.productName} account</h2>
-        <Button variant="ghost" size="sm" onClick={props.onCancel}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={props.onCancel}
+          disabled={sending() || verifying() || resending() || enrolling()}
+        >
           Cancel
         </Button>
       </div>
@@ -543,7 +548,13 @@ export function Register(props: RegisterProps) {
                 </Notice>
               )}
             </Show>
-            <Button variant="ghost" size="sm" onClick={() => setStep("details")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setStep("details")}
+              disabled={verifying() || resending()}
+            >
               ← Use a different email
             </Button>
           </form>
