@@ -263,7 +263,9 @@ export function TotpView(props: TotpViewProps) {
             </Field>
 
             <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium">Code from the app</span>
+              <span class="text-ui-ink text-ui-base leading-none font-medium">
+                Code from the app
+              </span>
               <OtpInput
                 value={code()}
                 onChange={setCode}

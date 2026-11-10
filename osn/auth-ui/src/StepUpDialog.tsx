@@ -7,6 +7,7 @@ import {
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Field, type FieldControlProps } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { createResource, createSignal, createUniqueId, onMount, Show } from "solid-js";
@@ -354,9 +355,11 @@ export function StepUpDialog(props: StepUpDialogProps) {
           <Field labelTreatment="plain" label="Code">
             {(field) => (
               <>
-                <input
-                  class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
+                <Input
+                  face="code"
                   inputmode="numeric"
+                  autocomplete="one-time-code"
+                  spellcheck={false}
                   maxLength={6}
                   value={code()}
                   onInput={(e) => setCode(e.currentTarget.value)}
@@ -379,10 +382,11 @@ export function StepUpDialog(props: StepUpDialogProps) {
           <Field labelTreatment="plain" label="Code from your authenticator app">
             {(field) => (
               <>
-                <input
-                  class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
+                <Input
+                  face="code"
                   inputmode="numeric"
                   autocomplete="one-time-code"
+                  spellcheck={false}
                   maxLength={6}
                   value={code()}
                   onInput={(e) => setCode(e.currentTarget.value)}

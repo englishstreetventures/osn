@@ -6,6 +6,7 @@ import {
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Field, type FieldControlProps } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
@@ -108,9 +109,9 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
         <Field labelTreatment="plain" label="New email">
           {(field) => (
             <>
-              <input
+              <Input
                 type="email"
-                class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2"
+                autocomplete="email"
                 value={newEmail()}
                 onInput={(e) => setNewEmail(e.currentTarget.value)}
                 {...tie(field)}
@@ -131,10 +132,12 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
         <Field labelTreatment="plain" label="Code">
           {(field) => (
             <>
-              <input
+              <Input
+                face="code"
                 inputmode="numeric"
+                autocomplete="one-time-code"
+                spellcheck={false}
                 maxLength={6}
-                class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
                 value={code()}
                 onInput={(e) => setCode(e.currentTarget.value)}
                 {...tie(field)}

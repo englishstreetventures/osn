@@ -138,6 +138,32 @@ describe("ProfileSwitcher", () => {
     expect(screen.getByText(/Permanently delete/)).toBeTruthy();
   });
 
+  // The delete is the row's sibling: a button inside the row's button has no
+  // reliable name or keyboard path.
+  it("puts each row's delete beside its row button, not inside it", async () => {
+    render(() => <ProfileSwitcher />);
+    fireEvent.click(screen.getByRole("button", { name: /@alice/ }));
+    await waitFor(() => screen.getByText("@bob"));
+    const remove = screen.getByRole("button", { name: "Delete profile @bob" });
+    expect(remove.parentElement?.closest("button")).toBeNull();
+    expect(document.querySelectorAll("button button")).toHaveLength(0);
+  });
+
+  // The confirm holds focus through the wait: `busy`, not `disabled`.
+  it("keeps Delete busy, not disabled, while the delete runs", async () => {
+    hoisted.deleteProfile.mockReturnValue(new Promise(() => {}));
+    render(() => <ProfileSwitcher />);
+    fireEvent.click(screen.getByRole("button", { name: /@alice/ }));
+    await waitFor(() => screen.getByText("@bob"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete profile @bob" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    const deleting = await screen.findByRole("button", { name: /Deleting…/ });
+    expect(deleting.getAttribute("aria-busy")).toBe("true");
+    expect((deleting as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(deleting);
+    expect(hoisted.deleteProfile).toHaveBeenCalledTimes(1);
+  });
+
   it("opens delete confirmation and calls deleteProfile on confirm", async () => {
     hoisted.deleteProfile.mockResolvedValue(undefined);
     render(() => <ProfileSwitcher />);

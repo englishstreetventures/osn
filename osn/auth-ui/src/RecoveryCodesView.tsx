@@ -6,6 +6,7 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -354,14 +355,11 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
               Download .txt
             </Button>
           </div>
-          <label class="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={acknowledged()}
-              onChange={(e) => setAcknowledged(e.currentTarget.checked)}
-            />
-            I've saved these codes somewhere safe.
-          </label>
+          <Checkbox
+            checked={acknowledged()}
+            onChange={setAcknowledged}
+            label="I've saved these codes somewhere safe."
+          />
           <Button onClick={acknowledge} disabled={!acknowledged()}>
             Done
           </Button>
