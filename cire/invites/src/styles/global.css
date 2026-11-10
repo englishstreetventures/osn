@@ -651,18 +651,16 @@
  * places the menu, under or over the trigger; it is not a Kobalte popover, so
  * there is no origin variable to read.
  *
+ * The pop is the shared `ui-enter` keyframe (`@shared/design-tokens`), the
+ * one the portals' menus run. `LinkMenu` sets where it starts with
+ * `fade-in-0 zoom-in` beside this class — opacity 0 at `--ui-scale-enter` —
+ * so this utility holds only the guest site's rung.
+ *
  * Entry only. A close takes the menu out of the document at once and hands
  * focus back to the trigger; a menu held mounted for an exit keeps focus
  * inside it until it goes. The reduced-motion clamp below reaches this. */
-@keyframes menu-pop-in {
-  from {
-    opacity: 0;
-    transform: scale(var(--ui-scale-enter));
-  }
-}
-
 @utility menu-pop {
-  animation: menu-pop-in var(--dur-base) var(--ease-out);
+  animation: ui-enter var(--dur-base) var(--ease-out);
 }
 
 /* Fades a control's colours but never its outline, so a focus ring lands at once. */

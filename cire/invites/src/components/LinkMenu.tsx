@@ -350,8 +350,9 @@ export function LinkMenu(props: LinkMenuProps) {
           // (`inset: 0; margin: auto`), which would otherwise fight the
           // measured `top`/`left` below and stretch the box across the
           // viewport. `menu-pop` scales it up from its trigger and fades it
-          // in as it is shown, and runs no exit (`global.css`).
-          class={`${MENU_TOUCH.panel} menu-pop fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 max-w-[calc(100vw-1rem)]`}
+          // in as it is shown, from where `fade-in-0 zoom-in` start it, and
+          // runs no exit (`global.css`).
+          class={`${MENU_TOUCH.panel} menu-pop fade-in-0 zoom-in fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 max-w-[calc(100vw-1rem)]`}
           style={{
             top: `${position().top}px`,
             left: `${position().left}px`,

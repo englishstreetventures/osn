@@ -86,7 +86,8 @@ describe("LinkMenu's pop", () => {
     const m = menu.getBoundingClientRect();
     expect(m.top).toBeGreaterThan(t.bottom);
 
-    expect(sample.name).toBe("menu-pop-in");
+    // The shared enter keyframe, the one the portals' menus run.
+    expect(sample.name).toBe("ui-enter");
     expect(sample.duration).toBe(durBase());
     expect(sample.opacity).toBe(0);
     expect(sample.transform).toBe(`matrix(0.96, 0, 0, 0.96, 0, 0)`);

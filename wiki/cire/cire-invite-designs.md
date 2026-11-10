@@ -934,10 +934,13 @@ in a field — focus goes to the card's first action that can be pressed
 household took the last one. Confirm is disabled while its claim is in flight,
 and the engine moves focus off it to the page then, so the card notes whether
 the claim went out from inside the form. After a tap the moved focus draws no
-ring (`quiet-focus.ts`). The calendar and maps
-menus (`LinkMenu`) open as the portals' menus pop — scaled up from 0.96 and
-faded in from the corner at their trigger — a rung slower, on `--dur-base` and
-`--ease-out` (`menu-pop` in `src/styles/global.css`), and close at once.
+ring (`quiet-focus.ts`).
+
+The calendar and maps menus (`LinkMenu`) open as the portals' menus pop —
+scaled up from 0.96 and faded in from the corner at their trigger — a rung
+slower, on `--dur-base` and
+`--ease-out` (`menu-pop` in `src/styles/global.css`, which runs the shared
+`ui-enter` keyframe), and close at once.
 `tests/components/reveal-blocks.browser.test.tsx` and
 `tests/components/LinkMenu.browser.test.tsx` sample both.
 
