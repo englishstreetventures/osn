@@ -166,6 +166,10 @@ export function AuthorizePage() {
   // is what stops the sign-in screen looping, since the URL still says
   // `login` / `create` afterwards.
   const [signedInHere, setSignedInHere] = createSignal(false);
+  // Which half of the sign-in panel leads; its loading placeholder takes the
+  // same shape, so nothing jumps when the panel's code lands.
+  const panelMode = (): "register" | "signIn" =>
+    reason() === "create" && !signedInHere() ? "register" : "signIn";
   // `reason=select_account`: the app wants the person at the keyboard to say
   // which account this is, because the browser may be shared. The account
   // screen leads until they press Continue — or until they sign in on this
@@ -393,7 +397,7 @@ export function AuthorizePage() {
             </p>
           </Show>
           <div class="border-border rounded-card mt-4 border p-1">
-            <Suspense fallback={<SignInLoading />}>
+            <Suspense fallback={<SignInLoading mode={panelMode()} />}>
               {/* `reason` is advisory — it only picks which half of the panel
                   leads. The server re-derives every requirement at decision
                   time, so a tampered value widens nothing.
@@ -406,10 +410,7 @@ export function AuthorizePage() {
                   someone who has just made one, which reads as the flow having thrown
                   the new account away. Once a ceremony has happened on this
                   page, the way forward is signing in. */}
-              <AuthorizeSignIn
-                initialMode={reason() === "create" && !signedInHere() ? "register" : "signIn"}
-                onSuccess={() => void afterSignIn()}
-              />
+              <AuthorizeSignIn initialMode={panelMode()} onSuccess={() => void afterSignIn()} />
             </Suspense>
           </div>
           <Show when={switching()}>
@@ -701,18 +702,28 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
 }
 
 /**
- * The sign-in panel's place while its code loads, in its shape: the heading,
- * one labelled field and the button. A Suspense fallback goes when the panel
- * lands, and nothing holds both, so this wrapper carries `aria-busy`.
+ * The sign-in panel's place while its code loads, in the shape of the half
+ * that leads: the heading, then sign-in's one labelled field, or sign-up's
+ * four (the date of birth with its hint), then the button. A Suspense fallback
+ * goes when the panel lands, and nothing holds both, so this wrapper carries
+ * `aria-busy`.
  */
-function SignInLoading() {
+function SignInLoading(props: { mode: "register" | "signIn" }) {
+  const fields = () => (props.mode === "register" ? [false, false, true, false] : [false]);
   return (
     <div aria-busy="true" class="flex flex-col gap-4 px-4 py-8">
       <Skeleton standsFor="line" width={48} height={8} class="mb-2" />
-      <div class="flex flex-col gap-1.5">
-        <Skeleton standsFor="line" width={28} height={4} />
-        <Skeleton standsFor="field" height={9} />
-      </div>
+      <For each={fields()}>
+        {(hint) => (
+          <div class="flex flex-col gap-1.5">
+            <Skeleton standsFor="line" width={28} height={4} />
+            <Skeleton standsFor="field" height={9} />
+            <Show when={hint}>
+              <Skeleton standsFor="line" width={64} height={4} />
+            </Show>
+          </div>
+        )}
+      </For>
       <Skeleton standsFor="control" height={9} />
     </div>
   );

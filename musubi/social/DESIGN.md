@@ -509,13 +509,14 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 - **Code boxes** = `OtpInput`'s six boxes share their column and are 40px wide
   at a 260px column, so a screen that hosts one gives the row at least 260px
   on a phone (drop an inner card's padding below `md` rather than squeeze the
-  boxes). `TotpView`'s enrolment step drops its frame below `md`, so in
-  Settings → Security the row takes the card's whole column. Where the app
-  does not follow this yet, at a 320px viewport:
+  boxes). `TotpView`'s enrolment step drops its frame below `md`, and
+  `StepUpDialog` its side padding, so in Settings → Security each code row
+  takes the card's whole column. Where the app does not follow this yet, at a
+  320px viewport:
   - Settings → Security: that column is 246px (37.7px boxes; 260px from a
-    334px viewport), after `main`'s `px-4` and the card's `p-5` and edge, and
-    `StepUpDialog`'s code steps there give 214px (32px boxes) inside its `p-4`
-    panel (#2045).
+    334px viewport), after `main`'s `px-4` and the card's `p-5` and edge, for
+    `TotpView`'s enrolment and `StepUpDialog`'s code steps alike. The step-up
+    leaves the card when it becomes a sheet (#2045).
   - `/authorize` gives `Register` 230px (35px boxes; 260px from 350px), after
     `main`'s `px-6`, the frame's edge and `p-1`, and the view's own `px-4`
     (#2046).
@@ -542,8 +543,12 @@ Where the app does not follow this yet:
   carries `aria-busy` while it loads; a `Suspense` fallback, which no element
   outlives, carries it on its own wrapper and takes it away with it
   (Settings' Security and Connected apps tabs, `/authorize`'s sign-in frame).
-  A list a person acts on keeps its rows on screen while it is read again
-  (Connected apps after a revoke). A state whose words are the content stays
+  `/authorize`'s takes the shape of the half of the panel that leads: sign-up's
+  four fields for `reason=create`, sign-in's one otherwise. A list a person
+  acts on keeps its rows on screen while it is read again (Connected apps
+  after a revoke, the passkey list after a delete), and a row that may be gone
+  is not one anyone can act on: its action stays busy or disabled until the
+  read lands. A state whose words are the content stays
   words: `/authorize`'s "Checking this request…" and "Taking you back…",
   search's "Searching…", and a busy button's label (§Busy buttons).
 - **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
