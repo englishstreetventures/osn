@@ -388,8 +388,12 @@ export type EmailLinkConfirmOutcome =
   | "wrong_pick"
   | "declined";
 
-/** What became of one emailed link: sent, held back by the per-address cap, or failed. */
-export type EmailLinkSendResult = "sent" | "capped" | "failed";
+/**
+ * What became of one emailed link: sent, held back by a per-address limit
+ * (`capped`), not sent because an account has the address or the handle by
+ * the time it would go (`taken`), or failed.
+ */
+export type EmailLinkSendResult = "sent" | "capped" | "taken" | "failed";
 
 /**
  * Outcome of a call to the OIDC authorization endpoint. Mirrors the OAuth

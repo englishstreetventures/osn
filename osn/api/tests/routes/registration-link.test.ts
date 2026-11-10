@@ -410,6 +410,42 @@ describe("resend", () => {
     expect(await done.json()).toMatchObject({ handle: "parkssecond", email });
   });
 
+  it("mails nothing on a second begin's Resend once the first has made the account", async () => {
+    const h = harness();
+    const email = "parks-taken@example.com";
+    const first = await begun(h, email, "parkstakenfirst");
+    const second = await beginThroughRoutes(h.app, { email, handle: "parkstakensecond" });
+
+    const confirmed = await confirmThroughRoutes(
+      h.app,
+      first.requestId,
+      first.link.linkSecret,
+      first.pairingCode,
+    );
+    expect(await confirmed.json()).toEqual({ status: "confirmed" });
+    const done = await statusThroughRoutes(h.app, first.requestId, first.claimSecret);
+    expect(done.status).toBe(201);
+
+    // The first sign-up ended by making the account, so the second's Resend
+    // parks its sign-up; the address has an account, so nothing goes.
+    const resent = await resendThroughRoutes(h.app, second.body.requestId, second.body.claimSecret);
+    expect(await resent.json()).toEqual({ status: "sent" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+    const poll = await statusThroughRoutes(h.app, second.body.requestId, second.body.claimSecret);
+    expect(await poll.json()).toEqual({ status: "pending", pairingCode: second.body.pairingCode });
+  });
+
+  it("mails nothing on a Resend once another account has taken the request's handle", async () => {
+    const h = harness();
+    const email = "handle-gone@example.com";
+    const s = await begun(h, email, "handlegone");
+    await registerThroughRoutes(h.app, h.recorded, "handle-gone-other@example.com", "handlegone");
+
+    const resent = await resendThroughRoutes(h.app, s.requestId, s.claimSecret);
+    expect(await resent.json()).toEqual({ status: "sent" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+  });
+
   it("resends one address no more than six links an hour across requests, and always sends a begin's first", async () => {
     const h = harness();
     const email = "address-cap@example.com";

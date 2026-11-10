@@ -11,6 +11,8 @@
  * Then a request the tab's poll has claimed, whose finish failed part way:
  * the next poll finishes it on the same account, and nothing else that can
  * reach the request ends it or frees its address meanwhile.
+ *
+ * And a send that cannot read the accounts table, which mails nothing.
  */
 
 import { it, expect, describe } from "@effect/vitest";
@@ -368,6 +370,26 @@ describe("retiring a request that did not park", () => {
       ).toBe("confirmed");
       const done = yield* settle(h.auth.registrationStatus(holder.requestId, holder.claimSecret));
       expect(done.status === "complete" && done.handle).toBe("releaseholder");
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+describe("a send that cannot tell whether an account has the address", () => {
+  it.live("mails nothing, and the next Resend mails once it can tell", () => {
+    const h = harness();
+    const address = "probe-down@example.com";
+    return Effect.gen(function* () {
+      const s = yield* h.begun(address, "probedown");
+
+      h.db.sqlite.run("ALTER TABLE accounts RENAME TO accounts_away");
+      expect(yield* settle(h.auth.resendRegistration(s.requestId, s.claimSecret))).toEqual({
+        status: "sent",
+      });
+      h.db.sqlite.run("ALTER TABLE accounts_away RENAME TO accounts");
+      expect(linksTo(h.recorded(), address)).toHaveLength(1);
+
+      yield* settle(h.auth.resendRegistration(s.requestId, s.claimSecret));
+      expect(linksTo(h.recorded(), address)).toHaveLength(2);
     }).pipe(Effect.provide(h.layer));
   });
 });

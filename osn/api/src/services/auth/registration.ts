@@ -189,11 +189,42 @@ export function createRegistrationModule(
     });
 
   /**
+   * Whether an account has `email` or a profile has `handle`, in one round
+   * trip: UNION ALL of two indexed single-table arms (see registerProfile for
+   * why not an OR across the join). Answers the same for either.
+   */
+  const isTaken = (email: string, handle: string): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const collision = yield* Effect.tryPromise({
+        try: () =>
+          // No per-arm LIMIT — see registerProfile's probe.
+          unionAll(
+            db
+              .select({ hit: sql<number>`1`.as("hit") })
+              .from(accounts)
+              .where(eq(accounts.email, email)),
+            db
+              .select({ hit: sql<number>`1`.as("hit") })
+              .from(users)
+              .where(eq(users.handle, handle)),
+          ),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return collision.length > 0;
+    });
+
+  /**
    * Mails the sign-up link for `handle` to `address`, after the answer: the
-   * caller forks it. The address's limits are read here, so they cost the
-   * answer nothing and are reached only where a link goes out — never for a
-   * taken address. The mail goes to `address` as typed:
+   * caller forks it. Everything it reads costs the answer nothing. The mail
+   * goes to `address` as typed:
    *
+   *  - no link goes while an account has the address or a profile has the
+   *    handle — begin's probe, run again here, first, because the request may
+   *    have parked since begin ran it: a request that found the address held
+   *    parks on a Resend once the sign-up holding it ends, and that sign-up
+   *    may have ended by making the account. So the limits below are reached
+   *    only where a link goes out, never for a taken address;
    *  - no link goes to an address whose sign-up links drew three wrong picks
    *    today, counted under the address exactly as typed, lowercased;
    *  - a Resend's link counts against the hourly cap of the address's
@@ -202,10 +233,10 @@ export function createRegistrationModule(
    *    count, so the newest sign-up always gets its first link whatever
    *    Resends came before it.
    *
-   * Either store failing to answer sends nothing. A held-back or failed send
-   * is counted and goes no further; the transport has already logged why a
-   * send failed. The request stays live either way, and Resend on it is the
-   * retry.
+   * The probe or either store failing to answer sends nothing. A held-back
+   * or failed send is counted and goes no further; the transport has already
+   * logged why a send failed. The request stays live either way, and Resend
+   * on it is the retry.
    */
   const sendLink = (
     address: string,
@@ -215,6 +246,21 @@ export function createRegistrationModule(
     kind: "first" | "resend",
   ) =>
     Effect.gen(function* () {
+      const standing = yield* isTaken(address, handle).pipe(
+        Effect.map((taken) => (taken ? "taken" : "free")),
+        // The driver's error carries the query's parameters, the address
+        // among them, so it is not logged.
+        Effect.catchTag("DatabaseError", () => Effect.succeed("unknown" as const)),
+      );
+      if (standing === "taken") {
+        metricEmailLinkSend("registration", "taken");
+        return;
+      }
+      if (standing === "unknown") {
+        metricEmailLinkSend("registration", "failed");
+        yield* Effect.logError("sign-up link not sent: the account probe failed");
+        return;
+      }
       const strikeKey = serverMac.probeKey(address.toLowerCase());
       const capKey = serverMac.probeKey(mailboxKey(address));
       const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(strikeKey));
@@ -319,30 +365,11 @@ export function createRegistrationModule(
         yield* links.retire("registration", previous.requestId, previous.claimSecret);
       }
 
-      // A single round-trip existence probe — UNION ALL of two indexed
-      // single-table arms (see registerProfile for why not an OR across the
-      // join). The collision branch below responds identically for either, so no
-      // per-field distinction is needed.
-      const { db } = yield* Db;
-      const collision = yield* Effect.tryPromise({
-        try: () =>
-          // No per-arm LIMIT — see registerProfile's probe.
-          unionAll(
-            db
-              .select({ hit: sql<number>`1`.as("hit") })
-              .from(accounts)
-              .where(eq(accounts.email, normalisedEmail)),
-            db
-              .select({ hit: sql<number>`1`.as("hit") })
-              .from(users)
-              .where(eq(users.handle, handle)),
-          ),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
       // The user can use the login flow if they already have an account; we
       // don't confirm or deny their existence over an unauthenticated channel.
-      const taken = collision.length > 0;
+      // The taken branch below responds identically for the address or the
+      // handle, so no per-field distinction is needed.
+      const taken = yield* isTaken(normalisedEmail, handle);
 
       // A taken address parks at its probe key, which no live sign-up uses,
       // and its pending entry holds no address, so nothing is ever mailed for
@@ -393,21 +420,35 @@ export function createRegistrationModule(
    *
    *  - `sent` — another link is on its way; also for a taken address's request
    *    (nothing goes out), for a request whose address another live sign-up
-   *    holds (nothing goes out), and for a request already confirmed (the next
-   *    poll finishes it, so nothing more is needed);
+   *    holds or an account has taken since begin (nothing goes out), and for a
+   *    request already confirmed (the next poll finishes it, so nothing more
+   *    is needed);
    *  - `limit` — the request has sent all the links it may;
    *  - `expired` — no live request matches.
    *
    * A request whose begin found the address held parks its sign-up here, by a
    * swap from nothing, once the sign-up that held it has ended; its link then
-   * goes. Every request makes that swap, which cannot win where an entry is
+   * goes, unless an account has the address or the handle by then (the send
+   * checks). Every request makes that swap, which cannot win where an entry is
    * live, so a free address's request, a taken one's and a held one's make the
    * same store calls. Like begin, it mails after the answer.
+   *
+   * A request that parks at an address an account has since taken stays
+   * parked. Its entry blocks nobody: while an account has the address, every
+   * begin for it parks at the address's probe key instead. No link was mailed
+   * for it, so nothing can confirm it, and it ends at its own expiry or when
+   * retired, declined or wiped. Should the account give the address up
+   * meanwhile, this request is the address's live sign-up, and its next
+   * Resend mails as any free address's does.
    */
   const resendRegistration = (
     requestId: string,
     claimSecret: string,
-  ): Effect.Effect<{ status: "sent" | "limit" | "expired" }, CoordinationError, EmailService> =>
+  ): Effect.Effect<
+    { status: "sent" | "limit" | "expired" },
+    CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       const resent = yield* links.resend("registration", requestId, claimSecret);
       if (resent.state === "expired") return { status: "expired" } as const;

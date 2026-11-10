@@ -146,13 +146,24 @@ There is no `GET` on any of them: mail scanners open links before people do.
   carries the sign-up it parks: the address, handle and display name, never
   the birthdate (a taken address's decoy carries none). Every Resend swaps
   that in at the address from nothing, then reads the pending entry and mails
-  only when it names this request and holds an address. Where the address is
-  free — the sign-up that held it was retired, declined, wiped or expired —
-  the swap wins and the link goes out under a Resend's limits; where another
-  live sign-up holds it, the
-  swap cannot win, nothing goes, and the answer is `sent` as ever. A free
-  address's request, a taken one's and a held one's make the same four store
-  calls.
+  only when it names this request and holds an address. Once the sign-up that
+  held it has ended — retired, declined, wiped, expired or completed — the
+  swap wins and the link goes out under a Resend's limits, unless an account
+  has the address or the handle by then (below); where another live sign-up
+  holds it, the swap cannot win, nothing goes, and the answer is `sent` as
+  ever. A free address's request, a taken one's and a held one's make the
+  same four store calls.
+- **Every send checks the address and handle again.** The send that runs
+  after the answer, for begin and Resend alike, first runs begin's probe on
+  `accounts.email` and `users.handle`, and sends nothing when either is taken
+  (`sends{result="taken"}`): a held request can park after the sign-up that
+  held it completed, so no account's address ever gets a sign-up link. A
+  probe that fails sends nothing either (`failed`). The probe comes before
+  the limits, so a link that does not go reads none of them. A request that
+  parks at an address an account has taken stays parked until its own expiry,
+  or until it is retired, declined or wiped: its entry blocks nobody, since
+  every begin for an address with an account parks at the probe key, and it
+  has no link to confirm.
 - **Resend** sends another link for the same request; every link sent stays
   usable, three in all. A refused or failed send leaves the request live, and
   Resend is the retry.
@@ -206,7 +217,9 @@ There is no `GET` on any of them: mail scanners open links before people do.
 - `osn.auth.email_link.confirmations{outcome}` — `confirmed`, `repeat` (an
   accepted confirm or decline sent again), `refused`, `wiped`, `wrong_pick`,
   `declined`.
-- `osn.auth.email_link.sends{flow, result}` — `sent`, `capped`, `failed`.
+- `osn.auth.email_link.sends{flow, result}` — `sent`, `capped`, `taken` (an
+  account has the address or the handle by the time the link would go),
+  `failed` (the transport, or the send's account probe).
 - `linkSecret`, `claimSecret`, `pairingCode`, `pairingCandidates` and
   `pairingPick` are on the log redaction list. The local-only debug line
   `[dev-link] registration <url>` prints the link when `OSN_ENV` is unset or
