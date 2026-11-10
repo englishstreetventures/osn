@@ -434,14 +434,17 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * decline is answered the same way; nothing can confirm, claim or resend it
    * after. The flow's pending entry is freed at once. A write that lost to
    * another (a Resend, a confirm) is tried once more on what the store now
-   * holds; a request claimed or gone meanwhile (finished, wiped) is refused.
+   * holds. Every value read, the one after the last lost write included, is
+   * checked alike: a request claimed or gone meanwhile (finished, wiped) is
+   * refused, and one another decline ended reads as a repeat.
    */
   const decline = (requestId: string, entry: EmailLinkChallenge) =>
     Effect.gen(function* () {
       let current: EmailLinkChallenge | null = entry;
-      for (let attempt = 0; attempt < 2 && usable(current); attempt++) {
+      for (let attempt = 0; ; attempt++) {
+        if (!usable(current) || current.status === "claimed") return REFUSED;
         if (current.status === "declined") return REPEAT_DECLINE;
-        if (current.status === "claimed") return REFUSED;
+        if (attempt === 2) break;
         const from: EmailLinkChallenge = current;
         const won = yield* storeCall(links, "swap", () =>
           links.swap(requestId, from, { ...from, status: "declined" }, remainingMs(from)),
@@ -452,8 +455,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
         }
         current = yield* read(requestId);
       }
-      if (!usable(current)) return REFUSED;
-      // Two writes lost: end the request outright, which a decline asks for.
+      // Two writes lost to a request still pending or confirmed: end it
+      // outright, which a decline asks for.
       yield* end(requestId, current);
       return DECLINED;
     });

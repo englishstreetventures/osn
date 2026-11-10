@@ -4,7 +4,9 @@
  * and the tab's claim landing between a wrong pick's read and its delete.
  * Each store answer here can be made to come back late, as a round trip does,
  * so the calls interleave the way they would on the Durable Object; every
- * call still runs, in full, at the moment it is made.
+ * call still runs, in full, at the moment it is made. A swap can also be held
+ * before it runs, so other calls land in a set order between a decline's two
+ * tries.
  *
  * Then a request the tab's poll has claimed, whose finish failed part way:
  * the next poll finishes it on the same account, and nothing else that can
@@ -14,7 +16,7 @@
 import { it, expect, describe } from "@effect/vitest";
 import type { CoordinationNamespace, CoordinationOp } from "@shared/coordination";
 import { makeLogEmailLive } from "@shared/email";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { afterEach, beforeAll, vi } from "vitest";
 
 import { createDurableCoordination } from "../../../src/lib/coordination/durable";
@@ -69,11 +71,52 @@ function answeringLate(ns: CoordinationNamespace, late: () => Late): Coordinatio
   };
 }
 
+/** One swap on its way to an `email_link` object, held until released. */
+interface HeldSwap {
+  readonly arrived: () => void;
+  readonly gate: Promise<void>;
+}
+
+/**
+ * `ns` with the swap `next()` hands over held before it runs, as a write still
+ * on its way to the store; every other call goes straight through.
+ */
+function holdingSwaps(
+  ns: CoordinationNamespace,
+  next: () => HeldSwap | null,
+): CoordinationNamespace {
+  return {
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      if (!name.startsWith("email_link:")) return stub;
+      return {
+        ...stub,
+        swap: async (...args: Parameters<typeof stub.swap>) => {
+          const held = next();
+          if (held) {
+            held.arrived();
+            await held.gate;
+          }
+          return stub.swap(...args);
+        },
+      };
+    },
+  };
+}
+
 function harness() {
   const fake = createFakeNamespace();
   let late: Late = {};
+  let heldSwap: HeldSwap | null = null;
   const bundle = createDurableCoordination(
-    answeringLate(fake.ns, () => late),
+    answeringLate(
+      holdingSwaps(fake.ns, () => {
+        const held = heldSwap;
+        heldSwap = null;
+        return held;
+      }),
+      () => late,
+    ),
     () => {},
   );
   const auth = createAuthService({
@@ -114,6 +157,22 @@ function harness() {
     /** From now on, each operation named answers that many milliseconds late. */
     answerLate: (next: Late) => {
       late = next;
+    },
+    /**
+     * Holds the next swap on a request's entry before it runs. `reached`
+     * waits until that swap has been made; `release` lets it run.
+     */
+    holdNextSwap: () => {
+      let arrived!: () => void;
+      let release!: () => void;
+      const reached = new Promise<void>((resolve) => {
+        arrived = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      heldSwap = { arrived, gate };
+      return { reached: Effect.promise(() => reached), release };
     },
     /** The request's entry as the store holds it. */
     entry: (requestId: string) =>
@@ -697,6 +756,47 @@ describe("a request the tab's poll has claimed", () => {
     }).pipe(Effect.provide(h.layer));
   });
 
+  it.live("refuses a decline that lost one swap to a confirm and the next to the claim", () => {
+    const h = harness();
+    const address = "claimed-decline-twice@example.com";
+    return Effect.gen(function* () {
+      const s = yield* h.begun(address, "claimeddeclinetwice");
+      // The decline reads the pending request. A right pick confirms it before
+      // the decline's first swap runs, and the poll claims it, then fails,
+      // before its second.
+      const first = h.holdNextSwap();
+      const declining = yield* Effect.forkChild(
+        h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: s.link.linkSecret,
+          pairingPick: "none",
+        }),
+      );
+      yield* first.reached;
+      expect(
+        yield* h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: s.link.linkSecret,
+          pairingPick: s.pairingCode,
+        }),
+      ).toBe("confirmed");
+      const second = h.holdNextSwap();
+      first.release();
+      yield* second.reached;
+      const fault = refuseSessions(h);
+      const polled = yield* Effect.result(
+        settle(h.auth.registrationStatus(s.requestId, s.claimSecret)),
+      );
+      fault.allow();
+      second.release();
+
+      expect(polled._tag).toBe("Failure");
+      expect(yield* Fiber.join(declining)).toBe("expired");
+      expect((yield* h.entry(s.requestId))?.status).toBe("claimed");
+      expect((yield* h.parked(address))?.requestId).toBe(s.requestId);
+      const done = yield* settle(h.auth.registrationStatus(s.requestId, s.claimSecret));
+      expect(done.status === "complete" && done.handle).toBe("claimeddeclinetwice");
+    }).pipe(Effect.provide(h.layer));
+  });
+
   it.live("keeps the claim against a wrong pick whose delete lost to it", () => {
     const h = harness();
     const address = "claimed-wrong-race@example.com";
@@ -755,6 +855,34 @@ describe("a request the tab's poll has claimed", () => {
         ).toBe("expired");
       }
       expect(yield* h.auth.findProfileByEmail("claimed-shape@example.com")).toBeNull();
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+describe("a decline that lost one swap to a confirm and the next to another decline", () => {
+  it.live("answers declined, and the request stays declined for the next decline", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      const s = yield* h.begun("decline-twice@example.com", "declinetwice");
+      const none = { linkSecret: s.link.linkSecret, pairingPick: "none" };
+      const first = h.holdNextSwap();
+      const declining = yield* Effect.forkChild(h.auth.confirmEmailLink(s.requestId, none));
+      yield* first.reached;
+      expect(
+        yield* h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: s.link.linkSecret,
+          pairingPick: s.pairingCode,
+        }),
+      ).toBe("confirmed");
+      const second = h.holdNextSwap();
+      first.release();
+      yield* second.reached;
+      expect(yield* h.auth.confirmEmailLink(s.requestId, none)).toBe("declined");
+      second.release();
+
+      expect(yield* Fiber.join(declining)).toBe("declined");
+      expect((yield* h.entry(s.requestId))?.status).toBe("declined");
+      expect(yield* h.auth.confirmEmailLink(s.requestId, none)).toBe("declined");
     }).pipe(Effect.provide(h.layer));
   });
 });
