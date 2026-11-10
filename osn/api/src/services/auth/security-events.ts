@@ -9,7 +9,7 @@ import { accounts, securityEvents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { type EmailTemplateData, EmailService, type SendEmailInput } from "@shared/email";
 import type { SecurityEventKind } from "@shared/observability/metrics";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, lte, ne, or } from "drizzle-orm";
 import { Effect } from "effect";
 
 import {
@@ -17,8 +17,9 @@ import {
   metricSecurityEventNotified,
   metricSecurityEventNotifyDuration,
 } from "../../metrics";
+import { EMAIL_CHANGE_ACK_HOLD_SECONDS } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, DatabaseError, EmailChangeHeldError } from "./errors";
 import type { StepUpModule } from "./step-up";
 import type { SecurityEventSummary } from "./types";
 
@@ -40,6 +41,17 @@ type SecurityNoticeTemplate =
 export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModule) {
   const { config, recoveryGenerateAllowedAmr } = ctx;
   const { verifyStepUpToken } = stepUp;
+
+  /**
+   * The rows an acknowledgement may change at `nowSec`: every kind but an
+   * `email_changed` row still inside its hold. Part of each acknowledging
+   * UPDATE, so the hold is judged row by row in the write itself.
+   */
+  const outsideHold = (nowSec: number) =>
+    or(
+      ne(securityEvents.kind, "email_changed"),
+      lte(securityEvents.createdAt, nowSec - EMAIL_CHANGE_ACK_HOLD_SECONDS),
+    );
 
   /**
    * Lists still-unacknowledged security events for an account, newest first.
@@ -99,15 +111,20 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
    * Idempotent on the row side — acking a row that's already acknowledged,
    * or a row that doesn't exist on the caller's account, returns
    * `{ acknowledged: false }` rather than surfacing "not found" (same posture
-   * as `/logout` and `/sessions/:id`). The step-up jti is still consumed on
-   * such calls; callers are expected to bulk-ack via
+   * as `/logout` and `/sessions/:id`). An `email_changed` row inside its hold
+   * fails with `EmailChangeHeldError` instead. The step-up jti is still
+   * consumed on such calls; callers are expected to bulk-ack via
    * `acknowledgeAllSecurityEvents` when dismissing a full banner.
    */
   const acknowledgeSecurityEvent = (
     accountId: string,
     eventId: string,
     stepUpToken: string,
-  ): Effect.Effect<{ acknowledged: boolean }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { acknowledged: boolean },
+    AuthError | DatabaseError | EmailChangeHeldError,
+    Db
+  > =>
     Effect.gen(function* () {
       yield* verifyStepUpToken(
         stepUpToken,
@@ -134,6 +151,7 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
                 eq(securityEvents.id, eventId),
                 eq(securityEvents.accountId, accountId),
                 isNull(securityEvents.acknowledgedAt),
+                outsideHold(nowSec),
               ),
             )
             .returning({ kind: securityEvents.kind }),
@@ -141,6 +159,27 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
       });
       const match = changed[0];
       if (!match) {
+        // Nothing changed: the row is missing, already acknowledged, or held.
+        // Only the last is a refusal.
+        const [row] = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({ kind: securityEvents.kind, createdAt: securityEvents.createdAt })
+              .from(securityEvents)
+              .where(
+                and(
+                  eq(securityEvents.id, eventId),
+                  eq(securityEvents.accountId, accountId),
+                  isNull(securityEvents.acknowledgedAt),
+                ),
+              )
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        const holdEndsAt = row ? row.createdAt + EMAIL_CHANGE_ACK_HOLD_SECONDS : 0;
+        if (row?.kind === "email_changed" && holdEndsAt > nowSec) {
+          return yield* Effect.fail(new EmailChangeHeldError({ holdEndsAt }));
+        }
         return { acknowledged: false };
       }
       metricSecurityEventAcknowledged(match.kind as SecurityEventKind);
@@ -149,8 +188,9 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
 
   /**
    * Bulk-acks every unacknowledged security event for an account in one
-   * statement, and reports and counts the rows that statement changed. One
-   * step-up → one call dismisses the entire banner. This is
+   * statement, and reports and counts the rows that statement changed. An
+   * `email_changed` row inside its hold is left in place. One step-up → one
+   * call dismisses the rest of the banner. This is
    * the UX path the banner uses; `acknowledgeSecurityEvent` remains for API
    * clients that want per-row control.
    *
@@ -176,7 +216,11 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
             .update(securityEvents)
             .set({ acknowledgedAt: nowSec })
             .where(
-              and(eq(securityEvents.accountId, accountId), isNull(securityEvents.acknowledgedAt)),
+              and(
+                eq(securityEvents.accountId, accountId),
+                isNull(securityEvents.acknowledgedAt),
+                outsideHold(nowSec),
+              ),
             )
             .returning({ kind: securityEvents.kind }),
         catch: (cause) => new DatabaseError({ cause }),

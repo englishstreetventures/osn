@@ -10,7 +10,7 @@ related:
   - "[[sessions]]"
   - "[[rate-limiting]]"
   - "[[email]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-11
 ---
 
 # Auth Flow Failure Runbook
@@ -97,6 +97,7 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 
 | Symptom | Likely cause | Action |
 |---|---|---|
+| `403 email_change_held` on `POST /account/security-events/:id/ack` | The event is an `email_changed` row less than 7 days old; no factor clears it until `holdEndsAt` (unix seconds) | Wait until `holdEndsAt`; `ack-all` dismisses every other row meanwhile |
 | `403 step_up_required` on `DELETE /account`, `GET /account/export`, `POST /recovery/generate`, `PATCH` or `DELETE /passkeys/:id`, `POST /account/security-events/:id/ack` or `/ack-all`, `POST /totp/enroll/begin`, `DELETE /totp` | Token missing or wrong amr | Mint a token with `POST /step-up/{passkey,otp}/{begin,complete}` or `POST /step-up/totp/complete`. Check the route's `allowedAmr` config |
 | `400` on `POST /account/email/complete` | `step_up_token` is a required body field there, so a missing one fails body validation; a bad code or a stale token is also `400 invalid_request` | Mint a fresh token and send it with the code |
 | Token rejected with `replay` | `jti` already consumed (`StepUpJtiStore`) | Mint a fresh token — they're single-use |
