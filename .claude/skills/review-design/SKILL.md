@@ -315,8 +315,48 @@ grep -nE '<pattern>' <file>                                      # every line of
 - The surface's motion law holds. The host portal's container is continuous
   (`cire/host/DESIGN.md` §1): a panel that unmounts and remounts on a tab switch
   breaks it.
+- The governing `DESIGN.md` has a motion section. One without it is a Medium
+  finding on the document, and every motion the diff adds is then held to the
+  nearest sibling surface's rules.
 - Motion respects `prefers-reduced-motion` the way the surface's stylesheet
   already does.
+
+When the diff adds or changes a transition, keyframe, view transition, spring or
+gesture handler, hold each changed animation to the craft bar in
+`.claude/skills/review-animations/STANDARDS.md` and the ten standards at the top
+of `.claude/skills/review-animations/SKILL.md`: whether it needs to animate, how
+often the user sees it, its easing, duration, origin, the properties it moves
+and how it interrupts. Read both files; never invoke the skill. It is marked
+`disable-model-invocation`, opens by answering with a fixed greeting, and writes
+its own tiers, where this report writes `U-` findings. For a gesture, also read
+`.claude/skills/gestures/SKILL.md`; for a claim that an animation drops frames,
+`.claude/skills/animation-performance/SKILL.md`.
+
+- **The document wins.** A duration, easing, transform origin or reduced-motion
+  rule in the `DESIGN.md` or its stylesheet outranks `STANDARDS.md`: a miss
+  against the document is High, as any broken document rule is. Say in
+  `## Coverage` which value you held the animation to, and that the skill's
+  number gave way.
+- **A miss no document rules on is Medium**, or Low where it is polish no one
+  sees at a glance. A motion on a keyboard action or a high-frequency control is
+  Medium; so is an animation of `width`, `height`, `top` or `left` where
+  `transform` or `opacity` would do.
+- **A skill's code is never the fix.** Its examples use `framer-motion` and
+  `motion/react`. The Solution names CSS, the View Transitions API or the
+  library the surface already imports, as the second bullet above says.
+- Record each animated file under `## Coverage` with the standards you checked.
+  A diff with no animation says so there in one line.
+
+### Worst-case content
+
+When the diff draws a component that shows user data, read
+`.claude/skills/break-ui/SKILL.md` and `CATALOG.md` as a checklist, never
+invoking the skill: it writes a demo toggle into the code, and this review
+changes nothing. Walk the changed markup against each case it lists: a long or
+unbroken name or email, a one-letter name, a missing field, a huge count, zero
+items, non-Latin text, emoji. Report a case that would clip, overflow or break
+the layout as a `U-` finding, High when the diff adds the line. Record the cases
+you could only reason about as `unmeasured` in `## Measurements`, with the method.
 
 ### Type and copy
 
