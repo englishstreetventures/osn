@@ -700,7 +700,7 @@ describe("FG: a flip release beside its stack's other site Workers", () => {
   test("FG8: domainChanges names each site it read, and only those", () => {
     const read = domainChanges({
       sites: ["cire_vendor", "cire_host"],
-      modes: { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" },
+      modes: { ...PRODUCTION_SITE_MODES, cire_host: "staged", cire_vendor: "worker" },
       live: { cire_host: ["next.host.cireweddings.com"], cire_landing: ["next.cireweddings.com"] },
     });
     expect(read).toEqual({

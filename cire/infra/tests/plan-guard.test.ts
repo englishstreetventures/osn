@@ -30,11 +30,11 @@ const PRODUCTION_LOG = [
 
 /**
  * The hosts each site's Worker holds now, as the domains step reads them:
- * each at the host its mode declares, so no domain changes. Cire vendor's
- * Worker serves its production host.
+ * each at the host its mode declares, so no domain changes. The cire host
+ * and cire vendor Workers serve their production hosts.
  */
 const LIVE_DOMAINS = {
-  cire_host: ["next.host.cireweddings.com"],
+  cire_host: ["host.cireweddings.com"],
   cire_vendor: ["vendor.cireweddings.com"],
   cire_landing: ["next.cireweddings.com"],
 };

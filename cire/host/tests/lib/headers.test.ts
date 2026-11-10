@@ -35,7 +35,7 @@ function sources(policy: string, directive: string): string[] | undefined {
 }
 
 /**
- * `public/_headers` is served by Cloudflare Pages' asset layer, so nothing in
+ * `public/_headers` is served by the static-asset layer, so nothing in
  * the app can assert these at runtime — this file is the only guard against a
  * directive being dropped or the enforced policy quietly drifting from the
  * origins the portal actually talks to. Mirrors `cire/vendor`'s equivalent.

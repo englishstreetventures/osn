@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-10
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -244,7 +244,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is a static Astro + S
 - **osn-api** — the portal does not call it at all. Since the 2026-07-27 OIDC swap the browser holds a cire session cookie, not an OSN token, so it has nothing to send. The caller's orgs come from cire-api's `GET /api/vendor/orgs`, which resolves them over ARC (`profileOrgs` in `cire/api/src/routes/vendor-portal.ts:52`). **Org creation is still not here** — an org is an OSN account-level entity, created in the OSN app.
 - **cire-api** — `/api/vendor/*` routes gated by `osnAuth()` plus an inline ARC org-membership check. Called via the `authFetch` from `@shared/rp-auth`, which sends `credentials: "include"`. Cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
 
-`vendor.cireweddings.com` stays in osn-api's `OSN_CORS_ORIGIN` for now but no longer earns its place; pruning is tracked in `[[production-deploy]]`. It is **not** in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
+`vendor.cireweddings.com` is not in osn-api's production `OSN_CORS_ORIGIN`, which holds `https://musubi.social` alone ([[production-deploy]] §3.1). Nor is it in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
 
 ### Look and feel
 

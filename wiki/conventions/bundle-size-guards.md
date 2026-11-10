@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-10
 ---
 
 # Guards with a threshold
@@ -161,15 +161,16 @@ touching a threshold. In short:
   client-side saving is not room under this budget. Measure it from
   `dist/client/_astro` and report it as that.
 - **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
-  `pulse/landing`. All five are `output: "static"`: no Worker, no `dist/server`,
-  no `dist/client` split — they deploy `dist` wholesale to Cloudflare Pages.
+  `pulse/landing`. All five are `output: "static"`: no server code, no
+  `dist/server`, no `dist/client` split — each deploys `dist` wholesale as static
+  assets, to its site Worker or, while its host is still on Pages, its Pages project.
   Measures `dist/_astro/*.js` and `dist/_astro/*.css` **only** — an allowlist,
   not a directory sum, because `dist/_astro/fonts/` holds Google Fonts binaries
   fetched at build time (hashed names, moves whenever Google's metadata moves,
   not a repo change) and `dist` holds one HTML file per page (grows with
   ordinary content). Neither belongs in a guard whose job is catching a library
   that shouldn't have shipped. It separately refuses a source map anywhere
-  under `dist`, in either form, because Pages serves all of it.
+  under `dist`, in either form, because the static assets serve all of it.
 
 > [!warning] Known blind spot: inline `<style>`/`<script>` in the HTML
 > `build.inlineStylesheets: "auto"` is Astro's default and is unset in all

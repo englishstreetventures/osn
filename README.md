@@ -29,7 +29,7 @@ There is no separate specification repository yet. OSN today is the reference im
 
 ## Status
 
-Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
+Phase 1. Six surfaces run in production on Cloudflare; the rest run locally or on the dev tier.
 
 | Surface | Packages | Where it runs |
 |---|---|---|
@@ -39,9 +39,10 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Identity & graph UI | `@musubi/social` | Live — Pages on the apex `musubi.social` (also serves the OIDC consent screen) |
 | Events (Pulse) | `@pulse/web`, `@pulse/api`, `@pulse/db` | Local only |
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
-| Musubi / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Dev tier only — no production deploy |
+| Musubi marketing site | `@musubi/landing` | Live — Worker on `www.musubi.social` |
+| Pulse marketing site | `@pulse/landing` | Dev tier only — no production deploy |
 
-CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and cire landing sites (Pages) to production in releases from `.github/workflows/production-release.yml`, once a day or by hand. The cire and musubi Alchemy stacks deploy musubi landing on `www.musubi.social` and stage each Pages site on a spare host in its zone, ahead of moving its domain to a Worker; a release that ships a stack takes two approvals (its plan, then the deploy), any other one. Each production deploy applies its D1 migrations before the Worker. A merge to `main` deploys the dev tier at once, through the Alchemy stacks into its own Cloudflare account, every surface as a Worker. See `wiki/shared/dev-environment.md` and `wiki/shared/production-deploy.md`.
+CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app and cire landing sites (Pages) to production in releases from `.github/workflows/production-release.yml`, once a day or by hand. The cire and musubi Alchemy stacks deploy musubi landing on `www.musubi.social`, the vendor portal on `vendor.cireweddings.com` and the organiser portal on `host.cireweddings.com` (once its domain has moved from Pages), and stage each remaining Pages site on a spare host in its zone, ahead of moving its domain to a Worker; a release that ships a stack takes two approvals (its plan, then the deploy), any other one. Each production deploy applies its D1 migrations before the Worker. A merge to `main` deploys the dev tier at once, through the Alchemy stacks into its own Cloudflare account, every surface as a Worker. See `wiki/shared/dev-environment.md` and `wiki/shared/production-deploy.md`.
 
 ## Applications
 

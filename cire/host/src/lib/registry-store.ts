@@ -128,8 +128,8 @@ export interface GiftLogEntry {
   /**
    * A host hid this gift's note; `note` is then null and the words stay on the
    * server. Optional because the portal can deploy before the API that sends
-   * it (`deploy-cire-host` has no `needs:` edge on `deploy-cire-api`); a
-   * missing flag reads as not hidden.
+   * it (no release job waits for the other); a missing flag reads as not
+   * hidden.
    */
   noteHidden?: boolean;
   amountMinor: number | null;

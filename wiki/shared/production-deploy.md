@@ -1,6 +1,6 @@
 ---
 title: Production Deploy Runbook (osn + cire)
-description: End-to-end runbook for the first production deploy of osn-api and the cire stack (api worker + guest SSR Worker + organiser Pages). Enumerates every required secret/var by source line.
+description: End-to-end runbook for the first production deploy of osn-api and the cire stack (api worker + guest SSR Worker + static portal and marketing sites). Enumerates every required secret/var by source line.
 tags: [runbook, deploy, production, osn, cire, secrets, cloudflare]
 severity: high
 related:
@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-10
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -25,7 +25,7 @@ last-reviewed: 2026-11-06
 > `osn/api/src/index.ts`, served through `osn/api/src/entry.ts`, which also
 > exports the `CoordinationStore` Durable Object class) and the **cire** wedding-invite
 > stack (**cire-api** Worker + **cire/invites** guest **SSR Worker** + **cire/host**
-> Pages portal). _(cire/invites was a static Pages site; it is now an SSR Worker — see §3.3.)_
+> organiser portal, a static site). _(cire/invites was a static Pages site; it is now an SSR Worker — see §3.3.)_
 >
 > **osn-api is a Worker now (was a long-running Bun process).** All its secrets
 > are set with `wrangler secret put … --env <env>` and surfaced **only on the
@@ -85,7 +85,7 @@ marked **TBD** blocks the deploy.
 | `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `musubi.social`** (identity's own registrable apex, as of the 2026-07-27 move — §5.4, [[musubi-identity-migration]]). It covers the apex itself plus every future `*.musubi.social` surface. **This invalidated every passkey enrolled under `cireweddings.com`** — the private half is bound to the RP ID inside the authenticator, so nothing in D1 re-points it. |
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up by the next release — **osn-api deploys via CI** (`deploy-osn-api` in `production-release.yml`); no manual `wrangler deploy` needed. |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.musubi.social`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`; moved off `id.cireweddings.com` 2026-07-27) |
-| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. The cire origins stay here even though they left `OSN_ORIGIN` — these are two different lists: CORS governs browser calls, `OSN_ORIGIN` governs WebAuthn ceremonies. Since the 2026-07-27 OIDC swap the cire entries are **vestigial**: no cire browser calls osn-api any more (the exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request). Pruning them is a tidy-up, not a fix — do it in its own change so a missed caller shows up alone. |
+| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social`** alone (`osn/api/wrangler.toml`, `[env.production.vars]`). No cire origin is on it: no cire page calls osn-api from the browser (the code exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request), and the list also feeds the CSRF origin guard, so a cire entry would give any XSS on a cireweddings.com site credentialed access. Add an origin only when it fetches osn-api from a browser. |
 | `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Not moved to musubi.social yet**: dev sends from `Musubi <hello@musubi.social>` first, and production moves only once dev mail from it is seen to arrive (englishstreetventures/osn#1548). Resend fails closed on a domain it has not verified — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
@@ -100,7 +100,7 @@ marked **TBD** blocks the deploy.
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.musubi.social/.well-known/jwks.json` / `https://id.musubi.social`** (must equal osn-api's own `OSN_ISSUER_URL`, so these flip in the **same** deploy as osn-api's) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
 | cire/invites `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/invites **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `production-release.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
-| cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL`, `PUBLIC_MARKETING_URL` (build-time) | cire/host Pages | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com` / `https://cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
+| cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL`, `PUBLIC_MARKETING_URL` (build-time) | cire/host static build (§5.3) | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com` / `https://cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
 | `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production cire-api Worker (§3.2, §6.3). The row's `redirect_uris` still lists the dead `api-preview` callback; pruning it is an open prod-D1 write |
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `deploy-osn-social`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
@@ -406,7 +406,7 @@ bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 | `OSN_RP_ID` | `[env.<env>.vars]` | **Yes** | WebAuthn RP ID — must be a **registrable domain**. Prod = **`musubi.social`** since 2026-07-27 (was `cireweddings.com`). The apex, not `id.musubi.social`, so a ceremony is legal on the apex identity app *and* on any future `*.musubi.social` surface. **The change invalidated every passkey enrolled under `cireweddings.com`** — a private key is bound to its RP ID inside the authenticator, so recovery-code login is the only way back in. [[musubi-identity-migration]] |
 | `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. Prod = **`https://musubi.social`** — the identity app, and the only origin same-site with the RP ID. The cire origins were **removed** on 2026-07-27; a ceremony from `host.`/`vendor.`/`invite.cireweddings.com` is now illegal no matter what this list says, so listing them would only mislead. |
 | `OSN_ISSUER_URL` | `[env.<env>.vars]` | **Yes** | Public https base URL of osn-api → JWT `iss`; must match what cire verifies. Prod = **`https://id.musubi.social`** (custom-domain route in `wrangler.toml` `[env.production]`). |
-| `OSN_CORS_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep prod app origins. In a secure env an empty list **throws** at `assertCorsOriginsConfigured` (`lib/cors-config.ts`) — Origin/CSRF guard is mandatory. Prod = **`https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. **These are two different lists.** CORS governs **bearer-token** calls, which still work cross-site, so the cire origins stay. `OSN_ORIGIN` governs WebAuthn ceremonies, which do not. |
+| `OSN_CORS_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep prod app origins. In a secure env an empty list **throws** at `assertCorsOriginsConfigured` (`lib/cors-config.ts`) — Origin/CSRF guard is mandatory. Prod = **`https://musubi.social`**: no cire page calls osn-api from the browser, and the list also feeds the CSRF origin guard. `OSN_ORIGIN`, a different list, governs WebAuthn ceremonies. |
 | `RESEND_API_KEY` | `wrangler secret put` | **Yes\* (live transport)** | Resend API key (bearer). **Set on production.** When set in non-local → `ResendEmailLive` (POST `https://api.resend.com/emails`); **wins over the Cloudflare creds and the opt-in**. Fail-closed at startup if no provider is set in non-local — **unless `OSN_EMAIL_OPTIONAL` is set** (then degraded no-op). §1.1 |
 | `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback transport (paid Workers plan). Used only if `RESEND_API_KEY` is absent. §1.1 |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback bearer token. Same role as `CLOUDFLARE_ACCOUNT_ID`. §1.1 |
@@ -481,7 +481,7 @@ quietly accepting tokens from anywhere.
 > `routes` and `triggers`. Same rule caught the missing prod
 > cron: `[triggers]` at the top level had never applied to the deployed Worker.
 
-### 3.3 cire/invites (Worker SSR) + cire/host, cire/vendor (Pages — build-time `PUBLIC_*`)
+### 3.3 cire/invites (Worker SSR) + cire/host, cire/vendor (static sites — build-time `PUBLIC_*`)
 
 > [!important] cire/invites is now an **SSR Cloudflare Worker**, not Pages
 > `cire/invites` switched to `output: "server"` (the `@astrojs/cloudflare` adapter)
@@ -519,11 +519,12 @@ quietly accepting tokens from anywhere.
 > already the default). If a guest-site deploy fails on a config field again, check
 > the generated `dist/server/wrangler.json` against the installed wrangler's schema.
 
-`cire/host` and `cire/vendor` are **static** Pages builds (`output: "static"`); cire/invites's
+`cire/host` and `cire/vendor` are **static** builds (`output: "static"`), each served by its
+site Worker once its flip release has moved its host (§5.3); cire/invites's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but
 still bake in **at build time**. The prod values are wired in
-`.github/workflows/production-release.yml` (the `deploy-cire-invites` / `deploy-cire-host` jobs set
-them on the build step; the dev values are in `deploy.yml`); a localhost fallback stays in the source for local dev. If you
+`.github/workflows/production-release.yml` (the `deploy-cire-invites` job and the `sites` job set
+them on their build steps; the dev values are in `deploy.yml`); a localhost fallback stays in the source for local dev. If you
 build outside CI, export these before `bun run --cwd <site> build`.
 
 | Name | Site | Required? | Prod value | Notes |
@@ -958,7 +959,7 @@ Which job owns which surface:
 | Surface key | Production job (`production-release.yml`) | Dev job (`deploy.yml`) | Live at |
 |---|---|---|---|
 | `cire_invites` | `Deploy cire/invites — production` | `— dev` | `invite.cireweddings.com` |
-| `cire_host` | `Deploy cire/host — production` | `— dev` | `host.cireweddings.com` |
+| `cire_host` | `Record cire/host — production`, after the cire stack job | `— dev` | `host.cireweddings.com` |
 | `cire_vendor` | `Record cire/vendor — production`, after the cire stack job | `— dev` | `vendor.cireweddings.com` |
 | `cire_landing` | `Deploy cire/landing — production (apex)` | `— dev` | `cireweddings.com` |
 | `cire_api` | `Deploy cire/api — production` | `— dev` | `api.cireweddings.com` |
@@ -1118,17 +1119,26 @@ top-level D1/R2 bindings (§3.2 nuance).
 > IN ('refunding', 'auto_refunded', 'refund_failed')"`) and marks each `refunded`,
 > or does not roll back. See [[cire-upgrades#Retention and compliance]].
 
-### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (Pages)
+### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (sites)
 
 CI builds each site with the prod `PUBLIC_*` vars (§3.3) baked in, then publishes. The
 guest site is a **Worker**, not Pages — `deploy-cire-invites` builds and deploys `cire-invites`
-from the adapter-generated config. The other three are Pages projects (`cire-host`,
-`cire-vendor`, `cire-landing` — create each once before its first run) until each site's
-domain moves to a Worker: the `sites` job builds each once, its Pages job deploys that build,
-and the cire stack deploys the same build to a staged Worker on a spare host
-([[infrastructure-as-code#Production sites]]). `deploy-cire-host` deploys to the Pages project
-`cire-host`, the project that holds `host.cireweddings.com` (*measured 2026-10-28 —
-dashboard, Workers & Pages → `cire-host` → Custom domains*). Manual equivalents:
+from the adapter-generated config. The `sites` job builds the other three once each, and
+the cire stack deploys each build to the site's Worker
+([[infrastructure-as-code#Production sites]]):
+
+- `cire/host` and `cire/vendor` are `worker` in `shared/infra/src/production-sites.ts`. The
+  `cire-host` and `cire-vendor` Workers hold `host.cireweddings.com` and
+  `vendor.cireweddings.com`, each once its flip release has moved it off its Pages project
+  (§5.7). No job deploys the `cire-host` or `cire-vendor` Pages project; each stays for a
+  rollback until `musubi.social` has moved and soaked. Until its flip, the `cire-host`
+  project holds `host.cireweddings.com` (*measured 2026-10-28 — dashboard, Workers &
+  Pages, the `cire-host` project, Custom domains*).
+- `cire/landing` is `staged`: its Pages job, `deploy-cire-landing`, deploys the build to
+  the `cire-landing` project, which holds the apex, and the cire stack deploys the same
+  build to its Worker on `next.cireweddings.com`.
+
+Manual equivalents:
 
 ```bash
 # guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
@@ -1140,30 +1150,26 @@ OSN_DEPLOY_TIER=production \
 bunx wrangler deploy --config cire/invites/dist/server/wrangler.json
 bun run scripts/smoke-check.ts cire_invites production   # the check CI runs (§7)
 
-# organiser portal (Pages project: cire-host, host.cireweddings.com)
+# organiser portal: the build the cire stack deploys to the cire-host Worker.
+# No hand deploy: a release ships it (§5.5).
 PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
 PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
 OSN_DEPLOY_TIER=production \
   bun run --cwd cire/host build
-bunx wrangler pages deploy cire/host/dist --project-name cire-host
 ```
 
 `OSN_DEPLOY_TIER=production` marks each as a production deploy build, which fails
 unless its cire-api URL is `https://api.cireweddings.com`
 ([[cire-development#Portal security headers]]).
 
-`cire/landing` (the `cire-landing` project, the apex) follows the same Pages pattern; its
-build env lives in the `sites` job. `cire/vendor` is `worker` in
-`shared/infra/src/production-sites.ts`: the cire stack deploys its build to the
-`cire-vendor` Worker, which holds `vendor.cireweddings.com` once the flip release has
-moved it (§5.7), and no job deploys the `cire-vendor` Pages project, which stays for a
-rollback until `musubi.social` has moved and soaked.
+The vendor portal's and the marketing site's build env lives in the `sites` job too.
 
 Make sure the published guest, organiser and vendor origins are exactly the ones listed in
-cire-api's `WEB_ORIGIN` allowlist (§3.2) and in osn-api's `OSN_CORS_ORIGIN` /
-`OSN_ORIGIN` (organiser and vendor passkey sign-in talk to osn-api).
+cire-api's `WEB_ORIGIN` allowlist (§3.2). osn-api's `OSN_CORS_ORIGIN` and `OSN_ORIGIN` each
+hold `https://musubi.social` alone (§3.1): no cire page calls osn-api from the browser or
+runs a passkey ceremony.
 
 ### 5.4 Attach custom domains (human / dashboard steps) 🌐
 
@@ -1185,8 +1191,10 @@ automatically once you attach them.
    of their own, so the explicit `id` record takes precedence.
 2. **Pages custom domains (dashboard, one-time).** In each Pages project → Custom domains:
    - `cire-landing` (marketing site) → add the apex **`cireweddings.com`**.
-   - `cire-host` (organiser portal) → add **`host.cireweddings.com`**.
-   - `cire-vendor` (vendor portal) → add **`vendor.cireweddings.com`** (§8.2).
+   - `cire-host` (organiser portal): add **`host.cireweddings.com`**, never while the
+     `cire-host` Worker holds it (§5.7).
+   - `cire-vendor` (vendor portal): add **`vendor.cireweddings.com`** (§8.2), never
+     while the `cire-vendor` Worker holds it.
    - `osn-social` (identity app + OIDC consent screen) → add the apex **`musubi.social`**.
      **Done 2026-07-27.** Not optional: `OSN_AUTHORIZE_UI_URL` points at
      `https://musubi.social/authorize`, and on `osn-social.pages.dev` the `__Host-` session
@@ -1204,9 +1212,9 @@ automatically once you attach them.
    ([[infrastructure-as-code#Production sites]]).
 3. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
    each site Worker's domain on deploy: `www.musubi.social` for musubi landing,
-   `vendor.cireweddings.com` for cire vendor once its flip release has moved it (§5.7),
-   and while a site is staged its spare host (`next.host.cireweddings.com`,
-   `next.cireweddings.com`, `next.musubi.social`). No dashboard step. Before a release first attaches one, confirm nothing holds it: for
+   `vendor.cireweddings.com` for cire vendor, `host.cireweddings.com` for cire host once
+   its flip release has moved it (§5.7), and while a site is staged its spare host
+   (`next.cireweddings.com`, `next.musubi.social`). No dashboard step. Before a release first attaches one, confirm nothing holds it: for
    `www.musubi.social` run `bun run scripts/pages-domain.ts check musubi_landing` with
    `CLOUDFLARE_PAGES_DNS_TOKEN`; that command reads production hosts only, so for each
    spare host check that `dig +short <host> A`, `AAAA` and `CNAME` answer nothing and
@@ -1228,11 +1236,11 @@ automatically once you attach them.
    does, dispatch **Production release** again: the stack job left no successful
    record, so that release ships the stack again, with no domain change, and its smoke
    check passes.
-4. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
-   vendor and identity origins must exactly match cire-api `WEB_ORIGIN` and osn-api
-   `OSN_CORS_ORIGIN`. `OSN_ORIGIN` is a shorter list on purpose — only `https://musubi.social`,
-   the one origin that may run a WebAuthn ceremony under the `musubi.social` RP ID (§3.1).
-   A trailing-slash or scheme mismatch fails the Origin guard.
+4. **Re-check the allowlists** once the domains resolve: the live guest, organiser and
+   vendor origins must exactly match cire-api `WEB_ORIGIN`. osn-api's `OSN_CORS_ORIGIN`
+   and `OSN_ORIGIN` each hold `https://musubi.social` alone: no cire page calls osn-api
+   from the browser, and it is the one origin that may run a WebAuthn ceremony under the
+   `musubi.social` RP ID (§3.1). A trailing-slash or scheme mismatch fails the Origin guard.
 5. **Turnstile widget domains (dashboard).** `musubi.social` was added on 2026-07-27
    (§3.4). Only hostnames that render a form need listing, so `id.musubi.social` does not —
    osn-api serves JSON and siteverifies server-side. The wrangler API token has no
@@ -1384,21 +1392,27 @@ dispatch it by hand, or open the scheduled one, and read the plan before approvi
 
 ### 5.6 Approval order when a cire release changes what a plan tier opens
 
-`deploy-cire-host` and `deploy-cire-api` are separate production jobs with no
-`needs:` between them, and one approval releases both. A `needs:` edge would put
-cire-api in front of the gate later than the rest and cost a second approval on
-every release that ships both, so the order is set by hand instead. When a release
-changes the contract between them — the plan tiers ([[cire-entitlements]]) are the
-case that exists — ship them in **two releases, host first**:
+The cire stack job (`stack-cire-production`), which deploys the organiser portal, and
+`deploy-cire-api` are separate production jobs with no `needs:` between them, and the
+same approval releases both. A `needs:` edge would put cire-api in front of the gate
+later than the rest and cost another approval on every release that ships both, so the
+order is set by hand instead. When a release changes the contract between them — the
+plan tiers ([[cire-entitlements]]) are the case that exists — ship them in **two
+releases, host first**:
 
 1. Run the pre-flight queries below, before approving anything.
 2. If a release waiting for approval ships `cire_api` while `cire_host` ships or is
    held back, reject it — the plan summary flags that case. The dev gate can hold host
    and ship api alone, which is the pairing below that breaks.
-3. Dispatch a release with `surfaces: cire_host`, approve it, and wait for it to
-   finish. If its plan shows `cire_host` as `held back`, the release ships nothing and
-   asks for no approval: get dev to deploy the portal first (§5.0 item 3), then
-   dispatch again.
+3. Dispatch a release with `surfaces: cire_host`, approve it (the Alchemy plan first,
+   then the cire stack and any job waiting beside it), and wait for it to finish. Naming `cire_host` asks for every
+   site of the cire stack, so the release also ships the vendor portal, and the
+   marketing site's Pages job when production is behind on it. The stack deploys its
+   sites together, so any of the three that dev holds back, or that production runs
+   newer, holds the portal too: if the plan shows the cire stack waiting, the release
+   ships no portal, so get dev to deploy what it names first (§5.0 item 3), then
+   dispatch again. Until `host.cireweddings.com` has moved to its Worker (§5.7), the
+   cire stack fails `alchemy-plan`'s precheck, so this step waits for the flip.
 4. Dispatch a release with `surfaces: cire_api` and approve it. It applies the D1
    migrations, then deploys the Worker.
 
@@ -1499,7 +1513,9 @@ Each Pages site moves one at a time, in the order cire vendor, cire host, cire l
 then `musubi.social` (englishstreetventures/osn#1787). Before each:
 
 - The site has run `staged` through at least one release, and the `site-parity` artifact
-  of the latest release shows no difference a real path relies on. Four are expected
+  of the latest release that compared it shows no difference a real path relies on.
+  Check it before the pull request below merges: from then on no release compares the
+  site. Four are expected
   and accepted:
   - Pages' `access-control-allow-origin: *`, which the Worker does not send (accepted by
     the owner).
@@ -1589,18 +1605,26 @@ approvals, one per job, in this order:
    Pages project, then takes the host off the project and deletes its CNAME. **The site
    is down from here** until step 4's
    deploy attaches the domain, so approve step 4 at once: the outage is your wait plus
-   step 4's install, state store check, snapshot and plan, a few minutes. The approved
+   step 4's install, state store check, snapshot and plan. In cire vendor's flip that
+   was 39 s from the detach to the end of the deploy, the approval included. The approved
    plan from step 1 is kept 7 days; step 4 refuses without it.
 4. `stack-<stack>-production` — installs, checks the state store, plans the stack once
    more and runs the guard as in step 2, then deploys (which attaches the domain to the
    Worker, and updates the stack's other site Workers), and smoke-checks every site of
    the stack, the flip site on its production host, rolling each back on failure. The
-   other sites' uploads may lengthen the outage; that is not measured. The site's
+   other sites' uploads add a few seconds: cire vendor's flip deployed all three cire
+   Workers in 9 s, where a release with no flip took 7 s. The site's
    record job, which the pull request turning it to `worker` adds
    (`record-<site>`, [[infrastructure-as-code#Production sites]]), then records it in
    `production-records`. A guard refusal here
    stops before the deploy and leaves the host on neither Pages nor the Worker: roll
    back with an attach release (step 2 below; there is no Worker domain to remove).
+
+*Measured 2026-11-10 — `gh run view 42329249886 --json jobs` (cire vendor's flip, 2026-11-07):
+the detach printed its result at 02:44:54, the stack job started at 02:45:05, and its
+`Deploy the cire stack` step ran 02:45:24–02:45:33; the same step in release 42568375476,
+with no flip, ran 04:34:32–04:34:39. GitHub gives step times to the second, and they show
+when the jobs ran, not what the host answered.*
 
 **If `flip-detach-<stack>` fails**, its Pages domain delete or its CNAME delete failed,
 and the job names which. Dispatch an attach release (step 2 below): it makes only what
@@ -1659,8 +1683,8 @@ Before the dashboard and `attach` rollback, see what that build lacks. The Pages
 serves the commit of the site's last successful Pages job, `Deploy <site> — production`,
 in the last release before the flip pull request merged. List what changed in the site
 since: `git log --oneline <that commit>..origin/main -- <the site's paths>`, the site's
-paths and the shared ones in `scripts/deploy-surfaces.ts` (for cire vendor,
-`cire/vendor cire/ui cire/theme cire/build-tools cire/dietary shared bun.lock`). If a
+paths and the shared ones in `scripts/deploy-surfaces.ts` (for cire host,
+`cire/host cire/build-tools cire/dietary cire/envelope/src/index.ts cire/envelope/package.json cire/guest-email cire/invite-designs cire/theme cire/ui shared patches bun.lock package.json turbo.json tsconfig.json .browserslistrc`). If a
 security fix is among them, roll back by the revert and `unflip` instead, which deploys
 the current build to Pages before the attach job puts the host back.
 
@@ -1706,7 +1730,7 @@ the timings differ.
 
 | Step | Ran | What Cloudflare answered |
 |---|---|---|
-| Reach check | 08:52:21 | `GET /accounts`: one account, the dev account. `GET /zones`: the dev zone alone, none in another account. This is the dev deploy token's answer. Production's `CLOUDFLARE_PAGES_DNS_TOKEN`, which holds fewer grants, passed its own reach check in `alchemy-plan`'s precheck of release run 42140585413 (2026-11-06, which printed `musubi_landing www.musubi.social free`); it has not yet read a `cireweddings.com` host or made a write |
+| Reach check | 08:52:21 | `GET /accounts`: one account, the dev account. `GET /zones`: the dev zone alone, none in another account. This is the dev deploy token's answer. Production's `CLOUDFLARE_PAGES_DNS_TOKEN`, which holds fewer grants, passed its own reach check in `alchemy-plan`'s precheck of release run 42140585413 (2026-11-06, which printed `musubi_landing www.musubi.social free`). In cire vendor's flip, release run 42329249886 (2026-11-07), it read a `cireweddings.com` host (the precheck printed `cire_vendor vendor.cireweddings.com pages cire-vendor`) and made its first writes (the detach printed `Took vendor.cireweddings.com off cire-vendor and deleted 1 CNAME record to cire-vendor.pages.dev.`) |
 | Detach | 08:56:37–08:56:38 | The domain came off the Pages project and its CNAME was deleted, each on the first request |
 | Flip | 08:56:56–08:57:08 | Alchemy ran 8 s. The spare host's custom domain was gone at 08:57:03 and the moved host's listed at 08:57:05 (`workerDomainListedMs` 8,521), and the deploy succeeded |
 | Check | 08:57:20 | The host's one record: a proxied, read-only `AAAA` to `100::` carrying `meta.origin_worker_id`, both shapes `pages-domain.ts` counts as a Worker's, so the host reads `free` |
@@ -1846,8 +1870,8 @@ yourself (§5.1). A person runs the rest.
 | 8. RSVP write | A person |
 | 9. Account linking, if enabled | A person |
 
-The production Pages deploys — the organiser portal, the cire landing site and
-`musubi.social` — have no automatic check and no automatic rollback. The site
+The production Pages deploys — the cire landing site and `musubi.social` — have no
+automatic check and no automatic rollback. The site
 Workers the production stacks deploy are each checked after the stack's deploy, on the
 host their mode gives them: the spare host while staged, the production host once their
 domain has moved. On dev every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
@@ -1870,7 +1894,7 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
-| cire host | the site Worker's `/` and `/vendors/enquiries/smoke-check`, on its spare host while staged (the Pages project has no check) | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves |
+| cire host | `https://host.cireweddings.com/` and `/vendors/enquiries/smoke-check` | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
 | cire vendor | `https://vendor.cireweddings.com/` | `/` | 200 HTML. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
 | cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
 | musubi landing | `https://www.musubi.social/` | `/` | 200 HTML |
@@ -2082,7 +2106,7 @@ How it decides:
 > **These steps are NOT automated.** A team member with Cloudflare account access runs them by hand. See [[cire-vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
 
 > [!note]
-> Cire vendor is `worker` in `shared/infra/src/production-sites.ts`: the cire stack deploys the portal to the `cire-vendor` Worker, which holds `vendor.cireweddings.com` once its flip release has moved it (§5.7), and no job deploys the `cire-vendor` Pages project. §8.1 and §8.2 describe that project, which stays for a rollback; §8.6 rolls back the portal's allowlist entries, and its domain through §5.7.
+> Cire vendor is `worker` in `shared/infra/src/production-sites.ts`: the cire stack deploys the portal to the `cire-vendor` Worker, which holds `vendor.cireweddings.com` since its flip release (run 42329249886, 2026-11-07; §5.7), and no job deploys the `cire-vendor` Pages project. §8.1 and §8.2 describe that project, which stays for a rollback; §8.6 rolls back the portal's allowlist entries, and its domain through §5.7.
 
 ### 8.1 Create the Pages project
 
@@ -2103,9 +2127,9 @@ In the Cloudflare dashboard (or via Wrangler if supported):
 
 ### 8.3 Confirm CORS allowlist changes are live
 
-After the release that ships PR B to production completes, check that both Workers now allow the new origin. The allowlist entries add `https://vendor.cireweddings.com` to `cire/api/wrangler.toml` `WEB_ORIGIN` and to `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`. They ship through the normal release jobs (§5.5) — you need no separate `wrangler deploy`.
+After the release that ships the portal's allowlist entry to production completes, check that cire-api allows the portal's origin. The entry adds `https://vendor.cireweddings.com` to `cire/api/wrangler.toml` `WEB_ORIGIN`, and ships through the normal release jobs (§5.5) — you need no separate `wrangler deploy`. osn-api lists no cire origin: the portal does not call it from the browser ([[cire-vendors]]).
 
-Quick smoke check (replace `<token>` with a real short-lived claim token from a test seed):
+Quick smoke check:
 
 ```bash
 # CORS preflight to cire-api
@@ -2113,15 +2137,9 @@ curl -si -X OPTIONS https://api.cireweddings.com/api/vendor/listing \
   -H "Origin: https://vendor.cireweddings.com" \
   -H "Access-Control-Request-Method: GET" \
   | grep -i "access-control"
-
-# CORS preflight to osn-api
-curl -si -X OPTIONS https://id.musubi.social/organisations \
-  -H "Origin: https://vendor.cireweddings.com" \
-  -H "Access-Control-Request-Method: GET" \
-  | grep -i "access-control"
 ```
 
-Expected: `access-control-allow-origin: https://vendor.cireweddings.com` in both responses.
+Expected: `access-control-allow-origin: https://vendor.cireweddings.com`.
 
 ### 8.4 Secrets
 
@@ -2138,8 +2156,8 @@ The vendor portal uses `vendorOrgMember()` middleware, which needs the `org:read
 
 To roll the vendor portal back:
 
-1. Remove the `https://vendor.cireweddings.com` entries from `cire/api/wrangler.toml` `WEB_ORIGIN` and `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`.
-2. Merge the revert PR — the merge redeploys both dev Workers. Then dispatch a release with `surfaces: cire_api osn_api` and approve it (§5.5), which ships the narrowed allowlists to production.
+1. Remove the `https://vendor.cireweddings.com` entry from `cire/api/wrangler.toml` `WEB_ORIGIN`.
+2. Merge the revert PR — the merge redeploys the dev Worker. Then dispatch a release with `surfaces: cire_api` and approve it (§5.5), which ships the narrowed allowlist to production.
 3. To take the portal off the internet as well, move its domain off the `cire-vendor` Worker as §5.7's rollback says, with a pull request that sets `cire_vendor` back to `staged`. Removing the Worker's custom domain in the dashboard alone does not last: while `cire_vendor` is `worker`, the next release that ships the cire stack finds the host free and attaches it again. The Pages project's own domain setting serves nothing once the Worker holds the host.
 
 You need not delete the Pages project — leave it idle.

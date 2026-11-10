@@ -11,7 +11,7 @@ related:
   - "[[cire-auth]]"
   - "[[d1-limits]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-10
 ---
 # Checklist / Tasks
 
@@ -354,7 +354,7 @@ The reader's seat is `viewerHostId` from `GET /tasks`; `readTaskList` in
 checklist and Overview — go through it. Every task the portal reads, from the
 list or from a write's answer, goes through `readTaskRow`, which also reads the
 API before holders: that API sends one `assignedHostId` and no
-`assigneeHostIds`, and `deploy-cire-host` does not wait for `deploy-cire-api`
+`assigneeHostIds`, and the cire stack job that deploys the portal does not wait for `deploy-cire-api`
 ([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
 so the portal shows that one seat as the task's holder, or nobody. The seats come from `lib/hosts-store.ts`,
 a cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];

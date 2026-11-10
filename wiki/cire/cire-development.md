@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-10
 ---
 
 # Cire development guide
@@ -526,7 +526,7 @@ API older than the column accepts the write and drops the field, so a value
 entered in that window is not stored.
 
 **The organiser portal reads both shapes of a field the API changes.**
-`deploy-cire-host` has no `needs:` edge on `deploy-cire-api` either
+The cire stack job, which deploys the portal, has no `needs:` edge on `deploy-cire-api` either
 ([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
 so the portal can serve against the API before the one it ships with. A portal
 that reads only the new shape throws, or shows nothing, for that window. Read the
@@ -585,9 +585,11 @@ hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
 ## Portal security headers
 
 The organiser portal (`@cire/host`) and the vendor portal (`@cire/vendor`) are
-static Astro builds on Cloudflare Pages. Every response header they send comes
-from `public/_headers`, which Pages applies to every path, as do the Workers that
-serve the same builds on dev and, staged, on production
+static Astro builds served from static assets by their Workers, on dev and on
+production. On production the organiser portal's Pages project serves
+`host.cireweddings.com` until its flip release moves the host to the Worker. Every
+response header they send comes from
+`public/_headers`, which the Workers and Pages alike apply to every path
 ([[infrastructure-as-code#Production sites]]). `astro dev` does
 not read that file, so the devloop runs with no CSP at all.
 
@@ -742,7 +744,8 @@ same-origin chunks once the Access session expires.
 
 Hold production until the walk passes. A merge deploys the dev tier at once;
 production waits for a release ([[production-deploy]] §5.5). Do not approve a
-release that ships the portal (`cire_host` or `cire_vendor` in its plan) until the
+release that ships the portal (`cire_host` or `cire_vendor` in its plan, or the cire
+stack, which deploys both portals at the release commit) until the
 walk passes. On a failed walk, reject that release — or dispatch one with
 `surfaces` set to leave the portal out, if the other surfaces must ship — and
 revert. Leaving the release waiting instead holds every surface in it, not only
