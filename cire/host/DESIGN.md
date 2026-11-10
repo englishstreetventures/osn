@@ -792,12 +792,17 @@ for at most two frames.
 
 **A dropped row settles into its slot** (the owner's choice,
 englishstreetventures/osn#2164). Let go with a pointer, a sortable row eases
-from where it was released into its new slot on `--dur-base` (150ms at a desk,
-200ms on touch) with `--ease-out`, above its neighbours while it moves; a
-cancelled drag eases it back. The rows that shift aside to open its slot do
-not move again at the drop. A keyboard move does not animate, and reduced
-motion lands the row at once. A drag that catches a settling row picks it up
-where it is. `@shared/sortable` does it for every list
+from where it was released into its new slot; a cancelled drag eases it back.
+It runs on `--dur-base` (150ms at a desk, 200ms on touch) with `--ease-out`.
+The owner chose that the row settles, not that rung or curve: neither has been
+put to them rendered yet, beside `--dur-slow` and `--ease-in-out`
+(englishstreetventures/osn#2176). The row keeps the look it was dragged in
+until it lands (on most lists the gold edge, the 80% surface fill and
+`--elev-2`; Depth, above), so it crosses its neighbours above them rather than
+as a see-through box. The rows that shift aside to open its slot do not move
+again at the drop. A keyboard move does not animate, and reduced motion lands
+the row at once. A drag that catches a settling row picks it up where it is.
+`@shared/sortable` does it for every list
 ([drag-and-drop](../../wiki/shared/drag-and-drop.md) §A dropped row settles
 into its slot).
 
