@@ -1064,9 +1064,13 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
-    # Bounded: one checkout, one pinned gitleaks download, a bare clone and a
-    # scan. Ten minutes is the backstop, not an estimate.
+    # Bounded: one checkout, one pinned gitleaks tarball (cached, or downloaded
+    # with retries), a bare clone and a scan. Ten minutes is the backstop, not
+    # an estimate.
     timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
     steps:
       # Full history, so the base commit of a pull request is present and the
       # policy file on origin/main can be read.
@@ -1074,14 +1078,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install gitleaks 8.30.1
-        env:
-          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      # The release tarball, kept under its version and SHA-256, so most runs
+      # download nothing: on 2026-11-09 GitHub's release download answered 504
+      # twice, and one of those ejected a merge-queue group. A run that does
+      # download retries a 5xx or a dropped connection, waiting longer each
+      # time. The cache saves only after a passing job.
+      - name: Cache gitleaks
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gitleaks
+          key: gitleaks-${{ env.GITLEAKS_VERSION }}-linux_x64-${{ env.GITLEAKS_SHA256 }}
+
+      # The SHA-256 is checked on every run, on a cached tarball as on a
+      # downloaded one, before anything is unpacked. A tarball that fails it is
+      # deleted and fails the step.
+      - name: Install gitleaks ${{ env.GITLEAKS_VERSION }}
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
-            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
-          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          file="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tarball="$HOME/.cache/gitleaks/$file"
+          if [ -f "$tarball" ]; then
+            echo "gitleaks $GITLEAKS_VERSION: from the cache"
+          else
+            mkdir -p "$(dirname "$tarball")"
+            curl -fsSL --retry 5 --retry-all-errors --retry-max-time 120 \
+              --connect-timeout 10 --max-time 60 -o "$tarball.part" \
+              "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$file"
+            mv "$tarball.part" "$tarball"
+          fi
+          if ! echo "$GITLEAKS_SHA256  $tarball" | sha256sum -c -; then
+            rm -f "$tarball"
+            exit 1
+          fi
+          tar -xzf "$tarball" -C "$RUNNER_TEMP" gitleaks
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
       - name: Test the secret scan
