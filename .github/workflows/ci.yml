@@ -595,8 +595,7 @@ jobs:
       # log to read because a job's logs only appear once it ends. So the halves
       # are separate steps, so a stall names which half stalled; each is
       # bounded, so a stall is a red X in ten minutes; and the download half is
-      # cached on the lockfile. The system libraries are not cacheable (apt
-      # writes into the image, not the workspace) and are reinstalled each run.
+      # cached on the lockfile.
       #
       # Restore only: the E2E job installs the same revision and saves this key.
       # Only chromium is installed — the tier pins a single instance.
@@ -607,6 +606,22 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
+
+      # The system half is cached too: the image has Chromium's libraries, and
+      # what `install-deps` still downloads is a few font packages (21.9 MB)
+      # from the runner's apt mirror. On 2026-11-06 that mirror sent them at
+      # about 40 KB/s, the step ran out its ten minutes, and the merge queue
+      # ejected the group. scripts/install-chromium-system-libraries.sh copies
+      # the packages kept in ~/.cache/chromium-apt into apt's archive, where
+      # apt takes each one whose hash matches the index, and retries an
+      # attempt that stalls. Restore only, as above: the E2E job saves this key.
+      - name: Restore Chromium's system packages
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/chromium-apt
+          key: ${{ runner.os }}-chromium-apt-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-chromium-apt-
 
       # Both installs run from `cire/host`, and the working directory is the
       # whole point. `playwright` is a devDependency of each package with a
@@ -625,7 +640,7 @@ jobs:
       - name: Install Chromium's system libraries
         timeout-minutes: 10
         working-directory: cire/host
-        run: bunx --no-install playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/install-chromium-system-libraries.sh" "$HOME/.cache/chromium-apt"
 
       - name: Install Chromium for browser tests
         timeout-minutes: 10
@@ -949,10 +964,31 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
+      # This job saves the system packages the browser legs restore. It saves
+      # them in a step of its own, straight after the install, so a run whose
+      # flows fail still fills the cache. This job does not run on a
+      # merge-queue group, so a push to main writes main's cache, which every
+      # branch and queue group can read.
+      - name: Restore Chromium's system packages
+        id: chromium-apt
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/chromium-apt
+          key: ${{ runner.os }}-chromium-apt-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-chromium-apt-
+
       - name: Install Chromium's system libraries
         timeout-minutes: 10
         working-directory: tools/e2e
-        run: bunx --no-install playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/install-chromium-system-libraries.sh" "$HOME/.cache/chromium-apt"
+
+      - name: Save Chromium's system packages
+        if: github.event_name != 'merge_group' && steps.chromium-apt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/chromium-apt
+          key: ${{ steps.chromium-apt.outputs.cache-primary-key }}
 
       - name: Install Chromium
         timeout-minutes: 10

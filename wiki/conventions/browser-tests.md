@@ -404,15 +404,26 @@ pull request: `scripts/tests/deploy-workflows.test.ts` fails while any package
 with the script is missing from the legs, and each leg checks before it runs
 that turbo found as many packages as it names.
 
-Each leg installs Chromium's system libraries and the browser as two steps,
-each with a 10-minute limit. `install-deps` is required on `ubuntu-latest`: the
-browser alone won't launch without its shared libraries, which live in the
-image and are installed on every run. The browser download is cached on the
-lockfile. Both installs run from `cire/host`, because at the repo root `bunx`
-fetches npm's latest Playwright and the build it wants instead of ours
-([[#Running it locally]]). Only `chromium` is installed: the tier pins a single
-instance, so pulling Firefox and WebKit too would triple the download for
-nothing.
+Each leg installs Chromium's system packages and the browser as two steps,
+each with a 10-minute limit. The system half is `playwright install-deps
+chromium`, run by
+[`install-chromium-system-libraries.sh`](../../scripts/install-chromium-system-libraries.sh).
+On `ubuntu-latest` the image already holds Chromium's shared libraries, and
+what `install-deps` still downloads is nine font packages from the runner's apt
+mirror. The script keeps those packages in a cache the E2E job saves and the
+legs restore, so apt downloads only what the cache lacks, and it runs the
+install under [`retry.sh`](../../scripts/retry.sh): three attempts of 150 s,
+so a stalled attempt is cut and run again, resuming the downloads it left.
+apt checks each cached package's hash against the index, so a stale one is
+fetched again, never installed.
+
+*Measured 2026-11-06 — the `Browser tests (cire-invites)` log of merge-queue run 42197392019: every library "already the newest version", nine packages "Need to get 21.9 MB of archives", fetched at about 40 KB/s until the step's 10 minutes ran out*
+
+The browser download is cached on the lockfile. Both installs run from
+`cire/host`, because at the repo root `bunx` fetches npm's latest Playwright
+and the build it wants instead of ours ([[#Running it locally]]). Only
+`chromium` is installed: the tier pins a single instance, so pulling Firefox
+and WebKit too would triple the download for nothing.
 
 The E2E job installs the same way from `tools/e2e` under the same cache key,
 so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one

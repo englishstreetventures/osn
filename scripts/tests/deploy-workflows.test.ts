@@ -893,8 +893,9 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   });
 
   // A merge-queue group runs on a `gh-readonly-queue/*` ref that no later run
-  // can restore from, so a turbo cache saved there is space and nothing else.
-  test("no turbo cache is saved on a merge-queue run", () => {
+  // can restore from, so a cache saved there is space and nothing else. A save
+  // may add conditions of its own after that one, joined by `&&`.
+  test("no cache is saved on a merge-queue run", () => {
     const saves = Object.values(ci.jobs)
       .flatMap((job) => stepsOf(job))
       .filter((step) => step.uses === "actions/cache/save@v4");
@@ -902,7 +903,7 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     for (const step of saves) {
       expect({ path: step.with?.path, if: step.if }).toEqual({
         path: step.with?.path,
-        if: "github.event_name != 'merge_group'",
+        if: expect.stringMatching(/^github\.event_name != 'merge_group'( && [^|]+)?$/),
       });
     }
   });
