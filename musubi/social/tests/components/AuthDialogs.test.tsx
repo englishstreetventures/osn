@@ -20,8 +20,10 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
 }));
 const pendingSignUp = vi.hoisted(() => ({ value: false }));
 
-vi.mock("@osn/auth-ui/Register", () => ({
+vi.mock("@osn/auth-ui/pending-sign-up", () => ({
   hasPendingSignUp: () => pendingSignUp.value,
+}));
+vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="register">
       <span data-testid="register-product-name">{props.productName}</span>

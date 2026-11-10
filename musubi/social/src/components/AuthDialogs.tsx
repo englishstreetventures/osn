@@ -1,4 +1,5 @@
-import { hasPendingSignUp, Register } from "@osn/auth-ui/Register";
+import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
+import { Register } from "@osn/auth-ui/Register";
 import { SignIn } from "@osn/auth-ui/SignIn";
 import { useAuth } from "@osn/client/solid";
 import { Dialog } from "@shared/ui/ui/dialog";

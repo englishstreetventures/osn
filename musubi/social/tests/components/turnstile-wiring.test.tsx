@@ -57,8 +57,10 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
     return <div data-testid="signin" />;
   },
 }));
-vi.mock("@osn/auth-ui/Register", () => ({
+vi.mock("@osn/auth-ui/pending-sign-up", () => ({
   hasPendingSignUp: () => false,
+}));
+vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { turnstileSiteKey?: string; productName: string }) => {
     captured.register.push({
       turnstileSiteKey: props.turnstileSiteKey,
