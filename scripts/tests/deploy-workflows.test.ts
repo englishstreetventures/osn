@@ -832,6 +832,8 @@ describe("PR3: ci.yml repeats the scripts and browser tests on a pull request, a
     );
     expect(again?.if).toBe(PR_ONLY);
     expect(again?.run).toContain("bun test ./scripts/ --rerun-each=2 --randomize");
+    expect(again?.run).toContain("yes > /dev/null &");
+    expect(again?.run).toContain("trap 'kill $(jobs -p)");
     expect(again?.["continue-on-error"]).toBeUndefined();
     const job = ci.jobs["script-tests"]["timeout-minutes"] ?? 0;
     expect(again?.["timeout-minutes"] ?? 0).toBeGreaterThan(0);
@@ -844,13 +846,21 @@ describe("PR3: ci.yml repeats the scripts and browser tests on a pull request, a
     );
     expect(again?.if).toBe(PR_ONLY);
     expect(again?.run).toContain("test:browser $FILTERS");
-    expect(again?.run).toContain("-- --repeats=2");
+    expect(again?.run).toContain("--force -- --repeats=2");
     expect(again?.["continue-on-error"]).toBeUndefined();
   });
 
-  test("no step that repeats runs in the merge queue or on main", () => {
-    for (const step of [...scriptSteps, ...browserSteps]) {
-      if (/--rerun-each|--repeats/.test(step.run ?? "")) expect(step.if).toBe(PR_ONLY);
+  test("no step that repeats or shuffles runs in the merge queue or on main, in any job", () => {
+    for (const [id, job] of Object.entries(ci.jobs)) {
+      for (const step of stepsOf(job)) {
+        if (/--rerun-each|--repeats|--randomize/.test(step.run ?? "")) {
+          expect({ id, step: step.name, if: step.if }).toEqual({
+            id,
+            step: step.name,
+            if: PR_ONLY,
+          });
+        }
+      }
     }
   });
 });

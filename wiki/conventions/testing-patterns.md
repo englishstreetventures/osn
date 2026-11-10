@@ -1188,10 +1188,11 @@ on time or order passes on the pull request's own run and fails in the queue.
 So a pull request's own CI run repeats two tiers (`.github/workflows/ci.yml`):
 
 - **Scripts**: `bun test ./scripts/ --rerun-each=2 --randomize`, beside two
-  processes that keep two cores busy. Bun prints the seed; `--randomize
-  --seed=<seed>` reproduces the order.
+  processes that keep two cores busy. Bun prints the seed; `--rerun-each=2
+  --randomize --seed=<seed>` reproduces the run.
 - **Browser**: each leg runs again with `-- --repeats=2`, which runs every test
-  three times in one go and fails the test when any run fails.
+  three times in one go and fails the test when any run fails; `--force` makes
+  turbo run them even when it holds a cached result for the same inputs.
 
 The merge queue and main run the plain steps only. A failure in a repeat is a
 test that depends on time or order: fix the test. Never raise its timeout or
@@ -1205,6 +1206,8 @@ per case (`test.each`), so each case has its own budget: one test that loops
 over every workflow step spends bun's 5000 ms default on a slow machine
 (`domain-move-rehearsal-workflow.test.ts` W9 and `deploy-workflows.test.ts`
 PW10 did).
+
+*Measured 2026-11-10 — `bun test scripts/tests/domain-move-rehearsal-workflow.test.ts scripts/tests/deploy-workflows.test.ts --reporter=junit`: W9 took 7.2 to 8.3 s as one test and now takes 0.75 s at most per case.*
 
 ## Related
 

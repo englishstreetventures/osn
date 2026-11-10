@@ -675,8 +675,10 @@ jobs:
           bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
 
       # On a pull request only, every test runs three times in one go: vitest's
-      # `--repeats=2` runs a test again after it passes and fails the test when
-      # any run fails. The merge queue and main run the plain step above only.
+      # `--repeats=2` runs a test twice more, whatever the result, and fails the
+      # test when any run fails. `--force` runs the tests even when turbo holds a cached
+      # result for the same inputs. The merge queue and main run the plain step
+      # above only.
       # A failure here is a test that depends on time: fix the test, never
       # raise its timeout or add a retry.
       - name: Browser tests again, each test three times
@@ -684,7 +686,7 @@ jobs:
         shell: bash
         run: |
           # shellcheck disable=SC2086 # FILTERS holds several flags.
-          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser -- --repeats=2
+          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser --force -- --repeats=2
 
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
@@ -832,8 +834,8 @@ jobs:
       # first on a busy one and drops the pull request for it. So on a pull
       # request the same files run again, each twice, in random order, beside
       # two processes that keep two cores busy. Bun prints the seed it
-      # shuffled with; `bun test ./scripts/ --randomize --seed=<seed>`
-      # reproduces the order. A failure here is a test that depends on time or
+      # shuffled with; `bun test ./scripts/ --rerun-each=2 --randomize
+      # --seed=<seed>` reproduces the run. A failure here is a test that depends on time or
       # order: fix the test, never raise its timeout or add a retry. The merge
       # queue and main run the plain step above only, so their time does not
       # grow.
