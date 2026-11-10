@@ -46,7 +46,11 @@ export interface DragActivators {
 export interface Sortable {
   /** Registers the node. Put this on the ROW, not on the handle. */
   ref: (el: HTMLElement) => void;
-  /** The offset this row should paint at, or `null` when it is not moving. */
+  /**
+   * The offset this row should paint at, or `null` when no drag is moving it.
+   * A row settling into its slot after a drop is moved by an inline style the
+   * provider writes and clears itself, with this already `null`.
+   */
   transform: Accessor<Transform | null>;
   /**
    * Spread onto whatever should START a drag. Put it on a handle to keep the

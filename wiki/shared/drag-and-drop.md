@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[component-lab]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-10
 ---
 
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
@@ -285,6 +285,56 @@ and three things make sure they come off again:
 - **`onCleanup` in `DragDropProvider`**, so an unmount mid-drag tears the
   listeners down rather than leaving them firing into a disposed scope.
 
+### A dropped row settles into its slot
+
+A list row let go by a pointer eases from where it was released into the slot
+the drop gave it, instead of jumping there: up to half a row on the long axis,
+and however far the pointer drifted sideways. The owner chose this on
+2026-11-10 (englishstreetventures/osn#2164). The rows that shifted aside need
+nothing: at the drop they lose their offset, and the reorder puts them where
+they were already shown.
+
+`settle` in `shared/sortable/src/context.tsx` does it in one task:
+
+1. Read the row's box before `reset()`, call `onDragEnd`, then read the box of
+   the node registered for the id now.
+2. Write the difference inline as a `translate3d` with `transition: none`, read
+   the computed style so that offset is the starting point, then clear the
+   transform on `transform var(--dur-base, var(--ui-dur-base)) var(--ease-out, var(--ui-ease-out))`:
+   the app's `--dur-base` and `--ease-out` where it defines them (cire, so the
+   desk ladder applies, [[frontend-patterns#Motion follows the input]]), the
+   shared contract's otherwise ([[design-tokens#Motion]]).
+3. Hold `z-index: 1` inline while it moves, so a later neighbour that is
+   positioned — a budget row is `relative` — does not paint over it. A
+   `z-index` needs a flex or grid item or a positioned row; every portal list
+   is a flex column.
+4. Take the inline transition and `z-index` off when that transition ends or
+   is cancelled, or at once when none started (a page with neither token).
+
+The rest of the contract:
+
+- **`onDragEnd` puts the row in its new slot before it returns.** Every
+  portal list patches its store before any request, so the second box is the
+  new slot. A consumer that moved the row later would see it settle into its
+  old slot and then jump.
+- **A cancelled drag eases back** to the slot it left, the same way.
+- **Reduced motion lands at once.** The package checks
+  `matchMedia("(prefers-reduced-motion: reduce)")` itself rather than rely on
+  an app's global clamp, which the lab, for one, does not carry.
+- **A keyboard move writes no transform.** It goes through
+  `createSortableList`'s `move`, which never reaches the provider.
+- **A free item (`createDraggable`) does not settle.** It leaves for another
+  container, where its node may be a new one.
+- **A new drag ends any settle first**, before it measures the list, so the
+  snapshot sees every row in its slot (§Geometry is measured once, above). A
+  drag that catches the settling row itself picks it up where it is: the
+  row's offset from its slot is held inline until the pointer moves, then
+  carried in the drag's transform, so it jumps neither to its slot nor away
+  from the finger.
+
+`cire/host/tests/components/ReorderControls.settle.browser.test.tsx` holds
+each of these in Chromium with a real pointer, and fails without the settle.
+
 ## Testing drag in happy-dom
 
 happy-dom does no layout — every `getBoundingClientRect()` is zeroes, so
@@ -307,10 +357,13 @@ regression net of the two. One trap: Solid delegates `onKeyDown` to the document
 root, so a hand-constructed `KeyboardEvent` needs `bubbles: true` or it never
 reaches the handler.
 
-What this still can't cover: drag _feel_, the shift/settle animation, and the
-grip's hover/focus styling. Those need a real browser and a pair of eyes —
-`bun run dev:lab` → **shared/sortable**, which benches exactly those three plus
-the multi-container isolation. See [[component-lab]].
+happy-dom cannot see the settle at all: it runs no transition and lays out
+nothing. The settle's offsets, timing and clean-up are held in `@cire/host`'s
+browser tier (§A dropped row settles into its slot). What no test covers is
+drag _feel_, the shift and settle as motion, and the grip's hover/focus
+styling. Those need a pair of eyes — `bun run dev:lab` → **shared/sortable**,
+which benches exactly those three plus the multi-container isolation. See
+[[component-lab]].
 
 The shift-aside is why that bench exists. It shipped broken: `transform` returned
 `null` for every non-dragged row, so the rows between the dragged one and its

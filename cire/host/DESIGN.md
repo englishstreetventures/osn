@@ -790,6 +790,17 @@ rising over several frames and never sinking, at rest at the end, gone on the
 frame Discard runs, and under reduced motion on no frame partway, at its start
 for at most two frames.
 
+**A dropped row settles into its slot** (the owner's choice,
+englishstreetventures/osn#2164). Let go with a pointer, a sortable row eases
+from where it was released into its new slot on `--dur-base` (150ms at a desk,
+200ms on touch) with `--ease-out`, above its neighbours while it moves; a
+cancelled drag eases it back. The rows that shift aside to open its slot do
+not move again at the drop. A keyboard move does not animate, and reduced
+motion lands the row at once. A drag that catches a settling row picks it up
+where it is. `@shared/sortable` does it for every list
+([drag-and-drop](../../wiki/shared/drag-and-drop.md) §A dropped row settles
+into its slot).
+
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
 sets no `border-radius`: the outline already follows whatever radius the element

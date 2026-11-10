@@ -28,6 +28,19 @@ export const ACTIVATION_DISTANCE = 4;
  */
 export const FREE_GROUP: unique symbol = Symbol("free-draggables");
 
+/**
+ * How a dropped row eases into its slot: the app's `--dur-base` and
+ * `--ease-out` where it has them (cire's ladder, which shortens at a desk),
+ * the shared contract's otherwise.
+ */
+const SETTLE_TRANSITION =
+  "transform var(--dur-base, var(--ui-dur-base)) var(--ease-out, var(--ui-ease-out))";
+
+const translate = (t: Transform) => `translate3d(${t.x}px, ${t.y}px, 0)`;
+
+const reducedMotion = () =>
+  globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
 type Detector = (
   draggable: DragTarget,
   droppables: MeasuredTarget[],
@@ -215,6 +228,76 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
   // stale indices, committing a reorder nobody made.
   onCleanup(() => endGesture?.());
 
+  /** The row easing into its slot after a drop, if one is. */
+  let settling: { node: HTMLElement } | null = null;
+
+  /**
+   * Ease a let-go row from where it was released into the slot it has now.
+   *
+   * `from` is its box at release. The offset to its slot is written inline with
+   * no transition, a style read commits it as the starting point, and the
+   * transform is then let go on `SETTLE_TRANSITION`. The inline transition and
+   * stacking come off when that transition ends or is cancelled. Under reduced
+   * motion, or with nothing to cover, the row is simply in its slot.
+   */
+  function settle(node: HTMLElement, from: DOMRect) {
+    node.style.transition = "none";
+    node.style.transform = "";
+    const slot = node.getBoundingClientRect();
+    const offset = { x: from.left - slot.left, y: from.top - slot.top };
+    if ((offset.x === 0 && offset.y === 0) || reducedMotion()) {
+      node.style.transition = "";
+      return;
+    }
+    node.style.transform = translate(offset);
+    // Above its neighbours while it lands: a later row that is positioned
+    // would otherwise paint over the part of it still crossing that row.
+    node.style.zIndex = "1";
+    void getComputedStyle(node).transform;
+    node.style.transition = SETTLE_TRANSITION;
+    node.style.transform = "";
+
+    const record = { node };
+    settling = record;
+    const landed = () => {
+      if (settling !== record) return;
+      settling = null;
+      node.style.transition = "";
+      node.style.zIndex = "";
+    };
+    const run = node
+      .getAnimations?.()
+      .find((a) => "transitionProperty" in a && a.transitionProperty === "transform");
+    // `finished` resolves at the end and rejects on a cancel; either way it has
+    // landed. No transition started (the tokens are missing, say): it already has.
+    if (run) run.finished.then(landed, landed);
+    else landed();
+  }
+
+  /**
+   * End any settle at once, before a new drag measures the list: the snapshot
+   * must not see a settling row's offset. The row is left in its slot with no
+   * inline transform. When it is `node`, the row being picked up, its offset
+   * from that slot at the moment it was caught is returned, with its inline
+   * transition still `none`, so the drag can carry on from there rather than
+   * jump.
+   */
+  function stopSettle(node: HTMLElement): Transform | null {
+    const live = settling;
+    if (!live) return null;
+    settling = null;
+    const seen = live.node === node ? node.getBoundingClientRect() : null;
+    live.node.style.transition = "none";
+    live.node.style.transform = "";
+    live.node.style.zIndex = "";
+    const slot = live.node.getBoundingClientRect();
+    if (!seen) {
+      live.node.style.transition = "";
+      return null;
+    }
+    return { x: seen.left - slot.left, y: seen.top - slot.top };
+  }
+
   function startDrag(id: Id, event: PointerEvent) {
     const entry = items.get(id);
     if (!entry) return;
@@ -241,6 +324,9 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
      *  a second finger drives — or ends — the first finger's gesture. */
     const isOurs = (e: PointerEvent) => e.pointerId === pointerId;
 
+    // Before the snapshot below, which must see every row in its slot.
+    const caught = stopSettle(entry.node);
+
     /**
      * The group's geometry, frozen at the moment the gesture began.
      *
@@ -257,6 +343,9 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
      */
     const measured = free ? measureZones() : measure(entry.group);
     const stride = free ? 0 : strideOf(measured);
+    // A row caught mid-settle stays where it was caught until the drag moves it.
+    const carry = caught ?? { x: 0, y: 0 };
+    if (caught) entry.node.style.transform = translate(caught);
 
     /**
      * How far the window has scrolled since the drag began — for a free item
@@ -291,7 +380,10 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
      *  `pointer` and the window where it is now. */
     const track = () => {
       const scroll = scrolled();
-      setTransform({ x: pointer.x - origin.x + scroll.x, y: pointer.y - origin.y + scroll.y });
+      setTransform({
+        x: pointer.x - origin.x + scroll.x + carry.x,
+        y: pointer.y - origin.y + scroll.y + carry.y,
+      });
       const droppable = detect(draggable, measured, {
         x: pointer.x + scroll.x,
         y: pointer.y + scroll.y,
@@ -333,20 +425,39 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
       if (activated) track();
     };
 
+    /**
+     * A list row's box as it is let go, when it is off its slot: after a drag,
+     * or a press on a row caught mid-settle. A free item does not settle: it
+     * leaves for another container.
+     */
+    const released = () =>
+      !free && (activated || caught) ? entry.node.getBoundingClientRect() : null;
+
+    /** Ease the row from `from` into the slot it has now, on whichever node
+     *  is registered for it after the drop. */
+    const land = (from: DOMRect | null) => {
+      const node = items.get(id)?.node;
+      if (from && node?.isConnected) settle(node, from);
+    };
+
     const onUp = (upEvent: PointerEvent) => {
       if (!isOurs(upEvent)) return;
+      const from = released();
       reset();
       // A press that never crossed the threshold was a click, not a drag. Firing
       // `onDragEnd` here would commit a no-op move on every handle click.
       if (activated) props.onDragEnd?.(latest);
+      land(from);
     };
 
     // Deliberately no `onDragEnd`: a cancelled gesture (the OS taking over, a
     // context menu) is not a drop, and committing one would move a row the user
-    // never released.
+    // never released. The row eases back to the slot it left.
     const onCancel = (cancelEvent: PointerEvent) => {
       if (!isOurs(cancelEvent)) return;
+      const from = released();
       reset();
+      land(from);
     };
 
     endGesture = reset;
