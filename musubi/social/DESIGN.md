@@ -90,10 +90,13 @@ Three hues, each held to its uses:
   in `Register`, "@handle is available" in `@shared/ui`'s `UsernameInput`, and
   the accepted border of `OtpInput`.
 - **Warn** — `--toast-accent-warn` (`oklch(52% 0.12 75)` light,
-  `oklch(80% 0.12 75)` dark). A border and a wash only, never ink. Uses
-  today: the security-events banner (`border-ui-warn/40 bg-ui-warn/10`, in
-  `@osn/auth-ui`'s `SecurityEventsBanner`) and the legal pages' draft notice
-  (`border-warn/40 bg-warn/10`, `LegalDocument.tsx`).
+  `oklch(80% 0.12 75)` dark). Ink inside `@shared/ui`'s `Notice`
+  (`tone="warn"`) and only there: its words and its circled "!" mark, on the
+  notice's own wash (`ui-warn/5`, edged `ui-warn/20`). Everywhere else warn
+  is a border and a wash, never ink. Uses today: the legal pages' draft
+  notice (`Notice tone="warn" size="sm"`, `LegalDocument.tsx`) and the
+  security-events banner (`border-ui-warn/40 bg-ui-warn/10`, in
+  `@osn/auth-ui`'s `SecurityEventsBanner`), a wash with no warn ink.
 - **Red** — `--destructive`. Remove and delete: the `destructive` Button (red
   fill, at rest) and `ghostDanger` (red on hover only, for a Remove repeated
   down a list).
@@ -107,8 +110,8 @@ frame's failed-load line, a `text-destructive text-meta` line
 on `--muted`, `--secondary` or the warn wash, where light danger ink falls
 under 4.5:1 (the table below).
 
-Success as ink, on each of the contract's five grounds, and ink on the warn
-wash:
+Success as ink, on each of the contract's five grounds, ink on the warn
+wash, and warn ink on a warn `Notice`'s wash:
 
 | | Light: `--background`, `--card`, `--popover` | Light: `--muted`, `--secondary` | Dark: `--background` | Dark: `--card`, `--popover` | Dark: `--muted`, `--secondary` |
 | --- | --- | --- | --- | --- | --- |
@@ -121,13 +124,19 @@ wash:
 | `--muted-foreground` | 5.75:1 | 5.55:1 |
 | `--destructive` | **4.16:1** | 4.85:1 |
 
-*Measured 2026-11-06 (danger 2026-11-09) — `contrastRatio` from
-`@shared/color` over the `App.css` values above; the wash is composited first,
-each sRGB channel `0.1 × warn + 0.9 × --background`.
+| On a warn `Notice`'s wash (`warn/5` over `--background`) | Light | Dark |
+| --- | --- | --- |
+| Warn ink (`--toast-accent-warn`) | 5.25:1 | 8.20:1 |
+
+*Measured 2026-11-06 (danger 2026-11-09, warn ink on the `Notice`'s wash
+2026-11-10) — `contrastRatio` from `@shared/color` over the `App.css` values
+above; a wash is composited first, each sRGB channel `0.1 × warn + 0.9 ×
+--background` (`0.05` and `0.95` for the `Notice`'s).
 `tests/styles/design-token-contract.test.ts` re-checks the 4.5:1 floor for
-success and warn on all five grounds in both themes, and for danger ink on
-the five grounds, expecting it to fall short only on light `--muted` and
-`--secondary`.*
+success and warn on all five grounds in both themes, for danger ink on the
+five grounds, expecting it to fall short only on light `--muted` and
+`--secondary`, and for warn ink on the `Notice`'s wash in both themes, with
+the wash's strength read from `notice.tsx`.*
 
 ### The contrast contract
 
@@ -135,10 +144,11 @@ the five grounds, expecting it to fall short only on light `--muted` and
 role in the `@shared/design-tokens` contract in both themes: body ink, success
 and warn at 4.5:1 on every ground and surface, the focus ring at 3:1, and ink
 on a fill against that fill. It also checks danger ink, which the contract
-holds only as a fill, at 4.5:1 on the grounds an error line sits on. One role carries a waiver, with its reason in the
-test: `--ui-hairline-strong`, which takes `--input` (1.30:1 on the page in
-light, against a 3:1 floor). No base rule draws it on an element that does
-not name it (§Borders).
+holds only as a fill, at 4.5:1 on the grounds an error line sits on, and warn
+ink at 4.5:1 on a warn `Notice`'s wash, the one place warn is ink. One role
+carries a waiver, with its reason in the test: `--ui-hairline-strong`, which
+takes `--input` (1.30:1 on the page in light, against a 3:1 floor). No base
+rule draws it on an element that does not name it (§Borders).
 
 ## Typography
 
@@ -199,8 +209,8 @@ not name it (§Borders).
   the one place the scale's own leading gives way: a page of 13px text at 18px
   reads as a wall. The head above the body is a page head (§Layout): the
   title `text-display` at 500, "Last updated" a `text-body` subtitle in
-  `text-muted-foreground`, and the draft notice `text-body` with "Draft" at
-  500.
+  `text-muted-foreground`, and the draft notice a warn `Notice` at `sm`
+  (§Status colours): 13px on a 1.5 line height, "Draft" at 500.
 
 Where the app does not follow this yet — known breaks include:
 
@@ -250,9 +260,10 @@ Where the app does not follow this yet — known breaks include:
 Where the app does not follow this yet — known breaks include:
 
 - `@shared/ui`'s default menu rows, the account menu's and the theme menu's,
-  take `--ui-radius-sm`, 6px (#2103). The token stays 6px because
-  `@shared/ui`'s drawn Checkbox, a 16px box, reads it too, and would turn
-  round at 8px.
+  take `--ui-radius-sm`, 6px (#2103), and so do `Notice`'s `sm` and `md`
+  boxes (the shell's "You've been signed out." and the legal pages' draft
+  notice). The token stays 6px because `@shared/ui`'s drawn Checkbox, a 16px
+  box, reads it too, and would turn round at 8px.
 
 ## Chips
 
