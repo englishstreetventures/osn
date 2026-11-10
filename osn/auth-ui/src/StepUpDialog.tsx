@@ -178,7 +178,11 @@ export function StepUpDialog(props: StepUpDialogProps) {
     },
   );
 
-  const totpOffered = () => factors().totp && totpStatus()?.enrolled === true;
+  // `state` first, never `totpStatus()`: a loading resource read in a
+  // component joins its host's Suspense boundary, and Settings would swap the
+  // whole tab, this dialog included, for its fallback until the status lands.
+  const totp = () => (totpStatus.state === "ready" ? totpStatus.latest : undefined);
+  const totpOffered = () => factors().totp && totp()?.enrolled === true;
   const otpOffered = () => factors().otp && !props.passkeyOnly;
 
   // Passkey-only contexts skip the factor picker — kick the ceremony off as
@@ -309,8 +313,10 @@ export function StepUpDialog(props: StepUpDialogProps) {
     </div>
   );
 
+  // It draws no edge, so its side padding only indents it; below `md` it
+  // drops, and a code step's row takes its host's whole column.
   return (
-    <div class="flex flex-col gap-3 p-4">
+    <div class="flex flex-col gap-3 p-4 max-md:px-0">
       <h2 class="text-lg font-semibold">{props.title ?? "Confirm it's you"}</h2>
       <Show when={props.reason}>
         {(reason) => <p class="text-muted-foreground text-sm">Re-authenticate {reason()}.</p>}

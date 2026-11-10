@@ -52,6 +52,9 @@ export function SessionsView(props: SessionsViewProps) {
   };
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // And while a landed list is read again: a session just revoked is still on
+  // screen until the read lands. Not on the first read, when there is no row.
+  const locked = () => busy() || sessions.state === "refreshing";
 
   async function revoke(id: string) {
     setBusy(true);
@@ -84,9 +87,10 @@ export function SessionsView(props: SessionsViewProps) {
 
   return (
     <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between">
+      {/* The action goes under the heading when the two do not fit on one line. */}
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Active sessions</h2>
-        <Button variant="outline" onClick={revokeAllOther} disabled={busy()}>
+        <Button variant="outline" onClick={revokeAllOther} disabled={locked()}>
           Sign out everywhere else
         </Button>
       </div>
@@ -133,7 +137,7 @@ export function SessionsView(props: SessionsViewProps) {
                       variant="outline"
                       size="sm"
                       onClick={() => revoke(s.id)}
-                      disabled={busy() || s.isCurrent}
+                      disabled={locked() || s.isCurrent}
                     >
                       Revoke
                     </Button>

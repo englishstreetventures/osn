@@ -141,7 +141,9 @@ As built:
 - **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
   `flex-col gap-3` section: a header row with the heading and, on the right,
   the panel's action (a `size="sm"` Button in `PasskeysView` and `TotpView`,
-  an `outline` Button at the default size in `SessionsView`); then the list,
+  an `outline` Button at the default size in `SessionsView`), which wraps
+  under the heading, 8px below it, when the two do not fit on one line
+  ("Add an authenticator app" at 320px); then the list,
   each row a bordered `rounded-md` box with a name, a meta line and `outline`
   `sm` actions. `RecoveryCodesView` draws no heading; its host gives it one.
   `TotpView`'s enrolment step is a bordered `rounded-md` `p-4` box at `md`
@@ -158,7 +160,10 @@ As built:
   border and wash: each event as a headline and a meta line, a footer line,
   and Acknowledge (`outline`, `sm`) at the right.
 - **Step-up** (`StepUpDialog`) is a `p-4` panel drawn in place inside the view
-  that opened it (§8).
+  that opened it (§8). It draws no edge, so below `md` it drops its side
+  padding and its code boxes take the host's whole column: 246px at 320px in
+  Musubi's Settings, not 214px (`musubi/social/DESIGN.md` §Responsive
+  layout).
 - **Dialogs a view opens itself** — `ProfileOnboarding`'s "Create a new
   profile", `RecoveryCodesView`'s "Generate a new set?" and `ProfileSwitcher`'s
   two — use `@shared/ui`'s `DialogContent` with its default, centred
@@ -281,7 +286,12 @@ raises its nearest boundary; Musubi's Settings would show its own fallback
 for the whole tab) and never throws a failed read. On a read again,
 `PasskeysView`, `SessionsView` and `RecoveryCodesView` keep what they showed;
 `TotpView` shows the block again, since the status it reads again is the one
-an enrolment or a removal has just changed.
+an enrolment or a removal has just changed. `PasskeysView` and `SessionsView`
+disable every row's actions, and the header's, while a list they have shown is
+read again, as `RecoveryCodesView` holds its button: a passkey just deleted or
+a session just revoked stays on screen until the read lands. `StepUpDialog`
+reads its `GET /totp/status` the same way, by `state`, so opening a step-up
+never swaps its host for the host's fallback.
 
 **`PasskeysView`** — heading "Passkeys" with "Add passkey". States: loading
 (one row's placeholder); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
@@ -465,7 +475,7 @@ A recovery session that runs out is its own state in `RecoveryLoginForm`
 host a short-lived token through `onToken`.
 
 - **Structure.** A panel, not a `Dialog`: it renders in place, inside the view
-  that opened it, as a `p-4` column — the heading ("Confirm it's you", or
+  that opened it, as a `p-4` column (no side padding below `md`, §4) — the heading ("Confirm it's you", or
   `title`), "Re-authenticate {reason}." when `reason` is given, the line "This
   action needs a fresh authentication. Choose a method below." (left out with
   `passkeyOnly`), the error line, then the factors as full-width Buttons, the
@@ -474,7 +484,8 @@ host a short-lived token through `onToken`.
   code") where the ceremony's `purpose` admits it and `passkeyOnly` is not set.
   An authenticator app ("Use your authenticator app") where the `purpose`
   admits it, the host passes `totpClient`, and the account has one
-  (`GET /totp/status`; a failed read hides the factor). By `purpose`:
+  (`GET /totp/status`; a failed read hides the factor, and so does one still
+  out, read by `state` so the panel never joins its host's `Suspense`). By `purpose`:
   `passkey_delete` admits the passkey only; `email_change` the passkey and the
   emailed code; every other purpose, and no purpose, all three.
 - **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed
@@ -521,9 +532,10 @@ their focus mark lands at once.
 is in box 1 as its step opens, and a refused code (`status` `error`) puts it
 back there. A refusal that says nothing about the code leaves focus where it
 was: on the busy button that sent it, which kept focus through the wait. Only
-`Register`'s code step is a form, where Enter in a box sends the code and
-focus drops to the page when the boxes disable for the check; after such a
-refusal it puts focus back in box 1, and only when focus is nowhere else.
+`Register`'s code step is a form, where Enter in a box sends the code and the
+boxes disable for the check: Chromium drops focus to the page, and WebKit can
+leave it on the disabled box. After such a refusal `Register` puts focus back
+in box 1 when focus is on the page or in the row, and nowhere else.
 `ChangeEmailForm` does not yet: a refusal that is not about the code, after
 the step-up, leaves focus on the page (#2056).
 
@@ -623,11 +635,24 @@ As built:
   (`tests/helpers/code.ts`), and a `400` and a `429` for each code check the
   line is in every box's `aria-describedby`, with every box `aria-invalid` for
   the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as each
-  code step opens.
-- **Loading in the package tests.** `PasskeysView`, `TotpView` and
-  `RecoveryCodesView` mounted under a `Suspense` whose fallback is the host's
-  show their own placeholder, never the host's, while a read is out, and
-  `RecoveryCodesView` keeps its count through the read after Done.
+  code step opens. `Register.test.tsx` checks a `429` sent with Enter from
+  box 6, with focus kept on that box as WebKit keeps it, ends with focus in
+  box 1.
+- **Loading in the package tests.** `PasskeysView`, `TotpView`,
+  `RecoveryCodesView` and `SessionsView` mounted under a `Suspense` whose
+  fallback is the host's show their own placeholder, never the host's, while a
+  read is out, and `StepUpDialog` its factors while `GET /totp/status` is out.
+  `RecoveryCodesView` and `SessionsView` hold the placeholder in a busy region
+  until the first read lands, and `RecoveryCodesView` keeps its count through
+  the read after Done. `PasskeysView` and `SessionsView` disable every action
+  while the list is read again after a delete or a revoke.
+- **Layout in Musubi's browser tests.**
+  `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
+  step-up's emailed-code step in Settings → Security: at 320px its row of code
+  boxes is the card's whole column (246px) with no box under 37px, and every
+  button in the card stays inside it; at 1440px the row sits inside the
+  panel's 16px padding. Shots at both widths, light and dark, in
+  `e2e-artifacts/musubi-settings/`.
 
 ## 12. Motion
 

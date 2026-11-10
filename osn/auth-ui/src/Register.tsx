@@ -238,15 +238,18 @@ export function Register(props: RegisterProps) {
   let verifyForm: HTMLFormElement | undefined;
   /**
    * Puts focus back in box 1 one task later, once the boxes are enabled again,
-   * if it is nowhere: Enter in a box submits the form, the boxes disable while
-   * the code is checked, and the browser drops focus to the page. A click on
-   * Verify email keeps focus on that busy button, and it stays there.
+   * if it is on the page or in the row: Enter in a box submits the form, the
+   * boxes disable while the code is checked, and Chromium drops focus to the
+   * page where WebKit can leave it on the disabled box. A click on Verify email
+   * keeps focus on that busy button, and it stays there.
    */
   function refocusCodeIfLost() {
     setTimeout(() => {
+      const row = verifyForm?.querySelector("fieldset");
       const active = document.activeElement;
-      if (active !== null && active !== document.body) return;
-      const first = verifyForm?.querySelector<HTMLInputElement>("fieldset input");
+      const lost = active === null || active === document.body || row?.contains(active) === true;
+      if (!lost) return;
+      const first = row?.querySelector<HTMLInputElement>("input");
       if (first?.isConnected && !first.disabled) first.focus();
     }, 0);
   }

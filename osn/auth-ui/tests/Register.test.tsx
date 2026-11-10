@@ -709,6 +709,26 @@ describe("Register component", () => {
       },
     );
 
+    // Enter in a box sends the code and the boxes disable while it is checked.
+    // Chromium drops focus to the page; WebKit can leave it on the disabled
+    // box, as happy-dom does. Either way the next code starts in box 1.
+    it("puts focus back in box 1 after a 429 sent with Enter from the last box", async () => {
+      await reachVerify();
+      stub.completeRegistration.mockRejectedValue(
+        apiError("PLANTED-register-code-429", 429, "rate_limited"),
+      );
+      fillOtpDigits("123456");
+      // Box 1's own focus as the step opened lands first.
+      await vi.advanceTimersByTimeAsync(0);
+      const boxes = codeBoxes("Verification code");
+      boxes[5]!.focus();
+      fireEvent.submit(boxes[5]!.closest("form")!);
+      await screen.findByRole("alert");
+      expect(document.activeElement).toBe(boxes[5]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.activeElement).toBe(boxes[0]);
+    });
+
     // Only the button that started the wait is busy: a resend leaves Verify
     // email not busy, and says "Sending…", not "Verifying…".
     it("marks Resend busy while it sends, and leaves Verify email alone", async () => {

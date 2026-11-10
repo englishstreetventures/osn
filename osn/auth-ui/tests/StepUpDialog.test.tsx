@@ -2,6 +2,7 @@
 import type { StepUpClient, StepUpPurpose, StepUpToken, TotpClient } from "@osn/client";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { StepUpDialog } from "../src/StepUpDialog";
@@ -435,6 +436,29 @@ describe("StepUpDialog — authenticator app factor", () => {
     mount({ purpose: "recovery_generate" });
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
     expect(screen.queryByRole("button", { name: TOTP_BUTTON })).toBeNull();
+  });
+
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback, step-up and all, until the status lands.
+  it("holds its place under a host's Suspense while the status loads", async () => {
+    const status = vi.fn().mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <StepUpDialog
+          client={asClient(stub)}
+          onToken={() => {}}
+          onCancel={() => {}}
+          runPasskeyCeremony={async () => assertion}
+          totpClient={asTotp({ status })}
+          purpose="recovery_generate"
+        />
+      </Suspense>
+    ));
+    await waitFor(() => expect(status).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("button", { name: /Use passkey/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
   });
 
   it("keeps the other factors when the status read fails", async () => {

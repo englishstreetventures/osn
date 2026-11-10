@@ -128,7 +128,10 @@ export function PasskeysView(props: PasskeysViewProps) {
   // button on the page. Otherwise a rapid double-click could open the
   // dialog with a different `pending` than the one the user thought they
   // confirmed (the `confirm`/dialog is async; the second click overwrites).
-  const locked = () => busy() || pending() !== null;
+  // And while a landed list is read again: a passkey just deleted is still on
+  // screen until the read lands, and acting on it would run a step-up for
+  // nothing. Not on the first read, when there is no row to act on.
+  const locked = () => busy() || pending() !== null || passkeys.state === "refreshing";
 
   function requestRename(id: string) {
     if (locked()) return;
@@ -208,7 +211,8 @@ export function PasskeysView(props: PasskeysViewProps) {
 
   return (
     <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between">
+      {/* The action goes under the heading when the two do not fit on one line. */}
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Passkeys</h2>
         <Show when={props.profileId && props.runPasskeyRegistration}>
           <Button size="sm" onClick={requestAdd} disabled={locked()}>

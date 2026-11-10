@@ -182,7 +182,8 @@ export function TotpView(props: TotpViewProps) {
 
   return (
     <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between">
+      {/* The action goes under the heading when the two do not fit on one line. */}
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Authenticator app</h2>
         <Show when={current()?.enrolled === false && enrollment() === null}>
           <Button size="sm" onClick={requestEnroll} disabled={locked()}>

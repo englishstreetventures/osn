@@ -261,6 +261,38 @@ describe("PasskeysView", () => {
     expect(pk.list).toHaveBeenCalledTimes(2);
   });
 
+  // The deleted row stays on screen until the list is read again; acting on it
+  // then would run a whole step-up for a passkey that is gone.
+  it("locks every row's actions while the list is read again after a delete", async () => {
+    pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
+    pk.list.mockReturnValueOnce(new Promise(() => {}));
+    pk.delete.mockResolvedValue({ success: true, remaining: 1 });
+    armPasskeyStepUp(su);
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        profileId="prof_1"
+        runPasskeyCeremony={runPasskeyCeremony}
+        runPasskeyRegistration={() => new Promise(() => {})}
+      />
+    ));
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await useThePasskeyFactor();
+    await waitFor(() => expect(pk.list).toHaveBeenCalledTimes(2));
+
+    const actions = [
+      ...screen.getAllByRole("button", { name: /^Rename$/ }),
+      ...screen.getAllByRole("button", { name: /^Delete$/ }),
+      screen.getByRole("button", { name: "Add passkey" }),
+    ] as HTMLButtonElement[];
+    expect(actions).toHaveLength(5);
+    for (const b of actions) expect(b.disabled).toBe(true);
+  });
+
   it("delete is skipped entirely if the user dismisses confirm()", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
     window.confirm = () => false;
