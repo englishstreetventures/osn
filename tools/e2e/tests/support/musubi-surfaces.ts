@@ -527,6 +527,17 @@ async function legal(flow: Flow, page: Page): Promise<void> {
         await computed(prose.locator("strong").first(), "font-weight"),
       );
     }
+    // The contact address: a link inside a sentence on /privacy, and the
+    // whole paragraph under "Contact" on /terms. `.prose-legal` sets no rule
+    // on `a`, so the link classes alone decide it.
+    const address = prose.locator('a[href^="mailto:"]').first();
+    await settled(address);
+    flow.check(
+      `${view}: the contact address flows in its line`,
+      "inline",
+      await computed(address, "display"),
+    );
+    await inlineLink(flow, `${view}: the contact address`, address);
     await flow.step(`surfaces: shoot /${view}`, () =>
       shoot(page, view, () => expect(heading).toBeVisible(), { whole: true }),
     );
@@ -1165,6 +1176,36 @@ export async function busyButtonSurfaces(
 }
 
 /**
+ * A link inside a sentence (`Button`'s `link` at `inline`, or an `<a>` wearing
+ * its classes): underlined at rest 2px under the text, in its sentence's own
+ * size and weight, in the accent ink. The sentence is the link's parent.
+ * `what` starts each check's name.
+ */
+async function inlineLink(flow: Flow, what: string, link: Locator): Promise<void> {
+  const sentence = link.locator("xpath=..");
+  flow.check(
+    `${what} is underlined at rest`,
+    "underline",
+    await computed(link, "text-decoration-line"),
+  );
+  flow.check(
+    `${what}'s underline sits 2px under it`,
+    "2px",
+    await computed(link, "text-underline-offset"),
+  );
+  flow.check(
+    `${what} takes its sentence's size and weight`,
+    await type(sentence),
+    await type(link),
+  );
+  flow.check(
+    `${what} is the accent ink`,
+    await painted(link, "var(--ui-accent-ink)"),
+    await computed(link, "color"),
+  );
+}
+
+/**
  * `/authorize`'s sign-in: "Create one" a link inside the sentence "No account
  * yet? Create one" — `Button`'s `link` at `inline`: no padding and no height
  * past its line, underlined at rest 2px under the text, in the sentence's own
@@ -1185,26 +1226,7 @@ export async function authorizeSignInSurfaces(flow: Flow, page: Page): Promise<v
       await computed(sentence, "line-height"),
       await computed(link, "height"),
     );
-    flow.check(
-      "authorize: Create one is underlined at rest",
-      "underline",
-      await computed(link, "text-decoration-line"),
-    );
-    flow.check(
-      "authorize: Create one's underline sits 2px under it",
-      "2px",
-      await computed(link, "text-underline-offset"),
-    );
-    flow.check(
-      "authorize: Create one takes its sentence's size and weight",
-      await type(sentence),
-      await type(link),
-    );
-    flow.check(
-      "authorize: Create one is the accent ink",
-      await painted(link, "var(--ui-accent-ink)"),
-      await computed(link, "color"),
-    );
+    await inlineLink(flow, "authorize: Create one", link);
     await flow.step("surfaces: shoot /authorize's sign-in", () =>
       shoot(page, "authorize-sign-in", () => expect(link).toBeVisible(), { bare: true }),
     );

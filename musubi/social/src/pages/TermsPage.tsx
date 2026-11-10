@@ -107,14 +107,12 @@ export function TermsPage(): JSX.Element {
 
       <h2>Contact</h2>
       <p>
-        Email us at{" "}
         <a
           class={buttonVariants({ variant: "link", size: "inline" })}
           href={`mailto:${LEGAL_ENTITY.contactEmail}`}
         >
           {LEGAL_ENTITY.contactEmail}
         </a>
-        .
       </p>
     </LegalDocument>
   );

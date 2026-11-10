@@ -572,7 +572,16 @@ apart by its underline or by standing alone at 500.
   `buttonVariants({ variant: "link", size: "inline" })`. Uses:
   `/authorize`'s "No account yet? Create one" (a button: it swaps the panel to
   sign-up), Discover's empty note "Search for someone" (an `<A>`), and the
-  contact address on `/privacy` ("email …") and `/terms` ("Email us at …").
+  contact address on `/privacy` ("email …") and `/terms`.
+- **A link in a legal document's prose takes the inline treatment too**, even
+  where it fills its paragraph alone, as the address under the Terms'
+  "Contact" heading does. It is part of the text, not an action, and an ink
+  link with no underline reads as plain words. The legal pages' words change
+  only with the date at their top, so a link's look never rewrites them.
+  `.prose-legal` sets no rule on `a`: the link classes decide the look, and
+  since `Button`'s classes carry no specificity, a `.prose-legal a` rule would
+  beat them without a warning. The `/privacy` and `/terms` surface checks read
+  the address.
 - **A link standing alone** is `variant="link" size="sm"`: 13px at 500 in a
   32px box with 12px sides, underlined only under the pointer. It sits centred
   under the action it follows (`self-center`), so no column edge sits 12px off

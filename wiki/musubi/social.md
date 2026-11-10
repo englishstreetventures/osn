@@ -332,7 +332,8 @@ and with no sign-in of its own: the create-account dialog's plain `Field`
 labels and the date of birth's hint, the sign-in dialog's label and its
 standalone "Lost your passkey?" link, Continue busy while
 `/login/passkey/begin` is held (focus kept, the orb drawn, shot under reduced
-motion), and `/authorize`'s "Create one" inside its sentence.
+motion), `/authorize`'s "Create one" inside its sentence, and the contact
+address on `/privacy` and `/terms`, an inline link in the legal prose.
 `musubi-org-detail` reads the create-organisation dialog's plain labels and
 the handle's hint, and holds the create's `POST` and the rename's `PATCH` long
 enough to read Create ("Creating…") and Save ("Saving…") busy, not disabled,
