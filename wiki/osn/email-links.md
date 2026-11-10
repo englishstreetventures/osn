@@ -8,7 +8,7 @@ related:
   - "[[coordination-store]]"
   - "[[email]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-10
 ---
 
 # Emailed links
@@ -36,11 +36,14 @@ a flow keeps its own pending state beside it (sign-up's is
 The store entry (`email_link` ceremony store, keyed by request id) holds only
 SHA-256 hashes of the secrets, a keyed digest of the pairing number
 (`serverMac.pairingDigest`), the flow, the key of the flow's pending entry,
-`pending`, `confirmed` or `declined`, and the expiry. A sign-up request also
-holds the sign-up it parks (address, handle, display name; see
-[[#Sign-up]]). The candidates the page offers are
+`pending`, `confirmed`, `claimed` or `declined`, and the expiry. A claimed
+request also holds its claim: the account and profile ids its finish writes,
+and how long the poll finishing it holds it ([[#Rules every flow keeps]]). A
+sign-up request also holds the sign-up it parks (address, handle, display
+name; see [[#Sign-up]]). The candidates the page offers are
 derived from the request id under the server key (`serverMac.pairingCandidates`),
-never stored. The entry carries `v: 1`; any other shape is refused.
+never stored. The entry carries `v: 1`; any other shape, a status no write
+gives, or a claimed entry without its claim, is refused.
 
 ## The link: `<frontend origin>/verify/<request id>#<link secret>`
 
@@ -100,10 +103,31 @@ There is no `GET` on any of them: mail scanners open links before people do.
   flow's pending entry is freed at once.
 - **A right secret and pick on a confirmed request answers `confirmed` again**,
   so a confirm whose answer was lost does not read as a failure.
-- **Single delivery.** The poll that finds the request confirmed claims it
-  (`consume` naming the entry it read); of two polls at once one gets the
-  result and the other `expired`. A database fault after the claim puts the
-  request back for the next poll.
+- **Single delivery.** The poll that finds the request confirmed claims it: a
+  `swap` naming the entry it read, to `claimed`, which fixes the account and
+  profile ids and holds the request for that poll for five seconds
+  (`EMAIL_LINK_CLAIM_HOLD_MS`). Of two polls at once one claims it and the
+  other answers `expired`, as does any poll that finds the request held. The
+  claiming poll inserts the account and profile, issues the session, then
+  removes the entry (`consume` naming the claimed entry), and answers 201
+  only when that removal was its own; a poll after it answers `expired`.
+- **A fault after the claim is finished by the next poll, on the same
+  account.** Any failure before the removal — the insert, the session's
+  write, a store call — leaves the request claimed, and the poll lets go of
+  its hold, so the tab's next poll takes it over at once; a poll that died
+  without letting go is taken over once the hold passes. The next poll
+  inserts with the same ids. A UNIQUE clash on rows an earlier try committed
+  (a batch whose answer was lost) goes on to the session; a clash with
+  someone else's account answers `conflict`, ends the request and frees the
+  address. Of all the polls that ever hold a request, one delivers its
+  session; a slower one that lost the request answers `expired`, and the
+  session row it wrote is never handed out.
+- **Nothing else ends a claimed request.** A decline and a wrong pick answer
+  `expired` and count nothing; wrong secrets reaching the cap wipe nothing;
+  `previous` retires nothing; a right pick and a candidates read answer
+  `confirmed`; a Resend answers `sent` and mails nothing. The finish does not
+  need the flow's pending entry once the request is claimed. A claimed
+  request still ends at its own expiry.
 - **Begin, the poll and Resend answer a taken address and a free one alike
   while nobody acts on the free one's link.** Begin writes the request and
   swaps the pending entry in every branch (same calls, same answer shape, a

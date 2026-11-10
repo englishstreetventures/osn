@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-10
 ---
 # Coordination store
 
@@ -288,7 +288,7 @@ for (counted from the code, 2026-10-28):
 | TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success, and takes back only this attempt's count. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
 | Sign-up link `begin` | 2 (the request's `set`, then the pending entry's `swap`), after a D1 collision probe; 6 when `previous` retires an earlier request first (a `get`, a `consume`, then the pending entry's `get` and `delete`). The send's lockout lookup and, for a resend, its cap check run after the answer |
 | Sign-up link status, pending | 1 `get` |
-| Sign-up link status, completing | 3 (the request's `get`, the pending entry's `get`, the claim's `consume`), then the D1 insert; the pending entry's delete runs after the answer |
+| Sign-up link status, completing | 4 (the request's `get`, the pending entry's `get`, the claim's `swap`, then, after the D1 insert and the session's write, the request's `consume`); the pending entry's delete runs after the answer. A poll whose finish fails adds a `swap` that lets go of the claim; a poll that finds the request held by another makes the two `get`s only |
 | Sign-up link Resend | 4 (the request's `get`, its `swap`, the pending entry's `swap` from nothing, which parks a request whose address is free and cannot win where an entry is live, then its `get`), then, when a link goes, 1 to 2 after the answer: the lockout lookup, and the send cap's check unless the lockout already refuses |
 | Sign-up link candidates | 1 `get` |
 | Sign-up link confirm, right pick | 2 (`guess`, then `swap`) |
