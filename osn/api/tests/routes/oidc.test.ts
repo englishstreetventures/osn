@@ -1049,6 +1049,8 @@ describe("POST /authorize/decline", () => {
     expect(res.status).toBe(200);
     // JSON, not a 302: the page navigates itself.
     expect(res.headers.get("location")).toBeNull();
+    // The body carries the app's `state`; no cache may keep it.
+    expect(res.headers.get("cache-control")).toBe("no-store");
     const { redirectTo } = (await res.json()) as { redirectTo: string };
     expectRefusalRedirect(redirectTo);
   });
@@ -1089,6 +1091,7 @@ describe("POST /authorize/decline", () => {
     ]) {
       const res = await h.app.handle(declineRequest(a.requestId, cookie));
       expect(res.status).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
       expect(await res.text()).toBe(unknownBody);
       // A refusal leaves the real browser's cookie alone.
       expect(res.headers.get("set-cookie")).toBeNull();
@@ -1282,6 +1285,7 @@ describe("POST /authorize/decline", () => {
 
     const refused = await h.app.handle(declineRequest(requestId, binding));
     expect(refused.status).toBe(429);
+    expect(refused.headers.get("cache-control")).toBe("no-store");
     expect(fake.calls).toEqual(parked);
 
     allow = true;
@@ -1361,6 +1365,25 @@ describe("POST /authorize/decline", () => {
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toBe("temporarily_unavailable");
     expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("answers 503, and sends the app nothing, when the claim cannot be made", async () => {
+    const { h, fake } = setupWithDurableRequests();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+    fake.failWhen((call) => call.store === "oidc_authorize_request" && call.op === "remove");
+
+    const res = await h.app.handle(declineRequest(requestId, binding));
+
+    // An unclaimed request is still live, so no refusal may reach the app
+    // and the binding cookie stays.
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("temporarily_unavailable");
+    expect(res.headers.get("set-cookie")).toBeNull();
+
+    // Once the store answers, the same decline goes through.
+    fake.failWhen(null);
+    expect((await h.app.handle(declineRequest(requestId, binding))).status).toBe(200);
   });
 
   it("rejects a malformed or missing request id before it reaches the store", async () => {
