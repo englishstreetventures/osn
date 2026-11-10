@@ -4,7 +4,7 @@ import { cardBoxClass } from "./card";
 
 /**
  * A native `<details>`: a summary row that opens and closes the body beneath
- * it, a marker that turns as it opens, and the opening fade.
+ * it, a marker that turns as it opens, and the opening, a growth and a fade.
  *
  * Native, so it works with no script and from the keyboard (Enter or Space on
  * the summary), and the browser announces whether it is open. Both renderers

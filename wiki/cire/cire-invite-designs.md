@@ -901,8 +901,9 @@ own `:focus-visible`; the phone's scrolling track keeps 4px of room round
 each pill so the ring and the outline are not cut. The sheet's panel
 swap, the badge's words after a press and Respond's label ink following the
 bloom fill run on `--dur-base`. An FAQ answer grows open on `--dur-slow` and
-`--ease-out`, its box and its fade together, and opens at once where the engine
-has no `interpolate-size` or the guest asked for less motion
+`--ease-out`, its box and its fade together. Where the engine has no
+`interpolate-size` the box opens at once and the answer still fades in; for a
+guest who asked for less motion it opens at once with no fade
 (`cire/host/DESIGN.md` §4, A disclosure grows open and closes at once).
 Choreography longer than `--dur-slow` keeps its own timing:
 
