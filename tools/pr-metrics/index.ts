@@ -3132,7 +3132,9 @@ function fetchTrackerLabels(issues: ForeignIssue[]): Map<string, string[]> {
  *
  * The `SessionEnd` fallback in `.claude/settings.json` has no way to know them:
  * it fires as a session closes, often before a pull request exists at all, and
- * then records nothing. `retro` runs it once the pull request is open.
+ * then records nothing. With no pull request this finds nothing, so `retro`,
+ * which writes the card before the branch's first push, passes `--issue` and
+ * `--issue-labels` itself, and runs this only on a pull request already open.
  *
  * The rules are `wiki/conventions/session-metrics.md` §Which issue a card
  * names: {@link selectIssues} names the issue, {@link issuesToRate} says which

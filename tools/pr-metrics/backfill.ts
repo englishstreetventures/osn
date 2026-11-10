@@ -70,6 +70,22 @@ interface PullRequest {
 const DEFAULT_REPO = "englishstreetventures/osn";
 
 /**
+ * Whether the card on disk is the one for pull request `number` on `branch`:
+ * it names that pull request, or it names none and is this branch's. `retro`
+ * commits a branch's card before its first push, when the pull request has no
+ * number yet, so a card that names none is still that pull request's record.
+ */
+function isOwnCard(
+  disk: { pr?: Partial<Pick<Card["pr"], "number" | "branch">> } | null,
+  number: number | null,
+  branch: string,
+): boolean {
+  const owner = disk?.pr?.number;
+
+  return owner === number || (owner === null && disk?.pr?.branch === branch);
+}
+
+/**
  * The card to write, given the card already on disk: `next`; `next` carrying
  * the disk card's rating; or `null`, meaning leave the disk card as it is.
  * `selection` is what the pull request links, here and in other repositories.
@@ -99,13 +115,18 @@ const DEFAULT_REPO = "englishstreetventures/osn";
  *   version and true to that version's meaning — unless its `issue` names an
  *   issue this run does not link here, or carries labels with no issue: a
  *   public card must not keep those, so the rebuilt card is written instead.
+ *
+ * The disk card counts as this pull request's by {@link isOwnCard}, so the
+ * card `retro` wrote before the pull request had a number keeps its rating too.
  */
 export function keepRating(onDisk: unknown, next: Card, selection: IssueSelection): Card | null {
   if (onDisk === null || typeof onDisk !== "object") return next;
 
   const disk = onDisk as Partial<Pick<Card, "pr" | "issue" | "complexity">>;
   const old = disk.complexity;
-  if (disk.pr?.number !== next.pr.number || old === null || typeof old !== "object") return next;
+  if (!isOwnCard(disk, next.pr.number, next.pr.branch) || old === null || typeof old !== "object") {
+    return next;
+  }
 
   const oldDeclared = typeof old.declared === "number" ? old.declared : null;
   const lowered =
@@ -633,7 +654,10 @@ if (import.meta.main) {
       records,
       parseNumstat(numstatFromApi(changed), counts.get(pull.number) ?? 0),
       {
-        review: onDisk?.pr?.number === pull.number ? (onDisk.review ?? null) : null,
+        review:
+          onDisk !== null && isOwnCard(onDisk, pull.number, branch)
+            ? (onDisk.review ?? null)
+            : null,
         branch: pull.headRefName,
         prNumber: pull.number,
         issueNumber,

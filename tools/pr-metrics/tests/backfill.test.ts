@@ -730,6 +730,42 @@ test("a backfill keeps the review counts the card on disk already holds", async 
   }
 });
 
+// `retro` commits the card before the branch's first push, when the pull
+// request has no number yet. The backfill that fills the number in must keep
+// what only that card recorded.
+test("a backfill keeps the review counts and rating of a card written before its pull request opened", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const cardPath = join(f.dir, "cards", `${SLUG}.json`);
+    const review = {
+      reports: 2,
+      findings: 4,
+      located: 3,
+      acted_on: 3,
+      paired: 2,
+      acted_on_paired: 2,
+      control_changed: 0,
+    };
+    const rating = { declared: 3, method: "confirmed", issues: 1 };
+    const card = JSON.parse(await readFile(cardPath, "utf8"));
+    await writeFile(
+      cardPath,
+      JSON.stringify({ ...card, pr: { ...card.pr, number: null }, complexity: rating, review }),
+    );
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const after = JSON.parse(await readFile(cardPath, "utf8"));
+    expect(after.pr.number).toBe(PR);
+    expect(after.review).toEqual(review);
+    expect(after.complexity).toEqual(rating);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 // --- one branch name, several merged pull requests ---------------------------
 
 const LATER_PR = 5000;
@@ -1610,6 +1646,20 @@ describe("keepRating", () => {
     };
 
     expect(keepRating(labelled, fresh, links([], [], [900619, 900620]))).toBe(fresh);
+  });
+
+  test("counts this branch's card written before its pull request opened as that pull request's", () => {
+    const fresh = {
+      ...next({ declared: null, method: "none", issues: 0 }),
+      pr: { number: 1, branch: "feat/x" },
+    } as unknown as Card;
+    const rating = { declared: 3, method: "confirmed", issues: 1 };
+    const prePush = { ...disk(rating), pr: { number: null, branch: "feat/x" } };
+
+    expect(keepRating(prePush, fresh, links([]))?.complexity).toEqual(rating);
+    expect(
+      keepRating({ ...prePush, pr: { number: null, branch: "feat-x" } }, fresh, links([])),
+    ).toBe(fresh);
   });
 
   test("ignores a card on disk with no rating or for another pull request", () => {
