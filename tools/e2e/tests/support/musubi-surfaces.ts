@@ -19,10 +19,13 @@
  *
  * The exports after it check the call sites that draw from shared parts, from
  * the flows that already reach them: `musubi-org-detail` the organisation
- * dialogs, list rows, roster, a search result and `/authorize`'s dead end;
- * `musubi-passkey` the signed-out note, the first-party consent screen's mark
- * and chosen profile, and the third-party consent screen's chip and scope
- * rows. Each puts back the viewport and scheme it found.
+ * dialogs (their plain `Field` labels among them), list rows, roster, a search
+ * result and `/authorize`'s dead end; `musubi-passkey` the create-account and
+ * sign-in dialogs' fields and standalone link, a busy button, the signed-out
+ * note, `/authorize`'s link inside a sentence, the first-party consent
+ * screen's mark and chosen profile, and the third-party consent screen's chip
+ * and scope rows. Each puts back the viewport, scheme and motion preference it
+ * found.
  */
 
 import { mkdirSync } from "node:fs";
@@ -579,15 +582,69 @@ export async function musubiSurfaces(flow: Flow, page: Page, profileName: string
   await page.emulateMedia({ colorScheme: null });
 }
 
-/** Runs `body`, then puts back the viewport the flow had and the system scheme. */
+/**
+ * Runs `body`, then puts back the viewport the flow had, the system scheme and
+ * the system's motion preference.
+ */
 async function restoring(page: Page, body: () => Promise<void>): Promise<void> {
   const viewport = page.viewportSize();
   try {
     await body();
   } finally {
     if (viewport) await page.setViewportSize(viewport);
-    await page.emulateMedia({ colorScheme: null });
+    await page.emulateMedia({ colorScheme: null, reducedMotion: null });
   }
+}
+
+/** The vertical space between the bottom of `above` and the top of `below`, in whole px. */
+async function gapBetween(above: Locator, below: Locator): Promise<string> {
+  const [a, b] = await Promise.all([above.boundingBox(), below.boundingBox()]);
+  if (!a || !b) return "no box";
+  return `${Math.round(b.y - (a.y + a.height))}px`;
+}
+
+/** The text of every element `target`'s `aria-describedby` names, in order. */
+function description(target: Locator): Promise<string> {
+  return target.evaluate((el) =>
+    (el.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .filter((id) => id !== "")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" "),
+  );
+}
+
+/**
+ * A plain `Field` label (`@shared/ui`'s `Field`, `labelTreatment="plain"`):
+ * `Label`'s default look — the control type step at 500, the full ink, the
+ * words as written — 6px above its control.
+ */
+async function plainLabel(
+  flow: Flow,
+  name: string,
+  label: Locator,
+  control: Locator,
+): Promise<void> {
+  flow.check(
+    `${name}: the label takes the control step at 500`,
+    await probedType(label, "text-ui-base font-medium"),
+    await type(label),
+  );
+  flow.check(
+    `${name}: the label is full ink`,
+    await painted(label, "var(--ui-ink)"),
+    await computed(label, "color"),
+  );
+  flow.check(
+    `${name}: the label is set as written`,
+    "none",
+    await computed(label, "text-transform"),
+  );
+  flow.check(
+    `${name}: the label sits 6px above its control`,
+    "6px",
+    await gapBetween(label, control),
+  );
 }
 
 /**
@@ -622,6 +679,17 @@ export async function orgCreateDialogSurfaces(flow: Flow, page: Page): Promise<v
   const field = dialog.getByLabel("Handle", { exact: true });
   const create = dialog.getByRole("button", { name: "Create", exact: true });
   await formDialog(flow, "create dialog", field, create);
+  await plainLabel(
+    flow,
+    "create dialog: Handle",
+    dialog.getByText("Handle", { exact: true }),
+    field,
+  );
+  flow.check(
+    "create dialog: the handle is described by its hint",
+    "Lowercase letters, numbers, and underscores only.",
+    await description(field),
+  );
   await restoring(page, () =>
     flow.step("surfaces: shoot the create dialog", () =>
       shoot(page, "org-create-dialog", () => expect(dialog).toBeVisible()),
@@ -923,4 +991,208 @@ export async function signedOutSurfaces(flow: Flow, page: Page, message: string)
       shoot(page, "signed-out", () => expect(signIn).toBeVisible()),
     ),
   );
+}
+
+/**
+ * The create-account dialog's details step, before anything is typed: every
+ * field's label a plain `Field` label 6px above its control — Email's too,
+ * though it is a bare `Label` beside its "i" — and the date of birth read with
+ * its hint as its description.
+ */
+export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Create account" });
+  const dob = dialog.getByLabel("Date of birth");
+  await expect(dob).toBeVisible();
+  await plainLabel(
+    flow,
+    "register: Date of birth",
+    dialog.getByText("Date of birth", { exact: true }),
+    dob,
+  );
+  flow.check(
+    "register: the date of birth is described by its hint",
+    "You must be 13 or older to create an account.",
+    await description(dob),
+  );
+  const email = dialog.getByLabel("Email", { exact: true });
+  flow.check(
+    "register: Email's label row sits 6px above its control",
+    "6px",
+    await gapBetween(dialog.getByText("Email", { exact: true }).locator("xpath=.."), email),
+  );
+  await restoring(page, () =>
+    flow.step("surfaces: shoot the register dialog's details", () =>
+      shoot(page, "register-details", () => expect(dob).toBeVisible()),
+    ),
+  );
+}
+
+/**
+ * The sign-in dialog, before anything is typed: "Email or @handle" a plain
+ * `Field` label, and "Lost your passkey?" under Continue a standalone link —
+ * `Button`'s `link` at `sm`, in the accent ink, no underline until hovered, a
+ * 32px box centred under Continue.
+ */
+export async function signInLinkSurfaces(flow: Flow, page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Sign in" });
+  const identifier = dialog.getByLabel("Email or @handle");
+  await expect(identifier).toBeVisible();
+  await plainLabel(
+    flow,
+    "sign in: Email or @handle",
+    dialog.getByText("Email or @handle", { exact: true }),
+    identifier,
+  );
+  // No error line is up, so this is the standalone link, not the one inside a line.
+  const link = dialog.getByRole("button", { name: "Lost your passkey?" });
+  const proceed = dialog.getByRole("button", { name: "Continue" });
+  await restoring(page, async () => {
+    await page.mouse.move(0, 0);
+    await settled(link);
+    flow.check(
+      "sign in: the standalone link has no underline at rest",
+      "none",
+      await computed(link, "text-decoration-line"),
+    );
+    flow.check(
+      "sign in: the standalone link is the accent ink",
+      await painted(link, "var(--ui-accent-ink)"),
+      await computed(link, "color"),
+    );
+    flow.check(
+      "sign in: the standalone link takes the small step at 500",
+      await probedType(link, "text-ui-sm font-medium"),
+      await type(link),
+    );
+    flow.check(
+      "sign in: the standalone link is a 32px box",
+      "32px",
+      await computed(link, "height"),
+    );
+    const [linkBox, proceedBox] = await Promise.all([link.boundingBox(), proceed.boundingBox()]);
+    flow.check(
+      "sign in: the standalone link sits centred under Continue",
+      true,
+      linkBox !== null &&
+        proceedBox !== null &&
+        Math.abs(linkBox.x + linkBox.width / 2 - (proceedBox.x + proceedBox.width / 2)) <= 1,
+    );
+    await link.hover();
+    await settled(link);
+    flow.check(
+      "sign in: the standalone link underlines under the pointer",
+      "underline",
+      await computed(link, "text-decoration-line"),
+    );
+    await page.mouse.move(0, 0);
+    await flow.step("surfaces: shoot the sign-in dialog", () =>
+      shoot(page, "sign-in", () => expect(link).toBeVisible()),
+    );
+  });
+}
+
+/**
+ * A busy `Button`, pressed with the pointer and waiting: its label the wait's
+ * own, announced busy and unavailable but not `disabled`, still holding focus,
+ * dimmed, with the 20px orb before its label. Shot under reduced motion, so
+ * the orb is one still frame.
+ */
+export async function busyButtonSurfaces(
+  flow: Flow,
+  page: Page,
+  button: Locator,
+  label: string,
+): Promise<void> {
+  // The orb's module loads on demand; until it lands a box holds its room.
+  const orb = button.locator('canvas[aria-hidden="true"]');
+  await expect(orb).toHaveCount(1);
+  flow.check(
+    `busy: the button reads "${label}"`,
+    label,
+    ((await button.textContent()) ?? "").trim(),
+  );
+  flow.check(
+    "busy: the button is aria-busy",
+    "true",
+    (await button.getAttribute("aria-busy")) ?? "",
+  );
+  flow.check(
+    "busy: the button is aria-disabled",
+    "true",
+    (await button.getAttribute("aria-disabled")) ?? "",
+  );
+  flow.check(
+    "busy: the button is not disabled",
+    false,
+    await button.evaluate((el) => (el as HTMLButtonElement).disabled),
+  );
+  flow.check(
+    "busy: the button keeps focus",
+    true,
+    await button.evaluate((el) => el === document.activeElement),
+  );
+  flow.check(
+    "busy: a pointer-pressed busy button is dimmed",
+    "0.5",
+    await computed(button, "opacity"),
+  );
+  flow.check("busy: one orb", 1, await orb.count());
+  flow.check(
+    "busy: the orb is 20px",
+    "20px 20px",
+    `${await computed(orb, "width")} ${await computed(orb, "height")}`,
+  );
+  await restoring(page, async () => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await flow.step("surfaces: shoot a busy button", () =>
+      shoot(page, "busy-button", () => expect(orb).toHaveCount(1)),
+    );
+  });
+}
+
+/**
+ * `/authorize`'s sign-in: "Create one" a link inside the sentence "No account
+ * yet? Create one" — `Button`'s `link` at `inline`: no padding and no height
+ * past its line, underlined at rest 2px under the text, in the sentence's own
+ * size and weight, in the accent ink.
+ */
+export async function authorizeSignInSurfaces(flow: Flow, page: Page): Promise<void> {
+  const link = page.getByRole("button", { name: "Create one" });
+  const sentence = link.locator("xpath=..");
+  await expect(link).toBeVisible();
+  await restoring(page, async () => {
+    await page.mouse.move(0, 0);
+    await settled(link);
+    // A `<button>` stays one box at `display: inline` (Chromium computes
+    // `inline-block`), so "no box" is no padding and no height past its line.
+    flow.check("authorize: Create one has no padding", "0px 0px 0px 0px", await padding(link));
+    flow.check(
+      "authorize: Create one is one line of its sentence tall",
+      await computed(sentence, "line-height"),
+      await computed(link, "height"),
+    );
+    flow.check(
+      "authorize: Create one is underlined at rest",
+      "underline",
+      await computed(link, "text-decoration-line"),
+    );
+    flow.check(
+      "authorize: Create one's underline sits 2px under it",
+      "2px",
+      await computed(link, "text-underline-offset"),
+    );
+    flow.check(
+      "authorize: Create one takes its sentence's size and weight",
+      await type(sentence),
+      await type(link),
+    );
+    flow.check(
+      "authorize: Create one is the accent ink",
+      await painted(link, "var(--ui-accent-ink)"),
+      await computed(link, "color"),
+    );
+    await flow.step("surfaces: shoot /authorize's sign-in", () =>
+      shoot(page, "authorize-sign-in", () => expect(link).toBeVisible(), { bare: true }),
+    );
+  });
 }

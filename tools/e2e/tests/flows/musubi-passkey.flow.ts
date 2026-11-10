@@ -11,7 +11,12 @@
  * base styles and the notices the shell draws (`musubi-surfaces.ts`); signed
  * out by the refused renewal, the signed-out note's Sign in; on Pulse's
  * consent screen, its first-party mark and the chosen profile's name; on the
- * third-party one, its "Third-party app" chip and its scope rows.
+ * third-party one, its "Third-party app" chip and its scope rows. On the way it
+ * reads the shared parts the auth views draw: the create-account dialog's
+ * plain field labels and the date of birth's hint, the sign-in dialog's label
+ * and its standalone "Lost your passkey?" link, Continue busy while
+ * `/login/passkey/begin` is held, and `/authorize`'s "Create one" link inside
+ * its sentence.
  *
  * The failures are made by answering one osn-api route in the page
  * (`refuse`), so no limiter or session on the stack is spent on them. Every
@@ -42,11 +47,15 @@ import {
   totpCode,
 } from "../support/fixtures";
 import {
+  authorizeSignInSurfaces,
   authorizeThirdPartySurfaces,
   authorizeVerifiedSurfaces,
+  busyButtonSurfaces,
   musubiNotice,
   musubiSurfaces,
+  registerFieldSurfaces,
   signedOutSurfaces,
+  signInLinkSurfaces,
 } from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
@@ -158,8 +167,13 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   });
   flow.check("Create account fits a 320px screen", true, createAccountRight <= 320);
 
-  await flow.step("register: details", async () => {
+  await flow.step("register: open the dialog", async () => {
     await page.getByRole("button", { name: "Create account" }).first().click();
+    await expect(page.getByLabel("Date of birth")).toBeVisible();
+  });
+  await registerFieldSurfaces(flow, page);
+
+  await flow.step("register: details", async () => {
     await page.getByLabel("Email").fill(ada.email);
     await page.getByLabel("Handle").fill(ada.handle);
     await page.getByLabel("Date of birth").fill("1990-01-01");
@@ -227,11 +241,16 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   const identifierField = page.getByLabel("Email or @handle");
   let rateLimitedLine = "";
   let describedByLine = false;
+  await flow.step("sign in: open the dialog", async () => {
+    await shellSignIn().click();
+    await expect(identifierField).toBeVisible();
+  });
+  await signInLinkSurfaces(flow, page);
+
   await flow.step("sign in: a rate-limited try says to wait", async () => {
     const handler = refuse("POST", 429, "rate_limited");
     await page.route(passkeyBegin, handler);
     try {
-      await shellSignIn().click();
       await identifierField.fill(`@${ada.handle}`);
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(dialogAlert).toContainText(WAIT);
@@ -263,10 +282,29 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   );
   flow.check("no toast repeats the error", 0, await page.locator("[data-sonner-toast]").count());
 
+  // Begin is held until the busy button has been read and shot, then goes on
+  // to osn-api; the preflight is never held.
+  let releaseBegin = () => {};
+  const beginHeld = new Promise<void>((resolve) => (releaseBegin = resolve));
+  const holdBegin = async (route: Route) => {
+    if (route.request().method() === "POST") await beginHeld;
+    await route.fallback();
+  };
+  const verifying = page.getByRole("dialog").getByRole("button", { name: "Verifying…" });
+  await page.route(passkeyBegin, holdBegin);
+  try {
+    await flow.step("sign in with passkey: Continue waits on begin", async () => {
+      // The refused try spent the verification token; the widget hands the
+      // form a fresh one before Continue works again.
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(verifying).toBeVisible();
+    });
+    await busyButtonSurfaces(flow, page, verifying, "Verifying…");
+  } finally {
+    releaseBegin();
+    await page.unroute(passkeyBegin, holdBegin);
+  }
   await flow.step("sign in with passkey", async () => {
-    // The refused try spent the verification token; the widget hands the
-    // form a fresh one before Continue works again.
-    await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
   });
 
@@ -607,9 +645,13 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   });
   const contextReadsBefore = flow.count("GET osn-api /authorize/context 200");
   const turnstileBefore = flow.turnstileServed();
-  await flow.step("sign in to Pulse through Musubi's /authorize", async () => {
+  await flow.step("open Musubi's /authorize from Pulse", async () => {
     await page.goto(ORIGINS.pulseWeb);
     await page.getByRole("button", { name: "Continue with musubi" }).click();
+    await expect(page.getByLabel("Email or @handle")).toBeVisible();
+  });
+  await authorizeSignInSurfaces(flow, page);
+  await flow.step("sign in to Pulse through Musubi's /authorize", async () => {
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();
     // The sign-in screen draws the client card too, mark and all; Allow is
