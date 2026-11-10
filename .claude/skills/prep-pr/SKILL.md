@@ -299,7 +299,7 @@ On `trivial`, run the gates inline instead: Step 2's changeset check, and the wi
 
 | Tier | When | Reviews |
 |---|---|---|
-| Light | 3 or less, and the diff touches no tokens, sessions, rate limits, step-up, recovery or OpenID Connect | One `reviewer` agent, alone in the worktree, runs `review-tests`, `review-docs` and `review-security` in one pass, each into its own report, with `review-design` added on a `-design` verdict and `review-state` on a `-state` one. Step 6 dispatches nothing more |
+| Light | 3 or less, and the diff touches no tokens, sessions, rate limits, step-up, recovery, OpenID Connect, authorisation and permissions, cookies, CSP, input rejection or crypto | One `reviewer` agent, alone in the worktree, runs `review-tests`, `review-docs` and `review-security` in one pass, each into its own report, with `review-design` added on a `-design` verdict and `review-state` on a `-state` one. Step 6 dispatches nothing more |
 | Full | Above 3, no rating, or any of those areas at any rating | This step's `review-tests` agent, then Step 6's lenses as separate agents in parallel, `review-security` at effort `xhigh` |
 
 The verdict still caps either tier: `trivial` runs no agent, and `trivial-tests` only the `review-tests` agent. On either tier, `bun run test:e2e` runs once when the diff touches code a flow drives, and `bun run test:e2e:repro` only when the branch adds or changes a flow. The suite's ports are fixed for the whole machine, so while another worktree's run holds them, wait; never stop it (`wiki/conventions/testing-patterns.md` §What one run does).

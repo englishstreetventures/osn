@@ -265,8 +265,7 @@ gets followed to the letter. Every dispatch carries:
 - **The check tier.** The issue's `complexity:` rating and the tier it sets
   (`prep-pr` Step 4): 3 or less is light — no `stress-plan` attacker, the builder
   checking its own premises against the code, and one combined review — unless
-  the task touches tokens, sessions, rate limits, step-up, recovery or OpenID
-  Connect; above 3, no rating, or any of those areas is the full set.
+  the task touches tokens, sessions, rate limits, step-up, recovery, OpenID Connect, authorisation and permissions, cookies, CSP, input rejection or crypto; above 3, no rating, or any of those areas is the full set.
 - **The wiki pages to read, by repo path**, and the ones this work makes stale.
   Paths, never pasted prose — the subagent has its own context window and can open
   a file; yours is the run's bottleneck.
