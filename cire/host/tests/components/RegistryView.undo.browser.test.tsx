@@ -16,7 +16,10 @@ import "../../src/styles/global.css";
  * `test-support/mocks.ts` does not resolve in the browser project.
  */
 
-const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
+const { authFetch, redirectToLogin } = vi.hoisted(() => ({
+  authFetch: vi.fn(),
+  redirectToLogin: vi.fn(),
+}));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("../../src/lib/touch-feedback", () => ({
   haptic: () => {},
@@ -25,9 +28,10 @@ vi.mock("../../src/lib/touch-feedback", () => ({
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: () => false,
-  redirectToLogin: () => {},
+  redirectToLogin,
 }));
+
+import { AuthExpiredError } from "@shared/rp-auth";
 
 import RegistryView from "../../src/components/RegistryView";
 import {
@@ -90,23 +94,29 @@ const snapshot = (): RegistrySnapshot => ({
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/** The server's registry: a `DELETE` takes a gift off unless its id is in `refuse`. */
+/**
+ * The server's registry: a `DELETE` takes a gift off unless its id is in
+ * `refuse`, or meets an expired session if it is in `expired`.
+ */
 let server: RegistrySnapshot;
 let refuse: Set<string>;
-const deletes = () =>
-  authFetch.mock.calls
-    .filter(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")
-    .map(([url]) => String(url));
+let expired: Set<string>;
+const deleteCalls = () =>
+  authFetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "DELETE");
+const deletes = () => deleteCalls().map(([url]) => String(url));
 const ITEM_URL = "https://api.test/api/organiser/weddings/wed_1/registry/items/";
 
 beforeEach(() => {
   __resetRegistryCache();
   server = snapshot();
   refuse = new Set();
+  expired = new Set();
+  redirectToLogin.mockReset();
   authFetch.mockReset();
   authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     const one = /\/registry\/items\/([^/]+)$/.exec(url);
     if (init?.method === "DELETE" && one) {
+      if (expired.has(one[1]!)) throw new AuthExpiredError();
       if (refuse.has(one[1]!)) return json({ error: "nope" }, 500);
       server = { ...server, items: server.items.filter((gift) => gift.id !== one[1]) };
       return json({ ok: true });
@@ -162,7 +172,9 @@ describe("removing a gift", () => {
     await removeGift("Wine fridge");
 
     expect(titles()).toEqual(["Copper pan", "Kettle"]);
-    await userEvent.click(within(toastOf("Wine fridge")).getByRole("button", { name: "Undo" }));
+    await userEvent.click(
+      within(toastOf("Wine fridge")).getByRole("button", { name: "Undo removing “Wine fridge”" }),
+    );
 
     await waitFor(() => expect(titles()).toEqual(["Wine fridge", "Copper pan", "Kettle"]));
     expect(await screen.findByText("Restored “Wine fridge”")).toBeTruthy();
@@ -189,5 +201,44 @@ describe("removing a gift", () => {
     await waitFor(() => expect(deletes()).toEqual([`${ITEM_URL}c`, `${ITEM_URL}b`]));
     await new Promise((done) => setTimeout(done, 300));
     expect(titles()).toEqual(["Copper pan", "Kettle"]);
+  });
+
+  it("hides the gift again once its DELETE lands, after a read that does not filter brought it back", async () => {
+    mount();
+    await screen.findByText("Wine fridge");
+    await removeGift("Wine fridge");
+    expect(titles()).toEqual(["Copper pan", "Kettle"]);
+
+    // The settings tab's read writes the server's whole list into the cache.
+    setCachedRegistry("wed_1", structuredClone(server));
+    await waitFor(() => expect(titles()).toEqual(["Copper pan", "Wine fridge", "Kettle"]));
+
+    expire("Wine fridge");
+
+    await waitFor(() => expect(deletes()).toEqual([`${ITEM_URL}b`]));
+    await waitFor(() => expect(titles()).toEqual(["Copper pan", "Kettle"]));
+  });
+
+  it("sends the page-exit DELETE kept alive", async () => {
+    mount();
+    await screen.findByText("Wine fridge");
+    await removeGift("Wine fridge");
+
+    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
+
+    await waitFor(() => expect(deletes()).toEqual([`${ITEM_URL}b`]));
+    expect((deleteCalls()[0]![1] as RequestInit).keepalive).toBe(true);
+  });
+
+  it("sends the organiser to sign in when the removal meets an expired session", async () => {
+    mount();
+    await screen.findByText("Wine fridge");
+    expired.add("b");
+
+    await removeGift("Wine fridge");
+    expire("Wine fridge");
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Couldn't remove that gift.")).toBeNull();
   });
 });

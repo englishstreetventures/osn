@@ -19,7 +19,10 @@ import "../../src/styles/global.css";
  * `test-support/mocks.ts` does not resolve in the browser project.
  */
 
-const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
+const { authFetch, redirectToLogin } = vi.hoisted(() => ({
+  authFetch: vi.fn(),
+  redirectToLogin: vi.fn(),
+}));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("../../src/lib/touch-feedback", () => ({
   haptic: () => {},
@@ -28,9 +31,10 @@ vi.mock("../../src/lib/touch-feedback", () => ({
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: () => false,
-  redirectToLogin: () => {},
+  redirectToLogin,
 }));
+
+import { AuthExpiredError } from "@shared/rp-auth";
 
 import ChecklistView from "../../src/components/ChecklistView";
 import { TasksChangedContext } from "../../src/lib/tasks-changed";
@@ -60,26 +64,37 @@ const TASKS = [
 /** Relative to this file: the repository's `e2e-artifacts/`. */
 const SHOTS = "../../../../e2e-artifacts/cire-host/undo-delete";
 
-const json = (body: unknown) =>
+const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 
-/** The server's tasks: a `DELETE` takes one off, and a read answers what is left. */
+/**
+ * The server's tasks: a `DELETE` takes one off unless its id is in `refuse`,
+ * or meets an expired session if it is in `expired`; a read answers what is
+ * left.
+ */
 let server: TaskRow[] = [];
-const deletes = () =>
-  authFetch.mock.calls
-    .filter(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")
-    .map(([url]) => String(url));
+let refuse: Set<string>;
+let expired: Set<string>;
+const deleteCalls = () =>
+  authFetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "DELETE");
+const deletes = () => deleteCalls().map(([url]) => String(url));
+const TASK_URL = "https://api.test/api/organiser/weddings/wed_1/tasks/";
 
 beforeEach(() => {
   __resetTasksCache();
   server = structuredClone(TASKS);
+  refuse = new Set();
+  expired = new Set();
+  redirectToLogin.mockReset();
   authFetch.mockReset();
   authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     const one = /\/tasks\/([^/]+)$/.exec(url);
     if (init?.method === "DELETE" && one) {
+      if (expired.has(one[1]!)) throw new AuthExpiredError();
+      if (refuse.has(one[1]!)) return json({ error: "nope" }, 500);
       server = server.filter((t) => t.id !== one[1]);
       return json({ ok: true });
     }
@@ -122,8 +137,9 @@ const toastOf = (title: string) =>
   [...document.querySelectorAll<HTMLElement>(".ui-toast")].find(
     (el) => el.querySelector(".ui-toast__message")?.textContent === `Deleted “${title}”`,
   )!;
-const undo = (title: string) =>
-  userEvent.click(within(toastOf(title)).getByRole("button", { name: "Undo" }));
+const undoButton = (title: string) =>
+  within(toastOf(title)).getByRole("button", { name: `Undo deleting “${title}”` });
+const undo = (title: string) => userEvent.click(undoButton(title));
 /** End one toast's life as its clock would. */
 const expire = (title: string) =>
   toast.dismiss(toasts().find((t) => t.message === `Deleted “${title}”`)!.id);
@@ -163,6 +179,90 @@ describe("deleting a task", () => {
     expect(await screen.findByText("Restored “Send the invitations”")).toBeTruthy();
     await new Promise((done) => setTimeout(done, 300));
     expect(deletes()).toEqual([]);
+  });
+
+  it("ends the delete's task write on Undo, so the next re-read lands", async () => {
+    const socket = mount();
+    await screen.findByText("Send the invitations");
+    await deleteTask("Send the invitations");
+    await undo("Send the invitations");
+    await waitFor(() =>
+      expect(titles()).toEqual(["Book the venue", "Send the invitations", "Order the cake"]),
+    );
+
+    // A co-host adds a task, and the socket says so.
+    server = [...server, row({ id: "d", title: "Hire the band", sortOrder: 3 })];
+    socket.tasksChanged();
+
+    await waitFor(() =>
+      expect(titles()).toEqual([
+        "Book the venue",
+        "Send the invitations",
+        "Order the cake",
+        "Hire the band",
+      ]),
+    );
+  });
+
+  it("takes a keyboard press of ✕ to Undo, and Undo back to the task's ✕", async () => {
+    mount();
+    await screen.findByText("Send the invitations");
+    within(rowOf("Send the invitations")).getByRole("button", { name: "Delete task" }).focus();
+
+    await userEvent.keyboard("{Enter}");
+
+    expect(titles()).toEqual(["Book the venue", "Order the cake"]);
+    await waitFor(() => expect(document.activeElement).toBe(undoButton("Send the invitations")));
+
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(titles()).toEqual(["Book the venue", "Send the invitations", "Order the cake"]),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(rowOf("Send the invitations")).getByRole("button", { name: "Delete task" }),
+      ),
+    );
+    expect(deletes()).toEqual([]);
+  });
+
+  it("sends the page-exit DELETE kept alive", async () => {
+    mount();
+    await screen.findByText("Send the invitations");
+    await deleteTask("Send the invitations");
+
+    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
+
+    await waitFor(() => expect(deletes()).toEqual([`${TASK_URL}b`]));
+    expect((deleteCalls()[0]![1] as RequestInit).keepalive).toBe(true);
+  });
+
+  it("says so and puts the task back when the server refuses the delete", async () => {
+    mount();
+    await screen.findByText("Send the invitations");
+    refuse.add("b");
+
+    await deleteTask("Send the invitations");
+    expire("Send the invitations");
+
+    expect(await screen.findByText("Couldn't delete that task.")).toBeTruthy();
+    await waitFor(() =>
+      expect(titles()).toEqual(["Book the venue", "Send the invitations", "Order the cake"]),
+    );
+    expect(deletes()).toEqual([`${TASK_URL}b`]);
+  });
+
+  it("sends the organiser to sign in when the delete meets an expired session", async () => {
+    mount();
+    await screen.findByText("Send the invitations");
+    expired.add("b");
+
+    await deleteTask("Send the invitations");
+    expire("Send the invitations");
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Couldn't delete that task.")).toBeNull();
   });
 
   it("sends the DELETE once its toast has gone, and a re-read meanwhile does not bring it back", async () => {
@@ -224,6 +324,17 @@ describe("deleting a task", () => {
       .find((a) => (a as CSSAnimation).animationName === "row-return");
     expect(fade, "the restored row runs row-return").toBeDefined();
     expect(Number(fade!.effect!.getTiming().duration)).toBeCloseTo(slowRungMs(), 0);
+    // Opacity alone: a transform would move the box the sortable measures.
+    const moved = new Set(
+      (fade!.effect as KeyframeEffect)
+        .getKeyframes()
+        .flatMap((frame) =>
+          Object.keys(frame).filter(
+            (key) => !["offset", "computedOffset", "easing", "composite"].includes(key),
+          ),
+        ),
+    );
+    expect([...moved]).toEqual(["opacity"]);
     await fade!.finished;
     await waitFor(() => expect(back.classList.contains("row-return")).toBe(false));
     // A row that was never deleted does not fade.
@@ -235,11 +346,22 @@ describe("deleting a task", () => {
     mount();
     await screen.findByText("Send the invitations");
     await deleteTask("Send the invitations");
-    await undo("Send the invitations");
+    // The fade still runs, so `row-return` still ends; it ends at once.
+    const ended: AnimationEvent[] = [];
+    const listen = (e: AnimationEvent) => {
+      if (e.animationName === "row-return") ended.push(e);
+    };
+    document.addEventListener("animationend", listen, true);
+    try {
+      await undo("Send the invitations");
 
-    const back = await waitFor(() => rowOf("Send the invitations"));
-    for (const animation of back.getAnimations()) {
-      expect(Number(animation.effect!.getTiming().duration)).toBeLessThanOrEqual(1);
+      const back = await waitFor(() => rowOf("Send the invitations"));
+      await waitFor(() => expect(ended).toHaveLength(1));
+      expect(ended[0]!.target).toBe(back);
+      expect(ended[0]!.elapsedTime).toBeLessThanOrEqual(0.001);
+      await waitFor(() => expect(back.classList.contains("row-return")).toBe(false));
+    } finally {
+      document.removeEventListener("animationend", listen, true);
     }
   });
 });
@@ -256,11 +378,26 @@ describe("the undo stack, pictured", () => {
         mount();
         await screen.findByText("Send the invitations");
 
-        await deleteTask("Book the venue");
-        await deleteTask("Send the invitations");
-        await deleteTask("Order the cake");
-        const shown = [...document.querySelectorAll<HTMLElement>(".ui-toast")];
+        // Clicked in script, at once: the picture is of the stack, and three
+        // pointer clicks under a loaded run can outlast a toast's five seconds.
+        // `detail: 1` is a pointer's click, which leaves focus where it is.
+        for (const title of ["Book the venue", "Send the invitations", "Order the cake"]) {
+          fireEvent.click(within(rowOf(title)).getByRole("button", { name: "Delete task" }), {
+            detail: 1,
+          });
+        }
+        const shown = await waitFor(() => {
+          const up = [...document.querySelectorAll<HTMLElement>(".ui-toast")].filter(
+            (el) => !el.classList.contains("ui-toast--leaving"),
+          );
+          expect(up).toHaveLength(3);
+          return up;
+        });
         await Promise.all(shown.flatMap((el) => el.getAnimations().map((a) => a.finished)));
+        expect(
+          document.querySelectorAll(".ui-toast:not(.ui-toast--leaving)"),
+          "no toast left before it was pictured",
+        ).toHaveLength(3);
 
         // Each toast sits inside the window, whole, with its Undo in reach.
         for (const el of shown) {
@@ -268,7 +405,9 @@ describe("the undo stack, pictured", () => {
           expect(box.left).toBeGreaterThanOrEqual(0);
           expect(box.right).toBeLessThanOrEqual(viewport.width + 0.5);
           expect(box.bottom).toBeLessThanOrEqual(viewport.height + 0.5);
-          const action = within(el).getByRole("button", { name: "Undo" }).getBoundingClientRect();
+          const action = within(el)
+            .getByRole("button", { name: /^Undo deleting/ })
+            .getBoundingClientRect();
           expect(action.height).toBeGreaterThanOrEqual(24);
         }
         await page.screenshot({ path: `${SHOTS}/stack-${viewport.name}-${theme}.png` });

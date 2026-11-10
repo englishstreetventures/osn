@@ -32,23 +32,50 @@ interface Seen {
 }
 
 /** Delete one made-up row through the helper, and count what it asks of the list. */
-function deleteRow(name: string): Seen {
+function deleteRow(name: string, click?: MouseEvent): Seen {
   const seen: Seen = { hidden: 0, restored: 0, commits: [], raisedAt: performance.now() };
-  deleteWithUndo({
-    key: `row:${name}`,
-    message: `Deleted “${name}”`,
-    restored: `Restored “${name}”`,
-    hide: () => {
-      seen.hidden += 1;
+  deleteWithUndo(
+    {
+      key: `row:${name}`,
+      message: `Deleted “${name}”`,
+      undoName: `Undo deleting “${name}”`,
+      restored: `Restored “${name}”`,
+      hide: () => {
+        seen.hidden += 1;
+      },
+      restore: () => {
+        seen.restored += 1;
+      },
+      commit: ({ keepalive }) => {
+        seen.commits.push({ keepalive, at: performance.now() });
+      },
     },
-    restore: () => {
-      seen.restored += 1;
-    },
-    commit: ({ keepalive }) => {
-      seen.commits.push({ keepalive, at: performance.now() });
-    },
-  });
+    click,
+  );
   return seen;
+}
+
+/** A row's ✕, which deletes `name` with the click that pressed it. */
+function mountDeleteButton(name: string, seen: { current?: Seen }) {
+  render(() => (
+    <>
+      <button type="button" onClick={(e) => (seen.current = deleteRow(name, e))}>
+        Delete {name}
+      </button>
+      <Toaster position="bottom-right" topLayer />
+    </>
+  ));
+  return screen.getByRole("button", { name: `Delete ${name}` });
+}
+
+/** What a CSS custom property resolves to on a probe, as the engine writes `property`. */
+function resolved(property: "transitionDuration" | "transitionTimingFunction", token: string) {
+  const probe = document.createElement("div");
+  probe.style[property] = `var(${token})`;
+  document.body.append(probe);
+  const value = getComputedStyle(probe)[property];
+  probe.remove();
+  return value;
 }
 
 /** The toast that names `name`'s delete, or nothing once it has gone. */
@@ -95,13 +122,15 @@ describe("the undo window", () => {
       "Deleted “Order the cake”",
       "Deleted “Send the invitations”",
     ]);
-    const boxes = ["Book the venue", "Order the cake", "Send the invitations"].map((name) =>
-      toastOf(name)!.getBoundingClientRect(),
-    );
-    const byTop = boxes.toSorted((a, b) => a.top - b.top);
-    for (let k = 1; k < byTop.length; k += 1) {
-      expect(byTop[k]!.top).toBeGreaterThanOrEqual(byTop[k - 1]!.bottom - 0.5);
-    }
+    // The stack grows up from the bottom edge, oldest nearest it: each toast
+    // stands wholly above the one raised before it.
+    const [oldest, middle, newest] = [
+      "Book the venue",
+      "Order the cake",
+      "Send the invitations",
+    ].map((name) => toastOf(name)!.getBoundingClientRect());
+    expect(middle!.bottom).toBeLessThanOrEqual(oldest!.top + 0.5);
+    expect(newest!.bottom).toBeLessThanOrEqual(middle!.top + 0.5);
     expect(isPendingDelete("row:Order the cake")).toBe(true);
 
     await waitFor(() => expect(third.commits).toHaveLength(1), { timeout: UNDO_MS + 2_000 });
@@ -128,14 +157,58 @@ describe("the undo window", () => {
     expect(toastOf("Book the venue")).toBeDefined();
   }, 15_000);
 
+  it("takes a keyboard press of the ✕ to Undo, and holds the delete while focus stays there", async () => {
+    const seen: { current?: Seen } = {};
+    const cross = mountDeleteButton("Book the venue", seen);
+    cross.focus();
+
+    await userEvent.keyboard("{Enter}");
+
+    const undo = within(toastOf("Book the venue")!).getByRole("button", {
+      name: "Undo deleting “Book the venue”",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(undo));
+
+    await sleep(UNDO_MS + 400);
+
+    expect(seen.current!.commits).toHaveLength(0);
+    expect(toastOf("Book the venue")).toBeDefined();
+
+    await userEvent.keyboard("{Enter}");
+
+    expect(seen.current!.restored).toBe(1);
+    expect(isPendingDelete("row:Book the venue")).toBe(false);
+  }, 15_000);
+
+  it("leaves focus alone when the ✕ is pressed with the pointer", async () => {
+    const seen: { current?: Seen } = {};
+    const cross = mountDeleteButton("Book the venue", seen);
+
+    await userEvent.click(cross);
+    await sleep(50);
+
+    expect(seen.current!.hidden).toBe(1);
+    expect(toastOf("Book the venue")!.contains(document.activeElement)).toBe(false);
+  });
+
   it("Undo restores its own row, says so, and that delete never goes", async () => {
     mountToaster();
     const first = deleteRow("Book the venue");
     const second = deleteRow("Order the cake");
     const third = deleteRow("Send the invitations");
+    // Each Undo names the row it puts back, so a list of buttons tells them apart.
+    expect(
+      screen.getAllByRole("button", { name: /^Undo/ }).map((b) => b.getAttribute("aria-label")),
+    ).toEqual([
+      "Undo deleting “Book the venue”",
+      "Undo deleting “Order the cake”",
+      "Undo deleting “Send the invitations”",
+    ]);
     const middle = toastOf("Order the cake")!;
 
-    await userEvent.click(within(middle).getByRole("button", { name: "Undo" }));
+    await userEvent.click(
+      within(middle).getByRole("button", { name: "Undo deleting “Order the cake”" }),
+    );
 
     expect([first.restored, second.restored, third.restored]).toEqual([0, 1, 0]);
     expect(isPendingDelete("row:Order the cake")).toBe(false);
@@ -151,13 +224,54 @@ describe("the undo window", () => {
     expect(third.commits).toHaveLength(1);
   });
 
-  it("arrives on the slow rung and leaves at once, since it holds Undo", async () => {
+  it("arrives on the slow rung and the portal's ease-out, where other toasts keep the package's", async () => {
     mountToaster();
+    toast.success("Saved");
     deleteRow("Book the venue");
     const shown = toastOf("Book the venue")!;
     const arriving = getComputedStyle(shown);
     expect(arriving.animationName).toBe("ui-toast-in");
     expect(arriving.animationDuration).toBe(slowRung());
+    expect(arriving.animationTimingFunction).toBe(
+      resolved("transitionTimingFunction", "--ease-out"),
+    );
+
+    const plain = screen.getByText("Saved").closest<HTMLElement>(".ui-toast")!;
+    expect(getComputedStyle(plain).animationDuration).toBe("0.16s");
+    expect(getComputedStyle(plain).animationTimingFunction).toBe("ease-out");
+  });
+
+  it("draws Undo as a portal action: sentence case, normal tracking, a pill, medium weight", () => {
+    mountToaster();
+    deleteRow("Book the venue");
+    const undo = within(toastOf("Book the venue")!).getByRole("button", { name: /^Undo/ });
+    const look = getComputedStyle(undo);
+    expect(undo.textContent).toBe("Undo");
+    expect(look.textTransform).toBe("none");
+    expect(["normal", "0px"]).toContain(look.letterSpacing);
+    expect(look.fontWeight).toBe("500");
+    // 0.72rem, the portal's `xs` type step.
+    expect(look.fontSize).toBe("11.52px");
+    // A pill: the corner is at least half the height.
+    const { height } = undo.getBoundingClientRect();
+    expect(Number.parseFloat(look.borderTopLeftRadius)).toBeGreaterThanOrEqual(height / 2);
+    expect(height).toBeGreaterThanOrEqual(24);
+  });
+
+  it("arrives at once under reduced motion", async () => {
+    await commands.emulateMedia({ reducedMotion: "reduce" });
+    mountToaster();
+    deleteRow("Book the venue");
+    const shown = toastOf("Book the venue")!;
+    expect(getComputedStyle(shown).animationName).toBe("ui-toast-in");
+    expect(Number.parseFloat(getComputedStyle(shown).animationDuration)).toBeLessThanOrEqual(
+      0.00001,
+    );
+  });
+
+  it("leaves at once, since it holds Undo", async () => {
+    mountToaster();
+    deleteRow("Book the venue");
 
     toast.dismiss(toasts()[0]!.id);
     // A leaving toast is a new object, so the Toaster draws it as a new node.

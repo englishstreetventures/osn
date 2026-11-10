@@ -721,34 +721,39 @@ export default function RegistryView(props: RegistryViewProps) {
    * object can lag a move; the `DELETE`, which also reaps an orphaned picture,
    * goes only once the toast has gone (`deleteWithUndo`). Until then `load`
    * leaves the gift out of any read, so a reload meanwhile does not bring it
-   * back.
+   * back. A session that has expired by then sends the organiser to sign in,
+   * the gift still on the server.
    */
-  const deleteItem = (item: RegistryItem) => {
+  const deleteItem = (item: RegistryItem, click: MouseEvent) => {
     const kept = peekCachedRegistry(props.weddingId)?.items.find((x) => x.id === item.id) ?? item;
     const drop = () => patchSnap((s) => ({ ...s, items: s.items.filter((x) => x.id !== item.id) }));
-    deleteWithUndo({
-      key: giftKey(item.id),
-      message: `Removed “${item.title}”`,
-      restored: `Restored “${item.title}”`,
-      hide: drop,
-      restore: () =>
-        patchSnap((s) =>
-          s.items.some((x) => x.id === item.id) ? s : { ...s, items: [...s.items, kept] },
-        ),
-      commit: async ({ keepalive }) => {
-        try {
-          const res = await authFetch(itemUrl(item.id), { method: "DELETE", keepalive });
-          if (res.status === 401) return redirectToLogin();
-          if (!res.ok) throw new Error(`delete ${res.status}`);
-          // A read that does not filter (the settings tab's) may have carried it back.
-          drop();
-        } catch {
-          haptic("reject");
-          setError("Couldn't remove that gift.");
-          void reload();
-        }
+    deleteWithUndo(
+      {
+        key: giftKey(item.id),
+        message: `Removed “${item.title}”`,
+        undoName: `Undo removing “${item.title}”`,
+        restored: `Restored “${item.title}”`,
+        hide: drop,
+        restore: () =>
+          patchSnap((s) =>
+            s.items.some((x) => x.id === item.id) ? s : { ...s, items: [...s.items, kept] },
+          ),
+        commit: async ({ keepalive }) => {
+          try {
+            const res = await authFetch(itemUrl(item.id), { method: "DELETE", keepalive });
+            if (!res.ok) throw new Error(`delete ${res.status}`);
+            // A read that does not filter (the settings tab's) may have carried it back.
+            drop();
+          } catch (err) {
+            if (isAuthExpired(err)) return redirectToLogin();
+            haptic("reject");
+            setError("Couldn't remove that gift.");
+            void reload();
+          }
+        },
       },
-    });
+      click,
+    );
   };
 
   // ── Reorder ───────────────────────────────────────────────────────────────
@@ -1377,7 +1382,8 @@ export default function RegistryView(props: RegistryViewProps) {
                                       variant="bareDanger"
                                       type="button"
                                       aria-label={`Remove ${item.title}`}
-                                      onClick={() => deleteItem(item)}
+                                      data-undo-key={giftKey(item.id)}
+                                      onClick={(e) => deleteItem(item, e)}
                                     >
                                       ✕
                                     </Button>

@@ -294,9 +294,11 @@ export default function BudgetView(props: BudgetViewProps) {
    * Undo puts back the line and its payments as the budget holds them now,
    * since the row's own object can lag a move; the `DELETE` goes only once the
    * toast has gone (`deleteWithUndo`). Until then `load` leaves the line out of
-   * any read, so a reload meanwhile does not bring it back.
+   * any read, so a reload meanwhile does not bring it back. A session that has
+   * expired by then sends the organiser to sign in, the line still on the
+   * server.
    */
-  const deleteItem = (item: BudgetItemRow) => {
+  const deleteItem = (item: BudgetItemRow, click: MouseEvent) => {
     const cur = peekCachedBudget(props.weddingId);
     const kept = cur?.items.find((it) => it.id === item.id) ?? item;
     const keptPayments = cur?.payments.filter((p) => p.budgetItemId === item.id) ?? [];
@@ -306,41 +308,45 @@ export default function BudgetView(props: BudgetViewProps) {
         items: s.items.filter((it) => it.id !== item.id),
         payments: s.payments.filter((p) => p.budgetItemId !== item.id),
       }));
-    deleteWithUndo({
-      key: budgetKey(item.id),
-      message: `Deleted “${item.name}”`,
-      restored: `Restored “${item.name}”`,
-      hide: drop,
-      restore: () =>
-        patchSnap((s) =>
-          s.items.some((it) => it.id === item.id)
-            ? s
-            : {
-                ...s,
-                items: [...s.items, kept],
-                payments: [
-                  ...s.payments,
-                  ...keptPayments.filter((p) => !s.payments.some((q) => q.id === p.id)),
-                ],
-              },
-        ),
-      commit: async ({ keepalive }) => {
-        try {
-          const res = await authFetch(
-            apiUrl(weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}`)),
-            { method: "DELETE", keepalive },
-          );
-          if (res.status === 401) return redirectToLogin();
-          if (!res.ok) throw new Error(`delete ${res.status}`);
-          // A read that does not filter (the Overview's) may have carried it back.
-          drop();
-        } catch {
-          haptic("reject");
-          setError("Couldn't delete that item.");
-          void reload();
-        }
+    deleteWithUndo(
+      {
+        key: budgetKey(item.id),
+        message: `Deleted “${item.name}”`,
+        undoName: `Undo deleting “${item.name}”`,
+        restored: `Restored “${item.name}”`,
+        hide: drop,
+        restore: () =>
+          patchSnap((s) =>
+            s.items.some((it) => it.id === item.id)
+              ? s
+              : {
+                  ...s,
+                  items: [...s.items, kept],
+                  payments: [
+                    ...s.payments,
+                    ...keptPayments.filter((p) => !s.payments.some((q) => q.id === p.id)),
+                  ],
+                },
+          ),
+        commit: async ({ keepalive }) => {
+          try {
+            const res = await authFetch(
+              apiUrl(weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}`)),
+              { method: "DELETE", keepalive },
+            );
+            if (!res.ok) throw new Error(`delete ${res.status}`);
+            // A read that does not filter (the Overview's) may have carried it back.
+            drop();
+          } catch (err) {
+            if (isAuthExpired(err)) return redirectToLogin();
+            haptic("reject");
+            setError("Couldn't delete that item.");
+            void reload();
+          }
+        },
       },
-    });
+      click,
+    );
   };
 
   /**
@@ -814,7 +820,8 @@ export default function BudgetView(props: BudgetViewProps) {
                                               variant="bareDanger"
                                               type="button"
                                               aria-label="Delete item"
-                                              onClick={() => deleteItem(item)}
+                                              data-undo-key={budgetKey(item.id)}
+                                              onClick={(e) => deleteItem(item, e)}
                                             >
                                               ✕
                                             </Button>

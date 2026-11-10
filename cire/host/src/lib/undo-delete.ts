@@ -19,10 +19,19 @@ export const UNDO_MS = 5000;
 const UNDO_TOAST_CLASS = "undo-toast";
 
 export interface UndoableDelete {
-  /** The row's name in this helper, unique across lists: `task:<id>`, say. */
+  /**
+   * The row's name in this helper, unique across lists: `task:<id>`, say. The
+   * row's ✕ carries it as `data-undo-key`, so Undo can hand focus back to it.
+   */
   key: string;
   /** What the toast says while Undo is offered: `Deleted “Book the venue”`. */
   message: string;
+  /**
+   * The Undo button's name for a screen reader, which starts with "Undo" and
+   * names the row: `Undo deleting “Book the venue”`. Several undo toasts can
+   * be up at once, and a list of buttons all called "Undo" says nothing.
+   */
+  undoName: string;
   /** What a second toast says once Undo has put the row back. */
   restored: string;
   /** Take the row off the screen. Runs at once. */
@@ -91,12 +100,29 @@ function settle(entry: Pending, keepalive: boolean): void {
   void entry.row.commit({ keepalive });
 }
 
+/** The toast `id` names, as the package draws it, or nothing once it has gone. */
+const toastElement = (id: string) =>
+  document.querySelector<HTMLElement>(`.ui-toast[data-toast-id="${CSS.escape(id)}"]`);
+
+/** The ✕ of the row `key` names, once the list has drawn it. */
+const crossOf = (key: string) =>
+  document.querySelector<HTMLElement>(`[data-undo-key="${CSS.escape(key)}"]`);
+
 function undo(entry: Pending): void {
   if (!take(entry)) return;
+  // Focus is on the Undo about to go, or on nothing: hand it to the row's ✕
+  // so a keyboard user carries on where the row is. Focus elsewhere — a field
+  // the pointer left to press Undo — stays where it is.
+  const active = document.activeElement;
+  const lost = !active || active === document.body;
+  const handBack = lost || !!toastElement(entry.toastId)?.contains(active);
   batch(() => {
     setReturning((keys) => new Set(keys).add(entry.row.key));
     entry.row.restore();
   });
+  // Before the toast's own dismiss runs: focus that leaves a toast resumes its
+  // clock, and the dismiss that follows stops it again.
+  if (handBack) crossOf(entry.row.key)?.focus();
   haptic("commit");
   // The restore is announced the way the delete was: a toast, in its own live region.
   toast.success(entry.row.restored);
@@ -122,16 +148,28 @@ function flush(): void {
  * and puts back the very row that was there — its id, and everything that
  * hangs off it (a task's holders, a line's payments, a gift's claims and
  * picture). A re-created row would have none of them.
+ *
+ * `click` is the ✕'s click. One with no pointer behind it (`detail` 0: Enter
+ * or Space, or a screen reader pressing the button) moves focus to the
+ * toast's Undo. The toast sits at the end of the page, past every row, and its
+ * clock stops while focus is inside it, so a keyboard user reaches Undo and
+ * keeps it for as long as they stay there.
  */
-export function deleteWithUndo(row: UndoableDelete): void {
+export function deleteWithUndo(row: UndoableDelete, click?: MouseEvent): void {
   row.hide();
   haptic("commit");
   const entry: Pending = { row, toastId: "", stop: () => {} };
   entry.toastId = toast.success(row.message, {
     duration: UNDO_MS,
     class: UNDO_TOAST_CLASS,
-    action: { label: "Undo", onClick: () => undo(entry) },
+    action: { label: "Undo", ariaLabel: row.undoName, onClick: () => undo(entry) },
   });
+  if (click?.detail === 0) {
+    // Once the toast is drawn and its container has entered the top layer.
+    queueMicrotask(() =>
+      toastElement(entry.toastId)?.querySelector<HTMLElement>(".ui-toast__action")?.focus(),
+    );
+  }
   if (pending.size === 0) window.addEventListener("pagehide", flush);
   pending.set(row.key, entry);
   // The toast's life is its time in the queue: it leaves once its clock runs
