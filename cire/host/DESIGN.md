@@ -18,9 +18,11 @@ this portal and the vendor portal — share one corner scale and one motion ladd
 > **The container is continuous; only its contents change.**
 
 When a host moves between modules, sub-tabs, or steps of the invite builder, the
-panel does not unmount and remount. It keeps its box, animates its height to the
-new content, and cross-fades what is inside. Nothing in the chrome may jump: the
-module's view bar animates its height with the panel's (§The stuck stack).
+panel does not unmount and remount. It keeps its box and animates its height to
+the new content, and the arriving view fades in over the held frame; the view it
+replaces goes at once (§4, "A view arrives by fading in"). Nothing in the chrome
+may jump: the module's view bar animates its height with the panel's (§The
+stuck stack).
 
 Every motion decision below follows from this. Where a transition would need the
 frame to disappear and come back, the transition is wrong, not the frame.
@@ -665,6 +667,34 @@ vendor portal:
 
 The sheet variant of the module nav deliberately gets no pill. A pill measures a
 strip the eye can see all of at once, and a sheet is a list.
+
+**A view arrives by fading in** (the owner's choice, 2026-11-10, from a
+rendered comparison, englishstreetventures/osn#2164: a fade, never on first
+paint, and "Some of these could be just a tad slower to allow people to feel
+the animation"). `ModuleShell`'s measured box carries `view-arrive`, and the
+first change of module or sub-tab sets `data-swapped` on it. From then on each
+child the box gains fades from opacity 0 to 1 on `--dur-slow` with
+`--ease-out`: a view a change mounts, and a view taking over from its
+`Suspense` fallback. `--dur-slow` (200ms at a desk, 320ms on touch) is the
+"tad slower": one rung above the compared `--dur-base` and above the panel's
+height, so the frame settles and the view finishes arriving into it. Opacity only, so nothing fights the height; the view it
+replaces goes at once, because a fading view keeps its controls focusable in a
+box that is going away. It is a transition from `@starting-style`, not
+keyframes: a starting style applies only to an element's first style, so the
+panel the page opens on never fades, and a child that stays mounted across a
+change — the invite builder across its four views — is never re-faded. The
+builder's own steps and Content's sections show their cards by `hidden` and do
+not fade; neither does a `Suspense` nested inside a view (the two editors in
+`EditWorkspace`, the builder in its column), nor the controls a view lends the
+view bar. Under `prefers-reduced-motion: reduce` the view arrives at once: the
+transition is declared only under `no-preference`, because the kill switch's
+0.01ms still paints a starting style's opacity 0 for a frame or more. An engine
+without `@starting-style` (before Chrome 117, Safari 17.5, Firefox 129) swaps
+at once. A fading view is a stacking context, and the z-20 view bar stays
+painted over it; the two editors' save bars portal to `<body>` and never fade
+with it.
+`tests/components/ModuleShell.view-arrive.browser.test.tsx` holds each of
+these.
 
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,

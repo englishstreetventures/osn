@@ -522,13 +522,19 @@ export default function ModuleShell(props: ModuleShellProps) {
   // a host who has not scrolled sees nothing move. Whether it was stuck is read
   // before the DOM changes (a computation runs ahead of the render), and the
   // move after it, with the panel already held open.
+  //
+  // The first change of view also arms the arriving view's fade (`view-arrive`,
+  // `global.css`): what the shell paints first never fades, and every view that
+  // mounts after a change does.
   let wasStuck = false;
+  const [swapped, setSwapped] = createSignal(false);
   createComputed(
     on(
       [module, active],
       () => {
         wasStuck = isStuck();
         setHolding(true);
+        setSwapped(true);
       },
       { defer: true },
     ),
@@ -729,8 +735,15 @@ export default function ModuleShell(props: ModuleShellProps) {
               {/* The measured box has to be a child of the frame, and `flow-root`
                 is what makes the measurement honest: without it a first or last
                 child's margin collapses through the wrapper, so the height read
-                differs depending on whether the frame is currently clipped. */}
-              <div ref={panelSize.content} class="flow-root">
+                differs depending on whether the frame is currently clipped.
+                `view-arrive` fades in each child it gains once `data-swapped`
+                is set: a view a change of module or sub-tab mounts, and a view
+                taking over from its `Suspense` fallback. */}
+              <div
+                ref={panelSize.content}
+                class="view-arrive flow-root"
+                data-swapped={swapped() ? "" : undefined}
+              >
                 {/* ── Overview ─────────────────────────────────────────────────── */}
                 <Show when={module() === "overview"}>
                   <Overview
