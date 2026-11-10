@@ -35,6 +35,7 @@ vi.mock("@simplewebauthn/browser", () => ({
 import type { RecoveryClient, RegistrationClient } from "@osn/client";
 
 import { RecoveryLoginForm } from "../src/RecoveryLoginForm";
+import { enterCode, expectTied } from "./helpers/code";
 import {
   CHECK_FAILED,
   CODE,
@@ -309,36 +310,50 @@ describe("RecoveryLoginForm — error lines", () => {
     },
   );
 
-  it("a refused emailed code reads as the code sentence", async () => {
-    stub.emailRecoveryBegin.mockResolvedValue(undefined);
-    stub.emailRecoveryComplete.mockRejectedValue(apiError("PLANTED-recovery-email-code"));
-    mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
-    await waitFor(() => screen.getByLabelText("Digit 1"));
-    typeCode("123456");
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+  it.each([
+    ["a 400", apiError("PLANTED-recovery-email-code"), CODE, "true"],
+    ["a 429", apiError("PLANTED-recovery-email-code-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "a refused emailed code reads %s as the map's sentence, tied to the boxes",
+    async (_, error, sentence, invalid) => {
+      stub.emailRecoveryBegin.mockResolvedValue(undefined);
+      stub.emailRecoveryComplete.mockRejectedValue(error);
+      mountFull();
+      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+      fill(/Email address on the account/i, "alice@example.com");
+      fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+      // The group is named by the label above it.
+      const boxes = await enterCode("Code from your email", "123456");
+      fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(CODE);
-    expect(alertsText()).not.toContain("PLANTED");
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expectTied(boxes, alert.id, invalid);
+    },
+  );
 
-  it("a refused authenticator code reads as the recovery sentence, tied to the identifier", async () => {
-    stub.totpRecoveryComplete.mockRejectedValue(apiError("PLANTED-recovery-totp"));
-    mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    const field = fill(/Handle or email/i, "alice");
-    typeCode("654321");
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+  it.each([
+    ["a 400", apiError("PLANTED-recovery-totp"), RECOVERY, "true"],
+    ["a 429", apiError("PLANTED-recovery-totp-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "a refused authenticator code reads %s as the map's sentence, tied to the identifier and the boxes",
+    async (_, error, sentence, invalid) => {
+      stub.totpRecoveryComplete.mockRejectedValue(error);
+      mountFull();
+      fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+      const field = fill(/Handle or email/i, "alice");
+      const boxes = await enterCode("Code from your authenticator app", "654321");
+      fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(RECOVERY);
-    expect(alertsText()).not.toContain("PLANTED");
-    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
-    expect(field.getAttribute("aria-invalid")).toBe("true");
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe(invalid);
+      expectTied(boxes, alert.id, invalid);
+    },
+  );
 
   describe("with the verification check on", () => {
     afterEach(() => {

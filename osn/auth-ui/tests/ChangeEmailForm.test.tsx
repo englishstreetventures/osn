@@ -4,6 +4,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { ChangeEmailForm } from "../src/ChangeEmailForm";
+import { codeBoxes, enterCode, expectTied } from "./helpers/code";
 import { CODE, DETAILS, WAIT, alertsText, apiError } from "./helpers/errors";
 
 interface AccountStub {
@@ -58,15 +59,13 @@ describe("ChangeEmailForm", () => {
     await waitFor(() => expect(account.changeEmailBegin).toHaveBeenCalled());
 
     // Phase 2: enter OTP, triggers step-up modal on confirm.
-    const otpInput = await screen.findByDisplayValue("");
-    fireEvent.input(otpInput, { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
 
     // Step-up modal: pick OTP, enter code.
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/ }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    const stepUpInput = await screen.findByRole("textbox");
-    fireEvent.input(stepUpInput, { target: { value: "654321" } });
+    await enterCode("Code", "654321");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     await waitFor(() => expect(account.changeEmailComplete).toHaveBeenCalled());
@@ -125,10 +124,10 @@ describe("ChangeEmailForm", () => {
     mount();
     fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
-    fireEvent.input(await screen.findByLabelText("Code"), { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Email me a code/ }));
-    fireEvent.input(await screen.findByRole("textbox"), { target: { value: "654321" } });
+    await enterCode("Code", "654321");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
     const checking = await screen.findByRole("button", { name: "Checking…" });
     expect(checking.getAttribute("aria-busy")).toBe("true");
@@ -138,29 +137,34 @@ describe("ChangeEmailForm", () => {
     expect(account.changeEmailComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("reads a refused code under the code field, tied to it", async () => {
-    account.changeEmailBegin.mockResolvedValue({ sent: true });
-    account.changeEmailComplete.mockRejectedValue(apiError("PLANTED-complete"));
-    stepUp.otpBegin.mockResolvedValue({ sent: true });
-    stepUp.otpComplete.mockResolvedValue({ token: "eyJsu", expiresIn: 300 });
-    mount();
+  it.each([
+    ["a 400", apiError("PLANTED-complete"), CODE, "true"],
+    ["a 429", apiError("PLANTED-complete-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "reads a code refused with %s under the code boxes, tied to them",
+    async (_, error, sentence, invalid) => {
+      account.changeEmailBegin.mockResolvedValue({ sent: true });
+      account.changeEmailComplete.mockRejectedValue(error);
+      stepUp.otpBegin.mockResolvedValue({ sent: true });
+      stepUp.otpComplete.mockResolvedValue({ token: "eyJsu", expiresIn: 300 });
+      mount();
 
-    fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
-    const codeInput = await screen.findByLabelText("Code");
-    fireEvent.input(codeInput, { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    const stepUpInput = await screen.findByRole("textbox");
-    fireEvent.input(stepUpInput, { target: { value: "654321" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+      fireEvent.input(screen.getByLabelText("New email"), {
+        target: { value: "next@example.com" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
+      await enterCode("Code", "123456");
+      fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
+      await waitFor(() => screen.getByRole("button", { name: /Email me a code/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+      await enterCode("Code", "654321");
+      fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(CODE);
-    expect(alertsText()).not.toContain("PLANTED");
-    const field = screen.getByLabelText("Code");
-    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
-    expect(field.getAttribute("aria-invalid")).toBe("true");
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      // The step-up has gone: the boxes on screen are the change's own.
+      expectTied(codeBoxes("Code"), alert.id, invalid);
+    },
+  );
 });

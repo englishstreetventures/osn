@@ -8,8 +8,10 @@ vi.mock("@shared/toast", () => ({
 }));
 
 import { toast } from "@shared/toast";
+import { Suspense } from "solid-js";
 
 import { TotpView } from "../src/TotpView";
+import { enterCode, expectTied } from "./helpers/code";
 import { CODE, WAIT, alertsText, apiError } from "./helpers/errors";
 
 /**
@@ -182,25 +184,54 @@ describe("TotpView", () => {
     await waitFor(() => expect(screen.getByText("iPhone")).toBeTruthy());
   });
 
-  it("keeps the panel on a wrong code so the user can retype it", async () => {
-    totp.status.mockResolvedValue(notEnrolled);
-    totp.enrollBegin.mockResolvedValue({ otpauthUri: URI, totpSecret: SECRET });
-    totp.enrollComplete.mockRejectedValue(apiError("PLANTED-totp-confirm"));
-    vi.mocked(toast.error).mockClear();
-    mount();
+  it.each([
+    ["a 400", apiError("PLANTED-totp-confirm"), CODE, "true"],
+    ["a 429", apiError("PLANTED-totp-confirm-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "keeps the panel on a refused code (%s), the line tied to the boxes",
+    async (_, error, sentence, invalid) => {
+      totp.status.mockResolvedValue(notEnrolled);
+      totp.enrollBegin.mockResolvedValue({ otpauthUri: URI, totpSecret: SECRET });
+      totp.enrollComplete.mockRejectedValue(error);
+      vi.mocked(toast.error).mockClear();
+      mount();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
-    await passStepUp();
-    await waitFor(() => screen.getByText(SECRET));
-    typeCode("000000");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
+      await passStepUp();
+      await waitFor(() => screen.getByText(SECRET));
+      // The group is named by the label above it.
+      const boxes = await enterCode("Code from the app", "000000");
+      fireEvent.click(screen.getByRole("button", { name: /^Confirm$/i }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(CODE);
-    expect(alertsText()).not.toContain("PLANTED");
-    expect(toast.error).not.toHaveBeenCalled();
-    // The user has already scanned; taking the QR away would force a restart.
-    expect(screen.getByText(SECRET)).toBeTruthy();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(toast.error).not.toHaveBeenCalled();
+      expectTied(boxes, alert.id, invalid);
+      // The user has already scanned; taking the QR away would force a restart.
+      expect(screen.getByText(SECRET)).toBeTruthy();
+    },
+  );
+
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback; the view shows its own placeholder instead.
+  it("holds its place under a host's Suspense while the status loads", async () => {
+    totp.status.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <TotpView
+          client={asTotp(totp)}
+          stepUpClient={asStepUp(su)}
+          runPasskeyCeremony={async () => assertion}
+        />
+      </Suspense>
+    ));
+    await waitFor(() => expect(totp.status).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Authenticator app" })).toBeTruthy();
+    const region = document.querySelector('[aria-busy="true"]');
+    expect(region?.querySelector('[aria-hidden="true"]')).toBeTruthy();
   });
 
   it("reads a refused start as the map's sentence, with no error toast", async () => {

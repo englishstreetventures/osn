@@ -6,9 +6,11 @@ import {
   type StepUpToken,
 } from "@osn/client";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { PasskeysView } from "../src/PasskeysView";
+import { enterCode } from "./helpers/code";
 import {
   INPUT,
   PASSKEY_NOT_ADDED,
@@ -133,6 +135,23 @@ describe("PasskeysView", () => {
   });
 
   afterEach(() => cleanup());
+
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback; the view shows its own placeholder instead.
+  it("holds its place under a host's Suspense while the list loads", async () => {
+    pk.list.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />
+      </Suspense>
+    ));
+    await waitFor(() => expect(pk.list).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Passkeys" })).toBeTruthy();
+    const region = document.querySelector('[aria-busy="true"]');
+    expect(region?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+  });
 
   it("renders the passkey list with user labels and friendly fallbacks", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
@@ -394,8 +413,7 @@ describe("PasskeysView", () => {
     // Step-up dialog — use OTP factor.
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
-    fireEvent.input(codeInput, { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     await waitFor(() =>
@@ -432,8 +450,7 @@ describe("PasskeysView", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
-    fireEvent.input(codeInput, { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     const alert = await screen.findByRole("alert");
@@ -468,8 +485,7 @@ describe("PasskeysView", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
-    fireEvent.input(codeInput, { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     // The adding ceremony's sentence, not the signing-in one.

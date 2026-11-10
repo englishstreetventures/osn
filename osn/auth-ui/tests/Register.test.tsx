@@ -43,6 +43,7 @@ import { toast } from "@shared/toast";
 
 // Import after mocks so the component picks them up.
 import { Register } from "../src/Register";
+import { codeBoxes, expectTied } from "./helpers/code";
 import {
   CODE,
   DETAILS,
@@ -686,18 +687,27 @@ describe("Register component", () => {
       expect(field.getAttribute("aria-invalid")).toBe("true");
     });
 
-    it("reads a refused code as the map's sentence under the code, with no toast", async () => {
-      await reachVerify();
-      vi.mocked(toast.error).mockClear();
-      stub.completeRegistration.mockRejectedValue(apiError("PLANTED-register-code"));
-      fillOtpDigits("123456");
-      fireEvent.click(screen.getByRole("button", { name: /Verify email/i }));
-      const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toContain(CODE);
-      expect(alertsText()).not.toContain("PLANTED");
-      expect(screen.queryByText(/Incorrect code/)).toBeNull();
-      expect(toast.error).not.toHaveBeenCalled();
-    });
+    // Tied to every box whatever the cause; marked invalid only when the
+    // server refused the code itself, never for a wait.
+    it.each([
+      ["a 400", apiError("PLANTED-register-code"), CODE, "true"],
+      ["a 429", apiError("PLANTED-register-code-429", 429, "rate_limited"), WAIT, null],
+    ] as const)(
+      "reads %s for a code as the map's sentence under the code, tied to it, with no toast",
+      async (_, error, sentence, invalid) => {
+        await reachVerify();
+        vi.mocked(toast.error).mockClear();
+        stub.completeRegistration.mockRejectedValue(error);
+        fillOtpDigits("123456");
+        fireEvent.click(screen.getByRole("button", { name: /Verify email/i }));
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain(sentence);
+        expect(alertsText()).not.toContain("PLANTED");
+        expect(screen.queryByText(/Incorrect code/)).toBeNull();
+        expect(toast.error).not.toHaveBeenCalled();
+        expectTied(codeBoxes("Verification code"), alert.id, invalid);
+      },
+    );
 
     // Only the button that started the wait is busy: a resend leaves Verify
     // email not busy, and says "Sending…", not "Verifying…".
