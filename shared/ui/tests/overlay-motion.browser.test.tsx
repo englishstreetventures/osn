@@ -6,7 +6,8 @@
  * `--ui-scale-enter`, Kobalte's origin variable), never written into the test,
  * so the guarantees hold whatever values the tokens carry: an exit is shorter
  * and nearer full size than its entry, every panel takes its scale from the
- * shared tokens, the anchored panels grow from their trigger, a reader who
+ * shared tokens, with both scale tokens at 1 every panel fades without
+ * moving, the anchored panels grow from their trigger, a reader who
  * asked for reduced motion sees none, and closing a panel from the keyboard
  * still hands focus back to its trigger. Only a real engine resolves a
  * computed style or runs an animation, so none of it can sit in the unit tier.
@@ -241,6 +242,96 @@ describe("an overlay's scale", () => {
       oddScales();
       const { exit } = await cycle(overlay);
       expect(exit!.exitScale).toBe("0.7");
+    });
+  }
+});
+
+describe("a fade with no scale", () => {
+  /**
+   * The opt-in an app takes for overlays that fade without moving: both scale
+   * tokens at 1. The cases above read the scale property each panel carries;
+   * these read the computed `transform` itself, so a panel that also slides or
+   * a keyframe that also translates fails here though it reads the tokens.
+   */
+  function fadeOnly() {
+    document.documentElement.style.setProperty("--ui-scale-enter", "1");
+    document.documentElement.style.setProperty("--ui-scale-exit", "1");
+  }
+
+  interface Held {
+    transform: string;
+    opacity: number;
+  }
+
+  /**
+   * Hold the first `name` animation that starts on the panel at `at` (a
+   * fraction of its run), read the panel's computed style there, then let the
+   * run finish. Read inside the `animationstart` listener, while the panel is
+   * certainly there: an 80ms exit unmounts it before a later read.
+   */
+  function holdAt(overlay: Overlay, name: "ui-enter" | "ui-exit", at: number) {
+    let held: Held | undefined;
+    const listen = (event: AnimationEvent) => {
+      if (held || event.animationName !== name || event.target !== overlay.panel()) return;
+      const panel = event.target as HTMLElement;
+      const run = panel
+        .getAnimations()
+        .find((a) => a instanceof CSSAnimation && a.animationName === name);
+      if (!run) return;
+      run.pause();
+      run.currentTime = Number(run.effect?.getComputedTiming().duration ?? 0) * at;
+      const style = getComputedStyle(panel);
+      held = { transform: style.transform, opacity: Number(style.opacity) };
+      run.finish();
+    };
+    document.addEventListener("animationstart", listen, true);
+    return {
+      read: () => held,
+      stop: () => document.removeEventListener("animationstart", listen, true),
+    };
+  }
+
+  /** Open and close `overlay`, holding its `name` run at `at` of the way through. */
+  async function heldFrame(overlay: Overlay, name: "ui-enter" | "ui-exit", at: number) {
+    render(overlay.view);
+    const hold = holdAt(overlay, name, at);
+    await openPanel(overlay);
+    await overlay.close();
+    hold.stop();
+    cleanup();
+    const held = hold.read();
+    expect(held, `${overlay.name}: no ${name} caught`).toBeDefined();
+    return held!;
+  }
+
+  const identity = (transform: string) => new DOMMatrix(transform).isIdentity;
+
+  // Each case runs a control first: the same hold with no token set catches a
+  // scaled frame, so an identity after it is the tokens' doing and not a
+  // missed frame.
+
+  for (const overlay of Object.values(OVERLAYS)) {
+    it(`${overlay.name}: fades in with no transform when both scale tokens are 1`, async () => {
+      const scaled = await heldFrame(overlay, "ui-enter", 0);
+      expect(identity(scaled.transform), `control entry held at ${scaled.transform}`).toBe(false);
+
+      fadeOnly();
+      const faded = await heldFrame(overlay, "ui-enter", 0);
+      expect(identity(faded.transform), `entry held at ${faded.transform}`).toBe(true);
+      expect(faded.opacity).toBe(0);
+    });
+  }
+
+  for (const overlay of EXITING) {
+    it(`${overlay.name}: fades out with no transform when both scale tokens are 1`, async () => {
+      const scaled = await heldFrame(overlay, "ui-exit", 0.5);
+      expect(identity(scaled.transform), `control exit held at ${scaled.transform}`).toBe(false);
+
+      fadeOnly();
+      const faded = await heldFrame(overlay, "ui-exit", 0.5);
+      expect(identity(faded.transform), `exit held at ${faded.transform}`).toBe(true);
+      expect(faded.opacity).toBeGreaterThan(0);
+      expect(faded.opacity).toBeLessThan(1);
     });
   }
 });
