@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.24.66
+
+### Patch Changes
+
+- b0971b3: The explore page fits a phone with no sideways scroll. Below 768px the header's brand row wraps to three lines (brand and actions, the search from gutter to gutter, then the tabs) and scrolls with the page instead of pinning; the hero's stats sit under the headline; the gutters are 16px; and the create form's start and end times stack. From 768px up the row stays one line, and the search grows to its 360px cap, gives way first when the row is short, and ends a cut placeholder in an ellipsis. The search field gains an accessible name and shows focus with a 2px outline in `--ui-focus`, which forced-colours mode keeps; its unbound ⌘K hint is gone. The active tab carries `aria-current="page"`, and its underline is the ember (`--pulse-accent-strong`), which clears 3:1 on the light background. The greeting's date wraps on a narrow phone with its separator, and "View all" keeps its chevron on its line. The header's tabs and search box fade only their colours, so the focus mark shows at once, and the brand mark's and live dots' pulses hold still under reduced motion.
+
 ## 0.24.65
 
 ### Patch Changes
