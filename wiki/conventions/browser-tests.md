@@ -404,18 +404,44 @@ pull request: `scripts/tests/deploy-workflows.test.ts` fails while any package
 with the script is missing from the legs, and each leg checks before it runs
 that turbo found as many packages as it names.
 
-Each leg installs Chromium's system libraries and the browser as two steps,
-each with a 10-minute limit. `install-deps` is required on `ubuntu-latest`: the
-browser alone won't launch without its shared libraries, which live in the
-image and are installed on every run. The browser download is cached on the
-lockfile. Both installs run from `cire/host`, because at the repo root `bunx`
-fetches npm's latest Playwright and the build it wants instead of ours
-([[#Running it locally]]). Only `chromium` is installed: the tier pins a single
-instance, so pulling Firefox and WebKit too would triple the download for
-nothing.
+Each leg installs Chromium's system packages and the browser as two steps,
+each with a 10-minute limit. The system half is `playwright install-deps
+chromium`, run by
+[`install-chromium-system-libraries.sh`](../../scripts/install-chromium-system-libraries.sh).
+On `ubuntu-latest` the image already holds Chromium's shared libraries, and
+what `install-deps` still downloads is nine font packages from the runner's apt
+mirror. The script keeps those packages in a cache the E2E job saves and the
+legs restore, so apt downloads only what the cache lacks, and it runs the
+install under [`retry.sh`](../../scripts/retry.sh): three attempts of 150 s,
+so a stalled attempt is cut and run again, resuming the downloads it left.
 
-The E2E job installs the same way from `tools/e2e` under the same cache key,
-so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one
+*Measured 2026-11-06 — the `Browser tests (cire-invites)` log of merge-queue run 42197392019: every library "already the newest version", nine packages "Need to get 21.9 MB of archives", fetched at about 40 KB/s until the step's 10 minutes ran out*
+
+The install runs as root, and a restored cache comes from outside the runner,
+so nothing in it reaches apt unchecked. In each attempt, after `apt-get
+update`,
+[`verify-cached-debs.sh`](../../scripts/verify-cached-debs.sh) moves a cached
+package into apt's archive only when its name is one apt writes, it is a
+regular file, and the SHA-256 of the copy it moves matches the record that
+`apt-cache show <name>=<version>` holds for its architecture in the signed
+index. The architecture may be a variant of the record's: on the Ubuntu 26.04
+image apt names a file `_amd64v3.deb` when its record says `amd64`. It drops
+any other file with a warning, and apt downloads that package instead. The cache key names the runner image (`ImageOS`, `ImageVersion`) and
+the Playwright version, with no `restore-keys`, so a run restores the set
+saved for its own image and version or none.
+[`install-chromium-system-libraries.cli.test.ts`](../../scripts/tests/install-chromium-system-libraries.cli.test.ts)
+holds the check, a tampered package among its cases, and
+[`deploy-workflows.test.ts`](../../scripts/tests/deploy-workflows.test.ts)
+holds the key.
+
+The browser download is cached on the lockfile. Both installs run from
+`cire/host`, because at the repo root `bunx` fetches npm's latest Playwright
+and the build it wants instead of ours ([[#Running it locally]]). Only
+`chromium` is installed: the tier pins a single instance, so pulling Firefox
+and WebKit too would triple the download for nothing.
+
+The E2E job installs the same way from `tools/e2e` under the same browser
+cache key (`<os>-playwright-<hash of bun.lock>`), so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one
 version. Two versions would want two builds, the cache would hold whichever
 job saved it first, and the other job would download its build on every run.
 

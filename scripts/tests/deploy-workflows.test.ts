@@ -893,8 +893,11 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   });
 
   // A merge-queue group runs on a `gh-readonly-queue/*` ref that no later run
-  // can restore from, so a turbo cache saved there is space and nothing else.
-  test("no turbo cache is saved on a merge-queue run", () => {
+  // can restore from, so a cache saved there is space and nothing else. A save
+  // may add conditions of its own after that one, joined by `&&`. This checks
+  // the separate save steps only; an `actions/cache` step saves in its post
+  // step, which no `if` here reaches.
+  test("no actions/cache/save step runs on a merge-queue run", () => {
     const saves = Object.values(ci.jobs)
       .flatMap((job) => stepsOf(job))
       .filter((step) => step.uses === "actions/cache/save@v4");
@@ -902,9 +905,89 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     for (const step of saves) {
       expect({ path: step.with?.path, if: step.if }).toEqual({
         path: step.with?.path,
-        if: "github.event_name != 'merge_group'",
+        if: expect.stringMatching(/^github\.event_name != 'merge_group'( && [^|]+)?$/),
       });
     }
+  });
+
+  // scripts/install-chromium-system-libraries.sh runs as root on what this
+  // cache restores. A prefix fallback would hand a run the packages saved for
+  // another image or Playwright version, so every step on the cache names one
+  // exact key, and both jobs build it with the same command.
+  test("Chromium's system packages are cached under one exact key, built the same way by the browser legs and the E2E job", () => {
+    const onCache = Object.entries(ci.jobs).flatMap(([id, job]) =>
+      stepsOf(job)
+        .filter((step) => step.with?.path === "~/.cache/chromium-apt")
+        .map((step) => ({
+          id,
+          uses: step.uses,
+          key: step.with?.key,
+          fallback: step.with?.["restore-keys"],
+        })),
+    );
+    expect(onCache).toEqual([
+      {
+        id: "browser",
+        uses: "actions/cache/restore@v4",
+        key: "${{ steps.chromium-apt-key.outputs.key }}",
+        fallback: undefined,
+      },
+      {
+        id: "e2e",
+        uses: "actions/cache/restore@v4",
+        key: "${{ steps.chromium-apt-key.outputs.key }}",
+        fallback: undefined,
+      },
+      {
+        id: "e2e",
+        uses: "actions/cache/save@v4",
+        key: "${{ steps.chromium-apt.outputs.cache-primary-key }}",
+        fallback: undefined,
+      },
+    ]);
+    const keyed = (id: string) =>
+      stepsOf(ci.jobs[id]).find((step) => step.id === "chromium-apt-key")?.run;
+    expect(keyed("browser")).toContain(
+      "chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-",
+    );
+    expect(keyed("e2e")).toBe(keyed("browser"));
+  });
+
+  // The secret scan runs the gitleaks a cached tarball holds.
+  // scripts/install-gitleaks.sh checks that tarball's SHA-256 before it unpacks
+  // anything, as install-gitleaks.cli.test.ts shows; here, the job hands the
+  // script the directory the cache restores, and the key carries the pinned
+  // SHA-256, so a new pin never restores the old tarball and fails the check.
+  test("the secret scan's gitleaks tarball is restored under its pinned SHA-256 and goes through the script that checks it", () => {
+    const steps = stepsOf(ci.jobs.secrets);
+    expect(ci.jobs.secrets?.env).toEqual({
+      GITLEAKS_VERSION: expect.stringMatching(/^\d+\.\d+\.\d+$/),
+      GITLEAKS_SHA256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    const restore = steps.findIndex((step) => step.id === "gitleaks-cache");
+    const install = steps.findIndex((step) =>
+      step.run?.includes('bash scripts/install-gitleaks.sh "$HOME/.cache/gitleaks" "$RUNNER_TEMP"'),
+    );
+    const save = steps.findIndex(
+      (step) => step.uses === "actions/cache/save@v4" && step.with?.path === "~/.cache/gitleaks",
+    );
+    expect({
+      restore: steps[restore]?.uses,
+      path: steps[restore]?.with?.path,
+      key: steps[restore]?.with?.key,
+      fallback: steps[restore]?.with?.["restore-keys"],
+      saveKey: steps[save]?.with?.key,
+    }).toEqual({
+      restore: "actions/cache/restore@v4",
+      path: "~/.cache/gitleaks",
+      key: "gitleaks-${{ env.GITLEAKS_VERSION }}-linux_x64-${{ env.GITLEAKS_SHA256 }}",
+      fallback: undefined,
+      saveKey: "${{ steps.gitleaks-cache.outputs.cache-primary-key }}",
+    });
+    expect(restore).toBeGreaterThanOrEqual(0);
+    expect(install).toBeGreaterThan(restore);
+    expect(save).toBeGreaterThan(install);
+    expect(steps.filter((step) => step.with?.path === "~/.cache/gitleaks")).toHaveLength(2);
   });
 
   // The secret scan must finish on every pushed commit, so nothing that cancels
