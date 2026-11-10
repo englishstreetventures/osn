@@ -61,7 +61,14 @@ export interface Sortable {
    * with the narrower `ref` on whatever element it is spread onto.
    */
   dragActivators: DragActivators;
-  /** True for the row currently being dragged. */
+  /**
+   * True for the row being dragged, and for a list row after a pointer drop
+   * until it has settled into its slot, so a row that draws its lifted look
+   * from this keeps it while it moves. That look must raise the row (a
+   * `z-index`): the provider writes no stacking of its own, and a later row
+   * that is positioned would otherwise paint over it. A free item
+   * (`createDraggable`) never settles: for it this is true only while dragged.
+   */
   isActiveDraggable: Accessor<boolean>;
 }
 

@@ -58,6 +58,12 @@ interface DragState {
   dragging: Accessor<boolean>;
   /** Whether `id` is the row being dragged. Notifies only the rows whose answer flips. */
   isDragged: (id: Id) => boolean;
+  /**
+   * Whether `id` is a dropped row still easing into its slot, or one a new
+   * press has caught mid-settle and holds where it was. Notifies only the rows
+   * whose answer flips.
+   */
+  isSettling: (id: Id) => boolean;
   /** The dragged row's offset from where it started. `null` when nothing is dragging. */
   transform: Accessor<Transform | null>;
   /** How far a NON-dragged row has been pushed to open the gap. 0 for most rows. */
@@ -230,15 +236,25 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
 
   /** The row easing into its slot after a drop, if one is. */
   let settling: { node: HTMLElement } | null = null;
+  /**
+   * The id `isSettling` answers for: set at the release, before the drag's
+   * state is cleared, and cleared when the row lands, so a row styled by
+   * `isDragged || isSettling` keeps one look from pick-up to landing, and the
+   * stacking that look carries holds it above the neighbours it crosses. A row
+   * caught mid-settle keeps it while it is held.
+   */
+  const [settlingId, setSettlingId] = createSignal<Id | null>(null);
+  const isSettling = createSelector<Id | null, Id>(settlingId);
 
   /**
    * Ease a let-go row from where it was released into the slot it has now.
    *
    * `from` is its box at release. The offset to its slot is written inline with
    * no transition, a style read commits it as the starting point, and the
-   * transform is then let go on `SETTLE_TRANSITION`. The inline transition and
-   * stacking come off when that transition ends or is cancelled. Under reduced
-   * motion, or with nothing to cover, the row is simply in its slot.
+   * transform is then let go on `SETTLE_TRANSITION`. The inline transition comes
+   * off, and `isSettling` turns false, when that transition ends or is
+   * cancelled. Under reduced motion, or with nothing to cover, the row is simply
+   * in its slot.
    */
   function settle(node: HTMLElement, from: DOMRect) {
     node.style.transition = "none";
@@ -247,12 +263,10 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     const offset = { x: from.left - slot.left, y: from.top - slot.top };
     if ((offset.x === 0 && offset.y === 0) || reducedMotion()) {
       node.style.transition = "";
+      setSettlingId(null);
       return;
     }
     node.style.transform = translate(offset);
-    // Above its neighbours while it lands: a later row that is positioned
-    // would otherwise paint over the part of it still crossing that row.
-    node.style.zIndex = "1";
     void getComputedStyle(node).transform;
     node.style.transition = SETTLE_TRANSITION;
     node.style.transform = "";
@@ -262,8 +276,8 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     const landed = () => {
       if (settling !== record) return;
       settling = null;
+      setSettlingId(null);
       node.style.transition = "";
-      node.style.zIndex = "";
     };
     const run = node
       .getAnimations?.()
@@ -280,7 +294,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
    * inline transform. When it is `node`, the row being picked up, its offset
    * from that slot at the moment it was caught is returned, with its inline
    * transition still `none`, so the drag can carry on from there rather than
-   * jump.
+   * jump; it stays `isSettling` through the gesture that caught it.
    */
   function stopSettle(node: HTMLElement): Transform | null {
     const live = settling;
@@ -289,10 +303,10 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
     const seen = live.node === node ? node.getBoundingClientRect() : null;
     live.node.style.transition = "none";
     live.node.style.transform = "";
-    live.node.style.zIndex = "";
     const slot = live.node.getBoundingClientRect();
     if (!seen) {
       live.node.style.transition = "";
+      setSettlingId(null);
       return null;
     }
     return { x: seen.left - slot.left, y: seen.top - slot.top };
@@ -427,27 +441,36 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
 
     /**
      * A list row's box as it is let go, when it is off its slot: after a drag,
-     * or a press on a row caught mid-settle. A free item does not settle: it
-     * leaves for another container.
+     * or a press on a row caught mid-settle. The row is marked settling here,
+     * before `reset` clears the drag, so its lifted look runs on unbroken. A
+     * free item does not settle: it leaves for another container.
      */
-    const released = () =>
-      !free && (activated || caught) ? entry.node.getBoundingClientRect() : null;
+    const released = () => {
+      if (free || !(activated || caught)) return null;
+      setSettlingId(id);
+      return entry.node.getBoundingClientRect();
+    };
 
     /** Ease the row from `from` into the slot it has now, on whichever node
      *  is registered for it after the drop. */
     const land = (from: DOMRect | null) => {
+      if (!from) return;
       const node = items.get(id)?.node;
-      if (from && node?.isConnected) settle(node, from);
+      if (node?.isConnected) settle(node, from);
+      else setSettlingId(null);
     };
 
     const onUp = (upEvent: PointerEvent) => {
       if (!isOurs(upEvent)) return;
       const from = released();
       reset();
-      // A press that never crossed the threshold was a click, not a drag. Firing
-      // `onDragEnd` here would commit a no-op move on every handle click.
-      if (activated) props.onDragEnd?.(latest);
-      land(from);
+      try {
+        // A press that never crossed the threshold was a click, not a drag. Firing
+        // `onDragEnd` here would commit a no-op move on every handle click.
+        if (activated) props.onDragEnd?.(latest);
+      } finally {
+        land(from);
+      }
     };
 
     // Deliberately no `onDragEnd`: a cancelled gesture (the OS taking over, a
@@ -470,7 +493,7 @@ export function DragDropProvider(props: ParentProps<DragDropProviderProps>) {
   return (
     <DragDropContext.Provider
       value={[
-        { active, dragging, isDragged, transform, displacement, isOver },
+        { active, dragging, isDragged, isSettling, transform, displacement, isOver },
         {
           register,
           unregister,
