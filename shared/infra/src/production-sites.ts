@@ -61,16 +61,16 @@ export const SITE_SURFACES: readonly SiteSurface[] = [
 ];
 
 /**
- * The switch. A site moves from `staged` to `worker` in its own pull
- * request, and its domain moves in a release dispatched with `flip` naming
- * it. Pulse landing stays `off` until englishstreetventures/osn#1794 settles
- * its host and app link.
+ * The switch. A site moves from `staged` to `worker` in a pull request, and
+ * its domain moves in a release dispatched with `flip` naming it, one site
+ * per release. Pulse landing stays `off` until englishstreetventures/osn#1794
+ * settles its host and app link.
  */
 export const PRODUCTION_SITE_MODES: PerSite<SiteMode> = {
   cire_host: "worker",
   cire_vendor: "worker",
-  cire_landing: "staged",
-  osn_social: "staged",
+  cire_landing: "worker",
+  osn_social: "worker",
   musubi_landing: "worker",
   pulse_landing: "off",
 };

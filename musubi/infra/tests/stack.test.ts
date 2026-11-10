@@ -324,12 +324,12 @@ describe("the musubi stack on production", () => {
     });
   });
 
-  test("KP2: staged musubi social serves its spare host, musubi landing serves www.musubi.social, with the dev site settings; no workers.dev or preview URL", async () => {
+  test("KP2: musubi social serves musubi.social and musubi landing www.musubi.social, with the dev site settings; no workers.dev or preview URL", async () => {
     const resources = resourcesOf(production);
     expect({
       social: resources.MusubiSocial?.Props.domain,
       landing: resources.MusubiLanding?.Props.domain,
-    }).toEqual({ social: "next.musubi.social", landing: "www.musubi.social" });
+    }).toEqual({ social: "musubi.social", landing: "www.musubi.social" });
     // musubi social's deep links take the single-page fallback, with the
     // built `_redirects` (for Pages) emptied; musubi landing 404s.
     expect(resources.MusubiSocial?.Props.assets).toEqual({
@@ -351,18 +351,19 @@ describe("the musubi stack on production", () => {
         [resource.LogicalId]: true,
       });
     }
-    const moved = resourcesOf(
+    // Staged, musubi social serves its spare host; an off site is not declared.
+    const staged = resourcesOf(
       await evaluateMusubi({
         stage: "production",
         env: productionEnv(),
-        modes: { ...PRODUCTION_SITE_MODES, osn_social: "worker", musubi_landing: "off" },
+        modes: { ...PRODUCTION_SITE_MODES, osn_social: "staged", musubi_landing: "off" },
       }),
     );
     expect(
       Object.fromEntries(
-        Object.entries(moved).map(([id, resource]) => [id, resource.Props.domain]),
+        Object.entries(staged).map(([id, resource]) => [id, resource.Props.domain]),
       ),
-    ).toEqual({ MusubiSocial: "musubi.social" });
+    ).toEqual({ MusubiSocial: "next.musubi.social" });
   });
 
   test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, and writes nothing", () => {

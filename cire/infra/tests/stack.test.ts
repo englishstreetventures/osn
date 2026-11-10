@@ -561,25 +561,25 @@ describe("the cire stack on production", () => {
     ).toEqual({
       CireHost: "host.cireweddings.com",
       CireVendor: "vendor.cireweddings.com",
-      CireLanding: "next.cireweddings.com",
+      CireLanding: "cireweddings.com",
     });
-    const flipped = resourcesOf(
+    const staged = resourcesOf(
       await evaluateCire({
         stage: "production",
         env: productionEnv(),
         modes: {
           ...PRODUCTION_SITE_MODES,
-          cire_host: "staged",
+          cire_host: "worker",
           cire_vendor: "off",
-          cire_landing: "worker",
+          cire_landing: "staged",
         },
       }),
     );
     expect(
       Object.fromEntries(
-        Object.entries(flipped).map(([id, resource]) => [id, resource.Props.domain]),
+        Object.entries(staged).map(([id, resource]) => [id, resource.Props.domain]),
       ),
-    ).toEqual({ CireHost: "next.host.cireweddings.com", CireLanding: "cireweddings.com" });
+    ).toEqual({ CireHost: "host.cireweddings.com", CireLanding: "next.cireweddings.com" });
     for (const resource of Object.values(resourcesOf(production))) {
       expect({ [resource.LogicalId]: resource.Props.workersDev }).toEqual({
         [resource.LogicalId]: { enabled: false, previewsEnabled: false },

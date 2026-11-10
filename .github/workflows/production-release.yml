@@ -7,7 +7,7 @@ name: Production release
 #
 # Shape of a run:
 #
-#   plan ──> build ──┬──> alchemy-plan ──> deploy-<surface>  (Wrangler APIs, Pages sites)
+#   plan ──> build ──┬──> alchemy-plan ──> deploy-<surface>  (the Wrangler APIs)
 #        └─> sites ──┘    (approval 1)     stack-<stack>-production ──> record-<site>
 #                                          (approval 2, together)       site-parity
 #
@@ -27,9 +27,9 @@ name: Production release
 # `unflip` (the site set back to `staged`) ships the site's stack, whose
 # Worker gives up its production host, then runs the same attach job.
 #
-# `sites` builds each production site a shipping stack deploys, or whose own
-# Pages job ships, once, with the values its build bakes in, and passes them
-# on as the `production-sites` artifact. A job that holds a credential
+# `sites` builds each production site a shipping stack deploys, once, with
+# the values its build bakes in, and passes them on as the `production-sites`
+# artifact. A job that holds a credential
 # downloads it outside its checkout and lets in only the site builds
 # (scripts/production-sites-artifact.ts). `alchemy-plan` (the `production`
 # Environment's first review) checks each worker site's domain before any
@@ -98,12 +98,12 @@ name: Production release
 # Environment also allows `main` alone; the plan job refuses any other ref
 # before the build starts. In the Alchemy jobs it reaches only the steps that
 # check the token, read the state store, snapshot or compare deployments,
-# read the Workers' custom domains, plan, deploy and smoke-check, and in the
-# Pages jobs only the deploy step; CLOUDFLARE_PAGES_DNS_TOKEN, which may move
-# a Pages domain, reaches only the pages-domain steps: alchemy-plan's
-# precheck, before any install, and the detach and attach jobs, which install
-# nothing. The jobs that install a narrower tree than `sites` and hold a
-# credential (alchemy-plan, the stack, verify and Pages jobs) restore no
+# read the Workers' custom domains, plan, deploy and smoke-check;
+# CLOUDFLARE_PAGES_DNS_TOKEN, which may move a Pages domain, reaches only the
+# pages-domain steps: alchemy-plan's precheck, before any install, and the
+# detach and attach jobs, which install nothing. The jobs that install a
+# narrower tree than `sites` and hold a credential (alchemy-plan, the stack
+# and verify jobs) restore no
 # dependency cache, which jobs holding no secret also write. Every checkout
 # sets `persist-credentials: false`: no step fetches or pushes, so the job
 # token never sits in .git/config while dependency code runs.
@@ -290,11 +290,9 @@ jobs:
         run: bun run test:d1
 
   # ── The production sites, built once ─────────────────────────────────────
-  # Each site a shipping stack deploys, or whose own Pages job ships, built
-  # with the production values its build bakes in. A staged site's Worker and
-  # its Pages project serve the same build, so the comparison after the stack
-  # job compares two copies of one build. No Environment and no secret: the
-  # build values are public, and nothing here can deploy.
+  # Each site a shipping stack deploys, built with the production values its
+  # build bakes in. No Environment and no secret: the build values are
+  # public, and nothing here can deploy.
   sites:
     name: Build the production sites
     needs: [plan]
@@ -674,7 +672,7 @@ jobs:
 
   # ═══ The deploy jobs ════════════════════════════════════════════════════
   #
-  # One job per surface a Wrangler or Pages deploy ships, and one per
+  # One job per surface a Wrangler deploy ships, and one per
   # production stack, so a failure in one leaves the others to finish, and
   # each `if:` reads its own output. Every job:
   #   - needs [plan, build, sites, alchemy-plan] — the gate rule above, and a
@@ -919,56 +917,6 @@ jobs:
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
-  # ── cire landing (Astro → Cloudflare Pages) ──────────────────────────────
-  # The marketing site on the apex cireweddings.com, in the `cire-landing`
-  # Pages project (wiki/cire/cire-landing.md). Deploys the `sites` job's
-  # build.
-  deploy-cire-landing:
-    name: Deploy cire/landing — production (apex)
-    needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.cire_landing == 'true' && needs.build.result == 'success' && (needs.sites.result == 'success' || needs.sites.result == 'skipped') && (needs.alchemy-plan.result == 'success' || needs.alchemy-plan.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    concurrency:
-      group: deploy-production-cire-landing
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # The root's tree alone, which pins the Wrangler that deploys the
-      # site; nothing else here reads node_modules. No cache: the cache is
-      # shared with jobs that hold no secret.
-      - name: Install the root's dependencies
-        run: bun install --frozen-lockfile --filter osn
-
-      # The `sites` job's build, the one the stack's staged Worker serves.
-      - name: Fetch the built site
-        uses: actions/download-artifact@v4
-        with:
-          name: production-sites
-          path: ${{ runner.temp }}/production-sites
-
-      # Outside the checkout, and checked before any build reaches it: the
-      # sites job ran third-party build code with no secret, so only the
-      # site builds come in, never a file a later step runs.
-      - name: Check the built sites, then put them in place
-        id: place_sites
-        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
-
-      - name: Deploy cire/landing to Cloudflare Pages
-        run: bunx wrangler pages deploy dist --project-name cire-landing
-        working-directory: cire/landing
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
   # ── osn/api (Worker + D1) ────────────────────────────────────────────────
   # osn-api (identity/auth) is a Cloudflare Worker with a custom-domain route
   # per env. Secrets are set out-of-band per tier (`wrangler secret put …
@@ -1076,70 +1024,6 @@ jobs:
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
           INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
-
-  # ── musubi/social (Vite SPA → Cloudflare Pages) ──────────────────────────
-  # The identity web app, including `/authorize`, the OIDC consent screen
-  # osn-api redirects to. It is served on musubi.social, the same registrable
-  # domain as its osn-api, because the session and OIDC binding cookies are
-  # host-bound to the issuer and only ride along on same-site credentialed
-  # fetches. Its host is also the WebAuthn RP ID. musubi.social is attached to
-  # the `osn-social` Pages project in the dashboard (a Pages custom domain,
-  # not a wrangler route). Deploys the `sites` job's build.
-  deploy-osn-social:
-    name: Deploy musubi/social — production
-    needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.osn_social == 'true' && needs.build.result == 'success' && (needs.sites.result == 'success' || needs.sites.result == 'skipped') && (needs.alchemy-plan.result == 'success' || needs.alchemy-plan.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    concurrency:
-      group: deploy-production-osn-social
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # The root's tree alone, which pins the Wrangler that deploys the
-      # site; nothing else here reads node_modules. No cache: the cache is
-      # shared with jobs that hold no secret.
-      - name: Install the root's dependencies
-        run: bun install --frozen-lockfile --filter osn
-
-      # The `sites` job's build, the one the stack's staged Worker serves.
-      - name: Fetch the built site
-        uses: actions/download-artifact@v4
-        with:
-          name: production-sites
-          path: ${{ runner.temp }}/production-sites
-
-      # Outside the checkout, and checked before any build reaches it: the
-      # sites job ran third-party build code with no secret, so only the
-      # site builds come in, never a file a later step runs.
-      - name: Check the built sites, then put them in place
-        id: place_sites
-        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
-
-      # Idempotent: creates the project on the first run, no-ops after. The
-      # helper swallows only "already exists" — a bad token or a rate limit
-      # still fails the step.
-      - name: Ensure the osn-social Pages project exists
-        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" osn-social main
-        working-directory: musubi/social
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      - name: Deploy musubi/social to Cloudflare Pages
-        run: bunx wrangler pages deploy dist --project-name osn-social --branch main --commit-dirty=true
-        working-directory: musubi/social
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   # ── zap/api (Worker + D1) ────────────────────────────────────────────────
   # Zap has no dev tier, so this job has no dev deploy to check against; the
@@ -1619,6 +1503,17 @@ jobs:
       - name: Record the production deploy
         run: echo "cire-vendor deployed and passed its smoke check in this run's cire stack job."
 
+  record-cire-landing:
+    name: Record cire/landing — production
+    needs: [stack-cire-production]
+    if: ${{ !cancelled() && needs.stack-cire-production.outputs.deployed == 'true' && needs.stack-cire-production.outputs.cire_landing_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "cire-landing deployed and passed its smoke check in this run's cire stack job."
+
   # ── musubi stack, flip release: verify, then detach ─────────────────────
   # A release dispatched with `flip` moves one site's domain from its Pages
   # project to its Worker, in three jobs that each ask their own approval:
@@ -1987,6 +1882,17 @@ jobs:
   # Deployment record in `production-records`, named for the site:
   # scripts/release-plan.ts reads records by job name. A staged site's
   # record is its Pages job's.
+  record-osn-social:
+    name: Record musubi/social — production
+    needs: [stack-musubi-production]
+    if: ${{ !cancelled() && needs.stack-musubi-production.outputs.deployed == 'true' && needs.stack-musubi-production.outputs.osn_social_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "osn-social deployed and passed its smoke check in this run's musubi stack job."
+
   record-musubi-landing:
     name: Record musubi/landing — production
     needs: [stack-musubi-production]
@@ -2009,19 +1915,12 @@ jobs:
   # hosts with a 2xx HTML page), a usage error (exit 2) before any request,
   # an error that stopped the script (exit 4), a comparison step that ran but
   # wrote no exit code (its timeout) or any other, and an exit of 0 or 1 with
-  # no report.
+  # no report. While no site is staged, each comparison asks nothing and
+  # passes, writing a report that lists no site.
   # No Environment and no secret: both hosts are public.
   site-parity:
     name: Compare the staged sites with Pages
-    needs:
-      [
-        plan,
-        sites,
-        stack-cire-production,
-        stack-musubi-production,
-        deploy-cire-landing,
-        deploy-osn-social,
-      ]
+    needs: [plan, sites, stack-cire-production, stack-musubi-production]
     if: ${{ !cancelled() && needs.sites.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -30,13 +30,13 @@ const PRODUCTION_LOG = [
 
 /**
  * The hosts each site's Worker holds now, as the domains step reads them:
- * each at the host its mode declares, so no domain changes. The cire host
- * and cire vendor Workers serve their production hosts.
+ * each at the host its mode declares, so no domain changes. Every cire site's
+ * Worker serves its production host.
  */
 const LIVE_DOMAINS = {
   cire_host: ["host.cireweddings.com"],
   cire_vendor: ["vendor.cireweddings.com"],
-  cire_landing: ["next.cireweddings.com"],
+  cire_landing: ["cireweddings.com"],
 };
 
 /**
@@ -99,10 +99,10 @@ describe("plan:guard, the cire stack's production plan guard", () => {
     expect(result.record).toMatchObject({ stack: "cire", plan: "changes", counts: { update: 2 } });
   }, 30_000);
 
-  test("G18: refuses the landing site's Worker giving up a host it holds beside its spare host", () => {
+  test("G18: refuses the landing site's Worker giving up a host it holds beside its own", () => {
     const result = guard(PRODUCTION_LOG, {
       ...LIVE_DOMAINS,
-      cire_landing: ["next.cireweddings.com", "old.cireweddings.com"],
+      cire_landing: ["cireweddings.com", "old.cireweddings.com"],
     });
     expect(result.exitCode).toBe(1);
     expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
