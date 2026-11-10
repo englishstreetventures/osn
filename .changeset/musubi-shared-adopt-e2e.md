@@ -1,0 +1,5 @@
+---
+"@tools/e2e": patch
+---
+
+`musubi-passkey` refuses two sign-up codes with a `429` in the page before the wrong code: sent by a click, focus stays on Verify email; sent with Enter in a box, it is back in box 1. It holds `GET /passkeys` on Settings → Security and reads the passkey list's own `Skeleton` in a busy region (the sunk well, an 8px corner, the pulse, still under reduced motion), shot at 390 and 1440px under reduced motion in both schemes, then checks the passkey row that replaces it is as tall. On the authenticator setup it finds the code boxes as a group named "Code from the app", reads box 1 focused after the step-up, records the row and box widths at 320 and 390px and shoots the panel at 320px, and types the code into the box named "Code from the app Digit 1". `musubi-org-detail` measures the organisations placeholder as `Skeleton` sizes it, 18.5 spacing steps, rather than by a class the page no longer uses.

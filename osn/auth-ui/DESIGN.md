@@ -591,7 +591,8 @@ As built:
   weight; with `GET /passkeys` held on Settings → Security
   (`securityLoadingSurfaces`), the passkey list's own `Skeleton` in a busy
   region, not Settings' fallback: the sunk well, an 8px corner, the pulse,
-  still under reduced motion; and on the authenticator setup
+  still under reduced motion, and as tall as the passkey row that replaces
+  it; and on the authenticator setup
   (`totpSetupSurfaces`), the spans over the setup key and the code boxes in
   the plain label's look, 6px above them, the boxes a group named "Code from
   the app" with box 1 focused after the step-up, and the row's width and each
