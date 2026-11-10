@@ -635,9 +635,9 @@ keyframes over `calc(2s * var(--motion-scale))` on `--ease-in-out`.
 **One motion rule: choosing on base, hovering on fast** (the owner's
 choice). A choice being made — a strip's choice, a reply
 filter's — moves its colours on `--dur-base` with `--ease-in-out`; a hover
-comes and goes on `--dur-fast` with `--ease-out`, halfway hovers included. A browser takes a transition from the state an element moves
-to, so the choice giving the mark up runs on the rest state's clock, the fast
-one: no marker is kept on the old choice for it. So the owner's "a chosen or
+comes and goes on `--dur-fast` with `--ease-out`, halfway hovers included. A
+browser takes a transition from the state an element moves to, so the choice
+giving the mark up runs on the rest state's clock, the fast one: no marker is kept on the old choice for it. So the owner's "a chosen or
 unchosen change runs on base" holds only for the choice arriving; whether the
 one leaving should hold the base clock too is the owner's call (#1959). The
 glass under a strip's choice moves on its own, slower clock (`--dur-slow` with
