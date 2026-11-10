@@ -114,50 +114,59 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
             <For each={profiles() ?? []}>
               {(profile) => {
                 const isActive = () => profile.id === activeProfileId();
+                // The delete sits beside the row's button, never inside it:
+                // a button inside a button has no reliable name or keyboard
+                // path.
                 return (
-                  <button
-                    type="button"
+                  <div
                     class={clsx(
-                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-ui-colors",
-                      isActive()
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-muted text-foreground",
+                      "flex items-center",
+                      isActive() ? "bg-accent text-accent-foreground" : "text-foreground",
                     )}
-                    aria-current={isActive() ? "true" : undefined}
-                    disabled={busy()}
-                    onClick={() => !isActive() && handleSwitch(profile)}
                   >
-                    <Avatar class="h-5 w-5">
-                      <Show when={profile.avatarUrl}>
-                        {(url) => <AvatarImage src={url()} alt={profile.handle} />}
-                      </Show>
-                      <AvatarFallback>{initials(profile)}</AvatarFallback>
-                    </Avatar>
-                    <span class="flex-1 truncate">
-                      @{profile.handle}
-                      <Show when={profile.displayName}>
-                        <span class="text-muted-foreground ml-1">({profile.displayName})</span>
-                      </Show>
-                    </span>
-                    <Show when={isActive()}>
-                      <span class="text-primary text-ui-xs" aria-label="Active profile">
-                        &#10003;
+                    {/* The wash is the row button's alone, so the delete's
+                        own wash shows beside it. */}
+                    <button
+                      type="button"
+                      class={clsx(
+                        "transition-ui-colors flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 py-1.5 text-left text-xs",
+                        !isActive() && "hover:bg-muted",
+                      )}
+                      aria-current={isActive() ? "true" : undefined}
+                      disabled={busy()}
+                      onClick={() => !isActive() && handleSwitch(profile)}
+                    >
+                      <Avatar class="h-5 w-5">
+                        <Show when={profile.avatarUrl}>
+                          {(url) => <AvatarImage src={url()} alt={profile.handle} />}
+                        </Show>
+                        <AvatarFallback>{initials(profile)}</AvatarFallback>
+                      </Avatar>
+                      <span class="flex-1 truncate">
+                        @{profile.handle}
+                        <Show when={profile.displayName}>
+                          <span class="text-muted-foreground ml-1">({profile.displayName})</span>
+                        </Show>
                       </span>
-                    </Show>
+                      <Show when={isActive()}>
+                        <span class="text-primary text-ui-xs" aria-label="Active profile">
+                          &#10003;
+                        </span>
+                      </Show>
+                    </button>
                     <Show when={!isActive()}>
-                      <button
-                        type="button"
-                        class="text-muted-foreground hover:text-destructive text-ui-xs ml-auto"
+                      <Button
+                        variant="ghostDanger"
+                        size="icon"
+                        class="mr-1 h-7 w-7 shrink-0 max-md:h-10 max-md:w-10"
                         aria-label={`Delete profile @${profile.handle}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDelete(profile);
-                        }}
+                        disabled={busy()}
+                        onClick={() => setConfirmDelete(profile)}
                       >
                         &#10005;
-                      </button>
+                      </Button>
                     </Show>
-                  </button>
+                  </div>
                 );
               }}
             </For>
@@ -231,8 +240,8 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
             >
               Cancel
             </Button>
-            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={busy()}>
-              {busy() ? "Deleting..." : "Delete"}
+            <Button variant="destructive" size="sm" onClick={handleDelete} busy={busy()}>
+              {busy() ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

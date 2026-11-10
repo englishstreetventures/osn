@@ -6,6 +6,7 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -319,7 +320,13 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                 </Notice>
               )}
             </Show>
-            <Button onClick={requestGenerate} disabled={locked()}>
+            {/* Busy only for the generate this button started; the first
+                read and an open step-up hold it disabled. */}
+            <Button
+              onClick={requestGenerate}
+              busy={busy()}
+              disabled={!busy() && (pending() || status.loading)}
+            >
               {busy()
                 ? "Generating…"
                 : // Same reason as the skeleton: say why the button is
@@ -348,14 +355,11 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
               Download .txt
             </Button>
           </div>
-          <label class="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={acknowledged()}
-              onChange={(e) => setAcknowledged(e.currentTarget.checked)}
-            />
-            I've saved these codes somewhere safe.
-          </label>
+          <Checkbox
+            checked={acknowledged()}
+            onChange={setAcknowledged}
+            label="I've saved these codes somewhere safe."
+          />
           <Button onClick={acknowledge} disabled={!acknowledged()}>
             Done
           </Button>

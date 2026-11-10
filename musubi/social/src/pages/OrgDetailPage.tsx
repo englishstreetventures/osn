@@ -5,8 +5,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Chip } from "@shared/ui/ui/chip";
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
@@ -91,6 +91,7 @@ export function OrgDetailPage() {
 
   async function handleSave(e: Event) {
     e.preventDefault();
+    if (saving()) return;
     setSaving(true);
     try {
       const { organisation } = await orgClient.updateOrg(params.handle, {
@@ -274,24 +275,26 @@ export function OrgDetailPage() {
           {/* The footer sits inside the form, so Enter in a field still submits. */}
           <form onSubmit={handleSave}>
             <div class="flex flex-col gap-4 p-4">
-              <div class="flex flex-col gap-1.5">
-                <Label for="edit-name">Name</Label>
-                <Input
-                  id="edit-name"
-                  value={editName()}
-                  onInput={(e) => setEditName(e.currentTarget.value)}
-                  required
-                />
-              </div>
-              <div class="flex flex-col gap-1.5">
-                <Label for="edit-desc">Description</Label>
-                <Textarea
-                  id="edit-desc"
-                  value={editDesc()}
-                  onInput={(e) => setEditDesc(e.currentTarget.value)}
-                  rows={2}
-                />
-              </div>
+              <Field labelTreatment="plain" label="Name">
+                {(field) => (
+                  <Input
+                    {...field}
+                    value={editName()}
+                    onInput={(e) => setEditName(e.currentTarget.value)}
+                    required
+                  />
+                )}
+              </Field>
+              <Field labelTreatment="plain" label="Description">
+                {(field) => (
+                  <Textarea
+                    {...field}
+                    value={editDesc()}
+                    onInput={(e) => setEditDesc(e.currentTarget.value)}
+                    rows={2}
+                  />
+                )}
+              </Field>
             </div>
             <DialogFooter>
               <Button
@@ -300,11 +303,12 @@ export function OrgDetailPage() {
                 size="sm"
                 class="max-md:h-10"
                 onClick={() => setShowEdit(false)}
+                disabled={saving()}
               >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" class="max-md:h-10" disabled={saving()}>
-                {saving() ? "Saving..." : "Save"}
+              <Button type="submit" size="sm" class="max-md:h-10" busy={saving()}>
+                {saving() ? "Saving…" : "Save"}
               </Button>
             </DialogFooter>
           </form>

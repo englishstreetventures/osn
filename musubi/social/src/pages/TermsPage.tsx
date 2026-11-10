@@ -1,4 +1,5 @@
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from "@shared/legal";
+import { buttonVariants } from "@shared/ui/ui/button";
 import type { JSX } from "solid-js";
 
 import { LegalDocument } from "../components/LegalDocument";
@@ -106,7 +107,10 @@ export function TermsPage(): JSX.Element {
 
       <h2>Contact</h2>
       <p>
-        <a class="underline" href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
+        <a
+          class={buttonVariants({ variant: "link", size: "inline" })}
+          href={`mailto:${LEGAL_ENTITY.contactEmail}`}
+        >
           {LEGAL_ENTITY.contactEmail}
         </a>
       </p>

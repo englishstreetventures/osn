@@ -1,6 +1,7 @@
 import { Register } from "@osn/auth-ui/Register";
 import { SignIn } from "@osn/auth-ui/SignIn";
 import { AuthProvider } from "@osn/client/solid";
+import { Button } from "@shared/ui/ui/button";
 import { createSignal, Show } from "solid-js";
 
 import { osnAuth, PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
@@ -50,13 +51,14 @@ export function AuthorizeSignIn(props: {
             />
             <p class="text-muted-foreground text-body px-4 pb-4 text-center">
               No account yet?{" "}
-              <button
+              <Button
+                variant="link"
+                size="inline"
                 type="button"
-                class="text-foreground font-medium underline underline-offset-2"
                 onClick={() => setMode("register")}
               >
                 Create one
-              </button>
+              </Button>
             </p>
           </>
         }

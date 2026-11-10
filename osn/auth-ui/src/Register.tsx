@@ -2,6 +2,7 @@ import { describeAuthError, type RegistrationClient, type Session } from "@osn/c
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
+import { Field } from "@shared/ui/ui/field";
 import { InfoPopover } from "@shared/ui/ui/info-popover";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
@@ -68,7 +69,11 @@ export function Register(props: RegisterProps) {
   const [birthdate, setBirthdate] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [otp, setOtp] = createSignal("");
-  const [busy, setBusy] = createSignal(false);
+  // One signal per call, so only the button that started a wait shows it.
+  const [sending, setSending] = createSignal(false);
+  const [verifying, setVerifying] = createSignal(false);
+  const [resending, setResending] = createSignal(false);
+  const [enrolling, setEnrolling] = createSignal(false);
   const [otpStatus, setOtpStatus] = createSignal<OtpStatus>("idle");
   const [resendCooldown, setResendCooldown] = createSignal(0);
   const [profileId, setProfileId] = createSignal<string | null>(null);
@@ -86,8 +91,8 @@ export function Register(props: RegisterProps) {
   // The email line waits until the field is left, so it is not announced on
   // every keystroke of an address still being typed.
   const [emailLeft, setEmailLeft] = createSignal(false);
+  const emailId = createUniqueId();
   const emailErrorId = createUniqueId();
-  const birthdateHintId = createUniqueId();
   const birthdateErrorId = createUniqueId();
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
@@ -160,8 +165,8 @@ export function Register(props: RegisterProps) {
 
   async function submitDetails(e: Event) {
     e.preventDefault();
-    if (!detailsValid() || busy()) return;
-    setBusy(true);
+    if (!detailsValid() || sending()) return;
+    setSending(true);
     setDetailsError(null);
     try {
       await spendingToken(() =>
@@ -185,7 +190,7 @@ export function Register(props: RegisterProps) {
       // this never says which; a 422 is the age gate, a 429 says to wait.
       setDetailsError(describeAuthError(err, "details"));
     } finally {
-      setBusy(false);
+      setSending(false);
     }
   }
 
@@ -205,8 +210,8 @@ export function Register(props: RegisterProps) {
   async function submitOtp(e: Event) {
     e.preventDefault();
     const value = otp();
-    if (busy() || value.length !== 6) return;
-    setBusy(true);
+    if (verifying() || resending() || value.length !== 6) return;
+    setVerifying(true);
     setOtpStatus("verifying");
     setCodeError(null);
     try {
@@ -221,7 +226,7 @@ export function Register(props: RegisterProps) {
       setOtpStatus("error");
       setCodeError(describeAuthError(err, "code"));
     } finally {
-      setBusy(false);
+      setVerifying(false);
     }
   }
 
@@ -239,8 +244,15 @@ export function Register(props: RegisterProps) {
   }
 
   async function resendCode() {
-    if (busy() || resendCooldown() > 0 || (turnstileOn() && turnstileToken() === null)) return;
-    setBusy(true);
+    if (
+      resending() ||
+      verifying() ||
+      resendCooldown() > 0 ||
+      (turnstileOn() && turnstileToken() === null)
+    ) {
+      return;
+    }
+    setResending(true);
     setResendError(null);
     try {
       await spendingToken(() =>
@@ -262,7 +274,7 @@ export function Register(props: RegisterProps) {
     } catch (err) {
       setResendError(describeAuthError(err, "details"));
     } finally {
-      setBusy(false);
+      setResending(false);
     }
   }
 
@@ -294,8 +306,8 @@ export function Register(props: RegisterProps) {
   async function enrollPasskey() {
     const id = profileId();
     const token = accessToken();
-    if (!id || !token || busy()) return;
-    setBusy(true);
+    if (!id || !token || enrolling()) return;
+    setEnrolling(true);
     setPasskeyError(null);
     try {
       const options = (await client.passkeyRegisterBegin({
@@ -321,7 +333,7 @@ export function Register(props: RegisterProps) {
     } catch (err) {
       setPasskeyError(describePasskeyError(err, "registration"));
     } finally {
-      setBusy(false);
+      setEnrolling(false);
     }
   }
 
@@ -329,7 +341,12 @@ export function Register(props: RegisterProps) {
     <div class="mx-auto max-w-sm px-4 py-8">
       <div class="mb-6 flex items-center justify-between">
         <h2 class="text-foreground text-2xl font-bold">Create your {props.productName} account</h2>
-        <Button variant="ghost" size="sm" onClick={props.onCancel}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={props.onCancel}
+          disabled={sending() || verifying() || resending() || enrolling()}
+        >
           Cancel
         </Button>
       </div>
@@ -351,9 +368,11 @@ export function Register(props: RegisterProps) {
       >
         <Show when={step() === "details"}>
           <form onSubmit={submitDetails} class="flex flex-col gap-4">
-            <div class="flex flex-col gap-1">
+            {/* A bare Label: the "i" beside it is a button, which a label
+                cannot hold, so this field is wired by hand. */}
+            <div class="flex flex-col gap-1.5">
               <div class="flex items-center">
-                <Label for="reg-email">Email</Label>
+                <Label for={emailId}>Email</Label>
                 <InfoPopover
                   label="What this address is used for"
                   glyph="i"
@@ -362,7 +381,7 @@ export function Register(props: RegisterProps) {
                 />
               </div>
               <Input
-                id="reg-email"
+                id={emailId}
                 type="email"
                 required
                 autocomplete="email"
@@ -379,55 +398,61 @@ export function Register(props: RegisterProps) {
               </Show>
             </div>
 
-            <div class="flex flex-col gap-1">
-              <Label for="reg-handle">Handle</Label>
-              <UsernameInput
-                id="reg-handle"
-                required
-                value={handle()}
-                onInput={onHandleInput}
-                status={handleStatus()}
-                placeholder="lowercase, numbers, _"
-                invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
-              />
-            </div>
+            <Field labelTreatment="plain" label="Handle">
+              {(field) => (
+                <UsernameInput
+                  {...field}
+                  required
+                  spellcheck={false}
+                  value={handle()}
+                  onInput={onHandleInput}
+                  status={handleStatus()}
+                  placeholder="lowercase, numbers, _"
+                  invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
+                />
+              )}
+            </Field>
 
-            <div class="flex flex-col gap-1">
-              <Label for="reg-birthdate">Date of birth</Label>
-              <Input
-                id="reg-birthdate"
-                type="date"
-                required
-                autocomplete="bday"
-                value={birthdate()}
-                onInput={(e) => setBirthdate(e.currentTarget.value)}
-                aria-describedby={describedBy(
-                  !birthdate() && birthdateHintId,
-                  underAge() && birthdateErrorId,
-                )}
-                aria-invalid={underAge() || undefined}
-              />
-              <Show when={underAge()}>
-                <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
-                  {props.productName} is for users 13 and older
-                </Notice>
-              </Show>
-              <Show when={!birthdate()}>
-                <span id={birthdateHintId} class="text-muted-foreground text-xs">
-                  You must be 13 or older to create an account.
-                </span>
-              </Show>
-            </div>
+            {/* The hint goes once a date is in; the under-13 line comes with one. */}
+            <Field
+              labelTreatment="plain"
+              label="Date of birth"
+              hint={birthdate() ? undefined : "You must be 13 or older to create an account."}
+            >
+              {(field) => (
+                <>
+                  <Input
+                    id={field.id}
+                    type="date"
+                    required
+                    autocomplete="bday"
+                    value={birthdate()}
+                    onInput={(e) => setBirthdate(e.currentTarget.value)}
+                    aria-describedby={describedBy(
+                      field["aria-describedby"],
+                      underAge() && birthdateErrorId,
+                    )}
+                    aria-invalid={underAge() || undefined}
+                  />
+                  <Show when={underAge()}>
+                    <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
+                      {props.productName} is for users 13 and older
+                    </Notice>
+                  </Show>
+                </>
+              )}
+            </Field>
 
-            <div class="flex flex-col gap-1">
-              <Label for="reg-display-name">Display name (optional)</Label>
-              <Input
-                id="reg-display-name"
-                type="text"
-                value={displayName()}
-                onInput={(e) => setDisplayName(e.currentTarget.value)}
-              />
-            </div>
+            <Field labelTreatment="plain" label="Display name (optional)">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="text"
+                  value={displayName()}
+                  onInput={(e) => setDisplayName(e.currentTarget.value)}
+                />
+              )}
+            </Field>
 
             {/* Turnstile challenge — renders only when a sitekey is provided. */}
             <TurnstileWidget
@@ -443,8 +468,10 @@ export function Register(props: RegisterProps) {
                 </Notice>
               )}
             </Show>
-            <Button type="submit" disabled={!detailsValid() || busy()}>
-              {busy() ? "Sending…" : "Send verification code"}
+            {/* Invalid only while idle: the send spends the token, and a
+                refused one drops it before the wait ends. */}
+            <Button type="submit" busy={sending()} disabled={!sending() && !detailsValid()}>
+              {sending() ? "Sending…" : "Send verification code"}
             </Button>
           </form>
         </Show>
@@ -458,7 +485,7 @@ export function Register(props: RegisterProps) {
               value={otp()}
               onChange={setOtp}
               status={otpStatus()}
-              disabled={busy()}
+              disabled={verifying() || resending()}
               autofocus
             />
             {/* Announced, but not yet tied to the boxes: `OtpInput` takes no
@@ -476,8 +503,12 @@ export function Register(props: RegisterProps) {
             <Show when={otpStatus() === "accepted"}>
               <p class="text-ui-success text-sm">Accepted</p>
             </Show>
-            <Button type="submit" disabled={otp().length !== 6 || busy()}>
-              {busy() ? "Verifying…" : "Verify email"}
+            <Button
+              type="submit"
+              busy={verifying()}
+              disabled={!verifying() && (otp().length !== 6 || resending())}
+            >
+              {verifying() ? "Verifying…" : "Verify email"}
             </Button>
             {/* A resend spends a token like the first send, and the details
                 step's widget went with that step. Mounted only once a resend
@@ -490,16 +521,26 @@ export function Register(props: RegisterProps) {
                 onReady={(c) => (resetTurnstile = c.reset)}
               />
             </Show>
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="sm"
+              class="self-center"
               onClick={resendCode}
-              class="text-primary text-sm font-medium hover:underline disabled:opacity-50"
+              busy={resending()}
               disabled={
-                busy() || resendCooldown() > 0 || (turnstileOn() && turnstileToken() === null)
+                !resending() &&
+                (verifying() ||
+                  resendCooldown() > 0 ||
+                  (turnstileOn() && turnstileToken() === null))
               }
             >
-              {resendCooldown() > 0 ? `Resend code (${resendCooldown()}s)` : "Resend code"}
-            </button>
+              {resending()
+                ? "Sending…"
+                : resendCooldown() > 0
+                  ? `Resend code (${resendCooldown()}s)`
+                  : "Resend code"}
+            </Button>
             <Show when={resendError()}>
               {(msg) => (
                 <Notice tone="danger" size="inline" alert>
@@ -507,7 +548,13 @@ export function Register(props: RegisterProps) {
                 </Notice>
               )}
             </Show>
-            <Button variant="ghost" size="sm" onClick={() => setStep("details")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setStep("details")}
+              disabled={verifying() || resending()}
+            >
               ← Use a different email
             </Button>
           </form>
@@ -526,8 +573,8 @@ export function Register(props: RegisterProps) {
                 </Notice>
               )}
             </Show>
-            <Button onClick={enrollPasskey} disabled={busy()}>
-              {busy() ? "Setting up…" : "Enroll credential"}
+            <Button onClick={enrollPasskey} busy={enrolling()}>
+              {enrolling() ? "Setting up…" : "Enroll credential"}
             </Button>
           </div>
         </Show>

@@ -528,6 +528,27 @@ export async function claimFromOrganiserAddress(context: BrowserContext): Promis
   });
 }
 
+/**
+ * Holds the browser's `method` requests to the URL it is routed on until
+ * `release` runs; the preflight and every other method go on. Route it with
+ * `page.route(url, handler)`, and once released undo it with
+ * `page.unroute(url, handler)`, both in a `finally`.
+ */
+export function holdMethod(method: string): {
+  handler: (route: Route) => Promise<void>;
+  release: () => void;
+} {
+  let release = () => {};
+  const released = new Promise<void>((done) => {
+    release = done;
+  });
+  const handler = async (route: Route) => {
+    if (route.request().method() === method) await released;
+    await route.fallback();
+  };
+  return { handler, release };
+}
+
 /** A cookie in `context` by name, or undefined. */
 export async function cookieNamed(context: BrowserContext, url: string, name: string) {
   return (await context.cookies(url)).find((c) => c.name === name);

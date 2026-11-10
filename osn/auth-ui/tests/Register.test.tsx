@@ -699,6 +699,62 @@ describe("Register component", () => {
       expect(toast.error).not.toHaveBeenCalled();
     });
 
+    // Only the button that started the wait is busy: a resend leaves Verify
+    // email not busy, and says "Sending…", not "Verifying…".
+    it("marks Resend busy while it sends, and leaves Verify email alone", async () => {
+      await reachVerify();
+      await vi.advanceTimersByTimeAsync(31_000);
+      stub.beginRegistration.mockReturnValueOnce(new Promise(() => {}));
+      fireEvent.click(screen.getByRole("button", { name: /^Resend code$/ }));
+      const sending = await screen.findByRole("button", { name: /Sending…/ });
+      expect(sending.getAttribute("aria-busy")).toBe("true");
+      expect((sending as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.queryByRole("button", { name: /Verifying…/ })).toBeNull();
+      const verify = screen.getByRole("button", { name: /^Verify email$/ });
+      expect(verify.getAttribute("aria-busy")).toBeNull();
+    });
+
+    // A resend replaces the code, so a full code cannot be checked while one
+    // is in flight: the boxes, Verify email and the form's submit all refuse.
+    it("refuses a verify while a resend runs, even with six digits in", async () => {
+      await reachVerify();
+      await vi.advanceTimersByTimeAsync(31_000);
+      fillOtpDigits("123456");
+      const verify = screen.getByRole("button", { name: /^Verify email$/ }) as HTMLButtonElement;
+      await waitFor(() => expect(verify.disabled).toBe(false));
+      stub.beginRegistration.mockReturnValueOnce(new Promise(() => {}));
+      fireEvent.click(screen.getByRole("button", { name: /^Resend code$/ }));
+      await screen.findByRole("button", { name: /Sending…/ });
+
+      expect(verify.disabled).toBe(true);
+      expect(verify.getAttribute("aria-busy")).toBeNull();
+      for (let i = 1; i <= 6; i++) {
+        expect((screen.getByLabelText(`Digit ${i}`) as HTMLInputElement).disabled).toBe(true);
+      }
+      fireEvent.submit(verify.closest("form")!);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stub.completeRegistration).toHaveBeenCalledTimes(0);
+    });
+
+    // The other way round: a code being checked holds Resend, without the orb.
+    it("refuses a resend while a verify runs", async () => {
+      await reachVerify();
+      await vi.advanceTimersByTimeAsync(31_000);
+      fillOtpDigits("123456");
+      const resend = screen.getByRole("button", { name: /^Resend code$/ }) as HTMLButtonElement;
+      await waitFor(() => expect(resend.disabled).toBe(false));
+      const sends = stub.beginRegistration.mock.calls.length;
+      stub.completeRegistration.mockReturnValueOnce(new Promise(() => {}));
+      fireEvent.click(screen.getByRole("button", { name: /^Verify email$/ }));
+      await screen.findByRole("button", { name: /Verifying…/ });
+
+      expect(resend.disabled).toBe(true);
+      expect(resend.getAttribute("aria-busy")).toBeNull();
+      fireEvent.click(resend);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stub.beginRegistration).toHaveBeenCalledTimes(sends);
+    });
+
     it("reads a refused resend as the map's sentence, with no toast", async () => {
       await reachVerify();
       await vi.advanceTimersByTimeAsync(31_000);

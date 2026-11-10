@@ -2,7 +2,7 @@ import type { Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Button } from "@shared/ui/ui/button";
+import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -40,6 +40,7 @@ export function DiscoverPage() {
   const [sending, setSending] = createSignal<Set<string>>(new Set());
 
   async function connect(handle: string) {
+    if (sending().has(handle)) return;
     setSending((s) => new Set(s).add(handle));
     try {
       await graphClient.sendConnectionRequest(handle);
@@ -81,7 +82,7 @@ export function DiscoverPage() {
             fallback={
               <EmptyNote>
                 No suggestions yet.{" "}
-                <A href="/search" class="text-foreground underline underline-offset-2">
+                <A href="/search" class={buttonVariants({ variant: "link", size: "inline" })}>
                   Search for someone
                 </A>
                 , or join an organisation to find people you already share one with.
@@ -128,10 +129,10 @@ export function DiscoverPage() {
                       <Button
                         size="sm"
                         class="h-7 max-md:h-10"
-                        disabled={sending().has(suggestion.handle)}
+                        busy={sending().has(suggestion.handle)}
                         onClick={() => connect(suggestion.handle)}
                       >
-                        {sending().has(suggestion.handle) ? "Sending..." : "Connect"}
+                        {sending().has(suggestion.handle) ? "Sending…" : "Connect"}
                       </Button>
                     </div>
                   </Card>

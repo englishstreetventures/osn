@@ -6,12 +6,13 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
-import { Label } from "@shared/ui/ui/label";
+import { Field, type FieldControlProps } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { createResource, createSignal, createUniqueId, onMount, Show } from "solid-js";
 
-import { fieldError, inputError, plainError, type FieldError } from "./error-lines";
+import { describedBy, fieldError, inputError, plainError, type FieldError } from "./error-lines";
 import { describePasskeyError } from "./passkey-errors";
 
 /**
@@ -149,12 +150,13 @@ type Mode = "choose" | "passkey" | "otp" | "totp";
 export function StepUpDialog(props: StepUpDialogProps) {
   const [mode, setMode] = createSignal<Mode>(props.passkeyOnly ? "passkey" : "choose");
   const [code, setCode] = createSignal("");
-  const [busy, setBusy] = createSignal(false);
+  // The call under way, so only the button that started it shows the wait.
+  const [waiting, setWaiting] = createSignal<"passkey" | "otpBegin" | "otp" | "totp" | null>(null);
+  const busy = () => waiting() !== null;
   // On the two code steps the line sits under the code field and is tied to
   // it; on the others, above the factor buttons.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
-  const codeId = createUniqueId();
   const onCodeStep = () => mode() === "otp" || mode() === "totp";
 
   // An unbound ceremony names no purpose, so there is no allow-list to look
@@ -186,12 +188,13 @@ export function StepUpDialog(props: StepUpDialogProps) {
   });
 
   async function startPasskey() {
+    if (busy()) return;
     if (!props.runPasskeyCeremony) {
       // Retrying cannot help here, so the line offers no retry.
       setError(plainError("A passkey can't be used here."));
       return;
     }
-    setBusy(true);
+    setWaiting("passkey");
     setError(null);
     try {
       const begin = await props.client.passkeyBegin();
@@ -204,12 +207,13 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(plainError(describePasskeyError(e, "authentication")));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
   async function startOtp() {
-    setBusy(true);
+    if (busy()) return;
+    setWaiting("otpBegin");
     setError(null);
     try {
       await props.client.otpBegin();
@@ -217,16 +221,17 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(plainError(describeAuthError(e)));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
   async function completeOtp() {
+    if (busy()) return;
     if (code().length !== 6) {
       setError(inputError("Enter the 6-digit code."));
       return;
     }
-    setBusy(true);
+    setWaiting("otp");
     setError(null);
     try {
       const token = await props.client.otpComplete({
@@ -237,7 +242,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
@@ -251,11 +256,12 @@ export function StepUpDialog(props: StepUpDialogProps) {
   }
 
   async function completeTotp() {
+    if (busy()) return;
     if (code().length !== 6) {
       setError(inputError("Enter the 6-digit code."));
       return;
     }
-    setBusy(true);
+    setWaiting("totp");
     setError(null);
     try {
       const token = await props.client.totpComplete({
@@ -266,7 +272,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     } catch (e) {
       setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
-      setBusy(false);
+      setWaiting(null);
     }
   }
 
@@ -280,9 +286,13 @@ export function StepUpDialog(props: StepUpDialogProps) {
       )}
     </Show>
   );
-  /** For the code field: names the line, and marks a refused code. */
-  const tie = () => ({
-    "aria-describedby": error() ? errorId : undefined,
+  /**
+   * For the code field: its id, the field's own description, then the line,
+   * and a mark on a refused code.
+   */
+  const tie = (field: FieldControlProps) => ({
+    id: field.id,
+    "aria-describedby": describedBy(field["aria-describedby"], error() && errorId),
     "aria-invalid": error()?.invalid || undefined,
   });
 
@@ -304,12 +314,21 @@ export function StepUpDialog(props: StepUpDialogProps) {
       <Show when={!onCodeStep()}>{errorLine()}</Show>
       <Show when={!props.passkeyOnly && mode() === "choose"}>
         <div class="flex flex-col gap-2">
-          <Button onClick={startPasskey} disabled={busy()}>
-            Use passkey
+          <Button
+            onClick={startPasskey}
+            busy={waiting() === "passkey"}
+            disabled={busy() && waiting() !== "passkey"}
+          >
+            {waiting() === "passkey" ? "Waiting for your passkey…" : "Use passkey"}
           </Button>
           <Show when={otpOffered()}>
-            <Button variant="outline" onClick={startOtp} disabled={busy()}>
-              Email me a code
+            <Button
+              variant="outline"
+              onClick={startOtp}
+              busy={waiting() === "otpBegin"}
+              disabled={busy() && waiting() !== "otpBegin"}
+            >
+              {waiting() === "otpBegin" ? "Sending…" : "Email me a code"}
             </Button>
           </Show>
           <Show when={totpOffered()}>
@@ -348,21 +367,25 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "otp"}>
         <div class="flex flex-col gap-2">
-          <div class="flex flex-col gap-1">
-            <Label for={codeId}>Code</Label>
-            <input
-              id={codeId}
-              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
-              inputmode="numeric"
-              maxLength={6}
-              value={code()}
-              onInput={(e) => setCode(e.currentTarget.value)}
-              {...tie()}
-            />
-            {errorLine()}
-          </div>
-          <Button onClick={completeOtp} disabled={busy()}>
-            Confirm
+          <Field labelTreatment="plain" label="Code">
+            {(field) => (
+              <>
+                <Input
+                  face="code"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  spellcheck={false}
+                  maxLength={6}
+                  value={code()}
+                  onInput={(e) => setCode(e.currentTarget.value)}
+                  {...tie(field)}
+                />
+                {errorLine()}
+              </>
+            )}
+          </Field>
+          <Button onClick={completeOtp} busy={busy()}>
+            {busy() ? "Checking…" : "Confirm"}
           </Button>
           <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
             Cancel
@@ -371,22 +394,25 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "totp"}>
         <div class="flex flex-col gap-2">
-          <div class="flex flex-col gap-1">
-            <Label for={codeId}>Code from your authenticator app</Label>
-            <input
-              id={codeId}
-              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxLength={6}
-              value={code()}
-              onInput={(e) => setCode(e.currentTarget.value)}
-              {...tie()}
-            />
-            {errorLine()}
-          </div>
-          <Button onClick={completeTotp} disabled={busy()}>
-            Confirm
+          <Field labelTreatment="plain" label="Code from your authenticator app">
+            {(field) => (
+              <>
+                <Input
+                  face="code"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  spellcheck={false}
+                  maxLength={6}
+                  value={code()}
+                  onInput={(e) => setCode(e.currentTarget.value)}
+                  {...tie(field)}
+                />
+                {errorLine()}
+              </>
+            )}
+          </Field>
+          <Button onClick={completeTotp} busy={busy()}>
+            {busy() ? "Checking…" : "Confirm"}
           </Button>
           <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
             Cancel

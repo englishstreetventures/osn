@@ -873,3 +873,95 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Each button that starts a call holds the wait as `busy`, not `disabled`, so
+ * it keeps focus; a second press sends nothing, and Back waits too.
+ */
+describe("RecoveryLoginForm — a wait", () => {
+  const never = () => new Promise<never>(() => {});
+
+  /**
+   * The busy button named `label`, pressed once more: whether it is announced
+   * busy and disabled, and how many calls went out.
+   */
+  async function pressBusy(label: string, call: ReturnType<typeof vi.fn>) {
+    const button = (await screen.findByRole("button", { name: label })) as HTMLButtonElement;
+    fireEvent.click(button);
+    await Promise.resolve();
+    return {
+      busy: button.getAttribute("aria-busy"),
+      disabled: button.disabled,
+      calls: call.mock.calls.length,
+    };
+  }
+
+  /** What a busy button reads while its call is held. */
+  const HELD = { busy: "true", disabled: false, calls: 1 };
+
+  /** Whether Back is disabled. */
+  const backDisabled = () =>
+    (screen.getByRole("button", { name: /^Back$/ }) as HTMLButtonElement).disabled;
+
+  it("holds Sign in with recovery code busy while it signs in", async () => {
+    stub.loginWithRecoveryCode.mockReturnValue(never());
+    mountFull();
+    openRecoveryCode();
+    fill(/Handle or email/i, "alice@example.com");
+    fill(/Recovery code/i, "abcd-1234-5678-ef00");
+    fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
+    expect(await pressBusy("Signing in…", stub.loginWithRecoveryCode)).toEqual(HELD);
+    expect(backDisabled()).toBe(true);
+  });
+
+  it("holds Send the code busy while it sends", async () => {
+    stub.emailRecoveryBegin.mockReturnValue(never());
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    fill(/Email address on the account/i, "alice@example.com");
+    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+    expect(await pressBusy("Sending…", stub.emailRecoveryBegin)).toEqual(HELD);
+    expect(backDisabled()).toBe(true);
+  });
+
+  it("holds Continue busy while it checks an emailed code", async () => {
+    stub.emailRecoveryBegin.mockResolvedValue(undefined);
+    stub.emailRecoveryComplete.mockReturnValue(never());
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    fill(/Email address on the account/i, "alice@example.com");
+    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+    await waitFor(() => screen.getByText(/If that address has an account/i));
+    typeCode("123456");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    expect(await pressBusy("Checking…", stub.emailRecoveryComplete)).toEqual(HELD);
+    expect(backDisabled()).toBe(true);
+  });
+
+  it("holds Continue busy while it checks an authenticator code", async () => {
+    stub.totpRecoveryComplete.mockReturnValue(never());
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+    fill(/Handle or email/i, "alice");
+    typeCode("654321");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    expect(await pressBusy("Checking…", stub.totpRecoveryComplete)).toEqual(HELD);
+    expect(backDisabled()).toBe(true);
+  });
+
+  it("holds Add a passkey busy while the ceremony runs", async () => {
+    stub.totpRecoveryComplete.mockResolvedValue({
+      session: restrictedSession,
+      profile: sampleProfile,
+    });
+    mountFull({ runPasskeyRegistration: never });
+    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+    fill(/Handle or email/i, "alice");
+    typeCode("654321");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Add a passkey/i }));
+    expect(await pressBusy("Waiting for your passkey…", registration.passkeyRegisterBegin)).toEqual(
+      HELD,
+    );
+  });
+});

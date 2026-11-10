@@ -326,3 +326,25 @@ sign-in, and stays away on a cold load with no session. Each notice's ink is
 read against its contract token at 390 and 1440 px in both schemes and shot
 into `e2e-artifacts/screenshots/musubi-surfaces/` (`musubiNotice` in
 `tests/support/musubi-surfaces.ts`).
+
+The same flow reads the shared parts the forms draw, on steps it already takes
+and with no sign-in of its own: the create-account dialog's plain `Field`
+labels and the date of birth's hint, the sign-in dialog's label and its
+standalone "Lost your passkey?" link, Continue busy while
+`/login/passkey/begin` is held (focus kept, the orb drawn, shot under reduced
+motion), `/authorize`'s "Create one" inside its sentence, Discover's "Search
+for someone" inside its empty note, the authenticator setup's span labels, and
+the contact address on `/privacy` and `/terms`, an inline link in the legal
+prose. It holds Register's three calls, the step-up's begin, the
+authenticator's confirm and a revoke of Pulse on Connected apps (authorised
+through the API first, so no page load is added), reading
+each button busy with Cancel disabled beside it, and Revoke 40px tall at
+390px. `musubi-org-detail` reads the create-organisation dialog's plain labels
+and the handle's hint, and holds the create's `POST`, the rename's `PATCH` and
+a connection request from Discover and from `/search` long enough to read
+Create ("Creating…"), Save ("Saving…") and each Connect ("Sending…") busy, not
+disabled, with focus kept (`busyButtonHeld`), each Connect 40px tall at 390px.
+`/search`'s Accept is read only in `SearchPage.test.tsx`: no flow receives a
+request. The rules they hold are in
+[DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
+fields.

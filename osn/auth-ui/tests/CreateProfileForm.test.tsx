@@ -215,6 +215,24 @@ describe("CreateProfileForm", () => {
     },
   );
 
+  // Create holds focus through the wait: `busy`, not `disabled`; Cancel waits too.
+  it("keeps Create profile busy, not disabled, while it creates", async () => {
+    hoisted.createProfile.mockReturnValue(new Promise(() => {}));
+    render(() => <CreateProfileForm onCancel={vi.fn()} />);
+    fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "alice" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create profile/i }));
+    await vi.advanceTimersByTimeAsync(0);
+    const creating = screen.getByRole("button", { name: "Creating…" }) as HTMLButtonElement;
+    expect(creating.getAttribute("aria-busy")).toBe("true");
+    expect(creating.disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    fireEvent.click(creating);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hoisted.createProfile).toHaveBeenCalledTimes(1);
+  });
+
   it("calls onCancel when cancel button is clicked", () => {
     const onCancel = vi.fn();
     render(() => <CreateProfileForm onCancel={onCancel} />);

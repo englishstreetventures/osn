@@ -23,6 +23,7 @@ export function ConnectedAppsSection() {
   const [error, setError] = createSignal<string | null>(null);
 
   async function revoke(clientId: string) {
+    if (revoking() === clientId) return;
     setError(null);
     setRevoking(clientId);
     try {
@@ -95,8 +96,8 @@ export function ConnectedAppsSection() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    class="h-7 shrink-0"
-                    disabled={revoking() === conn.clientId}
+                    class="h-7 shrink-0 max-md:h-10"
+                    busy={revoking() === conn.clientId}
                     onClick={() => void revoke(conn.clientId)}
                   >
                     {revoking() === conn.clientId ? "Revoking…" : "Revoke"}

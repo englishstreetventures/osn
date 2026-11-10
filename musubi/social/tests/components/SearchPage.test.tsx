@@ -153,6 +153,29 @@ describe("<SearchPage />", () => {
     await waitFor(() => expect(screen.getByText("Requested")).toBeDefined());
   });
 
+  // Accept holds focus through its wait (`busy`, not `disabled`), names it, and
+  // sends once however often pressed. No e2e flow can receive a request.
+  it("keeps Accept busy, not disabled, while the accept runs", async () => {
+    mocks.search.mockResolvedValue({
+      people: [person("alice", "pending_received")],
+      organisations: [],
+    });
+    mocks.acceptConnection.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    await type("ali");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Accept" })).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const accepting = screen.getByRole("button", { name: "Accepting…" }) as HTMLButtonElement;
+    expect(accepting.getAttribute("aria-busy")).toBe("true");
+    expect(accepting.disabled).toBe(false);
+    fireEvent.click(accepting);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.acceptConnection).toHaveBeenCalledTimes(1);
+  });
+
   it("reports an empty result set", async () => {
     renderPage();
     await type("zzz");

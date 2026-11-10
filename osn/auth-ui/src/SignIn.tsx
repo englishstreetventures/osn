@@ -2,13 +2,13 @@ import type { LoginClient, RecoveryClient, RegistrationClient } from "@osn/clien
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
 import { createSignal, createUniqueId, Show, onMount } from "solid-js";
 
-import { fieldError, plainError, type FieldError } from "./error-lines";
+import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { InlineAction } from "./InlineAction";
 import { describePasskeyError } from "./passkey-errors";
 import { RecoveryLoginForm } from "./RecoveryLoginForm";
@@ -190,7 +190,7 @@ export function SignIn(props: SignInProps) {
           {view() === "recovery" ? "Recover your account" : `Sign in to ${props.productName}`}
         </h2>
         <Show when={props.onCancel}>
-          <Button variant="ghost" size="sm" onClick={props.onCancel}>
+          <Button variant="ghost" size="sm" onClick={props.onCancel} disabled={busy()}>
             Cancel
           </Button>
         </Show>
@@ -203,51 +203,61 @@ export function SignIn(props: SignInProps) {
       {/* Primary WebAuthn flow */}
       <Show when={!signedIn() && view() === "passkey" && webauthnSupported()}>
         <form onSubmit={submitPasskey} class="flex flex-col gap-4">
-          <div class="flex flex-col gap-1">
-            <Label for="si-passkey-id">Email or @handle</Label>
-            <Input
-              id="si-passkey-id"
-              type="text"
-              required
-              autocomplete="username webauthn"
-              value={identifier()}
-              onInput={(e) => setIdentifier(e.currentTarget.value)}
-              aria-describedby={error() ? errorId : undefined}
-              aria-invalid={error()?.invalid || undefined}
-            />
-            <Show when={error()}>
-              {(line) => (
-                <Notice tone="danger" size="inline" alert id={errorId}>
-                  {line().text}
-                  {/* The passkey sentence names no cause, so the way in
-                      without one sits beside it. */}
-                  <Show when={line().passkey}>
-                    {" "}
-                    <InlineAction onClick={openRecovery}>Lost your passkey?</InlineAction>
-                  </Show>
-                </Notice>
-              )}
-            </Show>
-          </div>
+          <Field labelTreatment="plain" label="Email or @handle">
+            {(field) => (
+              <>
+                <Input
+                  id={field.id}
+                  type="text"
+                  required
+                  autocomplete="username webauthn"
+                  spellcheck={false}
+                  value={identifier()}
+                  onInput={(e) => setIdentifier(e.currentTarget.value)}
+                  aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
+                  aria-invalid={error()?.invalid || undefined}
+                />
+                <Show when={error()}>
+                  {(line) => (
+                    <Notice tone="danger" size="inline" alert id={errorId}>
+                      {line().text}
+                      {/* The passkey sentence names no cause, so the way in
+                          without one sits beside it. */}
+                      <Show when={line().passkey}>
+                        {" "}
+                        <InlineAction onClick={openRecovery}>Lost your passkey?</InlineAction>
+                      </Show>
+                    </Notice>
+                  )}
+                </Show>
+              </>
+            )}
+          </Field>
           {/* Turnstile challenge — renders only when a sitekey is provided. */}
           <TurnstileWidget
             siteKey={props.turnstileSiteKey}
             onToken={setTurnstileToken}
             onReady={(c) => (resetTurnstile = c.reset)}
           />
+          {/* The other reasons apply only while idle: begin spends the token,
+              and the widget drops it before the passkey prompt has closed. */}
           <Button
             type="submit"
-            disabled={busy() || !identifier().trim() || (turnstileOn() && !turnstileToken())}
+            busy={busy()}
+            disabled={!busy() && (!identifier().trim() || (turnstileOn() && !turnstileToken()))}
           >
             {busy() ? "Verifying…" : "Continue"}
           </Button>
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="sm"
+            class="self-center"
             onClick={openRecovery}
-            class="text-primary self-start text-sm font-medium hover:underline"
+            disabled={busy()}
           >
             Lost your passkey?
-          </button>
+          </Button>
         </form>
       </Show>
 

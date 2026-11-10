@@ -7,14 +7,15 @@ import {
 } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { Button } from "@shared/ui/ui/button";
+import { Field, type FieldControlProps } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
+import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
 import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
-import { fieldError, plainError, type FieldError } from "./error-lines";
+import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { describePasskeyError } from "./passkey-errors";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
@@ -297,6 +298,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
 
   async function submitRecoveryCode(e: Event) {
     e.preventDefault();
+    if (busy()) return;
     setBusy(true);
     setError(null);
     try {
@@ -472,9 +474,13 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
       )}
     </Show>
   );
-  /** For a field the line is about: names the line, and marks a refused input. */
-  const tie = () => ({
-    "aria-describedby": error() ? errorId : undefined,
+  /**
+   * For a field the line is about: its id, the field's own description, then
+   * the line, and a mark on a refused input.
+   */
+  const tie = (field: FieldControlProps) => ({
+    id: field.id,
+    "aria-describedby": describedBy(field["aria-describedby"], error() && errorId),
     "aria-invalid": error()?.invalid || undefined,
   });
 
@@ -532,32 +538,34 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             Enter your handle or email plus one of your saved recovery codes. All other signed-in
             sessions will be revoked.
           </p>
-          <div class="flex flex-col gap-1">
-            <Label for="recovery-identifier">Handle or email</Label>
-            <Input
-              id="recovery-identifier"
-              autocomplete="username"
-              value={identifier()}
-              onInput={(e) => setIdentifier(e.currentTarget.value)}
-              required
-              {...tie()}
-            />
-          </div>
-          <div class="flex flex-col gap-1">
-            <Label for="recovery-code">Recovery code</Label>
-            <Input
-              id="recovery-code"
-              autocomplete="one-time-code"
-              placeholder="xxxx-xxxx-xxxx-xxxx"
-              value={code()}
-              onInput={(e) => setCode(e.currentTarget.value)}
-              required
-              {...tie()}
-            />
-          </div>
+          <Field labelTreatment="plain" label="Handle or email">
+            {(field) => (
+              <Input
+                autocomplete="username"
+                spellcheck={false}
+                value={identifier()}
+                onInput={(e) => setIdentifier(e.currentTarget.value)}
+                required
+                {...tie(field)}
+              />
+            )}
+          </Field>
+          <Field labelTreatment="plain" label="Recovery code">
+            {(field) => (
+              <Input
+                autocomplete="one-time-code"
+                spellcheck={false}
+                placeholder="xxxx-xxxx-xxxx-xxxx"
+                value={code()}
+                onInput={(e) => setCode(e.currentTarget.value)}
+                required
+                {...tie(field)}
+              />
+            )}
+          </Field>
           {errorLine()}
           <div class="flex gap-2">
-            <Button type="submit" disabled={busy() || !identifier() || !code()}>
+            <Button type="submit" busy={busy()} disabled={!busy() && (!identifier() || !code())}>
               {busy() ? "Signing in…" : "Sign in with recovery code"}
             </Button>
             <Button type="button" variant="ghost" onClick={restart} disabled={busy()}>
@@ -572,22 +580,22 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           <p class="text-muted-foreground text-sm">
             We'll send a six-digit code to the address on the account.
           </p>
-          <div class="flex flex-col gap-1">
-            {/* Email only, not "handle or email": this endpoint refuses a
-                handle — it puts mail in somebody's inbox and a handle is
-                public — and the refusal is flattened on the wire, so asking
-                for the wrong thing produces an error with nothing in it. */}
-            <Label for="recovery-email">Email address on the account</Label>
-            <Input
-              id="recovery-email"
-              type="email"
-              autocomplete="email"
-              value={email()}
-              onInput={(e) => setEmail(e.currentTarget.value)}
-              required
-              {...tie()}
-            />
-          </div>
+          {/* Email only, not "handle or email": this endpoint refuses a
+              handle — it puts mail in somebody's inbox and a handle is
+              public — and the refusal is flattened on the wire, so asking
+              for the wrong thing produces an error with nothing in it. */}
+          <Field labelTreatment="plain" label="Email address on the account">
+            {(field) => (
+              <Input
+                type="email"
+                autocomplete="email"
+                value={email()}
+                onInput={(e) => setEmail(e.currentTarget.value)}
+                required
+                {...tie(field)}
+              />
+            )}
+          </Field>
           <TurnstileWidget
             siteKey={props.turnstileSiteKey}
             onToken={setTurnstileToken}
@@ -595,9 +603,12 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           />
           {errorLine()}
           <div class="flex gap-2">
+            {/* The other reasons apply only while idle: the send spends the
+                token, and the widget drops it before the wait ends. */}
             <Button
               type="submit"
-              disabled={busy() || !email().trim() || (turnstileOn() && !turnstileToken())}
+              busy={busy()}
+              disabled={!busy() && (!email().trim() || (turnstileOn() && !turnstileToken()))}
             >
               {busy() ? "Sending…" : "Send the code"}
             </Button>
@@ -613,8 +624,8 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           <p class="text-muted-foreground text-sm">
             If that address has an account, a code is on its way. Enter it below.
           </p>
-          <div class="flex flex-col gap-2">
-            <span class="text-sm font-medium">Code from your email</span>
+          <div class="flex flex-col gap-1.5">
+            <span class={labelVariants()}>Code from your email</span>
             <OtpInput
               value={code()}
               onChange={setCode}
@@ -626,7 +637,11 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             {errorLine()}
           </div>
           <div class="flex gap-2">
-            <Button onClick={verifyEmailCode} disabled={busy() || code().length !== 6}>
+            <Button
+              onClick={verifyEmailCode}
+              busy={busy()}
+              disabled={!busy() && code().length !== 6}
+            >
               {busy() ? "Checking…" : "Continue"}
             </Button>
             <Button variant="ghost" onClick={restart} disabled={busy()}>
@@ -641,19 +656,20 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           <p class="text-muted-foreground text-sm">
             Enter your handle or email, then the current code from your authenticator app.
           </p>
-          <div class="flex flex-col gap-1">
-            <Label for="totp-recovery-identifier">Handle or email</Label>
-            <Input
-              id="totp-recovery-identifier"
-              autocomplete="username"
-              value={identifier()}
-              onInput={(e) => setIdentifier(e.currentTarget.value)}
-              required
-              {...tie()}
-            />
-          </div>
-          <div class="flex flex-col gap-2">
-            <span class="text-sm font-medium">Code from your authenticator app</span>
+          <Field labelTreatment="plain" label="Handle or email">
+            {(field) => (
+              <Input
+                autocomplete="username"
+                spellcheck={false}
+                value={identifier()}
+                onInput={(e) => setIdentifier(e.currentTarget.value)}
+                required
+                {...tie(field)}
+              />
+            )}
+          </Field>
+          <div class="flex flex-col gap-1.5">
+            <span class={labelVariants()}>Code from your authenticator app</span>
             <OtpInput
               value={code()}
               onChange={setCode}
@@ -664,7 +680,8 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           <div class="flex gap-2">
             <Button
               onClick={verifyTotpCode}
-              disabled={busy() || !identifier().trim() || code().length !== 6}
+              busy={busy()}
+              disabled={!busy() && (!identifier().trim() || code().length !== 6)}
             >
               {busy() ? "Checking…" : "Continue"}
             </Button>
@@ -688,7 +705,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           </p>
           {errorLine()}
           <div class="flex gap-2">
-            <Button onClick={enrolPasskey} disabled={busy()}>
+            <Button onClick={enrolPasskey} busy={busy()}>
               {busy() ? "Waiting for your passkey…" : error() ? "Try again" : "Add a passkey"}
             </Button>
             <Show when={error()}>

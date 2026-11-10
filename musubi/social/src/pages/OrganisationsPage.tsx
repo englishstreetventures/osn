@@ -4,8 +4,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -35,7 +35,7 @@ export function OrganisationsPage() {
 
   async function handleCreate(e: Event) {
     e.preventDefault();
-    if (!handle() || !name()) return;
+    if (creating() || !handle() || !name()) return;
     setCreating(true);
     try {
       await orgClient.createOrg({
@@ -154,42 +154,46 @@ export function OrganisationsPage() {
           {/* The footer sits inside the form, so Enter in a field still submits. */}
           <form onSubmit={handleCreate}>
             <div class="flex flex-col gap-4 p-4">
-              <div class="flex flex-col gap-1.5">
-                <Label for="org-handle">Handle</Label>
-                <Input
-                  id="org-handle"
-                  aria-describedby="org-handle-hint"
-                  placeholder="my_org"
-                  value={handle()}
-                  onInput={(e) =>
-                    setHandle(e.currentTarget.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
-                  }
-                  required
-                />
-                <p id="org-handle-hint" class="text-muted-foreground text-meta">
-                  Lowercase letters, numbers, and underscores only.
-                </p>
-              </div>
-              <div class="flex flex-col gap-1.5">
-                <Label for="org-name">Name</Label>
-                <Input
-                  id="org-name"
-                  placeholder="My Organisation"
-                  value={name()}
-                  onInput={(e) => setName(e.currentTarget.value)}
-                  required
-                />
-              </div>
-              <div class="flex flex-col gap-1.5">
-                <Label for="org-desc">Description</Label>
-                <Textarea
-                  id="org-desc"
-                  placeholder="What's this organisation about?"
-                  value={description()}
-                  onInput={(e) => setDescription(e.currentTarget.value)}
-                  rows={2}
-                />
-              </div>
+              <Field
+                labelTreatment="plain"
+                label="Handle"
+                hint="Lowercase letters, numbers, and underscores only."
+              >
+                {(field) => (
+                  <Input
+                    {...field}
+                    placeholder="my_org"
+                    spellcheck={false}
+                    value={handle()}
+                    onInput={(e) =>
+                      setHandle(e.currentTarget.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
+                    }
+                    required
+                  />
+                )}
+              </Field>
+              <Field labelTreatment="plain" label="Name">
+                {(field) => (
+                  <Input
+                    {...field}
+                    placeholder="My Organisation"
+                    value={name()}
+                    onInput={(e) => setName(e.currentTarget.value)}
+                    required
+                  />
+                )}
+              </Field>
+              <Field labelTreatment="plain" label="Description">
+                {(field) => (
+                  <Textarea
+                    {...field}
+                    placeholder="What's this organisation about?"
+                    value={description()}
+                    onInput={(e) => setDescription(e.currentTarget.value)}
+                    rows={2}
+                  />
+                )}
+              </Field>
             </div>
             <DialogFooter>
               <Button
@@ -198,6 +202,7 @@ export function OrganisationsPage() {
                 size="sm"
                 class="max-md:h-10"
                 onClick={() => setShowCreate(false)}
+                disabled={creating()}
               >
                 Cancel
               </Button>
@@ -205,9 +210,10 @@ export function OrganisationsPage() {
                 type="submit"
                 size="sm"
                 class="max-md:h-10"
-                disabled={creating() || !handle() || !name()}
+                busy={creating()}
+                disabled={!creating() && (!handle() || !name())}
               >
-                {creating() ? "Creating..." : "Create"}
+                {creating() ? "Creating…" : "Create"}
               </Button>
             </DialogFooter>
           </form>
