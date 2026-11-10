@@ -293,6 +293,31 @@ describe("an address typed in capitals", () => {
       expect(codeNobody).toEqual(code);
     }).pipe(Effect.provide(h.layer));
   });
+
+  it.live("longer than any account's identifier, is refused at every route with no lookup", () => {
+    // No stored email or handle is longer than 255 characters, so a longer
+    // identifier names nobody; it gets an unknown identifier's refusal without
+    // the account lookup. Goes red on dropping the length check from
+    // `resolveIdentifier`.
+    const h = harness();
+    const long = `${"A".repeat(300)}@Example.com`;
+    const lookups = (statements: readonly string[]) =>
+      statements.filter((sql) => sql.includes('"accounts"'));
+    return Effect.gen(function* () {
+      const begun = yield* h.record(h.auth.beginEmailRecovery(long));
+      const email = yield* h.record(h.auth.completeEmailRecovery(long, "000000"));
+      const totp = yield* h.record(h.auth.completeTotpRecovery(long, "000000"));
+      const code = yield* h.record(h.auth.consumeRecoveryCode(long, "wrong-code"));
+
+      expect(begun.ops).toEqual(BEGIN);
+      expect(email.ops).toEqual(COMPLETE_REFUSED);
+      expect(totp.ops).toEqual(["totp_lockout.increment"]);
+      expect(code.ops).toEqual(RECOVERY_CODE_REFUSED);
+      for (const recorded of [begun, email, totp, code]) {
+        expect(lookups(recorded.statements)).toEqual([]);
+      }
+    }).pipe(Effect.provide(h.layer));
+  });
 });
 
 /**

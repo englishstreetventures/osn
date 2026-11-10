@@ -9,7 +9,12 @@ import { and, desc, eq, getTableColumns, inArray, isNull, sql } from "drizzle-or
 import { Effect } from "effect";
 
 import { DatabaseError } from "./errors";
-import { identifierAsTyped, looksLikeEmail, normaliseIdentifier } from "./helpers";
+import {
+  identifierAsTyped,
+  looksLikeEmail,
+  MAX_IDENTIFIER_LENGTH,
+  normaliseIdentifier,
+} from "./helpers";
 import type { ProfileWithEmail } from "./types";
 
 /**
@@ -208,14 +213,20 @@ export function createProfilesModule() {
    * Resolves an identifier, as the caller submitted it, to a profile. One
    * containing "@" once normalised is an email address; any other is a handle.
    * Normalises it here, with the same {@link normaliseIdentifier} every caller
-   * derives its store keys from.
+   * derives its store keys from. One longer than any account's identifier
+   * names nobody and is not looked up: whether it is too long depends only on
+   * what was sent.
    */
   const resolveIdentifier = (
     identifier: string,
   ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> => {
     const normalised = normaliseIdentifier(identifier);
+    const asTyped = identifierAsTyped(identifier);
+    if (normalised.length > MAX_IDENTIFIER_LENGTH || asTyped.length > MAX_IDENTIFIER_LENGTH) {
+      return Effect.succeed(null);
+    }
     return looksLikeEmail(normalised)
-      ? findProfileBySignInEmail(normalised, identifierAsTyped(identifier))
+      ? findProfileBySignInEmail(normalised, asTyped)
       : findProfileByHandle(normalised);
   };
 

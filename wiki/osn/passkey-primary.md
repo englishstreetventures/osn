@@ -410,6 +410,14 @@ is the same, and while the store is failing every branch answers the same 503
 identifier over 255 characters, longer than any account holds, is refused with
 400 before any of it.
 
+`/login/passkey/complete` with an identifier costs the same either way too. It
+takes the challenge at the normalised identifier, then looks up the presented
+credential: on a known identifier because the challenge is there, on an unknown
+one because a miss runs the same lookup before it refuses. So `begin` then
+`complete` with a credential the caller does not hold makes one store call and
+one D1 statement whether or not the identifier names an account
+(`osn/api/tests/services/begin-op-sequence.test.ts`).
+
 ## Access-token audience
 
 Access tokens carry `aud: "osn-access"`; `verifyAccessToken` asserts it.
