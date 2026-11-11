@@ -230,7 +230,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 366482 B | 378182 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
+| cire/host | static | 378318 B | 390018 B *(re-baselined, englishstreetventures/osn#2071 — see below)* |
 | cire/vendor | static | 99379 B | 103718 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -444,6 +444,26 @@ cire/<app>`, on `feat/cire-guest` at `2305bcb13`, rebased onto `origin/main`
 `7d2ad85d1`. The eager vendor figure is the same build with `VendorApp.tsx`
 from the commit before `66e039e35`, the one that loads the thread with `lazy()`.
 Chunk sizes are `gzip -9 -n` per file.*
+
+### `cire/host` re-baselined for the disclosure that grows open
+
+`Disclosure` grows its box open instead of jumping, and the module panel's
+`createAutoSize` frame follows that growth instead of animating each frame of
+it (englishstreetventures/osn#2071). The cost is the opening's class strings,
+their CSS rules and the frame's check for a growing `<details>`. No dependency
+is added.
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **377874 B**, 89 files | 378182 B, 308 B of headroom |
+| with the growth | **378318 B**, 89 files (+444) | **390018 B** (+11700) |
+
+*Measured 2026-11-11 — `bun run --cwd cire/host build`, which ends with
+`../../scripts/guard-bundle-size.sh .`, on `feat/cire-disclosure-grows` at
+`57302a7cd`; the `main` figure is the same build with
+`cire/ui/src/disclosure.tsx` and `cire/ui/src/lib/auto-size.ts` taken from
+`origin/main`, which leaves every source the build reads as it is at
+`b0971b3a6`.*
 
 ### `cire/invites` re-baselined after the zod override
 

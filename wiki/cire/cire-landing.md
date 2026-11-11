@@ -47,8 +47,8 @@ packages deploy and scale on their own.
 ## Stack + brand parity
 
 Mirrors `cire/host`: **static Astro + SolidJS islands + Tailwind v4**
-(`output: "static"`, no Cloudflare adapter), deployed to Cloudflare Pages with
-`wrangler pages deploy dist`. **Motion is CSS alone**: transitions and one
+(`output: "static"`, no Cloudflare adapter), served as static assets by its
+site Worker. **Motion is CSS alone**: transitions and one
 keyframe animation on cire's motion ladder ([[#Corners, labels and motion]]),
 no motion library. `motion` and `three` are not
 dependencies, and the bundle guard's threshold (`scripts/bundle-size-budgets.txt`)
@@ -434,9 +434,8 @@ off `app.cireweddings.com`). In `.github/workflows/production-release.yml` the `
 job builds it with its production values, and the cire stack deploys that build to the
 `cire-landing` Worker, which is `worker` in `shared/infra/src/production-sites.ts` and
 serves the apex since release 42817386650 (2026-11-10)
-([[infrastructure-as-code#Production sites]]). No job deploys the `cire-landing` Pages
-project; it keeps its last build, serving no host, for a rollback ([[production-deploy]]
-§5.7). The apex also holds the zone's Email Routing MX records and SPF TXT record, which
+([[infrastructure-as-code#Production sites]]); the `cire-landing` Pages project it
+moved from is deleted ([[production-deploy]] §5.7). The apex also holds the zone's Email Routing MX records and SPF TXT record, which
 the move left in place. `record-cire-landing` records each production deploy whose
 smoke check passed. On dev the cire stack
 serves it as the `cire-landing-dev` Worker, with static assets, on `cire.<DEV_DOMAIN>`,
@@ -463,11 +462,9 @@ apex-based invite links in the wild (guests use the full link).**
 Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 [[production-deploy]]:
 1. `host.cireweddings.com` is on the `cire-host` Worker (since 2026-11-10). The
-   `cire-host` Pages project serves no host and is kept for a rollback
-   ([[production-deploy]] §5.7).
+   `cire-host` Pages project is deleted ([[production-deploy]] §5.7).
 2. The apex `cireweddings.com` is on the `cire-landing` Worker (since 2026-11-10). The
-   `cire-landing` Pages project serves no host and is kept for a rollback
-   ([[production-deploy]] §5.7).
+   `cire-landing` Pages project is deleted ([[production-deploy]] §5.7).
 3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
    (custom_domain on deploy).
 4. ~~Redeploy osn-api manually~~ — osn-api is CI-deployed (`deploy-osn-api`

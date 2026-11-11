@@ -12,26 +12,21 @@ name: Production release
 #                                          (approval 2, together)
 #
 # `build` and `sites` run side by side; `alchemy-plan` and every deploy job
-# need both. A release dispatched with `attach` naming a site runs the plan
-# job and attach-pages-domain alone, behind one approval: the site's domain
-# goes back on its Pages project, the rollback of a site's Worker
-# (wiki/shared/production-deploy.md §5.7).
+# need both.
 #
 # `sites` builds each production site a shipping stack deploys, once, with
 # the values its build bakes in, and passes them on as the `production-sites`
 # artifact. A job that holds a credential downloads it outside its checkout
 # and lets in only the site builds (scripts/production-sites-artifact.ts).
-# `alchemy-plan` (the `production` Environment's first review) checks before
-# any install that no worker site's domain is on a Pages project, then plans
-# each shipping stack and runs the plan guard, keeping only the guard's
-# record (names, kinds, actions, and each site's custom-domain change, read
-# from the live Workers). Every other job needs all four, so they reach the
-# gate together and one second review releases them. When no stack ships,
+# `alchemy-plan` (the `production` Environment's first review) plans each
+# shipping stack and runs the plan guard, keeping only the guard's record
+# (names, kinds, actions, and each site's custom-domain change, read from the
+# live Workers). Every other job needs all four, so they reach the gate
+# together and one second review releases them. When no stack ships,
 # `alchemy-plan` is skipped and that is the only review. Any job that fails
-# stops every deploy job: a guard refusal, a site build, a state store that
-# needs bootstrapping after an Alchemy bump, or a worker site's domain on
-# Pages all hold the release until fixed, or until a dispatch whose
-# `surfaces` leave the stacks out.
+# stops every deploy job: a guard refusal, a site build, or a state store
+# that needs bootstrapping after an Alchemy bump holds the release until
+# fixed, or until a dispatch whose `surfaces` leave the stacks out.
 #
 # Each stack job re-plans, refuses a plan the guard refuses or that differs
 # from the one approved at `alchemy-plan`, deploys, and smoke-checks each
@@ -82,12 +77,10 @@ name: Production release
 # Environment also allows `main` alone; the plan job refuses any other ref
 # before the build starts. In the Alchemy jobs it reaches only the steps that
 # check the token, read the state store, snapshot or compare deployments,
-# read the Workers' custom domains, plan, deploy and smoke-check;
-# CLOUDFLARE_PAGES_DNS_TOKEN, which may move a Pages domain, reaches only the
-# pages-domain steps: alchemy-plan's precheck, before any install, and the
-# attach job, which installs nothing. The jobs that install a narrower tree
-# than `sites` and hold a credential (alchemy-plan and the stack jobs) restore
-# no dependency cache, which jobs holding no secret also write. Every checkout
+# read the Workers' custom domains, plan, deploy and smoke-check. The jobs
+# that install a narrower tree than `sites` and hold a credential
+# (alchemy-plan and the stack jobs) restore no dependency cache, which jobs
+# holding no secret also write. Every checkout
 # sets `persist-credentials: false`: no step fetches or pushes, so the job
 # token never sits in .git/config while dependency code runs.
 # shared/infra/tests/workflow-secrets.test.ts holds this.
@@ -110,11 +103,6 @@ on:
         type: boolean
         required: false
         default: false
-      attach:
-        description: "A site whose domain goes back on its Pages project once it is off its Worker: the rollback of a site's Worker. The release runs that alone: leave every other input empty. Empty for none."
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -162,8 +150,6 @@ jobs:
       stack_cire: ${{ steps.plan.outputs.stack_cire }}
       any_site: ${{ steps.plan.outputs.any_site }}
       any_stack: ${{ steps.plan.outputs.any_stack }}
-      stacks: ${{ steps.plan.outputs.stacks }}
-      attach: ${{ steps.plan.outputs.attach }}
     steps:
       - name: Refuse any ref but main
         if: github.ref != 'refs/heads/main'
@@ -189,7 +175,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SURFACES: ${{ inputs.surfaces }}
           FORCE: ${{ inputs.force }}
-          ATTACH: ${{ inputs.attach }}
         run: bun run scripts/release-plan.ts
 
   # ── Gate ─────────────────────────────────────────────────────────────────
@@ -455,12 +440,9 @@ jobs:
 
   # ── Approval 1: the Alchemy plan ─────────────────────────────────────────
   # Runs only when a stack ships, in the `production` Environment, so its
-  # review is the first of two. Before any install it checks that the domain
-  # of every worker site of a shipping stack is on no Pages project
-  # (scripts/pages-domain.ts), so no release runs while a site is rolled back
-  # to Pages. Then it plans each shipping stack, the log kept in a file
-  # because raw Alchemy output can carry account values, and runs the plan
-  # guard, keeping only its record: resource names, kinds, actions and
+  # review is the first of two. It plans each shipping stack, the log kept in
+  # a file because raw Alchemy output can carry account values, and runs the
+  # plan guard, keeping only its record: resource names, kinds, actions and
   # counts. The guard holds no credential.
   alchemy-plan:
     name: Plan the Alchemy stacks
@@ -477,17 +459,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-
-      # Before any install: the narrow Pages and DNS token reaches no
-      # dependency's code. The script imports only the repository's
-      # import-free files.
-      - name: Check each worker site's domain
-        id: domains
-        run: bun run scripts/pages-domain.ts precheck
-        env:
-          STACKS: ${{ needs.plan.outputs.stacks }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}
 
       # The two production stacks' trees, no other workspace's, and no
       # cache: the cache is shared with jobs that hold no secret.
@@ -1524,37 +1495,3 @@ jobs:
     steps:
       - name: Record the production deploy
         run: echo "musubi-landing deployed and passed its smoke check in this run's musubi stack job."
-
-  # ── A site's domain back on its Pages project ────────────────────────────
-  # The rollback of a site's Worker, dispatched with `attach` naming the site
-  # once its host is off the Worker (wiki/shared/production-deploy.md §5.7).
-  # A fresh runner with nothing installed, so the narrow Pages and DNS token
-  # reaches no dependency's code; it never leaves GitHub. `pages-domain.ts
-  # attach` checks the token's reach, then makes only what is missing, and
-  # refuses while the Worker or anything else still holds the host. Its own
-  # approval.
-  attach-pages-domain:
-    name: Put a site's domain back on its Pages project
-    needs: [plan]
-    if: needs.plan.outputs.attach != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      # No install: pages-domain.ts imports only the repository's import-free
-      # files.
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Put the site's domain and CNAME back on its Pages project
-        id: attach
-        run: bun run scripts/pages-domain.ts attach "$ATTACH"
-        env:
-          ATTACH: ${{ needs.plan.outputs.attach }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}
