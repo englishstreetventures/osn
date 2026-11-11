@@ -16,7 +16,7 @@
 
 import { Database } from "bun:sqlite";
 
-import { accounts, passkeys, recoveryCodes, sessions } from "@osn/db/schema";
+import { accounts, oauthClients, passkeys, recoveryCodes, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
@@ -26,6 +26,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import type { LiveSessionGateEndpoint } from "../../src/metrics";
 import { settledHandle } from "../helpers/background";
 import { confirmLinkThroughRoutes, linkForRequest } from "../helpers/step-up-link";
 
@@ -61,7 +62,26 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
   };
 });
 
-const { verifyAuthenticationResponse } = await import("@simplewebauthn/server");
+/**
+ * The endpoint name of every `session_stale` refusal, in order. The spy calls
+ * through, so the counter itself is unchanged.
+ */
+const staleRefusals = vi.hoisted(() => [] as string[]);
+vi.mock("../../src/metrics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/metrics")>();
+  return {
+    ...actual,
+    metricSessionStaleRefused: (
+      endpoint: Parameters<typeof actual.metricSessionStaleRefused>[0],
+    ) => {
+      staleRefusals.push(endpoint);
+      actual.metricSessionStaleRefused(endpoint);
+    },
+  };
+});
+
+const { verifyAuthenticationResponse, verifyRegistrationResponse } =
+  await import("@simplewebauthn/server");
 const { createAuthService } = await import("../../src/services/auth");
 const { deriveSessionBinding, signJwt } = await import("../../src/services/auth/helpers");
 const { createDefaultCeremonyStores, createInMemoryAccountCap } =
@@ -976,5 +996,379 @@ describe("a logged-out session's access token, minting a session or a factor", (
         await post(h, "/totp/enroll/complete", { token: live.accessToken, body: { code } }),
       ),
     ).toEqual({ status: 200, body: { enrolled: true } });
+  });
+});
+
+describe("a logged-out session's access token, at the routes that enrol or register", () => {
+  it("cannot begin passkey registration, and the refusal leaves the live session's challenge", async () => {
+    // Red on removing the gate from POST /passkey/register/begin for an
+    // ordinary caller: the refused begin parks its own challenge over the
+    // live session's, so the live registration verifies against another.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-prb@example.com", "lsgprb");
+    const begin = (token: string) =>
+      post(h, "/passkey/register/begin", { token, body: { profileId: profile.id } });
+
+    const begun = await begin(live.accessToken);
+    expect(begun.status).toBe(200);
+    const { challenge } = (await begun.json()) as { challenge: string };
+
+    expect(await answerOf(await begin(ended.accessToken))).toEqual(REFUSED);
+
+    const verify = vi.mocked(verifyRegistrationResponse);
+    verify.mockClear();
+    const done = await post(h, "/passkey/register/complete", {
+      token: live.accessToken,
+      cookie: cookieFor(live.refreshToken),
+      body: {
+        profileId: profile.id,
+        attestation: { id: "x", rawId: "x", response: {}, type: "public-key" },
+      },
+    });
+    expect(done.status).toBe(200);
+    expect(verify.mock.calls.at(-1)?.[0].expectedChallenge).toBe(challenge);
+  });
+
+  it("cannot register a relying party, and no client is written", async () => {
+    // Red on removing the gate from POST /oidc/clients, or on moving it after
+    // the registration: a client secret is minted and a client cap spent.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-oc@example.com", "lsgoc");
+    const register = (token: string) =>
+      post(h, "/oidc/clients", {
+        token,
+        body: {
+          name: "Gate test",
+          redirect_uris: ["https://app.example.com/cb"],
+          confidential: true,
+        },
+      });
+    const clients = async () =>
+      (
+        await h.db
+          .select({ id: oauthClients.id })
+          .from(oauthClients)
+          .where(eq(oauthClients.ownerAccountId, profile.accountId))
+      ).length;
+
+    expect(await answerOf(await register(ended.accessToken))).toEqual(REFUSED);
+    expect(await clients()).toBe(0);
+
+    expect((await register(live.accessToken)).status).toBe(201);
+    expect(await clients()).toBe(1);
+  });
+
+  it("cannot begin authenticator-app enrolment, and the live session's pending secret stays", async () => {
+    // Red on removing the gate from POST /totp/enroll/begin, or on moving it
+    // after the begin: the refused begin replaces the pending secret, so the
+    // live session's code no longer confirms.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-teb@example.com", "lsgteb");
+    const stepUp = () =>
+      h.svc(h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+    const begun = await post(h, "/totp/enroll/begin", {
+      token: live.accessToken,
+      body: { step_up_token: await stepUp() },
+    });
+    expect(begun.status).toBe(200);
+    const { totpSecret } = (await begun.json()) as { totpSecret: string };
+
+    expect(
+      await answerOf(
+        await post(h, "/totp/enroll/begin", {
+          token: ended.accessToken,
+          body: { step_up_token: await stepUp() },
+        }),
+      ),
+    ).toEqual(REFUSED);
+
+    const code = await deriveTotpCode(
+      base32Decode(totpSecret),
+      Math.floor(Date.now() / 1000 / STEP_SECONDS),
+    );
+    expect(
+      await answerOf(
+        await post(h, "/totp/enroll/complete", { token: live.accessToken, body: { code } }),
+      ),
+    ).toEqual({ status: 200, body: { enrolled: true } });
+  });
+});
+
+/**
+ * One row per route that checks the session: what it needs set up by the live
+ * session, and the call. Each row is sent twice with a logged-out session's
+ * token: alone, which is refused and counted under the row's endpoint name,
+ * then with the live session's cookie, which the route serves.
+ */
+interface GatedCall {
+  readonly endpoint: string;
+  readonly passkey?: true;
+  readonly prepare: (
+    h: Harness,
+    profile: Profile,
+    live: { accessToken: string; refreshToken: string },
+    credentialId: string | null,
+  ) => Promise<{ path: string; body: unknown; ok: number }>;
+}
+
+const GATED: readonly GatedCall[] = [
+  {
+    endpoint: "step_up_passkey_begin",
+    passkey: true,
+    prepare: async () => ({ path: "/step-up/passkey/begin", body: {}, ok: 200 }),
+  },
+  {
+    endpoint: "step_up_passkey_complete",
+    passkey: true,
+    prepare: async (h, _profile, live, credentialId) => {
+      expect((await post(h, "/step-up/passkey/begin", { token: live.accessToken })).status).toBe(
+        200,
+      );
+      return {
+        path: "/step-up/passkey/complete",
+        body: { assertion: assertionFor(credentialId!), purpose: "recovery_generate" },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "step_up_email_begin",
+    prepare: async () => ({
+      path: "/step-up/email/begin",
+      body: { purpose: "account_export" },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "step_up_email_status",
+    prepare: async (h, _profile, live) => {
+      const begun = await beginStepUpEmail(h, live.accessToken);
+      return {
+        path: `/step-up/email/${begun.requestId}/status`,
+        body: { claimSecret: begun.claimSecret },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "step_up_email_resend",
+    prepare: async (h, _profile, live) => {
+      const begun = await beginStepUpEmail(h, live.accessToken);
+      return {
+        path: `/step-up/email/${begun.requestId}/resend`,
+        body: { claimSecret: begun.claimSecret },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "step_up_totp_complete",
+    prepare: async (h, profile, live) => ({
+      path: "/step-up/totp/complete",
+      body: { code: await enrolTotp(h, profile, live.accessToken), purpose: "recovery_generate" },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "recovery_generate",
+    prepare: async (h, profile) => ({
+      path: "/recovery/generate",
+      body: { step_up_token: await recoveryStepUp(h, profile) },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "email_change_begin",
+    prepare: async (_h, profile) => ({
+      path: "/account/email/begin",
+      body: { new_email: `new-${profile.handle}@example.com` },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "email_change_resend",
+    prepare: async (h, profile, live) => {
+      const begun = await beginEmailChange(
+        h,
+        live.accessToken,
+        `new-${profile.handle}@example.com`,
+      );
+      return {
+        path: `/account/email/${begun.requestId}/resend`,
+        body: { claimSecret: begun.claimSecret },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "email_change_complete",
+    prepare: async (h, profile, live) => {
+      const begun = await beginEmailChange(
+        h,
+        live.accessToken,
+        `new-${profile.handle}@example.com`,
+      );
+      await confirmLink(h, begun);
+      return {
+        path: `/account/email/${begun.requestId}/complete`,
+        body: {
+          claimSecret: begun.claimSecret,
+          step_up_token: await h.svc(
+            h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"),
+          ),
+        },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "profile_switch",
+    prepare: async (_h, profile) => ({
+      path: "/profiles/switch",
+      body: { profile_id: profile.id },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "cross_device_approve",
+    prepare: async (h) => {
+      const begun = (await (await post(h, "/login/cross-device/begin", {})).json()) as {
+        requestId: string;
+        cdlSecret: string;
+      };
+      return {
+        path: `/login/cross-device/${begun.requestId}/approve`,
+        body: { secret: begun.cdlSecret },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "totp_enroll_begin",
+    prepare: async (h, profile) => ({
+      path: "/totp/enroll/begin",
+      body: {
+        step_up_token: await h.svc(
+          h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+        ),
+      },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "totp_enroll_complete",
+    prepare: async (h, profile, live) => {
+      const begun = await post(h, "/totp/enroll/begin", {
+        token: live.accessToken,
+        body: {
+          step_up_token: await h.svc(
+            h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+          ),
+        },
+      });
+      const { totpSecret } = (await begun.json()) as { totpSecret: string };
+      const code = await deriveTotpCode(
+        base32Decode(totpSecret),
+        Math.floor(Date.now() / 1000 / STEP_SECONDS),
+      );
+      return { path: "/totp/enroll/complete", body: { code }, ok: 200 };
+    },
+  },
+  {
+    endpoint: "passkey_register_begin",
+    prepare: async (_h, profile) => ({
+      path: "/passkey/register/begin",
+      body: { profileId: profile.id },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "oidc_client_create",
+    prepare: async () => ({
+      path: "/oidc/clients",
+      body: { name: "Gate test", redirect_uris: ["https://app.example.com/cb"] },
+      ok: 201,
+    }),
+  },
+];
+
+describe("every gated route, for a logged-out session's token", () => {
+  it.each(GATED.map((row, i) => [row.endpoint, row, i] as const))(
+    "%s refuses it alone, counted under its own name, and serves it with a live cookie",
+    async (endpoint, row, i) => {
+      // Red on a route that names another endpoint in its gate, or that does
+      // not pass the request's cookie to it: the cookie is the only thing that
+      // admits the second call.
+      const h = makeApp();
+      const profile = await registerAccount(h, `lsg-row${i}@example.com`, `lsgrow${i}`);
+      const credentialId = row.passkey ? await enrolPasskey(h, profile) : null;
+      const ended = await openSession(h, profile);
+      const live = await openSession(h, profile);
+      await logOut(h, ended.refreshToken);
+      const call = await row.prepare(h, profile, live, credentialId);
+
+      staleRefusals.length = 0;
+      expect(
+        await answerOf(await post(h, call.path, { token: ended.accessToken, body: call.body })),
+      ).toEqual(REFUSED);
+      expect(staleRefusals).toEqual([endpoint]);
+
+      const served = await post(h, call.path, {
+        token: ended.accessToken,
+        cookie: cookieFor(live.refreshToken),
+        body: call.body,
+      });
+      expect(served.status).toBe(call.ok);
+      // A change of address revokes every session but the caller's device:
+      // the one the cookie named stays.
+      expect(await sessionIds(h, profile)).toContain(h.auth.hashSessionToken(live.refreshToken));
+    },
+  );
+
+  it("has a row for every endpoint the gate can count", () => {
+    // Red on a gated route with no row above. A name added to
+    // `LiveSessionGateEndpoint` fails the type check here until it is listed.
+    const every: Record<LiveSessionGateEndpoint, true> = {
+      step_up_passkey_begin: true,
+      step_up_passkey_complete: true,
+      step_up_email_begin: true,
+      step_up_email_status: true,
+      step_up_email_resend: true,
+      step_up_totp_complete: true,
+      recovery_generate: true,
+      email_change_begin: true,
+      email_change_resend: true,
+      email_change_complete: true,
+      profile_switch: true,
+      cross_device_approve: true,
+      totp_enroll_begin: true,
+      totp_enroll_complete: true,
+      passkey_register_begin: true,
+      oidc_client_create: true,
+    };
+    expect(GATED.map((r) => r.endpoint).sort()).toEqual(Object.keys(every).sort());
+  });
+});
+
+describe("when the cookie and the token's binding name two live sessions", () => {
+  it("the cookie's session is the one a switch binds to", async () => {
+    // Red on trying the binding before the cookie: the browser's own session
+    // is the cookie's, and an email change spares the same one.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-two@example.com", "lsgtwo");
+    const a = await openSession(h, profile);
+    const b = await openSession(h, profile);
+
+    const res = await post(h, "/profiles/switch", {
+      token: a.accessToken,
+      cookie: cookieFor(b.refreshToken),
+      body: { profile_id: profile.id },
+    });
+    expect(res.status).toBe(200);
+    const { access_token } = (await res.json()) as { access_token: string };
+    const claims = await h.svc(h.auth.verifyAccessToken(access_token));
+    expect(claims.sessionBinding).toBe(
+      deriveSessionBinding(h.auth.hashSessionToken(b.refreshToken), profile.id),
+    );
   });
 });

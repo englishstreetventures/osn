@@ -638,7 +638,10 @@ export type LiveSessionGateEndpoint =
   | "email_change_complete"
   | "profile_switch"
   | "cross_device_approve"
-  | "totp_enroll_complete";
+  | "totp_enroll_begin"
+  | "totp_enroll_complete"
+  | "passkey_register_begin"
+  | "oidc_client_create";
 type SessionStaleRefusedAttrs = { endpoint: LiveSessionGateEndpoint };
 
 const authSessionStaleRefused = createCounter<SessionStaleRefusedAttrs>({

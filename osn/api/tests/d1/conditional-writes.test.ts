@@ -30,7 +30,7 @@ import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { holdQueries } from "../helpers/held-query";
-import { confirmedEmailChange } from "../helpers/step-up-link";
+import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
 
 /**
  * The writes that name the row as their request read it, on real D1. D1 takes
@@ -112,7 +112,7 @@ describe("email change on D1", () => {
         requestA.requestId,
         requestA.claimSecret,
         tokenA,
-        null,
+        NO_LIVE_SESSION,
       ),
     );
     await commitA.reached;
@@ -125,7 +125,7 @@ describe("email change on D1", () => {
         requestB.requestId,
         requestB.claimSecret,
         tokenB,
-        null,
+        NO_LIVE_SESSION,
       ),
     );
     expect(b.email).toBe("ec-d1-b@example.com");
@@ -181,7 +181,7 @@ describe("email change on D1", () => {
           requestA.requestId,
           requestA.claimSecret,
           tokenA,
-          null,
+          NO_LIVE_SESSION,
         ),
       ),
     );
@@ -196,7 +196,7 @@ describe("email change on D1", () => {
           requestB.requestId,
           requestB.claimSecret,
           tokenB,
-          null,
+          NO_LIVE_SESSION,
         ),
       ),
     );
@@ -244,7 +244,7 @@ describe("email change on D1", () => {
             request.requestId,
             request.claimSecret,
             token,
-            null,
+            NO_LIVE_SESSION,
           ),
         ),
       );

@@ -14,7 +14,7 @@ import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 import { latestLinkTo, registerThroughService } from "../helpers/registration";
-import { confirmedEmailChange } from "../helpers/step-up-link";
+import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
 
 /**
  * Every code-checking ceremony counts its guesses in the store, one atomic
@@ -206,7 +206,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
                 begun.requestId,
                 begun.claimSecret,
                 token,
-                null,
+                NO_LIVE_SESSION,
               ),
             ),
           ),

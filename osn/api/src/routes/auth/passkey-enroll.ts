@@ -83,6 +83,22 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // An ordinary caller's session must be live before the account's
+            // one parked registration challenge is overwritten or a step-up
+            // token spent. A restricted recovery session is checked below
+            // instead: the live-session gate refuses restricted rows.
+            if (!principal.restricted) {
+              const staleErr = await ctx.liveSessionGate(
+                "passkey_register_begin",
+                principal.accountId,
+                principal,
+                headers.cookie,
+              );
+              if (staleErr) {
+                set.status = 409;
+                return staleErr;
+              }
+            }
             const headerToken = headers["x-step-up-token"];
             const stepUpToken = body.step_up_token ?? headerToken;
             // A recovery-audience caller may enrol past the step-up gate, and
@@ -120,6 +136,8 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             // this route has no explicit 403 branch.
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: an ordinary caller's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
