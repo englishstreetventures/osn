@@ -422,15 +422,18 @@ working parts:
   by a defect (`new-feat` Step 0). Run from a follow-up, this step opens no
   further follow-up: what its reviews find out of its scope becomes an issue.
 - `info` findings are filed and closed (Step 7); nits and `T-S` suggestions are
-  fixed or noted in the report.
+  fixed or noted in the report. "Low", "pre-existing", "the diff would grow"
+  and "the reviews ran late" never leave something in scope open.
 - **A finding that re-raises a decided trade-off gets one line, not a fix.**
   A choice the owner or the plan settled is recorded under `## Decided` in
   `NEW-FEAT.md` and as a `###` in the body's `## Decisions`. A finding that asks
   to undo it — from a reviewer, or from Claude Code's background security
   review — is answered in the report with one line naming that decision. It
   reopens only with a concrete exploit and a test that shows it; flipping the
-  code back and forth with each notice is the failure this prevents. "Low", "pre-existing", "the diff would grow"
-  and "the reviews ran late" never leave something in scope open.
+  code back and forth with each notice is the failure this prevents. A
+  `critical` or `high` finding is answered this way only when the owner made
+  the decision; one that re-raises the plan's own call goes to the owner with
+  the finding quoted, as the rule below says.
 - **More than two issues left open that no open pull request will close means
   something in scope was filed**: put the list to the user before filing a
   third; with no user, fix the in-scope ones and keep only what fits the three.

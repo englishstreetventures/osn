@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Use when asked to review and fix an open pull request this session did not write — one another tool such as Codex opened, or another session left — and bring it to merge-ready on its own branch. Covers finding and reusing the branch's existing worktree, reading what the branch would run before running it, rebasing it and regenerating bun.lock with evidence instead of merging it, running prep-pr's review lenses on someone else's work, telling a red check main caused from one the branch caused, fixing every finding on the branch, and rewriting the body with write-pr.
+description: Use when asked to review and fix an open pull request this session did not write — one another tool such as Codex opened, or another session left — and bring it to merge-ready on its own branch. Covers finding and reusing the branch's existing worktree, reading what the branch would run before running it, rebasing it, only on the owner's word, and regenerating bun.lock with evidence instead of merging it, running prep-pr's review lenses on someone else's work, telling a red check main caused from one the branch caused, fixing every finding on the branch, and rewriting the body with write-pr.
 ---
 
 Review and fix pull request `$ARGUMENTS`. If it is empty, ask for the number.

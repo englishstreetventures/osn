@@ -140,7 +140,7 @@ GraphQL: Auto-merge is not supported for stacked pull requests. (enablePullReque
 bash scripts/queue-sim.sh --stack <any PR in the stack>   # or the PR numbers, bottom to top
 ```
 
-It applies each layer's own diff onto the current `origin/main` in a scratch worktree and prints `OK`, `CONFLICT` with the files, or `SKIPPED` for each layer, exiting 1 on a conflict. It moves no ref.
+It applies each layer's own diff onto the current `origin/main` in a scratch worktree and prints `OK`, `CONFLICT` with the files, or `SKIPPED` for each layer, exiting 1 on a conflict. It moves no branch and touches no other worktree; it refreshes the remote-tracking refs it reads, which `--no-fetch` skips.
 
 *Seen 2026-11-11 — every pull request of a five-deep stack read mergeable; the queue removed the top one for a conflict in a wiki table, which only a replay of each layer's diff onto `main` showed.*
 
@@ -181,7 +181,7 @@ The retarget is not enough. PR 2's branch still carries PR 1's original commits,
 
 Queue a child only once its base is `main`. Only `main` has a ruleset, so a child still based on its parent's branch has no queue and no required checks, and `--auto` merges it into the parent at once.
 
-Merging out of order, or closing a parent without merging, orphans the children: their base branch is deleted and the diff turns into everything since `main`. If that happens, `git rebase --onto main <old-parent> <child>` and `gh api -X PATCH repos/englishstreetventures/osn/pulls/<child> -f base=main`.
+Merging out of order, or closing a parent without merging, orphans the children: their base branch is deleted and the diff turns into everything since `main`. If that happens, tell the owner, and on their green light ([[#Rebasing a stack]]) run `git rebase --onto main <old-parent> <child>` and `gh api -X PATCH repos/englishstreetventures/osn/pulls/<child> -f base=main`. `<old-parent>` is the parent's last head, which GitHub keeps after its branch is deleted: `git fetch --no-tags origin "+refs/pull/<parent PR>/head:refs/remotes/origin/pr/<parent PR>"`, then use `refs/remotes/origin/pr/<parent PR>`.
 
 ## Rebasing a stack
 
@@ -191,16 +191,18 @@ Merging out of order, or closing a parent without merging, orphans the children:
 2. **One pass, on the green light.** The owner's word that nothing else will merge is the green light, and "at hand-off" means once it is given. Fetch `main` once and restack bottom-up onto that commit, as below.
 3. **Stop.** Report the new heads and `queue-sim.sh`'s output on them. If `main` moved during the pass anyway, say so: another pass needs another green light.
 
-`BEHIND` alone needs nothing: the `main` ruleset does not require a branch to be up to date, and the merge queue tests each pull request on top of `main`. The one merge an agent makes unasked is a child's single merge of `main` once its parent has squash-merged ([[#A whole stack]]).
+`BEHIND` alone needs nothing: the `main` ruleset does not require a branch to be up to date, and the merge queue tests each pull request on top of `main`. The one exception is a child's single merge of `main` once its parent has squash-merged, which the owner's go-ahead to queue the stack covers ([[#A whole stack]]).
 
-The pass rebases from the bottom and force-pushes each branch in order:
+The pass records each branch's head before it starts, then rebases from the bottom and force-pushes each branch in order, the lease pinned to the head it recorded:
 
 ```bash
-git rebase refs/remotes/origin/main <bottom> && git push --force-with-lease origin <bottom>
-git rebase --onto <bottom> <old-base> <middle> && git push --force-with-lease origin <middle>
+git rebase refs/remotes/origin/main <bottom>
+git push --force-with-lease=<bottom>:<its recorded head> --force-if-includes origin <bottom>
+git rebase --onto <bottom> <old-base> <middle>
+git push --force-with-lease=<middle>:<its recorded head> --force-if-includes origin <middle>
 ```
 
-`--force-with-lease`, never `--force`. After any rebase, re-assert the property the PR was opened for — resolving a conflict can drop a fix while the diff still reads correctly.
+Never `--force`, and never a bare `--force-with-lease`. Every worktree shares one set of remote-tracking refs, and any session's `git fetch` or `queue-sim.sh` run refreshes them, so a bare lease passes over a commit pushed from elsewhere, such as a suggestion accepted in the web editor, without a word. After any rebase, re-assert the property the PR was opened for — resolving a conflict can drop a fix while the diff still reads correctly.
 
 After a rebase onto a newer `main`, run `bun install --frozen-lockfile` in the worktree before pushing. A workspace `main` added since the last install has no links in the worktree's `node_modules`, and the pre-push type check fails on it with `File '@shared/typescript-config/base.json' not found` — a fault in the install, not in the branch.
 
@@ -305,7 +307,7 @@ bun install --frozen-lockfile
 git push --force-with-lease=<child branch>:<its recorded head> --force-if-includes origin <child branch>
 ```
 
-Record the child's new base and head, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` or `BEHIND` is rebased onto its parent branch, never onto `origin/main`, and only in the window the owner opens: a change is carried up a draft stack only at hand-off, as [[#Rebasing a stack]] says. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
+Record the child's new base and head, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` is rebased only in the window the owner opens, onto its parent branch, or onto `origin/main` for the bottom one; `BEHIND` alone needs nothing. A change is carried up a draft stack only at hand-off, as [[#Rebasing a stack]] says. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
 
 A remote session on a designated `claude/*` branch can push nowhere else, so it cannot cut a stack. It builds the bottom component pull request and reports the rest for a local `orchestrate` run.
 
