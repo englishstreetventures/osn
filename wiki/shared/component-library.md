@@ -2523,8 +2523,10 @@ obvious which of the three, [[osn-and-musubi]] decides it. Either gets lab
 stories under `tools/lab/src/stories/osn-auth-ui/` or `cire-ui/`, never beside
 the component ([[component-lab#Stories for auth and cire components]]).
 
-A new or changed component in any of the three ships in a pull request of its
-own, under the feature that uses it: [[stacked-prs#Frontend: one component per pull request]].
+A new component in any of the three that one feature uses ships inside that
+feature's pull request; a change to one another app already uses, or a new one
+several features will use, ships in a pull request of its own under them:
+[[stacked-prs#Frontend: when a component gets its own pull request]].
 
 ## Testing considerations
 

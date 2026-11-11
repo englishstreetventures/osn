@@ -126,13 +126,23 @@ With the `main` ruleset's merge queue on, `main` takes pull requests through it,
 
 ### A whole stack
 
-Merge a linked stack whole when every pull request in it is ready, not a draft. A frontend stack ([[#Frontend: one component per pull request]]) is ready once the owner has marked its feature pull request ready and the merging session has marked the components ready ([[#Opening, approval and merge]]). A registered stack merges only this way: GitHub refuses `--auto` on any pull request in one.
+Merge a linked stack whole when every pull request in it is ready, not a draft. A frontend stack ([[#Frontend: when a component gets its own pull request]]) is ready once the owner has marked its feature pull request ready and the merging session has marked the components ready ([[#Opening, approval and merge]]). A registered stack merges only this way: GitHub refuses `--auto` on any pull request in one.
 
 ```
 GraphQL: Auto-merge is not supported for stacked pull requests. (enablePullRequestAutoMerge)
 ```
 
 *Seen 2026-10-26 — `gh pr merge <n> --squash --auto` on a pull request in a registered stack.*
+
+**Run [`queue-sim.sh`](../../scripts/queue-sim.sh) before asking the owner to queue a stack**, and put its output in that message. GitHub's mergeable badge compares each pull request with its own base branch, which in a stack is its parent. The queue squashes each pull request's own diff onto `main`, in order. So every pull request in a stack can read mergeable while the queue refuses one, and a clean badge proves nothing about the queue:
+
+```bash
+bash scripts/queue-sim.sh --stack <any PR in the stack>   # or the PR numbers, bottom to top
+```
+
+It applies each layer's own diff onto the current `origin/main` in a scratch worktree and prints `OK`, `CONFLICT` with the files, or `SKIPPED` for each layer, exiting 1 on a conflict. It moves no branch and touches no other worktree; it refreshes the remote-tracking refs it reads, which `--no-fetch` skips.
+
+*Seen 2026-11-11 — every pull request of a five-deep stack read mergeable; the queue removed the top one for a conflict in a wiki table, which only a replay of each layer's diff onto `main` showed.*
 
 A stack that was never linked, or one merged from a machine without `gh stack`, merges one pull request at a time ([[#One pull request at a time]]).
 
@@ -152,52 +162,47 @@ gh api repos/englishstreetventures/osn/rules/branches/main \
 
 - **Keep a stack within `max_entries_to_build`**, or have the owner raise it for the merge. Each round past it costs every pull request still waiting another CI run.
 - **Queue only once the stack's own CI has settled.** The queue gives a group `check_response_timeout_minutes` to report, and removes one still waiting for runners the stack's CI holds.
-- **A release between rounds can consume a changeset a waiting pull request edits.** GitHub's rebase then stops on that pull request, which still holds the original commits of the parent that merged. Rebase it by hand, taking the changeset's deletion; a wording change it carried goes to the line the release wrote in that package's `CHANGELOG.md`. A tip recorded locally is no use here, since GitHub rebases the stack on its own servers; use the parent's last head, which GitHub keeps after the merge as `refs/pull/<parent PR>/head`. In the branch's worktree:
+- **After a parent squash-merges, its child still holds the parent's original commits, and `main` holds the squash.** Where `main` has since changed a line the parent touched, or a release consumed a changeset the parent added, the child conflicts with `main` and GitHub's rebase stops on it. Fix that child with one plain merge of `main`, never a rebase cascade. In its worktree:
 
   ```bash
-  git fetch --no-tags origin "+refs/pull/<parent PR>/head:refs/remotes/origin/pr/<parent PR>" "+refs/heads/<branch>:refs/remotes/origin/<branch>" \
-    "+refs/heads/main:refs/remotes/origin/main"
+  git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/<branch>:refs/remotes/origin/<branch>"
   git merge --ff-only refs/remotes/origin/<branch>
-  git rev-parse HEAD   # record it: the lease, and the base the branches above rebase from
-  if git merge-base --is-ancestor refs/remotes/origin/pr/<parent PR> HEAD; then
-    git rebase --onto refs/remotes/origin/main refs/remotes/origin/pr/<parent PR>
-  else
-    git rebase refs/remotes/origin/main   # GitHub had already moved it onto main
-  fi
+  git merge refs/remotes/origin/main
+  git diff --name-status refs/remotes/origin/main HEAD   # must list only this pull request's own changes
   ```
 
-  Then `bun install --frozen-lockfile`, and push with the lease pinned to the head you recorded, as [[#One pull request at a time]] does. Carry the branches above it up from that recorded head, as [[#Rebasing a stack]] says, then queue the next round.
+  Resolve each conflict by keeping the child's side of the lines the stack owns and `main`'s side of everything else. The merge keeps a changeset the release consumed without any conflict, because the child's history added it and `main`'s only deleted it: the last command lists it, so `git rm` it, and move any wording change it carried to the line the release wrote in that package's `CHANGELOG.md`. Then `bun install --frozen-lockfile`, the changed packages' tests, a plain `git push`, and `queue-sim.sh` on what is left, before it is queued again. No force-push is needed, and the squash flattens the merge commit. The owner's go-ahead to queue the stack covers this one merge per child; a conflict with anything else that merged meanwhile goes back to the owner ([[#Rebasing a stack]]).
 
 ### One pull request at a time
 
 In a stack that was never registered, a child queued on its own with `gh pr merge <n> --squash --auto` waits for its parent to merge. When PR 1 merges, GitHub retargets PR 2 to `main`, provided PR 1 was merged rather than closed.
 
-The retarget is not enough. PR 2's branch still carries PR 1's original commits, and the squash put different ones on `main`, so PR 2 still holds PR 1's changes. Any file `main` has since deleted comes back with it, a changeset `release.yml` consumed included. Before queueing PR 2, rebase it past them and push:
+The retarget is not enough. PR 2's branch still carries PR 1's original commits, and the squash put different ones on `main`, so PR 2 still holds PR 1's changes. Any file `main` has since deleted comes back with it, a changeset `release.yml` consumed included. Before queueing PR 2, merge `main` into it as [[#A whole stack]] says for a child whose parent squash-merged, delete what the last command there lists that is not PR 2's own, push, and run `queue-sim.sh` on it.
 
-```bash
-git rebase --onto refs/remotes/origin/main <PR 1's tip before the merge> <PR 2's branch>
-bun install --frozen-lockfile
-git push --force-with-lease=<PR 2's branch>:<its recorded head> --force-if-includes origin <PR 2's branch>
-```
+Queue a child only once its base is `main`. Only `main` has a ruleset, so a child still based on its parent's branch has no queue and no required checks, and `--auto` merges it into the parent at once.
 
-Pin the lease to the head you recorded. Every worktree shares one set of remote refs, so any session's `git fetch` refreshes a bare lease, and a commit pushed from elsewhere, such as a suggestion accepted in the web editor, would be overwritten without a word.
-
-PR 1's tip is gone by then: the merge deletes its branch on GitHub and Step 5 of `orchestrate` deletes it locally. Record it when PR 2 is cut and after every rebase, as `git merge-base <PR 1's branch> <PR 2's branch>`. Queue a child only once its base is `main`. Only `main` has a ruleset, so a child still based on its parent's branch has no queue and no required checks, and `--auto` merges it into the parent at once.
-
-Merging out of order, or closing a parent without merging, orphans the children: their base branch is deleted and the diff turns into everything since `main`. If that happens, `git rebase --onto main <old-parent> <child>` and `gh api -X PATCH repos/englishstreetventures/osn/pulls/<child> -f base=main`.
+Merging out of order, or closing a parent without merging, orphans the children: their base branch is deleted and the diff turns into everything since `main`. If that happens, tell the owner, and on their green light ([[#Rebasing a stack]]) run `git rebase --onto main <old-parent> <child>` and `gh api -X PATCH repos/englishstreetventures/osn/pulls/<child> -f base=main`. `<old-parent>` is the parent's last head, which GitHub keeps after its branch is deleted: `git fetch --no-tags origin "+refs/pull/<parent PR>/head:refs/remotes/origin/pr/<parent PR>"`, then use `refs/remotes/origin/pr/<parent PR>`.
 
 ## Rebasing a stack
 
-Rebase a stack, or a component pull request in one, only when the session is about to ask the owner to mark its feature pull request ready, or when merging it. A draft stack that falls behind `main` is left as it is, and a feature pull request that cannot get CI because its parents are behind is restacked at hand-off, not before.
+**An agent never rebases, restacks or merges `main` or a parent into an open pull request or stack on its own**, whatever the reason: a `DIRTY` or `BEHIND` badge, new commits on `main`, a red check, or a request to "resolve conflicts". `main` keeps moving while a stack waits, and each pass costs an agent run per branch, so a stack is restacked once, in a window the owner opens:
 
-When `main` moves under a stack you are readying or merging, rebase from the bottom and force-push each branch in order:
+1. **Report, then wait.** Send the owner one message: which pull requests are stale, the files that conflict (`queue-sim.sh`'s output), and that you will restack once, bottom-up, and ready the pull requests when they say nothing else will merge to `main` in between. A request to resolve conflicts gets this message, not a rebase. A draft stack nobody has asked to ready is left alone.
+2. **One pass, on the green light.** The owner's word that nothing else will merge is the green light, and "at hand-off" means once it is given. Fetch `main` once and restack bottom-up onto that commit, as below.
+3. **Stop.** Report the new heads and `queue-sim.sh`'s output on them. If `main` moved during the pass anyway, say so: another pass needs another green light.
+
+`BEHIND` alone needs nothing: the `main` ruleset does not require a branch to be up to date, and the merge queue tests each pull request on top of `main`. The one exception is a child's single merge of `main` once its parent has squash-merged, which the owner's go-ahead to queue the stack covers ([[#A whole stack]]).
+
+The pass records each branch's head before it starts, then rebases from the bottom and force-pushes each branch in order, the lease pinned to the head it recorded:
 
 ```bash
-git rebase refs/remotes/origin/main <bottom> && git push --force-with-lease origin <bottom>
-git rebase --onto <bottom> <old-base> <middle> && git push --force-with-lease origin <middle>
+git rebase refs/remotes/origin/main <bottom>
+git push --force-with-lease=<bottom>:<its recorded head> --force-if-includes origin <bottom>
+git rebase --onto <bottom> <old-base> <middle>
+git push --force-with-lease=<middle>:<its recorded head> --force-if-includes origin <middle>
 ```
 
-`--force-with-lease`, never `--force`. After any rebase, re-assert the property the PR was opened for — resolving a conflict can drop a fix while the diff still reads correctly.
+Never `--force`, and never a bare `--force-with-lease`. Every worktree shares one set of remote-tracking refs, and any session's `git fetch` or `queue-sim.sh` run refreshes them, so a bare lease passes over a commit pushed from elsewhere, such as a suggestion accepted in the web editor, without a word. After any rebase, re-assert the property the PR was opened for — resolving a conflict can drop a fix while the diff still reads correctly.
 
 After a rebase onto a newer `main`, run `bun install --frozen-lockfile` in the worktree before pushing. A workspace `main` added since the last install has no links in the worktree's `node_modules`, and the pre-push type check fails on it with `File '@shared/typescript-config/base.json' not found` — a fault in the install, not in the branch.
 
@@ -217,7 +222,7 @@ A fix to an upper layer after that is a plumbing commit: `git read-tree` that la
 
 The upper layers then have no local per-layer gates, since none was ever checked out. Their bodies say so, and CI on each pull request is their proof.
 
-To rebuild such a stack on a newer `main`, when a layer conflicts with it:
+To rebuild such a stack on a newer `main`, once the owner has given the green light ([[#Rebasing a stack]]):
 
 1. Save the four tips, then `git diff <old bottom layer commit> <old top>` to scratch. Diff from the bottom *layer's own commit*, never the bottom branch's tip: commits added on the bottom after the cut, such as its session-metrics card, are not in the upper layers, and a diff from the tip deletes them.
 2. `git rebase refs/remotes/origin/main` on the bottom branch, then `bun install --frozen-lockfile`.
@@ -235,19 +240,28 @@ The consequence for authors: **each stacked PR needs a changeset in its own diff
 
 ## When to stack, and when not to
 
-Stack when the pieces share one goal and later pieces read the earlier ones' code. The components of one frontend feature share its goal even when they do not read each other: the feature reads them all ([[#Frontend: one component per pull request]]). Do not stack for unrelated work: two independent PRs off `main` merge in either order and never block each other.
+Stack when the pieces share one goal and later pieces read the earlier ones' code. The components of one frontend feature that get pull requests of their own share its goal even when they do not read each other: the feature reads them all ([[#Frontend: when a component gets its own pull request]]). Do not stack for unrelated work: two independent PRs off `main` merge in either order and never block each other.
 
-Keep a stack short. Three deep is manageable; five means the bottom PR sat unreviewed too long.
+Keep a stack short: an orchestrated run stacks at most four pull requests. A plan that needs more splits into runs, and the next run cuts from `main` once the last has merged. Each layer is one more branch every fix below it is carried up through, and one more place a queue round can stop.
 
-## Frontend: one component per pull request
+## Frontend: when a component gets its own pull request
 
-Frontend work that adds or changes a component in a UI package — `@shared/ui`, `@cire/ui`, `@osn/auth-ui` — ships as a stack. Each such component gets its own pull request, and the feature pull request sits on top. The feature PR only composes the components and adds the layout and styling between them. The owner reviews each component on its own; a change asked for in a component PR is made there and carried up by rebase at hand-off.
+A component in a UI package — `@shared/ui`, `@cire/ui`, `@osn/auth-ui` — gets a pull request of its own only when someone besides the feature would feel the change:
+
+| The component | Ships in |
+|---|---|
+| New, and one feature uses it | That feature's pull request, with its lab stories and tests |
+| Already there, and nothing but this feature uses it | That feature's pull request |
+| Already used by another feature or app | Its own pull request, stacked under the feature |
+| New, and two or more features will use it | Its own pull request, stacked under the first of them |
+
+A component folded into its feature adds a `### Lab stories` section to that pull request's body (`write-pr`), so the owner can look at it without the feature around it, and its tests and stories ride in the same diff. A regression in a component other apps use lands where nobody asked for it, so that change keeps its own pull request and the owner reviews it on its own. The rest of this section is for those: the feature pull request sits on top, only composing the components and adding the layout and styling between them, and a change asked for in a component pull request is made there and carried up at hand-off.
 
 A part used by one screen only, outside a UI package, is not a component here and stays in the feature PR. A fix for a private tracker finding is never a stack: it ships as one pull request named by area, as `new-feat` Step 0 says, since every branch in a stack is public while it waits.
 
 ### Who builds it
 
-The `orchestrate` skill, from `main/`. A session that starts `new-feat` on such work hands over after the issue step and before the claim. `orchestrate` Step 00 then designs it, and its plan names each component, new or changed. That plan is where each component task's **Done when** comes from; the feature task's comes from the issue.
+The `orchestrate` skill, from `main/`, when at least one component gets its own pull request. A session that starts `new-feat` on such work hands over after the issue step and before the claim. `orchestrate` Step 00 then designs it, and its plan names each component, new or changed. That plan is where each component task's **Done when** comes from; the feature task's comes from the issue.
 
 | Pull request | Branch | Cut from | Issue line |
 |---|---|---|---|
@@ -264,6 +278,8 @@ At most three components under one feature, so four deep. More means the issue s
 
 ### What a component pull request holds
 
+A component folded into its feature brings the same three things into the feature pull request.
+
 - The component, and its lab stories under `tools/lab/src/stories/<package-dir>/`, one per state ([[component-lab]]). Its body lists the story ids (`write-pr`).
 - The tests the component needs, as any component change does ([[component-library#Adding a new component]]); cire's mutation run passes on it alone. When the feature's E2E test later covers the same guarantee, the feature PR deletes the duplicate unless it checks a refusal ([[testing-patterns]]).
 - Its own changeset. A change to `tools/lab` takes a `@tools/lab` changeset of its own, never shared with a `@cire/*` one. The bottom pull request adds every workspace package the stack's stories import to `tools/lab`, so `bun.lock` changes once.
@@ -278,7 +294,7 @@ The owner approves the stack as a whole, by marking the **feature** pull request
 2. Each component PR's `## Impact` ends with `**Do not merge until** #<feature PR> is marked ready by the owner.` The feature PR's line says the owner's review of the stack. The owner leaves component PRs as drafts.
 3. When `orchestrate` parks the stack, it records each pull request's head commit in `ORCHESTRATE.md`. The owner's ready covers those commits and no others.
 4. Once the owner marks the feature PR ready, `orchestrate` Step 5 first checks that every head still matches what it recorded. A head that moved means someone pushed after the review, through `review-pr`, a remote session or the web editor: put the feature back to draft (`gh pr ready --undo <feature PR>`), record the new heads and park again.
-5. Then it removes each component's line, marks each component ready, and merges the stack whole with `gh stack merge <stack number> --squash --yes` ([[#A whole stack]]); a stack of four lands in one round. When a round stops on a conflict and a pull request is rebased by hand, it compares the patches first: `git range-diff <recorded base>..<old head> refs/remotes/origin/main..<new head>`. When every line pairs as `=`, the rebase changed nothing the owner saw: it pushes and queues the next round. When any patch changed, which means a conflict was resolved, it pushes, puts the feature back to draft and parks the stack again.
+5. Then it runs `queue-sim.sh`, removes each component's line, marks each component ready, and merges the stack whole with `gh stack merge <stack number> --squash --yes` ([[#A whole stack]]); a stack of four lands in one round. When a round stops on a conflict, the child is merged with `main` as that section says. A merge that resolved no conflict by hand changed nothing the owner saw: it pushes and queues the next round. One that resolved a conflict is pushed, the feature goes back to draft, and the stack is parked again.
 6. A review fix to any pull request after the owner marked the feature ready also puts the feature back to draft. The owner's ready covered the code they saw.
 
 ### Carrying a change up
@@ -291,7 +307,7 @@ bun install --frozen-lockfile
 git push --force-with-lease=<child branch>:<its recorded head> --force-if-includes origin <child branch>
 ```
 
-Record the child's new base and head, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` or `BEHIND` is rebased onto its parent branch, never onto `origin/main`. A change is carried up a draft stack only at hand-off, as [[#Rebasing a stack]] says. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
+Record the child's new base and head, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` is rebased only in the window the owner opens, onto its parent branch, or onto `origin/main` for the bottom one; `BEHIND` alone needs nothing. A change is carried up a draft stack only at hand-off, as [[#Rebasing a stack]] says. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
 
 A remote session on a designated `claude/*` branch can push nowhere else, so it cannot cut a stack. It builds the bottom component pull request and reports the rest for a local `orchestrate` run.
 
