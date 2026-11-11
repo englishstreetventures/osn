@@ -768,8 +768,9 @@ warm local bun cache: 879 against 879 in 15.6 s, where the plain
   to keep, the failing guard names one number: set the value line to it and
   put the branch and date in the line's trailing comment. Two raises open at
   once then conflict as text instead of merging to one number. A raise open
-  while the bot lowers the line conflicts too; after the rebase, run the guard
-  again and take the number it names.
+  while the bot lowers the line conflicts too; after the rebase the owner
+  green-lights ([[stacked-prs#Rebasing a stack]]), run the guard again and take
+  the number it names.
 - **Never down in a pull request.** Lowering by hand puts every such branch
   back on the one line that conflicts.
 
