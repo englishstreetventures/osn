@@ -746,8 +746,8 @@ As built:
   flow reaches hold each of their waits the same way, a second press sending
   nothing: `RecoveryLoginForm.test.tsx` (four, with Back disabled),
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
-  disabled), `ChangeEmailForm.test.tsx` (two), `StepUpDialog.test.tsx`
-  ("Email me a code" and both Confirms), `CheckEmailView.test.tsx`
+  disabled), `ChangeEmailForm.test.tsx` ("Send a link"), `StepUpDialog.test.tsx`
+  ("Use email instead" and the authenticator's Confirm), `CheckEmailView.test.tsx`
   (Resend, with "Use a different email" disabled) and
   `ConfirmLinkPage.test.tsx` (a number, Confirm, the decline and Try again,
   each with the other choices disabled).
@@ -758,8 +758,9 @@ As built:
   Each row of code boxes is found as a group named by its label
   (`tests/helpers/code.ts`), and a `400` and a `429` for each code check the
   line is in every box's `aria-describedby`, with every box `aria-invalid` for
-  the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as each
-  code step opens.
+  the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as the
+  authenticator step opens, and on the wait's heading as the emailed link's
+  wait opens.
 - **Loading in the package tests.** `PasskeysView`, `TotpView`,
   `RecoveryCodesView` and `SessionsView` mounted under a `Suspense` whose
   fallback is the host's show their own placeholder, never the host's, while a
@@ -770,7 +771,7 @@ As built:
   while the list is read again after a delete or a revoke.
 - **Layout in Musubi's browser tests.**
   `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
-  step-up's emailed-code step in Settings → Security: at 320px its row of code
+  step-up's authenticator-code step in Settings → Security: at 320px its row of code
   boxes is the card's whole column (246px) with no box under 37px, and every
   button in the card stays inside it; at 1440px the row sits inside the
   panel's 16px padding. Shots at both widths, light and dark, in
