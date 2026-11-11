@@ -265,13 +265,10 @@ export function AuthorizePage() {
     return retried() ? loadError() : null;
   };
 
-  // Try again disables itself while the load runs, and a disabled button
-  // loses focus to the page. The card's heading takes it instead.
-  let errorHeading: HTMLHeadingElement | undefined;
-
+  // Try again is busy while the load runs: it keeps focus and refuses a press.
   function retryLoad() {
+    if (context.loading) return;
     setRetried(true);
-    errorHeading?.focus();
     void refetch();
   }
 
@@ -397,23 +394,12 @@ export function AuthorizePage() {
         <Match when={screen() === "error"}>
           <Card padding="lg" class="flex flex-col gap-6">
             <div class="flex flex-col gap-2">
-              <h1
-                ref={errorHeading}
-                tabindex="-1"
-                class="text-foreground text-title font-medium focus:outline-none"
-              >
-                Could not load this request
-              </h1>
+              <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
               <Notice tone="danger" size="inline" alert>
                 {loadError()}
               </Notice>
             </div>
-            <Button
-              size="lg"
-              class="w-full max-md:h-11"
-              disabled={context.loading}
-              onClick={retryLoad}
-            >
+            <Button size="lg" class="w-full max-md:h-11" busy={context.loading} onClick={retryLoad}>
               {context.loading ? "Checking…" : "Try again"}
             </Button>
           </Card>

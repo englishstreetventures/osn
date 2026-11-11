@@ -3,20 +3,20 @@ import {
   type ConfirmLinkPurpose,
   type ConfirmOutcome,
 } from "@osn/auth-ui/ConfirmLinkPage";
-import { emailLinkPurpose, type EmailLinkCandidates } from "@osn/client";
+import { describeAuthError, emailLinkPurpose, type EmailLinkCandidates } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
 import { useParams } from "@solidjs/router";
 import { createResource, createSignal, Match, Show, Switch } from "solid-js";
 
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
 import { emailLinkClient } from "../lib/authClients";
 import { emailLinkSecret } from "../lib/email-link";
 
 const CHECKING_LINE = "Checking this link…";
 const FAILED_HEADING = "We couldn't open this link just now";
-const FAILED_LINE = "Check your connection, then try again.";
 
 /**
  * `/verify/<request id>`: the page an emailed link opens. A bare route — no
@@ -36,9 +36,10 @@ const FAILED_LINE = "Check your connection, then try again.";
  * offers no Continue; it sends the person back to where they began.
  *
  * Every card on the route is `@shared/ui`'s `Card`: `ConfirmLinkPage`'s, and
- * the page's own card for a read that failed. While the read runs, a
- * placeholder in the ready card's shape holds its place, so the name above
- * does not move when the card arrives.
+ * the page's own card for a read that failed, whose line is the copy map's
+ * sentence for the failure. While the read runs, a `Skeleton` in the ready
+ * card's shape holds its place, so the name above does not move when the card
+ * arrives.
  */
 export function VerifyEmailLinkPage() {
   const params = useParams<{ requestId: string }>();
@@ -61,11 +62,15 @@ export function VerifyEmailLinkPage() {
   // the alert's text does not change between tries.
   const [retried, setRetried] = createSignal(false);
 
+  // What the failed card says: a lost connection, a wait or a server fault,
+  // never the error's own text.
+  const failedLine = () => describeAuthError(read.error);
+
   // A failed read keeps `read.error` until the next try settles, so the
   // failed card stays up through a retry and its button shows the wait.
   const spoken = () => {
     if (read.loading) return CHECKING_LINE;
-    if (read.error && retried()) return FAILED_LINE;
+    if (read.error && retried()) return failedLine();
     return "";
   };
 
@@ -77,14 +82,10 @@ export function VerifyEmailLinkPage() {
     return emailLinkClient.confirm(requestId(), { linkSecret: secret, pick });
   };
 
-  // Try again disables itself while the read runs, and a disabled button
-  // loses focus to the page. The card's heading takes it instead, as
-  // `ConfirmLinkPage`'s does when a tapped number disables itself.
-  let failedHeading: HTMLHeadingElement | undefined;
-
+  // Try again is busy while the read runs: it keeps focus and refuses a press.
   function retry() {
+    if (read.loading) return;
     setRetried(true);
-    failedHeading?.focus();
     void refetch();
   }
 
@@ -103,18 +104,12 @@ export function VerifyEmailLinkPage() {
         <Match when={read.error}>
           <Card padding="lg" class="flex flex-col gap-6">
             <div class="flex flex-col gap-2">
-              <h1
-                ref={failedHeading}
-                tabindex="-1"
-                class="text-foreground text-title font-medium focus:outline-none"
-              >
-                {FAILED_HEADING}
-              </h1>
+              <h1 class="text-foreground text-title font-medium">{FAILED_HEADING}</h1>
               <Notice tone="danger" size="inline" alert>
-                {FAILED_LINE}
+                {failedLine()}
               </Notice>
             </div>
-            <Button size="lg" class="w-full max-md:h-11" disabled={read.loading} onClick={retry}>
+            <Button size="lg" class="w-full max-md:h-11" busy={read.loading} onClick={retry}>
               {read.loading ? "Checking…" : "Try again"}
             </Button>
           </Card>
@@ -122,8 +117,11 @@ export function VerifyEmailLinkPage() {
         <Match when={read.loading || !read()}>
           {/* The ready card's height with five numbers, on a 360–430px phone
               and from `md` up, so the name above it stays put when the card
-              replaces it (`DESIGN.md` §Motion). */}
-          <div aria-hidden="true" class="bg-muted/50 rounded-card h-138 animate-pulse md:h-130" />
+              replaces it (`DESIGN.md` §Motion). The wrapper goes with the
+              placeholder, and its busy state with it. */}
+          <div aria-busy="true">
+            <ResponsiveSkeleton standsFor="card" height={130} phoneHeight={138} />
+          </div>
         </Match>
         <Match when={read()}>
           {(answer) => (

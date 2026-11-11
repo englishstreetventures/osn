@@ -291,8 +291,9 @@ describe("<AuthorizePage />", () => {
       await screen.findByText("Could not load this request");
 
       expect(screen.getByRole("status").textContent).toBe("");
+      // `Notice` reads its mark as "Error:" before the sentence.
       expect(screen.getByRole("alert").textContent).toBe(
-        "Too many attempts. Wait a while, then try again.",
+        "Error: Too many attempts. Wait a while, then try again.",
       );
     });
 
@@ -308,18 +309,26 @@ describe("<AuthorizePage />", () => {
       );
 
       renderPage();
-      const heading = await screen.findByText("Could not load this request");
-      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await screen.findByText("Could not load this request");
+      const tryAgain = screen.getByRole("button", { name: "Try again" });
+      tryAgain.focus();
+      fireEvent.click(tryAgain);
 
+      // Busy, not disabled: it keeps focus, and a second press loads nothing.
       const pending = await screen.findByRole("button", { name: "Checking…" });
-      expect((pending as HTMLButtonElement).disabled).toBe(true);
-      expect(document.activeElement).toBe(heading);
+      expect(pending.getAttribute("aria-busy")).toBe("true");
+      expect((pending as HTMLButtonElement).disabled).toBe(false);
+      expect(document.activeElement).toBe(pending);
+      fireEvent.click(pending);
+      expect(mocks.getContext).toHaveBeenCalledTimes(2);
       expect(screen.getByRole("status").textContent).toBe("Checking this request.");
 
-      failAgain(new AuthorizeError("rate_limited", 429, "Too many attempts."));
+      failAgain(new AuthorizeError("rate_limited", 429, "PLANTED-429"));
 
       await waitFor(() =>
-        expect(screen.getByRole("status").textContent).toBe("Too many attempts."),
+        expect(screen.getByRole("status").textContent).toBe(
+          "Too many attempts. Wait a while, then try again.",
+        ),
       );
       expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
     });

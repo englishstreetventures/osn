@@ -130,6 +130,11 @@ function look(card: HTMLElement) {
 const FAILED = "We couldn't open this link just now";
 const DEAD = "This link no longer works";
 
+/** What the link client throws when no answer came: status 0, as `reach` builds it. */
+const offline = () => Object.assign(new Error("PLANTED offline"), { status: 0 });
+/** `describeAuthError`'s sentence for it. */
+const CONNECTION = "We couldn't connect. Check your connection and try again.";
+
 describe("the emailed-link page's own states, on musubi's /verify route", () => {
   for (const theme of ["light", "dark"] as const) {
     it(`draws a failed read in ConfirmLinkPage's card, in ${theme}`, async () => {
@@ -143,7 +148,7 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
       cleanup();
       link.secret = "s".repeat(64);
 
-      link.candidates.mockRejectedValue(new Error("offline"));
+      link.candidates.mockRejectedValue(offline());
       await open(SIGN_UP);
       const card = cardOf(FAILED);
       expect(look(card)).toEqual(expired);
@@ -154,7 +159,7 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
 
       // The line is the danger notice: red ink, the mark, and "Error" read aloud.
       const alert = screen.getByRole("alert");
-      expect(alert.textContent).toBe("Error: Check your connection, then try again.");
+      expect(alert.textContent).toBe(`Error: ${CONNECTION}`);
       expect(card.contains(alert)).toBe(true);
 
       await page.screenshot({ path: `${SHOTS}/failed-320-${theme}.png` });
@@ -162,7 +167,7 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
   }
 
   it("draws the failed card's Try again 44px tall below md and 40px from md, as wide as the card", async () => {
-    link.candidates.mockRejectedValue(new Error("offline"));
+    link.candidates.mockRejectedValue(offline());
     for (const viewport of [PHONE, DESKTOP]) {
       await atViewport(viewport);
       await open(SIGN_UP);
@@ -217,10 +222,15 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
       link.candidates.mockReturnValue(read.promise);
       await open(SIGN_UP);
 
-      const placeholder = wordmark().nextElementSibling as HTMLElement;
-      expect(placeholder.getAttribute("aria-hidden")).toBe("true");
-      expect(getComputedStyle(placeholder).borderTopLeftRadius).toBe("16px");
-      const held = placeholder.getBoundingClientRect().height;
+      const region = wordmark().nextElementSibling as HTMLElement;
+      expect(region.getAttribute("aria-busy")).toBe("true");
+      const shown = [...region.children].filter(
+        (block) => getComputedStyle(block).display !== "none",
+      ) as HTMLElement[];
+      expect(shown).toHaveLength(1);
+      expect(shown[0]!.getAttribute("aria-hidden")).toBe("true");
+      expect(getComputedStyle(shown[0]!).borderTopLeftRadius).toBe("16px");
+      const held = region.getBoundingClientRect().height;
       const before = wordmark().getBoundingClientRect().top;
       await page.screenshot({ path: `${SHOTS}/loading-${viewport.width}.png` });
 
@@ -237,7 +247,7 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
 
   it("keeps the failed card up through Try again, shows the wait on its button, and says each try and failure", async () => {
     await atViewport(PHONE);
-    link.candidates.mockRejectedValueOnce(new Error("offline"));
+    link.candidates.mockRejectedValueOnce(offline());
     await open(SIGN_UP);
     const live = document.querySelector("output") as HTMLOutputElement;
     // The first failure is said by the card's own alert as it appears.
@@ -252,17 +262,20 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
       await painted();
 
       const button = screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement;
-      expect(button.disabled).toBe(true);
+      // Busy, not disabled: it keeps focus and refuses a press.
+      expect(button.getAttribute("aria-busy")).toBe("true");
+      expect(button.disabled).toBe(false);
       expect(cardOf(FAILED).contains(button)).toBe(true);
-      // The disabled button cannot hold focus; the card's heading does, not the page.
-      expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: FAILED }));
+      expect(document.activeElement).toBe(button);
+      fireEvent.click(button);
+      expect(link.candidates).toHaveBeenCalledTimes(attempt + 2);
       expect(live.textContent).toBe("Checking this link…");
       if (attempt === 0) await page.screenshot({ path: `${SHOTS}/retrying-320.png` });
 
-      retry.reject(new Error("still offline"));
+      retry.reject(offline());
       await painted();
       expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-      expect(live.textContent).toBe("Check your connection, then try again.");
+      expect(live.textContent).toBe(CONNECTION);
     }
   });
 });
