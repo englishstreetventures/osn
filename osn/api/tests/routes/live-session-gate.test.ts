@@ -225,8 +225,9 @@ const codeIds = async (h: Harness, profile: Profile) =>
   ).map((r) => r.id);
 
 describe("a logged-out session's access token", () => {
-  it("cannot complete a passkey step-up; a live session's can", async () => {
-    // Red on removing the gate from POST /step-up/passkey/complete.
+  it("cannot complete a passkey step-up, and the refusal leaves the challenge", async () => {
+    // Red on removing the gate from POST /step-up/passkey/complete, or on
+    // moving it after the ceremony takes the account's parked challenge.
     const h = makeApp();
     const profile = await registerAccount(h, "lsg-pk@example.com", "lsgpk");
     const credentialId = await enrolPasskey(h, profile);
@@ -244,8 +245,9 @@ describe("a logged-out session's access token", () => {
       ),
     ).toEqual(REFUSED);
 
+    // No second `begin`: the challenge is parked per account, so the live
+    // session completes against the one the refused call left in place.
     const live = await openSession(h, profile);
-    expect((await post(h, "/step-up/passkey/begin", { token: live.accessToken })).status).toBe(200);
     const minted = await post(h, "/step-up/passkey/complete", {
       token: live.accessToken,
       body: { assertion: assertionFor(credentialId), purpose: "recovery_generate" },
