@@ -20,6 +20,8 @@ import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
+  LINK_RESENDS_PER_MAILBOX_MAX,
+  LINK_RESENDS_PER_MAILBOX_WINDOW_MS,
   RECOVERY_RESENDS_PER_ACCOUNT_MAX,
   RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS,
   RECOVERY_LINKS_PER_ACCOUNT_CEILING,
@@ -30,6 +32,8 @@ import {
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
   REGISTRATION_SENDS_PER_ADDRESS_MAX,
   REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+  STEP_UP_LINKS_PER_ACCOUNT_CEILING,
+  STEP_UP_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "../../services/auth/constants";
@@ -68,6 +72,7 @@ export function createInMemoryCoordination(): CoordinationStores {
       threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD,
       lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
     }),
+    stepUpLinkLockoutStore: createInMemoryRecoveryLockoutStore(),
     profileSwitchCap: createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS),
     emailChangeBeginCap: createInMemoryAccountCap(
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
@@ -88,6 +93,14 @@ export function createInMemoryCoordination(): CoordinationStores {
     registrationSendCap: createInMemoryAccountCap(
       REGISTRATION_SENDS_PER_ADDRESS_MAX,
       REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+    ),
+    stepUpLinkCeiling: createInMemoryAccountCap(
+      STEP_UP_LINKS_PER_ACCOUNT_CEILING,
+      STEP_UP_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+    ),
+    linkResendCap: createInMemoryAccountCap(
+      LINK_RESENDS_PER_MAILBOX_MAX,
+      LINK_RESENDS_PER_MAILBOX_WINDOW_MS,
     ),
     healthProbe: createCoordinationProbe(createMemoryProbeTarget()),
     healthProbeLimiter: memoryLimiter(OSN_RATE_LIMITS.healthCoordination),

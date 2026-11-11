@@ -78,9 +78,9 @@ describe("flow sources", () => {
   // spends one `/authorize` too. A Musubi sign-in as the dev profile,
   // `signInToMusubiAsDev`, spends one `/dev/login` and nothing else. All of it
   // from the suite's one address, in fixed windows, so a sign-in past the
-  // budget fails only on a fast machine. Seven organiser sign-ins, one Musubi
-  // one and two Pulse ones keep every window with room: 14 of the 15 redirect
-  // legs, 8 of the 10 dev logins, 9 of the 20 authorizes.
+  // budget fails only on a fast machine. Seven organiser sign-ins, two Musubi
+  // ones and two Pulse ones keep every window with room: 14 of the 15 redirect
+  // legs, 9 of the 10 dev logins, 9 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     // The support modules too, less the helpers' own definitions.
     const sources = dirs.flatMap((dir) =>
@@ -108,8 +108,8 @@ describe("flow sources", () => {
   // dialog, resends with "Resend link", and confirms by pressing a number on
   // the link's page, right or wrong, or "I didn't ask for this" there, written
   // exactly as the patterns below; `registerThroughApi` does one begin and one
-  // confirm. A recovery link's confirm, typing the number, spends the same
-  // confirm budget.
+  // confirm. A recovery or step-up link's confirm, typing the number, and an
+  // email change's, picking it, spend the same confirm budget.
   const countIn = (pattern: RegExp): number =>
     readdirSync(join(import.meta.dirname, "flows"))
       .map((file) => readFileSync(join(import.meta.dirname, "flows", file), "utf8"))

@@ -376,7 +376,7 @@ admits a `totp` AMR.
 >    only one survivor, and the attacker's credential is one.
 >
 > Email change fell to the same pivot with `purpose: "email_change"` at step 3,
-> and that was the worse end of it: its second factor is an OTP to the **new**
+> and that was the worse end of it: its second factor is a link to the **new**
 > address, and `POST /account/email/begin` is gated on the access token alone,
 > so the current-mailbox proof that list was written for is not what the caller
 > ends up presenting. The outcome was a permanent, mailbox-independent takeover.

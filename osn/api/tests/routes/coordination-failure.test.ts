@@ -76,8 +76,8 @@ describe("a ceremony begin whose entry cannot be stored", () => {
     expect(h.recorded()).toEqual([]);
   });
 
-  it("POST /step-up/otp/begin answers 503 and mails nothing", async () => {
-    const h = harness((call) => call.store === "step_up_otp");
+  it("POST /step-up/email/begin answers 503 and mails nothing", async () => {
+    const h = harness((call) => call.store === "email_link");
     const profile = await Effect.runPromise(
       h.auth.registerProfile("stepdown@example.com", "stepdown").pipe(Effect.provide(h.layer)),
     );
@@ -95,14 +95,15 @@ describe("a ceremony begin whose entry cannot be stored", () => {
     h.fail();
 
     const res = await h.app.handle(
-      new Request("http://localhost/step-up/otp/begin", {
+      new Request("http://localhost/step-up/email/begin", {
         method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ purpose: "account_export" }),
       }),
     );
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toBe("temporarily_unavailable");
     expect(h.recorded()).toEqual([]);
-    expect(h.fake.calls.at(-1)).toEqual({ store: "step_up_otp", op: "write" });
+    expect(h.fake.calls.at(-1)).toEqual({ store: "email_link", op: "write" });
   });
 });

@@ -9,20 +9,14 @@ import { beforeAll } from "vitest";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+import { stepUpThroughService } from "../helpers/step-up-link";
 
 /** Fresh email recorder + merged test layer. Replaces the old sendEmail callback. */
 function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
     layer: Layer.merge(createTestLayer(), email.layer),
-    latest: (): string | undefined => {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/(\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => email.recorded(),
     all: () => email.recorded(),
   };
 }
@@ -443,11 +437,11 @@ describe("passkey register step-up gate (S-H1)", () => {
     return Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-add-ok@example.com", "pkaddok");
       yield* seedPasskey(alice.accountId);
-      yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         alice.accountId,
-        cap.latest()!,
         "passkey_register",
+        cap.recorded,
       );
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
@@ -478,12 +472,12 @@ describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
         yield* seedPasskey(alice.accountId);
       }
       // Begin requires step-up once the account has ≥1 passkey.
-      // Mint one via the OTP ceremony.
-      yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      // Mint one through the emailed link.
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         alice.accountId,
-        cap.latest()!,
         "passkey_register",
+        cap.recorded,
       );
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();

@@ -13,8 +13,8 @@ import type { createAuthService } from "../../src/services/auth";
 import type { SessionMeta } from "../../src/services/auth/types";
 import { settle, settledHandle } from "./background";
 
-/** `/verify/<request id>#<link secret>`, as a sign-up or recovery email carries it. */
-const LINK_RE = /\/verify\/((?:signup|recovery)_[a-f0-9]{12})#([a-f0-9]{64})/;
+/** `/verify/<request id>#<link secret>`, as any emailed link carries it. */
+const LINK_RE = /\/verify\/((?:signup|recovery|stepup|emailchange)_[a-f0-9]{12})#([a-f0-9]{64})/;
 
 export interface EmailedLink {
   readonly url: string;

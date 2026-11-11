@@ -10,7 +10,7 @@ related:
   - "[[sessions]]"
   - "[[rate-limiting]]"
   - "[[email]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Auth Flow Failure Runbook
@@ -107,8 +107,9 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| `403 step_up_required` on `DELETE /account`, `GET /account/export`, `POST /recovery/generate`, `PATCH` or `DELETE /passkeys/:id`, `POST /account/security-events/:id/ack` or `/ack-all`, `POST /totp/enroll/begin`, `DELETE /totp` | Token missing or wrong amr | Mint a token with `POST /step-up/{passkey,otp}/{begin,complete}` or `POST /step-up/totp/complete`. Check the route's `allowedAmr` config |
-| `400` on `POST /account/email/complete` | `step_up_token` is a required body field there, so a missing one fails body validation; a bad code or a stale token is also `400 invalid_request` | Mint a fresh token and send it with the code |
+| `403 step_up_required` on `DELETE /account`, `GET /account/export`, `POST /recovery/generate`, `PATCH` or `DELETE /passkeys/:id`, `POST /account/security-events/:id/ack` or `/ack-all`, `POST /totp/enroll/begin`, `DELETE /totp` | Token missing or wrong amr | Mint a token with `POST /step-up/passkey/{begin,complete}`, the emailed link (`POST /step-up/email/begin`, then the status poll) or `POST /step-up/totp/complete`. Check the route's `allowedAmr` config |
+| `400` on `POST /account/email/:requestId/complete` | `step_up_token` is a required body field there, so a missing one fails body validation; a request not yet confirmed, spent, replaced by a newer begin or another account's, and a stale token, are also `400 invalid_request` | Poll status until `confirmed`, mint a fresh `email_change` token, and complete; a refused request needs a new begin |
+| Step-up link poll stays `pending` after the link was opened | The reader typed a wrong number (the request ended, and the poll reads `expired`), or the account's step-up lockout holds (`step_up_link_lockout`: no link was mailed, and a right number is refused) | Begin again; after five wrong numbers wait out the 15-minute window. See [[email-links#Step-up]] |
 | Token rejected with `replay` | `jti` already consumed (`StepUpJtiStore`) | Mint a fresh token — they're single-use |
 | Token rejected with `aud_mismatch` | Cross-used as access token (or vice versa) | Step-up JWTs carry `aud: "osn-step-up"` |
 | Step-up token refused as "could not be verified" | The coordination store could not check the token's single use, so the guard failed closed | `coordination store call failed` with `store: step_up_jti` in Workers Logs; restore the store ([[coordination-store]]). Watch `osn.auth.step_up.verified{result}` |

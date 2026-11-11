@@ -30,8 +30,9 @@ interface ClientStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
 }
 
 function makeClientStub(): ClientStub {
@@ -48,8 +49,9 @@ function makeStepUpStub(): StepUpStub {
     passkeyComplete: vi
       .fn()
       .mockResolvedValue({ token: "su_tok", expiresAt: Math.floor(Date.now() / 1000) + 300 }),
-    otpBegin: vi.fn(),
-    otpComplete: vi.fn(),
+    emailBegin: vi.fn(),
+    emailStatus: vi.fn(),
+    emailResend: vi.fn(),
   };
 }
 

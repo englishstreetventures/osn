@@ -7,7 +7,7 @@ related:
   - "[[rate-limiting]]"
   - "[[coordination-store]]"
   - "[[osn-core]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-11
 ---
 
 # Rate Limit Incident Runbook
@@ -35,17 +35,17 @@ Current limits (defined once in `AUTH_RATE_LIMITS` and `OSN_RATE_LIMITS`, `osn/a
 
 | Endpoint group | Limit | Purpose |
 |----------------|-------|---------|
-| `/register/begin`, `/register/:requestId/resend`, `/step-up/otp/begin` | 5 / IP / min | Link / code send — prevents email bombing (resent sign-up links are also capped at 6 an hour per mailbox key, [[email-links]]) |
-| `/email-link/:requestId/confirm`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete` | 10 / IP / min | Verify / complete — room for retries |
+| `/register/begin`, `/register/:requestId/resend`, `/step-up/email/begin`, `/step-up/email/:requestId/resend`, `/account/email/:requestId/resend` | 5 / IP / min | Link send — prevents email bombing (resent sign-up links are also capped at 6 an hour per mailbox key, [[email-links]]; resent step-up and email-change links at 3 a day per mailbox) |
+| `/email-link/:requestId/confirm`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,totp}/complete`, `/account/email/:requestId/complete` | 10 / IP / min | Verify / complete — room for retries |
 | `/email-link/:requestId/candidates` | 20 / IP / min | The link's page reads it on load and on a reload |
-| `/register/:requestId/status` | 60 / IP / min | Polled by the tab waiting on a sign-up link |
+| `/register/:requestId/status`, `/step-up/email/:requestId/status`, `/account/email/:requestId/status` | 60 / IP / min | Polled by the tab waiting on a link |
 | `/login/passkey/complete` | 20 / IP / min | Verify — needs a valid assertion |
 | `/handle/:handle`, `/login/passkey/begin` | 30 and 60 / IP / min | Fired by as-you-type handle checks and conditional-UI autofill |
 | `PATCH /passkeys/:id` (rename) | 20 / min | Cheap settings action |
 | `DELETE /passkeys/:id` | 10 / min | Step-up is the primary gate; the throttle is defence in depth |
 | `GET /passkeys` | 30 / min | Settings listing — cheap reads |
 | `/login/recovery/complete` | 5 / IP / hour | Brute-force defence on the lost-device escape hatch |
-| `/account/email/begin` | 3 / IP / hour | Caps email-change OTPs |
+| `/account/email/begin` | 3 / IP / hour | Caps email-change links to user-chosen addresses |
 | `POST /recovery/generate` | 10 / IP / hour | Flood control: each call burns the previous set |
 
 The one-minute windows run on **native Workers rate-limit bindings** in the deployed tiers. The hour- and day-window limiters — the per-account caps and the per-account export, deletion and restore limiters among them — run on the **coordination store** ([[coordination-store]]), because the native binding supports only a 10- or 60-second `period`.

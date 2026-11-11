@@ -1,6 +1,7 @@
 /**
  * The emailed-link challenge: proof that someone holds a mailbox, shared by
- * every flow that emails a link (sign-up and email recovery today).
+ * every flow that emails a link: sign-up, email recovery, step-up and email
+ * change.
  *
  * A flow opens a request and gets back a request id, a link secret, a claim
  * secret and a pairing number. Each secret is 256 random bits, stored only as
@@ -11,8 +12,10 @@
  *   it reaches no log and no referrer.
  * - The tab that began shows the pairing number, and the confirm step
  *   requires it. Each flow has a pairing mode (`EMAIL_LINK_PAIRING_MODE`). In
- *   `pick` (sign-up) the page reads five candidates with the link secret and
- *   the reader picks one; in `type` (recovery) the reader types the number,
+ *   `pick` (sign-up, email change) the page reads five candidates with the
+ *   link secret and the reader picks one; in `type` (recovery, step-up, whose
+ *   links go to an account's own address at someone else's asking) the reader
+ *   types the number,
  *   and the candidates read answers as it does for an unknown request. The
  *   confirm `POST` carries the secret and the number; a wrong one ends the
  *   request at once. The reader can instead say they did not
@@ -41,8 +44,9 @@
  * A wrong secret counts nowhere else: whoever began a request holds its id,
  * and a 256-bit secret needs no wider count. A wrong pick, which only the
  * holder of a link can make, also counts against the flow's subject
- * (`strikesOf`): sign-up's address, or recovery's account, which refuses a
- * right pick while it is locked (`admits`).
+ * (`strikesOf`): sign-up's and email change's address, or recovery's and
+ * step-up's account, which refuses a right number while it is locked
+ * (`admits`).
  *
  * The request id starts with a prefix per flow (`EMAIL_LINK_ID_PREFIX`), so
  * the page can say what confirming does without reading anything.
@@ -82,6 +86,8 @@ import type { SessionMeta } from "./types";
 export const EMAIL_LINK_ID_PREFIX = {
   registration: "signup_",
   recovery: "recovery_",
+  step_up: "stepup_",
+  email_change: "emailchange_",
 } as const satisfies Record<EmailLinkFlow, string>;
 
 const idPattern = (prefixes: readonly string[]) =>
@@ -107,6 +113,8 @@ export type EmailLinkPairingMode = "pick" | "type";
 export const EMAIL_LINK_PAIRING_MODE = {
   registration: "pick",
   recovery: "type",
+  step_up: "type",
+  email_change: "pick",
 } as const satisfies Record<EmailLinkFlow, EmailLinkPairingMode>;
 
 /**
@@ -204,6 +212,8 @@ export type EmailLinkResend =
       readonly signUp?: PendingSignUp;
       /** The request's `bound`, or undefined when its flow set none. */
       readonly bound: string | undefined;
+      /** The request's `purpose`, or undefined when its flow set none. */
+      readonly purpose: string | undefined;
       readonly url: string;
       /** Milliseconds; the request's own expiry, unchanged by the Resend. */
       readonly expiresAt: number;
@@ -264,14 +274,15 @@ const randomIndex = (n: number): number => {
 
 export function createEmailLinkModule(ctx: AuthContext) {
   const { config, stores, serverMac, hashIp, registrationLinkLockoutStore } = ctx;
-  const { recoveryOtpLockoutStore } = ctx;
+  const { recoveryOtpLockoutStore, stepUpLinkLockoutStore } = ctx;
   const links = stores.emailLinks;
 
   /**
    * Each flow's own pending store, whose entries name the request they belong
    * to; null for a flow that keeps no pending state beside the request.
-   * Recovery keeps none: its requests stand alone, so a stranger's begin for
-   * an account neither replaces nor blocks the owner's.
+   * Recovery and step-up keep none: their requests stand alone, so a
+   * stranger's begin for an account neither replaces nor blocks the owner's.
+   * Email change keeps the new address beside its request, keyed by account.
    */
   const pendingStoreOf = (
     flow: EmailLinkFlow,
@@ -279,7 +290,10 @@ export function createEmailLinkModule(ctx: AuthContext) {
     switch (flow) {
       case "registration":
         return stores.pendingRegistrations;
+      case "email_change":
+        return stores.pendingEmailChanges;
       case "recovery":
+      case "step_up":
         return null;
     }
   };
@@ -310,31 +324,40 @@ export function createEmailLinkModule(ctx: AuthContext) {
       });
 
   /**
-   * Each flow's counter of wrong picks, and the key it counts under for a
-   * request's subject. Sign-up counts per address exactly as typed,
-   * lowercased, under the probe key its send reads; recovery per account (the
-   * subject is the account id).
+   * Each flow's counter of wrong numbers, and the key it counts `entry` under.
+   * Sign-up and email change count per address exactly as typed, lowercased,
+   * under the probe key their sends read, on the one counter for links to an
+   * address not yet proven (email change's address is its `bound`); recovery
+   * and step-up per account (the subject is the account id), each on a
+   * counter of its own.
    */
-  const strikesOf = (flow: EmailLinkFlow, subject: string): StrikeCounter => {
-    switch (flow) {
+  const strikesOf = (entry: EmailLinkChallenge): StrikeCounter => {
+    switch (entry.flow) {
       case "registration":
         return {
           store: registrationLinkLockoutStore,
-          key: serverMac.probeKey(subject.toLowerCase()),
+          key: serverMac.probeKey(entry.subject.toLowerCase()),
+        };
+      case "email_change":
+        return {
+          store: registrationLinkLockoutStore,
+          key: entry.bound ?? serverMac.probeKey(entry.subject),
         };
       case "recovery":
         return {
           store: recoveryOtpLockoutStore,
-          key: subject,
-          counted: recoveryCounted(subject),
+          key: entry.subject,
+          counted: recoveryCounted(entry.subject),
         };
+      case "step_up":
+        return { store: stepUpLinkLockoutStore, key: entry.subject };
     }
   };
 
   /** Counts one wrong pick against `entry`'s subject. */
   const strike = (entry: EmailLinkChallenge, sessionMeta?: SessionMeta) =>
     Effect.gen(function* () {
-      const strikes = strikesOf(entry.flow, entry.subject);
+      const strikes = strikesOf(entry);
       const count = yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
       if (strikes.counted) yield* strikes.counted(count, sessionMeta);
     });
@@ -353,13 +376,22 @@ export function createEmailLinkModule(ctx: AuthContext) {
       : Effect.void;
 
   /**
-   * Whether `entry`'s flow lets a right pick confirm it now. Recovery reads the
-   * account's lockout: `locked` refuses; a count that cannot be read fails
-   * with a `CoordinationError` (fail closed, and the request is kept, so the
-   * page offers Try again). Sign-up reads nothing.
+   * Whether `entry`'s flow lets a right number confirm it now. Recovery and
+   * step-up read the account's lockout: `locked` refuses; a count that cannot
+   * be read fails with a `CoordinationError` (fail closed, and the request is
+   * kept, so the page offers Try again). Sign-up and email change read
+   * nothing.
    */
   const admits = (entry: EmailLinkChallenge): Effect.Effect<boolean, CoordinationError> =>
     Effect.gen(function* () {
+      if (entry.flow === "step_up") {
+        const reading = yield* Effect.promise(() => stepUpLinkLockoutStore.status(entry.subject));
+        if (reading.status === "open") return true;
+        if (reading.status === "locked") return false;
+        return yield* Effect.fail(
+          new CoordinationError({ store: "step_up_link_lockout", op: "count" }),
+        );
+      }
       if (entry.flow !== "recovery") return true;
       const reading = yield* Effect.promise(() => recoveryOtpLockoutStore.status(entry.subject));
       if (reading.status === "open") return true;
@@ -407,12 +439,14 @@ export function createEmailLinkModule(ctx: AuthContext) {
   /**
    * The live request `requestId` of `flow` whose claim secret is
    * `claimSecret`, or null. A wrong flow, a wrong claim secret, an expired or
-   * a missing request all read as null.
+   * a missing request all read as null; so does another `subject`'s, when the
+   * caller names the subject it is signed in as.
    */
   const held = (
     flow: EmailLinkFlow,
     requestId: string,
     claimSecret: string,
+    subject?: string,
   ): Effect.Effect<EmailLinkChallenge | null, CoordinationError> =>
     Effect.gen(function* () {
       if (!ANY_ID.test(requestId)) return null;
@@ -420,6 +454,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       if (!usable(entry)) return null;
       const claimMatches = timingSafeEqualString(entry.claimSecretHash, sha256(claimSecret));
       if (!claimMatches || entry.flow !== flow) return null;
+      if (subject !== undefined && entry.subject !== subject) return null;
       return entry;
     });
 
@@ -482,14 +517,19 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * Opens a request of `flow` about `subject`. One store write, whatever the
    * flow does next, so every branch of a flow's begin can make the same call.
    * A registration request carries `signUp`, the sign-up it parks at
-   * `subject`, so it can park later if it cannot now; a recovery request is
-   * bound to `bound` (see `EmailLinkChallenge.bound`).
+   * `subject`, so it can park later if it cannot now; a recovery, step-up or
+   * email-change request is bound to `bound`, and a step-up request is for
+   * `purpose` (see `EmailLinkChallenge`).
    */
   const open = (
     flow: EmailLinkFlow,
     subject: string,
     ttlMs: number,
-    extra: { readonly signUp?: PendingSignUp; readonly bound?: string } = {},
+    extra: {
+      readonly signUp?: PendingSignUp;
+      readonly bound?: string;
+      readonly purpose?: string;
+    } = {},
   ): Effect.Effect<OpenedEmailLink, CoordinationError> =>
     Effect.gen(function* () {
       const requestId = genId(EMAIL_LINK_ID_PREFIX[flow]);
@@ -512,6 +552,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       };
       if (extra.signUp) entry.signUp = extra.signUp;
       if (extra.bound !== undefined) entry.bound = extra.bound;
+      if (extra.purpose !== undefined) entry.purpose = extra.purpose;
       yield* storeCall(links, "set", () => links.set(requestId, entry, ttlMs));
       return {
         requestId,
@@ -715,15 +756,18 @@ export function createEmailLinkModule(ctx: AuthContext) {
   /**
    * The tab that began asks where its request stands. One store read. A
    * pending answer carries the request's number, so a tab that was reloaded
-   * shows it again without having kept it anywhere.
+   * shows it again without having kept it anywhere. A flow whose caller is
+   * signed in names the `subject` it is signed in as; another subject's
+   * request reads as expired.
    */
   const poll = (
     flow: EmailLinkFlow,
     requestId: string,
     claimSecret: string,
+    subject?: string,
   ): Effect.Effect<EmailLinkPoll, CoordinationError> =>
     Effect.gen(function* () {
-      const entry = yield* held(flow, requestId, claimSecret);
+      const entry = yield* held(flow, requestId, claimSecret, subject);
       if (!entry || entry.status === "declined") return { state: "expired" } as const;
       if (entry.status === "confirmed" || entry.status === "claimed") {
         return { state: "confirmed", entry } as const;
@@ -790,17 +834,19 @@ export function createEmailLinkModule(ctx: AuthContext) {
     claimEntry(links, requestId, claimed);
 
   /**
-   * One more link for the request, for the tab that holds its claim secret.
-   * Every link sent stays usable, up to `EMAIL_LINK_MAX_SENDS` in all; the
-   * request's expiry and pairing number do not change.
+   * One more link for the request, for the tab that holds its claim secret
+   * (signed in as `subject`, where the flow names one). Every link sent stays
+   * usable, up to `EMAIL_LINK_MAX_SENDS` in all; the request's expiry and
+   * pairing number do not change.
    */
   const resend = (
     flow: EmailLinkFlow,
     requestId: string,
     claimSecret: string,
+    subject?: string,
   ): Effect.Effect<EmailLinkResend, CoordinationError> =>
     Effect.gen(function* () {
-      let current = yield* held(flow, requestId, claimSecret);
+      let current = yield* held(flow, requestId, claimSecret, subject);
       // Two tries: a confirm or another Resend can land between the read and
       // the write.
       for (let attempt = 0; attempt < 2 && current; attempt++) {
@@ -826,11 +872,12 @@ export function createEmailLinkModule(ctx: AuthContext) {
             subject: from.subject,
             signUp: from.signUp,
             bound: from.bound,
+            purpose: from.purpose,
             url: linkUrl(requestId, linkSecret),
             expiresAt: from.expiresAt,
           } as const;
         }
-        current = yield* held(flow, requestId, claimSecret);
+        current = yield* held(flow, requestId, claimSecret, subject);
       }
       return { state: "expired" } as const;
     });

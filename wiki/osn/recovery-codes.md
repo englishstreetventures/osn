@@ -173,7 +173,7 @@ POST /recovery/generate
 
 Step-up gated (M-PK1): a stolen access token on its own must not be able to burn the account's codes. Run the ceremony first (`[[step-up]]`) and pass the token it mints. Allowed factors default to `["webauthn", "otp"]`.
 
-**Purpose-bound.** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/otp/complete`; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.
+**Purpose-bound.** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/totp/complete`, or to `/step-up/email/begin`, which fixes it for the link; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.
 
 Wire field is `recoveryCodes` (not `codes`) so the redaction deny-list entry matches. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_generate"}` on every successful generate so out-of-band regeneration is visible in the existing session-invalidation dashboard.
 

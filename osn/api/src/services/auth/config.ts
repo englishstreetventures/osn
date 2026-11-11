@@ -51,7 +51,7 @@ export interface AuthConfig {
   accessTokenTtl?: number;
   /** Refresh token TTL in seconds (default: 2592000 = 30 days) */
   refreshTokenTtl?: number;
-  /** OTP TTL in seconds (default: 600 = 10 min). Applies to registration, email change, and step-up OTP. */
+  /** Emailed-link TTL in seconds (default: 600 = 10 min). Applies to sign-up, email change and step-up links. */
   otpTtl?: number;
   /**
    * Step-up (sudo) token TTL in seconds. Default: 300 (5 min). Short enough
@@ -120,7 +120,7 @@ export interface AuthConfig {
    */
   passkeyRegisterAllowedAmr?: readonly ("webauthn" | "otp" | "totp")[];
   // A fourth AMR allow-list exists and has no field here on purpose:
-  // `emailChangeAllowedAmr` (`context.ts`) gates `/account/email/complete` at
+  // `emailChangeAllowedAmr` (`context.ts`) gates `/account/email/:requestId/complete` at
   // `["webauthn", "otp"]` and no deployment may widen it. Its `otp` arm proves
   // control of the CURRENT mailbox, which a TOTP seed does not, and email
   // change is the pivot to permanent takeover — so it is a property of the
@@ -172,6 +172,13 @@ export interface AuthConfig {
    * mailed; past the threshold, none is.
    */
   registrationLinkLockoutStore?: RecoveryLockoutStore;
+  /**
+   * Per account: wrong typed numbers on step-up links (recovery's numbers:
+   * five in 15 minutes). While it holds, no step-up link is mailed and a right
+   * number is refused. Its own counter, so a step-up never locks anyone out of
+   * a recovery factor.
+   */
+  stepUpLinkLockoutStore?: RecoveryLockoutStore;
   /**
    * The AES-GCM keys TOTP shared secrets are encrypted under at rest, by the
    * version stamped on a row. `buildAppDeps` builds it at boot from
@@ -232,6 +239,18 @@ export interface AuthConfig {
    * {@link REGISTRATION_SENDS_PER_ADDRESS_MAX}.
    */
   registrationSendCap?: AccountCapLimiter;
+  /**
+   * Every step-up link to one account in 24 hours, first links and Resends
+   * together (10), keyed on the account id and checked only where a link would
+   * go out. See {@link STEP_UP_LINKS_PER_ACCOUNT_CEILING}.
+   */
+  stepUpLinkCeiling?: AccountCapLimiter;
+  /**
+   * Resent step-up and email-change links per mailbox (3 a day), keyed on the
+   * probe key of `mailboxKey(address)`. A first link never counts. See
+   * {@link LINK_RESENDS_PER_MAILBOX_MAX}.
+   */
+  linkResendCap?: AccountCapLimiter;
   /**
    * HMAC key for pairwise subject identifiers. Every relying party sees a
    * different `sub` for the same profile, derived from this key plus the

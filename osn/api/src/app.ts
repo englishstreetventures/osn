@@ -108,12 +108,15 @@ export interface AppDeps {
   recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
   totpLockoutStore: CoordinationStores["totpLockoutStore"];
   registrationLinkLockoutStore: CoordinationStores["registrationLinkLockoutStore"];
+  stepUpLinkLockoutStore: CoordinationStores["stepUpLinkLockoutStore"];
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
   recoveryLinkAddressCap: CoordinationStores["recoveryLinkAddressCap"];
   recoveryResendCap: CoordinationStores["recoveryResendCap"];
   recoveryLinkCeiling: CoordinationStores["recoveryLinkCeiling"];
   registrationSendCap: CoordinationStores["registrationSendCap"];
+  stepUpLinkCeiling: CoordinationStores["stepUpLinkCeiling"];
+  linkResendCap: CoordinationStores["linkResendCap"];
   /** The coordination round trip `GET /health/coordination` runs. */
   healthProbe: CoordinationStores["healthProbe"];
   /** Per-IP limiter in front of it: native where the Worker has the binding. */
@@ -194,12 +197,15 @@ export function createApp(deps: AppDeps) {
     recoveryOtpLockoutStore,
     totpLockoutStore,
     registrationLinkLockoutStore,
+    stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryLinkAddressCap,
     recoveryResendCap,
     recoveryLinkCeiling,
     registrationSendCap,
+    stepUpLinkCeiling,
+    linkResendCap,
     healthProbe,
     healthProbeLimiter,
     clientIpConfig,
@@ -286,12 +292,15 @@ export function createApp(deps: AppDeps) {
     recoveryOtpLockoutStore,
     totpLockoutStore,
     registrationLinkLockoutStore,
+    stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryLinkAddressCap,
     recoveryResendCap,
     recoveryLinkCeiling,
     registrationSendCap,
+    stepUpLinkCeiling,
+    linkResendCap,
   };
 
   return withDocs

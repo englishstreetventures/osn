@@ -9,6 +9,7 @@ import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
+import { stepUpThroughService } from "../helpers/step-up-link";
 
 /**
  * M-PK1b: security_events audit trail + out-of-band notification.
@@ -38,14 +39,7 @@ function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
     layer: Layer.merge(createTestLayer(), email.layer),
-    latest: (): string | undefined => {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/(?:step-up code is|code is): (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => email.recorded(),
   };
 }
 
@@ -66,7 +60,7 @@ const registered = (auth: ReturnType<typeof createAuthService>, email: string, h
   });
 
 /**
- * Drives the OTP step-up ceremony and returns a single-use token. Each call
+ * Drives the step-up through the emailed link and returns a single-use token. Each call
  * mints a fresh token — step-up jti is consumed on first verify, so tests
  * that ack multiple events need one token per ack OR a bulk-ack call.
  */
@@ -76,13 +70,7 @@ const mintStepUp = (
   capture: ReturnType<typeof makeEmailCapture>,
   // The ack gates are purpose-bound; default to the ceremony these tests drive.
   purpose: StepUpPurpose = "security_event_ack",
-) =>
-  Effect.gen(function* () {
-    yield* auth.beginStepUpOtp(accountId);
-    const code = capture.latest()!;
-    const { stepUpToken } = yield* auth.completeStepUpOtp(accountId, code, purpose);
-    return stepUpToken;
-  });
+) => stepUpThroughService(auth, accountId, purpose, capture.recorded);
 
 describe("generateRecoveryCodesForAccount → security_events", () => {
   it.effect("creates exactly one unacked row per generate call", () =>

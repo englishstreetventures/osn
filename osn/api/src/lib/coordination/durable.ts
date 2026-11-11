@@ -66,7 +66,6 @@ import type {
   EmailLinkChallenge,
   RegistrationChallengeEntry,
   StepUpJtiStore,
-  StepUpOtpEntry,
 } from "../../services/auth/stores";
 import type { CeremonyStore, CeremonyStoreOp } from "../ceremony-store";
 import { RECOVERY_LOCKOUT_MS, RECOVERY_LOCKOUT_THRESHOLD } from "../recovery-lockout-store";
@@ -290,7 +289,6 @@ export function createDurableCoordination(
     loginChallenges: ceremony<ChallengeEntry>("login_challenge"),
     pendingRegistrations: ceremony<PendingRegistration>("pending_registration"),
     stepUpPasskeyChallenges: ceremony<ChallengeEntry>("step_up_challenge"),
-    stepUpOtp: ceremony<StepUpOtpEntry>("step_up_otp"),
     pendingTotpEnrollments: ceremony<PendingTotpEnrollment>("pending_totp_enroll"),
     pendingEmailChanges: ceremony<PendingEmailChange>("pending_email_change"),
     crossDeviceRequests: ceremony<CrossDeviceRequest>("cross_device"),
@@ -354,12 +352,21 @@ export function createDurableCoordination(
       { threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD, lockoutMs: REGISTRATION_LINK_LOCKOUT_MS },
       onError,
     ),
+    // Step-up links: wrong typed numbers per account, on recovery's numbers.
+    stepUpLinkLockoutStore: createDurableLockoutStore(
+      ns,
+      "step_up_link_lockout",
+      recoveryLockout,
+      onError,
+    ),
     profileSwitchCap: named(OSN_RATE_LIMITS.profileSwitchCap),
     emailChangeBeginCap: named(OSN_RATE_LIMITS.emailChangeBeginCap),
     recoveryLinkAddressCap: named(OSN_RATE_LIMITS.recoveryLinkAddressCap),
     recoveryResendCap: named(OSN_RATE_LIMITS.recoveryResendCap),
     recoveryLinkCeiling: named(OSN_RATE_LIMITS.recoveryLinkCeiling),
     registrationSendCap: named(OSN_RATE_LIMITS.registrationSendCap),
+    stepUpLinkCeiling: named(OSN_RATE_LIMITS.stepUpLinkCeiling),
+    linkResendCap: named(OSN_RATE_LIMITS.linkResendCap),
     healthProbe: createCoordinationProbe(client(ns, "health_probe", onError)),
     healthProbeLimiter: named(OSN_RATE_LIMITS.healthCoordination),
   };

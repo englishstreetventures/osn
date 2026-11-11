@@ -141,8 +141,9 @@ inventory read `0` on both rows two days earlier.
 **After cutover, to re-establish a credential:**
 
 1. `POST /login/recovery/complete` — identifier + code. Returns a session.
-2. `POST /step-up/otp/begin` → `/step-up/otp/complete` with purpose
-   `passkey_register`. OTP is email-based, so it does not need a passkey.
+2. `POST /step-up/email/begin` with purpose `passkey_register`, confirm the
+   emailed link with the number shown, and poll its status for the token. The
+   link is email-based, so it does not need a passkey.
 3. Enroll a fresh passkey under the new RP ID.
 4. `POST /recovery/generate` again — the consumed set is spent.
 

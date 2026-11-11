@@ -373,10 +373,11 @@ export interface MailedLink {
   readonly linkSecret: string;
 }
 
-const LINK_RE = /(https?:\/\/[^\s"<>]+\/verify\/((?:signup|recovery)_[a-f0-9]{12})#([a-f0-9]{64}))/;
+const LINK_RE =
+  /(https?:\/\/[^\s"<>]+\/verify\/((?:signup|recovery|stepup|emailchange)_[a-f0-9]{12})#([a-f0-9]{64}))/;
 
 /**
- * The newest emailed link (sign-up or recovery) sent to `email` after its
+ * The newest emailed link (any flow's) sent to `email` after its
  * first `after` messages, waiting for the mail to land: osn-api sends it after
  * it answers.
  */

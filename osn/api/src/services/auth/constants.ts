@@ -251,6 +251,29 @@ export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
 
 // ---------------------------------------------------------------------------
+// Step-up and email change by emailed link
+// ---------------------------------------------------------------------------
+
+/**
+ * Step-up links an account may be sent in 24 hours, first links and Resends
+ * together. Whoever begins a step-up holds an access token, which may be
+ * stolen, and every link asks the owner to confirm; past this, no step-up
+ * link goes until the window passes, and begin answers as before.
+ */
+export const STEP_UP_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const STEP_UP_LINKS_PER_ACCOUNT_CEILING = 10;
+
+/**
+ * Resent links one mailbox may be sent in 24 hours, per flow (step-up, email
+ * change), keyed on the flow and the mailbox (`mailboxKey`: `+tag` and Gmail's
+ * dots folded away), so one flow's Resends never spend the other's. A begin's
+ * first link never counts, so a request always gets its first link; what
+ * bounds first links is each flow's own begin limits.
+ */
+export const LINK_RESENDS_PER_MAILBOX_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const LINK_RESENDS_PER_MAILBOX_MAX = 3;
+
+// ---------------------------------------------------------------------------
 // Email account recovery (`POST /login/recovery/email/begin`, `…/:id/{status,resend}`)
 // ---------------------------------------------------------------------------
 
