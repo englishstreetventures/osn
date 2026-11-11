@@ -1,5 +1,17 @@
 # @tools/lab
 
+## 0.3.51
+
+### Patch Changes
+
+- 9a86d64: A `CardTitleWeights` story in `shared/ui/display`: one card that unsets the title weight token, so it draws the 600 fallback whatever the lab's stylesheet maps, beside one with the token at 500, each captioned with the weight the browser computed.
+- e275448: The lab imports Musubi's stylesheet, so its stories now draw shared titles at 14px and 500 and overlays with no scale. Stories that show the contract's default keep it: `BadgeWeights`' unmapped column lends `--ui-weight-title: initial`, `DialogStory` also lends `--ui-text-md: initial`, and `cireStyle()` lends `initial` for the title weight and both scale tokens, which cire leaves unmapped, so cire subtrees draw cire's 600 title and 96% pop. The `MenuItems` and type-scale comments say what the lab draws. `tests/cire-mapping.test.ts` fails when Musubi maps a `--ui-*` token that `cireStyle()` neither maps nor lends `initial`, so a cire column never draws Musubi's value.
+- Updated dependencies [e275448]
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @osn/auth-ui@4.5.2
+  - @shared/ui@0.15.0
+
 ## 0.3.50
 
 ### Patch Changes

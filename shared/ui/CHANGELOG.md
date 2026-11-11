@@ -1,5 +1,15 @@
 # @shared/ui
 
+## 0.15.0
+
+### Minor Changes
+
+- 9a86d64: `CardTitle` reads its weight from the design-token contract's title weight, `--ui-weight-title`, through `font-ui-title`, and falls back to 600, the `font-semibold` it carried before, as `DialogTitle` does. No app maps the token, so every card title draws exactly as before: a snapshot of the title's computed style written before the change still passes. Pulse imports `Card` but draws no `CardTitle`. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+### Patch Changes
+
+- e275448: `card-default.browser.test.tsx` says which apps draw the unmapped card title it holds: pulse and cire, which map no title weight. Musubi maps 500, and the metrics dashboard and the lab draw its 500. The test and its snapshot are unchanged.
+
 ## 0.14.0
 
 ### Minor Changes
