@@ -590,11 +590,17 @@ this package by design**.
 
 `--ease-out` is the strong ease-out the motion skills name (`emil-design-eng`,
 `animate`): the owner's choice of 2026-11-11, for all four cire apps. It is
-cire's curve, not the contract's. `Modal` and the `animate-in` and
-`animate-out` utilities in `@shared/design-tokens` read `--ui-ease-out` alone,
-which no cire stylesheet maps, so they run the contract's
-`cubic-bezier(0.22, 1, 0.36, 1)`; every other shared part reads `--ease-out`
-first.
+cire's curve, not the contract's, and a shared part follows it only if it reads
+it. Tailwind's `ease-out` class and every part that reads
+`var(--ease-out, var(--ui-ease-out))` — the shared menus and fields, the native
+checkbox and radio classes, `SegmentedTabs` — run cire's curve. `Modal`'s rise,
+and `Tooltip` and `Popover`, which run on `@shared/design-tokens`' `animate-in`
+and `animate-out`, read `--ui-ease-out` alone, which no cire stylesheet maps,
+so they run the contract's `cubic-bezier(0.22, 1, 0.36, 1)`. `@shared/toast`
+runs CSS's own `ease-out` in and `ease-in` out, and a `@shared/ui` part whose
+transition names no easing (`Button`, the Kobalte `Checkbox` and `RadioGroup`,
+`Switch`, `Tabs`, `Badge`, `Meter`) runs Tailwind's default
+`cubic-bezier(0.4, 0, 0.2, 1)`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
@@ -636,10 +642,14 @@ glass still slides on the spring.
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
 marketing site carry this ladder, its `pointer: fine` block and the two easings
 `--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
-fails if any copy differs. The spring is the two portals' alone, because only
-their animations read it — the glass strips slide on it in both, the droplet
-in host: the guest site and the marketing site declare neither the token nor
-the `@supports` block, and the test fails if one gains a copy. The vendor portal
+fails if any copy differs. The same test holds the two copies outside the apps
+to this file: `@cire/ui`'s test stylesheet (`tests/test-support/tailwind.css`,
+the desk ladder, both easings and the spring's `@theme` fallback) and every
+`--dur-*` or `--ease-*` a cire story in the component lab sets inline. The
+spring is the two portals' alone, because only their animations read it — the
+glass strips slide on it in both, the droplet in host: the guest site and the
+marketing site declare neither the token nor the `@supports` block, and the
+test fails if one gains a copy. The vendor portal
 renders no `Modal`, so it alone
 sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
 own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
@@ -731,14 +741,16 @@ no frame is partway.
 from transparent, 10px below its place and at 98.5% of its size, scaled from
 its own centre, while its scrim fades in (`palette-rise` and `palette-scrim` in
 `global.css`). Both run on `--dur-base` with `--ease-out` — 150ms at a desk,
-200ms on touch — one rung slower than a hover, so the arrival can be seen: the
-owner's choice of 2026-11-10 (englishstreetventures/osn#2164), "a bit slower
-than the fast rung", taken from a rendered comparison. It has no exit: a box
+200ms on touch — one rung slower than a hover, so the arrival can be seen. The
+owner asked for "a little slower than the compare page's fast rung"
+(englishstreetventures/osn#2164, 2026-11-10); `--dur-base` is the rung on this
+ladder that meets it, picked by eye from rendered frames, not a rung the owner
+named. It has no exit: a box
 holding live controls closes at once, so the palette and its scrim leave in
 one frame. Under reduced motion the global switch zeroes both, and it appears
 at once. `tests/components/CommandPalette.browser.test.tsx` holds the first
 frame (below its place, no sideways offset, opacity under 1), the clock, the
-one-frame exit and the reduced-motion case.
+one-frame exit at rest and mid-arrival, and the reduced-motion case.
 
 **A disclosure grows open and closes at once.** As a `<details>` opens, its box
 grows from the summary row to its full height while the body drops 4px and

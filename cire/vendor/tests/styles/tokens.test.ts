@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { contrastOklch, cssRamp, type Oklch } from "@cire/theme";
@@ -296,6 +296,61 @@ describe("one shape and one pace across cire", () => {
     });
   });
 
+  it("@cire/ui's test stylesheet carries the host's desk ladder and easings", () => {
+    // `@cire/ui`'s browser tier has no app, so its stylesheet copies the host's
+    // motion at a desk, Chromium's pointer being fine. A copy that drifts would
+    // time the shared parts on a pace no app runs, with every test green. Its
+    // spring is the host's `@theme` fallback, not the `linear()` that replaces
+    // it: no test there reads the spring's shape.
+    const host = ladder(declarations(SURFACES.host));
+    const expected = [
+      ...host.touch.filter((line) => line.startsWith("--motion-scale:")),
+      ...host.desk.map(atScaleOne),
+      ...host.easing,
+      ...host.spring.filter((line) => !line.includes("linear(")),
+    ];
+    const copy = declarations(readCire("ui/tests/test-support/tailwind.css"))
+      .filter((d) => isTopLevel(d, ":root") && /^--(motion-scale|dur-|ease-)/.test(d.name))
+      .map((d) => `${d.name}: ${d.value.replace(/\s+/g, "")}`);
+    // Sorted, not keyed by name, so a token declared twice shows up as two lines.
+    expected.sort();
+    copy.sort();
+    // A parse that found nothing would make the copy agree with it.
+    expect(expected).toHaveLength(7);
+    expect(copy).toEqual(expected);
+  });
+
+  it("the lab's cire stories set only motion values the host declares", () => {
+    // The lab's `cireStyle` carries cire's colours, not its motion, so a cire
+    // story that animates sets the portals' `--dur-*` and `--ease-*` inline.
+    // A copy that drifts shows a pace no cire app runs; the stories render
+    // either way. A rung may take the touch or the desk step.
+    const declared = new Map<string, string[]>();
+    for (const d of declarations(SURFACES.host)) {
+      declared.set(d.name, [
+        ...(declared.get(d.name) ?? []),
+        atScaleOne(d.value.replace(/\s+/g, "")),
+      ]);
+    }
+    const stories = new URL("../../../../tools/lab/src/stories/cire-ui/", import.meta.url);
+    const copies = readdirSync(stories)
+      .filter((file) => /\.tsx?$/.test(file))
+      .flatMap((file) =>
+        [
+          ...readFileSync(new URL(file, stories), "utf8").matchAll(
+            /"(--(?:dur|ease)-[\w-]+)":\s*"([^"]+)"/g,
+          ),
+        ].map(([, name, value]) => ({ file, name: name!, value: value!.replace(/\s+/g, "") })),
+      );
+    // A parse that found nothing would make every copy agree with it.
+    expect(copies.filter((c) => c.name === "--ease-out").length).toBeGreaterThan(0);
+    expect(declared.get("--dur-fast")).toEqual(["120ms", "90ms"]);
+    const drifted = copies
+      .filter((c) => !(declared.get(c.name) ?? []).includes(c.value))
+      .map((c) => `${c.file}: ${c.name} ${c.value}`);
+    expect(drifted).toEqual([]);
+  });
+
   it("every cire surface defines transition-ui-colors once, with the same body", () => {
     const bodies = mapSurfaces((css) => utilityBodies(css, "transition-ui-colors"));
     // A parse that found nothing would make every copy agree with it.
@@ -379,10 +434,17 @@ describe("one shape and one pace across cire", () => {
 
 /** Another cire app's stylesheet, read from disk. */
 function readSheet(app: "host" | "invites" | "landing"): string {
-  return readFileSync(
-    fileURLToPath(new URL(`../../../${app}/src/styles/global.css`, import.meta.url)),
-    "utf8",
-  );
+  return readCire(`${app}/src/styles/global.css`);
+}
+
+/** A file under `cire/`, read from disk. */
+function readCire(path: string): string {
+  return readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), "utf8");
+}
+
+/** A rung written as `calc(<n>ms*var(--motion-scale))`, as `<n>ms`: its value at scale 1. */
+function atScaleOne(text: string): string {
+  return text.replace(/calc\((\d+ms)\*var\(--motion-scale\)\)/g, "$1");
 }
 
 /**

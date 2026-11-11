@@ -51,7 +51,9 @@
   --ui-text-base: 0.9rem;
   --ui-text-lg: 1.3rem;
 
-  /* The portals' desk values (cire/host/src/styles/global.css). */
+  /* The portals' desk values (cire/host/src/styles/global.css); the spring is
+     its `@theme` fallback. cire/vendor's tests/styles/tokens.test.ts fails if
+     any of these differs from the host's. */
   --motion-scale: 1;
   --dur-fast: 90ms;
   --dur-base: 150ms;

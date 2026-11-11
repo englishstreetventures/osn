@@ -192,9 +192,10 @@ lists them. A duration, delay or easing written out where a token belongs
 fails `house/no-literal-motion` in TypeScript and
 `scripts/check-motion-literals.ts` in `.css` and `.astro` files; a fallback
 inside `var()` passes. A literal moves to the token of its job even when the
-value changes. Outside cire, Tailwind's `ease-out` class is Tailwind's own
-curve, not `--ui-ease-out`: write `ease-(--ui-ease-out)` ([[house-lint-rules]]
-§Literal motion).
+value changes. Tailwind's `ease-out` class reads the app's `--ease-out`:
+Tailwind's own curve outside cire, cire's own curve inside it (below). It is
+never `--ui-ease-out`: for the contract's curve write `ease-(--ui-ease-out)`
+([[house-lint-rules]] §Literal motion).
 
 | Token | Value | Used for |
 | --- | --- | --- |

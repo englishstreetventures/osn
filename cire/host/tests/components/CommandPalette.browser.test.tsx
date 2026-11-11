@@ -126,6 +126,31 @@ describe("the command palette's arrival", () => {
     expect(scrim.isConnected).toBe(false);
   });
 
+  it("leaves in one frame when closed while it is still arriving", async () => {
+    // ⌘K then Escape inside the arrival. The scale stretches the arrival to
+    // 1.5s at a desk, so the close lands mid-run on a slow machine too.
+    const root = document.documentElement.style;
+    root.setProperty("--motion-scale", "10");
+    try {
+      const setOpen = mount();
+      const { panel, scrim } = await parts();
+      const arrivals = [panel, scrim].map((part) => part.getAnimations());
+      expect(arrivals.map((running) => running.length)).toEqual([1, 1]);
+      await Promise.all(arrivals.flat().map((a) => a.ready));
+      await new Promise(requestAnimationFrame);
+      for (const arrival of arrivals.flat()) {
+        expect(arrival.playState).toBe("running");
+        expect(Number(arrival.currentTime)).toBeGreaterThan(0);
+      }
+      setOpen(false);
+      await new Promise(requestAnimationFrame);
+      expect(panel.isConnected).toBe(false);
+      expect(scrim.isConnected).toBe(false);
+    } finally {
+      root.removeProperty("--motion-scale");
+    }
+  });
+
   it("appears at once under reduced motion", async () => {
     await commands.emulateMedia({ reducedMotion: "reduce" });
     mount();
