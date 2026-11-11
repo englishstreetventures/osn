@@ -19,7 +19,7 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
   return (
     new Elysia()
       // -------------------------------------------------------------------------
-      // Security events (M-PK1b)
+      // Security events
       //
       // `GET /account/security-events` lists the caller's still-unacknowledged
       // security events so the Settings banner can surface "was this you?"

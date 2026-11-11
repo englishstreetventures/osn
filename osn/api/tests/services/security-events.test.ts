@@ -3,7 +3,7 @@ import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import type { StepUpPurpose } from "@shared/observability/metrics";
 import { Effect, Fiber, Layer } from "effect";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
@@ -11,16 +11,16 @@ import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 
 /**
- * M-PK1b: security_events audit trail + out-of-band notification.
+ * The security_events audit trail and its out-of-band notification.
  *
  * Invariants we care about:
  *   • generateRecoveryCodesForAccount writes one unacked security_events row
  *     per call, in the same transaction as the code swap.
  *   • consumeRecoveryCode writes one unacked security_events row per
- *     successful consumption (S-H1) — the takeover half of the threat model.
+ *     successful consumption — the takeover half of the threat model.
  *   • listUnacknowledgedSecurityEvents surfaces only unacked rows, newest
  *     first, with the coarse UA label we threaded in from the route.
- *   • acknowledgeSecurityEvent is step-up gated (S-M1), idempotent on missing
+ *   • acknowledgeSecurityEvent is step-up gated, idempotent on missing
  *     / already-acked IDs, and scoped to the owning account.
  *   • If the email transport rejects, the recovery codes still commit — the
  *     notification is forked + timed-out defence in depth, not the primary
@@ -138,7 +138,7 @@ describe("generateRecoveryCodesForAccount → security_events", () => {
   );
 });
 
-describe("consumeRecoveryCode → security_events (S-H1)", () => {
+describe("consumeRecoveryCode → security_events", () => {
   it.effect("records a recovery_code_consume audit row in the consume transaction", () =>
     Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
@@ -231,7 +231,7 @@ describe("listUnacknowledgedSecurityEvents", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-S1: the service caps results at .limit(50). A regression that drops
+  // The service caps results at .limit(50). A regression that drops
   // the cap (or the isNull filter) would silently leak unbounded data into
   // the Settings banner.
   it.effect("caps results at 50 even when more unacked rows exist", () =>
@@ -246,7 +246,7 @@ describe("listUnacknowledgedSecurityEvents", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-S1: ack + list mixed state — only unacked rows survive the filter.
+  // Ack + list mixed state — only unacked rows survive the filter.
   it.effect("excludes acknowledged rows when mixed with unacked rows", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -271,7 +271,7 @@ describe("listUnacknowledgedSecurityEvents", () => {
   });
 });
 
-// T-S2: the defensive branches in notifyRecovery are unreachable in production
+// The defensive branches in notifyRecovery are unreachable in production
 // (FK + step-up guarantee an account exists, and the mailer is configured in
 // deploy envs). Silent drift that removes the null-check could leak a "sent"
 // metric for a notification that never actually dispatched. Pin it.
@@ -316,7 +316,7 @@ describe("notifyRecovery (defensive branches)", () => {
   });
 });
 
-// T-E1: same contract for the shared passkey / cross-device notification
+// The same contract for the shared passkey / cross-device notification
 // helper — its missing-recipient branch is unreachable in production (the
 // account row is read in the same flow that fires the daemon), so pin it
 // directly the way the notifyRecovery branches are pinned above.
@@ -356,7 +356,7 @@ describe("notifySecurityEventByAccountId (defensive branches)", () => {
   });
 });
 
-describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
+describe("acknowledgeSecurityEvent (step-up gated)", () => {
   it.effect("acking a row with a valid step-up token removes it from the unacked list", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -471,7 +471,7 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
   });
 });
 
-describe("acknowledgeAllSecurityEvents (S-M1 bulk path)", () => {
+describe("acknowledgeAllSecurityEvents (bulk path)", () => {
   it.effect("dismisses every unacked event for the account in one call", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -686,12 +686,15 @@ describe("the hold on an email_changed row", () => {
 
   it.effect("the hold ends exactly 7 days after the change", () => {
     const { layer, seed, acknowledged } = makeSeeded();
+    // One frozen second for the test and the service, so the edge is exact.
+    const frozen = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(frozen);
     return Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-hold-edge@example.com", "sevholdedge");
       const now = nowSec();
       const ended = seed(profile.accountId, "email_changed", now - HOLD);
-      const notYet = seed(profile.accountId, "email_changed", now - HOLD + 60);
+      const notYet = seed(profile.accountId, "email_changed", now - HOLD + 1);
 
       const done = yield* auth.acknowledgeSecurityEvent(
         profile.accountId,
@@ -708,7 +711,7 @@ describe("the hold on an email_changed row", () => {
       );
       expect(err._tag).toBe("EmailChangeHeldError");
       expect(acknowledged(notYet)).toBe(false);
-    }).pipe(Effect.provide(layer));
+    }).pipe(Effect.provide(layer), Effect.ensuring(Effect.sync(() => clock.mockRestore())));
   });
 
   it.effect("ack-all acknowledges every row but a held one", () => {
@@ -752,6 +755,45 @@ describe("the hold on an email_changed row", () => {
         yield* ackToken(auth, profile.accountId),
       );
       expect(missing.acknowledged).toBe(false);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("the list always shows a held row, however many newer rows there are", () => {
+    const { layer, seed } = makeSeeded();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-hold-list@example.com", "sevholdlist");
+      const now = nowSec();
+      const held = seed(profile.accountId, "email_changed", now - 3600);
+      // Past its hold, so it pages out like any other row.
+      const past = seed(profile.accountId, "email_changed", now - HOLD - 3600);
+      for (let i = 0; i < 50; i++) seed(profile.accountId, "recovery_code_generate", now - i);
+
+      const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
+      const ids = events.map((e) => e.id);
+      expect(ids).toContain(held);
+      expect(ids).not.toContain(past);
+      // Still newest first.
+      const times = events.map((e) => e.createdAt);
+      expect(times).toEqual([...times].sort((a, b) => b - a));
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("another account's held row answers as a missing id, not as held", () => {
+    const { layer, seed, acknowledged } = makeSeeded();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const owner = yield* registered(auth, "sev-hold-owner@example.com", "sevholdowner");
+      const other = yield* registered(auth, "sev-hold-other@example.com", "sevholdother");
+      const held = seed(owner.accountId, "email_changed", nowSec() - 60);
+
+      const result = yield* auth.acknowledgeSecurityEvent(
+        other.accountId,
+        held,
+        yield* ackToken(auth, other.accountId),
+      );
+      expect(result.acknowledged).toBe(false);
+      expect(acknowledged(held)).toBe(false);
     }).pipe(Effect.provide(layer));
   });
 });

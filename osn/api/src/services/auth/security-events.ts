@@ -9,9 +9,10 @@ import { accounts, securityEvents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { type EmailTemplateData, EmailService, type SendEmailInput } from "@shared/email";
 import type { SecurityEventKind } from "@shared/observability/metrics";
-import { and, desc, eq, isNull, lte, ne, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, ne, or } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { canBatch } from "../../lib/batch";
 import {
   metricSecurityEventAcknowledged,
   metricSecurityEventNotified,
@@ -54,7 +55,9 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
     );
 
   /**
-   * Lists still-unacknowledged security events for an account, newest first.
+   * Lists still-unacknowledged security events for an account, newest first:
+   * the newest 50, plus any `email_changed` row still inside its hold, which
+   * no acknowledgement can clear and so must not page out behind newer rows.
    * Intended for the Settings banner — acknowledged rows are kept for audit
    * but are filtered out of the surface.
    *
@@ -66,24 +69,45 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
   ): Effect.Effect<{ events: SecurityEventSummary[] }, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({
-              id: securityEvents.id,
-              kind: securityEvents.kind,
-              createdAt: securityEvents.createdAt,
-              uaLabel: securityEvents.uaLabel,
-              ipHash: securityEvents.ipHash,
-            })
-            .from(securityEvents)
-            .where(
-              and(eq(securityEvents.accountId, accountId), isNull(securityEvents.acknowledgedAt)),
-            )
-            .orderBy(desc(securityEvents.createdAt))
-            .limit(50),
+      const nowSec = Math.floor(Date.now() / 1000);
+      const projection = {
+        id: securityEvents.id,
+        kind: securityEvents.kind,
+        createdAt: securityEvents.createdAt,
+        uaLabel: securityEvents.uaLabel,
+        ipHash: securityEvents.ipHash,
+      };
+      const unacknowledged = and(
+        eq(securityEvents.accountId, accountId),
+        isNull(securityEvents.acknowledgedAt),
+      );
+      const newest = db
+        .select(projection)
+        .from(securityEvents)
+        .where(unacknowledged)
+        .orderBy(desc(securityEvents.createdAt))
+        .limit(50);
+      // The change cap keeps this to two rows in practice; the limit bounds it.
+      const held = db
+        .select(projection)
+        .from(securityEvents)
+        .where(
+          and(
+            unacknowledged,
+            eq(securityEvents.kind, "email_changed"),
+            gt(securityEvents.createdAt, nowSec - EMAIL_CHANGE_ACK_HOLD_SECONDS),
+          ),
+        )
+        .limit(50);
+      const [page, heldRows] = yield* Effect.tryPromise({
+        // One round trip on D1.
+        try: () => (canBatch(db) ? db.batch([newest, held]) : Promise.all([newest, held])),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      const seen = new Set(page.map((row) => row.id));
+      const rows = [...page, ...heldRows.filter((row) => !seen.has(row.id))].sort(
+        (a, b) => b.createdAt - a.createdAt,
+      );
       return {
         events: rows.map((row) => ({
           id: row.id,
