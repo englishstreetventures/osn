@@ -148,7 +148,6 @@ jobs:
       zap_api: ${{ steps.plan.outputs.zap_api }}
       stack_musubi: ${{ steps.plan.outputs.stack_musubi }}
       stack_cire: ${{ steps.plan.outputs.stack_cire }}
-      any_site: ${{ steps.plan.outputs.any_site }}
       any_stack: ${{ steps.plan.outputs.any_stack }}
     steps:
       - name: Refuse any ref but main
@@ -250,7 +249,7 @@ jobs:
   sites:
     name: Build the production sites
     needs: [plan]
-    if: needs.plan.outputs.any_site == 'true'
+    if: needs.plan.outputs.any_stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -300,7 +299,7 @@ jobs:
       # The organiser portal. Its PUBLIC_* vars bake in at build time; sign-in
       # is a redirect through cire-api, so no issuer var.
       - name: Build cire/host
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_host == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: bun run build --filter=@cire/host
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
@@ -323,7 +322,7 @@ jobs:
 
       # The vendor self-service portal.
       - name: Build cire/vendor
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_vendor == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: bun run build --filter=@cire/vendor
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
@@ -342,7 +341,7 @@ jobs:
       #     prints its first seven characters as the version, so a report
       #     from a phone says which build it was.
       - name: Build cire/landing
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_landing == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: bun run build --filter=@cire/landing
         env:
           PUBLIC_ORGANISER_URL: https://host.cireweddings.com
@@ -359,7 +358,7 @@ jobs:
       # Same repo Variable as the cire builds (one widget, one sitekey);
       # musubi.social must be in the widget's Domains list.
       - name: Require the Turnstile sitekey
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.osn_social == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: |
           if [ -z "${VITE_TURNSTILE_SITEKEY}" ]; then
             echo "::error::Repo Variable PUBLIC_TURNSTILE_SITEKEY is empty or unset."
@@ -375,7 +374,7 @@ jobs:
       # without it the bundle falls back to http://localhost:4000 and every
       # call from the deployed app dials the user's own machine.
       - name: Build musubi/social
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.osn_social == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: bun run build --filter=@musubi/social
         env:
           VITE_OSN_ISSUER_URL: https://id.musubi.social
@@ -384,7 +383,7 @@ jobs:
       # musubi's marketing site on www.musubi.social; its sign-in and
       # get-started links go to the app.
       - name: Build musubi/landing
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.musubi_landing == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: bun run build --filter=@musubi/landing
         env:
           SITE: https://www.musubi.social
@@ -396,19 +395,19 @@ jobs:
       # skips the chained call; this checks what uploads either way
       # (wiki/conventions/bundle-size-guards.md).
       - name: Check cire/host bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_host == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: ./scripts/guard-bundle-size.sh cire/host
 
       - name: Check cire/vendor bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_vendor == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: ./scripts/guard-bundle-size.sh cire/vendor
 
       - name: Check cire/landing bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_landing == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: ./scripts/guard-bundle-size.sh cire/landing
 
       - name: Check musubi/landing bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.musubi_landing == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: ./scripts/guard-bundle-size.sh musubi/landing
 
       # A file at the root, so the artifact's paths start at the repository
@@ -587,13 +586,19 @@ jobs:
         id: guard_cire
         if: needs.plan.outputs.stack_cire == 'true'
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       - name: Guard the musubi plan
         id: guard_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       - name: Keep the approved plans
         uses: actions/upload-artifact@v4
@@ -1015,8 +1020,9 @@ jobs:
 
   # ═══ cire stack, production: the cire sites ═══════════════════════════════
   # Declares the organiser portal, the vendor portal and the marketing site,
-  # each at its mode in shared/infra/src/production-sites.ts; cire-api and the
-  # guest site stay with their Wrangler jobs until their own steps of P3.
+  # each at its mode and hold in shared/infra/src/production-sites.ts;
+  # cire-api and the guest site stay with their Wrangler jobs until their own
+  # steps of P3.
   stack-cire-production:
     name: Alchemy cire stack — production
     needs: [plan, build, sites, alchemy-plan]
@@ -1067,7 +1073,7 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # The host each site's Worker serves at its mode, which its smoke check asks.
+      # Each site's production host, which its smoke check asks.
       - name: Production site hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
@@ -1135,7 +1141,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1172,28 +1181,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # A site the approved plan gives a host other than a production host
-      # waits up to four minutes for that host's first certificate; every
-      # other site, a minute. Never blocks the deploy or fails the job: when
-      # it fails, each check reads no budget and asks for a minute.
-      - name: Smoke check budgets
-        id: budgets
-        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
-        continue-on-error: true
-        run: bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/cire.json"
-
-      # Seven minutes: the longest budget, a rollback and its re-check, with
-      # every request at its timeout, take 366 s (scripts/smoke-check.ts).
+      # Five minutes: a check, its rollback and the re-check, with every
+      # request at its timeout, take 186 s. A site PRODUCTION_HOST_HOLDS
+      # holds off probes nothing: its check reads that the held host is off
+      # its Worker (scripts/smoke-check.ts).
       - name: Smoke check cire/host, rolling back on failure
         id: smoke_cire_host
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts cire_host production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_host_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_host_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_host_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1201,12 +1201,11 @@ jobs:
         id: smoke_cire_vendor
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts cire_vendor production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_vendor_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_vendor_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_vendor_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1214,12 +1213,11 @@ jobs:
         id: smoke_cire_landing
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts cire_landing production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_landing_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_landing_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1268,9 +1266,9 @@ jobs:
         run: echo "cire-landing deployed and passed its smoke check in this run's cire stack job."
 
   # ═══ musubi stack, production: musubi social and musubi landing ═══════════
-  # Declares the account app and the marketing site, each at its mode in
-  # shared/infra/src/production-sites.ts; osn-api stays with its Wrangler job
-  # until its own step of P3.
+  # Declares the account app and the marketing site, each at its mode and
+  # hold in shared/infra/src/production-sites.ts; osn-api stays with its
+  # Wrangler job until its own step of P3.
   stack-musubi-production:
     name: Alchemy musubi stack — production
     needs: [plan, build, sites, alchemy-plan]
@@ -1320,7 +1318,7 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # The host each site's Worker serves at its mode, which its smoke check asks.
+      # Each site's production host, which its smoke check asks.
       - name: Production site hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
@@ -1388,7 +1386,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1425,28 +1426,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # A site the approved plan gives a host other than a production host
-      # waits up to four minutes for that host's first certificate; every
-      # other site, a minute. Never blocks the deploy or fails the job: when
-      # it fails, each check reads no budget and asks for a minute.
-      - name: Smoke check budgets
-        id: budgets
-        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
-        continue-on-error: true
-        run: bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/musubi.json"
-
-      # Seven minutes: the longest budget, a rollback and its re-check, with
-      # every request at its timeout, take 366 s (scripts/smoke-check.ts).
+      # Five minutes: a check, its rollback and the re-check, with every
+      # request at its timeout, take 186 s. A site PRODUCTION_HOST_HOLDS
+      # holds off probes nothing: its check reads that the held host is off
+      # its Worker (scripts/smoke-check.ts).
       - name: Smoke check musubi/social, rolling back on failure
         id: smoke_osn_social
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts osn_social production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_social_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_social_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.osn_social_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1454,12 +1446,11 @@ jobs:
         id: smoke_musubi_landing
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts musubi_landing production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.musubi_landing_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.musubi_landing_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 

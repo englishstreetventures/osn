@@ -191,12 +191,10 @@ Worker serves deep links through its single-page not-found handling, not the
 `_redirects` file Pages reads ([[infrastructure-as-code#Sites]]). See
 [[production-deploy]] and [[dev-environment]].
 
-Staged on a spare host (`next.musubi.social`, [[infrastructure-as-code#Production sites]]),
-the Worker could not sign anyone in, by design: the session cookie is host-only on
-`id.musubi.social`, osn-api's CORS and WebAuthn accept only `https://musubi.social`, so
-only the `osn_has_session` marker reaches a spare host and its `/token` call is refused.
-On the apex none of that changes: osn-api names `https://musubi.social` as an origin, not
-the server behind it. Its smoke check asks static paths alone:
+The Worker signs people in only on the apex: the session cookie is host-only on
+`id.musubi.social`, and osn-api's CORS and WebAuthn accept only `https://musubi.social`,
+an origin, not the server behind it ([[infrastructure-as-code#Production sites]]). Its
+smoke check asks static paths alone:
 `/`, a deep link, and `/.well-known/apple-app-site-association`, which must come back
 as `application/json`. That file sits in a dot-directory, so the release's build
 artifact keeps hidden files; without it iOS stops offering the app's passkeys on the
@@ -288,7 +286,7 @@ the build:
 
 | Directive | Sources |
 |---|---|
-| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the `pages.dev` redirect and the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
+| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
 | `connect-src` | `'self'` and the issuer origin from `VITE_OSN_ISSUER_URL` (`http://localhost:4000` when unset, as `src/lib/auth.ts` reads it) |
 
 No `'unsafe-inline'`, no `'unsafe-eval'` and no `default-src`, so styles, images,

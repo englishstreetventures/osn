@@ -2,14 +2,19 @@ import { join } from "node:path";
 
 import type * as Cloudflare from "@alchemy.run/cloudflare";
 import {
+  declaredDomains,
   origin,
   physicalName,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
+  PRODUCTION_STAGE_HOSTS,
   productionSiteKinds,
   refuseProductionTier,
   siteDomain,
   type ApiWorkerInput,
   type ApiWorkerObservability,
+  type DeclaredDomains,
+  type HostHold,
   type PrebuiltSite,
   type ResourceKind,
   type RetainedBucketInput,
@@ -262,14 +267,15 @@ interface CireProductionSites {
 
 /**
  * What the cire stack declares on production: each site `modes` does not
- * turn off, under today's production name, serving its spare host while
- * staged and its production host as a worker. Every build is the
- * production build, so it bakes in `hosts`, today's production hosts, at
- * either mode. No API Worker, database or bucket: those join the stack in
- * later steps of phase P3. Pure.
+ * turn off, under today's production name, serving its production host,
+ * or no host while `holds` holds it. Every build is the production build,
+ * so it bakes in `hosts`, today's production hosts, held or not. No API
+ * Worker, database or bucket: those join the stack in later steps of phase
+ * P3. Pure.
  */
 export function cireProductionSites(input: {
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds: readonly HostHold[];
   readonly hosts: StageHosts;
 }): CireProductionSites {
   const shipped = CIRE_SITES.filter((key) => input.modes[key] !== "off");
@@ -277,12 +283,22 @@ export function cireProductionSites(input: {
     sites: Object.fromEntries(
       shipped.map((key) => [
         SITE_LOGICAL_IDS[key],
-        site(SITES[key], "production", siteDomain(key, input.modes[key])),
+        site(SITES[key], "production", siteDomain(key, input.modes[key], input.holds)),
       ]),
     ),
     prebuilt: shipped.map((key) => sitePrebuilt(key, input.hosts)),
   };
 }
+
+/** The host each cire site's Worker is declared with on production, which the plan guard reads. */
+export const PRODUCTION_SITE_DOMAINS: DeclaredDomains = declaredDomains(
+  SITE_LOGICAL_IDS,
+  cireProductionSites({
+    modes: PRODUCTION_SITE_MODES,
+    holds: PRODUCTION_HOST_HOLDS,
+    hosts: PRODUCTION_STAGE_HOSTS,
+  }).sites,
+);
 
 /**
  * Every name, var, binding, domain and setting the cire stack declares at

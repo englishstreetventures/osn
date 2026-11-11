@@ -11,6 +11,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { HostHold } from "../../shared/infra/src/production-sites";
 import { isSurfaceKey } from "../deploy-surfaces";
 import {
   annotation,
@@ -195,10 +196,19 @@ const devEnv = (origin: string, extra: Record<string, string | undefined> = {}) 
 const INVITES_ENV = (extra: Record<string, string | undefined> = {}) =>
   devEnv(INVITES_DEV, { SMOKE_MARKETING_ORIGIN: CIRE_LANDING_DEV, ...extra });
 
+/**
+ * Runs the check over `answers`. Holds none unless `options.holds` names
+ * some, so no test reads PRODUCTION_HOST_HOLDS and an entry the owner adds
+ * fails none.
+ */
 async function smoke(
   args: string[],
   answers: Record<string, Answer>,
-  options: { env?: Record<string, string | undefined>; api?: ApiOptions } = {},
+  options: {
+    env?: Record<string, string | undefined>;
+    api?: ApiOptions;
+    holds?: readonly HostHold[];
+  } = {},
 ) {
   const api = fakeApi(options.api);
   const worker = workerOf(args);
@@ -215,6 +225,7 @@ async function smoke(
     now: clock.now,
     sleep: clock.sleep,
     out: (text) => lines.push(text),
+    holds: options.holds ?? [],
   });
   const isApi = (url: string) => url.startsWith("https://api.cloudflare.com/");
   return {
@@ -1586,77 +1597,136 @@ describe("the organiser portal", () => {
   });
 });
 
-describe("a production site the release gives a new host", () => {
-  // A new host two labels below its zone answers no TLS handshake until its
-  // certificate arrives, about two minutes after the deploy. The stack job
-  // passes SMOKE_BUDGET_MS for such a site; every other site passes "".
-  const NEW_HOST = "https://next.vendor.cireweddings.com";
-  const hostEnv = (budget: string) => ({
-    SMOKE_ORIGIN: NEW_HOST,
+describe("a production site held off its host", () => {
+  // PRODUCTION_HOST_HOLDS holds a site's host off its Worker: the stack
+  // declares the Worker with no custom domain, so there is no host to probe.
+  // The check reads the Worker's custom domains instead, and passes only when
+  // the held host is not among them.
+  const VENDOR_HELD: readonly HostHold[] = [
+    {
+      site: "cire_vendor",
+      host: "vendor.cireweddings.com",
+      reason: "Serves nothing until the vendor export ships.",
+    },
+  ];
+  const domainsUrl = (worker: string) =>
+    `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/domains?service=${worker}`;
+  const domainList = (worker: string, ...hosts: string[]) =>
+    apiOk(hosts.map((hostname) => ({ hostname, service: worker, zone_name: "cireweddings.com" })));
+  // The stack job passes the production origin for every site, held or not.
+  const env = {
+    SMOKE_ORIGIN: "https://vendor.cireweddings.com",
     SMOKE_DEPLOYMENT: DEP_THIS_JOB,
-    SMOKE_BUDGET_MS: budget,
-  });
-  /** No answer for the first `rounds` rounds (10 s apart), then a working page. */
-  const certificateAfter = (rounds: number) => ({
-    [`${NEW_HOST}/`]: (call: number) => (call <= rounds ? UNREACHABLE() : html(200)),
-  });
+  };
 
-  test("SB1: waits out a certificate that takes 200 s, still asking every 10 s and passing on the first two good rounds; with no budget set it gives up at 60 s", async () => {
-    const waited = await smoke(["cire_vendor", "production"], certificateAfter(20), {
-      env: hostEnv("240000"),
-    });
-    expect(waited.code).toBe(0);
-    // Twenty rounds with no answer (0 to 190 s), then two good ones at 200 and 210 s.
-    expect(waited.sleeps).toEqual(Array(21).fill(10_000));
-    expect(fetchesOf(waited, `${NEW_HOST}/`)).toBe(22);
-    expect(waited.posts).toEqual([]);
-    expect(waited.output).toContain(
-      "Smoke check passed: cire_vendor (production), 1 probes, 22 rounds.",
+  test("H8: passes when the Worker serves no held host, probing nothing and rolling nothing back", async () => {
+    const result = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor") },
+      { env, holds: VENDOR_HELD },
     );
-
-    const minute = await smoke(["cire_vendor", "production"], certificateAfter(20), {
-      env: hostEnv(""),
-    });
-    expect(minute.code).toBe(1);
-    expect(minute.sleeps).toEqual(Array(6).fill(10_000));
-    expect(minute.posts).toEqual([]);
-    expect(minute.output).toContain("within 60 s, but the Worker never answered wrongly");
-  });
-
-  test("SB2: a host that never answers fails when the budget runs out, at 240 s, without a rollback", async () => {
-    const result = await smoke(["cire_vendor", "production"], certificateAfter(Infinity), {
-      env: hostEnv("240000"),
-    });
-    expect(result.code).toBe(1);
-    // Rounds at 0, 10, … 240 s.
-    expect(result.sleeps).toEqual(Array(24).fill(10_000));
-    expect(fetchesOf(result, `${NEW_HOST}/`)).toBe(25);
-    expect(result.posts).toEqual([]);
-    expect(result.output).toContain("within 240 s, but the Worker never answered wrongly");
-  });
-
-  test.each([
-    "240001",
-    "300000",
-    "59999",
-    "0",
-    "4m",
-    "-1",
-    "240000.5",
-    " 240000",
-    "2.4e5",
-    "0x3a980",
-  ])("SB3: SMOKE_BUDGET_MS=%j is refused with exit 2, asking nothing", async (budget) => {
-    const result = await smoke(["cire_vendor", "production"], certificateAfter(0), {
-      env: hostEnv(budget),
-    });
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(0);
     expect(result.calls).toEqual([]);
-    expect(result.apiCalls).toEqual([]);
-    expect(result.output).toContain("SMOKE_BUDGET_MS must be");
+    expect(result.apiCalls.map((call) => call.url)).toEqual([domainsUrl("cire-vendor")]);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("::notice::");
+    expect(result.output).toContain("vendor.cireweddings.com");
+    expect(result.output).toContain("PRODUCTION_HOST_HOLDS");
+    expect(result.output).toContain("shared/infra/src/production-sites.ts");
+    expect(result.output).toContain("Serves nothing until the vendor export ships.");
+    // The step summary says the same.
+    const dir = await mkdtemp(join(tmpdir(), "smoke-held-"));
+    const summaryFile = join(dir, "summary.md");
+    const summarised = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor") },
+      { env: { ...env, GITHUB_STEP_SUMMARY: summaryFile }, holds: VENDOR_HELD },
+    );
+    expect(summarised.code).toBe(0);
+    expect(await readFile(summaryFile, "utf8")).toStartWith(
+      "- **cire_vendor (production)**: vendor.cireweddings.com is held off cire-vendor",
+    );
+    await rm(dir, { recursive: true, force: true });
+    // It needs neither the origin nor the deployment.
+    const bare = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor") },
+      { env: {}, holds: VENDOR_HELD },
+    );
+    expect(bare.code).toBe(0);
   });
 
-  test("SB4: at the longest budget, the worst case ends inside the time limit of every step that sets one", async () => {
+  test("H8b: fails, rolling nothing back, when the Worker still serves the held host or its domains cannot be read", async () => {
+    const still = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor", "vendor.cireweddings.com") },
+      { env, holds: VENDOR_HELD },
+    );
+    expect(still.code).toBe(1);
+    expect(still.calls).toEqual([]);
+    expect(still.posts).toEqual([]);
+    expect(still.output).toContain("::error::");
+    expect(still.output).toContain("still serves vendor.cireweddings.com");
+
+    const down = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => json({ success: false, errors: [] }, 503) },
+      { env, holds: VENDOR_HELD },
+    );
+    expect(down.code).toBe(1);
+    expect(down.apiCalls).toHaveLength(3);
+    expect(down.posts).toEqual([]);
+    expect(down.output).toContain("::error::");
+
+    const keyless = await smoke(
+      ["cire_vendor", "production"],
+      {},
+      { env: { ...env, CLOUDFLARE_API_TOKEN: "" }, holds: VENDOR_HELD },
+    );
+    expect(keyless.code).toBe(1);
+    expect(keyless.apiCalls).toEqual([]);
+  });
+
+  test("H8c: a refused read of the domains names its status and codes, never Cloudflare's message, the token or the account", async () => {
+    const refused = await smoke(
+      ["cire_vendor", "production"],
+      {
+        [domainsUrl("cire-vendor")]: () =>
+          apiError(10_000, `Authentication error: token ${TOKEN} has no access to ${ACCOUNT}`, 403),
+      },
+      { env, holds: VENDOR_HELD },
+    );
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("Cloudflare answered 403 (codes 10000)");
+    expect(refused.output).not.toContain(TOKEN);
+    expect(refused.output).not.toContain(ACCOUNT);
+    expect(refused.output).not.toContain("Authentication error");
+  });
+
+  test("H8: a hold on one site leaves every other site's check, and the held site's dev check, as they were", async () => {
+    const result = await smoke(
+      ["cire_host", "production"],
+      {},
+      { env: { SMOKE_DEPLOYMENT: DEP_THIS_JOB }, holds: VENDOR_HELD },
+    );
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("SMOKE_ORIGIN is not set");
+    // On dev the held site's Worker serves its dev host, so its check asks it.
+    const dev = await smoke(
+      ["cire_vendor", "dev"],
+      {},
+      { env: { SMOKE_DEPLOYMENT: DEP_THIS_JOB }, holds: VENDOR_HELD },
+    );
+    expect(dev.code).toBe(2);
+    expect(dev.output).toContain("SMOKE_ORIGIN is not set");
+    expect(dev.apiCalls).toEqual([]);
+  });
+});
+
+describe("a production site's check, at its worst", () => {
+  const ORIGIN = "https://vendor.cireweddings.com";
+
+  test("SB4: at the default budget, the worst case ends inside the time limit of every production site's smoke step", async () => {
     // Every request takes its whole timeout; each read of the deployments
     // fails twice before it answers; the Worker answers wrongly except in the
     // last round the budget allows, so the round that would confirm it runs
@@ -1670,9 +1740,9 @@ describe("a production site the release gives a new host", () => {
       reads: [unavailable(), unavailable(), HISTORY, unavailable(), unavailable(), HISTORY],
     });
     const http = fakeFetch({
-      [`${NEW_HOST}/`]: () => {
+      [`${ORIGIN}/`]: () => {
         firstProbe ??= startedAt;
-        if (!passedOnce && startedAt - firstProbe >= TIMING.maxBudgetMs) {
+        if (!passedOnce && startedAt - firstProbe >= TIMING.budgetMs) {
           passedOnce = true;
           return html(200);
         }
@@ -1683,7 +1753,7 @@ describe("a production site the release gives a new host", () => {
     const lines: string[] = [];
     const code = await runSmokeCheck({
       args: ["cire_vendor", "production"],
-      env: { ...RUN_ENV, ...hostEnv(String(TIMING.maxBudgetMs)) },
+      env: { ...RUN_ENV, SMOKE_ORIGIN: ORIGIN, SMOKE_DEPLOYMENT: DEP_THIS_JOB },
       fetch: (async (input: string | URL | Request, init?: RequestInit) => {
         startedAt = now;
         now += TIMING.requestMs;
@@ -1694,6 +1764,7 @@ describe("a production site the release gives a new host", () => {
         now += ms;
       },
       out: (text) => lines.push(text),
+      holds: [],
     });
     expect(code).toBe(1);
     expect(passedOnce).toBe(true);
@@ -1701,19 +1772,20 @@ describe("a production site the release gives a new host", () => {
     // 33 s to read the deployments; polling until the budget plus the last
     // round, its confirming round and the wait between; 43 s to read them
     // again and send the rollback; 20 s for the wait and the re-check.
-    expect(now).toBe(33_000 + (TIMING.maxBudgetMs + 30_000) + 43_000 + 20_000);
+    expect(now).toBe(33_000 + (TIMING.budgetMs + 30_000) + 43_000 + 20_000);
 
     const workflow = Bun.YAML.parse(
       readFileSync(join(import.meta.dir, "../../.github/workflows/production-release.yml"), "utf8"),
     ) as {
-      jobs: Record<
-        string,
-        { steps?: { env?: Record<string, string>; "timeout-minutes"?: number }[] }
-      >;
+      jobs: Record<string, { steps?: { run?: string; "timeout-minutes"?: number }[] }>;
     };
+    const SITE_CHECK = /^bun run scripts\/smoke-check\.ts [a-z_]+ production$/;
     const limits = Object.values(workflow.jobs)
       .flatMap((job) => job.steps ?? [])
-      .filter((step) => step.env?.SMOKE_BUDGET_MS !== undefined)
+      .filter((step) => {
+        const surface = SITE_CHECK.test(step.run ?? "") ? (step.run ?? "").split(" ")[3] : "";
+        return surface !== undefined && isSurfaceKey(surface) && productionSiteTarget(surface);
+      })
       .map((step) => (step["timeout-minutes"] ?? 0) * 60_000);
     expect(limits.length).toBeGreaterThan(0);
     for (const limit of limits) expect(now).toBeLessThan(limit);

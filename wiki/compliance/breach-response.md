@@ -7,7 +7,7 @@ related:
   - "[[soc2]]"
   - "[[subprocessors]]"
   - "[[auth-failure]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-11
 ---
 
 # Breach Response
@@ -58,7 +58,7 @@ threshold counts.
 2. Page the on-call (`#sev`).
 3. Designate Incident Commander (IC) and Scribe.
 4. Snapshot evidence: queries, log excerpts (redacted), tracer screenshots, chat threads.
-5. **Limit the damage** — revoke compromised tokens, rotate keys, take affected service offline if SEV-1.
+5. **Limit the damage** — revoke compromised tokens, rotate keys, take affected service offline if SEV-1. To take a site off its host, remove the host from its Worker in the Cloudflare dashboard at once, then open the pull request that adds it to `PRODUCTION_HOST_HOLDS`; until that merges, reject every production release dispatched by hand whose plan lists the host under **Domains added**, or it puts the host back (the daily release refuses to add a host) ([[production-deploy#5.8 Holding a site's host off its Worker 🔑]]). That pull request, its changeset and the entry's reason are public: they name the site and the constraint, never the incident.
 
 ### 1–24 hours: contain + assess
 

@@ -62,10 +62,10 @@ import {
   DEPLOYMENT_ID,
   devTarget,
   isSmokeRollback,
+  NO_SUCH_WORKER,
   productionSiteTarget,
-  READ_RETRY_DELAYS_MS,
   readDeployments,
-  TIMING,
+  workerDomains,
 } from "./smoke-check";
 
 /** The Worker a stack deploys for `surface` on `tier`, or undefined when it deploys none. */
@@ -73,9 +73,6 @@ function stackWorker(surface: string, tier: "dev" | "production"): string | unde
   if (!isSurfaceKey(surface)) return undefined;
   return tier === "production" ? productionSiteTarget(surface)?.worker : devTarget(surface)?.worker;
 }
-
-/** Cloudflare's answer for a Worker that does not exist on the account. */
-const NO_SUCH_WORKER = 10_007;
 
 /**
  * `text` with the token's value and every run of 32 hex digits (an account id)
@@ -105,69 +102,6 @@ async function newestOf(api: Cloudflare, worker: string): Promise<Newest> {
     return { kind: "failed", reason: "Cloudflare answered with a deployment id of the wrong form" };
   }
   return { kind: "found", deployment: newest };
-}
-
-type Domains =
-  | { readonly kind: "found"; readonly hosts: readonly string[] }
-  | { readonly kind: "failed"; readonly reason: string };
-
-/**
- * The custom domains `worker` holds now, sorted: none for a Worker that does
- * not exist yet. A read is tried again as a deployments read is.
- */
-async function domainsOf(api: Cloudflare, worker: string): Promise<Domains> {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${api.account}/workers/domains?service=${encodeURIComponent(worker)}`;
-  const attempt = async (): Promise<{ readonly answer: Domains; readonly transient: boolean }> => {
-    try {
-      const response = await api.fetch(url, {
-        headers: { authorization: `Bearer ${api.token}` },
-        signal: AbortSignal.timeout(TIMING.requestMs),
-      });
-      const envelope = (await response.json().catch(() => ({}))) as {
-        success?: boolean;
-        errors?: readonly { code?: number; message?: string }[];
-        result?: unknown;
-      };
-      const codes = (envelope.errors ?? []).flatMap((e) =>
-        typeof e.code === "number" ? [e.code] : [],
-      );
-      if (response.ok && envelope.success === true && Array.isArray(envelope.result)) {
-        const hosts = (envelope.result as { hostname?: unknown; service?: unknown }[]).flatMap(
-          (domain) =>
-            domain.service === worker && typeof domain.hostname === "string"
-              ? [domain.hostname]
-              : [],
-        );
-        return {
-          answer: { kind: "found", hosts: [...new Set(hosts)].toSorted() },
-          transient: false,
-        };
-      }
-      if (codes.includes(NO_SUCH_WORKER)) {
-        return { answer: { kind: "found", hosts: [] }, transient: false };
-      }
-      return {
-        answer: {
-          kind: "failed",
-          reason: `Cloudflare answered ${response.status}${codes.length > 0 ? ` (codes ${codes.join(", ")})` : ""}`,
-        },
-        transient: response.status === 429 || response.status >= 500,
-      };
-    } catch {
-      return {
-        answer: { kind: "failed", reason: "no answer from the Cloudflare API" },
-        transient: true,
-      };
-    }
-  };
-  const retry = async (delays: readonly number[]): Promise<Domains> => {
-    const { answer, transient } = await attempt();
-    const [delay, ...rest] = delays;
-    if (!transient || delay === undefined) return answer;
-    await api.sleep(delay);
-    return retry(rest);
-  };
-  return retry(READ_RETRY_DELAYS_MS);
 }
 
 /** The snapshot `snapshot` wrote, or undefined when the file is not one. */
@@ -238,7 +172,7 @@ export async function runWorkerDeployments(input: WorkerDeploymentsInput): Promi
 
   if (command === "domains") {
     const read = await Promise.all(
-      surfaces.map(async (s) => ({ ...s, domains: await domainsOf(api, s.worker) })),
+      surfaces.map(async (s) => ({ ...s, domains: await workerDomains(api, s.worker) })),
     );
     const hostsOf = new Map<string, readonly string[]>();
     for (const r of read) {
