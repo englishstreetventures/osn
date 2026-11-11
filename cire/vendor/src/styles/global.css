@@ -310,6 +310,9 @@
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* What a transition that names no easing runs, in place of Tailwind's own
+     curve, as in the host (cire/host/DESIGN.md §4). */
+  --default-transition-timing-function: var(--ease-out);
   /* Something landing with a little give: an overshoot of about 8% and one
      settle. A one-overshoot curve here, for the engines on the floor that have
      no `linear()`; the real spring is the `@supports` block below. The glass

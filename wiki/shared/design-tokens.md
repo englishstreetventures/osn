@@ -217,11 +217,16 @@ its exit is softer by distance and time alone (8px in 150ms against 24px in
 350ms). No app sets any of these today, so every app runs the values above.
 
 Cire's own `--ease-out` is a different curve, `cubic-bezier(0.23, 1, 0.32, 1)`,
-the owner's choice of 2026-11-11 for all four cire apps
-([`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §4). The shared parts that
-read `var(--ease-out, var(--ui-ease-out))` follow it there; `Modal` and the
-`animate-in` and `animate-out` utilities read `--ui-ease-out` alone, so in cire
-they keep the value above.
+the owner's choice of 2026-11-11 for all four cire apps and their one curve
+for something arriving ([`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §4).
+The shared parts that read `var(--ease-out, var(--ui-ease-out))` follow it
+there, and so does every transition that names no easing: each cire stylesheet
+sets Tailwind's `--default-transition-timing-function` to `var(--ease-out)`,
+which outside cire stays Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`. No cire
+stylesheet maps `--ui-ease-out`, because `animate-out` reads it for a Kobalte
+overlay's exit and mapping it would move `Popover`'s exit too. So in cire
+`Modal`'s rise and the `animate-in` entries (`Tooltip`, `Popover`) keep the
+value above, at most 1.1% of the distance from cire's curve.
 
 `Dialog`'s `sheet` presentation scales like its centred card, from its
 centre. Below `md` the sheet is pinned to the bottom edge at full width, so

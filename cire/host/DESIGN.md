@@ -586,21 +586,37 @@ this package by design**.
 --ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
+--default-transition-timing-function: var(--ease-out); /* a transition that names no easing */
 ```
 
 `--ease-out` is the strong ease-out the motion skills name (`emil-design-eng`,
-`animate`): the owner's choice of 2026-11-11, for all four cire apps. It is
-cire's curve, not the contract's, and a shared part follows it only if it reads
-it. Tailwind's `ease-out` class and every part that reads
-`var(--ease-out, var(--ui-ease-out))` — the shared menus and fields, the native
-checkbox and radio classes, `SegmentedTabs` — run cire's curve. `Modal`'s rise,
-and `Tooltip` and `Popover`, which run on `@shared/design-tokens`' `animate-in`
-and `animate-out`, read `--ui-ease-out` alone, which no cire stylesheet maps,
-so they run the contract's `cubic-bezier(0.22, 1, 0.36, 1)`. `@shared/toast`
-runs CSS's own `ease-out` in and `ease-in` out, and a `@shared/ui` part whose
-transition names no easing (`Button`, the Kobalte `Checkbox` and `RadioGroup`,
-`Switch`, `Tabs`, `Badge`, `Meter`) runs Tailwind's default
-`cubic-bezier(0.4, 0, 0.2, 1)`.
+`animate`), the owner's choice of 2026-11-11 for all four cire apps, and
+cire's one curve for something arriving: "consolidate to one arriving
+curve … Use our default curve not tailwind's" (the owner, 2026-11-11). Each
+cire stylesheet's `@theme` sets Tailwind's `--default-transition-timing-function`
+to it, so a transition that names no easing runs cire's curve, never
+Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`: a bare `transition-colors` or
+`transition-ui-colors`, and the `@shared/ui` parts cire renders that write
+one — `Checkbox`'s and `RadioGroupItem`'s drawn box, `Switch`'s track and
+thumb, `Meter`'s fill. Tailwind's `ease-out` class reads it, and so does every
+shared part that reads `var(--ease-out, var(--ui-ease-out))`: the fields, the
+native checkbox and radio classes, the accent `DropdownMenu`'s pop and its
+rows, `SegmentedTabs`.
+
+Three arrivals run the shared contract's `--ui-ease-out`,
+`cubic-bezier(0.22, 1, 0.36, 1)`, instead: `Modal`'s rise, and `Tooltip` and
+`Popover` opening, which run on `@shared/design-tokens`' `animate-in`. No cire
+stylesheet maps `--ui-ease-out`, because `animate-out` reads the same token for
+`Popover`'s exit (the guests editor's popover, the dietary presets'), and
+mapping it would move that exit too; an exit token of its own is a change to
+the shared contract. The two curves differ by at most 1.1% of the distance.
+`@shared/toast` arrives on CSS's own `ease-out`, a keyword in its own
+stylesheet.
+
+Exits keep their own curves: `Modal`'s and the toast's run `ease-in`, the nav
+sheet's and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s
+fill move between two places, which would take `--ease-in-out`, but they name
+no easing, so they run `--ease-out`; naming one is a change to `@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
@@ -640,11 +656,13 @@ one leaving should hold the base clock too is the owner's call (#1959). The
 glass still slides on the spring.
 
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
-marketing site carry this ladder, its `pointer: fine` block and the two easings
-`--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
-fails if any copy differs. The same test holds the two copies outside the apps
+marketing site carry this ladder, its `pointer: fine` block, the two easings
+`--ease-out` and `--ease-in-out`, and the default curve set to `--ease-out`;
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if any copy differs or
+drops the default curve. The same test holds the two copies outside the apps
 to this file: `@cire/ui`'s test stylesheet (`tests/test-support/tailwind.css`,
-the desk ladder, both easings and the spring's `@theme` fallback) and every
+the desk ladder, both easings, the default curve and the spring's `@theme`
+fallback) and every
 `--dur-*` or `--ease-*` a cire story in the component lab sets inline. The
 spring is the two portals' alone, because only their animations read it — the
 glass strips slide on it in both, the droplet in host: the guest site and the
@@ -743,9 +761,8 @@ its own centre, while its scrim fades in (`palette-rise` and `palette-scrim` in
 `global.css`). Both run on `--dur-base` with `--ease-out` — 150ms at a desk,
 200ms on touch — one rung slower than a hover, so the arrival can be seen. The
 owner asked for "a little slower than the compare page's fast rung"
-(englishstreetventures/osn#2164, 2026-11-10); `--dur-base` is the rung on this
-ladder that meets it, picked by eye from rendered frames, not a rung the owner
-named. It has no exit: a box
+(englishstreetventures/osn#2164, 2026-11-10), and chose `--dur-base` for the
+entry (2026-11-11: "keep --dur-base for cmd palette entry"). It has no exit: a box
 holding live controls closes at once, so the palette and its scrim leave in
 one frame. Under reduced motion the global switch zeroes both, and it appears
 at once. `tests/components/CommandPalette.browser.test.tsx` holds the first

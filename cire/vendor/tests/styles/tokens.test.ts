@@ -282,7 +282,10 @@ describe("one shape and one pace across cire", () => {
   it("every cire surface carries one motion ladder", () => {
     const ladders = mapSurfaces((css) => ladder(declarations(css)));
     // A parse that found nothing would make every copy agree with it.
-    expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 2, 2]);
+    expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 3, 2]);
+    // A transition that names no easing runs cire's arriving curve, not
+    // Tailwind's own; an app without the line would fall back to Tailwind's.
+    expect(ladders.host.easing).toContain("--default-transition-timing-function: var(--ease-out)");
     // The two portals slide their glass strips on the spring; nothing on the
     // guest or marketing site animates with it, so a copy added to either
     // without a use is caught here.
@@ -310,13 +313,17 @@ describe("one shape and one pace across cire", () => {
       ...host.spring.filter((line) => !line.includes("linear(")),
     ];
     const copy = declarations(readCire("ui/tests/test-support/tailwind.css"))
-      .filter((d) => isTopLevel(d, ":root") && /^--(motion-scale|dur-|ease-)/.test(d.name))
+      .filter(
+        (d) =>
+          isTopLevel(d, ":root") &&
+          /^--(motion-scale|dur-|ease-|default-transition-timing-function$)/.test(d.name),
+      )
       .map((d) => `${d.name}: ${d.value.replace(/\s+/g, "")}`);
     // Sorted, not keyed by name, so a token declared twice shows up as two lines.
     expected.sort();
     copy.sort();
     // A parse that found nothing would make the copy agree with it.
-    expect(expected).toHaveLength(7);
+    expect(expected).toHaveLength(8);
     expect(copy).toEqual(expected);
   });
 
@@ -565,8 +572,9 @@ function cornerPx(scope: Map<string, string>, name: string): number | string {
 /**
  * An app's motion tokens, as `name: value` lines with the whitespace removed:
  * the touch ladder at `:root`, the desk ladder under `(pointer: fine)` and the
- * `Modal` durations set there, the two easings every app uses in `@theme`, and
- * the spring, which only the apps that read it declare. A `Modal` duration set at `:root` lands in
+ * `Modal` durations set there, the two easings every app uses in `@theme` with
+ * the default curve Tailwind's bare transitions read, and the spring, which
+ * only the apps that read it declare. A `Modal` duration set at `:root` lands in
  * `touch`, where host has none.
  */
 function ladder(decls: Declaration[]) {
@@ -584,7 +592,10 @@ function ladder(decls: Declaration[]) {
     touch: lines((d) => isTopLevel(d, ":root"), /^--(motion-scale|dur-|ui-modal-)/),
     desk: lines((d) => nested(d, "@media (pointer: fine)"), /^--dur-/),
     modal: lines((d) => nested(d, "@media (pointer: fine)"), /^--ui-modal-/),
-    easing: lines((d) => isTopLevel(d, "@theme"), /^--ease-(out|in-out)$/),
+    easing: lines(
+      (d) => isTopLevel(d, "@theme"),
+      /^--(ease-(out|in-out)|default-transition-timing-function)$/,
+    ),
     // The portals read the spring, so they alone declare it: the `@theme`
     // fallback and the `linear()` block that replaces it.
     spring: [

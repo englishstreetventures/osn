@@ -116,9 +116,10 @@ and checkboxes: `wiki/cire/cire-invite-designs.md` §Corners, labels and motion.
 - **Every duration and easing is a token** from the ladder below, never a
   literal. `house/no-literal-motion` (`bun run lint`) and
   `scripts/check-motion-literals.ts` (CI, for CSS and Astro) report a literal
-  they can see. Neither sees a `transition-*` class with no easing beside it,
-  which runs Tailwind's default curve, or a script's animation options: check
-  those by eye (englishstreetventures/osn#2104 covers both). A literal
+  they can see. Neither sees a script's animation options: check those by eye
+  (englishstreetventures/osn#2104). A `transition-*` class with no easing
+  beside it runs `--ease-out` (below), so one whose job is not an arrival
+  names its easing. A literal
   stays only where no token's job fits — choreography longer than
   `--dur-slow`, a loop, a stagger, a time shared with script — with its reason
   beside it (`wiki/conventions/house-lint-rules.md` §Literal motion).
@@ -145,15 +146,20 @@ The portals' ladder, value for value, in `global.css`:
   rungs are 90, 150 and 200ms; on touch, the values above. Under the same
   query the site sets `Modal`'s `--ui-modal-enter` to `--dur-slow` and
   `--ui-modal-exit` to `--dur-base`.
-- **`--ease-out` is the owner's choice of 2026-11-11** for all four cire apps
-  (`cire/host/DESIGN.md` §4). `Modal` reads the contract's `--ui-ease-out`
-  instead, `cubic-bezier(0.22, 1, 0.36, 1)`, which this site does not map.
+- **`--ease-out` is the owner's choice of 2026-11-11** for all four cire apps,
+  and their one curve for something arriving (`cire/host/DESIGN.md` §4).
+  `Modal`'s rise reads the contract's `--ui-ease-out` instead,
+  `cubic-bezier(0.22, 1, 0.36, 1)`, which no cire stylesheet maps: the same
+  token times `Popover`'s exit, and mapping it would move that exit too. The
+  two curves differ by at most 1.1% of the distance.
 - **No spring token.** `--ease-spring` is the portals' alone; the vendor
   portal's token test fails if this stylesheet gains one.
 - **Tailwind's `ease-out` and `ease-in-out` classes read the house curves**,
-  because `global.css`'s `@theme` sets `--ease-out` and `--ease-in-out`. A
-  class that names no easing — a bare `transition-opacity` — runs Tailwind's
-  default, `cubic-bezier(0.4, 0, 0.2, 1)`.
+  because `global.css`'s `@theme` sets `--ease-out` and `--ease-in-out`. It
+  also sets Tailwind's `--default-transition-timing-function` to
+  `var(--ease-out)`, so a class that names no easing — a bare
+  `transition-opacity` — runs `--ease-out`, never Tailwind's
+  `cubic-bezier(0.4, 0, 0.2, 1)`.
 - **`--motion-scale`** multiplies each rung, so a motion can be slowed to 0.1×
   and judged frame by frame. Nothing in the app writes it.
 
@@ -179,8 +185,8 @@ The portals' ladder, value for value, in `global.css`:
 | The bloom fill sweeping across Respond once every member has replied (`SWEEP_DURATION_MS`) † | 500ms                                             | `--ease-out`                                | no     |
 | The tick drawing in behind it (`--animate-tick-draw`) †                             | 340ms, after 180ms                                         | CSS `ease-out`                              | no     |
 | The hero scroll cue: a fade, then a 6px drift down and back twice (`--animate-scroll-cue`) † | 600ms fade after 1s, then two 2s drifts: 4.6s of motion | CSS `ease-out`, then CSS `ease-in-out`    | no     |
-| The scroll cue leaving on the first scroll †                                         | 500ms                                                      | Tailwind's default                          | yes    |
-| The hero photo fading in once it loads †                                             | 700ms                                                      | Tailwind's default                          | yes    |
+| The scroll cue leaving on the first scroll                                           | 500ms                                                      | `--ease-out`, the default curve             | yes    |
+| The hero photo fading in once it loads                                               | 700ms                                                      | `--ease-out`, the default curve             | yes    |
 | The closing band settling into or out of its cap, on a live resize across 1536px     | 500ms                                                      | `--ease-out`                                | yes    |
 | The unlock reveal after a claim (`unlock-rise` and `unlock-shimmer` in `src/styles/global.css`, ordered by `src/components/unlock-reveal.ts`) | classic: rises of 450–500ms and a 1.2s shimmer, a 200ms beat, cards 120ms apart after 150ms; gala: 350–400ms and 1s, a 150ms beat, cards 80ms apart after 100ms | the rises `--ease-out`; the shimmer one CSS `ease-in-out`, cut at its keyframes | yes    |
 | A swipe between the sheet's panels settling (`SETTLE_SPRING`) †                      | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel settles in about 0.4s | —        | no     |
@@ -232,12 +238,6 @@ These moves ship, and each breaks the rule named beside it. They are the rows
 marked † above. None is a pattern to copy, and each entry goes when its fix
 lands.
 
-- **The hero photo's fade and the scroll cue's exit name no easing**, so they
-  run Tailwind's default curve, `cubic-bezier(0.4, 0, 0.2, 1)`, where every
-  easing must be a token (`src/components/HeroCropLayer.tsx`, both packs'
-  `src/designs/<pack>/InviteHeader.tsx`, `src/components/HeroScrollCue.tsx`).
-  englishstreetventures/osn#2104 has the lint report a `transition-*` class
-  with no easing, and moves each one onto a token or keeps it with a reason.
 - **The bloom sweep, the tick and the scroll cue's entry and drift are not
   scaled by `--motion-scale`**, which `cire/host/DESIGN.md` §4 asks of every
   cire duration, and the tick and the cue run CSS's `ease-out` and
