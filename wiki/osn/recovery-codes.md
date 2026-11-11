@@ -171,6 +171,8 @@ POST /recovery/generate
   Rate limited: 10/hour/IP (recoveryGenerate)
 ```
 
+**Live session.** Before it looks at the step-up token, the route refuses a caller that holds no live, unrestricted, unexpired session of the account with `409 { error: "session_stale" }`. The refusal spends nothing: the step-up token stays unused and the codes stay as they are. See [[sessions]] §Access-token session binding.
+
 Step-up gated (M-PK1): a stolen access token on its own must not be able to burn the account's codes. Run the ceremony first (`[[step-up]]`) and pass the token it mints. Allowed factors default to `["webauthn", "otp"]`.
 
 **Purpose-bound.** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/totp/complete`, or to `/step-up/email/begin`, which fixes it for the link; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.

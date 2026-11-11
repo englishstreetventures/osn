@@ -116,6 +116,18 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before the challenge is taken: a token whose session has ended
+            // mints nothing and leaves the parked challenge in place.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_passkey_complete",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             const result = await run(
               auth.completeStepUpPasskey(profile.accountId, body.assertion, body.purpose),
             );
@@ -155,6 +167,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             200: stepUpTokenResponse,
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -376,6 +390,18 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before the code is checked: a token whose session has ended
+            // mints nothing, records no TOTP step and counts no guess.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_totp_complete",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             const result = await run(
               auth.completeStepUpTotp(profile.accountId, body.code, body.purpose),
             );
@@ -413,6 +439,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             200: stepUpTokenResponse,
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },

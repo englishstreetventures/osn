@@ -84,6 +84,7 @@ export const OSN_METRICS = {
   retentionRowsDeleted: "osn.retention.rows_deleted",
   retentionCycleDuration: "osn.retention.cycle.duration",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
+  authSessionStaleRefused: "osn.auth.session.stale_refused",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
   authRecoveryLockout: "osn.auth.recovery.lockout",
   authRecoveryEmailBegin: "osn.auth.recovery.email_begin",
@@ -606,6 +607,27 @@ export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.i
 
 export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
   authSessionSecurityInvalidation.inc({ trigger });
+
+/**
+ * The routes that refuse a caller holding no live session (`liveSessionGate`
+ * in `routes/auth/context.ts`), named as their rate-limit endpoints are.
+ */
+export type LiveSessionGateEndpoint =
+  | "step_up_passkey_complete"
+  | "step_up_totp_complete"
+  | "recovery_generate";
+type SessionStaleRefusedAttrs = { endpoint: LiveSessionGateEndpoint };
+
+const authSessionStaleRefused = createCounter<SessionStaleRefusedAttrs>({
+  name: OSN_METRICS.authSessionStaleRefused,
+  description:
+    "Bearer calls refused 409 session_stale because the caller holds no live, ordinary session",
+  unit: "{refusal}",
+});
+
+/** Records one `session_stale` refusal by the live-session gate. */
+export const metricSessionStaleRefused = (endpoint: LiveSessionGateEndpoint): void =>
+  authSessionStaleRefused.inc({ endpoint });
 
 // ---------------------------------------------------------------------------
 // cire organiser-session revocation (back-channel to cire-api)

@@ -8,7 +8,19 @@ import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { rowsChanged } from "@shared/db-utils";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, gt, gte, inArray, lt, notExists, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  notExists,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
@@ -314,6 +326,58 @@ export function createSessionsModule() {
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
 
   /**
+   * Whether the caller of a Bearer route holds a live, ordinary session on
+   * the account: its session cookie, or its access token's `osn_sid` binding,
+   * names a row of this account that is unrestricted and not yet expired. Both
+   * inputs are server-derived: the hash from the HttpOnly cookie, the binding
+   * from the signed token.
+   *
+   * Stricter than {@link classifyCallerSession}, which counts every row of the
+   * account. Here a restricted recovery row counts for nothing, since such a
+   * session may only enrol a passkey and must never mint a step-up token, and
+   * neither does a row past its `expires_at`, which nothing deletes the moment
+   * it lapses.
+   *
+   * The cookie is read as well as the binding because each browser tab keeps
+   * its own access token while sharing the cookie: a renewal in one tab
+   * deletes the row another tab's token is bound to, and the cookie names the
+   * row that replaced it. A caller presenting neither holds nothing to check
+   * and gets `false` without a read.
+   */
+  const holdsLiveOrdinarySession = (
+    accountId: string,
+    profileId: string,
+    caller: { cookieSessionHash: string | null; sessionBinding: string | null },
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { cookieSessionHash, sessionBinding } = caller;
+      if (!cookieSessionHash && !sessionBinding) return false;
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Same window as `liveSessionIds`: newest first, so the caller's own
+      // row (recently used by definition) sits inside the cap.
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                isNull(sessions.restrictedUntil),
+                gt(sessions.expiresAt, nowSec),
+              ),
+            )
+            .orderBy(desc(sessions.lastUsedAt))
+            .limit(MAX_SESSIONS_PER_ACCOUNT),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const ids = rows.map((row) => row.id);
+      if (cookieSessionHash && ids.includes(cookieSessionHash)) return true;
+      return sessionBinding ? matchBinding(ids, profileId, sessionBinding) !== null : false;
+    }).pipe(Effect.withSpan("auth.session.check_live"));
+
+  /**
    * Invalidates all sessions for an account EXCEPT the device of the one
    * identified by `keepSessionHash` (its family; see {@link outsideFamilyOf}).
    * Used after a passkey is registered or deleted: the caller's device stays,
@@ -522,6 +586,7 @@ export function createSessionsModule() {
     resolveSessionByBinding,
     resolveCallerSession,
     classifyCallerSession,
+    holdsLiveOrdinarySession,
     invalidateOtherAccountSessions,
     listAccountSessions,
     revokeAccountSession,

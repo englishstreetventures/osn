@@ -67,7 +67,19 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // M-PK1: require a fresh step-up token (passkey or OTP amr by
+            // Before the step-up token is verified: a token whose session has
+            // ended spends no step-up token and writes no code set.
+            const staleErr = await ctx.liveSessionGate(
+              "recovery_generate",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
+            // Require a fresh step-up token (passkey or OTP amr by
             // default). Access token alone is insufficient — a stolen
             // access token cannot burn the user's existing recovery codes.
             const headerToken = headers["x-step-up-token"];
@@ -104,6 +116,8 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
             400: errorResponse,
             401: errorResponse,
             403: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
