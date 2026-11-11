@@ -74,7 +74,13 @@ rm -f "$runs_file"
 
 # The runs before the last, all failed, and the artifact each one's directory
 # is uploaded as.
-if [ "$runs" -eq 2 ]; then earlier="run 1"; else earlier="runs 1 to $((runs - 1))"; fi
+if [ "$runs" -eq 2 ]; then
+  earlier="run 1"
+  whose="run's"
+else
+  earlier="runs 1 to $((runs - 1))"
+  whose="runs'"
+fi
 names=""
 for i in $(seq 1 $((runs - 1))); do
   names="${names:+$names, }\`$ARTIFACTS-attempt-$i\`"
@@ -82,17 +88,17 @@ done
 summary=${GITHUB_STEP_SUMMARY:-/dev/null}
 
 if [ "$status" -eq 0 ]; then
-  echo "::warning::E2E passed on run $runs of $attempts after $earlier failed. A flow that fails only sometimes is still a bug: the failed runs' traces, screenshots and logs are in ${names//\`/}."
+  echo "::warning::E2E passed on run $runs of $attempts after $earlier failed. A flow that fails only sometimes is still a bug: the failed $whose traces, screenshots and logs are in ${names//\`/}."
   {
     echo "### E2E passed on run $runs of $attempts"
     echo
-    echo "$(echo "${earlier:0:1}" | tr '[:lower:]' '[:upper:]')${earlier:1} failed first. The failed runs' traces, screenshots and logs are in $names; the passing run's are in \`$ARTIFACTS\`. A flow that fails only sometimes is still a bug."
+    echo "$(echo "${earlier:0:1}" | tr '[:lower:]' '[:upper:]')${earlier:1} failed first. The failed $whose traces, screenshots and logs are in $names; the passing run's are in \`$ARTIFACTS\`. A flow that fails only sometimes is still a bug."
   } >>"$summary"
 else
   {
     echo "### E2E: all $runs runs failed"
     echo
-    echo "The last run's traces, screenshots and logs are in \`$ARTIFACTS\`; the earlier runs' are in $names."
+    echo "The last run's traces, screenshots and logs are in \`$ARTIFACTS\`; the earlier $whose are in $names."
   } >>"$summary"
 fi
 exit "$status"
