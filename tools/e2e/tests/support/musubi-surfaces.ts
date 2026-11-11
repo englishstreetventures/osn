@@ -731,8 +731,8 @@ export async function otpDigitSurfaces(flow: Flow, page: Page, box: Locator): Pr
 
 /** The vertical space between the bottom of `above` and the top of `below`, in whole px. */
 async function gapBetween(above: Locator, below: Locator): Promise<string> {
-  // A dialog that has just opened is still scaling in, and the two boxes are
-  // read one after the other: wait out every animation that ends first. A
+  // The two boxes are read one after the other, so every animation that ends
+  // is waited out first and nothing on the page moves between the reads. A
   // loading pulse never ends, so it is left running.
   await above.page().evaluate(() =>
     Promise.all(
