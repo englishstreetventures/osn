@@ -1,5 +1,11 @@
 # @osn/client
 
+## 3.1.1
+
+### Patch Changes
+
+- bc18a2b: A late answer for a session that was replaced or ended no longer changes the page's session; such calls reject with `AuthExpiredError`, and a refused `refreshSession` ends the session.
+
 ## 3.1.0
 
 ### Minor Changes
