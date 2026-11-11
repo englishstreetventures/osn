@@ -342,10 +342,12 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await page.reload();
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   });
+  // The number is drawn at random per request, so the record holds whether
+  // the two match, never the number: a rerun must write the same results.
   flow.check(
     "the reloaded waiting screen shows the same number",
-    secondCode,
-    await waitingScreenNumber(page),
+    true,
+    (await waitingScreenNumber(page)) === secondCode,
   );
   const secondLink = await linkFor(ada.email, 1);
   flow.check("the new link is a new request", true, secondLink.requestId !== link.requestId);
