@@ -18,8 +18,11 @@
  *    latest, so "declined within the hour" always means the hour before now;
  *  - `links.<key>`: the counted links, in a fixed window from the first.
  *
- * Fails closed: a marker that cannot be read counts the link, and a count
- * that cannot be made sends nothing.
+ * Reads and counts fail closed: a mark that cannot be read counts the link,
+ * and a count that cannot be made sends nothing. A mark that cannot be
+ * written is lost, and the next begin after that decline is not counted:
+ * each such begin still needs the reader to decline again, and a store that
+ * cannot write a mark cannot count a link either.
  */
 
 import {

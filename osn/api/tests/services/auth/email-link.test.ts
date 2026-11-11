@@ -186,6 +186,9 @@ function harness() {
     /** The sign-up parked at `address`. */
     parked: (address: string) =>
       Effect.promise(() => bundle.ceremonyStores.pendingRegistrations.get(address)),
+    /** Removes the sign-up parked at `address`, as its expiry would. */
+    dropParked: (address: string) =>
+      Effect.promise(() => bundle.ceremonyStores.pendingRegistrations.delete(address)),
     /** Account rows holding `address`. */
     accounts: (address: string) => rows("accounts", "email", address),
     /** Session rows of the account holding `address`. */
@@ -1012,29 +1015,12 @@ describe("a claimed request whose pending entry was freed", () => {
         linkSecret: s.link.linkSecret,
         pairingPick: s.pairingCode,
       });
-      // A wrong pick reads the confirmed request and hears back late; the
-      // poll claims it in between and its finish fails. The wrong pick's
-      // writes then fail in the store, so it falls back to the delete, which
-      // fails too and frees the pending entry.
+      // The poll claims the request and its finish fails; the pending entry
+      // then goes (it expired, or the store lost it).
       const fault = refuseSessions(h);
-      const held = h.holdNextAnswer("guess");
-      const picking = yield* Effect.forkChild(
-        settle(
-          h.auth.confirmEmailLink(s.requestId, {
-            linkSecret: s.link.linkSecret,
-            pairingPick: wrongPick(s.pairingCode),
-          }),
-        ),
-      );
-      yield* held.reached;
       yield* Effect.result(settle(h.auth.registrationStatus(s.requestId, s.claimSecret)));
-      h.fake.failWhen(
-        (call) => call.store === "email_link" && (call.op === "remove" || call.op === "swap"),
-      );
-      held.release();
-      yield* Fiber.join(picking);
-      h.fake.failWhen(null);
       fault.allow();
+      yield* h.dropParked(address);
       expect(yield* h.parked(address)).toBeNull();
       expect((yield* h.entry(s.requestId))?.status).toBe("claimed");
 

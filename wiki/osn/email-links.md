@@ -280,7 +280,10 @@ before it mails, reads, replaces or spends anything
   admits the first restart. The window bounds restarts, not distinct `+tag`
   or Gmail forms, each of which has its own pending entry. A stranger can
   spend a mailbox's restarts for an hour with ten Turnstile-gated begins; the
-  owner's plain begin still mails.
+  owner's plain begin still mails, unless a sign-up to the mailbox was declined
+  in that hour, when it is a restart too and waits for the window. A decline
+  with the link's secret goes through even once whoever began the request has
+  spent its five guesses, so the reader can always free the address.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
   address and handle (no birthdate) in this tab's `sessionStorage`, and the
   auth dialogs and `/authorize` reopen it. The pairing number is never stored:

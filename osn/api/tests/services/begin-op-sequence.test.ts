@@ -422,7 +422,7 @@ describe("POST /register/:requestId/resend", () => {
 });
 
 describe("a wrong pick whose writes the store fails", () => {
-  it.live("still answers expired and counts the strike", () => {
+  it.live("still answers expired, counts the strike, and deletes nothing", () => {
     const h = harness();
     return Effect.gen(function* () {
       const begun = yield* h.auth.beginRegistration(
@@ -448,6 +448,16 @@ describe("a wrong pick whose writes the store fails", () => {
       );
       expect(strikes).toHaveLength(1);
       expect(begun.requestId).toBe(link.requestId);
+      // Nothing deleted the request: the tab still reads it as one nobody
+      // acted on, as a taken address's request reads.
+      h.fake.failWhen(null);
+      expect(yield* h.auth.registrationStatus(begun.requestId, begun.claimSecret)).toEqual({
+        status: "pending",
+        pairingCode: begun.pairingCode,
+      });
+      expect(h.fake.calls.some((call) => call.store === "email_link" && call.op === "remove")).toBe(
+        false,
+      );
     }).pipe(Effect.provide(h.layer));
   });
 });

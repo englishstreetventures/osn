@@ -132,6 +132,21 @@ describe("wrong secrets", () => {
     ).toBe(201);
   });
 
+  it("leave the reader's decline open, which frees the address", async () => {
+    const h = harness();
+    const email = "spent-decline@example.com";
+    const s = await begun(h, email, "spentdecline");
+    for (let n = 0; n < MAX_OTP_ATTEMPTS + 1; n++) {
+      await confirmThroughRoutes(h.app, s.requestId, WRONG_SECRET, "none");
+    }
+    // A wrong secret's decline is refused like any guess past the count; the
+    // link's own decline goes through.
+    const declined = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
+    expect(await declined.json()).toEqual({ status: "declined" });
+    const again = await begun(h, email, "spentdecline");
+    expect(again.requestId).not.toBe(s.requestId);
+  });
+
   it("answer alike on a taken address's request and on one whose reader declined", async () => {
     const h = harness();
     await registerThroughRoutes(h.app, h.recorded, "wipe-taken@example.com", "wipetaken");

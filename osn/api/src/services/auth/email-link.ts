@@ -823,19 +823,27 @@ export function createEmailLinkModule(ctx: AuthContext) {
         }
         current = yield* read(requestId);
       }
+      // A quiet flow's entry is never deleted here: an entry gone before its
+      // expiry is the one answer its tab could tell from a never-mailed
+      // request's. Every write lost only to a store fault; the request ends
+      // at its expiry.
+      if (EMAIL_LINK_QUIET[entry.flow]) return { by: "lost", ended: false } as const;
       return { by: "lost", ended: yield* end(requestId, current) } as const;
     });
 
   /**
    * Ends `entry` for a wrong pick or a refused right number (`ended`), and
-   * answers whether this call ended it. A store that fails the close is left
-   * to the delete, which answers true when the store did not answer it, so a
-   * strike is never skipped for a store fault.
+   * answers whether this call ended it. A store that fails the close counts
+   * as having ended it, so a strike is never skipped for a store fault; a
+   * loud flow then deletes the request, and a quiet one leaves it to expire,
+   * since an entry gone early is the one answer its tab could tell apart.
    */
   const endHere = (requestId: string, entry: EmailLinkChallenge) =>
     close(requestId, entry, "ended").pipe(
       Effect.map((closed) => closed.by === "closed" || (closed.by === "lost" && closed.ended)),
-      Effect.catch(() => end(requestId, entry)),
+      Effect.catch(() =>
+        EMAIL_LINK_QUIET[entry.flow] ? Effect.succeed(true) : end(requestId, entry),
+      ),
     );
 
   /**
@@ -864,8 +872,16 @@ export function createEmailLinkModule(ctx: AuthContext) {
       }
       // Read and counted in one call, before the secret is compared.
       const guessed = yield* guessEntry(links, requestId, MAX_OTP_ATTEMPTS);
-      if (!guessed || guessed.standing === "spent" || !usable(guessed.entry)) return REFUSED;
+      if (!guessed || !usable(guessed.entry)) return REFUSED;
       const { entry, standing } = guessed;
+      // Past the count nothing is compared, except a decline: it confirms
+      // nothing and needs no guesses, and whoever began the request must not
+      // be able to spend the count and so keep the link's reader from saying
+      // they did not ask.
+      if (standing === "spent") {
+        const declining = input.pairingPick === EMAIL_LINK_DECLINE;
+        if (!declining || !holdsLink(entry, input.linkSecret)) return REFUSED;
+      }
       if (!holdsLink(entry, input.linkSecret)) {
         // A quiet flow ends nothing here: see the module's note on the count.
         if (standing !== "last" || EMAIL_LINK_QUIET[entry.flow]) return REFUSED;
