@@ -248,13 +248,9 @@ describe("a surface whose production deploy never ran", () => {
           "any",
           "any_site",
           "any_stack",
-          "stacks",
-          "attach",
         ].toSorted(),
       );
-      const { stacks, attach, ...flags } = outputs;
-      expect(Object.values(flags).every((value) => value === "false")).toBe(true);
-      expect({ stacks, attach }).toEqual({ stacks: "", attach: "" });
+      expect(Object.values(outputs).every((value) => value === "false")).toBe(true);
       // Nothing ships, so no dev record is read.
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
@@ -397,7 +393,7 @@ describe("dev still gates production", () => {
         "any_site",
         "any_stack",
       ]);
-      expect(outputs.stacks).toBe("cire");
+      expect(outputs).toMatchObject({ stack_cire: "true", stack_musubi: "false" });
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
   });
@@ -1374,7 +1370,6 @@ describe("which production stacks ship", () => {
       stack_musubi: "false",
       any_site: "true",
       any_stack: "true",
-      stacks: "cire",
     });
     // Staged, the site ships its own Pages job and its stack both.
     const staged = await atModes({ cire_landing: "staged" });
@@ -1383,7 +1378,7 @@ describe("which production stacks ship", () => {
       cire_landing: "true",
       stack_cire: "true",
       any_site: "true",
-      stacks: "cire",
+      stack_musubi: "false",
     });
   });
 
@@ -1416,7 +1411,7 @@ describe("which production stacks ship", () => {
       stack_cire: "false",
       any_site: "false",
       any_stack: "false",
-      stacks: "",
+      stack_musubi: "false",
     });
     // Forced, nothing holds it.
     expect(release(cire, true).stacks.find((s) => s.key === "cire")?.ship).toBe(true);
@@ -1437,7 +1432,7 @@ describe("which production stacks ship", () => {
       stack_cire: "false",
       any_site: "true",
       any_stack: "false",
-      stacks: "",
+      stack_musubi: "false",
     });
     expect(
       staged.planner.stackPlans(decided, true).stacks.find((s) => s.key === "cire")?.ship,
@@ -1470,16 +1465,7 @@ describe("what the plan job writes", () => {
           .trim()
           .split("\n")
           .map((line) => line.split("=")[0]),
-      ).toEqual([
-        ...SHIPPED,
-        "stack_musubi",
-        "stack_cire",
-        "any",
-        "any_site",
-        "any_stack",
-        "stacks",
-        "attach",
-      ]);
+      ).toEqual([...SHIPPED, "stack_musubi", "stack_cire", "any", "any_site", "any_stack"]);
       expect(plan.summary).toContain("musubi_landing");
       expect(plan.summary).not.toContain("pulse_landing");
       // Two approvals when a stack ships.
@@ -1491,7 +1477,7 @@ describe("what the plan job writes", () => {
     );
   });
 
-  test("RP7: one line per surface and production stack, then any, any_site, any_stack, stacks and attach", async () => {
+  test("RP7: one line per surface and production stack, then any, any_site and any_stack", async () => {
     const lines = outputLines(release(decide(["osn/api/x.ts"])))
       .trim()
       .split("\n");
@@ -1502,8 +1488,6 @@ describe("what the plan job writes", () => {
       "any=true",
       "any_site=false",
       "any_stack=false",
-      "stacks=",
-      "attach=",
     ]);
     expect(parseOutputs(outputLines(release(decide([]))))).toMatchObject({ any: "false" });
     // A stack-path change ships both stacks on their own records, and of the
@@ -1512,7 +1496,8 @@ describe("what the plan job writes", () => {
     expect(
       parseOutputs(outputLines(stackPlans(decide(infra), false, stacksFor(infra)))),
     ).toMatchObject({
-      stacks: "musubi cire",
+      stack_musubi: "true",
+      stack_cire: "true",
       any_stack: "true",
       musubi_landing: "true",
       cire_host: "true",
@@ -1538,7 +1523,8 @@ describe("what the plan job writes", () => {
         ),
       ),
     ).toMatchObject({
-      stacks: "musubi cire",
+      stack_musubi: "true",
+      stack_cire: "true",
       cire_host: "true",
       cire_landing: "false",
       osn_social: "false",
@@ -1685,7 +1671,11 @@ describe("a production stack ships on its own record", () => {
         fetch: github.fetch,
         cwd: repo,
       });
-      expect(parseOutputs(api.outputs)).toMatchObject({ cire_api: "true", stacks: "" });
+      expect(parseOutputs(api.outputs)).toMatchObject({
+        cire_api: "true",
+        stack_cire: "false",
+        stack_musubi: "false",
+      });
     });
   });
 
@@ -1717,7 +1707,6 @@ describe("a production stack ships on its own record", () => {
         cwd: repo,
       });
       expect(parseOutputs(plan.outputs)).toMatchObject({
-        stacks: "cire",
         stack_cire: "true",
         stack_musubi: "false",
         cire_host: "true",
@@ -1759,12 +1748,13 @@ describe("a production stack ships on its own record", () => {
       // The daily run, or any release with empty surfaces: both stacks ship,
       // so alchemy-plan's precheck refuses it while either apex is on Pages.
       expect(parseOutputs((await plan(before)).outputs)).toMatchObject({
-        stacks: "musubi cire",
+        stack_musubi: "true",
+        stack_cire: "true",
       });
 
       const first = await plan(before, { SURFACES: "cire_landing" });
       expect(parseOutputs(first.outputs)).toMatchObject({
-        stacks: "cire",
+        stack_cire: "true",
         stack_musubi: "false",
         cire_landing: "true",
         osn_social: "false",
@@ -1793,7 +1783,7 @@ describe("a production stack ships on its own record", () => {
       ];
       const second = await plan(landed, { SURFACES: "osn_social" });
       expect(parseOutputs(second.outputs)).toMatchObject({
-        stacks: "musubi",
+        stack_musubi: "true",
         stack_cire: "false",
         osn_social: "true",
         musubi_landing: "false",
@@ -1854,7 +1844,10 @@ describe("a production stack ships on its own record", () => {
       const b = await commit(repo, { "cire/infra/x.ts": "2" });
       const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", a, 2)]);
       const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
-      expect(parseOutputs(plan.outputs)).toMatchObject({ stack_cire: "false", stacks: "" });
+      expect(parseOutputs(plan.outputs)).toMatchObject({
+        stack_cire: "false",
+        stack_musubi: "false",
+      });
       expect(plan.summary).toContain(
         "no recent dev deployment of the stack was built from these paths",
       );
@@ -1908,47 +1901,10 @@ describe("a production stack ships on its own record", () => {
   });
 });
 
-// ── moving a domain back ────────────────────────────────────────────────────
+// ── inputs no release reads ────────────────────────────────────────────────────
 
-describe("attach", () => {
-  test("RP9: an attach names one site with a Pages project and nothing else, and ships nothing", () => {
-    expect(parseRequest("", "false", "cire_host")).toEqual({
-      surfaces: [],
-      force: false,
-      attach: "cire_host",
-    });
-    for (const [surfaces, force, attach, message] of [
-      ["", "", "musubi_landing", "not a site with a Pages project"],
-      ["", "", "cire_api", "not a site with a Pages project"],
-      ["cire_host", "", "cire_host", "leave SURFACES and FORCE empty"],
-      ["", "true", "cire_host", "leave SURFACES and FORCE empty"],
-    ] as const) {
-      expect(() => parseRequest(surfaces, force, attach)).toThrow(message);
-    }
-  });
-
-  test("RP9: an attach release ships nothing whatever changed, reads no record, and asks one approval", async () => {
-    await withRepo(async (repo) => {
-      const a = await commit(repo, { "shared/infra/src/x.ts": "1" });
-      const b = await commit(repo, { "shared/infra/src/x.ts": "2", "cire/host/a.ts": "2" });
-      const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]);
-      const plan = await runReleasePlan({
-        env: env(b, { ATTACH: "cire_host", FORCE: "false" }),
-        fetch: github.fetch,
-        cwd: repo,
-      });
-      const { attach, stacks, ...flags } = parseOutputs(plan.outputs);
-      expect({ attach, stacks }).toEqual({ attach: "cire_host", stacks: "" });
-      expect(Object.values(flags).every((value) => value === "false")).toBe(true);
-      expect(github.calls).toEqual([]);
-      expect(plan.summary).toContain(
-        "Attach release: `cire_host`'s domain goes back on its Pages project",
-      );
-      expect(plan.summary).toContain("One approval: the attach job.");
-    });
-  });
-
-  test("RP18: FLIP and UNFLIP are read by nothing: a release with them set plans as one without", async () => {
+describe("retired inputs", () => {
+  test("RP18: FLIP, UNFLIP and ATTACH are read by nothing: a release with them set plans as one without", async () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "cire/vendor/src/a.ts": "1" });
       const b = await commit(repo, { "cire/vendor/src/a.ts": "2" });
@@ -1959,7 +1915,12 @@ describe("attach", () => {
         cwd: repo,
       });
       const moved = await runReleasePlan({
-        env: env(b, { SURFACES: "cire_vendor", FLIP: "cire_vendor", UNFLIP: "cire_host" }),
+        env: env(b, {
+          SURFACES: "cire_vendor",
+          FLIP: "cire_vendor",
+          UNFLIP: "cire_host",
+          ATTACH: "cire_landing",
+        }),
         fetch: fakeGitHub(records).fetch,
         cwd: repo,
       });
@@ -1967,6 +1928,7 @@ describe("attach", () => {
       expect(moved.summary).toBe(plain.summary);
       expect(Object.keys(parseOutputs(moved.outputs))).not.toContain("flip");
       expect(Object.keys(parseOutputs(moved.outputs))).not.toContain("unflip");
+      expect(Object.keys(parseOutputs(moved.outputs))).not.toContain("attach");
       expect(parseOutputs(moved.outputs)).toMatchObject({
         stack_cire: "true",
         cire_vendor: "true",

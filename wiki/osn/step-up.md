@@ -323,8 +323,12 @@ the asymmetry itself.
 **A completed email change mails the address it replaced.** The commit writes an
 `email_changed` security event in the same batch as the change, and the notice
 (`email-changed`, [[email]]) goes to the previous address once the change is on
-record. The `email_changed` row is acknowledged through the same gate as every
-other kind (`recoveryGenerateAllowedAmr`), so after an email change the signal
-to rely on is the notice to the replaced address, not the banner. The notice is
-sent once, best effort: a send that fails is counted
-(`osn.auth.security_event.notified`, `result: failed`) and not retried.
+record. No step-up factor can acknowledge the `email_changed` row for 7 days
+after the change (`EMAIL_CHANGE_ACK_HOLD_SECONDS`, the change cap's window): an
+emailed code now goes to the new address, so for that week the row stays on the
+banner whoever holds it. Acknowledging it alone answers 403
+`email_change_held` with `holdEndsAt`; `ack-all` acknowledges every other row and
+leaves it. After the week it is acknowledged through the same gate as every other
+kind (`recoveryGenerateAllowedAmr`). The notice is sent once, best effort: a send
+that fails is counted (`osn.auth.security_event.notified`, `result: failed`) and
+not retried.

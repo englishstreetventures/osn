@@ -68,7 +68,7 @@ own (a different curve) wherever an app declares none, so the contract's
 `--ui-ease-in-out` written behind it is never reached in a Tailwind app.
 The reduced-motion kill switch is a global rule in each app's `global.css`. It
 selects `*`, which reaches no pseudo-element, so a part that animates one —
-`Disclosure`'s fade on `::details-content` — carries its own `motion-safe:`
+`Disclosure`'s opening on `::details-content` — carries its own `motion-safe:`
 gate.
 
 ## Adding an app

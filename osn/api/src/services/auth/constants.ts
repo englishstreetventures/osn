@@ -204,6 +204,14 @@ export const LAST_USED_AT_COALESCE_MS = 60_000;
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
 
+/**
+ * How long an `email_changed` security event cannot be acknowledged, by any
+ * step-up factor, after the change it records: the change cap's window. While
+ * it lasts, an emailed code, which now goes to the new address, cannot clear
+ * the banner row.
+ */
+export const EMAIL_CHANGE_ACK_HOLD_SECONDS = 7 * 24 * 60 * 60;
+
 // ---------------------------------------------------------------------------
 // Email account recovery (`POST /login/recovery/email/{begin,complete}`)
 // ---------------------------------------------------------------------------
