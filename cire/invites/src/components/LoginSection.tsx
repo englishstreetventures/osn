@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import Reveal from "@cire/ui/reveal";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import {
@@ -733,54 +734,64 @@ export function LoginSection(props: LoginSectionProps) {
             )}
           </Show>
         </Show>
-        {/* The chosen member's own address. Keyed on the member, so a new
+        {/* `Reveal`: answering "Who are you?" grows the member's boxes open as
+            one block rather than dropping them in between two frames; "Not
+            you?" takes them away at once. A household restored from its
+            session paints them open, with no motion: the welcome is hidden
+            until the result lands, and a box shown out of `display: none`
+            has no earlier state to move from. */}
+        <Reveal pace="slow" when={memberStep() && chosen() !== null}>
+          {/* The chosen member's own address. Keyed on the member, so a new
             "Who are you?" answer starts a fresh box. Once RSVPs have closed a
             member with no address on file has nothing to add and nothing to
             remove, so gets no box. That is decided once, when the member is
             chosen: after it, neither a removal nor the clock passing the
             deadline unmounts the box, whose status line and focus the guest
             is using. */}
-        <Show when={memberStep() && !props.result?.preview ? chosen() : null} keyed>
-          {(m) => {
-            const offered =
-              props.rsvpDeadlineState !== "closed" ||
-              (props.result ? readMemberEmail(props.result) : null) !== null;
-            return (
-              <Show when={offered}>
-                <Suspense fallback={null}>
-                  <GuestEmailBox
-                    apiUrl={props.apiUrl}
-                    member={m}
-                    email={props.result ? readMemberEmail(props.result) : null}
-                    closed={props.rsvpDeadlineState === "closed"}
-                    onChange={(email) => updateResult((result) => withMemberEmail(result, email))}
-                    onMemberRequired={() => updateResult((result) => ({ ...result, member: null }))}
-                    class={`mb-8 ${layout().measure} ${layout().box}`}
-                  />
-                </Suspense>
+          <Show when={memberStep() && !props.result?.preview ? chosen() : null} keyed>
+            {(m) => {
+              const offered =
+                props.rsvpDeadlineState !== "closed" ||
+                (props.result ? readMemberEmail(props.result) : null) !== null;
+              return (
+                <Show when={offered}>
+                  <Suspense fallback={null}>
+                    <GuestEmailBox
+                      apiUrl={props.apiUrl}
+                      member={m}
+                      email={props.result ? readMemberEmail(props.result) : null}
+                      closed={props.rsvpDeadlineState === "closed"}
+                      onChange={(email) => updateResult((result) => withMemberEmail(result, email))}
+                      onMemberRequired={() =>
+                        updateResult((result) => ({ ...result, member: null }))
+                      }
+                      class={`mb-8 ${layout().measure} ${layout().box}`}
+                    />
+                  </Suspense>
+                </Show>
+              );
+            }}
+          </Show>
+          <Show when={memberStep() && accountLink() ? accountLink() : null}>
+            {(state) => (
+              <Show when={chosen()}>
+                {(m) => (
+                  <Suspense fallback={null}>
+                    <PulseAccountLink
+                      apiUrl={props.apiUrl}
+                      member={m()}
+                      state={state()}
+                      onLinked={(id) => setLinked(id, true)}
+                      onUnlinked={(id) => setLinked(id, false)}
+                      onNotYou={() => void handleNotYou()}
+                      class={`mb-8 ${layout().measure} ${layout().box}`}
+                    />
+                  </Suspense>
+                )}
               </Show>
-            );
-          }}
-        </Show>
-        <Show when={memberStep() && accountLink() ? accountLink() : null}>
-          {(state) => (
-            <Show when={chosen()}>
-              {(m) => (
-                <Suspense fallback={null}>
-                  <PulseAccountLink
-                    apiUrl={props.apiUrl}
-                    member={m()}
-                    state={state()}
-                    onLinked={(id) => setLinked(id, true)}
-                    onUnlinked={(id) => setLinked(id, false)}
-                    onNotYou={() => void handleNotYou()}
-                    class={`mb-8 ${layout().measure} ${layout().box}`}
-                  />
-                </Suspense>
-              )}
-            </Show>
-          )}
-        </Show>
+            )}
+          </Show>
+        </Reveal>
         <Show when={props.onSignOut}>
           <Button variant="touchLink" type="button" onClick={handleSignOut}>
             {signOutLabel()}

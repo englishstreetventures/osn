@@ -1,6 +1,7 @@
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
+import type { StepUpPurpose } from "@shared/observability/metrics";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 
@@ -9,6 +10,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
+import { stepUpThroughRoutes } from "../helpers/step-up-link";
 
 /**
  * Route-level coverage for the passkey management surface:
@@ -53,11 +55,11 @@ describe("passkey management routes", () => {
   }
 
   /**
-   * Build a route app that allows OTP step-up for rename + delete (the
+   * Build a route app that allows the emailed-link step-up for rename + delete (the
    * default is passkey-only, but driving a real WebAuthn ceremony
    * in tests isn't practical, so we widen the allow-list explicitly).
-   * Returns the app, an access token, and a helper that drives the OTP
-   * step-up ceremony and hands back a fresh step-up token each call.
+   * Returns the app, an access token, and a helper that drives the emailed-link
+   * step-up and hands back a fresh step-up token each call.
    */
   async function setupStepUp() {
     const email = makeLogEmailLive();
@@ -69,32 +71,8 @@ describe("passkey management routes", () => {
     const accessToken = tokens.accessToken;
 
     // Rename and delete share the purpose-bound delete gate.
-    const mintOtpStepUp = async (purpose = "passkey_delete"): Promise<string> => {
-      await appWithOtp.handle(
-        new Request("http://localhost/step-up/otp/begin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }),
-      );
-      const all = email.recorded();
-      const latest = all[all.length - 1]?.text.match(/\b(\d{6})\b/);
-      const code = latest![1]!;
-      const stepUpRes = await appWithOtp.handle(
-        new Request("http://localhost/step-up/otp/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code, purpose }),
-        }),
-      );
-      const { step_up_token } = (await stepUpRes.json()) as { step_up_token: string };
-      return step_up_token;
-    };
+    const mintOtpStepUp = (purpose: StepUpPurpose = "passkey_delete"): Promise<string> =>
+      stepUpThroughRoutes(appWithOtp, accessToken, () => email.recorded(), purpose);
 
     return { app: appWithOtp, accessToken, tokens, profile, mintOtpStepUp };
   }
@@ -396,40 +374,21 @@ describe("passkey management routes", () => {
       expect(res.status).toBe(409);
     });
 
-    // Default config rejects OTP step-up for delete. The dedicated
+    // Default config rejects the emailed-link step-up for delete. The dedicated
     // passkey-only AMR config knob is the intended production posture.
-    it("rejects OTP step-up when passkeyDeleteAllowedAmr omits it", async () => {
+    it("rejects the emailed-link step-up when passkeyDeleteAllowedAmr omits it", async () => {
       const email = makeLogEmailLive();
       const strictApp = createAuthRoutes(config, Layer.merge(layer, email.layer));
       const { tokens, profile } = await seedAccount();
       const pk = await seedPasskey(profile.accountId);
       await seedPasskey(profile.accountId);
 
-      await strictApp.handle(
-        new Request("http://localhost/step-up/otp/begin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${tokens.accessToken}`,
-          },
-        }),
+      const step_up_token = await stepUpThroughRoutes(
+        strictApp,
+        tokens.accessToken,
+        () => email.recorded(),
+        "passkey_delete",
       );
-      const latest = email
-        .recorded()
-        .at(-1)
-        ?.text.match(/\b(\d{6})\b/);
-      const code = latest![1]!;
-      const stepUpRes = await strictApp.handle(
-        new Request("http://localhost/step-up/otp/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${tokens.accessToken}`,
-          },
-          body: JSON.stringify({ code, purpose: "passkey_delete" }),
-        }),
-      );
-      const { step_up_token } = (await stepUpRes.json()) as { step_up_token: string };
 
       const res = await strictApp.handle(
         new Request(`http://localhost/passkeys/${pk}`, {

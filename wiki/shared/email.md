@@ -43,7 +43,7 @@ email.
   │ @osn/api services    │        │  @shared/email       │        │ Resend HTTP API        │
   │ services/auth/:      │ calls  │  EmailService (Tag)  │ Bearer │  POST /emails          │
   │  beginRegistration   ├───────▶│  ResendEmailLive     ├───────▶│                        │
-  │  beginStepUpOtp      │ Effect │  CloudflareEmailLive │  JSON  │  (or Cloudflare Email   │
+  │  beginStepUpEmail    │ Effect │  CloudflareEmailLive │  JSON  │  (or Cloudflare Email   │
   │  beginEmailChange    │        │  LogEmailLive (dev)  │        │   Service REST API as   │
   │  notifyRecovery      │        │                      │        │   legacy fallback)      │
   │  notifyPasskey*      │        │  renderTemplate()    │        │  DKIM-signs via         │
@@ -93,8 +93,8 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 |--------------------------|-------------------------------------|-----------|
 | `link-recovery`          | `{ url, ttlMinutes, instanceName, device }` | `beginEmailRecovery`, `resendEmailRecovery` — see [[email-links]] |
 | `link-registration`      | `{ url, ttlMinutes, instanceName, handle }` | `beginRegistration`, `resendRegistration` — see [[email-links]] |
-| `otp-step-up`            | `{ code, ttlMinutes, instanceName }` | `beginStepUpOtp` |
-| `otp-email-change`       | `{ code, ttlMinutes, instanceName }` | `beginEmailChange` |
+| `link-step-up`           | `{ url, ttlMinutes, instanceName, action, device }` | `beginStepUpEmail`, `resendStepUpEmail` — see [[email-links]] |
+| `link-email-change`      | `{ url, ttlMinutes, instanceName }` | `beginEmailChange`, `resendEmailChange` — see [[email-links]] |
 | `recovery-generated`     | `{ instanceName }`                  | `notifyRecovery("recovery_code_generate")` |
 | `recovery-consumed`      | `{ instanceName }`                  | `notifyRecovery("recovery_code_consume")` |
 | `recovery-used`          | `{ disownUrl, instanceName }`       | `completeRecoveryFactor` (emailed link + TOTP) |

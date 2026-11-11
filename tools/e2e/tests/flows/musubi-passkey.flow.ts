@@ -1094,7 +1094,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   );
   // osn-api allows 10 profile lists a minute per client address
   // (`profileList`, osn/api/src/routes/auth/limiters.ts), in memory and shared
-  // by the whole run. Two short of it leaves room for musubi-org-detail's one.
+  // by the whole run. Two short of it leaves room for musubi-org-detail's one
+  // and musubi-recovery's one; musubi-step-up-email lists none.
   flow.check(
     "the flow lists profiles no more than eight times",
     true,

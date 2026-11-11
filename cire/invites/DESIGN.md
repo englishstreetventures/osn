@@ -163,8 +163,9 @@ The portals' ladder, value for value, in `global.css`:
 | The event sheet's panel switch: a fade and the last 1.5rem from its own side   | `--dur-base`                                | `--ease-out`              |
 | The sheet's badge words after a press (`transition-badge-settle`)              | `--dur-base`                                | `--ease-out`              |
 | Respond's label ink following the bloom fill                                   | `--dur-base`                                | `--ease-out`              |
-| A `Reveal` opening ("Anything else" in the RSVP form)                          | `--dur-base`                                | `--ease-out`              |
-| A FAQ answer opening (`Disclosure`): a fade and a 0.25rem drop; its `+` turning | `--dur-base`; the `+` `--dur-fast`          | `--ease-out`              |
+| A block opening under a control (`Reveal` with `pace="slow"`): the dietary section and its "Anything else", the gift page's own amount, a gift's reserve form, the chosen member's email and musubi boxes | `--dur-slow`                                | `--ease-out`              |
+| The calendar and maps menus opening (`LinkMenu`, `menu-pop`): scaled up from 0.96 and faded in from the corner at their trigger | `--dur-base`                                | `--ease-out`              |
+| A FAQ answer opening (`Disclosure`): its box grows as the answer fades in and drops 0.25rem; its `+` turning | `--dur-slow`; the `+` `--dur-fast`          | `--ease-out`              |
 | A dialog — the event sheet, the consent prompt, privacy choices (`Modal`) †    | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ui-ease-out` in, CSS `ease-in` out |
 | A toast (`@shared/toast`)                                                      | 160ms in and out                            | CSS `ease-out` in, CSS `ease-in` out |
 
@@ -194,17 +195,19 @@ their tests in `wiki/cire/cire-invite-designs.md` (§The hero scroll cue,
 reveal's guards against a blank or flashing invite in
 `wiki/shared/frontend-patterns.md` §Rendering and animation gotchas.
 
-In progress under englishstreetventures/osn#2175: the dietary picker, the gift
-forms and the sign-in boxes opening through `Reveal`, and the link menus'
-opening pop.
+The blocks under a control open a rung slower than the portals' panels, and
+the link menus a rung slower than the portals' menus: a guest is reading, and
+the owner asked that these openings be felt. The measurement behind the
+blocks' rung, and where focus goes when the reserve form closes, are in
+`wiki/cire/cire-invite-designs.md` §Corners, labels and motion.
 
 ### What must not move
 
 - **A box that holds live controls closes at once.** `Reveal` (`@cire/ui`)
   drops its content the moment it closes, and the empty wrapper finishes
-  closing behind it; a `Disclosure` closes at once; the link menus open and
-  close with no motion; the unlock reveal's code form leaves the layout before
-  anything rises. `Modal`'s exit breaks this rule (Known breaches, below).
+  closing behind it; a `Disclosure` closes at once; the link menus close at
+  once; the unlock reveal's code form leaves the layout before anything
+  rises. `Modal`'s exit breaks this rule (Known breaches, below).
 - **Nothing already open animates on first paint.** A `Reveal` that mounts open
   is open; a `Disclosure` open when it first paints does not fade; a reply on
   file loads with Respond already filled and ticked; the sheet's first panel
@@ -257,9 +260,9 @@ branch in each component. On `*`, `*::before` and `*::after` it sets every
 animation to one run of 0.01ms that starts already finished (a -1ms delay), and
 every transition to 0.01ms with no delay, all with `!important`, which beats an
 inline style. So the tick is drawn, the scroll cue is there and still, and a
-`Reveal` or a panel switch lands at once. Spinners are the exception: a still
-ring reads as a stalled page, so `.animate-spin` keeps turning, once every
-1.5s.
+`Reveal`, a link menu's pop or a panel switch lands at once. Spinners are the
+exception: a still ring reads as a stalled page, so `.animate-spin` keeps
+turning, once every 1.5s.
 
 The clamp reaches no other pseudo-element and no script, so these carry their
 own gate:

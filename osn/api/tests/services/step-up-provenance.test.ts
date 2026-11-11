@@ -274,15 +274,10 @@ describe("the register-then-assert pivot is refused at step 4", () => {
       const err = yield* Effect.flip(
         auth.verifyStepUpForEmailChange(profile.accountId, changeToken),
       );
-      expect(err._tag).toBe("AuthError");
-
-      // The chain's real destination: `POST /account/email/begin` mails its OTP
+      // The chain's real destination: `POST /account/email/begin` mails its link
       // to the caller-chosen NEW address, so a token accepted here would end in
-      // a permanent, mailbox-independent takeover.
-      const swap = yield* Effect.flip(
-        auth.completeEmailChange(profile.accountId, "000000", changeToken, null),
-      );
-      expect(swap._tag).toBe("AuthError");
+      // a permanent, mailbox-independent takeover. Complete calls this verifier.
+      expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 

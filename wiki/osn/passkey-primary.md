@@ -135,7 +135,7 @@ factor everywhere, because a factor the gated endpoint refuses is not a shorter
 menu — it is a dead end. The ceremony succeeds, a token is minted, and the call
 it was minted for fails.
 
-| Ceremony | Passkey | Emailed code | Authenticator |
+| Ceremony | Passkey | Emailed link | Authenticator |
 |---|---|---|---|
 | `passkey_register`, `totp_enroll`, `totp_disable` | yes | yes | yes |
 | `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `pulse_app_delete`, `zap_app_delete` | yes | yes | yes |
@@ -146,9 +146,10 @@ That table mirrors the **defaults** in `osn/api/src/services/auth/context.ts`;
 three of the four allow-lists are `AuthConfig` fields, so a deployment that
 narrows one reintroduces a dead end the UI cannot see. No deployment sets them.
 
-Fixing this removed a dead end that had been live: the dialog previously
-offered "Email me a code" for passkey rename and delete, whose gate is
-`["webauthn"]`, so the code arrived and the action still failed. The
+The dialog offers "Use email instead" only where the purpose admits it, and
+never for passkey rename and delete, whose gate is `["webauthn"]`: there the
+link would arrive and the action would still fail. The emailed link needs a
+`purpose`, which it fixes when it is sent ([[email-links#Step-up]]). The
 authenticator factor additionally requires a confirmed credential — the dialog
 asks `GET /totp/status` itself rather than taking a flag from its host, so the
 two cannot be wired inconsistently.
@@ -204,7 +205,7 @@ Since the credential-provenance work, `/passkey/register/begin` also decides
 what the credential it is about to create will be **stamped** with — the
 effective strength of the ceremony chain behind it — and parks that on the
 registration challenge for `complete` to write. A credential registered under an
-emailed code or an authenticator code cannot delete an older passkey, or change
+emailed link or an authenticator code cannot delete an older passkey, or change
 the account email, for 72 hours; one registered by asserting a passkey the user
 already held inherits that credential's standing and is refused nothing. This is
 what closes the register-then-assert pivot that made `passkeyDeleteAllowedAmr`'s

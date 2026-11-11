@@ -17,7 +17,7 @@ import { CoordinationError } from "../../src/services/auth/errors";
  */
 describe("publicError", () => {
   it("answers a coordination-store failure with a 503 naming nothing", () => {
-    const err = new CoordinationError({ store: "step_up_otp", op: "set" });
+    const err = new CoordinationError({ store: "email_link", op: "set" });
     expect(publicError(err)).toEqual({
       status: 503,
       body: { error: "temporarily_unavailable" },

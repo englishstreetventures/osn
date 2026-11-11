@@ -169,7 +169,7 @@ export function createPasskeysModule(
      *
      * The alternative — letting a restricted session mint step-up tokens —
      * would open `/recovery/generate`, `DELETE /account`, `GET /account/export`
-     * and `/account/email/complete` along with it.
+     * and `/account/email/:requestId/complete` along with it.
      *
      * The per-account passkey cap does NOT refuse this enrolment — a refusal
      * here is an account nobody can reach again. `complete` reclaims what this

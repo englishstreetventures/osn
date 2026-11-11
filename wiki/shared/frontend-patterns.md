@@ -554,6 +554,40 @@ measured and no JavaScript runs; `interpolate-size: allow-keywords` with
 `height: auto` says the same thing more directly but is not yet in every engine
 these apps are opened in.
 
+Two things about the box that clips:
+
+- **The wrapper clips, not the row.** Partway through, Chromium sizes the row
+  against the wrapper's own height, which has already grown by the same
+  fraction, so the row is the square of it: at 40% of the way the wrapper is
+  137px of a 340px block and the row 55px. A clip on the row shows the content
+  lagging the box, over an empty band.
+- **It keeps 4px of room.** The wrapper carries `p-1` inside a matching `-m-1`,
+  so a focus outline 2px wide and 2px out at the content's edge is not cut and
+  nothing moves. The row's box takes `min-w-0` as well as `min-h-0`, or a
+  scrolling track inside widens the column instead of scrolling. The room
+  overlaps 4px of each neighbour, and while the wrapper is shut or fading in it
+  paints above them, so the wrapper never takes pointer events and the row
+  takes them back (`pointer-events-auto`): a tap on the bottom of the control
+  above lands on that control.
+
+*Measured 2026-11-11 — Chromium, `cire/invites`' RSVP sheet at 1280px, the
+dietary section's transitions paused at a tenth of their duration*
+
+The room reaches 4px past the content sideways as well, shut or open. A
+`Reveal` flush with the inline end of a scroll box that has no inline padding
+makes that box scroll 4px sideways: a "me" message's "Sent" line in a
+`MessageThread` placed straight in such a box does. Put at least 4px of inline
+padding between them. Every thread today has more: the portal's `page-frame`
+gives 20px or more, and the vendor's `Card` 20px.
+
+*Measured 2026-11-11 — Chromium, a `MessageThread` of two messages in a 360px
+`overflow-y: auto` box with no padding: `scrollWidth` 364 against `clientWidth`
+360, the "me" row's shut `Reveal` wrapper ending at 364. Open, the wrapper
+keeps the same `-m-1 p-1`, so its edges do not move*
+
+`Reveal` opens on the app's `--dur-base` unless the caller passes
+`pace="slow"`, which the guest site does ([[cire-invite-designs#Corners, labels and motion]]).
+
 ### A computed timing function is a list, and `cubic-bezier()` has commas of its own
 
 Reading an animation's timing back from `getComputedStyle` — to run a Web

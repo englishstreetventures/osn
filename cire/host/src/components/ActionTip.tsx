@@ -24,7 +24,7 @@ import { Portal } from "solid-js/web";
  */
 
 const PANEL =
-  "bg-surface-raised text-text border-border z-50 max-w-xs rounded-md border px-2 py-1 text-ui-xs leading-ui-snug shadow-md";
+  "bg-surface-raised text-text border-border tip-pop z-50 max-w-xs rounded-md border px-2 py-1 text-ui-xs leading-ui-snug shadow-md";
 
 /** How long a mouse rests on a control before its panel opens. */
 const OPEN_DELAY_MS = 300;
@@ -89,9 +89,17 @@ function tipOf(target: EventTarget | null): HTMLElement | null {
  * so a stacking context of its own, it would paint under the sticky top bar.
  * Kobalte's `Popper` places it, above its control, flipping below when there is
  * no room, and follows the control as the page scrolls.
+ *
+ * Only an open that waited out `OPEN_DELAY_MS` is marked `data-delayed`, and
+ * only that one pops in (`tip-pop`): a keyboard open, and the next tip in a run,
+ * show at once.
  */
 export function TipLayer() {
-  const [shown, setShown] = createSignal<{ el: HTMLElement; text: string } | null>(null);
+  const [shown, setShown] = createSignal<{
+    el: HTMLElement;
+    text: string;
+    delayed: boolean;
+  } | null>(null);
   let via: "pointer" | "focus" = "pointer";
   let timer: number | undefined;
   // The control a pending open is for, so moving within it does not restart
@@ -114,17 +122,17 @@ export function TipLayer() {
     cancel();
     const text = el.dataset.tip;
     if (!text) return;
-    const open = () => {
+    const open = (delayed: boolean) => {
       if (!el.isConnected) return;
       via = how;
-      setShown({ el, text });
+      setShown({ el, text, delayed });
     };
-    if (now || shown() !== null || performance.now() - lastClosed < SKIP_DELAY_MS) open();
+    if (now || shown() !== null || performance.now() - lastClosed < SKIP_DELAY_MS) open(false);
     else {
       pending = el;
       timer = window.setTimeout(() => {
         pending = undefined;
-        open();
+        open(true);
       }, OPEN_DELAY_MS);
     }
   }
@@ -222,7 +230,14 @@ export function TipLayer() {
             gutter={4}
           >
             <Popper.Positioner class="pointer-events-none">
-              <div ref={content} data-tip-panel role="tooltip" aria-hidden="true" class={PANEL}>
+              <div
+                ref={content}
+                data-tip-panel
+                data-delayed={tip.delayed ? "" : undefined}
+                role="tooltip"
+                aria-hidden="true"
+                class={PANEL}
+              >
                 {tip.text}
               </div>
             </Popper.Positioner>

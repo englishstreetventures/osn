@@ -176,9 +176,9 @@ As built:
   The rows' `border` names no colour, so the host decides it: Musubi's base
   rule draws the hairline, `--border`.
 - **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
-  one phase at a time. The email phase is a `Field` over a full-width Button,
-  the code phase a labelled row of code boxes over one; the step-up phase is
-  `StepUpDialog`'s panel, and the last a single line.
+  one phase at a time. The email phase is a `Field` over a full-width
+  Button; the wait is `CheckEmailView`; the step-up phase is
+  `StepUpDialog`'s panel; finishing and done are a single line each.
 - **`CheckEmailView`** is a `flex-col gap-4` column for a step inside a dialog:
   its `h3`; the sentence in its live region, with any error line 8px under
   it (`flex-col gap-2`); the line about opening the link; when there is one, the number over its caption
@@ -222,13 +222,13 @@ besides the default:
 | `SignIn` | Button, Field, Input, Notice | `ghost`, `secondary`, `link` |
 | `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `CheckEmailView` for the wait | `ghost` |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `ghost` |
-| `StepUpDialog` | Button, Notice, OtpInput | `outline`, `ghost` |
+| `StepUpDialog` | Button, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `ghost` |
 | `PasskeysView` | Button, Input, Notice, Skeleton | `outline`, `ghost` |
 | `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
 | `RecoveryCodesView` | Button, Checkbox, Dialog, Notice, Skeleton | `outline`, `ghost` |
 | `SessionsView` | Button, Notice, Skeleton | `outline` |
 | `SecurityEventsBanner` | Button, Notice | `outline` |
-| `ChangeEmailForm` | Button, Field, Input, Notice, OtpInput | — |
+| `ChangeEmailForm` | Button, Field, Input, Notice; `CheckEmailView` for the new address's link, `StepUpDialog` | — |
 | `CheckEmailView` | Button, Notice | `ghost` |
 | `ConfirmLinkPage` | Button, Card, Field, Input, Notice | `outline`, `ghost` |
 | `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput | `ghost` |
@@ -377,11 +377,16 @@ unnamed, "(this device)" on the current one), "Created … · Last used …",
 Revoke (disabled on the current one).
 
 **`ChangeEmailForm`** — heading "Change email". Phases: new email ("New email",
-"Send verification code" ("Sending…")); code ("We sent a 6-digit code to
-{email}. Enter it below to continue.", "Code" and the code boxes, "Confirm
-identity & change email" ("Checking…")); step-up, on
-the first Confirm, after which the change completes; done ("Your email is now
-{email}.").
+"Send a link" ("Sending…")); the wait (`CheckEmailView` for email change: "We
+sent a link to {email}.", the request's number, Resend after 120 seconds, "Use
+a different email" back to the address; its error line says "We've sent all
+the links we can for this request. Use the newest one, or use a different
+email." or "We couldn't send a new link just now. Try again in a moment.";
+once the link expires, "Send a new link" sends a new request to the same
+address); step-up ("Re-authenticate to change your email."), once the link is
+confirmed; finishing ("Changing your email…"); done ("Your email is now
+{email}."). A failed complete goes back to the wait with the error line, and
+its poll says whether to step up again or send a new link.
 
 **`CheckEmailView`** — the wait after a flow emails a link. Where the host
 gives no `email`, "your email address" stands for the address, and recovery
@@ -563,27 +568,35 @@ host a short-lived token through `onToken`.
   action needs a fresh authentication. Choose a method below." (left out with
   `passkeyOnly`), the error line, then the factors as full-width Buttons, the
   passkey first.
-- **Factors.** A passkey always ("Use passkey"). An emailed code ("Email me a
-  code") where the ceremony's `purpose` admits it and `passkeyOnly` is not set.
-  An authenticator app ("Use your authenticator app") where the `purpose`
+- **Factors.** A passkey always ("Use passkey"), the one primary Button. A link
+  to the account's own address ("Use email instead", `outline`) where the
+  ceremony's `purpose` admits it and `passkeyOnly` is not set; with no
+  `purpose` it is not offered, since the link is fixed to one purpose when it
+  is sent. An authenticator app ("Use your authenticator app") where the `purpose`
   admits it, the host passes `totpClient`, and the account has one
   (`GET /totp/status`; a failed read hides the factor, and so does one still
   out, read by `state` so the panel never joins its host's `Suspense`). By `purpose`:
   `passkey_delete` admits the passkey only; `email_change` the passkey and the
-  emailed code; every other purpose, and no purpose, all three.
+  emailed link; every other purpose all three; no purpose, the passkey and the
+  authenticator.
 - **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed
-  code and nothing else, and starts the passkey ceremony as the panel mounts.
+  link and nothing else, and starts the passkey ceremony as the panel mounts.
   Its full meaning is in
   [passkey-primary §What `passkeyOnly` means](../../wiki/osn/passkey-primary.md).
 - **States.** Choosing a factor ("Use passkey" ("Waiting for your passkey…"),
-  "Email me a code" ("Sending…")); waiting for the passkey with `passkeyOnly`
-  (the line "Waiting for your passkey…" in place of the button, then "Try
-  again" after an error); entering an emailed code ("Code" and its code
-  boxes, Confirm ("Checking…")); entering an authenticator code ("Code from
-  your authenticator app" and its code boxes, Confirm ("Checking…")). Each code
-  step puts focus in its first box as it opens. Confirm is not disabled for a
-  short code: it answers "Enter the 6-digit code.", marked invalid. Cancel is
-  `disabled` while any of these calls runs (§6).
+  "Use email instead" ("Sending…")); waiting for the passkey with
+  `passkeyOnly` (the line "Waiting for your passkey…" in place of the button,
+  then "Try again" after an error); waiting on the emailed link
+  (`CheckEmailView` for step-up, mounted in the open panel: "We sent a link to
+  your email address.", the number to type on the link's page, Resend after
+  120 seconds, then Cancel; the choose-a-method line goes; a link that cannot
+  be sent leaves the factors up with the error's plain sentence); entering an
+  authenticator code ("Code from your authenticator app" and its code boxes,
+  Confirm ("Checking…")). The authenticator step puts focus in its first box
+  as it opens. Confirm is not disabled for a short code: it answers "Enter the
+  6-digit code.", marked invalid. Cancel is `disabled` while any of these
+  calls runs (§6), except on the emailed link's wait, where it stops the
+  wait.
 - **Who opens it.** `PasskeysView` (`passkey_register` to add,
   `passkey_delete` to rename or delete), `TotpView` (`totp_enroll`,
   `totp_disable`), `RecoveryCodesView` (`recovery_generate`, "to generate
@@ -653,8 +666,8 @@ no product.
   step; "Email" in `Register`.
 - The factors: passkey ("Use passkey", "Add passkey", "Add a passkey",
   "Enroll credential" in `Register`, with "passkey or security key" in the
-  no-WebAuthn copy); emailed code ("Email me a code" in `StepUpDialog`); emailed
-  link ("Email me a link" in `RecoveryLoginForm`); authenticator app ("Use
+  no-WebAuthn copy); emailed link ("Use email instead" in `StepUpDialog`,
+  "Email me a link" in `RecoveryLoginForm`); authenticator app ("Use
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
@@ -733,8 +746,8 @@ As built:
   flow reaches hold each of their waits the same way, a second press sending
   nothing: `RecoveryLoginForm.test.tsx` (four, with Back disabled),
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
-  disabled), `ChangeEmailForm.test.tsx` (two), `StepUpDialog.test.tsx`
-  ("Email me a code" and both Confirms), `CheckEmailView.test.tsx`
+  disabled), `ChangeEmailForm.test.tsx` ("Send a link"), `StepUpDialog.test.tsx`
+  ("Use email instead" and the authenticator's Confirm), `CheckEmailView.test.tsx`
   (Resend, with "Use a different email" disabled) and
   `ConfirmLinkPage.test.tsx` (a number, Confirm, the decline and Try again,
   each with the other choices disabled).
@@ -745,8 +758,9 @@ As built:
   Each row of code boxes is found as a group named by its label
   (`tests/helpers/code.ts`), and a `400` and a `429` for each code check the
   line is in every box's `aria-describedby`, with every box `aria-invalid` for
-  the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as each
-  code step opens.
+  the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as the
+  authenticator step opens, and on the wait's heading as the emailed link's
+  wait opens.
 - **Loading in the package tests.** `PasskeysView`, `TotpView`,
   `RecoveryCodesView` and `SessionsView` mounted under a `Suspense` whose
   fallback is the host's show their own placeholder, never the host's, while a
@@ -757,7 +771,7 @@ As built:
   while the list is read again after a delete or a revoke.
 - **Layout in Musubi's browser tests.**
   `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
-  step-up's emailed-code step in Settings → Security: at 320px its row of code
+  step-up's authenticator-code step in Settings → Security: at 320px its row of code
   boxes is the card's whole column (246px) with no box under 37px, and every
   button in the card stays inside it; at 1440px the row sits inside the
   panel's 16px padding. Shots at both widths, light and dark, in

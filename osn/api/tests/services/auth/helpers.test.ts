@@ -4,9 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mailboxKey } from "../../../src/services/auth/helpers";
 
 /**
- * T-U3 / S-L4. `logDevOtp` is the one place an OTP code is deliberately written
- * to a log, and until this file it had no test at all — so the security fix
- * that removed the recipient address from the line had no regression barrier.
+ * `logDevLink` is the one place an emailed link's secret is deliberately
+ * written to a log.
  *
  * Two properties are pinned, and both matter for a different reason:
  *
@@ -15,8 +14,8 @@ import { mailboxKey } from "../../../src/services/auth/helpers";
  *     KEYS — it cannot see inside a formatted message. So the assertion is not
  *     "the `to` parameter is gone" (a refactor could reintroduce the address by
  *     another route) but "no address-shaped text appears at all".
- *  2. **The env gate holds.** It is the only thing between an OTP code and a
- *     deployed log sink.
+ *  2. **The env gate holds.** It is the only thing between a link's secret and
+ *     a deployed log sink.
  *
  * `isLocalEnvCached` memoises the env read for the module's lifetime, so each
  * case re-imports the module under `vi.resetModules()` rather than trying to
@@ -24,14 +23,15 @@ import { mailboxKey } from "../../../src/services/auth/helpers";
  */
 
 const EMAIL = "guest@example.com";
+const LINK = "https://musubi.example/verify/stepup_0123456789ab#";
 
 /** Import a fresh copy of the module so the memoised env read is re-evaluated. */
-async function freshLogDevOtp(osnEnv: string | undefined) {
+async function freshLogDevLink(osnEnv: string | undefined) {
   vi.resetModules();
   if (osnEnv === undefined) delete process.env.OSN_ENV;
   else process.env.OSN_ENV = osnEnv;
   const mod = await import("../../../src/services/auth/helpers");
-  return mod.logDevOtp;
+  return mod.logDevLink;
 }
 
 /** Run an effect capturing every log message it emits, at debug level. */
@@ -52,7 +52,7 @@ async function capture(effect: Effect.Effect<void>): Promise<string[]> {
   return lines;
 }
 
-describe("logDevOtp", () => {
+describe("logDevLink", () => {
   const originalEnv = process.env.OSN_ENV;
 
   afterEach(() => {
@@ -61,41 +61,41 @@ describe("logDevOtp", () => {
     vi.resetModules();
   });
 
-  it("logs the purpose and code locally", async () => {
-    const logDevOtp = await freshLogDevOtp("local");
-    const lines = await capture(logDevOtp("registration", "123456"));
+  it("logs the purpose and link locally", async () => {
+    const logDevLink = await freshLogDevLink("local");
+    const lines = await capture(logDevLink("registration", `${LINK}123456`));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("registration");
-    expect(lines[0]).toContain("code=123456");
+    expect(lines[0]).toContain(`${LINK}123456`);
   });
 
   // The actual S-L4 assertion. Deliberately shape-based, not parameter-based:
   // it fails on ANY reintroduced address, however it gets there.
   it("never emits the recipient address", async () => {
-    const logDevOtp = await freshLogDevOtp("local");
-    const lines = await capture(logDevOtp("email-change", "654321"));
+    const logDevLink = await freshLogDevLink("local");
+    const lines = await capture(logDevLink("email-change", `${LINK}654321`));
     expect(lines[0]).not.toContain(EMAIL);
     expect(lines[0]).not.toContain("@");
     expect(lines[0]).not.toMatch(/to=/);
   });
 
   it.each(["staging", "production"])("emits nothing when OSN_ENV is %s", async (env) => {
-    const logDevOtp = await freshLogDevOtp(env);
-    const lines = await capture(logDevOtp("step-up", "999999"));
+    const logDevLink = await freshLogDevLink(env);
+    const lines = await capture(logDevLink("step-up", `${LINK}999999`));
     expect(lines).toEqual([]);
   });
 
   // "Unset ⇒ local" is the codebase-wide convention (`isNonLocal` in index.ts);
   // pinned so a future change to that default is a deliberate one.
   it("treats an unset OSN_ENV as local", async () => {
-    const logDevOtp = await freshLogDevOtp(undefined);
-    const lines = await capture(logDevOtp("registration", "111111"));
+    const logDevLink = await freshLogDevLink(undefined);
+    const lines = await capture(logDevLink("registration", `${LINK}111111`));
     expect(lines).toHaveLength(1);
   });
 
   // The Workers entry stamps the tier from the request-scoped binding, because
   // `process.env` on workerd is a shim that can read empty — and "unset ⇒
-  // local" then puts a live OTP code in the log sink. Once stamped, the
+  // local" then puts a live link secret in the log sink. Once stamped, the
   // binding wins over `process.env` in both directions.
   it.each(["dev", "staging", "production"])(
     "emits nothing when the stamped tier is %s, whatever process.env says",
@@ -104,7 +104,7 @@ describe("logDevOtp", () => {
       delete process.env.OSN_ENV;
       const mod = await import("../../../src/services/auth/helpers");
       mod.setRuntimeTier(tier);
-      const lines = await capture(mod.logDevOtp("step-up", "999999"));
+      const lines = await capture(mod.logDevLink("step-up", `${LINK}999999`));
       expect(lines).toEqual([]);
     },
   );
@@ -117,7 +117,7 @@ describe("logDevOtp", () => {
     delete process.env.OSN_ENV;
     const mod = await import("../../../src/services/auth/helpers");
     mod.setRuntimeTier(undefined);
-    const lines = await capture(mod.logDevOtp("registration", "222222"));
+    const lines = await capture(mod.logDevLink("registration", `${LINK}222222`));
     expect(lines).toEqual([]);
   });
 
@@ -126,7 +126,7 @@ describe("logDevOtp", () => {
     process.env.OSN_ENV = "production";
     const mod = await import("../../../src/services/auth/helpers");
     mod.setRuntimeTier("local");
-    const lines = await capture(mod.logDevOtp("registration", "333333"));
+    const lines = await capture(mod.logDevLink("registration", `${LINK}333333`));
     expect(lines).toHaveLength(1);
   });
 });

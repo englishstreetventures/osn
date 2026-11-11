@@ -4,7 +4,6 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
-import { enterCode } from "./helpers/code";
 import { SERVER, alertsText, apiError } from "./helpers/errors";
 
 /**
@@ -27,8 +26,9 @@ interface ClientStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
 }
 
 function makeClientStub(): ClientStub {
@@ -43,8 +43,17 @@ function makeStepUpStub(): StepUpStub {
   return {
     passkeyBegin: vi.fn(),
     passkeyComplete: vi.fn(),
-    otpBegin: vi.fn().mockResolvedValue({ sent: true }),
-    otpComplete: vi.fn().mockResolvedValue({ token: "eyJ.step.up", expiresIn: 300 }),
+    emailBegin: vi.fn().mockResolvedValue({
+      requestId: "stepup_0123456789ab",
+      claimSecret: "c".repeat(64),
+      pairingCode: "47",
+      expiresAt: 1_900_000_000,
+    }),
+    emailStatus: vi.fn().mockResolvedValue({
+      status: "complete",
+      token: { token: "eyJ.step.up", expiresIn: 300 },
+    }),
+    emailResend: vi.fn(),
   };
 }
 
@@ -161,11 +170,11 @@ describe("SecurityEventsBanner", () => {
     expect(stub.acknowledgeAll).not.toHaveBeenCalled();
 
     // Drive the OTP flow in the step-up dialog.
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    await enterCode("Code", "123456");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
     await waitFor(() =>
       expect(stub.acknowledgeAll).toHaveBeenCalledWith({
@@ -194,11 +203,11 @@ describe("SecurityEventsBanner", () => {
     ));
     await waitFor(() => screen.getByRole("button", { name: /Acknowledge/ }));
     fireEvent.click(screen.getByRole("button", { name: /Acknowledge/ }));
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    await enterCode("Code", "123456");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(SERVER);
@@ -290,11 +299,11 @@ describe("SecurityEventsBanner", () => {
     await waitFor(() => expect(counts).toEqual([1]));
 
     fireEvent.click(screen.getByRole("button", { name: /Acknowledge/ }));
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    await enterCode("Code", "123456");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // The link is confirmed elsewhere; coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
 
     await waitFor(() => expect(counts).toEqual([1, 0]));
   });

@@ -86,6 +86,7 @@ interface Job {
   };
   readonly permissions?: Record<string, string>;
   readonly outputs?: Record<string, string>;
+  readonly "timeout-minutes"?: number;
   readonly strategy?: {
     readonly "fail-fast"?: boolean;
     readonly matrix?: { readonly include?: readonly Record<string, string | number>[] };
@@ -109,7 +110,27 @@ const load = (path: string) => Bun.YAML.parse(readFileSync(join(root, path), "ut
 const dev = load(WORKFLOW_FILE.dev);
 const production = load(WORKFLOW_FILE.production);
 
-const stepsOf = (job: Job | undefined) => job?.steps ?? [];
+interface CompositeAction {
+  readonly runs: { readonly using: string; readonly steps?: readonly Step[] };
+}
+
+/**
+ * A job's steps, each step that uses a local composite action
+ * (`uses: ./.github/actions/<name>`) replaced by that action's own steps, so a
+ * check on a job's caches, installs or saves also reads what the job runs
+ * through the action.
+ */
+const stepsOf = (job: Job | undefined): readonly Step[] =>
+  (job?.steps ?? []).flatMap((step) => {
+    if (!step.uses?.startsWith("./")) return [step];
+    const action = Bun.YAML.parse(
+      readFileSync(join(root, step.uses, "action.yml"), "utf8"),
+    ) as CompositeAction;
+    if (action.runs.using !== "composite") {
+      throw new Error(`${step.uses} is not a composite action`);
+    }
+    return action.runs.steps ?? [];
+  });
 const checkoutsOf = (job: Job | undefined) =>
   stepsOf(job).filter((step) => step.uses?.startsWith("actions/checkout@") === true);
 
@@ -1008,6 +1029,243 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
           "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
         },
       });
+    }
+  });
+});
+
+describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and only those", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const SKIP = "needs.changes.outputs.docs-only != 'true'";
+  const SKIPPABLE = [
+    "browser",
+    "build-test",
+    "cire-api-tests",
+    "d1",
+    "e2e",
+    "migration-flow",
+    "openapi-freshness",
+    "typecheck",
+  ];
+
+  // A job that waits on the detection and is not in the list can be skipped
+  // with nothing here saying so; one in the list that does not wait runs
+  // anyway. The lint, script and secret checks read prose too, so they never
+  // wait.
+  test("each build, test and E2E job runs unless the detection says prose only; lint, scripts and the secret scan always run", () => {
+    const waiting = Object.entries(ci.jobs)
+      .filter(([, job]) => needsOf(job).includes("changes"))
+      .map(([id]) => id);
+    expect(waiting.toSorted()).toEqual([...SKIPPABLE, "ci"].toSorted());
+    for (const id of SKIPPABLE) {
+      expect({ id, if: ci.jobs[id]?.if }).toEqual({
+        id,
+        if: id === "e2e" ? `github.event_name != 'merge_group' && ${SKIP}` : SKIP,
+      });
+    }
+    for (const id of ["lint", "script-tests", "secrets", "changes"]) {
+      expect({ id, if: ci.jobs[id]?.if, needs: ci.jobs[id]?.needs }).toEqual({
+        id,
+        if: undefined,
+        needs: undefined,
+      });
+    }
+  });
+
+  // The classify step, run as GitHub runs it, in a throwaway repository whose
+  // commits stand for the change and, for a queue group, the entries ahead of
+  // it.
+  const classifyStep = stepsOf(ci.jobs.changes).find((step) => step.id === "classify");
+  const docsOnly = readFileSync(join(root, "scripts/docs-only.sh"), "utf8");
+
+  /** A file written with its commit's number, a file written as given, or a `git mv`. */
+  type Change =
+    | string
+    | { readonly write: string; readonly content: string }
+    | { readonly move: string; readonly to: string };
+
+  function classify(
+    commits: readonly (readonly Change[])[],
+    event: (shas: readonly string[]) => Record<string, string>,
+    { classifierOnBase = true } = {},
+  ): { readonly exitCode: number; readonly output: string; readonly verdict: string } {
+    const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: dir,
+      });
+      if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+      return result.stdout.toString().trim();
+    };
+    const write = (path: string, content: string) => {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), content);
+    };
+    git("init", "-q", "-b", "main");
+    write("osn/api/src/base.ts", "export const base = 1;\n");
+    if (classifierOnBase) write("scripts/docs-only.sh", docsOnly);
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const shas = [git("rev-parse", "HEAD")];
+    for (const changes of commits) {
+      for (const change of changes) {
+        if (typeof change === "string") write(change, `${shas.length}\n`);
+        else if ("write" in change) write(change.write, change.content);
+        else {
+          mkdirSync(dirname(join(dir, change.to)), { recursive: true });
+          git("mv", change.move, change.to);
+        }
+      }
+      git("add", ".");
+      git("commit", "-qm", `commit ${shas.length}`);
+      shas.push(git("rev-parse", "HEAD"));
+    }
+    const outputFile = join(dir, "github-output");
+    const runnerTemp = mkdtempSync(join(tmpdir(), "ci-changes-runner-"));
+    const result = Bun.spawnSync(
+      ["bash", "--noprofile", "--norc", "-e", "-c", classifyStep?.run ?? "exit 9"],
+      {
+        cwd: dir,
+        env: {
+          PATH: process.env.PATH ?? "",
+          GITHUB_OUTPUT: outputFile,
+          RUNNER_TEMP: runnerTemp,
+          ...event(shas),
+        },
+      },
+    );
+    const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
+    return {
+      exitCode: result.exitCode,
+      output: result.stdout.toString() + result.stderr.toString(),
+      verdict: /^docs-only=(.*)$/m.exec(written)?.[1] ?? "<none>",
+    };
+  }
+
+  const pullRequest = () => ({ EVENT: "pull_request" });
+  const queue = (shas: readonly string[]) => ({ EVENT: "merge_group", QUEUE_BASE: shas[0] ?? "" });
+
+  test.each([
+    ["a pull request of prose", "true", [["wiki/a.md", "README.md"]], pullRequest],
+    [
+      "a pull request with one source file",
+      "false",
+      [["wiki/a.md", "osn/api/src/a.ts"]],
+      pullRequest,
+    ],
+    // The queue tests a group's last entry on top of the ones ahead of it, so
+    // its diff starts at the queue's base, not at the entry before it.
+    [
+      "a queue group whose prose entry follows one with code",
+      "false",
+      [["osn/api/src/a.ts"], ["wiki/a.md"]],
+      queue,
+    ],
+    ["a queue group of prose entries", "true", [["wiki/a.md"], ["README.md"]], queue],
+    [
+      "a push of prose",
+      "true",
+      [["wiki/a.md"]],
+      (shas: readonly string[]) => ({ EVENT: "push", BEFORE: shas[0] ?? "" }),
+    ],
+    // A branch's first push, or a force-push: no commit to diff against.
+    [
+      "a push whose previous commit is not there",
+      "false",
+      [["wiki/a.md"]],
+      () => ({ EVENT: "push", BEFORE: "0000000000000000000000000000000000000000" }),
+    ],
+    // `git diff --name-only` names only a rename's new path unless told not
+    // to, so code moved under wiki/ would read as a wiki page.
+    [
+      "a pull request that moves code under wiki/",
+      "false",
+      [[{ move: "osn/api/src/base.ts", to: "wiki/base.ts" }]],
+      pullRequest,
+    ],
+    // The change's own classifier would answer for it.
+    [
+      "a pull request whose edited classifier says prose",
+      "false",
+      [[{ write: "scripts/docs-only.sh", content: "echo true\n" }, "osn/api/src/a.ts"]],
+      pullRequest,
+    ],
+  ] as const)("%s: prose only is %s", (_, expected, commits, event) => {
+    const { exitCode, output, verdict } = classify(commits, event);
+    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: expected });
+  });
+
+  test("a base with no classifier yet runs every job", () => {
+    const { exitCode, output, verdict } = classify([["wiki/a.md"]], pullRequest, {
+      classifierOnBase: false,
+    });
+    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: "false" });
+  });
+});
+
+describe("CI's E2E job runs the suite once and retries the whole run; the determinism check runs where a flow can change", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const repro = load(".github/workflows/e2e-repro.yml");
+  const e2e = ci.jobs.e2e;
+  const SETUP = "./.github/actions/e2e-setup";
+
+  // The step's limit must hold every run at its own limit plus retry.sh's
+  // grace and clean-up, or the step cuts the last run instead of retry.sh; and
+  // a run's directory that no step uploads is lost with the runner.
+  test("the `E2E` step retries test:e2e as a whole run, has room for every run, and uploads each failed run's artifacts beside the last run's", () => {
+    expect(e2e?.name).toBe("E2E");
+    const steps = e2e?.steps ?? [];
+    expect(steps.filter((step) => step.run?.includes("test:e2e:repro"))).toEqual([]);
+    const step = steps.find((one) => one.run?.includes("e2e-with-retry.sh"));
+    const match = /^bash scripts\/e2e-with-retry\.sh (\d+) (\d+) bun run test:e2e$/.exec(
+      step?.run ?? "",
+    );
+    expect(match, step?.run).not.toBeNull();
+    const [attempts, seconds] = [Number(match?.[1]), Number(match?.[2])];
+    expect(attempts).toBeGreaterThan(1);
+    const stepMinutes = step?.["timeout-minutes"] ?? 0;
+    expect(stepMinutes * 60).toBeGreaterThan(attempts * (seconds + 30 + 10));
+    expect(e2e?.["timeout-minutes"] ?? 0).toBeGreaterThan(stepMinutes);
+    const uploads = steps
+      .filter((one) => one.uses === "actions/upload-artifact@v4")
+      .map((one) => ({ if: one.if, name: one.with?.name, path: one.with?.path }));
+    expect(uploads).toEqual([
+      ...Array.from({ length: attempts - 1 }, (_, i) => ({
+        if: "always()",
+        name: `e2e-artifacts-attempt-${i + 1}`,
+        path: `e2e-artifacts-attempt-${i + 1}/`,
+      })),
+      { if: "always()", name: "e2e-artifacts", path: "e2e-artifacts/" },
+    ]);
+  });
+
+  // Without the paths, every pull request pays for two more runs of the suite;
+  // with a path that names nothing, the check never runs.
+  test("the determinism job runs test:e2e:repro daily, by hand, and on a push to main or a pull request that changes tools/e2e, and never in the merge queue", () => {
+    expect(Object.keys(repro.on).toSorted()).toEqual([
+      "pull_request",
+      "push",
+      "schedule",
+      "workflow_dispatch",
+    ]);
+    const paths = ["tools/e2e/**", ".github/workflows/e2e-repro.yml", `${SETUP.slice(2)}/**`];
+    expect(repro.on.pull_request).toEqual({ paths });
+    expect(repro.on.push).toEqual({ branches: ["main"], paths });
+    for (const path of paths)
+      expect(existsSync(join(root, path.replace(/\/\*\*$/, "")))).toBe(true);
+    expect(repro.permissions).toEqual({ contents: "read" });
+    const jobs = Object.values(repro.jobs);
+    expect(jobs.map((job) => job.name)).toEqual(["E2E determinism"]);
+    expect(
+      (jobs[0]?.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run])),
+    ).toEqual(["bun run test:e2e:repro"]);
+  });
+
+  test("both jobs set up through the one shared action, straight after the checkout", () => {
+    for (const job of [e2e, repro.jobs.repro]) {
+      expect((job?.steps ?? []).slice(0, 2).map((step) => step.uses)).toEqual([
+        "actions/checkout@v4",
+        SETUP,
+      ]);
     }
   });
 });

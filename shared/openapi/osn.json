@@ -588,12 +588,24 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "sent": {
-                      "type": "boolean"
+                    "claimSecret": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "number"
+                    },
+                    "pairingCode": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "sent"
+                    "requestId",
+                    "claimSecret",
+                    "pairingCode",
+                    "expiresAt"
                   ],
                   "type": "object"
                 }
@@ -693,15 +705,27 @@
         ]
       }
     },
-    "/account/email/complete": {
+    "/account/email/{requestId}/complete": {
       "post": {
         "operationId": "completeEmailChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
-                  "code": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   },
                   "step_up_token": {
@@ -709,7 +733,7 @@
                   }
                 },
                 "required": [
-                  "code",
+                  "claimSecret",
                   "step_up_token"
                 ],
                 "type": "object"
@@ -718,7 +742,8 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
-                  "code": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   },
                   "step_up_token": {
@@ -726,7 +751,7 @@
                   }
                 },
                 "required": [
-                  "code",
+                  "claimSecret",
                   "step_up_token"
                 ],
                 "type": "object"
@@ -735,7 +760,8 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
-                  "code": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   },
                   "step_up_token": {
@@ -743,7 +769,7 @@
                   }
                 },
                 "required": [
-                  "code",
+                  "claimSecret",
                   "step_up_token"
                 ],
                 "type": "object"
@@ -766,6 +792,387 @@
                     "email"
                   ],
                   "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/account/email/{requestId}/resend": {
+      "post": {
+        "operationId": "resendEmailChangeLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "sent",
+                        "limit",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/account/email/{requestId}/status": {
+      "post": {
+        "operationId": "getEmailChangeStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:emailchange)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "confirmed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },
@@ -2277,7 +2684,7 @@
             "name": "requestId",
             "required": true,
             "schema": {
-              "pattern": "^(?:signup|recovery)_[a-f0-9]{12}$",
+              "pattern": "^(?:signup|recovery|stepup|emailchange)_[a-f0-9]{12}$",
               "type": "string"
             }
           }
@@ -2459,7 +2866,7 @@
             "name": "requestId",
             "required": true,
             "schema": {
-              "pattern": "^(?:signup|recovery)_[a-f0-9]{12}$",
+              "pattern": "^(?:signup|recovery|stepup|emailchange)_[a-f0-9]{12}$",
               "type": "string"
             }
           }
@@ -12607,21 +13014,116 @@
         ]
       }
     },
-    "/step-up/otp/begin": {
+    "/step-up/email/begin": {
       "post": {
-        "operationId": "beginStepUpOtp",
+        "operationId": "beginStepUpEmail",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack",
+                      "totp_enroll",
+                      "totp_disable"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "purpose"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack",
+                      "totp_enroll",
+                      "totp_disable"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "purpose"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack",
+                      "totp_enroll",
+                      "totp_disable"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "purpose"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "properties": {
-                    "sent": {
-                      "type": "boolean"
+                    "claimSecret": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "number"
+                    },
+                    "pairingCode": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "sent"
+                    "requestId",
+                    "claimSecret",
+                    "pairingCode",
+                    "expiresAt"
                   ],
                   "type": "object"
                 }
@@ -12721,36 +13223,32 @@
         ]
       }
     },
-    "/step-up/otp/complete": {
+    "/step-up/email/{requestId}/resend": {
       "post": {
-        "operationId": "completeStepUpOtp",
+        "operationId": "resendStepUpEmailLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:stepup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "purpose": {
-                    "enum": [
-                      "account_delete",
-                      "account_export",
-                      "pulse_app_delete",
-                      "zap_app_delete",
-                      "recovery_generate",
-                      "passkey_register",
-                      "passkey_delete",
-                      "email_change",
-                      "security_event_ack",
-                      "totp_enroll",
-                      "totp_disable"
-                    ],
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -12758,28 +13256,13 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "purpose": {
-                    "enum": [
-                      "account_delete",
-                      "account_export",
-                      "pulse_app_delete",
-                      "zap_app_delete",
-                      "recovery_generate",
-                      "passkey_register",
-                      "passkey_delete",
-                      "email_change",
-                      "security_event_ack",
-                      "totp_enroll",
-                      "totp_disable"
-                    ],
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -12787,28 +13270,13 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "purpose": {
-                    "enum": [
-                      "account_delete",
-                      "account_export",
-                      "pulse_app_delete",
-                      "zap_app_delete",
-                      "recovery_generate",
-                      "passkey_register",
-                      "passkey_delete",
-                      "email_change",
-                      "security_event_ack",
-                      "totp_enroll",
-                      "totp_disable"
-                    ],
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -12822,18 +13290,231 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "expires_in": {
-                      "type": "number"
-                    },
-                    "step_up_token": {
+                    "status": {
+                      "enum": [
+                        "sent",
+                        "limit",
+                        "expired"
+                      ],
                       "type": "string"
                     }
                   },
                   "required": [
-                    "step_up_token",
-                    "expires_in"
+                    "status"
                   ],
                   "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/step-up/email/{requestId}/status": {
+      "post": {
+        "operationId": "getStepUpEmailStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:stepup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "expires_in": {
+                          "type": "number"
+                        },
+                        "status": {
+                          "const": "complete",
+                          "type": "string"
+                        },
+                        "step_up_token": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "step_up_token",
+                        "expires_in"
+                      ],
+                      "type": "object"
+                    }
+                  ]
                 }
               }
             },

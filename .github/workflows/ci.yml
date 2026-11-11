@@ -33,6 +33,61 @@ permissions:
 # commits still on it.
 
 jobs:
+  # Whether this change is prose alone: wiki pages, docs, READMEs, changesets
+  # (scripts/docs-only.sh says which markdown counts, and why). When it is,
+  # every job that builds, tests or boots the stack is skipped, which the `CI`
+  # gate counts as passed: it fails only on a failed or cancelled need. Lint &
+  # Format, Scripts and the Secret scan run on every change, and so does this.
+  #
+  # The diff is against what the change lands on: a pull request's merge
+  # commit against its first parent, the base it was merged with; a
+  # merge-queue group against the queue's base, so a group whose earlier
+  # entries carry code runs everything; a push against the commit it
+  # replaced. It names both sides of a rename, so code moved under wiki/ is
+  # still code. The classifier is the base's copy, as the secret scan takes
+  # its scanner from main, so a change cannot classify itself with an edited
+  # one. A diff that cannot be computed, or a base with no classifier, runs
+  # everything.
+  changes:
+    name: Detect a prose-only change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify the changed files
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse HEAD^1) || base="" ;;
+            merge_group) base=$QUEUE_BASE ;;
+            push) base=$BEFORE ;;
+            *) base="" ;;
+          esac
+          if [ -n "$base" ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base" || base=""
+          fi
+          if [ -n "$base" ] &&
+            git show "$base:scripts/docs-only.sh" > "$RUNNER_TEMP/docs-only.sh" 2>/dev/null &&
+            changed=$(git diff --no-renames --name-only "$base" HEAD); then
+            printf '%s\n' "$changed"
+            docs_only=$(printf '%s\n' "$changed" | bash "$RUNNER_TEMP/docs-only.sh")
+          else
+            echo "::notice::No diff or no classifier at '$base'; every job runs."
+            docs_only=false
+          fi
+          echo "Prose only: $docs_only"
+          echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
+
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
@@ -148,6 +203,8 @@ jobs:
 
   typecheck:
     name: Type Check
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -209,6 +266,8 @@ jobs:
 
   build-test:
     name: Build & Test
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-build-test', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -392,6 +451,8 @@ jobs:
   # files run.
   cire-api-tests:
     name: Unit tests (@cire/api)
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-cire-api-tests', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -455,6 +516,8 @@ jobs:
   # package with a build step, so it needs no Build.
   d1:
     name: D1 integration tests
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-d1', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -531,6 +594,8 @@ jobs:
   # checks, before it runs, that turbo found the number of packages it names.
   browser:
     name: Browser tests (${{ matrix.leg }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-browser-{1}', github.event_name == 'pull_request' && github.ref || github.run_id, matrix.leg) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -907,6 +972,8 @@ jobs:
 
   openapi-freshness:
     name: OpenAPI Freshness
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -940,11 +1007,15 @@ jobs:
         run: git diff --exit-code shared/openapi/
 
   # The end-to-end suite (`tools/e2e`): boots osn-api, pulse-api, cire-api and
-  # five frontends on their PORTLESS=0 ports, drives Chromium through each
-  # product's flows, and runs the whole thing twice so a results.json that
-  # differs between runs fails here rather than in someone's review. Not in the
-  # `ci` aggregator's `needs` yet, so it reports without gating merges while it
-  # earns trust; promote it once it has a record of staying green.
+  # five frontends on their PORTLESS=0 ports and drives Chromium through each
+  # product's flows, once. A failed run is run again whole, on a fresh stack:
+  # a pass on the second run passes the job with a warning and both runs'
+  # artifacts, so a flake shows without costing another push. Whether
+  # results.json comes out the same twice is the E2E determinism job's check
+  # (.github/workflows/e2e-repro.yml), which runs where a flow can change it.
+  # Not in the `ci` aggregator's `needs` yet, so it reports without gating
+  # merges while it earns trust; promote it once it has a record of staying
+  # green.
   e2e:
     name: E2E
     concurrency:
@@ -952,91 +1023,37 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
     # group, and the push to main that follows runs it on the same commit.
-    if: github.event_name != 'merge_group'
+    needs: changes
+    if: github.event_name != 'merge_group' && needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Room for the setup and two whole runs of the flows at their limit.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
-      # Playwright's runner runs under Node; the launcher and the APIs under Bun.
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/e2e-setup
+
+      # One run takes about five and a half minutes (11 min for two on main,
+      # 2026-11-11); each is cut at twelve. scripts/e2e-with-retry.sh says why
+      # the retry is the whole run and never one flow, and moves the failed
+      # run's artifacts to e2e-artifacts-attempt-1/ before the next run clears
+      # e2e-artifacts/.
+      - name: E2E flows, and the whole run once more if it fails
+        timeout-minutes: 26
+        run: bash scripts/e2e-with-retry.sh 2 720 bun run test:e2e
+
+      # The failed first run's traces, screenshots, results.json and server
+      # logs, when the suite ran a second time. Nothing to upload otherwise.
+      - name: Upload the failed first run's E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 24
+          name: e2e-artifacts-attempt-1
+          path: e2e-artifacts-attempt-1/
+          if-no-files-found: ignore
+          retention-days: 14
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
-
-      # The same cache and the same two bounded halves as the `browser` job,
-      # for the same reasons (see the comments there). Run from
-      # `tools/e2e`, whose pinned `@playwright/test` decides which Chromium
-      # revision gets installed. The two jobs share one cache key, so that pin
-      # and every workspace's `playwright` stay on one version, or one job
-      # downloads its own revision on every run.
-      - name: Cache Chromium
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      # This job saves the system packages the browser legs restore, under the
-      # same key, built the same way. It saves them in a step of its own,
-      # straight after the install, so a run whose flows fail still fills the
-      # cache. This job does not run on a merge-queue group, so a push to main
-      # writes main's cache, which every branch and queue group can read.
-      - name: Key Chromium's system packages
-        id: chromium-apt-key
-        working-directory: tools/e2e
-        run: |
-          version=$(bunx --no-install playwright --version | sed -n 's/^Version \([0-9][0-9A-Za-z.-]*\)$/\1/p')
-          test -n "$version" || { echo "::error::playwright --version printed no 'Version <n>' line"; exit 1; }
-          key="$RUNNER_OS-chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-$version"
-          echo "key=$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
-
-      - name: Restore Chromium's system packages
-        id: chromium-apt
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/chromium-apt
-          key: ${{ steps.chromium-apt-key.outputs.key }}
-
-      - name: Install Chromium's system libraries
-        timeout-minutes: 10
-        working-directory: tools/e2e
-        run: bash "$GITHUB_WORKSPACE/scripts/install-chromium-system-libraries.sh" "$HOME/.cache/chromium-apt"
-
-      - name: Save Chromium's system packages
-        if: github.event_name != 'merge_group' && steps.chromium-apt.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/chromium-apt
-          key: ${{ steps.chromium-apt.outputs.cache-primary-key }}
-
-      - name: Install Chromium
-        timeout-minutes: 10
-        working-directory: tools/e2e
-        run: bunx --no-install playwright install chromium
-
-      - name: E2E flows, twice, results.json compared byte for byte
-        timeout-minutes: 15
-        run: bun run test:e2e:repro
-
-      # Traces, screenshots, results.json and server logs from the second run,
+      # Traces, screenshots, results.json and server logs from the last run,
       # on failure too: a red run is exactly when a reviewer needs them.
       - name: Upload E2E artifacts
         if: always()
@@ -1057,6 +1074,8 @@ jobs:
   # schemas and verdicts they end with to e2e-artifacts/migrations/.
   migration-flow:
     name: Migration workflow
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-migration-flow', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -1184,7 +1203,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
+    needs: [changes, lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

@@ -74,7 +74,6 @@ export const OSN_METRICS = {
   authLoginDuration: "osn.auth.login.duration",
   authTokenRefresh: "osn.auth.token.refresh",
   authHandleCheck: "osn.auth.handle.check",
-  authOtpSent: "osn.auth.otp.sent",
   authRateLimited: "osn.auth.rate_limited",
   authTurnstileRejected: "osn.auth.turnstile.rejected",
   authSessionRotations: "osn.auth.session.rotations",
@@ -150,7 +149,6 @@ type RegisterAttrs = { step: RegisterStep; result: Result };
 type LoginAttrs = { method: AuthMethod; result: Result };
 type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
-type OtpSentAttrs = { purpose: "step_up" | "email_change" };
 type EmailLinkConfirmAttrs = { outcome: EmailLinkConfirmOutcome };
 type EmailLinkSendAttrs = { flow: EmailLinkFlow; result: EmailLinkSendResult };
 type EmailVerificationTokenAttrs = { outcome: EmailVerificationTokenOutcome };
@@ -205,12 +203,6 @@ const authHandleCheck = createCounter<HandleCheckAttrs>({
   name: OSN_METRICS.authHandleCheck,
   description: "Handle availability checks",
   unit: "{check}",
-});
-
-const authOtpSent = createCounter<OtpSentAttrs>({
-  name: OSN_METRICS.authOtpSent,
-  description: "OTP codes successfully sent",
-  unit: "{message}",
 });
 
 const authEmailLinkConfirmations = createCounter<EmailLinkConfirmAttrs>({
@@ -467,9 +459,6 @@ export const withGraphBlockOp =
 
 export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid"): void =>
   authHandleCheck.inc({ result });
-
-export const metricAuthOtpSent = (purpose: "step_up" | "email_change"): void =>
-  authOtpSent.inc({ purpose });
 
 export const metricEmailLinkSend = (flow: EmailLinkFlow, result: EmailLinkSendResult): void =>
   authEmailLinkSends.inc({ flow, result });
