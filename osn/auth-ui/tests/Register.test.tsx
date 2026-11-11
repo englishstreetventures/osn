@@ -39,9 +39,20 @@ vi.mock("@shared/toast", () => ({
 }));
 
 import type { RegistrationClient } from "@osn/client";
+import { toast } from "@shared/toast";
 
 // Import after mocks so the component picks them up.
 import { Register } from "../src/Register";
+import {
+  CONNECTION,
+  DETAILS,
+  PASSKEY_GENERAL,
+  PASSKEY_NOT_ADDED,
+  WAIT,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
 
 interface ClientStub {
   checkHandle: ReturnType<typeof vi.fn>;
@@ -510,22 +521,43 @@ describe("Register component", () => {
       expect(stub.registrationStatus.mock.calls.length).toBeGreaterThan(calls);
     });
 
-    it("says no new link went when the Resend call fails, and keeps polling", async () => {
+    it.each([
+      ["no answer", apiError("PLANTED-resend-offline", 0, ""), CONNECTION],
+      ["a 429", apiError("PLANTED-resend-429", 429, "rate_limited"), WAIT],
+    ])(
+      "says %s on a failed Resend as the map's sentence, and keeps polling",
+      async (_, error, sentence) => {
+        stub.beginRegistration.mockResolvedValue(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        stub.resendRegistrationLink.mockRejectedValueOnce(error);
+        renderRegister();
+        await submitDetailsAs();
+        await vi.advanceTimersByTimeAsync(30_000);
+        fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+        await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(sentence));
+        expect(alertsText()).not.toContain("PLANTED");
+        expect(screen.queryByText(/We sent a new link/)).toBeNull();
+        expect(screen.queryByText(/Your link has expired/)).toBeNull();
+        const calls = stub.registrationStatus.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(stub.registrationStatus.mock.calls.length).toBeGreaterThan(calls);
+      },
+    );
+
+    it("holds Cancel while Resend sends", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
-      stub.resendRegistrationLink.mockRejectedValueOnce(new Error("Failed to fetch"));
+      const held = deferred<{ status: "sent" }>();
+      stub.resendRegistrationLink.mockReturnValueOnce(held.promise);
       renderRegister();
       await submitDetailsAs();
       await vi.advanceTimersByTimeAsync(30_000);
       fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
-      await waitFor(() =>
-        expect(screen.getByText(/We couldn't send a new link just now/)).toBeTruthy(),
-      );
-      expect(screen.queryByText(/We sent a new link/)).toBeNull();
-      expect(screen.queryByText(/Your link has expired/)).toBeNull();
-      const calls = stub.registrationStatus.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(stub.registrationStatus.mock.calls.length).toBeGreaterThan(calls);
+      await screen.findByRole("button", { name: /Sending…/ });
+      const cancel = screen.getByRole("button", { name: /^Cancel$/ }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      held.resolve({ status: "sent" });
+      await waitFor(() => expect(cancel.disabled).toBe(false));
     });
 
     it("shows the expired view, stops polling and clears the stored wait when Resend answers expired", async () => {
@@ -809,13 +841,14 @@ describe("Register component", () => {
     it("leaves the user signed out when enrollment fails", async () => {
       await reachPasskey();
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
-      hoisted.startRegistration.mockRejectedValue(new Error("ceremony cancelled"));
+      hoisted.startRegistration.mockRejectedValue(new Error("PLANTED ceremony cancelled"));
 
       fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/ceremony cancelled/)).toBeTruthy();
+        expect(screen.getByRole("alert").textContent).toContain(PASSKEY_GENERAL);
       });
+      expect(alertsText()).not.toContain("PLANTED");
       // No session, so no half-made account signed in behind a dismissed
       // dialog — the user is still on the step that can finish the job.
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
@@ -831,13 +864,14 @@ describe("Register component", () => {
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
-      hoisted.adoptSession.mockRejectedValue(new Error("storage unavailable"));
+      hoisted.adoptSession.mockRejectedValue(new Error("PLANTED storage unavailable"));
 
       fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/storage unavailable/)).toBeTruthy();
+        expect(screen.getByRole("alert").textContent).toContain(PASSKEY_GENERAL);
       });
+      expect(alertsText()).not.toContain("PLANTED");
       expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
     });
 
@@ -898,13 +932,16 @@ describe("Register component", () => {
       const onSuccess = vi.fn();
       await reachPasskey({ onSuccess });
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
-      hoisted.startRegistration.mockRejectedValue(new Error("ceremony cancelled"));
+      hoisted.startRegistration.mockRejectedValue(
+        ceremonyError("NotAllowedError", "PLANTED ceremony cancelled"),
+      );
 
       fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/ceremony cancelled/)).toBeTruthy();
+        expect(screen.getByRole("alert").textContent).toContain(PASSKEY_NOT_ADDED);
       });
+      expect(alertsText()).not.toContain("PLANTED");
       expect(onSuccess).not.toHaveBeenCalled();
       // Still on the passkey step — enrollment remains required.
       expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
@@ -927,6 +964,153 @@ describe("Register component", () => {
       // one for as long as this component was written for a single consumer,
       // so the assertion is on the name and not just on the sentence.
       expect(screen.getByText(/You.re all set\. Loading Musubi/)).toBeTruthy();
+    });
+  });
+
+  describe("error lines and waits", () => {
+    async function fillValidDetails(siteKey?: string) {
+      stub.checkHandle.mockResolvedValue({ available: true });
+      render(() => (
+        <Register
+          client={asClient(stub)}
+          onCancel={() => {}}
+          turnstileSiteKey={siteKey}
+          productName="Musubi"
+        />
+      ));
+      fillEmail("alice@example.com");
+      fillHandle("alice");
+      fillBirthdate("1990-01-01");
+      await vi.advanceTimersByTimeAsync(350);
+    }
+
+    const send = () =>
+      screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
+
+    it.each([
+      ["a 400", apiError("PLANTED-register-400"), DETAILS],
+      [
+        "a 422",
+        apiError("PLANTED-register-422", 422, "age_restricted"),
+        "You must be 13 or older to create an account.",
+      ],
+      ["a 429", apiError("PLANTED-register-429", 429, "rate_limited"), WAIT],
+    ])(
+      "a refused send reads %s as the map's sentence, above the button, with no toast",
+      async (_, error, sentence) => {
+        vi.mocked(toast.error).mockClear();
+        stub.beginRegistration.mockRejectedValue(error);
+        await fillValidDetails();
+        fireEvent.click(send());
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain(sentence);
+        expect(alertsText()).not.toContain("PLANTED");
+        expect(toast.error).not.toHaveBeenCalled();
+        // The line comes before the button it is about.
+        expect(
+          alert.compareDocumentPosition(send()) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      },
+    );
+
+    it("ties a malformed email to its field once the field is left", async () => {
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      const field = screen.getByLabelText(/Email/) as HTMLInputElement;
+      fireEvent.input(field, { target: { value: "alice@" } });
+      // Not announced on every keystroke.
+      expect(screen.queryByRole("alert")).toBeNull();
+      fireEvent.blur(field);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Please enter a valid email address");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it("describes the date of birth by its hint, then by the under-13 line", async () => {
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      const field = screen.getByLabelText(/Date of birth/) as HTMLInputElement;
+      const hint = screen.getByText("You must be 13 or older to create an account.");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(hint.id);
+      expect(field.getAttribute("aria-invalid")).toBeNull();
+
+      const tenYearsAgo = new Date();
+      tenYearsAgo.setUTCFullYear(tenYearsAgo.getUTCFullYear() - 10);
+      fillBirthdate(tenYearsAgo.toISOString().slice(0, 10));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Musubi is for users 13 and older");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+    });
+
+    // Only the button that started the wait shows it, and nothing leaves the
+    // dialog while it runs.
+    it("keeps the send busy, not disabled, and holds Cancel while it sends", async () => {
+      await fillValidDetails();
+      stub.beginRegistration.mockReturnValueOnce(new Promise(() => {}));
+      await waitFor(() => expect(send().disabled).toBe(false));
+      fireEvent.click(send());
+      const sending = await screen.findByRole("button", { name: /Sending…/ });
+      expect(sending.getAttribute("aria-busy")).toBe("true");
+      expect((sending as HTMLButtonElement).disabled).toBe(false);
+      const cancel = screen.getByRole("button", { name: /^Cancel$/ }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      fireEvent.submit(sending.closest("form")!);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stub.beginRegistration).toHaveBeenCalledTimes(1);
+    });
+
+    describe("with the verification check on", () => {
+      let deliver: ((token: string) => void) | undefined;
+      let reset: ReturnType<typeof vi.fn>;
+
+      beforeEach(() => {
+        reset = vi.fn();
+        // Like Cloudflare's: a token on render, and another only once the
+        // challenge runs again after `reset`.
+        (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+          render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+            deliver = opts.callback;
+            deliver?.("tok-render");
+            return "widget-1";
+          }),
+          reset,
+          remove: vi.fn(),
+        };
+      });
+
+      afterEach(() => {
+        delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
+        document.getElementById("cf-turnstile-script")?.remove();
+      });
+
+      it("asks for a fresh token when the send is refused, and waits for it", async () => {
+        stub.beginRegistration.mockRejectedValueOnce(apiError("PLANTED-begin"));
+        await fillValidDetails("0x4AAAAAADnA2piUnbgG_kVw");
+        await waitFor(() => expect(send().disabled).toBe(false));
+        fireEvent.click(send());
+        await screen.findByRole("alert");
+        expect(reset).toHaveBeenCalled();
+        expect(send().disabled).toBe(true);
+        deliver?.("tok-2");
+        await waitFor(() => expect(send().disabled).toBe(false));
+      });
+
+      // A sign-up that sends runs one challenge: the spent token goes with the
+      // details step's widget, and the waiting view's Resend needs none.
+      it("runs no second challenge once the link is sent", async () => {
+        const challenges = (
+          globalThis as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }
+        ).turnstile.render;
+        stub.beginRegistration.mockResolvedValueOnce(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        await fillValidDetails("0x4AAAAAADnA2piUnbgG_kVw");
+        await waitFor(() => expect(send().disabled).toBe(false));
+        fireEvent.click(send());
+        await waitFor(() => expect(screen.getByText(/Check your email/)).toBeTruthy());
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(challenges).toHaveBeenCalledTimes(1);
+        expect(reset).not.toHaveBeenCalled();
+      });
     });
   });
 

@@ -1,21 +1,25 @@
-import type {
-  PreviousRegistration,
-  RegistrationClient,
-  RegistrationStatus,
-  Session,
+import {
+  describeAuthError,
+  type PreviousRegistration,
+  type RegistrationClient,
+  type RegistrationStatus,
+  type Session,
 } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
+import { Field } from "@shared/ui/ui/field";
 import { InfoPopover } from "@shared/ui/ui/info-popover";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { UsernameInput } from "@shared/ui/ui/username-input";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
-import { createSignal, Show, onCleanup, onMount } from "solid-js";
+import { createSignal, createUniqueId, Show, onCleanup, onMount } from "solid-js";
 
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
+import { describedBy } from "./error-lines";
+import { describePasskeyError } from "./passkey-errors";
 import {
   PENDING_KEY,
   PREVIOUS_KEY,
@@ -33,12 +37,14 @@ const POLL_FIRST_MS = 2_000;
 const POLL_GROWTH = 1.5;
 const POLL_MAX_MS = 10_000;
 
+/**
+ * What the waiting view says when the request has sent every link it may: an
+ * answer, not a failed call, so it is this view's own sentence. Every failed
+ * call reads `describeAuthError`'s.
+ */
 const LIMIT_LINE =
   "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again.";
-const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 const CONFLICT_LINE = "That handle was taken while you waited. Choose another.";
-/** The handle-taken line's id, which the handle field names while the line shows. */
-const CONFLICT_LINE_ID = "reg-handle-conflict";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -91,7 +97,10 @@ export function Register(props: RegisterProps) {
   const [handle, setHandle] = createSignal(resumed?.handle ?? "");
   const [birthdate, setBirthdate] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
-  const [busy, setBusy] = createSignal(false);
+  // One signal per call, so only the button that started a wait shows it.
+  const [sending, setSending] = createSignal(false);
+  const [resending, setResending] = createSignal(false);
+  const [enrolling, setEnrolling] = createSignal(false);
   // The request this tab waits on, and what the waiting view says about it.
   const [waiting, setWaiting] = createSignal<Waiting | null>(resumed);
   // The number the waiting view shows: from the begin, or, after a reload,
@@ -99,19 +108,31 @@ export function Register(props: RegisterProps) {
   const [pairingCode, setPairingCode] = createSignal<string | undefined>(undefined);
   const [linkStatus, setLinkStatus] = createSignal<CheckEmailStatus>("waiting");
   const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
+  // A refused send, above "Send verification link".
   const [detailsError, setDetailsError] = createSignal<string | null>(null);
+  // The wait ended because someone took the handle: a line under the handle,
+  // which the field names while it shows.
+  const [handleTaken, setHandleTaken] = createSignal(false);
   const [profileId, setProfileId] = createSignal<string | null>(null);
   const [accessToken, setAccessToken] = createSignal<string | null>(null);
   // Held, not published, between the account being made and passkey
   // enrollment. See `finish` for why the hand-off to `adoptSession` waits.
   const [session, setSession] = createSignal<Session | null>(null);
   const [passkeyError, setPasskeyError] = createSignal<string | null>(null);
+  // The email line waits until the field is left, so it is not announced on
+  // every keystroke of an address still being typed.
+  const [emailLeft, setEmailLeft] = createSignal(false);
+  const emailId = createUniqueId();
+  const emailErrorId = createUniqueId();
+  const birthdateErrorId = createUniqueId();
+  const handleTakenId = createUniqueId();
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
-  // Bound to the widget once it mounts; forces a fresh token after the current
-  // one is redeemed by `/register/begin` (tokens are single-use — Cloudflare
-  // only auto-refreshes on the ~300s expiry, not on consumption).
+  // Bound to the details step's widget once it mounts. Forces a fresh token
+  // after `/register/begin` refused the current one (tokens are single-use —
+  // Cloudflare only refreshes a token when it expires, ~300s, never when it is
+  // spent).
   let resetTurnstile: (() => void) | undefined;
   // The handle box, for focus when a wait ends because the handle was taken.
   let handleField: HTMLInputElement | undefined;
@@ -136,9 +157,9 @@ export function Register(props: RegisterProps) {
 
   function onHandleInput(value: string) {
     const next = value.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    // The details step's one line is about the handle that was taken; a new
-    // handle answers it, and the field's own check takes over.
-    if (next !== handle()) setDetailsError(null);
+    // The handle-taken line is about the handle that was taken; a new handle
+    // answers it, and the field's own check takes over.
+    if (next !== handle()) setHandleTaken(false);
     setHandle(next);
     if (handleTimer) clearTimeout(handleTimer);
     if (!next) {
@@ -170,6 +191,8 @@ export function Register(props: RegisterProps) {
   // server re-checks authoritatively (422 on under-13); this is UX only.
   const birthdateOk = () =>
     BIRTHDATE_RE.test(birthdate()) && ageInYears(birthdate()) >= MIN_AGE_YEARS;
+  const underAge = () => BIRTHDATE_RE.test(birthdate()) && !birthdateOk();
+  const emailMalformed = () => emailLeft() && email() !== "" && !EMAIL_RE.test(email());
 
   const detailsValid = () =>
     EMAIL_RE.test(email()) &&
@@ -258,7 +281,8 @@ export function Register(props: RegisterProps) {
       // reason out, and puts focus where the person picks another handle.
       writeStored(PENDING_KEY, null);
       setWaiting(null);
-      setDetailsError(CONFLICT_LINE);
+      setDetailsError(null);
+      setHandleTaken(true);
       setStep("details");
       onHandleInput(handle());
       handleField?.focus();
@@ -330,8 +354,8 @@ export function Register(props: RegisterProps) {
 
   async function submitDetails(e: Event) {
     e.preventDefault();
-    if (!detailsValid() || busy()) return;
-    setBusy(true);
+    if (!detailsValid() || sending()) return;
+    setSending(true);
     setDetailsError(null);
     try {
       const input: Parameters<RegistrationClient["beginRegistration"]>[0] = {
@@ -343,13 +367,8 @@ export function Register(props: RegisterProps) {
       };
       const previous = readStored<PreviousRegistration>(PREVIOUS_KEY);
       if (previous) input.previous = previous;
-      const begun = await client.beginRegistration(input);
+      const begun = await spendingToken(() => client.beginRegistration(input));
       writeStored(PREVIOUS_KEY, null);
-      // Token redeemed by `/begin`; retire it + request a fresh one so a
-      // retry after a transient error, or a new sign-up from these details,
-      // never replays a single-use token and gets rejected
-      // `timeout-or-duplicate`.
-      if (turnstileOn()) resetTurnstile?.();
       waitOn(
         {
           requestId: begun.requestId,
@@ -361,9 +380,29 @@ export function Register(props: RegisterProps) {
         begun.pairingCode,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not send the link");
+      // The server answers a taken email or handle the same as a free one, so
+      // this never says which; a 422 is the age gate, a 429 says to wait.
+      setDetailsError(describeAuthError(err, "details"));
     } finally {
-      setBusy(false);
+      setSending(false);
+    }
+  }
+
+  /**
+   * Runs a call that spends the Turnstile token. The server checks the token
+   * before it answers, so a refusal has spent it too: on a failure the widget
+   * stays on screen and is asked for a fresh token. On a success the details
+   * step, and its widget, go away, so the spent token is dropped; coming back
+   * to the details mounts a new widget, which hands over a fresh one.
+   */
+  async function spendingToken<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      const result = await call();
+      setTurnstileToken(null);
+      return result;
+    } catch (err) {
+      if (turnstileOn()) resetTurnstile?.();
+      throw err;
     }
   }
 
@@ -383,15 +422,18 @@ export function Register(props: RegisterProps) {
     setLinkStatus("waiting");
     setLinkError(undefined);
     let answer: { status: "sent" | "limit" | "expired" };
+    setResending(true);
     try {
       answer = await client.resendRegistrationLink({
         requestId: request.requestId,
         claimSecret: request.claimSecret,
       });
     } catch (err) {
-      setLinkError(RESEND_FAILED_LINE);
+      setLinkError(describeAuthError(err));
       setLinkStatus("error");
       throw err;
+    } finally {
+      setResending(false);
     }
     if (answer.status === "sent") {
       startPolling();
@@ -463,8 +505,8 @@ export function Register(props: RegisterProps) {
   async function enrollPasskey() {
     const id = profileId();
     const token = accessToken();
-    if (!id || !token || busy()) return;
-    setBusy(true);
+    if (!id || !token || enrolling()) return;
+    setEnrolling(true);
     setPasskeyError(null);
     try {
       const options = (await client.passkeyRegisterBegin({
@@ -488,11 +530,9 @@ export function Register(props: RegisterProps) {
       setStep("done");
       props.onSuccess?.();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Passkey setup failed";
-      setPasskeyError(msg);
-      toast.error(msg);
+      setPasskeyError(describePasskeyError(err, "registration"));
     } finally {
-      setBusy(false);
+      setEnrolling(false);
     }
   }
 
@@ -500,7 +540,12 @@ export function Register(props: RegisterProps) {
     <div class="mx-auto max-w-sm px-4 py-8">
       <div class="mb-6 flex items-center justify-between">
         <h2 class="text-foreground text-2xl font-bold">Create your {props.productName} account</h2>
-        <Button variant="ghost" size="sm" onClick={cancel}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={cancel}
+          disabled={sending() || resending() || enrolling()}
+        >
           Cancel
         </Button>
       </div>
@@ -522,9 +567,11 @@ export function Register(props: RegisterProps) {
       >
         <Show when={step() === "details"}>
           <form onSubmit={submitDetails} class="flex flex-col gap-4">
-            <div class="flex flex-col gap-1">
+            {/* A bare Label: the "i" beside it is a button, which a label
+                cannot hold, so this field is wired by hand. */}
+            <div class="flex flex-col gap-1.5">
               <div class="flex items-center">
-                <Label for="reg-email">Email</Label>
+                <Label for={emailId}>Email</Label>
                 <InfoPopover
                   label="What this address is used for"
                   glyph="i"
@@ -533,64 +580,91 @@ export function Register(props: RegisterProps) {
                 />
               </div>
               <Input
-                id="reg-email"
+                id={emailId}
                 type="email"
                 required
                 autocomplete="email"
                 value={email()}
                 onInput={(e) => setEmail(e.currentTarget.value)}
+                onBlur={() => setEmailLeft(true)}
+                aria-describedby={emailMalformed() ? emailErrorId : undefined}
+                aria-invalid={emailMalformed() || undefined}
               />
-              <Show when={email() && !EMAIL_RE.test(email())}>
-                <span class="text-destructive text-xs">Please enter a valid email address</span>
+              <Show when={emailMalformed()}>
+                <Notice tone="danger" size="inline" alert id={emailErrorId}>
+                  Please enter a valid email address
+                </Notice>
               </Show>
             </div>
 
-            <div class="flex flex-col gap-1">
-              <Label for="reg-handle">Handle</Label>
-              <UsernameInput
-                ref={handleField}
-                id="reg-handle"
-                required
-                value={handle()}
-                onInput={onHandleInput}
-                aria-describedby={detailsError() ? CONFLICT_LINE_ID : undefined}
-                status={handleStatus()}
-                placeholder="lowercase, numbers, _"
-                invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
-              />
-            </div>
+            <Field labelTreatment="plain" label="Handle">
+              {(field) => (
+                <>
+                  <UsernameInput
+                    {...field}
+                    ref={handleField}
+                    required
+                    spellcheck={false}
+                    value={handle()}
+                    onInput={onHandleInput}
+                    aria-describedby={describedBy(
+                      field["aria-describedby"],
+                      handleTaken() && handleTakenId,
+                    )}
+                    aria-invalid={handleTaken() || undefined}
+                    status={handleStatus()}
+                    placeholder="lowercase, numbers, _"
+                    invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
+                  />
+                  <Show when={handleTaken()}>
+                    <Notice tone="danger" size="inline" alert id={handleTakenId}>
+                      {CONFLICT_LINE}
+                    </Notice>
+                  </Show>
+                </>
+              )}
+            </Field>
 
-            <div class="flex flex-col gap-1">
-              <Label for="reg-birthdate">Date of birth</Label>
-              <Input
-                id="reg-birthdate"
-                type="date"
-                required
-                autocomplete="bday"
-                value={birthdate()}
-                onInput={(e) => setBirthdate(e.currentTarget.value)}
-              />
-              <Show when={BIRTHDATE_RE.test(birthdate()) && !birthdateOk()}>
-                <span class="text-destructive text-xs">
-                  {props.productName} is for users 13 and older
-                </span>
-              </Show>
-              <Show when={!birthdate()}>
-                <span class="text-muted-foreground text-xs">
-                  You must be 13 or older to use {props.productName}
-                </span>
-              </Show>
-            </div>
+            {/* The hint goes once a date is in; the under-13 line comes with one. */}
+            <Field
+              labelTreatment="plain"
+              label="Date of birth"
+              hint={birthdate() ? undefined : "You must be 13 or older to create an account."}
+            >
+              {(field) => (
+                <>
+                  <Input
+                    id={field.id}
+                    type="date"
+                    required
+                    autocomplete="bday"
+                    value={birthdate()}
+                    onInput={(e) => setBirthdate(e.currentTarget.value)}
+                    aria-describedby={describedBy(
+                      field["aria-describedby"],
+                      underAge() && birthdateErrorId,
+                    )}
+                    aria-invalid={underAge() || undefined}
+                  />
+                  <Show when={underAge()}>
+                    <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
+                      {props.productName} is for users 13 and older
+                    </Notice>
+                  </Show>
+                </>
+              )}
+            </Field>
 
-            <div class="flex flex-col gap-1">
-              <Label for="reg-display-name">Display name (optional)</Label>
-              <Input
-                id="reg-display-name"
-                type="text"
-                value={displayName()}
-                onInput={(e) => setDisplayName(e.currentTarget.value)}
-              />
-            </div>
+            <Field labelTreatment="plain" label="Display name (optional)">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="text"
+                  value={displayName()}
+                  onInput={(e) => setDisplayName(e.currentTarget.value)}
+                />
+              )}
+            </Field>
 
             {/* Turnstile challenge — renders only when a sitekey is provided. */}
             <TurnstileWidget
@@ -600,15 +674,16 @@ export function Register(props: RegisterProps) {
             />
 
             <Show when={detailsError()}>
-              {(line) => (
-                <Notice tone="danger" size="inline" alert id={CONFLICT_LINE_ID}>
-                  {line()}
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
                 </Notice>
               )}
             </Show>
-
-            <Button type="submit" disabled={!detailsValid() || busy()}>
-              {busy() ? "Sending…" : "Send verification link"}
+            {/* Invalid only while idle: the send spends the token, and a
+                refused one drops it before the wait ends. */}
+            <Button type="submit" busy={sending()} disabled={!sending() && !detailsValid()}>
+              {sending() ? "Sending…" : "Send verification link"}
             </Button>
           </form>
         </Show>
@@ -633,12 +708,16 @@ export function Register(props: RegisterProps) {
               Enroll a passkey or security key so you can sign back in. This is required to finish
               creating your account.
             </p>
-            <Button onClick={enrollPasskey} disabled={busy()}>
-              {busy() ? "Setting up…" : "Enroll credential"}
-            </Button>
             <Show when={passkeyError()}>
-              {(msg) => <p class="text-destructive text-sm">{msg()}</p>}
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
             </Show>
+            <Button onClick={enrollPasskey} busy={enrolling()}>
+              {enrolling() ? "Setting up…" : "Enroll credential"}
+            </Button>
           </div>
         </Show>
 
