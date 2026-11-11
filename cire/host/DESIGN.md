@@ -790,6 +790,20 @@ rising over several frames and never sinking, at rest at the end, gone on the
 frame Discard runs, and under reduced motion on no frame partway, at its start
 for at most two frames.
 
+**A dropped row settles into its slot** (the owner's choice). Let go with a
+pointer, a sortable row eases from where it was released into its new slot; a
+cancelled drag eases it back. It runs on `--dur-base` with `--ease-out`: 150ms
+at a desk and 200ms on touch, a rung the owner chose over `--dur-slow`. The row
+keeps the look it was dragged in
+until it lands (on most lists the gold edge, the 80% surface fill and
+`--elev-2`; Depth, above), so it crosses its neighbours above them rather than
+as a see-through box. The rows that shift aside to open its slot do not move
+again at the drop. A keyboard move does not animate, and reduced motion lands
+the row at once. A drag that catches a settling row picks it up where it is.
+`@shared/sortable` does it for every list
+([drag-and-drop](../../wiki/shared/drag-and-drop.md) §A dropped row settles
+into its slot).
+
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
 sets no `border-radius`: the outline already follows whatever radius the element
