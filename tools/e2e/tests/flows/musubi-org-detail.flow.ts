@@ -15,8 +15,8 @@
  * the app, and the checks on profile and token reads prove it.
  *
  * On the way it measures and shoots the surfaces these pages draw from shared
- * parts (`musubi-surfaces.ts`): the create and edit dialogs' padded bodies and
- * footers, the list's rows on `Card`, the roster's names and role `Chip`, a
+ * parts (`musubi-surfaces.ts`): the create dialog's fade with no scale, the
+ * create and edit dialogs' titles, padded bodies and footers, the list's rows on `Card`, the roster's names and role `Chip`, a
  * search result's name. It holds the create's POST, the rename's PATCH and
  * each connection request long enough to read the busy button ("Creating…",
  * "Saving…", "Sending…"), and reads Discover's and `/search`'s Connect 40px
@@ -47,6 +47,7 @@ import {
   phoneTall,
   searchSurfaces,
 } from "../support/musubi-surfaces";
+import { holdOverlay } from "../support/overlay-frames";
 
 const { org, member, otherOrg } = MUSUBI_ORG;
 
@@ -88,6 +89,8 @@ test("musubi-org-detail", async ({ page, flow }) => {
   flow.check("list tab title", "Organisations · Musubi", await page.title());
 
   const createDialog = page.getByRole("dialog", { name: "Create organisation" });
+  // Caught from before the click: the dialog's 120ms entry is over by any read after it.
+  const createOpened = await holdOverlay(page, '[role="dialog"]', "ui-enter", 0);
   await flow.step("fill the create dialog", async () => {
     await page.getByRole("button", { name: "Create", exact: true }).click();
     // The dialog moves focus to its first field as it opens. Typed before
@@ -96,7 +99,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
     await createDialog.getByLabel("Handle", { exact: true }).fill(org.handle);
     await createDialog.getByLabel("Name", { exact: true }).fill(org.name);
   });
-  await orgCreateDialogSurfaces(flow, page);
+  await orgCreateDialogSurfaces(flow, page, createOpened);
   const orgLink = page.getByRole("link", { name: new RegExp(org.name) });
   // The create is held until its busy button has been read: the button must
   // keep focus through the wait, which `disabled` would drop.

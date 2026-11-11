@@ -42,12 +42,14 @@ export const meta = { title: "shared/ui/overlays", layout: "padded" as const };
  * the lab having no iframe. Open the story with `?bare` (the toolbar's "open")
  * to see it against nothing else.
  *
- * The contract's default: it lends `initial` for the title weight and both
- * scale tokens, so it draws what an app that maps none of them draws (a 600
- * title, in from 96% and out to 98%) whatever the lab's stylesheet maps.
+ * The contract's default: it lends `initial` for the title's size and weight
+ * and both scale tokens, so it draws what an app that maps none of them draws
+ * (a 1.05rem title at 600, in from 96% and out to 98%) whatever the lab's
+ * stylesheet maps.
  */
 export const DialogStory = () => {
   lend(() => ({
+    "--ui-text-md": "initial",
     "--ui-weight-title": "initial",
     "--ui-scale-enter": "initial",
     "--ui-scale-exit": "initial",
@@ -250,7 +252,12 @@ function EveryRow(props: { variant?: "default" | "accent"; theme?: CireTheme }) 
   );
 }
 
-/** Every row kind in the shared default look: what musubi and pulse would draw. */
+/**
+ * Every row kind in the shared default look, the look musubi's and pulse's
+ * menus take. The lab maps Musubi's motion, so here the panel fades in and out
+ * with no scale, as in Musubi; pulse maps no scale, so its menus grow
+ * from 96% as they open and shrink to 98% as they close.
+ */
 export const MenuItems = () => <EveryRow />;
 
 /**

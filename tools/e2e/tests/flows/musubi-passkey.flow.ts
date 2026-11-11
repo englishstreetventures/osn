@@ -73,6 +73,7 @@ import {
   musubiNotice,
   musubiSurfaces,
   onPhone,
+  otpDigitSurfaces,
   phoneTall,
   registerFieldSurfaces,
   securityLoadingSurfaces,
@@ -718,6 +719,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
   });
   await totpSetupSurfaces(flow, page);
+  await otpDigitSurfaces(
+    flow,
+    page,
+    page.getByRole("textbox", { name: "Code from the app Digit 1" }),
+  );
   const totpConfirm = `${ORIGINS.osnApi}/totp/enroll/complete`;
   const confirmHeld = holdMethod("POST");
   await page.route(totpConfirm, confirmHeld.handler);

@@ -98,14 +98,16 @@ function WeightColumn(props: { title: JSX.Element; style?: string }) {
 
 /**
  * `Badge` sets its label at the contract's title weight, `--ui-weight-title`,
- * and at 600 where an app does not map it. The left column maps nothing, as
- * pulse does and as the lab's own stylesheet does; the right sets the token to
- * 500 on its wrapper, and every badge inside follows.
+ * and at 600 where an app does not map it. The left column lends `initial`,
+ * the guaranteed-invalid value, so it draws what an app that maps nothing
+ * draws, pulse among them, whatever the lab's own stylesheet maps (Musubi's
+ * 500); the right sets the token to 500 on its wrapper, and every badge inside
+ * follows.
  */
 export const BadgeWeights = () => (
   <div class="flex flex-col gap-6">
     <div class="flex flex-wrap items-start gap-10">
-      <WeightColumn title="No token set" />
+      <WeightColumn title="No token set" style="--ui-weight-title: initial" />
       <WeightColumn title={<Mono>--ui-weight-title: 500</Mono>} style="--ui-weight-title: 500" />
     </div>
     <Rule>

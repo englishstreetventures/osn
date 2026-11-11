@@ -351,3 +351,21 @@ disabled, with focus kept (`busyButtonHeld`), each Connect 40px tall at 390px.
 request. The rules they hold are in
 [DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
 fields.
+
+Both flows also read what Musubi's contract block maps onto the shared
+overlays and titles (§Typography, §Borders and §Motion there).
+`musubi-passkey` opens the account menu from the rail at 1440 px and from the
+top bar at 390 px and reads its separator as a 1px `--ui-hairline` fill with
+no border, in both schemes; it holds the first frame of that menu, of the
+profile switcher (a sheet at 390 px) and of the create-account dialog's email
+popover, and the half-way frame of each closing, and finds no transform. It
+reads the switcher's title and the add-a-profile card's `CardTitle` against a
+`text-title font-medium` probe, and the authenticator setup's first code box
+("Code from the app Digit 1") at the probe's size at the flow's own width and
+at 768 px, and at 16px at 390 px.
+`musubi-org-detail` holds the create-organisation dialog's first frame and
+reads the create and edit dialogs' titles the same way. Shots go to
+`e2e-artifacts/screenshots/musubi-surfaces/` as `account-menu`,
+`profile-switcher` and `profile-onboarding`, in both schemes. Pulse's menus,
+which keep the contract's scale, are held by `pulse-event-rsvp`
+(`pulse/DESIGN.md` §Motion).

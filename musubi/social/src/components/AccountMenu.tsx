@@ -33,7 +33,7 @@ export function AccountMenu(props: {
       </DropdownMenuTrigger>
       <DropdownMenuContent class="w-52">
         <DropdownMenuGroup>
-          <DropdownMenuLabel tone="identity">@{claims().handle ?? "..."}</DropdownMenuLabel>
+          <DropdownMenuLabel tone="identity">@{claims().handle ?? "…"}</DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => props.onSwitchProfile()}>Switch profile</DropdownMenuItem>

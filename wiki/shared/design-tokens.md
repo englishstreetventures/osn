@@ -1,5 +1,5 @@
 ---
-title: Design tokens — the contract every shared component reads
+title: Design tokens — @shared/design-tokens and the ui-* contract
 tags:
   - architecture
   - design-system
@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -162,11 +162,13 @@ the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
 fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
 those parts semibold. `@shared/ui`'s `Badge`, `DialogTitle` and `CardTitle`
 read it ([[component-library]], §Variant components, §Kobalte components and
-§Simple styled components). No app maps it, and neither does the lab's
-stylesheet: pulse and the lab draw a badge at 600 and Musubi draws none; pulse
-and Musubi draw a dialog title at 600, as does the lab's `DialogStory`; Musubi,
-the metrics dashboard and the lab draw a card title at 600, and pulse draws no
-`CardTitle`. `shared/ui/tests/badge-default.browser.test.tsx`,
+§Simple styled components). Musubi maps it to 500 in the contract block of
+`musubi/social/src/App.css`, and the lab and the metrics dashboard, which
+import that stylesheet, draw its 500. Pulse and cire map nothing: pulse draws
+a badge and a dialog title at 600 and no `CardTitle`. Musubi draws dialog and
+card titles at 500 and no badge. In the lab, `DialogStory`, the unmapped
+columns of `CardTitleWeights` and `BadgeWeights`, and every cire subtree
+(`cireStyle()`) lend `initial`, so they draw 600 whatever the lab maps. `shared/ui/tests/badge-default.browser.test.tsx`,
 `dialog-default.browser.test.tsx` and `card-default.browser.test.tsx` each hold
 an unmapped badge's or title's whole computed style, and pulse's
 `tests/styles/token-contract.browser.test.tsx` holds 600 for its badges and the
@@ -218,15 +220,16 @@ curve, not `--ui-ease-out`: write `ease-(--ui-ease-out)` ([[house-lint-rules]]
 more to tell the reader, so it gets out of the way: 80ms against 120ms, and it
 ends at 0.98 where it started at 0.96. `Modal` keeps its entry's own 0.98, so
 its exit is softer by distance and time alone (8px in 150ms against 24px in
-350ms). No app sets any of these today, so every app runs the values above.
+350ms). Musubi sets the two scale tokens to 1 (below); no app sets the
+durations or distances, so every app runs those, and pulse and cire run the
+scales too.
 
 `Dialog`'s `sheet` presentation scales like its centred card, from its
 centre. Below `md` the sheet is pinned to the bottom edge at full width, so
 its sides and its bottom edge sit in from the screen's by 2% of its size as
 it arrives and 1% as it leaves. `Modal`'s sheet rises from below the edge
-instead. Musubi's dialogs, most of the sheet's callers, move to a fade with
-no scale in englishstreetventures/osn#2040; pulse's share dialog keeps the
-scale.
+instead. Musubi's dialogs, most of the sheet's callers, fade with no scale
+(below); pulse's share dialog keeps the scale.
 
 **A fade with no scale is the two scale tokens at 1.** An app whose overlays
 should fade without moving sets `--ui-scale-enter` and `--ui-scale-exit` to 1
@@ -242,7 +245,12 @@ same app zooming. A held frame's computed `transform` is the identity matrix
 rather than `none`, because the shared keyframes always declare one.
 `overlay-motion.browser.test.tsx` holds the fade for all five overlays, and
 for `Dialog` as a sheet at 390px, against a control that scales, and the lab's
-`DialogFadeOnly` story shows it ([[component-lab]]).
+`DialogFadeOnly` story shows it ([[component-lab]]). Musubi sets both to 1 in
+its contract block, so the lab and the metrics dashboard fade too. On real
+pages `tools/e2e` holds Musubi's account menu, profile switcher and
+create-organisation dialog on the fade, and pulse's avatar menus and "More
+filters" dialog on the contract's 0.96 (`musubi-surfaces.ts`,
+`pulse-menus.ts`).
 
 The overlays reach them through four utilities in `tokens.css`, not by
 reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` and

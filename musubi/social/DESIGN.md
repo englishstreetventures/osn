@@ -80,6 +80,10 @@ row chevron (`OrganisationsPage.tsx`).
   holds 3:1 against the box's fill and the sheet around it in both themes.
 - A class that names a colour (`border-border`, `border-input`,
   `border-foreground`) wins over both, since utilities outrank the base layer.
+- A menu's separator (`@shared/ui`'s `DropdownMenuSeparator`, in the account
+  menu) is a 1px fill in `--ui-hairline`, which Musubi maps to `--border`, and
+  draws no border of its own: the hairline in both themes, not the panel's
+  ink. `AccountMenu.tsx` passes it no class.
 
 ### Status colours
 
@@ -165,7 +169,7 @@ rule draws it on an element that does not name it (§Borders).
   | Utility | Size / line-height | Role |
   | --- | --- | --- |
   | `text-display` | 24 / 30 | page titles (`h1`) in the shell, large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
-  | `text-title`   | 14 / 20 | person & org names, section headers, card titles, default Button labels; the `h1` of a bare route whose page is one card (`/authorize`, the emailed-link confirm page) |
+  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`, the emailed-link confirm page) |
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
@@ -182,6 +186,13 @@ rule draws it on an element that does not name it (§Borders).
   the screen's ask ("Choose a profile") — so the name a screen is about reads
   as a name. The rail's account trigger is shell chrome and keeps its own
   size.
+- **Dialog and card titles** — `@shared/ui`'s `DialogTitle` and `CardTitle`
+  are `text-title`'s 14px at 500. Both set their size with `--ui-text-md` and
+  their weight with `--ui-weight-title`, which the contract block in `App.css`
+  maps to `--text-title` and 500 (§Token contract); a call site sets neither,
+  and `shadcn/no-restyle` refuses a type class on either. `--ui-text-md`
+  carries the size and not the step's 20px leading: `DialogTitle` inherits the
+  body's 18px, and `CardTitle` keeps the shared part's `leading-none`, 14px.
 - **Consent marks** — `/authorize`'s "Verified by Musubi" and its "Third-party
   app" chip (§Chips) are `text-meta` at 500, so neither reads quieter than the
   other.
@@ -191,15 +202,19 @@ rule draws it on an element that does not name it (§Borders).
   `tests/styles/token-contract.browser.test.tsx` holds the default size.
 - **Text fields** — `@shared/ui`'s `Input` sets 14px (`--ui-text-base`) at its
   default size; below 768px Musubi's mobile input exception raises it to 16px.
+  `OtpInput`'s digits read `--ui-text-md`, which is also `--text-title`, so
+  they are 14px from 768px and 16px below, as `Input` is.
 - **Mobile input exception** — form controls (`input`, `select`, `textarea`)
   render at **16px** below 768px (app-scoped rule in `App.css`). Mobile Safari
   zooms the page when a focused control is under 16px; this is the one
   sanctioned deviation from the four-size scale. Never fix the zoom with
   `maximum-scale` — that breaks accessibility zoom.
 - **Shared parts** — the contract has seven steps where the app has four.
-  Musubi maps the four where they belong and fills the gaps by continuing its
-  own progression (§Token contract), so a shared part that asks for 16px, 20px
-  or 32px gets it.
+  Musubi maps the four where they belong, puts `--ui-text-md` on the title
+  step beside `--ui-text-base` (the size shared titles ask for), and fills the
+  steps above by continuing its own progression (§Token contract), so a shared
+  part that asks for `lg` or `2xl` gets 20px or 32px. No shared part in
+  Musubi draws at 16px except a form control below 768px.
 - **Legal prose** — the body of `/privacy` and `/terms` sits in `.prose-legal`
   (`App.css`, components layer), which `LegalDocument.tsx` puts round the body
   alone, not the title, draft notice or "Last updated" line above it. `h2` is
@@ -215,10 +230,7 @@ rule draws it on an element that does not name it (§Borders).
 
 Where the app does not follow this yet — known breaks include:
 
-- `@shared/ui`'s `DialogTitle` and `CardTitle`: 16px (`--ui-text-md`) at
-  weight 600 (#2040).
-- `@shared/ui`'s `AvatarFallback`: weight 600. `OtpInput`'s digits: 16px
-  (`--ui-text-md`).
+- `@shared/ui`'s `AvatarFallback`: weight 600.
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).
@@ -282,8 +294,12 @@ and the rail's results panel, `SearchResultRows.tsx`), and `/authorize`'s
   light.
 - **Not small caps.** The rail's "Social" tag is the only small-caps label,
   and a chip's word reads as written.
-- **Never `@shared/ui`'s `Badge`.** It sets its word at 600, a weight Musubi
-  does not use.
+- **Never `@shared/ui`'s `Badge`.** Three of its four variants fill the pill,
+  the default with the accent, which in Musubi is ink: a black pill holding a
+  white word, the look of a primary Button. `outline` fills nothing, but sets
+  its word in full ink at 13px (`--ui-text-sm`) and the title weight, 500,
+  where a chip's word is secondary ink at 12px and 400. A word that names a
+  role is the outline chip above.
 - **Weight.** A chip's word is 400, except "Third-party app": a trust mark
   beside a name the app chose for itself, it keeps 500, the weight of the
   consent screen's other mark (§Typography, Consent marks). The weight comes
@@ -391,20 +407,28 @@ than the screen either way, so the name does not move;
 `tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
 390×844 and 1280×800.*
 
-Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
-sheet), Popover and default menu run the shared overlay motion. They fade and
-scale from 96% as they open and to 98% as they close (`zoom-in`, `zoom-out`),
-and the popover and menu grow from their trigger
-(`wiki/shared/design-tokens.md` §Motion). They move to a fade with no scale,
-the owner's decision on #2034, when #2040 lands.
+**Overlays fade, with no scale.** `@shared/ui`'s Dialog (as card and as
+sheet), Popover (the sign-up form's `InfoPopover`) and the default menu (the
+account and theme menus) change their opacity alone as they open and close,
+the owner's decision on #2034. The contract block in `App.css` maps `--ui-scale-enter` and
+`--ui-scale-exit` to 1, so the shared `zoom-in` and `zoom-out` scale nothing
+(`wiki/shared/design-tokens.md` §Motion); a call site adds no motion class.
+The timing is the contract's: in over `--ui-dur-fast` (120ms), out over
+`--ui-dur-exit` (80ms), both on `--ui-ease-out`. The scrim fades with the
+panel. Under reduced motion each one shows and hides at once
+(`tokens.css` sets the overlay animations to `none`). Only cire's `accent`
+menu look closes at once, and Musubi draws none.
+`tools/e2e/tests/support/musubi-surfaces.ts` holds the first frame of the
+account menu, the profile switcher and the create-organisation dialog, and
+the half-way frame of the menu and the switcher closing, and finds no
+transform on any.
 
 ## The orb
 
 A busy button (§Busy buttons) draws `@shared/ui`'s `Orb` before its label: a
 20px sphere of dots, state `working`, in the button's own text colour, so it
 reads on a filled button and on the page alike. It is the app's one canvas
-animation and, beside the shared overlays' scale that §Motion lists as not yet
-following it, its one motion that is not a colour or opacity change.
+animation and its one motion that is not a colour or opacity change.
 
 - **It stops.** It moves for five seconds at most, then holds one still frame,
   so it needs no pause control (WCAG 2.2.2). Under reduced motion it draws that
@@ -830,13 +854,18 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   | `--ui-text-xs` | `--text-meta`, 12px |
   | `--ui-text-sm` | `--text-body`, 13px |
   | `--ui-text-base` | `--text-title`, 14px |
-  | `--ui-text-md` | 16px |
+  | `--ui-text-md` | `--text-title`, 14px |
   | `--ui-text-lg` | 20px |
   | `--ui-text-xl` | `--text-display`, 24px |
   | `--ui-text-2xl` | 32px |
 
 - **Tracking.** `--ui-tracking-tight` and `-normal` are `-0.15px`; `-wide` is
   `0em`, which the rail's small-caps "Social" tag uses.
+- **Weight.** `--ui-weight-title` is 500, the weight `DialogTitle` and
+  `CardTitle` read (§Typography, Dialog and card titles).
+- **Motion.** `--ui-scale-enter` and `--ui-scale-exit` are 1: overlays fade
+  with no scale (§Motion). Durations and easings are the contract's own;
+  Musubi maps none.
 - **Overrides.** Every `@shared/ui` class sits behind the `base:` variant, which
   has zero specificity, so a class passed at a Musubi call site wins without
   touching the library. `Card`, `Button` and `DialogContent` already take the

@@ -95,7 +95,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
             </Show>
             <AvatarFallback>{activeProfile() ? initials(activeProfile()!) : "?"}</AvatarFallback>
           </Avatar>
-          <span class="text-xs">@{activeProfile()?.handle ?? "..."}</span>
+          <span class="text-xs">@{activeProfile()?.handle ?? "…"}</span>
         </PopoverTrigger>
         <PopoverContent padding="none" class="w-56">
           <div class="border-border border-b px-3 py-2">

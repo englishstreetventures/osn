@@ -40,12 +40,12 @@ carry the variants and states, and all eight story files live together in
 | --- | --- | --- |
 | `shared/ui` | `overview.story.tsx` | Everything, one state each |
 | `shared/ui/Button` | `button.story.tsx` | `Variants`; `Inline` (a link inside a sentence at two type sizes, beside a standalone link, and a narrow paragraph whose `<a>` wraps, to Tab onto); `Busy` (every labelled variant and size busy, and a button that starts a two-second wait when pressed: from the keyboard it stays at full strength, ring and all, while it waits); `Playground` (label, variant, size, disabled, busy — busy only at a size that takes it) |
-| `shared/ui/display` | `display.story.tsx` | Badge (`Badges`, every variant in both treatments, with a playground; `BadgeWeights`, every badge with no weight token set and under `--ui-weight-title: 500`, each column captioned with the weight the browser computed), Avatar, Card (`CardTitleWeights`: a card with `--ui-weight-title: initial` on its wrapper, the contract default whatever the lab's stylesheet maps, beside one at 500, each captioned with the weight the browser computed) |
+| `shared/ui/display` | `display.story.tsx` | Badge (`Badges`, every variant in both treatments, with a playground; `BadgeWeights`, every badge with `--ui-weight-title: initial` on its column, the contract default whatever the lab's stylesheet maps, and under `--ui-weight-title: 500`, each column captioned with the weight the browser computed), Avatar, Card (`CardTitleWeights`: a card with `--ui-weight-title: initial` on its wrapper, the contract default whatever the lab's stylesheet maps, beside one at 500, each captioned with the weight the browser computed) |
 | `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field (`Fields` in the default label; `PlainLabels`, the sign-up form in the plain label beside the default; `FieldPlayground`, every combination of treatment, hint, errors and hidden label), Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput (`Otp` with a column, label and autofocus to set; `OtpStates`, each state named by its label, the error described by an inline alert; `OtpNarrow`, 212, 260, 300 and 400px columns) |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat, Skeleton (`Skeletons`, each `standsFor` value at its sizes; `SkeletonGrounds`, each one on the page and inside a `Card`, to judge in both themes; `SkeletonInPlace`, Musubi's placeholders inside `aria-busy` regions; `SkeletonPlayground`) |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
 | `shared/ui/Orb` | `orb.story.tsx` | `States` (the nine states at 64 and 20px on the page's ground, ink in the text colour, so it follows the light · dark toggle), `InButtons` (the 20px orb inside a `Button` of each variant at full strength, to judge its ink, and the nine states in the default one; a busy `Button` draws it dimmed, in `shared/ui/Button` → `Busy`), `Playground` (state, size) |
-| `shared/ui/overlays` | `overlays.story.tsx` | Dialog (`DialogStory` lends `initial` for the title weight and both scale tokens, so it draws the contract default whatever the lab's stylesheet maps; `DialogTitleWeight` sets `--ui-weight-title` from a control, `unmapped` lending `initial`; `DialogFadeOnly` sets both scale tokens to 1, as card or sheet; each lends its tokens to `<body>`, where the panel portals), Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping), Popover, InfoPopover, Tooltip, Tabs |
+| `shared/ui/overlays` | `overlays.story.tsx` | Dialog (`DialogStory` lends `initial` for the title's size and weight and both scale tokens, so it draws the contract default whatever the lab's stylesheet maps; `DialogTitleWeight` sets `--ui-weight-title` from a control, `unmapped` lending `initial`; `DialogFadeOnly` sets both scale tokens to 1, as card or sheet; each lends its tokens to `<body>`, where the panel portals), Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping), Popover, InfoPopover, Tooltip, Tabs |
 
 A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
 something to look at. Five files in `tools/lab/src/stories/design-system/`, plus
@@ -212,9 +212,15 @@ variant every `@shared/ui` class is written against. A second copy drifts. The c
 is that Musubi's look is the lab's default, base rules included: every story
 inherits Musubi's hairline on a bare `border`, its 2px `--ui-focus` outline on
 `:focus-visible`, and its `transition-ui-colors` utility, which `tools/lab/src/lab.css`
-does not define again. A story with its own design language
-sets the `--ui-*` contract inline on a wrapper instead of importing its own CSS
-([[#Stories for auth and cire components]]).
+does not define again. Its contract block reaches every story too: shared
+dialog and card titles draw at 14px and 500, and every Kobalte overlay fades
+with no scale, as in Musubi. A story that shows the contract's default lends
+`initial` for the tokens it needs, as `DialogStory` does. A story with its own
+design language sets the `--ui-*` contract inline on a wrapper instead of
+importing its own CSS ([[#Stories for auth and cire components]]); cire's
+`cireStyle()` also lends `initial` for the title weight and both scale tokens,
+which cire leaves unmapped, so a cire subtree draws cire's 600 and 0.96 and
+not Musubi's.
 
 **No iframe.** Stories render in the same document as the chrome. Hot reload
 stays instant and the code stays small; the trade is isolation — a story that
