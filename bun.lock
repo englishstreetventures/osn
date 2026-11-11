@@ -898,7 +898,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.45",
+      "version": "0.3.46",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@shared/color": "workspace:*",
