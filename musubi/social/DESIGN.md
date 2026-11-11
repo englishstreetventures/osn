@@ -378,10 +378,10 @@ by spatial motion.
 
 On the emailed-link page (`/verify/:requestId`) the loaded shape is the whole
 card, so the placeholder is one `Skeleton` standing for a card
-(`ResponsiveSkeleton`), at the ready card's height with five numbers on a 360–430px phone and on desktop:
-552px below `md` and 520px from it (138 and 130 spacing steps). The product name above
-it stays put when the card arrives. Meanwhile the page's live region says
-"Checking this link…".
+(`ResponsiveSkeleton`), at the ready card's height with five numbers on a
+360–430px phone and on desktop: 552px below `md` and 520px from it (138 and 130
+spacing steps). The product name above it stays put when the card arrives.
+Meanwhile the page's live region says "Checking this link…".
 
 *Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
 Chromium (Vitest browser tier, `ConfirmLinkPage` with five numbers, Musubi's
@@ -546,9 +546,6 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
     334px viewport), after `main`'s `px-4` and the card's `p-5` and edge, for
     `TotpView`'s enrolment and `StepUpDialog`'s code steps alike. The step-up
     leaves the card when it becomes a sheet (#2045).
-  - `/authorize` gives `Register` 230px (35px boxes; 260px from 350px), after
-    `main`'s `px-6`, the frame's edge and `p-1`, and the view's own `px-4`
-    (#2046).
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
@@ -674,8 +671,7 @@ apart by its underline or by standing alone at 500.
 - **A link standing alone** is `variant="link" size="sm"`: 13px at 500 in a
   32px box with 12px sides, underlined only under the pointer. It sits centred
   under the action it follows (`self-center`), so no column edge sits 12px off
-  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue and
-  "Resend code" under "Verify email".
+  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue.
 - **The action that ends an error line is neither.** It keeps the line's ink
   and is underlined at rest: `@osn/auth-ui`'s `InlineAction`, and "Try again"
   in `ShellNotices` and `PageErrorBoundary`. `link` would paint it the accent
@@ -693,8 +689,8 @@ orb (§The orb).
 - **Only the button that started the wait.** Every other action in the same
   form or dialog is `disabled` while it runs, its Cancel, Back and links among
   them, so nothing leaves it mid-call: the organisation dialogs' Cancel while
-  Create or Save runs, `@osn/auth-ui`'s "Verify email" while "Resend code"
-  sends, and the reverse. A row's action leaves the other rows alone.
+  Create or Save runs, and `@osn/auth-ui`'s sign-up Cancel while its link is
+  sent or resent. A row's action leaves the other rows alone.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -709,8 +705,9 @@ orb (§The orb).
 
 Uses in the app: the create-organisation dialog's Create ("Creating…"), the
 edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
-apps' Revoke ("Revoking…"), and `/search`'s Connect ("Sending…") and Accept
-("Accepting…"). The rail's results panel shows the same words as text, since
+apps' Revoke ("Revoking…"), `/search`'s Connect ("Sending…") and Accept
+("Accepting…"), and Try again on a bare route's failed card ("Checking…"). The
+rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
 in `osn/auth-ui/DESIGN.md` §6.
 
@@ -731,9 +728,8 @@ default look (the control step, 14px, at 500, full ink, the words as written)
   label/value pair (Settings' Profile and Account cards, a muted `sm` `Label`
   over a disabled value). The code boxes (`OtpInput`) take a span in the label's
   look 6px above them, its id the boxes' `aria-labelledby`: `Field`'s
-  `<label for>` names one control, and the boxes are a group. `Register`'s
-  code step has none, since its sentence leads the step, and its group keeps
-  `OtpInput`'s own name (`osn/auth-ui/DESIGN.md` §4).
+  `<label for>` names one control, and the boxes are a group
+  (`osn/auth-ui/DESIGN.md` §4).
 
 Uses in the app: the create-organisation dialog (Handle, with its hint; Name;
 Description) and the edit dialog (Name, Description); in the auth views, every

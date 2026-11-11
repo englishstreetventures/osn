@@ -2171,8 +2171,10 @@ For a host:
   set `error`.
 - Set `status` back to `waiting` once a new link has been sent. While it stays
   `expired`, Resend ignores the wait.
-- Pass `errorMessage` as a sentence from `describeAuthError` (`@osn/client`),
-  never the error's own `message` (`osn/auth-ui/DESIGN.md` §7).
+- Pass `errorMessage` for a failed call as a sentence from `describeAuthError`
+  (`@osn/client`), never the error's own `message` (`osn/auth-ui/DESIGN.md`
+  §7). An answer that is not a failure takes the host's own line: `Register`
+  says when the request has sent every link it may.
 - Recovery allows three sends a day per account
   (`osn/api/src/services/auth/config.ts`), so its host should pass a longer
   `resendWaitSeconds` than the default: at 30 seconds, a person spends the day's
