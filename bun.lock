@@ -901,6 +901,7 @@
       "version": "0.3.46",
       "dependencies": {
         "@cire/ui": "workspace:*",
+        "@osn/auth-ui": "workspace:*",
         "@shared/color": "workspace:*",
         "@shared/design-tokens": "workspace:*",
         "@shared/ui": "workspace:*",
