@@ -78,7 +78,7 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
               set.status = 409;
               return staleErr;
             }
-            // M-PK1: require a fresh step-up token (passkey or OTP amr by
+            // Require a fresh step-up token (passkey or OTP amr by
             // default). Access token alone is insufficient — a stolen
             // access token cannot burn the user's existing recovery codes.
             const headerToken = headers["x-step-up-token"];
