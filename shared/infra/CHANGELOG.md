@@ -1,5 +1,11 @@
 # @shared/infra
 
+## 0.7.6
+
+### Patch Changes
+
+- 0821963: The secret inventory forbids `OSN_EMAIL_VERIFICATION_EMULATOR_URL` on osn-api on both tiers, as the production deploy's preflight does, and the musubi stack's read check names it and `OSN_EMAIL_VERIFICATION_API` as deliberately unset on dev, each with its reason.
+
 ## 0.7.5
 
 ### Patch Changes
