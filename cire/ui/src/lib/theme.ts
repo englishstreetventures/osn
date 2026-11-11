@@ -62,9 +62,16 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
  *
  * While the fade runs, the browser draws the page as a snapshot and every
  * press on it lands on `<html>`. A menu still open under the fade would read
- * that press as one outside it and close. So a press on `<html>` is held back
- * — no listener sees it, and focus stays where it was — until the fade ends,
- * which is the pointer's whole wait.
+ * that press as one outside it and close. So until the fade ends a
+ * `pointerdown` on `<html>` is dropped: no `pointerdown` listener after this
+ * one sees it, focus stays where it was, and the press has to be made again. The
+ * `click` that follows still reaches `<html>`, so this keeps open only a menu
+ * that dismisses on `pointerdown`, as Kobalte's does.
+ *
+ * A second change, or a resize of the viewport, skips a running fade: the
+ * skipped one still applies its update, and its `ready` rejects. That
+ * rejection is expected, so it is handled here rather than left to surface as
+ * an unhandled one.
  */
 function crossfade(update: () => void): void {
   if (
@@ -84,7 +91,17 @@ function crossfade(update: () => void): void {
   };
   window.addEventListener("pointerdown", hold, true);
   const release = () => window.removeEventListener("pointerdown", hold, true);
-  document.startViewTransition(update).finished.then(release, release);
+  const transition = document.startViewTransition(update);
+  transition.ready.catch(() => {});
+  transition.finished.then(release, release);
+}
+
+export interface SetThemeOptions {
+  /**
+   * Cross-fade the page to the new theme. Only a choice made in a portal's
+   * account menu asks for it; every other caller changes the theme at once.
+   */
+  readonly fade?: boolean;
 }
 
 export interface PreferenceKeys {
@@ -109,12 +126,12 @@ export interface Preferences {
   theme(): Theme;
   hapticsEnabled: Accessor<boolean>;
   /**
-   * Store the choice and show it. The page cross-fades to the new theme where
-   * the browser has view transitions and the reader has not asked for reduced
-   * motion, so the new choice and theme read back a frame later there; it
-   * changes at once everywhere else.
+   * Store the choice and show it, at once. With `fade`, the page cross-fades to
+   * the new theme where the browser has view transitions and the reader has
+   * not asked for reduced motion, so the new choice and theme read back a frame
+   * later there; it still changes at once everywhere else.
    */
-  setThemePreference(next: ThemePreference): void;
+  setThemePreference(next: ThemePreference, options?: SetThemeOptions): void;
   setHapticsEnabled(next: boolean): void;
   /**
    * Start following the OS. The boot script resolved the theme once; this
@@ -162,7 +179,7 @@ export function createPreferences(keys: PreferenceKeys): Preferences {
     themePreference: preference,
     theme,
     hapticsEnabled: hapticsOn,
-    setThemePreference(next) {
+    setThemePreference(next, options) {
       try {
         if (next === "system") localStorage.removeItem(keys.themeKey);
         else localStorage.setItem(keys.themeKey, next);
@@ -172,10 +189,12 @@ export function createPreferences(keys: PreferenceKeys): Preferences {
       // Everything the choice changes on screen — the menu's tick, the theme
       // every component reads, `data-theme` — happens inside the cross-fade,
       // so all of it is in the new snapshot and none in the old.
-      crossfade(() => {
+      const update = () => {
         setPreferenceSignal(next);
         applyTheme(next === "system" ? system() : next);
-      });
+      };
+      if (options?.fade) crossfade(update);
+      else update();
     },
     setHapticsEnabled(next) {
       setHapticsSignal(next);

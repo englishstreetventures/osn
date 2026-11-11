@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { commands, userEvent } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import ProfileMenu from "../../src/components/ProfileMenu";
-import { setThemePreference, type ThemePreference } from "../../src/lib/preferences";
+import { setThemePreference } from "../../src/lib/preferences";
 
 /**
  * A theme chosen in the account menu cross-fades the whole page through a view
@@ -13,9 +13,10 @@ import { setThemePreference, type ThemePreference } from "../../src/lib/preferen
  * hit-tests the overlay it draws, so these read the running transition back.
  *
  * The theme radios keep the menu open on select, so the open menu is part of
- * both snapshots. While the transition runs, a press must still reach the menu
- * under it: the overlay would otherwise take it, the press would land on
- * `<html>`, and the menu would close as if clicked outside.
+ * both snapshots. While the transition runs, every press lands on `<html>`, and
+ * the menu would close as if clicked outside, so the script drops such a press
+ * until the fade ends. A second choice or a resize skips a running fade, which
+ * must still land the last choice and raise nothing.
  */
 
 const SESSION = {
@@ -26,16 +27,6 @@ const SESSION = {
   avatarUrl: null,
   expiresAt: "2099-01-01T00:00:00Z",
 };
-
-/** Set a theme with no transition, so each test starts from a known one. */
-function settle(next: ThemePreference) {
-  Object.defineProperty(document, "startViewTransition", { value: undefined, configurable: true });
-  try {
-    setThemePreference(next);
-  } finally {
-    delete (document as { startViewTransition?: unknown }).startViewTransition;
-  }
-}
 
 /** A token's value as an engine resolves it, through a probe element. */
 function resolved(property: "animationDuration" | "animationTimingFunction", token: string) {
@@ -64,7 +55,38 @@ async function openMenu() {
 
 const option = (name: string) => screen.getByRole("menuitemradio", { name });
 
-beforeEach(() => settle("dark"));
+/** Hold every animation of the running transition at its halfway frame. */
+function holdHalfway() {
+  const running = transitionAnimations();
+  for (const a of running) {
+    a.pause();
+    a.currentTime = Number(a.effect!.getComputedTiming().duration) / 2;
+  }
+  return running;
+}
+
+/**
+ * Every promise rejection nobody handled while `body` ran, read after the
+ * browser has had a task in which to report one.
+ */
+async function unhandledRejections(body: () => Promise<void>): Promise<unknown[]> {
+  const caught: unknown[] = [];
+  const onRejection = (event: PromiseRejectionEvent) => {
+    caught.push(event.reason);
+    event.preventDefault();
+  };
+  window.addEventListener("unhandledrejection", onRejection);
+  try {
+    await body();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } finally {
+    window.removeEventListener("unhandledrejection", onRejection);
+  }
+  return caught;
+}
+
+// No fade unless one is asked for, so each test starts from a known theme.
+beforeEach(() => setThemePreference("dark"));
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -115,11 +137,7 @@ describe("a theme change cross-fades the page", () => {
     await first.ready;
     // Hold the fade halfway, so the transition is certainly running for what
     // follows.
-    const running = transitionAnimations();
-    for (const a of running) {
-      a.pause();
-      a.currentTime = Number(a.effect!.getComputedTiming().duration) / 2;
-    }
+    const running = holdHalfway();
 
     const dark = option("Dark");
     const box = dark.getBoundingClientRect();
@@ -131,8 +149,17 @@ describe("a theme change cross-fades the page", () => {
 
     // `force`: Playwright would otherwise wait for the press to reach the item,
     // which is the wait this test is about.
-    await userEvent.click(dark, { force: true });
+    const clicked: EventTarget[] = [];
+    const onClick = (event: MouseEvent) => clicked.push(event.target!);
+    window.addEventListener("click", onClick, true);
+    try {
+      await userEvent.click(dark, { force: true });
+    } finally {
+      window.removeEventListener("click", onClick, true);
+    }
     expect(menu.isConnected).toBe(true);
+    // Only the `pointerdown` is dropped: the click that follows reaches <html>.
+    expect(clicked).toEqual([document.documentElement]);
     expect(document.activeElement).toBe(focused);
     expect(dark.getAttribute("aria-checked")).toBe("false");
     expect(start).toHaveBeenCalledOnce();
@@ -147,6 +174,73 @@ describe("a theme change cross-fades the page", () => {
     expect(menu.isConnected).toBe(true);
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(dark.getAttribute("aria-checked")).toBe("true");
+
+    // Neither fade left its hold behind: a press on <html> goes through again.
+    const later = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+    expect(document.documentElement.dispatchEvent(later), "press after the fades").toBe(true);
+  });
+
+  it("takes no press mid-fade even with pointer-events: none on the overlay", async () => {
+    const rule = document.createElement("style");
+    rule.textContent = "::view-transition { pointer-events: none; }";
+    document.head.append(rule);
+    try {
+      await openMenu();
+      const start = vi.spyOn(document, "startViewTransition");
+      await userEvent.click(option("Light"));
+      const transition = start.mock.results[0]!.value as ViewTransition;
+      await transition.ready;
+      const running = holdHalfway();
+
+      const box = option("Dark").getBoundingClientRect();
+      expect(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)).toBe(
+        document.documentElement,
+      );
+
+      for (const a of running) a.play();
+      await transition.finished;
+    } finally {
+      rule.remove();
+    }
+  });
+
+  it("lands on the last of two quick choices, and the skipped fade raises nothing", async () => {
+    await openMenu();
+    const start = vi.spyOn(document, "startViewTransition");
+
+    const rejections = await unhandledRejections(async () => {
+      // Light, then Dark, inside one fade: a keyboard choice is never held, so
+      // two can arrive this close. The second skips the first's fade.
+      setThemePreference("light", { fade: true });
+      setThemePreference("dark", { fade: true });
+      expect(start).toHaveBeenCalledTimes(2);
+      await Promise.all(start.mock.results.map((r) => (r.value as ViewTransition).finished));
+    });
+
+    expect(rejections).toEqual([]);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(option("Dark").getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("lands the choice, and raises nothing, when the viewport changes mid-fade", async () => {
+    const size = { width: window.innerWidth, height: window.innerHeight };
+    await openMenu();
+    const start = vi.spyOn(document, "startViewTransition");
+
+    try {
+      const rejections = await unhandledRejections(async () => {
+        // A phone turned mid-fade. The browser skips a transition whose
+        // viewport changes before it starts to animate.
+        setThemePreference("light", { fade: true });
+        await page.viewport(size.width + 100, size.height);
+        await (start.mock.results[0]!.value as ViewTransition).finished;
+      });
+
+      expect(rejections).toEqual([]);
+      expect(document.documentElement.dataset.theme).toBe("light");
+    } finally {
+      await page.viewport(size.width, size.height);
+    }
   });
 });
 
