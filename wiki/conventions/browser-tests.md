@@ -464,8 +464,10 @@ and the build it wants instead of ours ([[#Running it locally]]). Only
 `chromium` is installed: the tier pins a single instance, so pulling Firefox
 and WebKit too would triple the download for nothing.
 
-The E2E job installs the same way from `tools/e2e` under the same browser
-cache key (`<os>-playwright-<hash of bun.lock>`), so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one
+The E2E and E2E determinism jobs install the same way from `tools/e2e`,
+through the setup they share (`.github/actions/e2e-setup/action.yml`, where
+`timeout 10m` bounds each install half, since a composite action's step takes
+no `timeout-minutes`), under the same browser cache key (`<os>-playwright-<hash of bun.lock>`), so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one
 version. Two versions would want two builds, the cache would hold whichever
 job saved it first, and the other job would download its build on every run.
 

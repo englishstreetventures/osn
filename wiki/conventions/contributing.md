@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-11
 ---
 
 # Contributing
@@ -128,7 +128,25 @@ Before opening a PR, verify:
 - [ ] Formatting passes (`bun run fmt:check`)
 - [ ] Type check passes (`bun run typecheck`)
 - [ ] Opened as a draft if it waits on the owner -- a decision about the change still open, an approval only the owner can give, or a "not ready" only they can settle. Its `**Do not merge until**` line says which, it still runs CI, and only the owner marks it ready (the `prep-pr` skill, Step 9). A CODEOWNERS path or a default the session took does not make it one
->
+
+## What CI runs for a change
+
+The `main` ruleset requires four checks: `CI` (the gate job in `.github/workflows/ci.yml`, which needs every job there but `E2E`), `Require changeset`, `Migration history` and `Secret scan`. The merge queue runs the same four.
+
+**A prose-only change skips the heavy jobs.** The first job in `ci.yml`, `Detect a prose-only change`, diffs the change and pipes the paths through [`docs-only.sh`](../../scripts/docs-only.sh). When every path is prose, Type Check, Build & Test, the `@cire/api` unit tests, the D1 tests, the three browser legs, OpenAPI Freshness, the migration workflow and `E2E` are skipped, and the `CI` gate counts a skipped job as passed. Lint & Format, Scripts and the Secret scan run on every change. Prose is:
+
+| Counts | Does not count |
+|---|---|
+| anything under `wiki/` or `docs/`; a changeset; any other `*.md` | `AGENTS.md`, `CLAUDE.md`; any `*.md` under `.claude/`, `.agents/`, `.github/`, `scripts/` or `tools/` (the script tests read the skills and agent definitions); any `*.md` under a `src/` or `tests/` directory; every other file |
+
+A pull request diffs its merge commit against the base it was merged with; a merge-queue group diffs against the queue's base, so a prose entry queued behind one with code runs every job; a push to `main` diffs against the commit it replaced. The diff names both sides of a rename (`--no-renames`), so code moved under `wiki/` still counts as code, and the classifier is the base's copy of `docs-only.sh`, so a change that edits it is judged by the rules it lands on. A diff that cannot be computed, or a base with no classifier, runs every job. A rule never goes on a required workflow's `on: paths`: a workflow that does not start leaves its required check waiting, and the pull request cannot merge.
+
+`scripts/tests/deploy-workflows.test.ts` holds which jobs may skip and runs the detection step against throwaway repositories, one per event; `scripts/tests/docs-only.cli.test.ts` holds what counts as prose.
+
+`E2E` runs the suite once and reruns a failed run whole; `E2E determinism` runs it twice and compares, on changes under `tools/e2e/` and daily ([[testing-patterns#The end-to-end suite]]). Swift CI (`ci-swift.yml`) runs only when Swift, Xcode or the OpenAPI documents change.
+
+*Measured 2026-11-11 — job times from `gh api repos/englishstreetventures/osn/actions/runs/<id>/jobs` on seven pull-request runs: a wiki-only change (run 42205244609) spent 9 min 9 s in `E2E`, 2 min 17 s in the migration workflow and 30 to 47 s in each other job; the gate's slowest need on most changes is the migration workflow, at 1.5 to 2.4 min.*
+
 ## Observability Checklist
 
 Every feature PR should also answer:
