@@ -114,7 +114,7 @@ describe("production-sites-artifact.ts", () => {
   test.each([
     "cire/infra/alchemy.run.ts",
     "node_modules/alchemy/src/index.js",
-    "scripts/ensure-pages-project.sh",
+    "scripts/release-plan.ts",
     "cire/host/package.json",
     "cire/host/distx/index.html",
     "pulse/landing/dist/index.html",
