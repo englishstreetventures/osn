@@ -890,8 +890,9 @@ what holds it.
    so nothing in the job ever ran. Re-run the failed jobs; there is nothing to fix
    here. (Seen 2026-08-06, taking out four jobs across two consecutive runs.)
 7. **A red `Smoke check, rolling back on failure` step** means the Worker deployed but
-   did not answer as a working one does for a minute, or for the longer budget a stack
-   job gives a site its release attaches a new host to (§7). Its annotations name each
+   did not answer as a working one does for a minute (§7), or, for a site
+   `PRODUCTION_HOST_HOLDS` holds off (§5.8), that its Worker still serves the held host
+   or its custom domains could not be read. Its annotations name each
    probe and what it got, and their titles say which of four things happened:
    - **The Worker answered wrongly and was rolled back** (`Smoke check failed: … rolling
      the Worker back`, then no `Rollback refused` or `Rollback failed`). The step
@@ -967,8 +968,8 @@ Which job owns which surface:
 | `pulse_landing` | **none** | `— dev` | dev only |
 
 The job names are how the planner ties a Deployment record to a surface; rename a job
-only together with its entry in `scripts/deploy-surfaces.ts`. A site whose Worker serves
-its host has a record job in `production-records` in place of a Pages job
+only together with its entry in `scripts/deploy-surfaces.ts`. A site its stack deploys
+has a record job in `production-records`, after the stack job
 ([[infrastructure-as-code#Production sites]]). A dev job here is the
 surface's record job, which runs only when its stack job deployed, its compare step
 read every Worker, and its smoke check passed ([[infrastructure-as-code#The dev deploy]]). Every production surface has one,
@@ -1186,22 +1187,11 @@ automatically once you attach them.
    each site Worker's domain on deploy: `www.musubi.social` for musubi landing,
    `vendor.cireweddings.com` for cire vendor, `host.cireweddings.com` for cire host, the
    apex `cireweddings.com` for cire landing and the apex `musubi.social` for musubi social,
-   and while a site is staged its spare host (`next.cireweddings.com`,
-   `next.musubi.social`). No dashboard step. Before a release first attaches one,
-   production host or spare, confirm nothing holds it: `dig +short <host> A`, `AAAA` and
-   `CNAME` answer nothing.
-   A spare host two labels below its zone gets its own certificate about two minutes
-   after the deploy that attaches it ([[dev-environment#1. Tier map]]), longer than the
-   smoke check's usual minute. So the stack job gives a site whose approved plan
-   attaches a host other than a production host up to 240 s
-   ([[#The automatic check]]), and the release that moves a staged site to a new spare
-   host, or first attaches one, goes green in one run. A certificate slower than that
-   fails the check without rolling back ("did not answer as a working Worker does
-   within 240 s, but the Worker never answered wrongly — not rolling back"). Then check
-   that each new host answers 200 with HTML (`curl -sI https://<host>/`), and once it
-   does, dispatch **Production release** again: the stack job left no successful
-   record, so that release ships the stack again, with no domain change, and its smoke
-   check passes.
+   each unless `PRODUCTION_HOST_HOLDS` holds it off (§5.8). No dashboard step. Before a
+   release first attaches one, or attaches a held host again, confirm nothing holds it:
+   `dig +short <host> A`, `AAAA` and `CNAME` answer nothing. Each is its zone's apex or
+   one label below it, so the zone's own certificate covers it and the smoke check's
+   minute is enough.
 3. **Re-check the allowlists** once the domains resolve: the live guest, organiser and
    vendor origins must exactly match cire-api `WEB_ORIGIN`. osn-api's `OSN_CORS_ORIGIN`
    and `OSN_ORIGIN` each hold `https://musubi.social` alone: no cire page calls osn-api
@@ -1223,12 +1213,11 @@ Nothing reaches production unattended, and nothing reaches it per merge.
 - **What.** The `plan` job runs `scripts/release-plan.ts`. For each surface it reads the
   commit production last deployed — the newest successful GitHub Deployment record in
   the `production` Environment made by that surface's production job, or for a site
-  whose Worker serves its host, in the `production-records` Environment made by its
-  record job — and diffs it against the release commit using the paths in
+  its stack deploys, in the `production-records` Environment made by its record job —
+  and diffs it against the release commit using the paths in
   `scripts/deploy-surfaces.ts`. A surface ships when anything it builds from differs;
-  for a site whose Worker serves its host, that includes its stack's `infra/` directory
-  and `shared/infra/`. A staged site's Pages job never ships for those: its build does
-  not depend on them. A stack ships when one of its sites does, or when its own paths
+  for a site, that includes its stack's `infra/` directory and `shared/infra/`. A
+  stack ships when one of its sites does, or when its own paths
   differ from the commit its stack job last deployed (its newest successful record in
   `production`) and a dev run of its stack job deployed the same paths; and only when
   none of its sites, nor that change, is held back or newer on production. Only a stack
@@ -1486,6 +1475,73 @@ the organiser portal, whose OIDC consent screen is `https://musubi.social/author
 `x-frame-options: DENY` and a `content-security-policy` holding `frame-ancestors 'none'`:
 the consent screen must never be framed, and the smoke check reads neither header.
 
+### 5.8 Holding a site's host off its Worker 🔑
+
+A host taken off its site Worker in the dashboard stays off only while
+`PRODUCTION_HOST_HOLDS` in
+[`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts)
+holds it. Without an entry the site is still `worker`, so the next release that ships
+its stack attaches the host again, and only the approver reading **Domains added** in
+the `alchemy-plan` summary stands in the way. With an entry, the stack declares the
+site's Worker with no custom domain, the plan guard refuses any plan in which a site
+Worker would serve the host, and the site's smoke check passes once it has read that
+the host is off its Worker ([[infrastructure-as-code#Production sites]]). The Worker
+keeps getting each release's build. The rule holds for releases built from a commit
+that holds the entry: never re-run a release run from an older commit while the host
+is held. A hand-run `deploy:production` from such a commit declares no domain for the
+site but runs no guard.
+
+An entry is the site, its production host and a reason:
+
+```ts
+export const PRODUCTION_HOST_HOLDS: readonly HostHold[] = [
+  {
+    site: "cire_vendor",
+    host: "vendor.cireweddings.com",
+    reason: "Serves nothing until the vendor export ships.",
+  },
+];
+```
+
+The reason is one line stating the constraint that keeps the host off. It is public:
+the file, the guard's run summary and the smoke check's notice print it. Never write
+the incident, a finding or an issue reference there (`AGENTS.md`, Issues); PS7 refuses
+an issue or finding reference, but cannot judge the rest.
+
+**Taking a host off, the usual order.** The entry comes first, so no release can put
+the host back in between.
+
+1. Open a pull request that adds the entry, with a changeset for `@shared/infra`
+   (`bun run changeset`, patch). Merge it.
+2. At once, before approving any release, take the host off the Worker: **Workers &
+   Pages**, the Worker, **Settings**, **Domains & Routes**, remove it.
+3. Dispatch **Production release**. The entry changed `shared/infra/`, so both stacks
+   ship. The held site's plan shows no domain change, its summary lists the host under
+   **Held off their Workers**, and its smoke check passes with a notice.
+
+A release that ships the stack while the host is still on its Worker is refused: the
+guard reads that the Worker would give the host up, and no release takes a host off
+(the refusal says the host is held). Both stacks are guarded in the one `alchemy-plan`
+job, so that refusal stops the whole release, the Wrangler jobs too, the daily one
+included. Step 2 ends it. To ship an API Worker before then, dispatch with `surfaces`
+naming no site of a production stack (`cire_api`, `cire_invites`, `osn_api`,
+`zap_api`): no stack ships and `alchemy-plan` is skipped.
+
+**Taking a host off in a hurry.** When the host must go before a pull request can
+merge, take it off in the dashboard first (step 2), then open the entry's pull request
+at once. Until it is on `main`, reject every release whose `alchemy-plan` summary lists
+the host under **Domains added**: nothing else stops that release from putting it back.
+
+**Bringing a host back.**
+
+1. Detach whatever was put on the host meanwhile, such as a maintenance Worker or a
+   DNS record, and check it holds nothing (`dig +short <host> A`, `AAAA`, `CNAME`, as
+   §5.4 says). A host still on another Worker fails the deploy after its approval.
+2. Open a pull request that removes the entry, with a changeset for `@shared/infra`.
+   Merge it.
+3. Dispatch **Production release**. The plan lists the host under **Domains added** for
+   its site; approve it, and the smoke check asks the host as for any site.
+
 ## 6. Optional: guest account-linking bridge (cire → osn)
 
 Account-linking (`POST /api/account/link`) lets a guest attach their household to their
@@ -1570,9 +1626,10 @@ yourself (§5.1). A person runs the rest.
 | 9. Account linking, if enabled | A person |
 
 The site Workers the production stacks deploy are each checked after the stack's
-deploy, on the host their mode gives them: the spare host while staged, the production
-host as a worker. On dev every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
-`musubi.social` and the organiser portal.
+deploy, on their production host; a site `PRODUCTION_HOST_HOLDS` holds off has its
+custom domains read instead (§5.8). On dev every surface is a Worker and each is
+checked. Checks 5 to 7 are the ones that reach `musubi.social` and the organiser
+portal.
 
 ### The automatic check
 
@@ -1610,19 +1667,15 @@ How it decides:
   probe passes in two rounds in a row. No answer names the version that gave it, so a
   pass straight after the deploy can come from the version before; the second pass
   narrows that window, it does not close it.
-- **A site its release gives a new host gets up to 240 s.** A Workers custom domain's
-  first certificate takes about two minutes ([[dev-environment#1. Tier map]]). So in
-  each production stack job a step runs
-  [`scripts/smoke-budgets.ts`](../../scripts/smoke-budgets.ts) over the plan approved at
-  `alchemy-plan`, and each site whose plan attaches a host other than a production
-  host passes `SMOKE_BUDGET_MS=240000` to its check, which still asks every 10 seconds
-  and passes on the first two good rounds. A production host is covered by the zone's
-  own certificate, so a site gaining one keeps the minute, and so does every other
-  check, the Wrangler Workers' and dev's included. The check refuses a value
-  outside 60 to 240 s before any request. Each stack smoke step has seven minutes:
-  with every request at its timeout, a 240 s check, its rollback and the re-check take
-  366 s (SB4 in `scripts/tests/smoke-check.test.ts`). When the budget step fails,
-  every check reads no budget and asks for a minute.
+  A release attaches only production hosts, each covered by its zone's own
+  certificate, so a site gaining one keeps the minute. Each production stack's smoke
+  step has five minutes: with every request at its timeout, a check, its rollback and
+  the re-check take 186 s (SB4 in `scripts/tests/smoke-check.test.ts`).
+- **A held site** (`PRODUCTION_HOST_HOLDS`, §5.8) has no host to ask. Its check reads
+  the Worker's custom domains (`GET /accounts/{id}/workers/domains?service=<worker>`,
+  tried as a deployments read is) and passes, with a notice naming the host and the
+  list, only when the held host is not among them. The host still on the Worker, or a
+  read that fails, fails the step. It probes nothing and never rolls back.
 - **The Worker answered wrongly** when time runs out: it restores the version that
   served before this deploy, with the message `Smoke check failed: <run URL>`, then
   asks once more and says whether the restored version answers. It reads the Worker's
@@ -1655,8 +1708,8 @@ How it decides:
   429 counts here because Cloudflare answers every Worker on the account with one once
   the daily request cap is spent, and anyone can spend it from the public hosts. The
   one probed route with a limit of its own, osn-api's `/health/coordination`, allows
-  10 calls a minute per IP, and a check asks it at most 8 times: osn-api's check is
-  never given a longer budget.
+  10 calls a minute per IP, and a check, which asks for a minute, asks it at most 8
+  times.
 - **osn-api refused the bearer**: `/health/coordination` answered 401, so the
   `INTERNAL_SERVICE_SECRET` the job holds is not the Worker's. No rollback: new code
   cannot fix a secret. Set the Environment's value to the Worker's (`gh secret set
@@ -1784,7 +1837,7 @@ How it decides:
 | cire migrate scripts | `cire/db/package.json` (`db:migrate:local|prod`); the dev database: `cire/infra` |
 | cire seed (local; the dev tier imports it through the cire stack) | `cire/db/seed/dev-seed.sql`; `scripts/cire-db-seed.sh`; `cire/infra/src/declaration.ts` |
 | Dev deploys per push | `.github/workflows/deploy.yml` (`changes` → `stack-<stack>-dev` → `deploy-<surface>-dev`); the stacks under `*/infra/` ([[infrastructure-as-code]]) |
-| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan`, then `build` and `sites` side by side, then `alchemy-plan`, then `deploy-<surface>` and `stack-<stack>-production`, then `record-<site>`); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts` |
+| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan`, then `build` and `sites` side by side, then `alchemy-plan`, then `deploy-<surface>` and `stack-<stack>-production`, then `record-<site>`); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes and host holds `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts` |
 
 ## Related
 
@@ -1838,7 +1891,7 @@ To roll the vendor portal back:
 
 1. Remove the `https://vendor.cireweddings.com` entry from `cire/api/wrangler.toml` `WEB_ORIGIN`.
 2. Merge the revert PR — the merge redeploys the dev Worker. Then dispatch a release with `surfaces: cire_api` and approve it (§5.5), which ships the narrowed allowlist to production.
-3. To take the portal off `vendor.cireweddings.com` as well, remove that host from the `cire-vendor` Worker in the dashboard (**Workers & Pages**, the Worker, **Settings**, **Domains & Routes**). No release takes it off: the plan guard refuses that. While `cire_vendor` is `worker`, the next release that ships the cire stack updates the Worker, finds the host free and attaches it again, so leave the cire sites out of every release, and reject any whose Alchemy plan lists `vendor.cireweddings.com` under **Domains added**, until englishstreetventures/osn#2196 gives a site a lasting way off its host.
+3. To take the portal off `vendor.cireweddings.com` as well, hold the host off the `cire-vendor` Worker as §5.8 says: a pull request adding `cire_vendor`'s entry to `PRODUCTION_HOST_HOLDS`, then the host removed in the dashboard (**Workers & Pages**, the Worker, **Settings**, **Domains & Routes**). No release takes it off, and without the entry the next release that ships the cire stack attaches it again.
 
 ---
 
