@@ -10,8 +10,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // the real component signals "account created and passkey enrolled".
 const pendingRecovery = vi.hoisted(() => ({ value: false }));
 
-vi.mock("@osn/auth-ui/SignIn", () => ({
+vi.mock("@osn/auth-ui/pending-recovery", () => ({
   hasPendingRecovery: () => pendingRecovery.value,
+}));
+vi.mock("@osn/auth-ui/SignIn", () => ({
   SignIn: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="signin">
       <span data-testid="signin-product-name">{props.productName}</span>

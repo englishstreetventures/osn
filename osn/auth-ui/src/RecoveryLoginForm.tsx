@@ -20,6 +20,7 @@ import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { createLinkPoll, type LinkPollStep } from "./link-poll";
 import { describePasskeyError } from "./passkey-errors";
+import { storedWait, writeStoredWait, type Waiting } from "./pending-recovery";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
@@ -101,18 +102,6 @@ export interface RecoveryLoginFormProps {
 }
 
 /**
- * The email recovery this tab waits on: the request, and the address the
- * waiting view names. Not its number, which is never stored: the view holds it
- * in memory, and a reloaded tab gets it back from its first poll.
- */
-interface Waiting extends Omit<EmailRecoveryRequest, "pairingCode"> {
-  readonly email: string;
-}
-
-/** Per tab, never sent anywhere, never shared with another site. */
-const PENDING_KEY = "osn.recovery.pending";
-
-/**
  * Seconds before Resend unlocks. A request lives ten minutes and sends at most
  * three links, each counted against the account's links a day from this
  * address; two minutes covers ordinary mail delay, and spaces a request's
@@ -124,51 +113,7 @@ const LIMIT_LINE =
   "We've sent all the links we can for this request. Use the newest one, or go back and start again.";
 const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 
-function writeStoredWait(value: Waiting | null): void {
-  try {
-    if (value === null) sessionStorage.removeItem(PENDING_KEY);
-    else sessionStorage.setItem(PENDING_KEY, JSON.stringify(value));
-  } catch {
-    // Storage disabled or full: the wait lives in memory for this page.
-  }
-}
-
-/** The stored wait, when it is whole and has not expired; clears one that has. */
-function storedWait(): Waiting | null {
-  let stored: Partial<Waiting> | null = null;
-  try {
-    const raw = sessionStorage.getItem(PENDING_KEY);
-    stored = raw === null ? null : (JSON.parse(raw) as Partial<Waiting>);
-  } catch {
-    stored = null;
-  }
-  if (
-    !stored ||
-    typeof stored.requestId !== "string" ||
-    typeof stored.claimSecret !== "string" ||
-    typeof stored.email !== "string" ||
-    typeof stored.expiresAt !== "number" ||
-    stored.expiresAt * 1000 <= Date.now()
-  ) {
-    if (stored) writeStoredWait(null);
-    return null;
-  }
-  return {
-    requestId: stored.requestId,
-    claimSecret: stored.claimSecret,
-    email: stored.email,
-    expiresAt: stored.expiresAt,
-  };
-}
-
-/**
- * Whether this tab is waiting on an emailed recovery link, so a host can open
- * its sign-in on the recovery view after a reload and let it resume.
- */
-export function hasPendingRecovery(): boolean {
-  if (typeof sessionStorage === "undefined") return false;
-  return storedWait() !== null;
-}
+export { hasPendingRecovery } from "./pending-recovery";
 
 type View =
   | "choose"
