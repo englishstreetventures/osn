@@ -1039,6 +1039,132 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   });
 });
 
+describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and only those", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const SKIP = "needs.changes.outputs.docs-only != 'true'";
+  const SKIPPABLE = [
+    "browser",
+    "build-test",
+    "cire-api-tests",
+    "d1",
+    "e2e",
+    "migration-flow",
+    "openapi-freshness",
+    "typecheck",
+  ];
+
+  // A job that waits on the detection and is not in the list can be skipped
+  // with nothing here saying so; one in the list that does not wait runs
+  // anyway. The lint, script and secret checks read prose too, so they never
+  // wait.
+  test("each build, test and E2E job runs unless the detection says prose only; lint, scripts and the secret scan always run", () => {
+    const waiting = Object.entries(ci.jobs)
+      .filter(([, job]) => needsOf(job).includes("changes"))
+      .map(([id]) => id);
+    expect(waiting.toSorted()).toEqual([...SKIPPABLE, "ci"].toSorted());
+    for (const id of SKIPPABLE) {
+      expect({ id, if: ci.jobs[id]?.if }).toEqual({
+        id,
+        if: id === "e2e" ? `github.event_name != 'merge_group' && ${SKIP}` : SKIP,
+      });
+    }
+    for (const id of ["lint", "script-tests", "secrets", "changes"]) {
+      expect({ id, if: ci.jobs[id]?.if, needs: ci.jobs[id]?.needs }).toEqual({
+        id,
+        if: undefined,
+        needs: undefined,
+      });
+    }
+  });
+
+  // The classify step, run as GitHub runs it, in a throwaway repository whose
+  // commits stand for the change and, for a queue group, the entries ahead of
+  // it.
+  const classifyStep = stepsOf(ci.jobs.changes).find((step) => step.id === "classify");
+  const docsOnly = readFileSync(join(root, "scripts/docs-only.sh"), "utf8");
+
+  function classify(
+    commits: readonly (readonly string[])[],
+    event: (shas: readonly string[]) => Record<string, string>,
+  ): { readonly exitCode: number; readonly output: string; readonly verdict: string } {
+    const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: dir,
+      });
+      if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+      return result.stdout.toString().trim();
+    };
+    git("init", "-q", "-b", "main");
+    mkdirSync(join(dir, "scripts"));
+    writeFileSync(join(dir, "scripts/docs-only.sh"), docsOnly);
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const shas = [git("rev-parse", "HEAD")];
+    for (const files of commits) {
+      for (const file of files) {
+        mkdirSync(dirname(join(dir, file)), { recursive: true });
+        writeFileSync(join(dir, file), `${shas.length}\n`);
+      }
+      git("add", ".");
+      git("commit", "-qm", `commit ${shas.length}`);
+      shas.push(git("rev-parse", "HEAD"));
+    }
+    const outputFile = join(dir, "github-output");
+    const result = Bun.spawnSync(
+      ["bash", "--noprofile", "--norc", "-e", "-c", classifyStep?.run ?? "exit 9"],
+      {
+        cwd: dir,
+        env: { PATH: process.env.PATH ?? "", GITHUB_OUTPUT: outputFile, ...event(shas) },
+      },
+    );
+    const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
+    return {
+      exitCode: result.exitCode,
+      output: result.stdout.toString() + result.stderr.toString(),
+      verdict: /^docs-only=(.*)$/m.exec(written)?.[1] ?? "<none>",
+    };
+  }
+
+  const pullRequest = () => ({ EVENT: "pull_request" });
+  const queue = (shas: readonly string[]) => ({ EVENT: "merge_group", QUEUE_BASE: shas[0] ?? "" });
+
+  test.each([
+    ["a pull request of prose", "true", [["wiki/a.md", "README.md"]], pullRequest],
+    [
+      "a pull request with one source file",
+      "false",
+      [["wiki/a.md", "osn/api/src/a.ts"]],
+      pullRequest,
+    ],
+    // The queue tests a group's last entry on top of the ones ahead of it, so
+    // its diff starts at the queue's base, not at the entry before it.
+    [
+      "a queue group whose prose entry follows one with code",
+      "false",
+      [["osn/api/src/a.ts"], ["wiki/a.md"]],
+      queue,
+    ],
+    ["a queue group of prose entries", "true", [["wiki/a.md"], ["README.md"]], queue],
+    [
+      "a push of prose",
+      "true",
+      [["wiki/a.md"]],
+      (shas: readonly string[]) => ({ EVENT: "push", BEFORE: shas[0] ?? "" }),
+    ],
+    // A branch's first push, or a force-push: no commit to diff against.
+    [
+      "a push whose previous commit is not there",
+      "false",
+      [["wiki/a.md"]],
+      () => ({ EVENT: "push", BEFORE: "0000000000000000000000000000000000000000" }),
+    ],
+  ] as const)("%s: prose only is %s", (_, expected, commits, event) => {
+    const { exitCode, output, verdict } = classify(commits, event);
+    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: expected });
+  });
+});
+
 describe("CI's E2E job runs the suite once and retries the whole run; the determinism check runs where a flow can change", () => {
   const ci = load(".github/workflows/ci.yml");
   const repro = load(".github/workflows/e2e-repro.yml");

@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Stacked PRs
@@ -227,7 +227,7 @@ To rebuild such a stack on a newer `main`, when a layer conflicts with it:
 
 ## CI on a stacked PR
 
-Path-filtered jobs must diff against the PR's own base, not `main`, or a stacked PR sees its parent's files as changed. `.github/workflows/ci-swift.yml` does this: on `pull_request` it diffs `origin/$BASE_REF`. Copy that shape for any new filter.
+Path-filtered jobs must diff against the PR's own base, not `main`, or a stacked PR sees its parent's files as changed. Two filters do this: `.github/workflows/ci-swift.yml` diffs `origin/$BASE_REF` on `pull_request`, and the prose-only detection in `ci.yml` diffs the pull request's merge commit against its first parent, which is the tip of the PR's base branch ([[contributing#What CI runs for a change]]). Copy either shape for a new filter.
 
 Changeset checks behave the same way, and `.github/workflows/changeset-check.yml` was fixed to match on 2026-08-21. It had `on: pull_request: branches: [main]`, which matches the PR's *base* — so a stacked PR never triggered it at all. Because the check is **required**, that did not skip the gate, it left every stacked PR blocked on a status that could never report. It now has no `branches:` filter and diffs `origin/$BASE_REF...HEAD`.
 

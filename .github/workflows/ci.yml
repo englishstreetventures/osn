@@ -33,6 +33,55 @@ permissions:
 # commits still on it.
 
 jobs:
+  # Whether this change is prose alone: wiki pages, docs, READMEs, changesets
+  # (scripts/docs-only.sh says which markdown counts, and why). When it is,
+  # every job that builds, tests or boots the stack is skipped, which the `CI`
+  # gate counts as passed: it fails only on a failed or cancelled need. Lint &
+  # Format, Scripts and the Secret scan run on every change, and so does this.
+  #
+  # The diff is against what the change lands on: a pull request's merge
+  # commit against its first parent, the base it was merged with; a
+  # merge-queue group against the queue's base, so a group whose earlier
+  # entries carry code runs everything; a push against the commit it
+  # replaced. A diff that cannot be computed runs everything.
+  changes:
+    name: Detect a prose-only change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.classify.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify the changed files
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) base=$(git rev-parse HEAD^1) || base="" ;;
+            merge_group) base=$QUEUE_BASE ;;
+            push) base=$BEFORE ;;
+            *) base="" ;;
+          esac
+          if [ -n "$base" ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base" || base=""
+          fi
+          if [ -n "$base" ] && changed=$(git diff --name-only "$base" HEAD); then
+            printf '%s\n' "$changed"
+            docs_only=$(printf '%s\n' "$changed" | bash scripts/docs-only.sh)
+          else
+            echo "::notice::No diff against '$base'; every job runs."
+            docs_only=false
+          fi
+          echo "Prose only: $docs_only"
+          echo "docs-only=$docs_only" >> "$GITHUB_OUTPUT"
+
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
@@ -148,6 +197,8 @@ jobs:
 
   typecheck:
     name: Type Check
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -209,6 +260,8 @@ jobs:
 
   build-test:
     name: Build & Test
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-build-test', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -392,6 +445,8 @@ jobs:
   # files run.
   cire-api-tests:
     name: Unit tests (@cire/api)
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-cire-api-tests', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -455,6 +510,8 @@ jobs:
   # package with a build step, so it needs no Build.
   d1:
     name: D1 integration tests
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-d1', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -531,6 +588,8 @@ jobs:
   # checks, before it runs, that turbo found the number of packages it names.
   browser:
     name: Browser tests (${{ matrix.leg }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-browser-{1}', github.event_name == 'pull_request' && github.ref || github.run_id, matrix.leg) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -907,6 +966,8 @@ jobs:
 
   openapi-freshness:
     name: OpenAPI Freshness
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -956,7 +1017,8 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
     # group, and the push to main that follows runs it on the same commit.
-    if: github.event_name != 'merge_group'
+    needs: changes
+    if: github.event_name != 'merge_group' && needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     # Room for the setup and two whole runs of the flows at their limit.
     timeout-minutes: 40
@@ -1006,6 +1068,8 @@ jobs:
   # schemas and verdicts they end with to e2e-artifacts/migrations/.
   migration-flow:
     name: Migration workflow
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     concurrency:
       group: ${{ format('ci-{0}-migration-flow', github.event_name == 'pull_request' && github.ref || github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -1133,7 +1197,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
+    needs: [changes, lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
