@@ -731,7 +731,7 @@ As built:
   sends. `ProfileSwitcher.test.tsx` holds Delete busy, not disabled, while
   the delete runs, and each row's delete beside its row button. The views no
   flow reaches hold each of their waits the same way, a second press sending
-  nothing: `RecoveryLoginForm.test.tsx` (five, with Back disabled),
+  nothing: `RecoveryLoginForm.test.tsx` (four, with Back disabled),
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
   disabled), `ChangeEmailForm.test.tsx` (two), `StepUpDialog.test.tsx`
   ("Email me a code" and both Confirms), `CheckEmailView.test.tsx`

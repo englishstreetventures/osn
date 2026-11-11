@@ -281,22 +281,18 @@ describe("POST /login/recovery/complete", () => {
  */
 describe("an address typed in capitals", () => {
   it.live("costs the same at every recovery route, whoever it names", () => {
-    const h = harness();
+    const h = harness({ holdSendLimits: true });
     return Effect.gen(function* () {
       yield* h.auth.registerProfile("seq-caps@example.com", "seqcaps");
 
-      const sent = yield* h.record(h.auth.beginEmailRecovery("SEQ-Caps@Example.com"));
-      const unsent = yield* h.record(h.auth.beginEmailRecovery("SEQ-CapsNobody@Example.com"));
-      expect(sent.ops).toEqual(BEGIN);
+      // The send's limits are held, so no send lands between two records.
+      const sent = yield* h.record(h.auth.beginEmailRecovery("SEQ-Caps@Example.com", meta));
+      const unsent = yield* h.record(h.auth.beginEmailRecovery("SEQ-CapsNobody@Example.com", meta));
+      expect(sent.ops).toEqual(["email_link.write"]);
       expect(unsent).toEqual(sent);
-
-      yield* h.nthCode(0);
-      const wrong = yield* h.record(h.auth.completeEmailRecovery("SEQ-Caps@Example.com", "000000"));
-      const nobody = yield* h.record(
-        h.auth.completeEmailRecovery("SEQ-CapsNobody@Example.com", "000000"),
-      );
-      expect(wrong.ops).toEqual(COMPLETE_REFUSED);
-      expect(nobody).toEqual(wrong);
+      // The account's send reads its three limits after the answer; let it
+      // land before the next routes are recorded.
+      expect(yield* h.sendLimitCalls(3)).toBe(3);
 
       const totp = yield* h.record(h.auth.completeTotpRecovery("SEQ-Caps@Example.com", "000000"));
       const totpNobody = yield* h.record(
@@ -327,16 +323,14 @@ describe("an address typed in capitals", () => {
     const lookups = (statements: readonly string[]) =>
       statements.filter((sql) => sql.includes('"accounts"'));
     return Effect.gen(function* () {
-      const begun = yield* h.record(h.auth.beginEmailRecovery(long));
-      const email = yield* h.record(h.auth.completeEmailRecovery(long, "000000"));
+      const begun = yield* h.record(h.auth.beginEmailRecovery(long, meta));
       const totp = yield* h.record(h.auth.completeTotpRecovery(long, "000000"));
       const code = yield* h.record(h.auth.consumeRecoveryCode(long, "wrong-code"));
 
-      expect(begun.ops).toEqual(BEGIN);
-      expect(email.ops).toEqual(COMPLETE_REFUSED);
+      expect(begun.ops).toEqual(["email_link.write"]);
       expect(totp.ops).toEqual(["totp_lockout.increment"]);
       expect(code.ops).toEqual(RECOVERY_CODE_REFUSED);
-      for (const recorded of [begun, email, totp, code]) {
+      for (const recorded of [begun, totp, code]) {
         expect(lookups(recorded.statements)).toEqual([]);
       }
     }).pipe(Effect.provide(h.layer));

@@ -211,7 +211,10 @@ describe("createRecoveryClient", () => {
         "fetch",
         vi.fn(() => Promise.reject(new TypeError("network"))),
       );
-      await expect(client.emailRecoveryStatus(input)).rejects.toThrow("network");
+      await expect(client.emailRecoveryStatus(input)).rejects.toMatchObject({
+        name: "RecoveryError",
+        status: 0,
+      });
     });
 
     it("passes the number through, and parses the restricted session with its cookie", async () => {

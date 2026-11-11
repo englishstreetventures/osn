@@ -128,14 +128,11 @@ const SITES: Site[] = [
   site("recovery.loginWithRecoveryCode", RecoveryError, () =>
     recovery.loginWithRecoveryCode({ identifier: "alice", code: "abcd-efgh" }),
   ),
-  site(
-    "recovery.emailRecoveryBegin",
-    RecoveryError,
-    () => recovery.emailRecoveryBegin({ identifier: "a@example.com" }),
-    false,
+  site("recovery.emailRecoveryBegin", RecoveryError, () =>
+    recovery.emailRecoveryBegin({ identifier: "a@example.com" }),
   ),
-  site("recovery.emailRecoveryComplete", RecoveryError, () =>
-    recovery.emailRecoveryComplete({ identifier: "a@example.com", code: "123456" }),
+  site("recovery.emailRecoveryResend", RecoveryError, () =>
+    recovery.emailRecoveryResend({ requestId: "recovery_0123456789ab", claimSecret: "c" }),
   ),
   site("recovery.totpRecoveryComplete", RecoveryError, () =>
     recovery.totpRecoveryComplete({ identifier: "alice", code: "123456" }),
@@ -344,13 +341,16 @@ describe("every client error carries the response's status and the server's code
 });
 
 /**
- * The calls that answer a refusal instead of throwing it: a sign-up's status
- * poll and the emailed link's two calls read every 4xx but a 429 as
- * `expired`. What they do throw follows every other client's contract.
+ * The calls that answer a refusal instead of throwing it: the sign-up and
+ * recovery status polls and the emailed link's two calls read every 4xx but a
+ * 429 as `expired`. What they do throw follows every other client's contract.
  */
 const ANSWERING_SITES: Site[] = [
   site("register.registrationStatus", RegistrationError, () =>
     register.registrationStatus({ requestId: "signup_0123456789ab", claimSecret: "c" }),
+  ),
+  site("recovery.emailRecoveryStatus", RecoveryError, () =>
+    recovery.emailRecoveryStatus({ requestId: "recovery_0123456789ab", claimSecret: "c" }),
   ),
   site("emailLink.candidates", EmailLinkError, () =>
     emailLink.candidates("signup_0123456789ab", "s"),
@@ -410,7 +410,7 @@ describe("the calls that answer a refusal", () => {
 const SENDS_WITHOUT_AUTH_FETCH = new Set([
   "recovery.loginWithRecoveryCode",
   "recovery.emailRecoveryBegin",
-  "recovery.emailRecoveryComplete",
+  "recovery.emailRecoveryResend",
   "recovery.totpRecoveryComplete",
   "recovery.disown",
 ]);

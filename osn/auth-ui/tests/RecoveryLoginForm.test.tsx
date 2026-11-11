@@ -38,7 +38,6 @@ import { RecoveryLoginForm } from "../src/RecoveryLoginForm";
 import { enterCode, expectTied } from "./helpers/code";
 import {
   CHECK_FAILED,
-  CODE,
   DETAILS,
   PASSKEY_NOT_ADDED,
   RECOVERY,
@@ -300,38 +299,15 @@ describe("RecoveryLoginForm — error lines", () => {
     async (_, error, sentence, invalid) => {
       stub.emailRecoveryBegin.mockRejectedValue(error);
       mountFull();
-      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
       const field = fill(/Email address on the account/i, "alice@example.com");
-      fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain(sentence);
       expect(alertsText()).not.toContain("PLANTED");
       expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
       expect(field.getAttribute("aria-invalid")).toBe(invalid);
-    },
-  );
-
-  it.each([
-    ["a 400", apiError("PLANTED-recovery-email-code"), CODE, "true"],
-    ["a 429", apiError("PLANTED-recovery-email-code-429", 429, "rate_limited"), WAIT, null],
-  ] as const)(
-    "a refused emailed code reads %s as the map's sentence, tied to the boxes",
-    async (_, error, sentence, invalid) => {
-      stub.emailRecoveryBegin.mockResolvedValue(undefined);
-      stub.emailRecoveryComplete.mockRejectedValue(error);
-      mountFull();
-      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-      fill(/Email address on the account/i, "alice@example.com");
-      fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
-      // The group is named by the label above it.
-      const boxes = await enterCode("Code from your email", "123456");
-      fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-
-      const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toContain(sentence);
-      expect(alertsText()).not.toContain("PLANTED");
-      expectTied(boxes, alert.id, invalid);
     },
   );
 
@@ -376,10 +352,10 @@ describe("RecoveryLoginForm — error lines", () => {
       };
       stub.emailRecoveryBegin.mockRejectedValueOnce(apiError("PLANTED-recovery-begin"));
       mountFull({ turnstileSiteKey: "0x4AAAAAADnA2piUnbgG_kVw" });
-      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
       fill(/Email address on the account/i, "alice@example.com");
       const send = () =>
-        screen.getByRole("button", { name: /Send the code/i }) as HTMLButtonElement;
+        screen.getByRole("button", { name: /Send the link/i }) as HTMLButtonElement;
       await waitFor(() => expect(send().disabled).toBe(false));
 
       fireEvent.click(send());
@@ -961,27 +937,13 @@ describe("RecoveryLoginForm — a wait", () => {
     expect(backDisabled()).toBe(true);
   });
 
-  it("holds Send the code busy while it sends", async () => {
+  it("holds Send the link busy while it sends", async () => {
     stub.emailRecoveryBegin.mockReturnValue(never());
     mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
     expect(await pressBusy("Sending…", stub.emailRecoveryBegin)).toEqual(HELD);
-    expect(backDisabled()).toBe(true);
-  });
-
-  it("holds Continue busy while it checks an emailed code", async () => {
-    stub.emailRecoveryBegin.mockResolvedValue(undefined);
-    stub.emailRecoveryComplete.mockReturnValue(never());
-    mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
-    await waitFor(() => screen.getByText(/If that address has an account/i));
-    typeCode("123456");
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-    expect(await pressBusy("Checking…", stub.emailRecoveryComplete)).toEqual(HELD);
     expect(backDisabled()).toBe(true);
   });
 

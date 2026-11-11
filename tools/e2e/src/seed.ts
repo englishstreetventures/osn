@@ -26,7 +26,14 @@ import { applySchema as applyOsnSchema } from "@osn/db/testing";
 import { applySchema as applyPulseSchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { CIRE_OIDC, CLOCK_T0, MUSUBI_ORG, PULSE_OIDC, RECOVERY_PERSON, THIRD_PARTY_OIDC } from "./config";
+import {
+  CIRE_OIDC,
+  CLOCK_T0,
+  MUSUBI_ORG,
+  PULSE_OIDC,
+  RECOVERY_PERSON,
+  THIRD_PARTY_OIDC,
+} from "./config";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
