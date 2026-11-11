@@ -27,21 +27,15 @@ import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
-import {
-  PAGES_PROJECTS,
-  productionHost,
-  SITE_BUILDS,
-  type SiteSurface,
-} from "../../shared/infra/src/production-sites";
+import { SITE_BUILDS, type SiteSurface } from "../../shared/infra/src/production-sites";
 import {
   PRODUCTION_STACKS,
   PRODUCTION_SURFACES,
@@ -1182,7 +1176,6 @@ describe("production-release.yml", () => {
         ...PRODUCTION_SURFACES.map((s) => s.key),
         ...PRODUCTION_STACKS.map((s) => `stack_${s.key}`),
         "any",
-        "any_site",
         "any_stack",
       ].toSorted(),
     );
@@ -1334,8 +1327,8 @@ const planJob = production.jobs["alchemy-plan"]!;
 
 /**
  * The production build of each site, with exactly the values it bakes in:
- * the same hosts each Pages job built with before, and musubi landing's on
- * www.musubi.social with the app on musubi.social.
+ * today's production hosts, and musubi landing's on www.musubi.social with
+ * the app on musubi.social.
  */
 const PRODUCTION_BUILDS: Readonly<Partial<Record<SiteSurface, Record<string, string>>>> = {
   cire_host: {
@@ -1371,21 +1364,19 @@ describe("PW4: the sites job builds each production site once", () => {
   test("needs the plan alone, so it runs beside build, runs when a site build is needed, restores no turbo cache, and holds no Environment or secret", () => {
     expect(needsOf(sitesJob)).toEqual(["plan"]);
     expect(stepsOf(sitesJob).filter((step) => step.with?.path === ".turbo")).toEqual([]);
-    expect(sitesJob.if).toBe("needs.plan.outputs.any_site == 'true'");
+    expect(sitesJob.if).toBe("needs.plan.outputs.any_stack == 'true'");
     expect(environmentOf(sitesJob)).toBeUndefined();
     expect(JSON.stringify(sitesJob)).not.toContain("secrets.");
   });
 
   test.each(sites.map((site) => [site] as const))(
-    "%s: one build with its production values, when its stack or its own Pages job ships",
+    "%s: one build with its production values, when its stack ships",
     (site) => {
       const pkg = SITE_BUILDS[site].package;
       const builds = buildsOf(sitesJob).filter((step) => BUILD.exec(step.run ?? "")?.[1] === pkg);
       expect(builds).toHaveLength(1);
       expect(builds[0]?.env).toEqual(PRODUCTION_BUILDS[site]);
-      expect(builds[0]?.if).toBe(
-        `needs.plan.outputs.stack_${surface(site).stack} == 'true' || needs.plan.outputs.${site} == 'true'`,
-      );
+      expect(builds[0]?.if).toBe(`needs.plan.outputs.stack_${surface(site).stack} == 'true'`);
     },
   );
 
@@ -1415,54 +1406,6 @@ describe("PW4: the sites job builds each production site once", () => {
     expect(require).toBeLessThan(social);
     expect(runStep(steps[require]!, { VITE_TURNSTILE_SITEKEY: "" }).exitCode).not.toBe(0);
     expect(runStep(steps[require]!, { VITE_TURNSTILE_SITEKEY: "0x4AAA" }).exitCode).toBe(0);
-  });
-});
-
-describe("PW5: a staged site's Pages job deploys the sites job's build", () => {
-  const pagesSurfaces = ownJobSurfaces.filter(stackDeployed);
-
-  test.each(pagesSurfaces.map((s) => [s.key, s] as const))(
-    "%s: fetches the build, builds nothing, and deploys it to its own Pages project with the pinned Wrangler",
-    (key, s) => {
-      const job = production.jobs[s.production.id]!;
-      const steps = stepsOf(job);
-      expect(buildsOf(job)).toEqual([]);
-      const fetchAt = steps.findIndex((step) => step.uses === "actions/download-artifact@v4");
-      expect(steps[fetchAt]?.with).toEqual({
-        name: "production-sites",
-        path: "${{ runner.temp }}/production-sites",
-      });
-      const install = steps.findIndex((step) => /\bbun install\b/.test(step.run ?? ""));
-      // The root's tree, which pins Wrangler, and nothing else.
-      expect(steps[install]?.run).toBe("bun install --frozen-lockfile --filter osn");
-      const deploys = steps.filter((step) => /\bwrangler pages deploy\b/.test(step.run ?? ""));
-      expect(deploys).toHaveLength(1);
-      expect(deploys[0]?.run).toStartWith(
-        `bunx wrangler pages deploy dist --project-name ${PAGES_PROJECTS[key as SiteSurface]}`,
-      );
-      expect(deploys[0]?.["working-directory"]).toBe(
-        SITE_BUILDS[key as SiteSurface].directory.replace(/\/dist$/, ""),
-      );
-      expect(steps.indexOf(deploys[0]!)).toBeGreaterThan(Math.max(fetchAt, install));
-    },
-  );
-
-  test("PW12: no Pages job deploys a site whose Worker serves its host", () => {
-    const projects = Object.values(production.jobs)
-      .flatMap((job) => stepsOf(job))
-      .flatMap((step) => {
-        const match = /wrangler pages deploy \S+ --project-name (\S+)/.exec(step.run ?? "");
-        return match === null ? [] : [match[1] ?? ""];
-      });
-    expect(projects.toSorted()).toEqual(
-      pagesSurfaces.map((s) => PAGES_PROJECTS[s.key as SiteSurface] ?? "").toSorted(),
-    );
-    for (const s of recordSurfaces) {
-      const project = PAGES_PROJECTS[s.key as SiteSurface];
-      expect({ key: s.key, deployed: project !== undefined && projects.includes(project) }).toEqual(
-        { key: s.key, deployed: false },
-      );
-    }
   });
 });
 
@@ -1643,7 +1586,6 @@ describe("PW1: one production job per stack with a production deploy", () => {
         "guard",
         "deploy",
         "deployments",
-        "budgets",
         ...sites.map((site) => `smoke_${site}`),
       ].map((id) => stepIndex(job, id));
       expect(order.every((index) => index > -1)).toBe(true);
@@ -1664,13 +1606,12 @@ describe("PW1: one production job per stack with a production deploy", () => {
         expect(smoke?.run).toBe(`bun run scripts/smoke-check.ts ${site} production`);
         expect(smoke?.if).toBe(ON_DEPLOY);
         expect(smoke?.["continue-on-error"]).toBe(true);
-        // Room for the longest budget, the rollback and its re-check
+        // Room for the check, the rollback and its re-check
         // (scripts/tests/smoke-check.test.ts, SB4).
-        expect(smoke?.["timeout-minutes"]).toBe(7);
+        expect(smoke?.["timeout-minutes"]).toBe(5);
         expect(smoke?.env).toEqual({
           SMOKE_ORIGIN: `\${{ steps.hosts.outputs.${site}_origin }}`,
           SMOKE_DEPLOYMENT: `\${{ steps.deployments.outputs.${site}_deployment }}`,
-          SMOKE_BUDGET_MS: `\${{ steps.budgets.outputs.${site}_budget_ms }}`,
           ...PRODUCTION_CREDENTIALS,
         });
         expect(productionSiteTarget(site)).toBeDefined();
@@ -1694,124 +1635,6 @@ describe("PW1: one production job per stack with a production deploy", () => {
       });
     },
   );
-});
-
-describe("PW13: a site's smoke check waits longer only when the approved plan gives it a host that is not a production host", () => {
-  /**
-   * Runs a stack job's budgets step as written, with real bun from the
-   * repository root, over `domains` as the approved plan's domain changes;
-   * returns what each site's smoke step passes as SMOKE_BUDGET_MS once
-   * GitHub expands it ("" for an output nobody wrote).
-   */
-  const budgetsFor = (key: StackKey, domains: readonly unknown[]): Record<string, string> => {
-    const job = productionStackJob(key);
-    const dir = mkdtempSync(join(tmpdir(), "smoke-budgets-step-"));
-    mkdirSync(join(dir, "approved"));
-    const record = { stack: key, plan: "changes", counts: { update: 1 }, resources: [] };
-    writeFileSync(
-      join(dir, "approved", `${key}.json`),
-      JSON.stringify({ ...record, bindings: [], domains }, null, 2),
-    );
-    const output = join(dir, "github-output");
-    writeFileSync(output, "");
-    const result = Bun.spawnSync(
-      ["bash", "--noprofile", "--norc", "-e", "-c", stepById(job, "budgets")?.run ?? "exit 9"],
-      {
-        cwd: root,
-        env: {
-          PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
-          RUNNER_TEMP: dir,
-          GITHUB_OUTPUT: output,
-        },
-      },
-    );
-    expect(result.stderr.toString()).toBe("");
-    expect(result.exitCode).toBe(0);
-    const written = new Map(
-      readFileSync(output, "utf8")
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
-    );
-    return Object.fromEntries(
-      productionSitesOf(key).map((site) => {
-        const read = stepById(job, `smoke_${site}`)?.env?.SMOKE_BUDGET_MS ?? "";
-        const name = /^\$\{\{ steps\.budgets\.outputs\.([a-z_]+) \}\}$/.exec(read)?.[1];
-        return [site, name === undefined ? `unreadable: ${read}` : (written.get(name) ?? "")];
-      }),
-    );
-  };
-  const newHost = (site: SiteSurface) => `next-${site.replace("_", "-")}.example.test`;
-  const each = (key: StackKey, value: (site: SiteSurface) => string) =>
-    Object.fromEntries(productionSitesOf(key).map((site) => [site, value(site)]));
-
-  test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
-    "%s: the step reads its own stack's approved plan after the deploy, and never fails the job or blocks the deploy",
-    (key) => {
-      const job = productionStackJob(key);
-      const step = stepById(job, "budgets");
-      expect(step?.run).toBe(
-        `bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/${key}.json"`,
-      );
-      expect(step?.if).toBe(ON_DEPLOY);
-      expect(step?.["continue-on-error"]).toBe(true);
-      expect(step?.env).toBeUndefined();
-      expect(step?.["working-directory"]).toBeUndefined();
-      expect(stepIndex(job, "budgets")).toBeGreaterThan(stepIndex(job, "deploy"));
-      expect(stepIndex(job, "budgets")).toBeLessThan(
-        Math.min(...productionSitesOf(key).map((site) => stepIndex(job, `smoke_${site}`))),
-      );
-    },
-  );
-
-  test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
-    "%s: 240 s for the one site given a new spare host, whichever it is; none for a host given up, a production host, or no change",
-    (key) => {
-      const sites = productionSitesOf(key);
-      expect(sites.length).toBeGreaterThan(1);
-      for (const site of sites) {
-        const domains = sites.map((other) =>
-          other === site
-            ? { site, added: [newHost(site)], removed: [`old.${newHost(site)}`] }
-            : { site: other, added: [], removed: [newHost(other)] },
-        );
-        expect(budgetsFor(key, domains)).toEqual(
-          each(key, (other) => (other === site ? "240000" : "")),
-        );
-      }
-      // A production host is covered by the zone's own certificate: its
-      // check keeps the minute.
-      const attached = sites.map((site) => ({
-        site,
-        added: [productionHost(site)],
-        removed: [newHost(site)],
-      }));
-      expect(budgetsFor(key, attached)).toEqual(each(key, () => ""));
-      expect(budgetsFor(key, [])).toEqual(each(key, () => ""));
-    },
-  );
-
-  test("no other smoke check, in any workflow, is given a budget", () => {
-    const directory = join(root, ".github", "workflows");
-    const named: string[] = [];
-    for (const file of readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))) {
-      const workflow = load(join(".github", "workflows", file));
-      if (workflow.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file}`);
-      for (const [id, job] of Object.entries(workflow.jobs ?? {})) {
-        if (job.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file} ${id}`);
-        for (const step of stepsOf(job)) {
-          if (step.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file} ${id} ${step.id}`);
-        }
-      }
-    }
-    expect(named.toSorted()).toEqual(
-      PRODUCTION_STACKS.flatMap((s) =>
-        productionSitesOf(s.key).map(
-          (site) => `production-release.yml ${s.production.id} smoke_${site}`,
-        ),
-      ).toSorted(),
-    );
-  });
 });
 
 describe("PW6: one record job per site its Worker serves", () => {
@@ -1842,13 +1665,9 @@ describe("PW-A: a job that holds a credential lets in only the site builds of th
     ),
   );
 
-  test("every job that fetches the builds: alchemy-plan, the stack jobs and any Pages job", () => {
+  test("every job that fetches the builds: alchemy-plan and the stack jobs", () => {
     expect(downloads.map(({ id }) => id).toSorted()).toEqual(
-      [
-        "alchemy-plan",
-        ...PRODUCTION_STACKS.map((s) => s.production.id),
-        ...ownJobSurfaces.filter(stackDeployed).map((s) => s.production.id),
-      ].toSorted(),
+      ["alchemy-plan", ...PRODUCTION_STACKS.map((s) => s.production.id)].toSorted(),
     );
   });
 
@@ -1871,33 +1690,12 @@ describe("PW-A: a job that holds a credential lets in only the site builds of th
 describe("PW-D: a job that holds a credential and installs a narrower tree than the sites job restores no dependency cache", () => {
   // Jobs holding no secret write the shared cache; a narrower tree would
   // take from it packages its own install never fetched.
-  const narrow = [
-    "alchemy-plan",
-    ...PRODUCTION_STACKS.map((s) => s.production.id),
-    ...ownJobSurfaces.filter(stackDeployed).map((s) => s.production.id),
-  ];
+  const narrow = ["alchemy-plan", ...PRODUCTION_STACKS.map((s) => s.production.id)];
 
   test.each(narrow.map((id) => [id] as const))("%s", (id) => {
     const job = production.jobs[id]!;
     expect(stepsOf(job).filter((step) => step.with?.path === "~/.bun/install/cache")).toEqual([]);
   });
-});
-
-describe("PW-F: a Pages job's credentials reach its deploy alone", () => {
-  test.each(ownJobSurfaces.filter(stackDeployed).map((s) => [s.key, s] as const))(
-    "%s: no job-level env; only the deploy step holds the pair",
-    (_, s) => {
-      const job = production.jobs[s.production.id]!;
-      expect(job.env).toBeUndefined();
-      const holding = stepsOf(job).filter((step) => JSON.stringify(step).includes("secrets."));
-      expect(
-        holding.map((step) =>
-          step.run?.startsWith("bunx wrangler pages deploy ") === true ? "deploy" : step.run,
-        ),
-      ).toEqual(["deploy"]);
-      for (const step of holding) expect(step.env).toEqual(PRODUCTION_CREDENTIALS);
-    },
-  );
 });
 
 interface Manifest {
@@ -2089,15 +1887,11 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
   });
 });
 
-/**
- * The narrower installs only production-release.yml runs: an Alchemy job's
- * own stack trees, and a Pages job's root tree, which pins Wrangler.
- */
+/** The narrower installs only production-release.yml runs: an Alchemy job's own stack trees. */
 const PRODUCTION_ONLY_INSTALLS = [
   "bun install --frozen-lockfile --filter @cire/infra --filter @musubi/infra",
   "bun install --frozen-lockfile --filter @cire/infra",
   "bun install --frozen-lockfile --filter @musubi/infra",
-  "bun install --frozen-lockfile --filter osn",
 ];
 
 describe("installs", () => {

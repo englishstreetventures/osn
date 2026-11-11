@@ -13,10 +13,16 @@
  * A deploy reports success when the upload succeeds, not when the Worker can
  * serve: a missing secret makes osn-api answer 503 on every route while its
  * job goes green. This asks the Worker's own hosts (SMOKE_TARGETS) what a
- * working one answers, every 10 seconds for a minute (or the longer budget
- * SMOKE_BUDGET_MS grants), and calls the deploy healthy once every probe
- * passes in two rounds in a row. On dev every surface is a Worker, the sites
- * included, and each is checked.
+ * working one answers, every 10 seconds for a minute, and calls the deploy
+ * healthy once every probe passes in two rounds in a row. On dev every
+ * surface is a Worker, the sites included, and each is checked.
+ *
+ * A production site whose host PRODUCTION_HOST_HOLDS holds off
+ * (shared/infra/src/production-sites.ts) has no host to ask: its stack
+ * declares the Worker with no custom domain. Its check reads the Worker's
+ * custom domains instead, tried as a deployments read is, and passes only
+ * when the held host is not among them. It probes nothing and rolls nothing
+ * back.
  *
  * Two rounds, because no answer here names the version that gave it: a request
  * made the moment the deploy returns can still reach the version before it.
@@ -93,7 +99,7 @@
  *                       Unset, as in a hand run, the newest deployment at the
  *                       first read is taken to be this job's.
  * A Worker a stack deploys (every dev surface, and each production site in
- * SMOKE_TARGETS' `productionSite`), each required:
+ * SMOKE_TARGETS' `productionSite` but a held one), each required:
  *   SMOKE_ORIGIN        the https:// origin of the surface's host, with no
  *                       path, query or trailing slash, from the stack job's
  *                       dev-hosts step on dev and its production-hosts step on
@@ -106,20 +112,19 @@
  *                       when it made none, or `unknown` when it could not
  *                       read the Worker (then the check probes and never rolls
  *                       back).
- * Optional, any tier:
- *   SMOKE_BUDGET_MS     how long to keep asking, in milliseconds, from 60000
- *                       to TIMING.maxBudgetMs (240000); unset or empty, a
- *                       minute. The production stack job sets it, from
- *                       scripts/smoke-budgets.ts, for a site whose release
- *                       attaches a new host. Any other value is a usage
- *                       error.
  *
- * Exit codes: 0 healthy; 1 unhealthy; 2 a usage error, before any request —
+ * Exit codes: 0 healthy, or held and off its Worker; 1 unhealthy, or held and
+ * still on its Worker or unread; 2 a usage error, before any request —
  * nothing is rolled back.
  */
 
 import { appendFileSync, readFileSync } from "node:fs";
 
+import {
+  HOST_HOLDS_FILE,
+  type HostHold,
+  PRODUCTION_HOST_HOLDS,
+} from "../shared/infra/src/production-sites";
 import type { SurfaceKey } from "./deploy-surfaces";
 
 // ── what each Worker answers ────────────────────────────────────────────────
@@ -689,15 +694,12 @@ export async function probeOnce(
 
 /**
  * How long the check keeps asking, how often, and how long one request may
- * take. `maxBudgetMs` is the most SMOKE_BUDGET_MS may set, and what
- * scripts/smoke-budgets.ts sets for a site whose release attaches a new host:
- * that host's first certificate takes about two minutes. With every request
- * at its timeout, a check at that budget, its rollback and the re-check end
- * within 366 s, inside the seven minutes each step that sets it allows.
+ * take. With every request at its timeout, a check, its rollback and the
+ * re-check end within 186 s, inside the five minutes each production site's
+ * smoke step allows (SB4 in scripts/tests/smoke-check.test.ts).
  */
 export const TIMING = {
   budgetMs: 60_000,
-  maxBudgetMs: 240_000,
   intervalMs: 10_000,
   requestMs: 10_000,
 } as const;
@@ -706,6 +708,9 @@ const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 
 /** Cloudflare's refusal to restore a version whose secrets have changed since. */
 export const SECRETS_CHANGED = 10_220;
+
+/** Cloudflare's answer for a Worker that does not exist on the account. */
+export const NO_SUCH_WORKER = 10_007;
 
 /** One entry of a Worker's deployment history. */
 export interface Deployment {
@@ -855,6 +860,75 @@ export async function readDeployments(
     ok: true,
     result: deployments.toSorted((a, b) => b.created_on.localeCompare(a.created_on)),
   };
+}
+
+/** A Worker's custom domains, as `workerDomains` read them. */
+export type WorkerDomains =
+  | { readonly kind: "found"; readonly hosts: readonly string[] }
+  | { readonly kind: "failed"; readonly reason: string };
+
+/**
+ * The custom domains `worker` holds now, sorted: none for a Worker that does
+ * not exist yet. A read is tried again as a deployments read is. The reason
+ * a read failed names the status and Cloudflare's error codes, never its
+ * message.
+ */
+export async function workerDomains(api: Cloudflare, worker: string): Promise<WorkerDomains> {
+  const url = `${CLOUDFLARE_API}/accounts/${api.account}/workers/domains?service=${encodeURIComponent(worker)}`;
+  const attempt = async (): Promise<{
+    readonly answer: WorkerDomains;
+    readonly transient: boolean;
+  }> => {
+    try {
+      const response = await api.fetch(url, {
+        headers: { authorization: `Bearer ${api.token}` },
+        signal: AbortSignal.timeout(TIMING.requestMs),
+      });
+      const envelope = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        errors?: readonly { code?: number; message?: string }[];
+        result?: unknown;
+      };
+      const codes = (envelope.errors ?? []).flatMap((e) =>
+        typeof e.code === "number" ? [e.code] : [],
+      );
+      if (response.ok && envelope.success === true && Array.isArray(envelope.result)) {
+        const hosts = (envelope.result as { hostname?: unknown; service?: unknown }[]).flatMap(
+          (domain) =>
+            domain.service === worker && typeof domain.hostname === "string"
+              ? [domain.hostname]
+              : [],
+        );
+        return {
+          answer: { kind: "found", hosts: [...new Set(hosts)].toSorted() },
+          transient: false,
+        };
+      }
+      if (codes.includes(NO_SUCH_WORKER)) {
+        return { answer: { kind: "found", hosts: [] }, transient: false };
+      }
+      return {
+        answer: {
+          kind: "failed",
+          reason: `Cloudflare answered ${response.status}${codes.length > 0 ? ` (codes ${codes.join(", ")})` : ""}`,
+        },
+        transient: response.status === 429 || response.status >= 500,
+      };
+    } catch {
+      return {
+        answer: { kind: "failed", reason: "no answer from the Cloudflare API" },
+        transient: true,
+      };
+    }
+  };
+  const retry = async (delays: readonly number[]): Promise<WorkerDomains> => {
+    const { answer, transient } = await attempt();
+    const [delay, ...rest] = delays;
+    if (!transient || delay === undefined) return answer;
+    await api.sleep(delay);
+    return retry(rest);
+  };
+  return retry(READ_RETRY_DELAYS_MS);
 }
 
 /**
@@ -1059,6 +1133,53 @@ export interface SmokeCheckInput {
   readonly now: () => number;
   readonly sleep: (ms: number) => Promise<void>;
   readonly out: (text: string) => void;
+  /** The host holds, PRODUCTION_HOST_HOLDS unless a test passes its own. */
+  readonly holds?: readonly HostHold[];
+}
+
+/**
+ * The check of a production site whose host `hold` holds off its Worker:
+ * there is no host to probe, so it reads the Worker's custom domains and
+ * passes only when the held host is not among them. Never rolls back.
+ */
+async function checkHeld(held: {
+  readonly surface: string;
+  readonly worker: string;
+  readonly hold: HostHold;
+  readonly input: SmokeCheckInput;
+}): Promise<number> {
+  const { surface, worker, hold, input } = held;
+  const label = `${surface} (production)`;
+  const holding = `${hold.host} is held off ${worker} by PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE}`;
+  const summary = (line: string) => {
+    if (input.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(input.env.GITHUB_STEP_SUMMARY, `- **${label}**: ${line}\n`);
+    }
+  };
+  const fail = (message: string): number => {
+    input.out(annotation("error", `${label}: ${message}`));
+    summary(message);
+    return 1;
+  };
+  const api = cloudflareCredentials(input.env, input.fetch, input.sleep);
+  if (typeof api === "string") {
+    return fail(
+      `${holding}, but ${api}, so the check cannot read that the Worker serves it no more.`,
+    );
+  }
+  const domains = await workerDomains(api, worker);
+  if (domains.kind === "failed") {
+    return fail(`${holding}, but its custom domains could not be read: ${domains.reason}.`);
+  }
+  if (domains.hosts.includes(hold.host)) {
+    return fail(
+      `${worker} still serves ${hold.host}, which PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE} holds off: take it off the Worker in the Cloudflare dashboard. Nothing was rolled back.`,
+    );
+  }
+  const line = `${holding} (${hold.reason}), and the Worker serves no such host, so there is nothing to probe.`;
+  input.out(annotation("notice", `${label}: ${line}`));
+  summary(line);
+  return 0;
 }
 
 const isWorkerSurface = (value: string): value is WorkerSurface =>
@@ -1101,19 +1222,14 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   }
   if (tier !== "dev" && tier !== "production")
     return usage(`tier must be dev or production, not '${tier}'`);
+  const budgetMs = TIMING.budgetMs;
 
-  // A longer wait is the stack job's to grant, within bounds: a wait past
-  // the step's time limit would cut off a rollback.
-  const budgetValue = env.SMOKE_BUDGET_MS ?? "";
-  let budgetMs: number = TIMING.budgetMs;
-  if (budgetValue !== "") {
-    const asked = /^[1-9][0-9]*$/.test(budgetValue) ? Number(budgetValue) : Number.NaN;
-    if (Number.isNaN(asked) || asked < TIMING.budgetMs || asked > TIMING.maxBudgetMs) {
-      return usage(
-        `SMOKE_BUDGET_MS must be a whole number of milliseconds from ${TIMING.budgetMs} to ${TIMING.maxBudgetMs}, or empty for ${TIMING.budgetMs}, not '${oneLine(budgetValue, 100)}'`,
-      );
-    }
-    budgetMs = asked;
+  const site = tier === "production" ? productionSiteTarget(surface) : undefined;
+  const holds = input.holds ?? PRODUCTION_HOST_HOLDS;
+  const hold =
+    site === undefined ? undefined : holds.find((candidate) => candidate.site === surface);
+  if (site !== undefined && hold !== undefined) {
+    return checkHeld({ surface, worker: site.worker, hold, input });
   }
 
   // The origins on dev, and the deployment the stack deploy made, are the
@@ -1143,10 +1259,9 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
 
   let checked: Checked;
   let deployment: string | undefined;
-  const site = tier === "production" ? productionSiteTarget(surface) : undefined;
   if (site !== undefined) {
-    // A site Worker the production stack deployed, on the host its mode
-    // gives it; the stack job passes that origin and what its compare found.
+    // A site Worker the production stack deployed, on its production host;
+    // the stack job passes that origin and what its compare found.
     const siteOrigin = origin("SMOKE_ORIGIN");
     if (siteOrigin === undefined) return badOrigin("SMOKE_ORIGIN");
     const found = readDeployment();
