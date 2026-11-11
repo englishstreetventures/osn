@@ -801,12 +801,7 @@ export async function signInToCireHost(flow: Flow, page: Page, arriveAt?: string
  * `tests/flows.test.ts` counts the calls.
  */
 export async function signInToMusubiAsDev(flow: Flow, page: Page, path: string): Promise<string> {
-  await flow.step("owner: get an OSN session from /dev/login", async () => {
-    const url = `${ORIGINS.osnApi}/dev/login/form`;
-    const response = await page.context().request.post(url, { form: { secret: DEV_LOGIN_SECRET } });
-    flow.recordRequest("POST", url, response.status());
-    expect(response.status(), "dev login").toBe(200);
-  });
+  await devLogin(flow, page);
 
   return flow.step("owner: open Musubi signed in", async () => {
     const tokenUrl = `${ORIGINS.osnApi}/token`;
@@ -819,6 +814,59 @@ export async function signInToMusubiAsDev(flow: Flow, page: Page, path: string):
     await expect(page.getByRole("button", { name: `@${MUSUBI_ORG.owner.handle}` })).toBeVisible();
     expect(body.access_token, "access token from POST /token").toBeTruthy();
     return body.access_token ?? "";
+  });
+}
+
+/**
+ * Signs `page`'s context in as the dev profile, as `signInToMusubiAsDev` does,
+ * but never loads Musubi's app: `page` opens an empty document at Musubi's
+ * origin and makes the app's credentialed `POST /token` itself. Resolves to the
+ * access token, for API calls the flow makes as the dev profile; `page` stays
+ * at Musubi's origin, for the passkey ceremonies.
+ *
+ * Musubi lists the account's profiles on every signed-in page load, and
+ * osn-api takes 10 lists a minute per address, one window shared by the whole
+ * run; a flow that drives osn-api alone spends none of them this way.
+ *
+ * Each call spends one `/dev/login`, counted with `signInToMusubiAsDev`'s in
+ * `tests/flows.test.ts`.
+ */
+export async function signInToMusubiAsDevWithoutApp(flow: Flow, page: Page): Promise<string> {
+  await devLogin(flow, page);
+
+  return flow.step("owner: take a token at Musubi's origin, without the app", async () => {
+    const empty = `${ORIGINS.musubi}/e2e-empty`;
+    await page.route(empty, (route) =>
+      route.fulfill({ contentType: "text/html", body: "<!doctype html><title>empty</title>" }),
+    );
+    // A document Playwright answers has no address of its own, so Chromium
+    // treats it as public and refuses its calls to osn-api on loopback unless
+    // the origin holds local network access. Musubi's own pages come from
+    // loopback and need no grant.
+    await page.context().grantPermissions(["local-network-access"], { origin: ORIGINS.musubi });
+    await page.goto(empty);
+    const token = await page.evaluate(async (api) => {
+      const response = await fetch(`${api}/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        credentials: "include",
+        body: new URLSearchParams({ grant_type: "refresh_token" }).toString(),
+      });
+      if (!response.ok) return "";
+      return ((await response.json()) as { access_token?: string }).access_token ?? "";
+    }, ORIGINS.osnApi);
+    expect(token, "access token from POST /token").toBeTruthy();
+    return token;
+  });
+}
+
+/** Leaves an OSN session for the dev profile in `page`'s context's jar. */
+async function devLogin(flow: Flow, page: Page): Promise<void> {
+  await flow.step("owner: get an OSN session from /dev/login", async () => {
+    const url = `${ORIGINS.osnApi}/dev/login/form`;
+    const response = await page.context().request.post(url, { form: { secret: DEV_LOGIN_SECRET } });
+    flow.recordRequest("POST", url, response.status());
+    expect(response.status(), "dev login").toBe(200);
   });
 }
 

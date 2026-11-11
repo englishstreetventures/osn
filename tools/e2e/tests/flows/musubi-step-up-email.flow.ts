@@ -6,9 +6,12 @@
  * account holds the new address.
  *
  * No app hosts an export button or `ChangeEmailForm` yet, so the tab that
- * began is driven through osn-api with the token Musubi holds, as those views
- * call it; each link is opened and confirmed in a second browser on Musubi's
- * `/verify` page, as a person does. A step-up link's reader types the number
+ * began is driven through osn-api, as those views call it, with the token
+ * Musubi's credentialed `POST /token` hands over. The tab never loads Musubi's
+ * app: it waits at Musubi's origin on an empty page, for the passkey
+ * ceremonies, and lists no profiles, since osn-api takes 10 lists a minute per
+ * address across the whole run. Each link is opened and confirmed in a second
+ * browser on Musubi's `/verify` page, as a person does. A step-up link's reader types the number
  * (the link goes to the account's own address at whoever's asking); an email
  * change's reader picks it.
  *
@@ -26,7 +29,7 @@ import {
   linkFor,
   mailFor,
   queryOne,
-  signInToMusubiAsDev,
+  signInToMusubiAsDevWithoutApp,
   test,
   typeNumberOnPage,
 } from "../support/fixtures";
@@ -49,12 +52,7 @@ interface Begun {
 
 test("musubi-step-up-email", async ({ page, browser, flow }) => {
   await addVirtualAuthenticator(page);
-  // As in `musubi-passkey`: the virtual authenticator would answer an
-  // autofill request on its own, which a person never does.
-  await page.addInitScript(() => {
-    PublicKeyCredential.isConditionalMediationAvailable = () => Promise.resolve(false);
-  });
-  const token = await signInToMusubiAsDev(flow, page, "/settings");
+  const token = await signInToMusubiAsDevWithoutApp(flow, page);
 
   /** The signed-in tab's call to osn-api, with Musubi's token and cookie. */
   const call = async (path: string, data: unknown) => {
@@ -282,6 +280,7 @@ test("musubi-step-up-email", async ({ page, browser, flow }) => {
   });
   flow.check("the change answers the new address", NEW_EMAIL, moved.email);
   flow.check("the account holds the new address", NEW_EMAIL, accountEmail());
+  flow.check("the flow lists no profiles", 0, flow.count("GET osn-api /profiles/list "));
 });
 
 /** The dev account's address, read from osn-api's database. */
