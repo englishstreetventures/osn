@@ -442,7 +442,13 @@ function mountDrivenCard() {
             // The household's claims are a read of their own, answered later.
             await Promise.resolve();
             if (answer.landed) {
-              setClaim({ itemId: gift.id, status: "reserved", ...body });
+              setClaim({
+                itemId: gift.id,
+                status: "reserved",
+                quantity: body.quantity ?? 1,
+                note: body.note ?? null,
+                displayName: body.displayName ?? null,
+              });
             }
             return answer.landed;
           }}
