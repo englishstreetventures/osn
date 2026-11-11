@@ -573,6 +573,18 @@ Two things about the box that clips:
 *Measured 2026-11-11 — Chromium, `cire/invites`' RSVP sheet at 1280px, the
 dietary section's transitions paused at a tenth of their duration*
 
+The room reaches 4px past the content sideways as well, shut or open. A
+`Reveal` flush with the inline end of a scroll box that has no inline padding
+makes that box scroll 4px sideways: a "me" message's "Sent" line in a
+`MessageThread` placed straight in such a box does. Put at least 4px of inline
+padding between them. Every thread today has more: the portal's `page-frame`
+gives 20px or more, and the vendor's `Card` 20px.
+
+*Measured 2026-11-11 — Chromium, a `MessageThread` of two messages in a 360px
+`overflow-y: auto` box with no padding: `scrollWidth` 364 against `clientWidth`
+360, the "me" row's shut `Reveal` wrapper ending at 364. Open, the wrapper
+keeps the same `-m-1 p-1`, so its edges do not move*
+
 `Reveal` opens on the app's `--dur-base` unless the caller passes
 `pace="slow"`, which the guest site does ([[cire-invite-designs#Corners, labels and motion]]).
 

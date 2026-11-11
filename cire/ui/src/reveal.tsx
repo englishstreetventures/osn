@@ -51,6 +51,8 @@ import { createMemo, Show, type JSX } from "solid-js";
  * whole ring. That room overlaps 4px of each neighbour, and while the wrapper
  * is shut or fading in it paints above them, so the wrapper never takes
  * pointer events: only the row inside it, which sits where the content does.
+ * The room also reaches past the content sideways, so a scroll box with less
+ * than 4px of inline padding round a `Reveal` at its edge scrolls by it.
  */
 export interface RevealProps {
   /** Open when true. Also gates whether the children are in the document. */
