@@ -14,7 +14,7 @@ design skill, because a skill left to itself picks its own fonts and colours.
 |---|---|
 | `cire/host` | `cire/host/DESIGN.md`, `wiki/cire/cire-host-portal-layout.md` |
 | `cire/vendor` | `cire/vendor/DESIGN.md`, which records only the deltas — then `cire/host/DESIGN.md` |
-| `cire/invites`, `cire/invite-designs`, `cire/theme` | `wiki/cire/cire-invite-designs.md`; in `wiki/cire/cire-invite-builder.md` only §Theme, §Guest rendering (SSR) and §Organiser UI — the rest of that page is storage, API and compliance |
+| `cire/invites`, `cire/invite-designs`, `cire/theme` | `cire/invites/DESIGN.md`, then `wiki/cire/cire-invite-designs.md`; in `wiki/cire/cire-invite-builder.md` only §Theme, §Guest rendering (SSR) and §Organiser UI — the rest of that page is storage, API and compliance |
 | `cire/landing` | `wiki/cire/cire-landing.md` |
 | `pulse/web` | `pulse/DESIGN.md` |
 | `pulse/landing` | `pulse/DESIGN.md`, `wiki/pulse/pulse-landing.md` |
