@@ -71,18 +71,25 @@ const checkoutWaiters = new WeakMap<Page, (sessionId: string) => void>();
  * step waiting for it. Installed once per page and never removed, since
  * removing a route mid-load strands the request it paused.
  */
-async function nextCheckout(page: Page): Promise<Promise<string>> {
-  if (!checkoutWaiters.has(page)) {
-    await page.route(`${STRIPE_CHECKOUT_HOST}/**`, async (route) => {
-      checkoutWaiters.get(page)?.(new URL(route.request().url()).pathname.split("/").pop() ?? "");
-      await route.fulfill({
-        contentType: "text/html",
-        body: "<!doctype html><title>Stripe Checkout stand-in</title><h1>Checkout</h1>",
-      });
+async function routeCheckout(page: Page): Promise<void> {
+  if (checkoutWaiters.has(page)) return;
+  checkoutWaiters.set(page, () => {});
+  await page.route(`${STRIPE_CHECKOUT_HOST}/**`, async (route) => {
+    checkoutWaiters.get(page)?.(new URL(route.request().url()).pathname.split("/").pop() ?? "");
+    await route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><title>Stripe Checkout stand-in</title><h1>Checkout</h1>",
     });
-  }
-  return new Promise<string>((resolveSession) => checkoutWaiters.set(page, resolveSession));
+  });
 }
+
+/**
+ * The id of the next Checkout session the page is sent to. Not `async`: an
+ * `async` function that returns this promise waits for it to settle, and it
+ * settles only once the page reaches Checkout.
+ */
+const nextCheckout = (page: Page): Promise<string> =>
+  new Promise<string>((resolveSession) => checkoutWaiters.set(page, resolveSession));
 
 /**
  * Opens the wedding's Upgrade dialog for Gold from a locked module on the
@@ -95,7 +102,8 @@ async function openCheckout(
   { weddingId, name }: { weddingId: string; name: string },
 ): Promise<{ sessionId: string; price: string; catalogue: number }> {
   return flow.step(`open a Gold checkout for ${weddingId}`, async () => {
-    const reached = await nextCheckout(page);
+    await routeCheckout(page);
+    const reached = nextCheckout(page);
     const catalogue = page.waitForResponse(
       (res) =>
         res.url() === `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/upgrade/catalogue`,
