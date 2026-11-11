@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { sessions } from "@osn/db/schema";
+import { sessions as sessionRows } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
 import { eq } from "drizzle-orm";
@@ -600,9 +600,9 @@ describe("account-wide deletes keep the caller's device across its own refresh",
             const { db } = yield* Db;
             const rows = yield* Effect.promise(() =>
               db
-                .select({ familyId: sessions.familyId })
-                .from(sessions)
-                .where(eq(sessions.id, hash)),
+                .select({ familyId: sessionRows.familyId })
+                .from(sessionRows)
+                .where(eq(sessionRows.id, hash)),
             );
             return yield* accountErasure.requestErasure({
               accountId: profile.accountId,
