@@ -1539,18 +1539,38 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "error": {
+                          "const": "email_change_held",
+                          "type": "string"
+                        },
+                        "holdEndsAt": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "error",
+                        "holdEndsAt"
+                      ],
+                      "type": "object"
                     },
-                    "message": {
-                      "type": "string"
+                    {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "type": "object"
+                  ]
                 }
               }
             },
