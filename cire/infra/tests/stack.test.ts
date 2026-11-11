@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import {
   PREBUILT_MODULE_RULES,
   PrebuiltSourceMapError,
-  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
   SiteBuildError,
   stageHosts,
@@ -613,11 +612,11 @@ describe("the cire stack on production", () => {
     });
   });
 
-  test("H7: the domains the plan guard reads are the ones the stack declares, at production's own holds", async () => {
+  test("H7: the domains the plan guard reads are the ones the stack declares with no holds passed, as the deploy runs it", async () => {
     const live = await evaluateCire({
       stage: "production",
       env: productionEnv(),
-      holds: PRODUCTION_HOST_HOLDS,
+      holds: "stack default",
     });
     expect(PRODUCTION_SITE_DOMAINS).toEqual(
       Object.fromEntries(

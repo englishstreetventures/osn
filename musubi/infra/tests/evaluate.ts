@@ -91,8 +91,9 @@ export function evaluateMusubi(input: {
   /**
    * Host holds in place of PRODUCTION_HOST_HOLDS; none unless given, so no
    * test reads the live list and an entry the owner adds fails none.
+   * `"stack default"` passes none, so the stack takes its own default.
    */
-  readonly holds?: readonly HostHold[];
+  readonly holds?: readonly HostHold[] | "stack default";
 }): Promise<Evaluation> {
   return evaluateStack({
     stage: input.stage,
@@ -107,7 +108,7 @@ export function evaluateMusubi(input: {
           generatedDir,
           workingDir,
           modes: input.modes,
-          holds: input.holds ?? [],
+          holds: input.holds === "stack default" ? undefined : (input.holds ?? []),
         }),
       ),
   });

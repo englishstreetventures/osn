@@ -1633,6 +1633,20 @@ describe("a production site held off its host", () => {
     expect(result.output).toContain("vendor.cireweddings.com");
     expect(result.output).toContain("PRODUCTION_HOST_HOLDS");
     expect(result.output).toContain("shared/infra/src/production-sites.ts");
+    expect(result.output).toContain("Serves nothing until the vendor export ships.");
+    // The step summary says the same.
+    const dir = await mkdtemp(join(tmpdir(), "smoke-held-"));
+    const summaryFile = join(dir, "summary.md");
+    const summarised = await smoke(
+      ["cire_vendor", "production"],
+      { [domainsUrl("cire-vendor")]: () => domainList("cire-vendor") },
+      { env: { ...env, GITHUB_STEP_SUMMARY: summaryFile }, holds: VENDOR_HELD },
+    );
+    expect(summarised.code).toBe(0);
+    expect(await readFile(summaryFile, "utf8")).toStartWith(
+      "- **cire_vendor (production)**: vendor.cireweddings.com is held off cire-vendor",
+    );
+    await rm(dir, { recursive: true, force: true });
     // It needs neither the origin nor the deployment.
     const bare = await smoke(
       ["cire_vendor", "production"],
@@ -1673,7 +1687,23 @@ describe("a production site held off its host", () => {
     expect(keyless.apiCalls).toEqual([]);
   });
 
-  test("H8: a hold on one site leaves every other site's check as it was", async () => {
+  test("H8c: a refused read of the domains names its status and codes, never Cloudflare's message, the token or the account", async () => {
+    const refused = await smoke(
+      ["cire_vendor", "production"],
+      {
+        [domainsUrl("cire-vendor")]: () =>
+          apiError(10_000, `Authentication error: token ${TOKEN} has no access to ${ACCOUNT}`, 403),
+      },
+      { env, holds: VENDOR_HELD },
+    );
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("Cloudflare answered 403 (codes 10000)");
+    expect(refused.output).not.toContain(TOKEN);
+    expect(refused.output).not.toContain(ACCOUNT);
+    expect(refused.output).not.toContain("Authentication error");
+  });
+
+  test("H8: a hold on one site leaves every other site's check, and the held site's dev check, as they were", async () => {
     const result = await smoke(
       ["cire_host", "production"],
       {},
@@ -1681,6 +1711,15 @@ describe("a production site held off its host", () => {
     );
     expect(result.code).toBe(2);
     expect(result.output).toContain("SMOKE_ORIGIN is not set");
+    // On dev the held site's Worker serves its dev host, so its check asks it.
+    const dev = await smoke(
+      ["cire_vendor", "dev"],
+      {},
+      { env: { SMOKE_DEPLOYMENT: DEP_THIS_JOB }, holds: VENDOR_HELD },
+    );
+    expect(dev.code).toBe(2);
+    expect(dev.output).toContain("SMOKE_ORIGIN is not set");
+    expect(dev.apiCalls).toEqual([]);
   });
 });
 
