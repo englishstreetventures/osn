@@ -698,6 +698,26 @@ trigger falls to `<body>`. A new menu is the shared `DropdownMenu` on its accent
 look; a new Kobalte popover takes `menu-pop` unless it belongs to a checklist
 row.
 
+**An icon's tooltip scales in after its wait, and only then.** When a mouse
+has rested on a control for the 300ms delay, `ActionTip`'s panel fades in and
+scales up from 0.96 (`tip-pop`, on the menus' `menu-pop-in` keyframes) from the
+side of the control it opened on (`--kb-popper-content-transform-origin`), as
+`@shared/ui`'s `Tooltip` beside it does. Keyboard focus, and the next tip in a
+run (one already showing, or one closed less than 300ms before), show the panel
+at once: a key press is never animated, and icons read one after another show
+each name in place. No exit: the layer unmounts the panel as it closes. It runs
+on `--dur-base` with `--ease-out`, 150ms at a desk; a touch never opens one.
+That is one rung slower than the comparison page's `--dur-fast`, by the owner's
+choice that these run "a tad slower to allow people to feel the animation"
+(2026-11-10, englishstreetventures/osn#2164), with the rung picked by eye on
+2026-11-11 from frames of both: on `--dur-fast` the panel is 87% opaque 30ms
+in, so no fade is seen. So it arrives a little slower than the shared
+`Tooltip` (120ms) and the collapsed rail's label (`--dur-fast`). Under reduced
+motion the global switch cuts it to nothing. `ActionTip.browser.test.tsx`
+holds it: a delayed open runs `menu-pop-in` from the panel's bottom edge, a
+keyboard open and the next tip in a run run nothing, and under reduced motion
+no frame is partway.
+
 **A disclosure grows open and closes at once.** As a `<details>` opens, its box
 grows from the summary row to its full height while the body drops 4px and
 fades in, all on `::details-content`; it closes instantly, because a fading
@@ -744,6 +764,27 @@ emulated reduced motion the full height on the first frame.
 run, and `@starting-style` gives the opening its from-state. A dialog or popover in
 the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 `overlay`, which is Chrome only, so `Modal` defers `close()` in script instead.
+
+**The unsaved-changes bar rises from the window's foot and goes at once.** The
+events and guests editors' bar, fixed to the foot of the window, mounts with
+the first edit of a run and rises from that edge by its own height
+(`bar-rise`: `translate: 0 100%` in `@starting-style`, with `translate`
+transitioned) on `--dur-slow` with `--ease-out`, 200ms at a desk and 320ms on
+touch. It leaves at once — on Save, Discard or an undo back to no changes —
+because it holds Undo, Discard and Save, and a bar sliding away would leave
+them focusable in a box that is going. The rung is one above the comparison
+page's `--dur-base`, by the owner's choice that these run a little slower so
+the motion is felt (2026-11-10, englishstreetventures/osn#2164), picked by eye
+on 2026-11-11: on `--dur-base` the curve covers 92% of the rise in its first
+60ms at a desk, and the bar reads as appearing rather than rising. The
+`translate` is on the fixed bar itself, never an ancestor, so the window stays
+its containing block. An engine without `@starting-style` (before Chrome 117,
+Safari 17.5, Firefox 129) shows the bar at rest at once; so does reduced
+motion, through the global switch. `tests/components/unsaved-bar.browser.test.tsx`
+reads both editors' bar frame by frame: drawn first below its place by no more
+than its height, rising over several frames and never sinking, at rest at the
+end, gone on the frame Discard runs, and under reduced motion on no frame
+partway.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately

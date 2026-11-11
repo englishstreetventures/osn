@@ -5,8 +5,8 @@
 /// <reference types="@testing-library/jest-dom/vitest" />
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -38,15 +38,19 @@ import { IconButton, TipLayer, TipNote } from "../../src/components/ActionTip";
  *    tab stop;
  * 10. a tap — whose focus arrives after the finger lifts — never shows one;
  * 11. a press before the delay cancels the pending open;
- * 12. Escape is left for whatever else listens: the layer never consumes it.
+ * 12. Escape is left for whatever else listens: the layer never consumes it;
+ * 13. an open after the pointer's delay pops in from the control's side, while
+ *     a keyboard open and the next tip in a run show at once, and under reduced
+ *     motion the delayed one is whole from its first frame.
  *
  * In the browser tier because what fails is real: pointer events, focus, the
  * stacking of a panel against a sticky bar, and where Kobalte's positioner puts
  * it.
  */
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await commands.emulateMedia({ reducedMotion: "no-preference" });
 });
 
 /** The one panel, if open. `aria-hidden`, so a role query would skip it. */
@@ -119,6 +123,40 @@ async function mount(extra?: () => unknown) {
 const SKIP_MS = 350;
 
 const control = (name: string) => screen.getByRole("button", { name });
+
+/** What a panel is drawn with as it mounts: the animations running on it, and
+ *  its ink. Read in the mutation that adds it, before any frame has passed. */
+interface Arrival {
+  panel: HTMLElement;
+  animations: string[];
+  opacity: number;
+}
+
+/** Resolves with the next panel the layer mounts, read as it arrives. */
+function nextArrival(): Promise<Arrival> {
+  return new Promise((resolve) => {
+    const watch = new MutationObserver(() => {
+      const shown = panel();
+      if (!shown) return;
+      watch.disconnect();
+      resolve({
+        panel: shown,
+        animations: shown.getAnimations().map((a) => (a as CSSAnimation).animationName),
+        opacity: Number(getComputedStyle(shown).opacity),
+      });
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+/** Slows the portal threefold, so an arrival spans enough frames to read. */
+function slowMotion() {
+  const root = document.documentElement.style;
+  root.setProperty("--motion-scale", "3");
+  onTestFinished(() => {
+    root.removeProperty("--motion-scale");
+  });
+}
 
 describe("the page's one tooltip", () => {
   it("opens on a mouse hover only after its delay", async () => {
@@ -342,5 +380,69 @@ describe("the page's one tooltip", () => {
     await userEvent.hover(word);
     const shown = await opened();
     expect(shown.textContent).toBe("A guest opened this invite");
+  });
+
+  it("pops in from its control after the pointer's delay, and at once by keyboard or in a run", async () => {
+    slowMotion();
+    await page.viewport(800, 600);
+    await mount();
+    const copy = control("Copy message");
+
+    // A mouse resting on the control: the panel arrives faint, scaling up.
+    let arriving = nextArrival();
+    await userEvent.hover(copy);
+    const delayed = await arriving;
+    expect(delayed.animations).toEqual(["menu-pop-in"]);
+    expect(delayed.opacity).toBeLessThan(0.5);
+    // From the side of the control it opened on: above it, so its bottom edge.
+    await frames();
+    const origin = getComputedStyle(delayed.panel)
+      .transformOrigin.split(" ")
+      .map(Number.parseFloat);
+    expect(origin[0]).toBeCloseTo(delayed.panel.offsetWidth / 2, 0);
+    expect(origin[1]).toBeCloseTo(delayed.panel.offsetHeight, 0);
+    await Promise.all(delayed.panel.getAnimations().map((a) => a.finished));
+    expect(getComputedStyle(delayed.panel).opacity).toBe("1");
+
+    // The next tip in the run shows in place, whole.
+    arriving = nextArrival();
+    await userEvent.hover(control("Allow everyone"));
+    const next = await arriving;
+    expect(next.panel.textContent).toBe("Allow everyone");
+    expect(next.animations).toEqual([]);
+    expect(next.opacity).toBe(1);
+
+    // Keyboard focus shows it whole too.
+    await userEvent.hover(screen.getByText("The replies, by event."));
+    await closed();
+    await wait(SKIP_MS);
+    control("Before").focus();
+    arriving = nextArrival();
+    await userEvent.keyboard("{Tab}");
+    const focused = await arriving;
+    expect(focused.panel.textContent).toBe("Copy message");
+    expect(focused.animations).toEqual([]);
+    expect(focused.opacity).toBe(1);
+  });
+
+  it("shows a delayed tip at once under reduced motion, on no frame partway", async () => {
+    slowMotion();
+    await commands.emulateMedia({ reducedMotion: "reduce" });
+    await page.viewport(800, 600);
+    await mount();
+    const arriving = nextArrival();
+    await userEvent.hover(control("Copy message"));
+    const { panel: shown } = await arriving;
+    // The global switch cuts the pop to 0.01ms; the engine holds a new
+    // animation at its first keyframe until its first frame is drawn, so the
+    // panel is hidden for that frame or two and then whole, never faint.
+    const inks: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      await frames(1);
+      inks.push(Number(getComputedStyle(shown).opacity));
+    }
+    expect(inks.filter((o) => o > 0.02 && o < 0.98)).toEqual([]);
+    expect(inks.slice(3).every((o) => o === 1)).toBe(true);
+    expect(getComputedStyle(shown).transform).toBe("none");
   });
 });

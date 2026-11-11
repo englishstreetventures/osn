@@ -576,7 +576,7 @@ export default function EventsEditor(props: { weddingId: string }) {
             a `fixed` bar inside a `container-type` box pins to that box, not the
             viewport, so it would ride inside the panel instead of the window. */}
         <Portal>
-          <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
+          <div class="border-border bg-surface/95 bar-rise fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
             <div class="page-frame flex flex-wrap items-center justify-between gap-3 py-3">
               <span class="font-body text-text-muted text-ui-sm">
                 <Show when={hasErrors()} fallback="You have unsaved changes.">
