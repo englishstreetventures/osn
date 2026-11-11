@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -214,6 +214,13 @@ more to tell the reader, so it gets out of the way: 80ms against 120ms, and it
 ends at 0.98 where it started at 0.96. `Modal` keeps its entry's own 0.98, so
 its exit is softer by distance and time alone (8px in 150ms against 24px in
 350ms). No app sets any of these today, so every app runs the values above.
+
+Cire's own `--ease-out` is a different curve, `cubic-bezier(0.23, 1, 0.32, 1)`,
+the owner's choice of 2026-11-11 for all four cire apps
+([`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §4). The shared parts that
+read `var(--ease-out, var(--ui-ease-out))` follow it there; `Modal` and the
+`animate-in` and `animate-out` utilities read `--ui-ease-out` alone, so in cire
+they keep the value above.
 
 `Dialog`'s `sheet` presentation scales like its centred card, from its
 centre. Below `md` the sheet is pinned to the bottom edge at full width, so

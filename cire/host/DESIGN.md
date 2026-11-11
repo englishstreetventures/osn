@@ -583,10 +583,18 @@ this package by design**.
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
 --dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a pill slide */
 --dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a disclosure opening */
---ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
 ```
+
+`--ease-out` is the strong ease-out the motion skills name (`emil-design-eng`,
+`animate`): the owner's choice of 2026-11-11, for all four cire apps. It is
+cire's curve, not the contract's. `Modal` and the `animate-in` and
+`animate-out` utilities in `@shared/design-tokens` read `--ui-ease-out` alone,
+which no cire stylesheet maps, so they run the contract's
+`cubic-bezier(0.22, 1, 0.36, 1)`; every other shared part reads `--ease-out`
+first.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor

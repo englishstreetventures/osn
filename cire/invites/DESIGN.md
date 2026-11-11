@@ -137,7 +137,7 @@ The portals' ladder, value for value, in `global.css`:
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
 --dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a choice */
 --dur-slow: calc(320ms * var(--motion-scale)); /* a sheet */
---ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 ```
 
@@ -145,6 +145,9 @@ The portals' ladder, value for value, in `global.css`:
   rungs are 90, 150 and 200ms; on touch, the values above. Under the same
   query the site sets `Modal`'s `--ui-modal-enter` to `--dur-slow` and
   `--ui-modal-exit` to `--dur-base`.
+- **`--ease-out` is the owner's choice of 2026-11-11** for all four cire apps
+  (`cire/host/DESIGN.md` §4). `Modal` reads the contract's `--ui-ease-out`
+  instead, `cubic-bezier(0.22, 1, 0.36, 1)`, which this site does not map.
 - **No spring token.** `--ease-spring` is the portals' alone; the vendor
   portal's token test fails if this stylesheet gains one.
 - **Tailwind's `ease-out` and `ease-in-out` classes read the house curves**,
