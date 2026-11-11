@@ -360,8 +360,9 @@ no border, in both schemes; it holds the first frame of that menu, of the
 profile switcher (a sheet at 390 px) and of the create-account dialog's email
 popover, and the half-way frame of each closing, and finds no transform. It
 reads the switcher's title and the add-a-profile card's `CardTitle` against a
-`text-title font-medium` probe, and the code boxes' "Digit 1" at the probe's
-size at the flow's own width and at 768 px, and at 16px at 390 px.
+`text-title font-medium` probe, and the authenticator setup's first code box
+("Code from the app Digit 1") at the probe's size at the flow's own width and
+at 768 px, and at 16px at 390 px.
 `musubi-org-detail` holds the create-organisation dialog's first frame and
 reads the create and edit dialogs' titles the same way. Shots go to
 `e2e-artifacts/screenshots/musubi-surfaces/` as `account-menu`,
