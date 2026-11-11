@@ -63,7 +63,7 @@ export function createAuthService(config: AuthConfig) {
     emailLinks,
     emailVerification,
   );
-  const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens, sessions);
+  const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens);
   const passkeys = createPasskeysModule(ctx, profiles, tokens, sessions, stepUp, securityEvents);
   const passkeyManagement = createPasskeyManagementModule(ctx, sessions, securityEvents);
   const recovery = createRecoveryModule(ctx, profiles, tokens);
@@ -122,9 +122,8 @@ export function createAuthService(config: AuthConfig) {
     deletePasskey: passkeyManagement.deletePasskey,
     invalidateSession: sessions.invalidateSession,
     resolveSessionByBinding: sessions.resolveSessionByBinding,
-    resolveCallerSession: sessions.resolveCallerSession,
     classifyCallerSession: sessions.classifyCallerSession,
-    holdsLiveOrdinarySession: sessions.holdsLiveOrdinarySession,
+    resolveLiveOrdinarySession: sessions.resolveLiveOrdinarySession,
     invalidateOtherAccountSessions: sessions.invalidateOtherAccountSessions,
     generateRecoveryCodesForAccount: recovery.generateRecoveryCodesForAccount,
     consumeRecoveryCode: recovery.consumeRecoveryCode,

@@ -1147,11 +1147,33 @@ describe("two-tier token model", () => {
 // ---------------------------------------------------------------------------
 
 describe("switchProfile", () => {
+  /** A session on the profile's account: the hash the route's gate resolves. */
+  const sessionOf = (profile: {
+    id: string;
+    accountId: string;
+    email: string;
+    handle: string;
+    displayName: string | null;
+  }) =>
+    auth
+      .issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      )
+      .pipe(Effect.map((t) => auth.hashSessionToken(t.refreshToken)));
+
   it.effect("issues new access token for target profile", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("switch@example.com", "switchme");
       // Switch to self (same profile) — should work fine
-      const result = yield* auth.switchProfile(profile.accountId, profile.id);
+      const result = yield* auth.switchProfile(
+        profile.accountId,
+        profile.id,
+        yield* sessionOf(profile),
+      );
       expect(result.accessToken).toBeTruthy();
       expect(result.expiresIn).toBe(300);
       expect(result.profile.id).toBe(profile.id);
@@ -1166,7 +1188,9 @@ describe("switchProfile", () => {
   it.effect("fails when target profile does not exist", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("switch2@example.com", "switch2");
-      const error = yield* Effect.flip(auth.switchProfile(profile.accountId, "usr_nonexistent"));
+      const error = yield* Effect.flip(
+        auth.switchProfile(profile.accountId, "usr_nonexistent", yield* sessionOf(profile)),
+      );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Profile not found");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1177,7 +1201,9 @@ describe("switchProfile", () => {
       const alice = yield* auth.registerProfile("alice_switch@example.com", "alice_switch");
       const bob = yield* auth.registerProfile("bob_switch@example.com", "bob_switch");
       // Try to switch to Bob's profile using Alice's accountId
-      const error = yield* Effect.flip(auth.switchProfile(alice.accountId, bob.id));
+      const error = yield* Effect.flip(
+        auth.switchProfile(alice.accountId, bob.id, yield* sessionOf(alice)),
+      );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("does not belong to this account");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1185,7 +1211,10 @@ describe("switchProfile", () => {
 
   it.effect("fails when account does not exist", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.switchProfile("acc_nonexistent", "usr_any"));
+      // No account, so no session of it either: any hash will do.
+      const error = yield* Effect.flip(
+        auth.switchProfile("acc_nonexistent", "usr_any", "0".repeat(64)),
+      );
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );

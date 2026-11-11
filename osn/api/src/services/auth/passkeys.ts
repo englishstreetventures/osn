@@ -329,7 +329,7 @@ export function createPasskeysModule(
     /**
      * Hashed session id of the caller, so all OTHER sessions for this
      * account can be revoked (H1) while the caller survives. The route
-     * resolves it via `resolveCallerSession` — from the HttpOnly cookie
+     * resolves it via `classifyCallerSession` — from the HttpOnly cookie
      * when one names a live row, otherwise from the access token's
      * `osn_sid` binding. Either way it is server-derived, never
      * user-supplied body input, so an attacker holding only an access

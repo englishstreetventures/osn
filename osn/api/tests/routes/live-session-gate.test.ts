@@ -1,20 +1,22 @@
 /**
- * The live-session gate on the routes that mint a step-up token or a fresh
- * recovery-code set.
+ * The live-session gate on the routes that mint a step-up token, an access
+ * token, a session or a credential, or that spend what the owner's own
+ * step-up or email change depends on.
  *
  * An access token is a self-contained JWT that outlives the session it came
  * from by up to one token lifetime. These routes answer 409 `session_stale` to
  * a token whose session has ended — logged out, rotated away with no cookie to
  * name its successor, restricted to recovery, expired — and still serve a live
  * device. A refusal must spend nothing: no step-up token, no TOTP step, no
- * parked challenge, no code set.
+ * parked challenge, no code set, no mail, no slot of a per-account cap, no
+ * emailed-link request, no pending change, no session.
  *
  * Every test names, in its comment, the edit that turns it red.
  */
 
 import { Database } from "bun:sqlite";
 
-import { passkeys, recoveryCodes, sessions } from "@osn/db/schema";
+import { accounts, passkeys, recoveryCodes, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
@@ -23,6 +25,9 @@ import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+
+import { settledHandle } from "../helpers/background";
+import { confirmLinkThroughRoutes, linkForRequest } from "../helpers/step-up-link";
 
 // A real WebAuthn ceremony needs an authenticator no route test can drive, so
 // only the two verifiers are stubbed: every other step of both ceremonies —
@@ -56,13 +61,20 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
   };
 });
 
+const { verifyAuthenticationResponse } = await import("@simplewebauthn/server");
 const { createAuthService } = await import("../../src/services/auth");
 const { deriveSessionBinding, signJwt } = await import("../../src/services/auth/helpers");
+const { createDefaultCeremonyStores, createInMemoryAccountCap } =
+  await import("../../src/services/auth/stores");
 const { cookieName } = await import("../../src/lib/cookie-session");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createAuthRoutes } = await import("../helpers/routes");
 
 type AuthConfig = Awaited<ReturnType<typeof makeTestAuthConfig>>;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A per-account cap that admits `n` calls a day: a refusal that spent a slot shows. */
+const capOf = (n: number) => createInMemoryAccountCap(n, DAY_MS);
 
 let config: AuthConfig;
 beforeAll(async () => {
@@ -79,18 +91,24 @@ const REFUSED = {
   body: { error: "session_stale", message: "Re-authenticate and try again." },
 };
 
-/** Routes and a service over ONE database the test can also read and write. */
-function makeApp() {
+/**
+ * Routes and a service over ONE database, ONE set of ceremony stores and the
+ * same per-account caps, which the test can also read. `overrides` replaces
+ * caps with tight ones, so a refusal that spent a slot leaves the next live
+ * call refused.
+ */
+function makeApp(overrides: Partial<AuthConfig> = {}) {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
   const db = drizzle({ client: sqlite });
   const recorder = makeLogEmailLive();
   const layer = Layer.merge(Layer.succeed(Db, { db }), recorder.layer);
-  const app = createAuthRoutes(config, layer);
-  const auth = createAuthService(config);
+  const merged = { ...config, ceremonyStores: createDefaultCeremonyStores(), ...overrides };
+  const app = createAuthRoutes(merged, layer);
+  const auth = createAuthService(merged);
   const svc = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
-  return { app, auth, db, svc };
+  return { app, auth, db, svc, recorded: () => recorder.recorded() };
 }
 
 type Harness = ReturnType<typeof makeApp>;
@@ -99,17 +117,21 @@ type Profile = Awaited<ReturnType<typeof registerAccount>>;
 /** The `Cookie` header a browser holding this session's refresh token sends. */
 const cookieFor = (refreshToken: string) => `${cookieName({ secure: false })}=${refreshToken}`;
 
+/**
+ * POSTs to the routes and waits for the work the request started after its
+ * answer, mail included, so "nothing was sent" is a fact by the time a test
+ * reads it.
+ */
 function post(
   h: Harness,
   path: string,
-  opts: { token: string; cookie?: string; body?: unknown },
+  opts: { token?: string; cookie?: string; body?: unknown },
 ): Promise<Response> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    authorization: `Bearer ${opts.token}`,
-  };
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
   if (opts.cookie) headers["cookie"] = opts.cookie;
-  return h.app.handle(
+  return settledHandle(
+    h.app,
     new Request(`http://localhost${path}`, {
       method: "POST",
       headers,
@@ -117,6 +139,9 @@ function post(
     }),
   );
 }
+
+/** Mail sent to `to` so far. */
+const mailTo = (h: Harness, to: string) => h.recorded().filter((m) => m.to === to).length;
 
 async function answerOf(res: Response): Promise<{ status: number; body: unknown }> {
   return { status: res.status, body: await res.json() };
@@ -232,9 +257,10 @@ describe("a logged-out session's access token", () => {
     const profile = await registerAccount(h, "lsg-pk@example.com", "lsgpk");
     const credentialId = await enrolPasskey(h, profile);
     const ended = await openSession(h, profile);
+    const live = await openSession(h, profile);
     await logOut(h, ended.refreshToken);
 
-    const begun = await post(h, "/step-up/passkey/begin", { token: ended.accessToken });
+    const begun = await post(h, "/step-up/passkey/begin", { token: live.accessToken });
     expect(begun.status).toBe(200);
     expect(
       await answerOf(
@@ -247,7 +273,6 @@ describe("a logged-out session's access token", () => {
 
     // No second `begin`: the challenge is parked per account, so the live
     // session completes against the one the refused call left in place.
-    const live = await openSession(h, profile);
     const minted = await post(h, "/step-up/passkey/complete", {
       token: live.accessToken,
       body: { assertion: assertionFor(credentialId), purpose: "recovery_generate" },
@@ -504,5 +529,452 @@ describe("what counts as a live session", () => {
         }),
       ),
     ).toEqual(REFUSED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The routes that begin, resend or finish a step-up or an email change, switch
+// profile, approve another device or confirm an authenticator app.
+// ---------------------------------------------------------------------------
+
+/** Two sessions of one account: `ended` has been logged out, `live` has not. */
+async function endedAndLive(h: Harness, email: string, handle: string) {
+  const profile = await registerAccount(h, email, handle);
+  const ended = await openSession(h, profile);
+  const live = await openSession(h, profile);
+  await logOut(h, ended.refreshToken);
+  return { profile, ended, live };
+}
+
+/** What a step-up or email-change begin answers the tab that began. */
+interface Begun {
+  readonly requestId: string;
+  readonly claimSecret: string;
+  readonly pairingCode: string;
+}
+
+async function beginStepUpEmail(h: Harness, token: string): Promise<Begun> {
+  const res = await post(h, "/step-up/email/begin", {
+    token,
+    body: { purpose: "account_export" },
+  });
+  expect(res.status).toBe(200);
+  return (await res.json()) as Begun;
+}
+
+async function beginEmailChange(h: Harness, token: string, newEmail: string): Promise<Begun> {
+  const res = await post(h, "/account/email/begin", { token, body: { new_email: newEmail } });
+  expect(res.status).toBe(200);
+  return (await res.json()) as Begun;
+}
+
+/** Confirms the request's mailed link with the number its tab shows. */
+async function confirmLink(h: Harness, begun: Begun): Promise<void> {
+  const link = linkForRequest(h.recorded(), begun.requestId);
+  expect(link).not.toBeNull();
+  const res = await confirmLinkThroughRoutes(
+    h.app,
+    begun.requestId,
+    link!.linkSecret,
+    begun.pairingCode,
+  );
+  expect(res.status).toBe(200);
+}
+
+const emailOf = async (h: Harness, profile: Profile) =>
+  (
+    await h.db
+      .select({ email: accounts.email })
+      .from(accounts)
+      .where(eq(accounts.id, profile.accountId))
+  )[0]?.email;
+
+const sessionIds = async (h: Harness, profile: Profile) =>
+  (
+    await h.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.accountId, profile.accountId))
+  ).map((r) => r.id);
+
+const recoverySessionFor = (h: Harness, profile: Profile) =>
+  h.svc(
+    h.auth.issueRecoverySession(
+      profile.id,
+      profile.accountId,
+      profile.email,
+      profile.handle,
+      profile.displayName,
+      "otp",
+    ),
+  );
+
+describe("a logged-out session's access token, at step-up's other routes", () => {
+  it("cannot begin a passkey step-up, and the refusal leaves the live session's challenge", async () => {
+    // Red on removing the gate from POST /step-up/passkey/begin: the refused
+    // begin parks its own challenge over the live session's, so the live
+    // completion verifies against a challenge it never saw.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-pkb@example.com", "lsgpkb");
+    const credentialId = await enrolPasskey(h, profile);
+    const ended = await openSession(h, profile);
+    const live = await openSession(h, profile);
+    await logOut(h, ended.refreshToken);
+
+    const begun = await post(h, "/step-up/passkey/begin", { token: live.accessToken });
+    expect(begun.status).toBe(200);
+    const { options } = (await begun.json()) as { options: { challenge: string } };
+
+    expect(
+      await answerOf(await post(h, "/step-up/passkey/begin", { token: ended.accessToken })),
+    ).toEqual(REFUSED);
+
+    const verify = vi.mocked(verifyAuthenticationResponse);
+    verify.mockClear();
+    const minted = await post(h, "/step-up/passkey/complete", {
+      token: live.accessToken,
+      body: { assertion: assertionFor(credentialId), purpose: "recovery_generate" },
+    });
+    expect(minted.status).toBe(200);
+    expect(verify.mock.calls.at(-1)?.[0].expectedChallenge).toBe(options.challenge);
+  });
+
+  it("cannot begin a step-up by email: no mail, and the daily link ceiling is not spent", async () => {
+    // Red on removing the gate from POST /step-up/email/begin, or on moving it
+    // after the begin: the refused call mails the owner and spends the one
+    // link the ceiling allows, so the live begin is refused.
+    const h = makeApp({ stepUpLinkCeiling: capOf(1) });
+    const { profile, ended, live } = await endedAndLive(h, "lsg-sue@example.com", "lsgsue");
+    const before = mailTo(h, profile.email);
+
+    expect(
+      await answerOf(
+        await post(h, "/step-up/email/begin", {
+          token: ended.accessToken,
+          body: { purpose: "account_export" },
+        }),
+      ),
+    ).toEqual(REFUSED);
+    expect(mailTo(h, profile.email)).toBe(before);
+
+    await beginStepUpEmail(h, live.accessToken);
+    expect(mailTo(h, profile.email)).toBe(before + 1);
+  });
+
+  it("cannot collect a step-up token by email, and the refusal leaves the request", async () => {
+    // Red on removing the gate from POST /step-up/email/:requestId/status, or
+    // on moving it after the poll: the refused poll claims and spends the
+    // confirmed request, and the live session's poll reads expired.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-sus@example.com", "lsgsus");
+    const ended = await openSession(h, profile);
+    const begun = await beginStepUpEmail(h, ended.accessToken);
+    await confirmLink(h, begun);
+    await logOut(h, ended.refreshToken);
+    const poll = (token: string) =>
+      post(h, `/step-up/email/${begun.requestId}/status`, {
+        token,
+        body: { claimSecret: begun.claimSecret },
+      });
+
+    expect(await answerOf(await poll(ended.accessToken))).toEqual(REFUSED);
+
+    const live = await openSession(h, profile);
+    expect(await (await poll(live.accessToken)).json()).toMatchObject({
+      status: "complete",
+      step_up_token: expect.stringMatching(/^eyJ/),
+    });
+  });
+
+  it("cannot resend a step-up link: no mail, and no ceiling or Resend slot is spent", async () => {
+    // Red on removing the gate from POST /step-up/email/:requestId/resend, or
+    // on moving it after the resend: the refused call mails the owner and
+    // spends the Resend the mailbox has, so the live Resend mails nothing.
+    const h = makeApp({ stepUpLinkCeiling: capOf(2), linkResendCap: capOf(1) });
+    const profile = await registerAccount(h, "lsg-sur@example.com", "lsgsur");
+    const ended = await openSession(h, profile);
+    const begun = await beginStepUpEmail(h, ended.accessToken);
+    await logOut(h, ended.refreshToken);
+    const sent = mailTo(h, profile.email);
+    const resend = (token: string) =>
+      post(h, `/step-up/email/${begun.requestId}/resend`, {
+        token,
+        body: { claimSecret: begun.claimSecret },
+      });
+
+    expect(await answerOf(await resend(ended.accessToken))).toEqual(REFUSED);
+    expect(mailTo(h, profile.email)).toBe(sent);
+
+    const live = await openSession(h, profile);
+    expect(await answerOf(await resend(live.accessToken))).toEqual({
+      status: 200,
+      body: { status: "sent" },
+    });
+    expect(mailTo(h, profile.email)).toBe(sent + 1);
+  });
+});
+
+describe("a logged-out session's access token, at the email change routes", () => {
+  it("cannot begin a change: no mail, the pending change stands, no begin is spent", async () => {
+    // Red on removing the gate from POST /account/email/begin, or on moving it
+    // after the begin: the refused call mails the address it names, replaces
+    // the live session's pending change and spends a begin.
+    const h = makeApp({ emailChangeBeginCap: capOf(2) });
+    const { profile, ended, live } = await endedAndLive(h, "lsg-ecb@example.com", "lsgecb");
+    const pending = await beginEmailChange(h, live.accessToken, "lsg-ecb-a@example.com");
+
+    expect(
+      await answerOf(
+        await post(h, "/account/email/begin", {
+          token: ended.accessToken,
+          body: { new_email: "lsg-ecb-b@example.com" },
+        }),
+      ),
+    ).toEqual(REFUSED);
+    expect(mailTo(h, "lsg-ecb-b@example.com")).toBe(0);
+
+    await confirmLink(h, pending);
+    const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const done = await post(h, `/account/email/${pending.requestId}/complete`, {
+      token: live.accessToken,
+      cookie: cookieFor(live.refreshToken),
+      body: { claimSecret: pending.claimSecret, step_up_token: stepUp },
+    });
+    expect(await answerOf(done)).toEqual({ status: 200, body: { email: "lsg-ecb-a@example.com" } });
+
+    await beginEmailChange(h, live.accessToken, "lsg-ecb-c@example.com");
+  });
+
+  it("cannot resend a change's link: no mail, and no Resend slot is spent", async () => {
+    // Red on removing the gate from POST /account/email/:requestId/resend, or
+    // on moving it after the resend.
+    const h = makeApp({ linkResendCap: capOf(1) });
+    const profile = await registerAccount(h, "lsg-ecr@example.com", "lsgecr");
+    const ended = await openSession(h, profile);
+    const begun = await beginEmailChange(h, ended.accessToken, "lsg-ecr-new@example.com");
+    await logOut(h, ended.refreshToken);
+    const sent = mailTo(h, "lsg-ecr-new@example.com");
+    const resend = (token: string) =>
+      post(h, `/account/email/${begun.requestId}/resend`, {
+        token,
+        body: { claimSecret: begun.claimSecret },
+      });
+
+    expect(await answerOf(await resend(ended.accessToken))).toEqual(REFUSED);
+    expect(mailTo(h, "lsg-ecr-new@example.com")).toBe(sent);
+
+    const live = await openSession(h, profile);
+    expect(await answerOf(await resend(live.accessToken))).toEqual({
+      status: 200,
+      body: { status: "sent" },
+    });
+    expect(mailTo(h, "lsg-ecr-new@example.com")).toBe(sent + 1);
+  });
+
+  it("cannot complete a change, and the refusal spends neither the request nor the token", async () => {
+    // Red on removing the gate from POST /account/email/:requestId/complete,
+    // or on moving it after the change.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-ecc@example.com", "lsgecc");
+    const ended = await openSession(h, profile);
+    const begun = await beginEmailChange(h, ended.accessToken, "lsg-ecc-new@example.com");
+    await confirmLink(h, begun);
+    const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    await logOut(h, ended.refreshToken);
+    const complete = (token: string) =>
+      post(h, `/account/email/${begun.requestId}/complete`, {
+        token,
+        body: { claimSecret: begun.claimSecret, step_up_token: stepUp },
+      });
+
+    expect(await answerOf(await complete(ended.accessToken))).toEqual(REFUSED);
+    expect(await emailOf(h, profile)).toBe("lsg-ecc@example.com");
+
+    const live = await openSession(h, profile);
+    expect(await answerOf(await complete(live.accessToken))).toEqual({
+      status: 200,
+      body: { email: "lsg-ecc-new@example.com" },
+    });
+  });
+
+  it("keeps the session the gate found, for a caller that sends no cookie", async () => {
+    // Red on sparing the cookie's session rather than the one the gate
+    // resolved: a caller admitted by its token's binding alone has no cookie,
+    // and the sweep that follows the change signs its own device out.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-ecs@example.com", "lsgecs");
+    const caller = await openSession(h, profile);
+    const other = await openSession(h, profile);
+    const begun = await beginEmailChange(h, caller.accessToken, "lsg-ecs-new@example.com");
+    await confirmLink(h, begun);
+    const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+
+    const done = await post(h, `/account/email/${begun.requestId}/complete`, {
+      token: caller.accessToken,
+      body: { claimSecret: begun.claimSecret, step_up_token: stepUp },
+    });
+    expect(done.status).toBe(200);
+    const left = await sessionIds(h, profile);
+    expect(left).toContain(h.auth.hashSessionToken(caller.refreshToken));
+    expect(left).not.toContain(h.auth.hashSessionToken(other.refreshToken));
+  });
+});
+
+describe("POST /profiles/switch", () => {
+  it("refuses a logged-out session's token and spends no switch", async () => {
+    // Red on removing the gate from POST /profiles/switch, or on letting the
+    // refused call reach the per-account cap: the live switches after it are
+    // then refused.
+    const h = makeApp({ profileSwitchCap: capOf(2) });
+    const { profile, ended, live } = await endedAndLive(h, "lsg-sw@example.com", "lsgsw");
+    const body = { profile_id: profile.id };
+
+    expect(
+      await answerOf(await post(h, "/profiles/switch", { token: ended.accessToken, body })),
+    ).toEqual(REFUSED);
+    // A live session counts by its token's binding, and by its cookie for a
+    // tab whose token predates another tab's renewal.
+    expect((await post(h, "/profiles/switch", { token: live.accessToken, body })).status).toBe(200);
+    expect(
+      (
+        await post(h, "/profiles/switch", {
+          token: ended.accessToken,
+          cookie: cookieFor(live.refreshToken),
+          body,
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it("refuses a token with no session binding, sent with no cookie", async () => {
+    // Red on letting a caller that names no session through: such a token
+    // could otherwise be switched for a fresh one again and again.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-swu@example.com", "lsgswu");
+    await openSession(h, profile);
+    const unbound = await signJwt(
+      {
+        sub: profile.id,
+        aud: "osn-access",
+        email: profile.email,
+        handle: profile.handle,
+        scope: "openid profile",
+      },
+      config.jwtPrivateKey,
+      config.jwtKid,
+      300,
+      config.issuerUrl,
+    );
+
+    expect(
+      await answerOf(
+        await post(h, "/profiles/switch", { token: unbound, body: { profile_id: profile.id } }),
+      ),
+    ).toEqual(REFUSED);
+  });
+
+  it("refuses a logged-out session's token sent with a restricted recovery cookie", async () => {
+    // Red on counting a restricted recovery session as live for a switch.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-swr@example.com", "lsgswr");
+    const ended = await openSession(h, profile);
+    await logOut(h, ended.refreshToken);
+    const recovery = await recoverySessionFor(h, profile);
+
+    expect(
+      await answerOf(
+        await post(h, "/profiles/switch", {
+          token: ended.accessToken,
+          cookie: cookieFor(recovery.refreshToken),
+          body: { profile_id: profile.id },
+        }),
+      ),
+    ).toEqual(REFUSED);
+  });
+
+  it("binds the new token to the live ordinary session, not a restricted cookie's", async () => {
+    // Red on picking the row to bind from every session of the account: the
+    // restricted recovery cookie names a row there, and the new token would
+    // be bound to it.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-swb@example.com", "lsgswb");
+    const recovery = await recoverySessionFor(h, profile);
+    const ordinary = await openSession(h, profile);
+
+    const res = await post(h, "/profiles/switch", {
+      token: ordinary.accessToken,
+      cookie: cookieFor(recovery.refreshToken),
+      body: { profile_id: profile.id },
+    });
+    expect(res.status).toBe(200);
+    const { access_token } = (await res.json()) as { access_token: string };
+    const claims = await h.svc(h.auth.verifyAccessToken(access_token));
+    expect(claims.sessionBinding).toBe(
+      deriveSessionBinding(h.auth.hashSessionToken(ordinary.refreshToken), profile.id),
+    );
+  });
+});
+
+describe("a logged-out session's access token, minting a session or a factor", () => {
+  it("cannot approve a cross-device sign-in, and the request stays pending", async () => {
+    // Red on removing the gate from POST /login/cross-device/:requestId/approve,
+    // or on moving it after the approval: the other device's poll then
+    // receives a full session.
+    const h = makeApp();
+    const { ended, live } = await endedAndLive(h, "lsg-cdl@example.com", "lsgcdl");
+    const begun = await post(h, "/login/cross-device/begin", {});
+    const { requestId, cdlSecret } = (await begun.json()) as {
+      requestId: string;
+      cdlSecret: string;
+    };
+    const approve = (token: string) =>
+      post(h, `/login/cross-device/${requestId}/approve`, { token, body: { secret: cdlSecret } });
+    const poll = async () =>
+      (
+        (await (
+          await post(h, `/login/cross-device/${requestId}/status`, { body: { secret: cdlSecret } })
+        ).json()) as { status: string }
+      ).status;
+
+    expect(await answerOf(await approve(ended.accessToken))).toEqual(REFUSED);
+    expect(await poll()).toBe("pending");
+
+    expect((await approve(live.accessToken)).status).toBe(200);
+    expect(await poll()).toBe("approved");
+  });
+
+  it("cannot confirm an authenticator app, and the pending enrolment stays", async () => {
+    // Red on removing the gate from POST /totp/enroll/complete, or on moving it
+    // after the enrolment.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-tec@example.com", "lsgtec");
+    const ended = await openSession(h, profile);
+    const stepUp = await h.svc(
+      h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+    );
+    const begun = await post(h, "/totp/enroll/begin", {
+      token: ended.accessToken,
+      body: { step_up_token: stepUp },
+    });
+    expect(begun.status).toBe(200);
+    const { totpSecret } = (await begun.json()) as { totpSecret: string };
+    const code = await deriveTotpCode(
+      base32Decode(totpSecret),
+      Math.floor(Date.now() / 1000 / STEP_SECONDS),
+    );
+    await logOut(h, ended.refreshToken);
+
+    expect(
+      await answerOf(
+        await post(h, "/totp/enroll/complete", { token: ended.accessToken, body: { code } }),
+      ),
+    ).toEqual(REFUSED);
+
+    const live = await openSession(h, profile);
+    expect(
+      await answerOf(
+        await post(h, "/totp/enroll/complete", { token: live.accessToken, body: { code } }),
+      ),
+    ).toEqual({ status: 200, body: { enrolled: true } });
   });
 });

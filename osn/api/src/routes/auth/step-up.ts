@@ -28,17 +28,24 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl, sessionMetaFrom } = ctx;
 
   /**
-   * The caller's account and profile from an ordinary access token, or null
-   * for no token, a token of any other audience (a restricted recovery
-   * session is refused here) and a profile that is gone.
+   * The caller's account and profile from an ordinary access token, with the
+   * token's `osn_sid` binding for the live-session gate, or null for no
+   * token, a token of any other audience (a restricted recovery session is
+   * refused here) and a profile that is gone.
    */
   const callerAccount = async (
     authorization: string | undefined,
-  ): Promise<{ accountId: string; profileId: string } | null> => {
+  ): Promise<{ accountId: string; profileId: string; sessionBinding: string | null } | null> => {
     const claims = await resolveAccessTokenPrincipal(auth, authorization);
     if (!claims) return null;
     const profile = await run(auth.findProfileById(claims.profileId));
-    return profile ? { accountId: profile.accountId, profileId: profile.id } : null;
+    return profile
+      ? {
+          accountId: profile.accountId,
+          profileId: profile.id,
+          sessionBinding: claims.sessionBinding,
+        }
+      : null;
   };
 
   return (
@@ -74,6 +81,18 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before the challenge is written: the account parks one, so a
+            // token whose session has ended would overwrite the live one's.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_passkey_begin",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             return await run(auth.beginStepUpPasskey(profile.accountId));
           } catch (e) {
             const { status, body: errBody } = handleError(e);
@@ -86,6 +105,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             200: t.Object({ options: publicKeyCredentialRequestOptions }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -181,7 +202,9 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
       // the number this tab shows (shared `/email-link/:requestId/confirm`),
       // which mints nothing. This tab, signed in as the same account and
       // holding the claim secret, polls status and gets the step-up token,
-      // once. Every refusal of a poll or a Resend is `expired`.
+      // once. Every refusal of a poll or a Resend is `expired`, except a
+      // caller whose session has ended: each of the three routes refuses it
+      // 409 `session_stale` before it mails, reads or spends anything.
       // -------------------------------------------------------------------------
       .post(
         "/step-up/email/begin",
@@ -205,6 +228,18 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               return { error: "unauthorized" };
             }
             const { accountId } = caller;
+            // Before the request is opened: a link mails the owner and spends
+            // the account's daily link ceiling.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_email_begin",
+              accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             return await run(
               auth.beginStepUpEmail(
                 accountId,
@@ -235,6 +270,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -263,6 +300,18 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               return { error: "unauthorized" };
             }
             const { accountId } = caller;
+            // Before the request is read: a confirmed one is claimed and spent
+            // by the poll that finds it.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_email_status",
+              accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             const result = await run(
               auth.stepUpEmailStatus(
                 accountId,
@@ -304,6 +353,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             ]),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -331,6 +382,18 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               return { error: "unauthorized" };
             }
             const { accountId } = caller;
+            // Before the request is rewritten: a Resend mails the owner and
+            // spends the ceiling and the mailbox's Resends.
+            const staleErr = await ctx.liveSessionGate(
+              "step_up_email_resend",
+              accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             return await run(
               auth.resendStepUpEmail(
                 accountId,
@@ -356,6 +419,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
