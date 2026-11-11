@@ -30,6 +30,20 @@ The record of where the browser Email Verification API stands, what our flag-gat
 
 The mailbox provider is the issuer. When the person picks their address in a form that carries the hidden field, the browser asks the issuer for an Email Verification Token (EVT), binds it to the page's origin and a nonce the page carries, and puts `<EVT>~<KB-JWT>` in the field when the form is submitted. Our server is the verifier.
 
+## Our origin trial
+
+Musubi is registered for Chrome's Email Verification Protocol origin trial (feature `EmailVerificationProtocol`).
+
+| | |
+|---|---|
+| Origin | `https://musubi.social` exactly: no subdomain matching, first-party only |
+| Chrome versions | Available in Chrome 150 to 160 |
+| Ends | With the rollout of the Chrome release after 160, and no later than 2 March 2027, the token's own expiry. Chrome may end it sooner |
+| Served from | The `Origin-Trial` header of the `/*` rule in [`musubi/social/public/_headers`](../../musubi/social/public/_headers), on every page |
+| Checked by | [`origin-trial.test.ts`](../../musubi/social/tests/origin-trial.test.ts): the token names that origin and feature and has not expired, so CI fails once it has |
+
+A token matches one origin, so dev hosts and local stacks get none: there Chrome never fills the field, and sign-up takes the emailed link. When Chrome announces the trial's end, decide whether to renew the token or remove the header, and record the decision here.
+
 ## Our code
 
 The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unless it reads `true`, `1`, `yes` or `on`. It is read in one place, `emailVerificationConfig` in [`build-deps.ts`](../../osn/api/src/build-deps.ts), which sets `AuthConfig.emailVerification`; every other part checks that. No tier's `wrangler.toml` sets it, so it is off everywhere deployed.
@@ -70,8 +84,8 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 
 The owner's, in this order:
 
-1. Register an origin-trial token for the sign-up origin, `https://musubi.social` (trial "Email Verification", developer.chrome.com/origintrials), and serve it on the sign-up page — a code change to Musubi's `index.html` or `_headers`.
-2. Check with a real Chrome, signed in to Gmail, against a production build served with `_headers`. Musubi's `Content-Security-Policy` arrives in a header, and the HTML standard then hides a `nonce` attribute from the page once the element is in the document; the WICG text has the browser read "the value of the `nonce` attribute". If Chrome reads it empty, no token comes.
+1. Serve an origin-trial token on the sign-up origin. Done: see [[#Our origin trial]].
+2. Check with a real Chrome, signed in to Gmail, against a production build served with `_headers`, which now carries the `Origin-Trial` header. Musubi's `Content-Security-Policy` arrives in a header, and the HTML standard then hides a `nonce` attribute from the page once the element is in the document; the WICG text has the browser read "the value of the `nonce` attribute". If Chrome reads it empty, no token comes.
 3. Run one captured real Gmail token through the verifier, so the departures above are checked against a real issuer.
 4. Confirm the transfer basis for the DNS lookups ([[subprocessors#Outbound lookups (not processors)]]), then set `OSN_EMAIL_VERIFICATION_API` in the tier's `wrangler.toml` vars, through a pull request.
 
