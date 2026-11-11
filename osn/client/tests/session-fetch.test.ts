@@ -162,6 +162,8 @@ describe("native session transport", () => {
       const error = yield* Effect.flip(auth.refreshSession());
       expect(error._tag).toBe("TokenRefreshError");
       expect(server.revoked).toBe(true);
+      // A refused renewal ends the session, whoever asked for it.
+      expect(yield* auth.getSession()).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
   );
 

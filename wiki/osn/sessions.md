@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Session introspection + revocation
@@ -253,12 +253,16 @@ How a failed renewal ends:
 | `/token` 5xx after the backoff ladder (3 attempts), or unreachable (2 attempts) | session kept; transient, as below |
 | `/token` minted for the default profile although another was named | the account does not own the named profile: the default profile becomes active, `AuthProvider` refetches the session from cache, the call rejects with `ActiveProfileResetError`; nothing is sent as the wrong profile. If the page switched to another profile while the grant was out, that profile stays active and nothing is reset |
 | `/token` answered a token that names no profile (`sub`) | transient; the token is not stored |
+| any answer, once the session the renewal was for was replaced or ended on this page (a sign-in adopted, a log out, the session ended) | nothing stored, reset or ended, no listener told; the call rejects with `AuthExpiredError`. The session the page holds now is untouched, and so is its renewal pause |
+| any answer, once another tab has stored another sign-in, or none, and this page has not yet heard of it | nothing stored; this page's session ends as that tab's storage event would end it (`ended` told, the other sign-in's stored account kept); the call rejects with `AuthExpiredError` |
 
 A transient failure keeps the session and the active profile. If the token in hand has not expired yet, the request goes out with it; otherwise the call rejects with `TokenRefreshError`. Renewal then pauses: until the pause ends, a call that needs a renewal sends no grant. The pause is the 429's `Retry-After`, or else 2 s doubling to 30 s across failures in a row, and a renewal that gets a token ends it.
 
 The runtime tells `onSessionChange` listeners `ended` before the call that asked for the renewal rejects, and it tells them the same when another tab's sign-out or sign-in ends this page's session (step 2). `AuthProvider` therefore drops any profile list that settles after the end, success or failure, so neither the old account's list nor an error about it lands on a signed-out page. A log out from the page itself tells no listener.
 
 `authFetch` rejects with what `fetch` rejected with when the request itself fails or is aborted, as a bare `fetch` does. The REST clients turn that failure into their own `OsnApiError` at status `0`, and pass an abort and the session rejections above (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`) through unchanged (`reach` in `osn/client/src/auth-fetch.ts`). Ending a session never calls `/logout`: a refusal means the issuer has let the session go already, and the marker is the issuer's to retract.
+
+**A session that changes while a request is out.** An answer is applied only for the session it was asked for. The service counts every time the page's session is replaced or ended (`setSession`, `logout` once `/logout` has answered, every `endSession`, another tab's sign-out or sign-in among them once this page hears of it), and each request notes the count when it leaves. When the answer arrives after the count has moved, it changes nothing and reaches no caller: the request is not renewed or sent again, a second 401 ends nothing, and the call rejects with `AuthExpiredError`. A renewal, bootstrap or grant started for the old session is never joined by a caller for the new one, which waits it out and sends its own grant; a grant whose session has gone sends no retry, and a renewal for it neither sets nor clears the renewal pause. Every write an answer makes to the session — a save, or the end on a second 401 — first reads the stored account, and if another tab has stored another sign-in or none since, ends this page's session as the storage event would, rather than write over or remove that tab's account (`superseded` in `osn/client/src/service.ts`). A held session's renewal (`refreshHeldSession`) belongs to no count: the page's session changing does not stop it.
 
 Held sessions stay outside all of this: `Register` and `RecoveryLoginForm` send their tokens through `RegistrationClient` themselves, and the recovery flow renews through `refreshHeldSession` (above).
 
