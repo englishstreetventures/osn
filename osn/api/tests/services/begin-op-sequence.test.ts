@@ -125,7 +125,10 @@ function harness() {
       yield* Effect.sleep("20 millis");
       return landed();
     });
-  return { fake, auth, layer, record, recorded: () => email.recorded(), sendLimitCalls };
+  /** The request's entry as the store holds it. */
+  const entry = (requestId: string) =>
+    Effect.promise(() => bundle.ceremonyStores.emailLinks.get(requestId));
+  return { fake, auth, layer, record, recorded: () => email.recorded(), sendLimitCalls, entry };
 }
 
 const fakeAttestation = () =>
@@ -421,45 +424,141 @@ describe("POST /register/:requestId/resend", () => {
   );
 });
 
-describe("a wrong pick whose writes the store fails", () => {
-  it.live("still answers expired, counts the strike, and deletes nothing", () => {
-    const h = harness();
-    return Effect.gen(function* () {
-      const begun = yield* h.auth.beginRegistration(
-        "seq-wrongpick@example.com",
-        "seqwrongpick",
-        "1990-01-01",
-      );
+/**
+ * A wrong pick, or a decline, whose writes the store fails: a request one
+ * wrong pick has ended never stays confirmable. The mark is tried twice; then
+ * the request is deleted; and when the delete is not answered either, this
+ * process refuses the request until it expires.
+ */
+describe("an ending whose writes the store fails", () => {
+  /** A begun sign-up, its link, and a wrong pick for it. */
+  const begunWithLink = (h: ReturnType<typeof harness>, address: string, handle: string) =>
+    Effect.gen(function* () {
+      const begun = yield* h.auth.beginRegistration(address, handle, "1990-01-01");
       // The send waits on the held send-limit store; let it go and land.
       yield* h.sendLimitCalls(2);
-      const link = linksTo(h.recorded(), "seq-wrongpick@example.com")[0]!;
-      h.fake.failWhen(
-        (call) => call.store === "email_link" && (call.op === "remove" || call.op === "swap"),
-      );
-
+      const link = linksTo(h.recorded(), address)[0]!;
       const wrong = String(Number(begun.pairingCode) === 99 ? 10 : Number(begun.pairingCode) + 1);
+      return { begun, link, wrong };
+    });
+  const strikes = (h: ReturnType<typeof harness>) =>
+    h.fake.calls.filter(
+      (call) => call.store === "registration_link_lockout" && call.op === "increment",
+    ).length;
+  const swaps = (call: { store: string; op: string }) =>
+    call.store === "email_link" && call.op === "swap";
+
+  it.live("a mark that fails once is written by the retry: the request is ended", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      const { begun, link, wrong } = yield* begunWithLink(h, "seq-once@example.com", "seqonce");
+      let failed = 0;
+      h.fake.failWhen((call) => swaps(call) && failed++ === 0);
       const answer = yield* h.auth.confirmEmailLink(link.requestId, {
         linkSecret: link.linkSecret,
         pairingPick: wrong,
       });
-      expect(answer).toBe("expired");
-      const strikes = h.fake.calls.filter(
-        (call) => call.store === "registration_link_lockout" && call.op === "increment",
-      );
-      expect(strikes).toHaveLength(1);
-      expect(begun.requestId).toBe(link.requestId);
-      // Nothing deleted the request: the tab still reads it as one nobody
-      // acted on, as a taken address's request reads.
       h.fake.failWhen(null);
+      expect(answer).toBe("expired");
+      expect(strikes(h)).toBe(1);
+      expect((yield* h.entry(begun.requestId))?.status).toBe("ended");
       expect(yield* h.auth.registrationStatus(begun.requestId, begun.claimSecret)).toEqual({
         status: "pending",
         pairingCode: begun.pairingCode,
       });
-      expect(h.fake.calls.some((call) => call.store === "email_link" && call.op === "remove")).toBe(
-        false,
-      );
     }).pipe(Effect.provide(h.layer));
   });
+
+  it.live(
+    "a mark that fails twice deletes the request: the right pick then reads as unknown",
+    () => {
+      const h = harness();
+      return Effect.gen(function* () {
+        const { begun, link, wrong } = yield* begunWithLink(
+          h,
+          "seq-twice@example.com",
+          "seqtwice2",
+        );
+        h.fake.failWhen(swaps);
+        const answer = yield* h.auth.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: wrong,
+        });
+        h.fake.failWhen(null);
+        expect(answer).toBe("expired");
+        expect(strikes(h)).toBe(1);
+        expect(yield* h.entry(begun.requestId)).toBeNull();
+        const right = yield* h.auth.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: begun.pairingCode,
+        });
+        expect(right).toBe("expired");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live(
+    "a mark and a delete that both fail refuse the request: no pick or claim succeeds",
+    () => {
+      const h = harness();
+      const address = "seq-stuck@example.com";
+      return Effect.gen(function* () {
+        const { begun, link, wrong } = yield* begunWithLink(h, address, "seqstuck");
+        // Confirmed first, so a claim is all the tab's poll would need.
+        yield* h.auth.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: begun.pairingCode,
+        });
+        h.fake.failWhen(
+          (call) => call.store === "email_link" && (call.op === "swap" || call.op === "remove"),
+        );
+        const answer = yield* h.auth.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: wrong,
+        });
+        h.fake.failWhen(null);
+        expect(answer).toBe("expired");
+        expect(strikes(h)).toBe(1);
+        expect((yield* h.entry(begun.requestId))?.status).toBe("confirmed");
+
+        const right = yield* h.auth.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: begun.pairingCode,
+        });
+        expect(right).toBe("expired");
+        expect(
+          yield* settle(h.auth.registrationStatus(begun.requestId, begun.claimSecret)),
+        ).toEqual({
+          status: "expired",
+        });
+        expect(yield* h.auth.findProfileByEmail(address)).toBeNull();
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live(
+    "a decline whose mark and delete both fail is refused, and so is every later pick",
+    () => {
+      const h = harness();
+      return Effect.gen(function* () {
+        const { begun, link } = yield* begunWithLink(h, "seq-stuckdecline@example.com", "seqsd");
+        h.fake.failWhen(
+          (call) => call.store === "email_link" && (call.op === "swap" || call.op === "remove"),
+        );
+        const answer = yield* h.auth.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: "none",
+        });
+        h.fake.failWhen(null);
+        expect(answer).toBe("expired");
+        const right = yield* h.auth.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: begun.pairingCode,
+        });
+        expect(right).toBe("expired");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
 });
 
 /**

@@ -220,6 +220,33 @@ describe("POST /login/recovery/email/:requestId/resend and /status", () => {
   });
 });
 
+describe("a wrong recovery number whose writes the store fails", () => {
+  it.live("leaves the request refused: the right number after it confirms nothing", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("seq-rstuck@example.com", "seqrstuck");
+      const begun = yield* settle(h.auth.beginEmailRecovery("seq-rstuck@example.com", meta));
+      const link = latestLinkTo(h.recorded(), "seq-rstuck@example.com")!;
+      h.fake.failWhen(
+        (call) => call.store === "email_link" && (call.op === "swap" || call.op === "remove"),
+      );
+      const wrong = yield* h.auth.confirmEmailLink(begun.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode === "00" ? "01" : "00",
+      });
+      h.fake.failWhen(null);
+      expect(wrong).toBe("expired");
+      const right = yield* h.auth.confirmEmailLink(begun.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      expect(right).toBe("expired");
+      const polled = yield* settle(h.auth.emailRecoveryStatus(begun.requestId, begun.claimSecret));
+      expect(polled.status).not.toBe("complete");
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
 describe("POST /email-link/:requestId/confirm on a recovery request", () => {
   it.live("a wrong secret makes the same calls whether or not the address has an account", () => {
     const h = harness();

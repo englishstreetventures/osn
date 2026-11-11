@@ -175,9 +175,15 @@ before it mails, reads, replaces or spends anything
   longer works, or "Cancelled", which sends them back to the waiting screen's
   "Start again"; the waiting screen keeps reading "Check your email".
   Step-up's link goes to the signed-in account's own address, so its poll
-  answers `expired` at once. A close tries its write up to four times (the
-  tab's two Resends and the reader's confirm are the only writes that can
-  beat it) before it deletes the request outright.
+  answers `expired` at once.
+- **An ending never leaves a request confirmable.** A close tries its write up
+  to four times (the tab's two Resends and the reader's confirm are the only
+  writes that can beat it), and a store fault on it is tried once more. When
+  no mark lands, the request is deleted instead, so a quiet flow's tab may
+  then read `expired` early: the price of a store fault, never of a guess.
+  When the delete is not answered either, the process that took the pick
+  refuses the request at every later confirm and claim until it expires, and
+  answers the pick (or the decline) as a refusal.
 - **A right secret and pick on a confirmed request answers `confirmed` again**,
   so a confirm whose answer was lost does not read as a failure.
 - **Single delivery.** The poll that finds the request confirmed claims it: a

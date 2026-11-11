@@ -304,6 +304,12 @@ const isOver = (entry: EmailLinkChallenge): boolean =>
  */
 const CLOSE_TRIES = EMAIL_LINK_MAX_SENDS + 1;
 
+/**
+ * How many unsettled requests one process holds before it sweeps out the
+ * expired ones. A live one is never dropped: refusing it is the point.
+ */
+const UNSETTLED_SWEEP_AT = 1_000;
+
 /** Whether `claim` is a whole claim record, as {@link EmailLinkClaim} describes. */
 const isClaim = (claim: EmailLinkClaim | undefined): claim is EmailLinkClaim =>
   typeof claim === "object" &&
@@ -585,38 +591,75 @@ export function createEmailLinkModule(ctx: AuthContext) {
 
   /**
    * Deletes `entry` (request `requestId`) and frees its flow's pending entry:
-   * the tab's own retire, a loud flow's wipe, and a close whose every write
-   * lost. A delete that lost to a write since — a confirm, a Resend — re-reads
-   * and deletes whatever entry still holds the request; a delete the store failed
-   * is tried once more. The caller's answer does not wait on either: it is
-   * `expired` whatever this manages, and a request whose delete failed twice
-   * is left to expire, its pending entry freed all the same. A claimed
-   * request, read first or on the re-read, is left as it is, its pending
-   * entry with it: the poll that holds it finishes it.
+   * the tab's own retire, a loud flow's wipe, and a close that could not
+   * write its mark. A delete that lost to a write since — a confirm, a Resend
+   * — re-reads and deletes whatever entry still holds the request; a delete
+   * the store failed is tried once more. A claimed request, read first or on
+   * the re-read, is left as it is, its pending entry with it: the poll that
+   * holds it finishes it.
    *
-   * Answers whether this call ended the request: true when one of its deletes
-   * removed the entry, or when the store did not answer the last one tried;
-   * false when another write had already removed it, or it is claimed.
+   * Answers `removed` when one of its deletes removed the entry, `gone` when
+   * another write had already removed it or it is claimed, and `unanswered`
+   * when the store did not answer the last delete tried, so the entry may
+   * still be there.
    */
-  const end = (requestId: string, entry: EmailLinkChallenge) =>
+  const removeEntry = (requestId: string, entry: EmailLinkChallenge) =>
     Effect.gen(function* () {
       let current: EmailLinkChallenge | null = entry;
-      let ended = false;
+      let outcome: "removed" | "gone" | "unanswered" = "gone";
       for (let attempt = 0; attempt < 2 && current; attempt++) {
-        if (current.status === "claimed") return false;
+        if (current.status === "claimed") return "gone" as const;
         const from: EmailLinkChallenge = current;
         const removed = yield* storeCall(links, "consume", () =>
           links.consume(requestId, from),
         ).pipe(Effect.catch(() => Effect.succeed(null)));
-        ended = removed !== false;
-        if (removed === true) break;
-        if (removed === false) {
-          current = yield* read(requestId).pipe(Effect.catch(() => Effect.succeed(null)));
+        if (removed === true) {
+          outcome = "removed";
+          break;
         }
+        if (removed === null) {
+          outcome = "unanswered";
+          continue;
+        }
+        outcome = "gone";
+        current = yield* read(requestId).pipe(Effect.catch(() => Effect.succeed(null)));
       }
       yield* release(entry.flow, entry.subject, requestId).pipe(Effect.ignore);
-      return ended;
+      return outcome;
     });
+
+  /**
+   * {@link removeEntry}, answering whether this call ended the request: true
+   * when it removed the entry or the store did not answer, false when another
+   * write had already removed it or it is claimed. The caller's answer is
+   * `expired` whatever this manages.
+   */
+  const end = (requestId: string, entry: EmailLinkChallenge) =>
+    removeEntry(requestId, entry).pipe(Effect.map((outcome) => outcome !== "gone"));
+
+  /**
+   * Requests whose ending this process could neither mark nor delete, by
+   * request id, to their expiry (ms). A confirm and a claim here refuse them,
+   * so a store fault never leaves a request confirmable after a wrong pick,
+   * a decline or a refused number. Entries live at most a request's life.
+   */
+  const unsettled = new Map<string, number>();
+
+  const holdUnsettled = (requestId: string, entry: EmailLinkChallenge): void => {
+    const now = Date.now();
+    if (unsettled.size >= UNSETTLED_SWEEP_AT) {
+      for (const [id, until] of unsettled) if (until <= now) unsettled.delete(id);
+    }
+    unsettled.set(requestId, entry.expiresAt);
+  };
+
+  const isUnsettled = (requestId: string): boolean => {
+    const until = unsettled.get(requestId);
+    if (until === undefined) return false;
+    if (until > Date.now()) return true;
+    unsettled.delete(requestId);
+    return false;
+  };
 
   /**
    * Opens a request of `flow` about `subject`. One store write, whatever the
@@ -782,12 +825,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
   /**
    * How a close went: `closed`, this call ended the request; `repeat`, it was
    * already over in the same way; `refused`, it was claimed, gone, or over in
-   * the other way; `lost`, every write lost to another, and the request was
-   * then deleted, `ended` saying whether this call deleted it.
+   * the other way; `lost`, every write lost to another and nothing is marked.
    */
-  type Closed =
-    | { readonly by: "closed" | "repeat" | "refused" }
-    | { readonly by: "lost"; readonly ended: boolean };
+  type Closed = { readonly by: "closed" | "repeat" | "refused" | "lost" };
 
   /**
    * Ends request `requestId` at the reader's hand, as `to`: `declined` when
@@ -799,8 +839,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * another (a Resend, a confirm) is tried again on what the store now holds,
    * up to `CLOSE_TRIES` times; every value read is checked alike: a request
    * claimed or gone meanwhile (finished, wiped) is refused, and one another
-   * close ended reads as a repeat or a refusal. Should every write lose, the
-   * request is deleted outright, which ending it asks for.
+   * close ended reads as a repeat or a refusal. A store fault fails it; see
+   * {@link endAs} for what then ends the request.
    */
   const close = (
     requestId: string,
@@ -823,28 +863,51 @@ export function createEmailLinkModule(ctx: AuthContext) {
         }
         current = yield* read(requestId);
       }
-      // A quiet flow's entry is never deleted here: an entry gone before its
-      // expiry is the one answer its tab could tell from a never-mailed
-      // request's. Every write lost only to a store fault; the request ends
-      // at its expiry.
-      if (EMAIL_LINK_QUIET[entry.flow]) return { by: "lost", ended: false } as const;
-      return { by: "lost", ended: yield* end(requestId, current) } as const;
+      return { by: "lost" } as const;
     });
 
   /**
-   * Ends `entry` for a wrong pick or a refused right number (`ended`), and
-   * answers whether this call ended it. A store that fails the close counts
-   * as having ended it, so a strike is never skipped for a store fault; a
-   * loud flow then deletes the request, and a quiet one leaves it to expire,
-   * since an entry gone early is the one answer its tab could tell apart.
+   * Ends `entry` as `to`, and never leaves it confirmable: a request one
+   * wrong pick, decline or refused number has ended gets no second guess.
+   *
+   *  1. The close ({@link close}); a store fault on it is tried once more.
+   *     When the retry finds the mark already there, the first write landed
+   *     and only its answer was lost: this call ended it.
+   *  2. Should neither write its mark, the request is deleted instead. A quiet
+   *     flow's tab then reads `expired` before the expiry, which it otherwise
+   *     never would; that is the price of a store fault, never of a guess.
+   *  3. Should the delete not be answered either, this process refuses the
+   *     request (`unsettled`) at every later confirm and claim until it
+   *     expires, and the caller answers a refusal.
+   *
+   * Answers `closed` when this call ended the request (marked or deleted),
+   * `repeat` and `refused` as {@link close} does, and `unsettled` for step 3.
    */
-  const endHere = (requestId: string, entry: EmailLinkChallenge) =>
-    close(requestId, entry, "ended").pipe(
-      Effect.map((closed) => closed.by === "closed" || (closed.by === "lost" && closed.ended)),
-      Effect.catch(() =>
-        EMAIL_LINK_QUIET[entry.flow] ? Effect.succeed(true) : end(requestId, entry),
-      ),
-    );
+  const endAs = (
+    requestId: string,
+    entry: EmailLinkChallenge,
+    to: "declined" | "ended",
+  ): Effect.Effect<"closed" | "repeat" | "refused" | "unsettled"> =>
+    Effect.gen(function* () {
+      let faulted = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const closed = yield* close(requestId, entry, to).pipe(
+          Effect.catch(() => Effect.succeed(null)),
+        );
+        if (closed === null) {
+          faulted = true;
+          continue;
+        }
+        if (closed.by === "repeat" && faulted) return "closed";
+        if (closed.by !== "lost") return closed.by;
+        break;
+      }
+      const removed = yield* removeEntry(requestId, entry);
+      if (removed === "removed") return "closed";
+      if (removed === "gone") return "refused";
+      holdUnsettled(requestId, entry);
+      return "unsettled";
+    });
 
   /**
    * Confirms request `requestId` for the holder of its link who picked the
@@ -872,7 +935,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       }
       // Read and counted in one call, before the secret is compared.
       const guessed = yield* guessEntry(links, requestId, MAX_OTP_ATTEMPTS);
-      if (!guessed || !usable(guessed.entry)) return REFUSED;
+      if (!guessed || !usable(guessed.entry) || isUnsettled(requestId)) return REFUSED;
       const { entry, standing } = guessed;
       // Past the count nothing is compared, except a decline: it confirms
       // nothing and needs no guesses, and whoever began the request must not
@@ -895,22 +958,24 @@ export function createEmailLinkModule(ctx: AuthContext) {
       // A decline is the reader refusing a request they did not start: it
       // ends the request and counts nothing against them.
       if (declining) {
-        const closed = yield* close(requestId, entry, "declined");
-        if (closed.by === "repeat") return REPEAT_DECLINE;
-        if (closed.by === "refused") return REFUSED;
+        const ending = yield* endAs(requestId, entry, "declined");
+        if (ending === "repeat") return REPEAT_DECLINE;
+        // Unsettled: the decline did not land, so it is not answered as one.
+        if (ending !== "closed") return REFUSED;
         yield* declined(entry, sessionMeta);
         return DECLINED;
       }
       if (!picksRight(requestId, entry, input.pairingPick)) {
-        // The strike counts only for the pick that ended the request: of two
-        // wrong picks at once one counts, and a pick that lost the request to
-        // the tab's claim counts nothing.
-        if (yield* endHere(requestId, entry)) yield* strike(entry, sessionMeta);
+        // The strike counts only for the pick that ended the request, or tried
+        // to and met a store fault: of two wrong picks at once one counts, and
+        // a pick that lost the request to the tab's claim counts nothing.
+        const ending = yield* endAs(requestId, entry, "ended");
+        if (ending === "closed" || ending === "unsettled") yield* strike(entry, sessionMeta);
         return WRONG_PICK;
       }
       if (entry.status === "confirmed" || entry.status === "claimed") return REPEAT;
       if (!(yield* admits(entry))) {
-        yield* endHere(requestId, entry);
+        yield* endAs(requestId, entry, "ended");
         return LOCKED;
       }
 
@@ -967,7 +1032,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * passed, or was let go, is taken over with the ids it already holds. One
    * swap naming the whole value read, so of several polls at once exactly one
    * gets it. Null for every other poll, and for a request held by another
-   * poll, or in any other state. It keeps the request's own expiry.
+   * poll, in any other state, or one this process holds as unsettled. It keeps
+   * the request's own expiry.
    */
   const claim = (
     requestId: string,
@@ -975,6 +1041,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
     ids: Pick<EmailLinkClaim, "accountId" | "profileId" | "eventId">,
   ): Effect.Effect<ClaimedEmailLink | null, CoordinationError> =>
     Effect.gen(function* () {
+      if (isUnsettled(requestId)) return null;
       const now = Date.now();
       const heldUntil = now + EMAIL_LINK_CLAIM_HOLD_MS;
       let next: ClaimedEmailLink;
