@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { commands, page } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -14,7 +14,11 @@ import "../../src/styles/global.css";
  *
  * One case per way it can fail (NEW-FEAT.md failure list): it appears at rest
  * on its first frame; it rises but never reaches rest; it lingers or moves on
- * the way out; it moves under reduced motion.
+ * the way out; it moves under reduced motion; a control focused near the
+ * window's foot ends under it (WCAG 2.4.11), which only an engine's own
+ * scroll-into-view can show.
+ *
+ * Screenshots go to `e2e-artifacts/cire-host/unsaved-bar/`.
  *
  * The factories below are written literally: the shared-factory idiom in
  * `test-support/mocks.ts` does not resolve in the browser project.
@@ -71,25 +75,55 @@ function json(body: unknown) {
   });
 }
 
-/** Each editor, loaded, and the control whose press makes its first edit. */
+/** Eight events, enough to run the events editor past a phone's window. */
+const EIGHT_EVENTS = Array.from({ length: 8 }, (_, i) => ({
+  ...EVENT,
+  id: `evt_${i + 1}`,
+  name: `Event ${i + 1}`,
+  slug: `event-${i + 1}`,
+  sortOrder: i,
+}));
+
+/**
+ * Each editor, loaded; the control whose press makes its first edit; and how
+ * to make it long enough to scroll and leave it with unsaved changes and no
+ * drawer open.
+ */
 const EDITORS = [
   {
     name: "the events editor",
+    slug: "events",
     mount: () => render(() => <EventsEditor weddingId="wed_1" />),
     edit: "Add event",
+    async makeLongAndDirty() {
+      routeLoads(EIGHT_EVENTS);
+      render(() => <EventsEditor weddingId="wed_1" />);
+      (await editControl("Add event")).click();
+      // Adding an event opens its drawer; closing it keeps the new event.
+      (await screen.findByRole("button", { name: "Close" })).click();
+      await vi.waitFor(() => {
+        if (screen.queryByRole("dialog")) throw new Error("the drawer is still open");
+      });
+    },
   },
   {
     name: "the guests editor",
+    slug: "guests",
     mount: () => render(() => <GuestsEditor weddingId="wed_1" />),
     edit: "Add household",
+    async makeLongAndDirty() {
+      routeLoads();
+      render(() => <GuestsEditor weddingId="wed_1" />);
+      for (let i = 0; i < 6; i++) (await editControl("Add household")).click();
+    },
   },
 ] as const;
 
-function routeLoads() {
+function routeLoads(events: readonly (typeof EVENT)[] = [EVENT]) {
   authFetch.mockImplementation(async (url: unknown) => {
     const u = String(url);
     if (u.endsWith("/changes/head")) return json({ revision: "rev_1" });
-    if (u.endsWith("/events")) return json([EVENT]);
+    if (u.endsWith("/events")) return json(events);
     if (u.endsWith("/guests")) return json([]);
     if (u.endsWith("/households")) return json([]);
     return json({});
@@ -97,6 +131,12 @@ function routeLoads() {
 }
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+
+const SHOTS = "../../../../e2e-artifacts/cire-host/unsaved-bar";
+
+/** What the browser can move focus to, as the invite builder's save bar counts it. */
+const FOCUSABLE =
+  "button:not(:disabled), input:not(:disabled), select, textarea, a[href], [tabindex]:not([tabindex='-1'])";
 
 /** Discard, which the bar always holds. `hidden`, since the events editor's
  *  drawer, open over it, makes the page behind it inert. */
@@ -155,6 +195,7 @@ function slowMotion() {
 
 afterEach(async () => {
   cleanup();
+  window.scrollTo(0, 0);
   __resetEventsCache();
   __resetGuestsCache();
   __resetHouseholdsCache();
@@ -209,6 +250,50 @@ describe.each(EDITORS)("the unsaved-changes bar in $name", (editor) => {
 
     const { height, drops } = await editAndWatch(edit);
     expect(drops.filter((d) => d > 1 && d < height - 1)).toEqual([]);
-    for (const d of drops.slice(1)) expect(d).toBeCloseTo(0, 0);
+    // The engine may paint its start for a frame or two before the switch's
+    // 0.01ms runs out; from the first frame at rest, it stays there.
+    const rest = drops.findIndex((d) => Math.abs(d) < 0.5);
+    expect(rest).toBeGreaterThanOrEqual(0);
+    expect(rest).toBeLessThanOrEqual(2);
+    for (const d of drops.slice(rest)) expect(d).toBeCloseTo(0, 0);
+  });
+
+  it("keeps a control Tab reaches at the window's foot above it, on a phone", async () => {
+    await page.viewport(390, 844);
+    await editor.makeLongAndDirty();
+    const bar = findBar();
+    await Promise.all(bar.getAnimations().map((a) => a.finished));
+
+    // The first of the editor's controls below the first screen, scrolled to
+    // sit inside the window but behind the bar: a browser counts that as in
+    // view and scrolls nowhere for it unless its scroll margin says otherwise.
+    window.scrollTo(0, 0);
+    await nextFrame();
+    const controls = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+      (el) => !bar.contains(el) && el.checkVisibility(),
+    );
+    const at = controls.findIndex((el) => el.getBoundingClientRect().top > window.innerHeight);
+    expect(at).toBeGreaterThan(0);
+    const target = controls[at]!;
+    window.scrollTo(
+      0,
+      window.scrollY + target.getBoundingClientRect().bottom - (window.innerHeight - 10),
+    );
+    await nextFrame();
+    expect(target.getBoundingClientRect().bottom).toBeGreaterThan(bar.getBoundingClientRect().top);
+
+    controls[at - 1]!.focus({ preventScroll: true });
+    await userEvent.tab();
+    await nextFrame();
+    await nextFrame();
+    expect(document.activeElement).toBe(target);
+    const barBox = bar.getBoundingClientRect();
+    expect(target.getBoundingClientRect().bottom).toBeLessThanOrEqual(barBox.top + 0.5);
+    // By the room the bar's measured height asks for.
+    expect(parseFloat(getComputedStyle(target).scrollMarginBottom)).toBeCloseTo(
+      barBox.height + 8,
+      1,
+    );
+    await page.screenshot({ path: `${SHOTS}/${editor.slug}-tab-at-foot-390.png` });
   });
 });

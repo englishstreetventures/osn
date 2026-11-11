@@ -67,6 +67,7 @@ import {
   runOfShowItem,
 } from "../lib/guest-event-draft";
 import { invalidateGuests } from "../lib/guests-store";
+import { CLEAR_OF_SAVE_BAR, trackSaveBarHeight } from "../lib/save-bar";
 import { scheduleChanged } from "../lib/schedule-changed";
 import { describeTimeZone, timeZoneGroups, zoneOffset } from "../lib/timezones";
 import { haptic } from "../lib/touch-feedback";
@@ -129,6 +130,9 @@ const UNNAMED_EVENT = "Untitled event";
 export default function EventsEditor(props: { weddingId: string }) {
   const { authFetch } = useAuth();
   const store = createGuestEventDraft();
+  /** The box that holds the rows. The unsaved-changes bar writes its height
+   *  here, so a control focused behind the bar scrolls clear of it. */
+  let rowsBox: HTMLDivElement | undefined;
 
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saveError, setSaveError] = createSignal<string | null>(null);
@@ -455,7 +459,8 @@ export default function EventsEditor(props: { weddingId: string }) {
           replaces them, never a form or the heading. Hidden when empty, so it
           adds no gap. */}
       <div
-        class="flex flex-col gap-8 empty:hidden"
+        ref={rowsBox}
+        class={`flex flex-col gap-8 empty:hidden ${CLEAR_OF_SAVE_BAR}`}
         aria-busy={!store.loaded() && !loadError() ? "true" : undefined}
       >
         <Show when={!store.loaded() && !loadError()}>
@@ -576,7 +581,10 @@ export default function EventsEditor(props: { weddingId: string }) {
             a `fixed` bar inside a `container-type` box pins to that box, not the
             viewport, so it would ride inside the panel instead of the window. */}
         <Portal>
-          <div class="border-border bg-surface/95 bar-rise fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
+          <div
+            ref={(bar) => trackSaveBarHeight(bar, rowsBox)}
+            class="border-border bg-surface/95 bar-rise fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur"
+          >
             <div class="page-frame flex flex-wrap items-center justify-between gap-3 py-3">
               <span class="font-body text-text-muted text-ui-sm">
                 <Show when={hasErrors()} fallback="You have unsaved changes.">

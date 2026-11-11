@@ -782,12 +782,13 @@ the curve covers 92% of the rise in its first 60ms at a desk, and the bar reads
 as appearing rather than rising. The `translate` is on the fixed bar itself,
 never an ancestor, so the window stays its containing block. An engine without
 `@starting-style` (before Chrome 117, Safari 17.5, Firefox 129) shows the bar
-at rest at once. Under reduced motion the global switch puts it at rest by its
-second frame, on no frame partway. `tests/components/unsaved-bar.browser.test.tsx`
-reads both editors' bar frame by frame: drawn first below its place by no more
-than its height, rising over several frames and never sinking, at rest at the
-end, gone on the frame Discard runs, and under reduced motion on no frame
-partway.
+at rest at once. Under reduced motion the global switch puts it straight at
+rest: it may show its start for a frame or two, then rest, on no frame
+partway. `tests/components/unsaved-bar.browser.test.tsx` reads both editors'
+bar frame by frame: drawn first below its place by no more than its height,
+rising over several frames and never sinking, at rest at the end, gone on the
+frame Discard runs, and under reduced motion on no frame partway, at its start
+for at most two frames.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
@@ -1576,11 +1577,19 @@ switch adds a rem: its focusable input sits inside its label, below the
 track's top edge.
 
 The same holds at the foot. The invite builder's save bar sticks to the bottom
-of the window, so its form carries the bar's measured height as `--save-bar-h`
-(a `ResizeObserver` rewrites it when an error row joins the bar or the line
-wraps, and it goes with the bar), and a control that takes focus in the form
-carries `scroll-margin-bottom: calc(var(--save-bar-h, 0px) + 0.5rem)`. The
-bottom offset is the measured bar, never a guess.
+of the window and the events and guests editors' unsaved-changes bar is fixed
+there, so each writes its measured height as `--save-bar-h` on a box round
+its rows: the builder's form, and each editor's list, which the bar names
+because it is portalled to `<body>` (`trackSaveBarHeight`,
+`src/lib/save-bar.ts`). A `ResizeObserver` rewrites it when an error row joins
+the bar or the line wraps, and it goes with the bar. A control that takes focus
+in the builder's section cards or an editor's list carries
+`scroll-margin-bottom: calc(var(--save-bar-h, 0px) + 0.5rem)`
+(`CLEAR_OF_SAVE_BAR`): a browser counts a control behind the bar as in view,
+and without the margin Tab would leave focus under it. The bars' own buttons,
+the builder's tab row, the drawers and the preview modals carry no margin. The bottom offset is the measured bar, never a guess.
+`InviteBuilder.save-bar.browser.test.tsx` and `unsaved-bar.browser.test.tsx`
+hold it.
 
 A stuck layer is the same box stuck or not: nothing in it changes size when it
 sticks, because Safari has no scroll anchoring to hide the jump. A shadow on

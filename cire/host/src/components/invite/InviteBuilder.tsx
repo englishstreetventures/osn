@@ -79,6 +79,7 @@ import { INVITE_VIEWS, type InviteView } from "../../lib/dashboard-route";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
 import { CIRE_WEB_URL } from "../../lib/osn";
+import { CLEAR_OF_SAVE_BAR, trackSaveBarHeight } from "../../lib/save-bar";
 import { haptic } from "../../lib/touch-feedback";
 import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
@@ -1606,7 +1607,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
               {/* ── Save bar — sticky so it's reachable from any section ── */}
               <div
-                ref={trackSaveBarHeight}
+                ref={(bar) => trackSaveBarHeight(bar, bar.closest("form"))}
                 class="border-border bg-bg/90 rounded-b-ui-lg sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 border-t px-6 py-4 backdrop-blur"
               >
                 <Show when={error()}>
@@ -1655,39 +1656,6 @@ export default function InviteBuilder(props: InviteBuilderProps) {
  *  sections, plus half a rem (DESIGN.md §The stuck stack). */
 const CLEAR_OF_STUCK_STACK =
   "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+0.5rem)]";
-
-/** A control that takes focus in the section cards stops clear of the sticky
- *  save bar at the foot of the page: the bar's measured height (`--save-bar-h`,
- *  written on the form by `trackSaveBarHeight`) plus half a rem. The bar's own
- *  button, the tab row and the preview modal do not carry it. */
-const CLEAR_OF_SAVE_BAR =
-  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mb-[calc(var(--save-bar-h,0px)+0.5rem)]";
-
-/**
- * Writes the save bar's height as `--save-bar-h` on its form, and again
- * whenever it changes (an error row appears, the line wraps). The offset is
- * measured, never a guess: the bar's content grows. Runs as the bar's `ref`, so
- * the observer ends with the bar.
- */
-function trackSaveBarHeight(bar: HTMLElement) {
-  const form = bar.closest("form");
-  if (!form || typeof ResizeObserver === "undefined") return;
-  let written: string | undefined;
-  const write = () => {
-    const value = `${bar.getBoundingClientRect().height}px`;
-    if (value === written) return;
-    written = value;
-    form.style.setProperty("--save-bar-h", value);
-  };
-  queueMicrotask(write);
-  const observer = new ResizeObserver(write);
-  observer.observe(bar, { box: "border-box" });
-  onCleanup(() => {
-    observer.disconnect();
-    written = undefined;
-    form.style.removeProperty("--save-bar-h");
-  });
-}
 
 /** Plain-English names for the three surfaces a section can sit on. */
 const TONE_LABELS = {
