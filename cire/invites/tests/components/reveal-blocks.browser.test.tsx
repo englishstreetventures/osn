@@ -567,6 +567,20 @@ describe("a gift's reserve form", () => {
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: gift.title }));
   });
 
+  it("gives focus back to Confirm when a refused claim leaves the form open", async () => {
+    // A 409 while some are left: the form stays, with the guest's words in it.
+    const card = mountDrivenCard();
+    await openReserveForm();
+    await pressConfirm();
+    expect(document.activeElement).toBe(document.body);
+
+    await card.answer({ landed: false });
+    expect(document.querySelector("form")).not.toBeNull();
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    expect(document.activeElement).toBe(confirm);
+    expect(confirm.hasAttribute("data-quiet-focus")).toBe(false);
+  });
+
   it("hands focus from a field to Change when the list is re-read before the household's own claim", async () => {
     // Reserving the last one with Enter in a field, which keeps focus: for a
     // moment the list counts it and the claim that makes it this household's

@@ -205,6 +205,18 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
     });
   }
 
+  /**
+   * After a claim sent from inside the form is refused and the form stays
+   * open, puts focus back on Confirm if the engine dropped it to the page when
+   * Confirm was disabled for the claim. Focus the guest moved anywhere else
+   * stays put.
+   */
+  function refocusConfirm(quiet: boolean) {
+    const active = document.activeElement;
+    if (form?.isConnected !== true || (active !== null && active !== document.body)) return;
+    moveFocus(form.querySelector<HTMLButtonElement>('button[type="submit"]') ?? undefined, quiet);
+  }
+
   function openForm() {
     // Open on what they already reserved, so the form reads as "change this"
     // rather than starting them back at 1.
@@ -256,6 +268,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
     // see what changed and decide instead of having their words thrown away
     // by a race they lost.
     if (landed || !canReserveMore()) closeForm(sentFromForm, quiet);
+    else if (sentFromForm) refocusConfirm(quiet);
   }
 
   return (
