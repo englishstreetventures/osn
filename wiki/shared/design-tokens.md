@@ -160,16 +160,17 @@ declares as `--font-weight-ui-title: var(--ui-weight-title, 600)` in its
 `@theme inline` block. Tailwind tells it apart from the `font-ui-*` families by
 the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
 fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
-those parts semibold. `@shared/ui`'s `Badge` and `DialogTitle` read it
-([[component-library]], §Variant components and §Kobalte components). No app
-maps it, and neither does the lab's stylesheet: pulse and the lab draw a badge
-at 600 and Musubi draws none, and pulse and Musubi draw a dialog title at 600,
-as does the lab's `DialogStory`.
-`shared/ui/tests/badge-default.browser.test.tsx` and
-`shared/ui/tests/dialog-default.browser.test.tsx` hold the unmapped badge's and
-title's whole computed style, and pulse's
-`tests/styles/token-contract.browser.test.tsx` holds 600 under pulse's own
-stylesheet.
+those parts semibold. `@shared/ui`'s `Badge`, `DialogTitle` and `CardTitle`
+read it ([[component-library]], §Variant components, §Kobalte components and
+§Simple styled components). No app maps it, and neither does the lab's
+stylesheet: pulse and the lab draw a badge at 600 and Musubi draws none; pulse
+and Musubi draw a dialog title at 600, as does the lab's `DialogStory`; Musubi,
+the metrics dashboard and the lab draw a card title at 600, and pulse draws no
+`CardTitle`. `shared/ui/tests/badge-default.browser.test.tsx`,
+`dialog-default.browser.test.tsx` and `card-default.browser.test.tsx` each hold
+an unmapped badge's or title's whole computed style, and pulse's
+`tests/styles/token-contract.browser.test.tsx` holds 600 for its badges and the
+dialog title under pulse's own stylesheet.
 
 `@cire/ui` also reads a few of cire's own app tokens, outside the contract,
 with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and

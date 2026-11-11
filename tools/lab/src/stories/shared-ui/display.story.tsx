@@ -176,3 +176,48 @@ export const Cards = () => (
     </Card>
   </div>
 );
+
+/** One card under a wrapper that sets the title weight, captioned with what the browser computed. */
+function TitleWeightCard(props: { weight: string; title: string; detail: string }) {
+  let title: HTMLHeadingElement | undefined;
+  return (
+    <div class="flex flex-col gap-3" style={{ "--ui-weight-title": props.weight }}>
+      <Caption
+        name={<Mono>--ui-weight-title: {props.weight}</Mono>}
+        value={
+          <>
+            font-weight <Readout of={() => title} property="font-weight" />
+          </>
+        }
+      />
+      <Card class="w-80">
+        <CardHeader>
+          <CardTitle ref={(el) => (title = el)}>{props.title}</CardTitle>
+          <CardDescription>{props.detail}</CardDescription>
+        </CardHeader>
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * `CardTitle` sets its title at the contract's title weight,
+ * `--ui-weight-title`, and at 600 where an app does not map it. The left card
+ * lends `initial`, the guaranteed-invalid value, so it draws what an app that
+ * maps nothing draws whatever the lab's own stylesheet maps; the right sets the
+ * token to 500 on its wrapper. A card is not portalled, so a wrapper's style
+ * reaches the title.
+ */
+export const CardTitleWeights = () => (
+  <div class="flex flex-col gap-6">
+    <div class="flex flex-wrap items-start gap-4">
+      <TitleWeightCard weight="initial" title="Rooftop, Friday" detail="Carlton North · 7:00pm" />
+      <TitleWeightCard weight="500" title="Garden, Saturday" detail="Brunswick · 2:00pm" />
+    </div>
+    <Rule>
+      An app maps <Mono>--ui-weight-title</Mono> once, in its own stylesheet, and every shared part
+      that reads it follows. Each caption is what the browser computed, not what the stylesheet
+      says.
+    </Rule>
+  </div>
+);
