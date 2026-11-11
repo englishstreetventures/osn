@@ -71,7 +71,9 @@ bun run test                 # all packages
 bun run test:d1              # Miniflare D1 tier
 bun run test:browser         # real-Chromium tier
 bun run test:e2e             # end-to-end suite: boots the stack, writes e2e-artifacts/
+                             # (CI's E2E job: once, rerun whole if it fails)
 bun run test:e2e:repro       # it, twice, failing unless results.json matches byte for byte
+                             # (CI: daily, and on changes under tools/e2e)
 bun run test:scripts         # bun tests under scripts/
 bun run --cwd cire/<pkg> test:mutation --changed  # Stryker on changed lines, cire only
 bun run --cwd <pkg> test:run # one package, once
