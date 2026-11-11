@@ -114,4 +114,55 @@ describe("the guess that crosses a lockout threshold answers without its audit r
       expect(crossing).toBe("expired");
     }).pipe(Effect.provide(db.layer));
   });
+  it.live("emailed step-up link", () => {
+    const db = auditNeverFinishes();
+    const auth = createAuthService(base);
+    return Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("bg-stepup@example.com", "bgstepup");
+      // A request per wrong number, each mailed: a wrong number ends its request.
+      const requests = [];
+      for (let n = 0; n < RECOVERY_LOCKOUT_THRESHOLD; n++) {
+        const begun = yield* settle(
+          auth.beginStepUpEmail(profile.accountId, "account_export", {
+            ip: `198.51.100.${n}`,
+            uaLabel: null,
+          }),
+        );
+        const link = latestLinkTo(db.email.recorded(), "bg-stepup@example.com")!;
+        requests.push({ begun, link });
+      }
+      const wrongFor = (right: string) => (right === "00" ? "01" : "00");
+      db.stall();
+      for (const { begun, link } of requests.slice(0, -1)) {
+        const answer = yield* auth.confirmEmailLink(begun.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: wrongFor(begun.pairingCode),
+        });
+        expect(answer).toBe("expired");
+      }
+      const last = requests.at(-1)!;
+      const crossing = yield* auth
+        .confirmEmailLink(last.begun.requestId, {
+          linkSecret: last.link.linkSecret,
+          pairingPick: wrongFor(last.begun.pairingCode),
+        })
+        .pipe(Effect.timeout("1 second"));
+      expect(crossing).toBe("expired");
+    }).pipe(Effect.provide(db.layer));
+  });
+
+  it.live("a declined step-up link", () => {
+    const db = auditNeverFinishes();
+    const auth = createAuthService(base);
+    return Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("bg-stepdecline@example.com", "bgstepdecline");
+      const begun = yield* settle(auth.beginStepUpEmail(profile.accountId, "account_export"));
+      const link = latestLinkTo(db.email.recorded(), "bg-stepdecline@example.com")!;
+      db.stall();
+      const answer = yield* auth
+        .confirmEmailLink(begun.requestId, { linkSecret: link.linkSecret, pairingPick: "none" })
+        .pipe(Effect.timeout("1 second"));
+      expect(answer).toBe("declined");
+    }).pipe(Effect.provide(db.layer));
+  });
 });

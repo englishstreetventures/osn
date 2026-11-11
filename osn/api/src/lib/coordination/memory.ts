@@ -44,6 +44,7 @@ import {
   createInMemoryJtiStore,
 } from "../../services/auth/stores";
 import { createInMemoryRecoveryLockoutStore } from "../recovery-lockout-store";
+import { createInMemoryRegistrationRestartStore } from "../registration-restart-store";
 import type { CoordinationStores } from "./index";
 import { createCoordinationProbe, createMemoryProbeTarget } from "./probe";
 
@@ -74,6 +75,7 @@ export function createInMemoryCoordination(): CoordinationStores {
       lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
     }),
     stepUpLinkLockoutStore: createInMemoryRecoveryLockoutStore(),
+    registrationRestartStore: createInMemoryRegistrationRestartStore(),
     profileSwitchCap: createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS),
     emailChangeBeginCap: createInMemoryAccountCap(
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,

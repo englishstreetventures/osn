@@ -18,10 +18,19 @@
  *   types the number,
  *   and the candidates read answers as it does for an unknown request. The
  *   confirm `POST` carries the secret and the number; a wrong one ends the
- *   request at once. The reader can instead say they did not
- *   ask (`none`), which ends it too, and is answered `declined`, again on a
- *   repeat. Nothing here answers a `GET`, since mail scanners open every link
- *   before a person does.
+ *   request at once (`ended`). The reader can instead say they did not ask
+ *   (`none`), which ends it too (`declined`), and is answered `declined`,
+ *   again on a repeat. Nothing here answers a `GET`, since mail scanners open
+ *   every link before a person does.
+ * - An ended or declined request stays until its expiry. In a quiet flow
+ *   (`EMAIL_LINK_QUIET`: sign-up, recovery and email change, whose links can
+ *   go to an address nobody has proven to the tab that began) the tab's poll
+ *   and Resend answer it exactly as a request whose link was never mailed:
+ *   `pending` with the number, and `sent` with nothing mailed, until it
+ *   expires. So whatever the link's reader does, the tab that began learns
+ *   nothing a request for a taken or unknown address would not tell it.
+ *   Step-up's link goes to the signed-in account's own address, and its tab
+ *   reads `expired` at once.
  * - A confirm marks the request confirmed and does nothing else: it never
  *   mints a session, and no answer names the address or which candidate is
  *   right.
@@ -39,10 +48,15 @@
  *
  * Every refusal answers alike: an unknown request, a wrong secret, a spent or
  * expired one, and another flow's request all read as `expired`. Wrong link
- * secrets are counted against `MAX_OTP_ATTEMPTS` on the request itself; the
- * guess that reaches it wipes the request and frees the flow's pending entry.
- * A wrong secret counts nowhere else: whoever began a request holds its id,
- * and a 256-bit secret needs no wider count. A wrong pick, which only the
+ * secrets are counted against `MAX_OTP_ATTEMPTS` on the request itself, and
+ * every guess past it is refused without the secret being compared. In a
+ * loud flow the guess that reaches it also wipes the request and frees its
+ * pending entry; in a quiet flow it ends nothing, since the count it reaches
+ * would show whether the reader's own confirm, which counts as a guess and
+ * whose write restarts the count, came first. Each wrong secret then costs
+ * the one counting call whatever the count. A wrong secret counts nowhere
+ * else: whoever began a request holds its id, and a 256-bit secret needs no
+ * wider count. A wrong pick, which only the
  * holder of a link can make, also counts against the flow's subject
  * (`strikesOf`): sign-up's and email change's address, or recovery's and
  * step-up's account, which refuses a right number while it is locked
@@ -65,7 +79,7 @@ import {
   RECOVERY_LOCKOUT_THRESHOLD,
   type RecoveryLockoutStore,
 } from "../../lib/recovery-lockout-store";
-import { metricRecoveryLockout, withEmailLinkConfirm } from "../../metrics";
+import { metricRecoveryLockout, metricStepUpLockout, withEmailLinkConfirm } from "../../metrics";
 import { claimEntry, guessEntry } from "./attempts";
 import {
   EMAIL_LINK_CLAIM_HOLD_MS,
@@ -75,8 +89,8 @@ import {
 } from "./constants";
 import type { AuthContext } from "./context";
 import { CoordinationError } from "./errors";
-import { frontendOrigin, genId } from "./helpers";
-import { recordRecoveryLinkEvent } from "./recovery-link-event";
+import { frontendOrigin, genId, mailboxKey } from "./helpers";
+import { recordLinkEvent } from "./link-event";
 import { isProbeKey } from "./server-mac";
 import { storeCall } from "./store-call";
 import type { EmailLinkChallenge, EmailLinkClaim, EmailLinkFlow, PendingSignUp } from "./stores";
@@ -116,6 +130,23 @@ export const EMAIL_LINK_PAIRING_MODE = {
   step_up: "type",
   email_change: "pick",
 } as const satisfies Record<EmailLinkFlow, EmailLinkPairingMode>;
+
+/**
+ * Whether a flow answers the tab that began alike after its request ends at
+ * the reader's hand (a decline, a wrong pick, a number the account's lockout
+ * refused): `pending` to a poll and `sent` to a Resend, nothing mailed, until
+ * the request expires, as for a request whose link was never mailed. A flow
+ * whose link can go to an address the tab that began has not proven is quiet:
+ * sign-up and email change (an address anyone can type), and recovery (an
+ * address that may name no account). Step-up's link goes to the signed-in
+ * account's own address, so its tab is told at once.
+ */
+export const EMAIL_LINK_QUIET = {
+  registration: true,
+  recovery: true,
+  step_up: false,
+  email_change: true,
+} as const satisfies Record<EmailLinkFlow, boolean>;
 
 /**
  * What a confirm's `pairingPick` may be, by mode: a two-digit candidate, or one
@@ -216,6 +247,12 @@ export type EmailLinkResend =
       readonly bound: string | undefined;
       /** The request's `purpose`, or undefined when its flow set none. */
       readonly purpose: string | undefined;
+      /**
+       * True when the request has ended (a quiet flow's ended or declined
+       * request): the caller mails nothing, and makes the calls it makes for a
+       * request whose link it never mails.
+       */
+      readonly ended: boolean;
       readonly url: string;
       /** Milliseconds; the request's own expiry, unchanged by the Resend. */
       readonly expiresAt: number;
@@ -252,7 +289,20 @@ const STATUSES: ReadonlySet<string> = new Set<EmailLinkChallenge["status"]>([
   "confirmed",
   "claimed",
   "declined",
+  "ended",
 ]);
+
+/** Whether a request has ended at the reader's hand, its entry kept until it expires. */
+const isOver = (entry: EmailLinkChallenge): boolean =>
+  entry.status === "declined" || entry.status === "ended";
+
+/**
+ * How many times a close tries its write. Only a Resend (at most
+ * `EMAIL_LINK_MAX_SENDS - 1` of them) and the reader's own confirm can write
+ * the entry between its read and its write, so a close that tries this often
+ * always lands unless the store fails.
+ */
+const CLOSE_TRIES = EMAIL_LINK_MAX_SENDS + 1;
 
 /** Whether `claim` is a whole claim record, as {@link EmailLinkClaim} describes. */
 const isClaim = (claim: EmailLinkClaim | undefined): claim is EmailLinkClaim =>
@@ -276,7 +326,7 @@ const randomIndex = (n: number): number => {
 
 export function createEmailLinkModule(ctx: AuthContext) {
   const { config, stores, serverMac, hashIp, registrationLinkLockoutStore } = ctx;
-  const { recoveryOtpLockoutStore, stepUpLinkLockoutStore } = ctx;
+  const { recoveryOtpLockoutStore, stepUpLinkLockoutStore, registrationRestartStore } = ctx;
   const links = stores.emailLinks;
 
   /**
@@ -320,7 +370,32 @@ export function createEmailLinkModule(ctx: AuthContext) {
         metricRecoveryLockout("locked");
         if (count === RECOVERY_LOCKOUT_THRESHOLD && !isProbeKey(subject)) {
           yield* forkBackground(
-            recordRecoveryLinkEvent(hashIp, subject, "recovery_otp_lockout", sessionMeta),
+            recordLinkEvent(hashIp, subject, "recovery_otp_lockout", sessionMeta),
+          );
+        }
+      });
+
+  /**
+   * Step-up's account count, after each failure: the lockout metric, and the
+   * audit row once the count reaches the threshold, after the answer. The
+   * subject is always the signed-in account's id.
+   */
+  const stepUpCounted =
+    (subject: string) =>
+    (count: number | "unknown", sessionMeta?: SessionMeta): Effect.Effect<void, never, Db> =>
+      Effect.gen(function* () {
+        if (count === "unknown") {
+          metricStepUpLockout("unavailable");
+          return;
+        }
+        if (count < RECOVERY_LOCKOUT_THRESHOLD) {
+          metricStepUpLockout("recorded");
+          return;
+        }
+        metricStepUpLockout("locked");
+        if (count === RECOVERY_LOCKOUT_THRESHOLD) {
+          yield* forkBackground(
+            recordLinkEvent(hashIp, subject, "step_up_link_lockout", sessionMeta),
           );
         }
       });
@@ -352,7 +427,11 @@ export function createEmailLinkModule(ctx: AuthContext) {
           counted: recoveryCounted(entry.subject),
         };
       case "step_up":
-        return { store: stepUpLinkLockoutStore, key: entry.subject };
+        return {
+          store: stepUpLinkLockoutStore,
+          key: entry.subject,
+          counted: stepUpCounted(entry.subject),
+        };
     }
   };
 
@@ -365,17 +444,36 @@ export function createEmailLinkModule(ctx: AuthContext) {
     });
 
   /**
-   * After a first decline of `entry`, what its flow records. Recovery writes a
-   * `recovery_link_declined` row for the account, after the answer, so the
-   * owner's other devices show that someone asked to get in. Sign-up records
-   * nothing: no account exists yet.
+   * After a first decline of `entry`, what its flow records, after the
+   * answer. Recovery writes a `recovery_link_declined` row for the account, so
+   * the owner's other devices show that someone asked to get in; step-up
+   * writes `step_up_link_declined`, since someone signed in to the account
+   * asked to act and the owner said no. Sign-up marks the address's mailbox
+   * (`markDeclined`), so the next begin's first link counts against its
+   * restart window. Email change records nothing.
    */
-  const declined = (entry: EmailLinkChallenge, sessionMeta?: SessionMeta) =>
-    entry.flow === "recovery" && !isProbeKey(entry.subject)
-      ? forkBackground(
-          recordRecoveryLinkEvent(hashIp, entry.subject, "recovery_link_declined", sessionMeta),
-        )
-      : Effect.void;
+  const declined = (entry: EmailLinkChallenge, sessionMeta?: SessionMeta) => {
+    switch (entry.flow) {
+      case "recovery":
+        return isProbeKey(entry.subject)
+          ? Effect.void
+          : forkBackground(
+              recordLinkEvent(hashIp, entry.subject, "recovery_link_declined", sessionMeta),
+            );
+      case "step_up":
+        return forkBackground(
+          recordLinkEvent(hashIp, entry.subject, "step_up_link_declined", sessionMeta),
+        );
+      case "registration": {
+        const address = entry.signUp?.email;
+        if (!address) return Effect.void;
+        const key = serverMac.probeKey(mailboxKey(address));
+        return forkBackground(Effect.promise(() => registrationRestartStore.markDeclined(key)));
+      }
+      case "email_change":
+        return Effect.void;
+    }
+  };
 
   /**
    * Whether `entry`'s flow lets a right number confirm it now. Recovery and
@@ -389,7 +487,11 @@ export function createEmailLinkModule(ctx: AuthContext) {
       if (entry.flow === "step_up") {
         const reading = yield* Effect.promise(() => stepUpLinkLockoutStore.status(entry.subject));
         if (reading.status === "open") return true;
-        if (reading.status === "locked") return false;
+        if (reading.status === "locked") {
+          metricStepUpLockout("locked");
+          return false;
+        }
+        metricStepUpLockout("unavailable");
         return yield* Effect.fail(
           new CoordinationError({ store: "step_up_link_lockout", op: "count" }),
         );
@@ -482,9 +584,10 @@ export function createEmailLinkModule(ctx: AuthContext) {
     });
 
   /**
-   * Ends `entry` (request `requestId`) and frees its flow's pending entry. A
-   * delete that lost to a write since — a confirm, a Resend — re-reads and
-   * deletes whatever entry still holds the request; a delete the store failed
+   * Deletes `entry` (request `requestId`) and frees its flow's pending entry:
+   * the tab's own retire, a loud flow's wipe, and a close whose every write
+   * lost. A delete that lost to a write since — a confirm, a Resend — re-reads
+   * and deletes whatever entry still holds the request; a delete the store failed
    * is tried once more. The caller's answer does not wait on either: it is
    * `expired` whatever this manages, and a request whose delete failed twice
    * is left to expire, its pending entry freed all the same. A claimed
@@ -635,12 +738,13 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * The candidates for the confirm page, for the holder of a link. A right
    * secret is answered from one read and counts nothing, so a reload, or a
    * scanner that runs the page's script, spends nothing. A wrong secret is
-   * counted as a wrong confirm is, and the one that reaches the cap wipes the
-   * request (never a claimed one). A confirmed or claimed request answers
-   * `confirmed` and offers no list, so a page reloaded after its confirm cannot
-   * be made to pick again; a declined one is over, and answers `expired`. A
-   * `type` flow's request has no list to offer: it answers `expired` after the
-   * same one read an unknown request makes, and counts nothing.
+   * counted as a wrong confirm is, and in a loud flow the one that reaches the
+   * cap wipes the request (never a claimed one). A confirmed or claimed
+   * request answers `confirmed` and offers no list, so a page reloaded after
+   * its confirm cannot be made to pick again; an ended or declined one is
+   * over, and answers `expired`. A `type` flow's request has no list to
+   * offer: it answers `expired` after the same one read an unknown request
+   * makes, and counts nothing.
    */
   const candidates = (
     requestId: string,
@@ -655,11 +759,13 @@ export function createEmailLinkModule(ctx: AuthContext) {
         if (entry.status === "confirmed" || entry.status === "claimed") {
           return { status: "confirmed" } as const;
         }
-        if (entry.status === "declined") return { status: "expired" } as const;
+        if (isOver(entry)) return { status: "expired" } as const;
         return { status: "ready", pairingCandidates: candidatesOf(requestId) } as const;
       }
       const guessed = yield* guessEntry(links, requestId, MAX_OTP_ATTEMPTS);
-      if (guessed?.standing === "last") yield* end(requestId, guessed.entry);
+      if (guessed?.standing === "last" && !EMAIL_LINK_QUIET[guessed.entry.flow]) {
+        yield* end(requestId, guessed.entry);
+      }
       return { status: "expired" } as const;
     }).pipe(Effect.withSpan("auth.email_link.candidates"));
 
@@ -674,49 +780,76 @@ export function createEmailLinkModule(ctx: AuthContext) {
   const CONFIRMED: Confirmed = { answer: "confirmed", outcome: "confirmed" };
 
   /**
-   * Ends request `requestId` because the holder of its link did not ask for
-   * it. The entry is marked `declined` rather than deleted, so a repeat of the
-   * decline is answered the same way; nothing can confirm, claim or resend it
-   * after. The flow's pending entry is freed at once. A write that lost to
-   * another (a Resend, a confirm) is tried once more on what the store now
-   * holds. Every value read, the one after the last lost write included, is
-   * checked alike: a request claimed or gone meanwhile (finished, wiped) is
-   * refused, and one another decline ended reads as a repeat.
+   * How a close went: `closed`, this call ended the request; `repeat`, it was
+   * already over in the same way; `refused`, it was claimed, gone, or over in
+   * the other way; `lost`, every write lost to another, and the request was
+   * then deleted, `ended` saying whether this call deleted it.
    */
-  const decline = (requestId: string, entry: EmailLinkChallenge) =>
+  type Closed =
+    | { readonly by: "closed" | "repeat" | "refused" }
+    | { readonly by: "lost"; readonly ended: boolean };
+
+  /**
+   * Ends request `requestId` at the reader's hand, as `to`: `declined` when
+   * they did not ask, `ended` for a wrong pick or a number the account's
+   * lockout refused. The entry is kept, marked, until it expires, so a repeat
+   * of the decline is answered the same way, a quiet flow's tab is answered as
+   * for a request never mailed, and nothing can confirm, claim or resend it
+   * after. The flow's pending entry is freed at once. A write that lost to
+   * another (a Resend, a confirm) is tried again on what the store now holds,
+   * up to `CLOSE_TRIES` times; every value read is checked alike: a request
+   * claimed or gone meanwhile (finished, wiped) is refused, and one another
+   * close ended reads as a repeat or a refusal. Should every write lose, the
+   * request is deleted outright, which ending it asks for.
+   */
+  const close = (
+    requestId: string,
+    entry: EmailLinkChallenge,
+    to: "declined" | "ended",
+  ): Effect.Effect<Closed, CoordinationError> =>
     Effect.gen(function* () {
       let current: EmailLinkChallenge | null = entry;
       for (let attempt = 0; ; attempt++) {
-        if (!usable(current) || current.status === "claimed") return REFUSED;
-        if (current.status === "declined") return REPEAT_DECLINE;
-        if (attempt === 2) break;
+        if (!usable(current) || current.status === "claimed") return { by: "refused" } as const;
+        if (isOver(current)) return { by: current.status === to ? "repeat" : "refused" } as const;
+        if (attempt === CLOSE_TRIES) break;
         const from: EmailLinkChallenge = current;
         const won = yield* storeCall(links, "swap", () =>
-          links.swap(requestId, from, { ...from, status: "declined" }, remainingMs(from)),
+          links.swap(requestId, from, { ...from, status: to }, remainingMs(from)),
         );
         if (won) {
           yield* release(from.flow, from.subject, requestId).pipe(Effect.ignore);
-          return DECLINED;
+          return { by: "closed" } as const;
         }
         current = yield* read(requestId);
       }
-      // Two writes lost to a request still pending or confirmed: end it
-      // outright, which a decline asks for.
-      yield* end(requestId, current);
-      return DECLINED;
+      return { by: "lost", ended: yield* end(requestId, current) } as const;
     });
+
+  /**
+   * Ends `entry` for a wrong pick or a refused right number (`ended`), and
+   * answers whether this call ended it. A store that fails the close is left
+   * to the delete, which answers true when the store did not answer it, so a
+   * strike is never skipped for a store fault.
+   */
+  const endHere = (requestId: string, entry: EmailLinkChallenge) =>
+    close(requestId, entry, "ended").pipe(
+      Effect.map((closed) => closed.by === "closed" || (closed.by === "lost" && closed.ended)),
+      Effect.catch(() => end(requestId, entry)),
+    );
 
   /**
    * Confirms request `requestId` for the holder of its link who picked the
    * waiting screen's number. Answers `confirmed` — again for a request already
    * confirmed or claimed, so a confirm whose answer was lost reads as done when
    * retried — and `expired` for every refusal. A wrong pick ends the request
-   * at once, on a confirmed request too, and counts a strike against the
-   * flow's subject when it is the call that ended the request.
-   * A decline (`none`) ends it too, counts nothing, and answers `declined`,
-   * again when repeated. A claimed request is past both: a wrong pick and a
-   * decline on it are refused, and end nothing. `sessionMeta` is the
-   * caller's, for a row a wrong pick or a decline may write.
+   * at once (`ended`), on a confirmed request too, and counts a strike against
+   * the flow's subject when it is the call that ended the request.
+   * A decline (`none`) ends it too (`declined`), counts nothing, and answers
+   * `declined`, again when repeated. A claimed request is past both: a wrong
+   * pick and a decline on it are refused, and end nothing. An ended request
+   * refuses everything. `sessionMeta` is the caller's, for a row a wrong pick
+   * or a decline may write.
    */
   const confirm = (
     requestId: string,
@@ -734,38 +867,43 @@ export function createEmailLinkModule(ctx: AuthContext) {
       if (!guessed || guessed.standing === "spent" || !usable(guessed.entry)) return REFUSED;
       const { entry, standing } = guessed;
       if (!holdsLink(entry, input.linkSecret)) {
-        if (standing !== "last") return REFUSED;
+        // A quiet flow ends nothing here: see the module's note on the count.
+        if (standing !== "last" || EMAIL_LINK_QUIET[entry.flow]) return REFUSED;
         return (yield* end(requestId, entry)) ? WIPED : REFUSED;
       }
       const declining = input.pairingPick === EMAIL_LINK_DECLINE;
       // A declined request is over: its decline can be repeated, nothing else.
       if (entry.status === "declined") return declining ? REPEAT_DECLINE : REFUSED;
+      // An ended one is over too, for everything.
+      if (entry.status === "ended") return REFUSED;
       // A decline is the reader refusing a request they did not start: it
       // ends the request and counts nothing against them.
       if (declining) {
-        const answered = yield* decline(requestId, entry);
-        if (answered === DECLINED) yield* declined(entry, sessionMeta);
-        return answered;
+        const closed = yield* close(requestId, entry, "declined");
+        if (closed.by === "repeat") return REPEAT_DECLINE;
+        if (closed.by === "refused") return REFUSED;
+        yield* declined(entry, sessionMeta);
+        return DECLINED;
       }
       if (!picksRight(requestId, entry, input.pairingPick)) {
         // The strike counts only for the pick that ended the request: of two
         // wrong picks at once one counts, and a pick that lost the request to
         // the tab's claim counts nothing.
-        if (yield* end(requestId, entry)) yield* strike(entry, sessionMeta);
+        if (yield* endHere(requestId, entry)) yield* strike(entry, sessionMeta);
         return WRONG_PICK;
       }
       if (entry.status === "confirmed" || entry.status === "claimed") return REPEAT;
       if (!(yield* admits(entry))) {
-        yield* end(requestId, entry);
+        yield* endHere(requestId, entry);
         return LOCKED;
       }
 
       // Two tries: a Resend can append a link to the entry between the read
       // and the write, which loses the first swap without changing the answer.
-      // A decline that won meanwhile has ended the request: nothing confirms it.
+      // A close that won meanwhile has ended the request: nothing confirms it.
       let current: EmailLinkChallenge | null = entry;
       for (let attempt = 0; attempt < 2 && usable(current); attempt++) {
-        if (current.status === "declined") return REFUSED;
+        if (isOver(current)) return REFUSED;
         if (current.status === "confirmed" || current.status === "claimed") return REPEAT;
         const from: EmailLinkChallenge = current;
         const won = yield* storeCall(links, "swap", () =>
@@ -783,9 +921,11 @@ export function createEmailLinkModule(ctx: AuthContext) {
   /**
    * The tab that began asks where its request stands. One store read. A
    * pending answer carries the request's number, so a tab that was reloaded
-   * shows it again without having kept it anywhere. A flow whose caller is
-   * signed in names the `subject` it is signed in as; another subject's
-   * request reads as expired.
+   * shows it again without having kept it anywhere. An ended or declined
+   * request reads as pending in a quiet flow, number included, until it
+   * expires, and as expired in a loud one. A flow whose caller is signed in
+   * names the `subject` it is signed in as; another subject's request reads as
+   * expired.
    */
   const poll = (
     flow: EmailLinkFlow,
@@ -795,7 +935,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
   ): Effect.Effect<EmailLinkPoll, CoordinationError> =>
     Effect.gen(function* () {
       const entry = yield* held(flow, requestId, claimSecret, subject);
-      if (!entry || entry.status === "declined") return { state: "expired" } as const;
+      if (!entry || (isOver(entry) && !EMAIL_LINK_QUIET[flow])) {
+        return { state: "expired" } as const;
+      }
       if (entry.status === "confirmed" || entry.status === "claimed") {
         return { state: "confirmed", entry } as const;
       }
@@ -864,7 +1006,10 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * One more link for the request, for the tab that holds its claim secret
    * (signed in as `subject`, where the flow names one). Every link sent stays
    * usable, up to `EMAIL_LINK_MAX_SENDS` in all; the request's expiry and
-   * pairing number do not change.
+   * pairing number do not change. A quiet flow's ended or declined request is
+   * answered as a live one, `limit` included, and its entry written as a live
+   * one's is, with `ended` set so the caller mails nothing; a loud flow's
+   * reads as expired.
    */
   const resend = (
     flow: EmailLinkFlow,
@@ -880,7 +1025,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
         if (current.status === "confirmed" || current.status === "claimed") {
           return { state: "confirmed" } as const;
         }
-        if (current.status === "declined") return { state: "expired" } as const;
+        const over = isOver(current);
+        if (over && !EMAIL_LINK_QUIET[flow]) return { state: "expired" } as const;
         if (current.mailSecretHashes.length >= EMAIL_LINK_MAX_SENDS) {
           return { state: "limit" } as const;
         }
@@ -900,6 +1046,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
             signUp: from.signUp,
             bound: from.bound,
             purpose: from.purpose,
+            ended: over,
             url: linkUrl(requestId, linkSecret),
             expiresAt: from.expiresAt,
           } as const;

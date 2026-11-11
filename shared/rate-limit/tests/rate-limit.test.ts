@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  clientNetwork,
   createRateLimiter,
   createWorkersRateLimiter,
   getClientIp,
@@ -302,5 +303,38 @@ describe("createWorkersRateLimiter", () => {
     };
     await createWorkersRateLimiter(binding).check("203.0.113.9");
     expect(seen).toBe("203.0.113.9");
+  });
+});
+
+describe("clientNetwork", () => {
+  it("keeps an IPv4 address as it is", () => {
+    expect(clientNetwork("203.0.113.9")).toBe("203.0.113.9");
+  });
+
+  it("keys every IPv6 address in one /64 alike, however it is written", () => {
+    const forms = [
+      "2001:db8:1:2::1",
+      "2001:0db8:0001:0002:ffff:ffff:ffff:fffe",
+      "2001:DB8:1:2:0:0:0:9",
+      "2001:db8:1:2::a:b",
+    ];
+    for (const form of forms) expect(clientNetwork(form)).toBe("2001:db8:1:2::/64");
+  });
+
+  it("keys IPv6 addresses in different /64s apart", () => {
+    expect(clientNetwork("2001:db8:1:2::1")).not.toBe(clientNetwork("2001:db8:1:3::1"));
+    expect(clientNetwork("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(clientNetwork("::1")).toBe("0:0:0:0::/64");
+  });
+
+  it("keys an IPv4 address written in IPv6 form as that IPv4 address", () => {
+    expect(clientNetwork("::ffff:203.0.113.9")).toBe("203.0.113.9");
+    expect(clientNetwork("::ffff:cb00:7109")).toBe("203.0.113.9");
+  });
+
+  it("leaves what it cannot read as it is", () => {
+    for (const value of ["", UNRESOLVED_IP, "unknown", "1:2:3", "1::2::3", "g::1"]) {
+      expect(clientNetwork(value)).toBe(value);
+    }
   });
 });

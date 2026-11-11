@@ -148,7 +148,7 @@ describe("a wrong number ends the request", () => {
 });
 
 describe("a decline ends the request", () => {
-  it("answers declined, the poll reads expired, and no security event is written", async () => {
+  it("answers declined, the poll reads expired, and one step_up_link_declined event is written", async () => {
     const h = harness();
     const { profile, accessToken } = await h.signedIn("f3@example.com", "fthree");
     const begun = await begunStepUp(h, accessToken);
@@ -159,6 +159,14 @@ describe("a decline ends the request", () => {
       "none",
     );
     expect(await statusBody(declined)).toEqual({ status: "declined" });
+    // The same decline sent again is answered the same, and recorded once.
+    const again = await confirmLinkThroughRoutes(
+      h.app,
+      begun.requestId,
+      begun.link.linkSecret,
+      "none",
+    );
+    expect(await statusBody(again)).toEqual({ status: "declined" });
     const polled = await stepUpStatusThroughRoutes(
       h.app,
       accessToken,
@@ -170,7 +178,128 @@ describe("a decline ends the request", () => {
       .select()
       .from(securityEvents)
       .where(eq(securityEvents.accountId, profile.accountId));
-    expect(rows).toEqual([]);
+    expect(rows.map((row) => row.kind)).toEqual(["step_up_link_declined"]);
+  });
+});
+
+describe("wrong numbers lock the account's step-up links", () => {
+  it("the fifth writes one step_up_link_lockout event, and a sixth writes none", async () => {
+    const h = harness();
+    const { profile, accessToken } = await h.signedIn("f3lock@example.com", "fthreelock");
+    const requests = [];
+    for (let n = 0; n < 6; n++) {
+      const { res, body } = await beginStepUpThroughRoutes(h.app, accessToken, "account_export", {
+        "x-forwarded-for": `198.51.100.${n + 1}`,
+      });
+      expect(res.status).toBe(200);
+      requests.push({ ...body, link: linkForRequest(h.recorded(), body.requestId)! });
+    }
+    const kinds = async () =>
+      (
+        await h.db
+          .select()
+          .from(securityEvents)
+          .where(eq(securityEvents.accountId, profile.accountId))
+      ).map((row) => row.kind);
+    for (const [n, r] of requests.slice(0, 5).entries()) {
+      const wrong = await confirmLinkThroughRoutes(
+        h.app,
+        r.requestId,
+        r.link.linkSecret,
+        wrongNumber(r.pairingCode),
+      );
+      expect(await statusBody(wrong)).toEqual({ status: "expired" });
+      expect(await kinds()).toEqual(n < 4 ? [] : ["step_up_link_lockout"]);
+    }
+    const last = requests[5]!;
+    await confirmLinkThroughRoutes(
+      h.app,
+      last.requestId,
+      last.link.linkSecret,
+      wrongNumber(last.pairingCode),
+    );
+    expect(await kinds()).toEqual(["step_up_link_lockout"]);
+  });
+});
+
+/** `POST /account/email/:requestId/resend`, waiting for the send it forks. */
+const emailChangeResend = (
+  h: Harness,
+  accessToken: string,
+  requestId: string,
+  claimSecret: string,
+) =>
+  settledHandle(
+    h.app,
+    new Request(`http://localhost/account/email/${requestId}/resend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ claimSecret }),
+    }),
+  );
+
+describe("an email change its reader ended answers as a taken address's", () => {
+  it("after a decline or a wrong pick, poll and Resend read as for an address nobody was mailed", async () => {
+    const h = harness();
+    await h.signedIn("f9-owner@example.com", "fnineowner");
+    for (const act of ["decline", "wrong pick"] as const) {
+      const tag = act === "decline" ? "d" : "w";
+      const one = await h.signedIn(`f9-one-${tag}@example.com`, `fnineone${tag}`);
+      const two = await h.signedIn(`f9-two-${tag}@example.com`, `fninetwo${tag}`);
+      const free = await beginEmailChangeThroughRoutes(
+        h.app,
+        one.accessToken,
+        `f9-new-${tag}@example.com`,
+        {
+          "x-forwarded-for": `198.51.100.${tag === "d" ? 61 : 62}`,
+        },
+      );
+      const taken = await beginEmailChangeThroughRoutes(
+        h.app,
+        two.accessToken,
+        "f9-owner@example.com",
+        {
+          "x-forwarded-for": `198.51.100.${tag === "d" ? 63 : 64}`,
+        },
+      );
+      const link = linkForRequest(h.recorded(), free.body.requestId)!;
+      const pick = act === "decline" ? "none" : wrongNumber(free.body.pairingCode);
+      await confirmLinkThroughRoutes(h.app, free.body.requestId, link.linkSecret, pick);
+      const mailed = h.recorded().length;
+
+      const a = await emailChangeStatusThroughRoutes(
+        h.app,
+        one.accessToken,
+        free.body.requestId,
+        free.body.claimSecret,
+      );
+      const b = await emailChangeStatusThroughRoutes(
+        h.app,
+        two.accessToken,
+        taken.body.requestId,
+        taken.body.claimSecret,
+      );
+      const [freePoll, takenPoll] = [await statusBody(a), await statusBody(b)];
+      expect(a.status).toBe(b.status);
+      expect(Object.keys(freePoll)).toEqual(Object.keys(takenPoll));
+      expect(freePoll.status).toBe("pending");
+      const c = await emailChangeResend(
+        h,
+        one.accessToken,
+        free.body.requestId,
+        free.body.claimSecret,
+      );
+      const d = await emailChangeResend(
+        h,
+        two.accessToken,
+        taken.body.requestId,
+        taken.body.claimSecret,
+      );
+      const [freeResend, takenResend] = [await statusBody(c), await statusBody(d)];
+      expect(freeResend).toEqual(takenResend);
+      expect(freeResend).toEqual({ status: "sent" });
+      expect(h.recorded().length).toBe(mailed);
+    }
   });
 });
 

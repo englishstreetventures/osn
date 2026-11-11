@@ -315,8 +315,9 @@ export function createRecoveryFactorsModule(
    * all, each counted against the same limits as the first. Answers:
    *
    *  - `sent` — another link is on its way; also for an address with no
-   *    account (nothing goes out) and for a request already confirmed (the
-   *    next poll finishes it);
+   *    account (nothing goes out), for a request its link's reader ended
+   *    (nothing goes out), and for a request already confirmed (the next poll
+   *    finishes it);
    *  - `limit` — the request has sent all the links it may;
    *  - `expired` — no live request matches.
    *
@@ -339,7 +340,7 @@ export function createRecoveryFactorsModule(
       if (resent.state === "limit") return { status: "limit" } as const;
       if (resent.state === "confirmed") return { status: "sent" } as const;
       const profile = yield* findDefaultProfile(resent.subject);
-      if (profile && resent.bound === addressDigest(profile.email)) {
+      if (!resent.ended && profile && resent.bound === addressDigest(profile.email)) {
         const minutesLeft = Math.max(1, Math.ceil((resent.expiresAt - Date.now()) / 60_000));
         yield* logDevLink("recovery", resent.url);
         yield* forkBackground(

@@ -13,6 +13,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createCapturingTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { latestLinkTo } from "../helpers/registration";
 
 /**
  * F-CL13. The recovery routes answer the same whether or not the identifier
@@ -180,6 +181,41 @@ describe("POST /login/recovery/email/:requestId/resend and /status", () => {
       );
       expect(knownPoll.ops).toEqual(["email_link.read"]);
       expect(nobodyPoll).toEqual(knownPoll);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("make the same calls and statements for a request its reader declined", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("seq-rsd@example.com", "seqrsd");
+      const known = yield* settle(h.auth.beginEmailRecovery("seq-rsd@example.com", meta));
+      const nobody = yield* settle(h.auth.beginEmailRecovery("seq-rsdnobody@example.com", meta));
+      const link = latestLinkTo(h.recorded(), "seq-rsd@example.com")!;
+      yield* settle(
+        h.auth.confirmEmailLink(known.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: "none",
+        }),
+      );
+      const mailed = h.recorded().length;
+
+      const knownResend = yield* h.record(
+        settle(h.auth.resendEmailRecovery(known.requestId, known.claimSecret, meta)),
+      );
+      const nobodyResend = yield* h.record(
+        settle(h.auth.resendEmailRecovery(nobody.requestId, nobody.claimSecret, meta)),
+      );
+      expect(knownResend.ops.length).toBeGreaterThan(0);
+      expect(nobodyResend).toEqual(knownResend);
+      const knownPoll = yield* h.record(
+        h.auth.emailRecoveryStatus(known.requestId, known.claimSecret),
+      );
+      const nobodyPoll = yield* h.record(
+        h.auth.emailRecoveryStatus(nobody.requestId, nobody.claimSecret),
+      );
+      expect(knownPoll.ops).toEqual(["email_link.read"]);
+      expect(nobodyPoll).toEqual(knownPoll);
+      expect(h.recorded().length).toBe(mailed);
     }).pipe(Effect.provide(h.layer));
   });
 });

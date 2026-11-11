@@ -55,7 +55,11 @@ beforeAll(async () => {
 });
 
 /** The per-address limits a sign-up link's send reads, after the answer. */
-const SEND_LIMIT_STORES = ["auth.registration_send_cap", "registration_link_lockout"];
+const SEND_LIMIT_STORES = [
+  "auth.registration_send_cap",
+  "registration_link_lockout",
+  "registration_restart",
+];
 
 /**
  * `ns` with every call to a send-limit store waiting until `release()`, so
@@ -97,6 +101,7 @@ function harness() {
     ceremonyStores: bundle.ceremonyStores,
     registrationSendCap: bundle.registrationSendCap,
     registrationLinkLockoutStore: bundle.registrationLinkLockoutStore,
+    registrationRestartStore: bundle.registrationRestartStore,
   });
   const email = makeLogEmailLive();
   const layer = Layer.merge(createTestLayer(), email.layer);
@@ -265,9 +270,10 @@ describe("POST /register/begin", () => {
         });
         expect(pending).toEqual(free);
         expect(taken).toEqual(free);
-        // Only the free address's send reads a limit: the lockout. A begin's
-        // first link does not count against the Resend cap.
-        expect(yield* h.sendLimitCalls(1)).toBe(1);
+        // Only the free address's send reads its limits: the lockout, and
+        // whether a decline makes it a restart. A begin's first link does not
+        // count against the Resend cap.
+        expect(yield* h.sendLimitCalls(2)).toBe(2);
       }).pipe(Effect.provide(h.layer));
     },
   );
@@ -311,13 +317,13 @@ describe("a send-limit store that cannot answer", () => {
         "seqcapdown",
         "1990-01-01",
       );
-      yield* h.sendLimitCalls(1);
+      yield* h.sendLimitCalls(2);
       expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
 
       h.fake.failWhen((call) => call.store === "auth.registration_send_cap");
       yield* h.auth.resendRegistration(begun.requestId, begun.claimSecret);
       // The Resend reads the lockout, then the cap, which fails.
-      expect(yield* h.sendLimitCalls(3)).toBe(3);
+      expect(yield* h.sendLimitCalls(4)).toBe(4);
       expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
     }).pipe(Effect.provide(h.layer));
   });
@@ -360,6 +366,28 @@ describe("POST /register/:requestId/resend", () => {
         const heldResend = yield* h.record(
           h.auth.resendRegistration(held.requestId, held.claimSecret),
         );
+        // A request its reader declined: its Resend parks a decoy away from
+        // the address and mails nothing, with the same calls.
+        const declined = yield* h.auth.beginRegistration(
+          "seq-rdeclined@example.com",
+          "seqrdeclined",
+          "1990-01-01",
+        );
+        yield* h.sendLimitCalls(2);
+        const declinedLink = linksTo(h.recorded(), "seq-rdeclined@example.com")[0]!;
+        yield* h.auth.confirmEmailLink(declined.requestId, {
+          linkSecret: declinedLink.linkSecret,
+          pairingPick: "none",
+        });
+        const declinedResend = yield* h.record(
+          h.auth.resendRegistration(declined.requestId, declined.claimSecret),
+        );
+        const declinedPoll = yield* h.record(
+          h.auth.registrationStatus(declined.requestId, declined.claimSecret),
+        );
+        const takenPoll = yield* h.record(
+          h.auth.registrationStatus(taken.requestId, taken.claimSecret),
+        );
         // The holder ends; the held request's next Resend parks its sign-up.
         yield* h.auth.beginRegistration(
           "seq-rheld-2@example.com",
@@ -384,12 +412,16 @@ describe("POST /register/:requestId/resend", () => {
         expect(takenResend).toEqual(freeResend);
         expect(heldResend).toEqual(freeResend);
         expect(parkingResend).toEqual(freeResend);
+        expect(declinedResend).toEqual(freeResend);
+        expect(declinedPoll).toEqual({ ops: ["email_link.read"], outcome: "ok" });
+        expect(takenPoll).toEqual(declinedPoll);
+        expect(linksTo(h.recorded(), "seq-rdeclined@example.com")).toHaveLength(1);
       }).pipe(Effect.provide(h.layer));
     },
   );
 });
 
-describe("a wrong pick whose delete the store fails", () => {
+describe("a wrong pick whose writes the store fails", () => {
   it.live("still answers expired and counts the strike", () => {
     const h = harness();
     return Effect.gen(function* () {
@@ -399,9 +431,11 @@ describe("a wrong pick whose delete the store fails", () => {
         "1990-01-01",
       );
       // The send waits on the held send-limit store; let it go and land.
-      yield* h.sendLimitCalls(1);
+      yield* h.sendLimitCalls(2);
       const link = linksTo(h.recorded(), "seq-wrongpick@example.com")[0]!;
-      h.fake.failWhen((call) => call.store === "email_link" && call.op === "remove");
+      h.fake.failWhen(
+        (call) => call.store === "email_link" && (call.op === "remove" || call.op === "swap"),
+      );
 
       const wrong = String(Number(begun.pairingCode) === 99 ? 10 : Number(begun.pairingCode) + 1);
       const answer = yield* h.auth.confirmEmailLink(link.requestId, {
@@ -524,5 +558,43 @@ describe("POST /register/begin with a browser token that verifies", () => {
       yield* Effect.sleep("20 millis");
       expect(email.recorded()).toHaveLength(0);
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+  });
+});
+
+/**
+ * Wrong link secrets on a taken address's request and on one whose reader
+ * declined: the reader's confirm counted a guess and its write restarted the
+ * count, so the two counts differ. Every wrong secret must still cost the one
+ * counting call on both, the one that reaches the cap included.
+ */
+describe("POST /email-link/:requestId/confirm with wrong secrets", () => {
+  it.live("makes the same calls on a taken address's request and a declined one's", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("seq-wtaken@example.com", "seqwtaken");
+      const declined = yield* h.auth.beginRegistration(
+        "seq-wdeclined@example.com",
+        "seqwdeclined",
+        "1990-01-01",
+      );
+      yield* h.sendLimitCalls(2);
+      const link = linksTo(h.recorded(), "seq-wdeclined@example.com")[0]!;
+      yield* h.auth.confirmEmailLink(declined.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: "none",
+      });
+      const taken = yield* h.auth.beginRegistration(
+        "seq-wtaken@example.com",
+        "seqwtaken2",
+        "1990-01-01",
+      );
+      const wrong = { linkSecret: "0".repeat(64), pairingPick: "10" };
+      for (let n = 0; n < 7; n++) {
+        const a = yield* h.record(h.auth.confirmEmailLink(declined.requestId, wrong));
+        const b = yield* h.record(h.auth.confirmEmailLink(taken.requestId, wrong));
+        expect(a).toEqual({ ops: ["email_link.guess"], outcome: "ok" });
+        expect(b).toEqual(a);
+      }
+    }).pipe(Effect.provide(h.layer));
   });
 });

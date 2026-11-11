@@ -26,6 +26,7 @@ import type {
   StepUpJtiStore,
 } from "../../services/auth/stores";
 import type { RecoveryLockoutStore } from "../recovery-lockout-store";
+import type { RegistrationRestartStore } from "../registration-restart-store";
 import type { CoordinationBackend, CoordinationStoreName } from "./names";
 import type { CoordinationProbe } from "./probe";
 
@@ -63,6 +64,8 @@ export interface CoordinationStores {
   readonly registrationLinkLockoutStore: RecoveryLockoutStore;
   /** Per account: wrong typed numbers on step-up links. */
   readonly stepUpLinkLockoutStore: RecoveryLockoutStore;
+  /** Per mailbox: sign-up restarts, and declines that free an address. */
+  readonly registrationRestartStore: RegistrationRestartStore;
   readonly profileSwitchCap: AccountCapLimiter;
   readonly emailChangeBeginCap: AccountCapLimiter;
   /** Recovery links per (account, client address), keyed on `serverMac.recoverySendKey`. */

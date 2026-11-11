@@ -274,10 +274,53 @@ describe("a right pick and a decline at once", () => {
       expect(yield* h.auth.emailLinkCandidates(s.requestId, s.link.linkSecret)).toEqual({
         status: "expired",
       });
+      // The tab that began is answered as for a request never mailed.
       expect(yield* settle(h.auth.registrationStatus(s.requestId, s.claimSecret))).toEqual({
-        status: "expired",
+        status: "pending",
+        pairingCode: s.pairingCode,
       });
       expect(yield* h.auth.findProfileByEmail(address)).toBeNull();
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+describe("a right pick and a wrong pick at once", () => {
+  it.live("leave the request ended, and no account is made", () => {
+    const h = harness();
+    const address = "race-wrong-right@example.com";
+    return Effect.gen(function* () {
+      const s = yield* h.begun(address, "racewrongright");
+      // The right pick reads the pending request and hears back only after
+      // the wrong pick has ended it; its swap then loses and re-reads the
+      // ended entry, which nothing confirms.
+      const held = h.holdNextAnswer("guess");
+      const picking = yield* Effect.forkChild(
+        settle(
+          h.auth.confirmEmailLink(s.requestId, {
+            linkSecret: s.link.linkSecret,
+            pairingPick: s.pairingCode,
+          }),
+        ),
+      );
+      yield* held.reached;
+      const wrong = yield* settle(
+        h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: s.link.linkSecret,
+          pairingPick: wrongPick(s.pairingCode),
+        }),
+      );
+      held.release();
+      const picked = yield* Fiber.join(picking);
+
+      expect(wrong).toBe("expired");
+      expect(picked).toBe("expired");
+      expect((yield* h.entry(s.requestId))?.status).toBe("ended");
+      expect(yield* settle(h.auth.registrationStatus(s.requestId, s.claimSecret))).toEqual({
+        status: "pending",
+        pairingCode: s.pairingCode,
+      });
+      expect(yield* h.auth.findProfileByEmail(address)).toBeNull();
+      expect(h.strikes()).toBe(1);
     }).pipe(Effect.provide(h.layer));
   });
 });
@@ -298,7 +341,7 @@ describe("a wrong pick's strike", () => {
       const answers = [yield* Fiber.join(first), second];
 
       expect(answers).toEqual(["expired", "expired"]);
-      expect(yield* h.entry(s.requestId)).toBeNull();
+      expect((yield* h.entry(s.requestId))?.status).toBe("ended");
       expect(h.strikes()).toBe(1);
     }).pipe(Effect.provide(h.layer));
   });
@@ -971,9 +1014,9 @@ describe("a claimed request whose pending entry was freed", () => {
       });
       // A wrong pick reads the confirmed request and hears back late; the
       // poll claims it in between and its finish fails. The wrong pick's
-      // deletes then fail in the store, so it frees the pending entry.
+      // writes then fail in the store, so it falls back to the delete, which
+      // fails too and frees the pending entry.
       const fault = refuseSessions(h);
-      h.fake.failWhen((call) => call.store === "email_link" && call.op === "remove");
       const held = h.holdNextAnswer("guess");
       const picking = yield* Effect.forkChild(
         settle(
@@ -985,6 +1028,9 @@ describe("a claimed request whose pending entry was freed", () => {
       );
       yield* held.reached;
       yield* Effect.result(settle(h.auth.registrationStatus(s.requestId, s.claimSecret)));
+      h.fake.failWhen(
+        (call) => call.store === "email_link" && (call.op === "remove" || call.op === "swap"),
+      );
       held.release();
       yield* Fiber.join(picking);
       h.fake.failWhen(null);

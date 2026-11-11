@@ -1,11 +1,15 @@
 /**
- * The audit rows email recovery writes for the account's security banner:
+ * The audit rows an emailed link writes for the account's security banner:
  *
- *  - `recovery_otp_lockout` when the account crosses the wrong-pick threshold
- *    on its recovery links, so the owner sees repeated failed recovery
- *    attempts even though every attempt answered alike over the wire;
+ *  - `recovery_otp_lockout` and `step_up_link_lockout` when the account
+ *    crosses the wrong-number threshold on its recovery or step-up links, so
+ *    the owner sees repeated failed attempts even though every attempt
+ *    answered alike over the wire;
  *  - `recovery_link_declined` when the holder of a recovery link said they
- *    did not ask for it, so the owner's other devices show that someone did.
+ *    did not ask for it, so the owner's other devices show that someone did;
+ *  - `step_up_link_declined` when the holder of a step-up link said they did
+ *    not ask: someone signed in to the account asked to act, and the owner
+ *    said no.
  *
  * Best-effort and off the response path: the caller forks it, so the answer
  * never waits on it — only a real account gets a row, so an answer that
@@ -24,10 +28,17 @@ import { DatabaseError } from "./errors";
 import { genId } from "./helpers";
 import type { SessionMeta } from "./types";
 
-export const recordRecoveryLinkEvent = (
+/** The security event kinds an emailed link writes. */
+export type LinkEventKind =
+  | "recovery_otp_lockout"
+  | "recovery_link_declined"
+  | "step_up_link_lockout"
+  | "step_up_link_declined";
+
+export const recordLinkEvent = (
   hashIp: AuthContext["hashIp"],
   accountId: string,
-  kind: "recovery_otp_lockout" | "recovery_link_declined",
+  kind: LinkEventKind,
   eventMeta?: SessionMeta,
 ): Effect.Effect<void, never, Db> =>
   Effect.gen(function* () {
@@ -48,9 +59,9 @@ export const recordRecoveryLinkEvent = (
     }).pipe(
       Effect.tap(() => Effect.sync(() => metricSecurityEventRecorded(kind))),
       Effect.catch((cause) =>
-        Effect.logWarning("auth.recovery.link_event: audit write failed").pipe(
+        Effect.logWarning("auth.email_link.event: audit write failed").pipe(
           Effect.annotateLogs({ kind, error: String(cause) }),
         ),
       ),
     );
-  }).pipe(Effect.withSpan("auth.recovery.link_event"));
+  }).pipe(Effect.withSpan("auth.email_link.event"));

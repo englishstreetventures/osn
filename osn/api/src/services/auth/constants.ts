@@ -32,6 +32,16 @@ export const REGISTRATION_SENDS_PER_ADDRESS_MAX = 6;
 export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
 
 /**
+ * First sign-up links one mailbox (`mailboxKey`) may be sent in an hour by
+ * restarts: begins that carried `previous`, and begins after a sign-up to the
+ * mailbox was declined in the hour before. A begin with neither is never
+ * counted. Checked inside the send, after the answer, only where a link would
+ * go out (`lib/registration-restart-store.ts`).
+ */
+export const REGISTRATION_RESTART_LINKS_MAX = 10;
+export const REGISTRATION_RESTART_WINDOW_MS = 60 * 60 * 1000;
+
+/**
  * Candidates the confirm page shows for an emailed link: the number on the
  * waiting screen among decoys. A pick made without seeing that screen is right
  * one time in this many, and a wrong pick ends the request.

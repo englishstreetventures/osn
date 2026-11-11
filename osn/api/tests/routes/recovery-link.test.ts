@@ -394,13 +394,15 @@ describe("the account lockout", () => {
 
     const right = await confirm(h, held.requestId, held.link.linkSecret, held.pairingCode);
     expect(await right.json()).toEqual({ status: "expired" });
+    // The refused number ends the request; the tab reads it as one nobody
+    // acted on, and gets no session.
     const polled = await recoveryStatusThroughRoutes(
       h.app,
       held.requestId,
       held.claimSecret,
       from(6),
     );
-    expect(await polled.json()).toEqual({ status: "expired" });
+    expect(await polled.json()).toEqual({ status: "pending", pairingCode: held.pairingCode });
     expect(polled.headers.getSetCookie()).toEqual([]);
 
     const after = await beginRecoveryThroughRoutes(h.app, "rl-lock@example.com", from(8));
@@ -455,7 +457,7 @@ describe("the account lockout", () => {
       const again = await confirm(h, r.requestId, r.link.linkSecret, "none", n);
       expect(await again.json()).toEqual({ status: "declined" });
       const polled = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(n));
-      expect(await polled.json()).toEqual({ status: "expired" });
+      expect(await polled.json()).toEqual({ status: "pending", pairingCode: r.pairingCode });
     }
     expect(await h.events(profile.accountId)).toEqual(
       Array.from({ length: 6 }, () => "recovery_link_declined"),
@@ -819,4 +821,108 @@ describe("completion", () => {
       ]);
     },
   );
+});
+
+/**
+ * The tab that began is answered alike whatever the link's reader does: a
+ * real account's request its reader declined or mistyped reads as an unknown
+ * address's, which is never mailed, until both expire.
+ */
+describe("a request its reader ended", () => {
+  const scenario = async (act: "decline" | "wrong number") => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const h = harness();
+    const tag = act === "decline" ? "d" : "w";
+    await h.seed(`rl-ended-${tag}@example.com`, `rlended${tag}`);
+    const known = await begun(h, `rl-ended-${tag}@example.com`, 1);
+    const nobody = await beginRecoveryThroughRoutes(
+      h.app,
+      `rl-endnobody-${tag}@example.com`,
+      from(2),
+    );
+    const pick = act === "decline" ? "none" : wrongNumber(known.pairingCode);
+    await confirm(h, known.requestId, known.link.linkSecret, pick);
+    const mailed = h.recorded().length;
+
+    const answers = async (n: number) => {
+      const a = await recoveryStatusThroughRoutes(
+        h.app,
+        known.requestId,
+        known.claimSecret,
+        from(n),
+      );
+      const b = await recoveryStatusThroughRoutes(
+        h.app,
+        nobody.body.requestId,
+        nobody.body.claimSecret,
+        from(n),
+      );
+      const c = await recoveryResendThroughRoutes(
+        h.app,
+        known.requestId,
+        known.claimSecret,
+        from(n),
+      );
+      const d = await recoveryResendThroughRoutes(
+        h.app,
+        nobody.body.requestId,
+        nobody.body.claimSecret,
+        from(n),
+      );
+      return {
+        known: {
+          poll: { status: a.status, body: pollShape(await a.json()) },
+          resend: { status: c.status, body: await c.json() },
+        },
+        nobody: {
+          poll: { status: b.status, body: pollShape(await b.json()) },
+          resend: { status: d.status, body: await d.json() },
+        },
+      };
+    };
+
+    vi.setSystemTime(Date.now() + MINUTE);
+    const soon = await answers(60);
+    vi.setSystemTime(Date.now() + 10 * MINUTE);
+    const after = await answers(61);
+
+    expect(soon.known).toEqual(soon.nobody);
+    expect(after.known).toEqual(after.nobody);
+    expect(soon.known.poll.body).toEqual({ status: "pending", pairingCode: "two digits" });
+    expect(soon.known.resend.body).toEqual({ status: "sent" });
+    expect(after.known.poll.body).toEqual({ status: "expired" });
+    // Nothing went out after the reader acted.
+    expect(h.recorded().length).toBe(mailed);
+  };
+
+  it("after a decline, answers poll and Resend as for an unknown address", async () => {
+    await expect(scenario("decline")).resolves.toBeUndefined();
+  });
+
+  it("after a wrong number, answers poll and Resend as for an unknown address", async () => {
+    await expect(scenario("wrong number")).resolves.toBeUndefined();
+  });
+});
+
+describe("the per-address allowance on IPv6", () => {
+  const v6 = (address: string): Record<string, string> => ({ "x-forwarded-for": address });
+
+  it("counts every address in one /64 together, and another /64 apart", async () => {
+    const h = harness();
+    const owner = "rl-v6@example.com";
+    await h.seed(owner, "rlvsix");
+    for (let i = 1; i <= RECOVERY_LINKS_PER_ADDRESS_MAX; i++) {
+      await beginRecoveryThroughRoutes(h.app, owner, v6(`2001:db8:1:1::${i}`));
+    }
+    expect(recoveryLinksTo(h.recorded(), owner)).toBe(RECOVERY_LINKS_PER_ADDRESS_MAX);
+
+    // Another address in the same /64 gets no new allowance.
+    const rotated = await beginRecoveryThroughRoutes(h.app, owner, v6("2001:db8:1:1:ffff::9"));
+    expect(rotated.res.status).toBe(202);
+    expect(recoveryLinksTo(h.recorded(), owner)).toBe(RECOVERY_LINKS_PER_ADDRESS_MAX);
+
+    // Another /64 has its own.
+    await beginRecoveryThroughRoutes(h.app, owner, v6("2001:db8:1:2::1"));
+    expect(recoveryLinksTo(h.recorded(), owner)).toBe(RECOVERY_LINKS_PER_ADDRESS_MAX + 1);
+  });
 });
