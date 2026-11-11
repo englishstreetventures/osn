@@ -139,7 +139,7 @@ The `main` ruleset requires four checks: `CI` (the gate job in `.github/workflow
 |---|---|
 | anything under `wiki/` or `docs/`; a changeset; any other `*.md` | `AGENTS.md`, `CLAUDE.md`; any `*.md` under `.claude/`, `.agents/`, `.github/`, `scripts/` or `tools/` (the script tests read the skills and agent definitions); any `*.md` under a `src/` or `tests/` directory; every other file |
 
-A pull request diffs its merge commit against the base it was merged with; a merge-queue group diffs against the queue's base, so a prose entry queued behind one with code runs every job; a push to `main` diffs against the commit it replaced. A diff that cannot be computed runs every job. A rule never goes on a required workflow's `on: paths`: a workflow that does not start leaves its required check waiting, and the pull request cannot merge.
+A pull request diffs its merge commit against the base it was merged with; a merge-queue group diffs against the queue's base, so a prose entry queued behind one with code runs every job; a push to `main` diffs against the commit it replaced. The diff names both sides of a rename (`--no-renames`), so code moved under `wiki/` still counts as code, and the classifier is the base's copy of `docs-only.sh`, so a change that edits it is judged by the rules it lands on. A diff that cannot be computed, or a base with no classifier, runs every job. A rule never goes on a required workflow's `on: paths`: a workflow that does not start leaves its required check waiting, and the pull request cannot merge.
 
 `scripts/tests/deploy-workflows.test.ts` holds which jobs may skip and runs the detection step against throwaway repositories, one per event; `scripts/tests/docs-only.cli.test.ts` holds what counts as prose.
 

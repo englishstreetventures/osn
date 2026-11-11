@@ -1083,9 +1083,16 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   const classifyStep = stepsOf(ci.jobs.changes).find((step) => step.id === "classify");
   const docsOnly = readFileSync(join(root, "scripts/docs-only.sh"), "utf8");
 
+  /** A file written with its commit's number, a file written as given, or a `git mv`. */
+  type Change =
+    | string
+    | { readonly write: string; readonly content: string }
+    | { readonly move: string; readonly to: string };
+
   function classify(
-    commits: readonly (readonly string[])[],
+    commits: readonly (readonly Change[])[],
     event: (shas: readonly string[]) => Record<string, string>,
+    { classifierOnBase = true } = {},
   ): { readonly exitCode: number; readonly output: string; readonly verdict: string } {
     const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
     const git = (...args: string[]) => {
@@ -1095,27 +1102,41 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
       if (result.exitCode !== 0) throw new Error(result.stderr.toString());
       return result.stdout.toString().trim();
     };
+    const write = (path: string, content: string) => {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), content);
+    };
     git("init", "-q", "-b", "main");
-    mkdirSync(join(dir, "scripts"));
-    writeFileSync(join(dir, "scripts/docs-only.sh"), docsOnly);
+    write("osn/api/src/base.ts", "export const base = 1;\n");
+    if (classifierOnBase) write("scripts/docs-only.sh", docsOnly);
     git("add", ".");
     git("commit", "-qm", "base");
     const shas = [git("rev-parse", "HEAD")];
-    for (const files of commits) {
-      for (const file of files) {
-        mkdirSync(dirname(join(dir, file)), { recursive: true });
-        writeFileSync(join(dir, file), `${shas.length}\n`);
+    for (const changes of commits) {
+      for (const change of changes) {
+        if (typeof change === "string") write(change, `${shas.length}\n`);
+        else if ("write" in change) write(change.write, change.content);
+        else {
+          mkdirSync(dirname(join(dir, change.to)), { recursive: true });
+          git("mv", change.move, change.to);
+        }
       }
       git("add", ".");
       git("commit", "-qm", `commit ${shas.length}`);
       shas.push(git("rev-parse", "HEAD"));
     }
     const outputFile = join(dir, "github-output");
+    const runnerTemp = mkdtempSync(join(tmpdir(), "ci-changes-runner-"));
     const result = Bun.spawnSync(
       ["bash", "--noprofile", "--norc", "-e", "-c", classifyStep?.run ?? "exit 9"],
       {
         cwd: dir,
-        env: { PATH: process.env.PATH ?? "", GITHUB_OUTPUT: outputFile, ...event(shas) },
+        env: {
+          PATH: process.env.PATH ?? "",
+          GITHUB_OUTPUT: outputFile,
+          RUNNER_TEMP: runnerTemp,
+          ...event(shas),
+        },
       },
     );
     const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
@@ -1159,9 +1180,31 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
       [["wiki/a.md"]],
       () => ({ EVENT: "push", BEFORE: "0000000000000000000000000000000000000000" }),
     ],
+    // `git diff --name-only` names only a rename's new path unless told not
+    // to, so code moved under wiki/ would read as a wiki page.
+    [
+      "a pull request that moves code under wiki/",
+      "false",
+      [[{ move: "osn/api/src/base.ts", to: "wiki/base.ts" }]],
+      pullRequest,
+    ],
+    // The change's own classifier would answer for it.
+    [
+      "a pull request whose edited classifier says prose",
+      "false",
+      [[{ write: "scripts/docs-only.sh", content: "echo true\n" }, "osn/api/src/a.ts"]],
+      pullRequest,
+    ],
   ] as const)("%s: prose only is %s", (_, expected, commits, event) => {
     const { exitCode, output, verdict } = classify(commits, event);
     expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: expected });
+  });
+
+  test("a base with no classifier yet runs every job", () => {
+    const { exitCode, output, verdict } = classify([["wiki/a.md"]], pullRequest, {
+      classifierOnBase: false,
+    });
+    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: "false" });
   });
 });
 

@@ -43,7 +43,11 @@ jobs:
   # commit against its first parent, the base it was merged with; a
   # merge-queue group against the queue's base, so a group whose earlier
   # entries carry code runs everything; a push against the commit it
-  # replaced. A diff that cannot be computed runs everything.
+  # replaced. It names both sides of a rename, so code moved under wiki/ is
+  # still code. The classifier is the base's copy, as the secret scan takes
+  # its scanner from main, so a change cannot classify itself with an edited
+  # one. A diff that cannot be computed, or a base with no classifier, runs
+  # everything.
   changes:
     name: Detect a prose-only change
     runs-on: ubuntu-latest
@@ -72,11 +76,13 @@ jobs:
           if [ -n "$base" ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then
             git fetch --no-tags --depth=1 origin "$base" || base=""
           fi
-          if [ -n "$base" ] && changed=$(git diff --name-only "$base" HEAD); then
+          if [ -n "$base" ] &&
+            git show "$base:scripts/docs-only.sh" > "$RUNNER_TEMP/docs-only.sh" 2>/dev/null &&
+            changed=$(git diff --no-renames --name-only "$base" HEAD); then
             printf '%s\n' "$changed"
-            docs_only=$(printf '%s\n' "$changed" | bash scripts/docs-only.sh)
+            docs_only=$(printf '%s\n' "$changed" | bash "$RUNNER_TEMP/docs-only.sh")
           else
-            echo "::notice::No diff against '$base'; every job runs."
+            echo "::notice::No diff or no classifier at '$base'; every job runs."
             docs_only=false
           fi
           echo "Prose only: $docs_only"
