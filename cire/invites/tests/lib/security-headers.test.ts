@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  decodeOriginTrialToken,
+  ORIGIN_TRIAL_TOKENS,
+  originTrialHeader,
+} from "@cire/build-tools/origin-trial";
 import { PRODUCTION_API_ORIGIN, retargetHeaders } from "@cire/build-tools/tier-headers";
 import { describe, expect, it } from "vitest";
 
@@ -175,6 +180,28 @@ describe("securityHeaders", () => {
   });
 });
 
+describe("Origin-Trial", () => {
+  const sent = () => (securityHeaders()["Origin-Trial"] ?? "").split(", ");
+
+  it("sends the HTMLInCanvas and AutofillEvent tokens, which the invite uses", () => {
+    expect(sent()).toEqual([ORIGIN_TRIAL_TOKENS.htmlInCanvas, ORIGIN_TRIAL_TOKENS.autofillEvent]);
+    expect(securityHeaders()["Origin-Trial"]).toBe(
+      originTrialHeader(ORIGIN_TRIAL_TOKENS.htmlInCanvas, ORIGIN_TRIAL_TOKENS.autofillEvent),
+    );
+  });
+
+  it("never sends the WebMCP token, which only the organiser portal uses", () => {
+    expect(sent()).not.toContain(ORIGIN_TRIAL_TOKENS.webmcp);
+    expect(sent().map((token) => decodeOriginTrialToken(token).feature)).not.toContain("WebMCP");
+  });
+
+  it("sends the same tokens whichever tier's API the build calls", () => {
+    expect(securityHeaders(DEV_API_ORIGIN)["Origin-Trial"]).toBe(
+      securityHeaders(PRODUCTION_API_ORIGIN)["Origin-Trial"],
+    );
+  });
+});
+
 describe("applySecurityHeaders", () => {
   it("attaches every security header to a Headers instance", () => {
     const h = new Headers();
@@ -229,13 +256,15 @@ describe("public/_headers", () => {
       fileRules.filter((rule) => rule.path === "/*").map((rule) => [rule.name, rule.value]),
     );
 
-  /** The SSR headers the file mirrors: all of them bar X-Robots-Tag. */
+  /** The SSR headers the file mirrors: all of them bar the two SSR-only ones. */
   const mirrored = (apiOrigin: string) =>
     Object.fromEntries(
-      Object.entries(securityHeaders(apiOrigin)).filter(([name]) => name !== "X-Robots-Tag"),
+      Object.entries(securityHeaders(apiOrigin)).filter(
+        ([name]) => name !== "X-Robots-Tag" && name !== "Origin-Trial",
+      ),
     );
 
-  it("is the production SSR policy, except X-Robots-Tag", () => {
+  it("is the production SSR policy, except X-Robots-Tag and Origin-Trial", () => {
     expect(allPaths(rules)).toEqual(mirrored(PRODUCTION_API_ORIGIN));
   });
 
@@ -249,5 +278,9 @@ describe("public/_headers", () => {
 
   it("never sends X-Robots-Tag, so the legal pages stay indexable", () => {
     expect(rules.filter((rule) => rule.name.toLowerCase() === "x-robots-tag")).toEqual([]);
+  });
+
+  it("never sends Origin-Trial, so the legal pages enable no feature they do not use", () => {
+    expect(rules.filter((rule) => rule.name.toLowerCase() === "origin-trial")).toEqual([]);
   });
 });

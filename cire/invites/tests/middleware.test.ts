@@ -1,3 +1,4 @@
+import { ORIGIN_TRIAL_TOKENS } from "@cire/build-tools/origin-trial";
 import type { APIContext, MiddlewareNext } from "astro";
 import { describe, expect, it } from "vitest";
 
@@ -45,6 +46,10 @@ describe("onRequest middleware", () => {
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=()");
     expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    // The two Chrome origin trials the guest site uses, and not the portal's.
+    expect(res.headers.get("Origin-Trial")).toContain(ORIGIN_TRIAL_TOKENS.htmlInCanvas);
+    expect(res.headers.get("Origin-Trial")).toContain(ORIGIN_TRIAL_TOKENS.autofillEvent);
+    expect(res.headers.get("Origin-Trial")).not.toContain(ORIGIN_TRIAL_TOKENS.webmcp);
     // The downstream response is passed through (headers added in place), and an
     // HTML response with no charset gets one.
     expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");

@@ -8,7 +8,8 @@
 ---
 
 A guest whose couple chose an envelope opens the invite from it. On a first
-visit in a browser with HTML-in-Canvas (Chrome 157 and later), the page waits
+visit in a browser with HTML-in-Canvas (Chrome, on production through an
+origin trial), the page waits
 behind a Three.js envelope sealed with wax; a tap fires a haptic, breaks the
 seal one of three ways (split, peel, crumble), and the card, drawn live from the
 invite's own hero, slides out and grows until it is the hero, where the page
