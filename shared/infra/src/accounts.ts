@@ -53,15 +53,12 @@ export const DEV_READONLY_CREDENTIALS: readonly string[] = [
 ];
 
 /**
- * The `production` Environment's token for moving a site's custom domain
- * between its Pages project and its Worker: Pages Edit on the account and
- * DNS Edit on cireweddings.com and musubi.social, nothing else, and able to
- * list its account. scripts/pages-domain.ts refuses it unless it reaches
- * exactly that account and those zones. Only that script reads it, in a step
- * that runs before any install or in a job that installs nothing, so no
- * dependency's code ever holds it.
+ * Credential names neither Environment may hold and no workflow may read:
+ * the Pages and DNS token, which could move a production site's domain
+ * between a Pages project and its Worker. No production site has a Pages
+ * project.
  */
-export const PAGES_DNS_CREDENTIALS: readonly string[] = ["CLOUDFLARE_PAGES_DNS_TOKEN"];
+export const RETIRED_CREDENTIALS: readonly string[] = ["CLOUDFLARE_PAGES_DNS_TOKEN"];
 
 /** Repository-level credentials, outside both Environments: read-only access to the production account. */
 export const REPOSITORY_CREDENTIALS: readonly string[] = [
@@ -79,21 +76,23 @@ export function accountSecrets(tier: Tier): readonly string[] {
 
 /**
  * The credentials `tier`'s Environment must hold: its account's pair, and on
- * dev the read-only token, on production the Pages and DNS token. Sorted.
+ * dev the read-only token. Sorted.
  */
 export function requiredCredentials(tier: Tier): readonly string[] {
-  return [
-    ...accountSecrets(tier),
-    ...(tier === "dev" ? DEV_READONLY_CREDENTIALS : PAGES_DNS_CREDENTIALS),
-  ].toSorted();
+  return [...accountSecrets(tier), ...(tier === "dev" ? DEV_READONLY_CREDENTIALS : [])].toSorted();
 }
 
-/** Credential names `tier`'s Environment must never hold: the other tier's and the retired dev ones, where this tier does not use the name too. Sorted. */
+/** Credential names `tier`'s Environment must never hold: the other tier's, the retired dev ones where this tier does not use the name too, and the retired ones. Sorted. */
 export function forbiddenCredentials(tier: Tier): readonly string[] {
   const own = new Set(requiredCredentials(tier));
-  return [...new Set([...requiredCredentials(otherTier(tier)), ...RETIRED_DEV_CREDENTIALS])]
-    .filter((name) => !own.has(name))
-    .toSorted();
+  return [
+    ...new Set([
+      ...[...requiredCredentials(otherTier(tier)), ...RETIRED_DEV_CREDENTIALS].filter(
+        (name) => !own.has(name),
+      ),
+      ...RETIRED_CREDENTIALS,
+    ]),
+  ].toSorted();
 }
 
 /** Every Cloudflare credential name a workflow may read, sorted. */
@@ -103,7 +102,6 @@ export function knownCredentials(): readonly string[] {
       ...accountSecrets("dev"),
       ...accountSecrets("production"),
       ...DEV_READONLY_CREDENTIALS,
-      ...PAGES_DNS_CREDENTIALS,
       ...REPOSITORY_CREDENTIALS,
     ]),
   ].toSorted();
