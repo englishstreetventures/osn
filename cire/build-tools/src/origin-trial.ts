@@ -12,7 +12,7 @@
  * response headers).
  *
  * Where each token is served:
- * - `htmlInCanvas`, `autofillEvent`: every guest-site response
+ * - `htmlInCanvas`: every guest-site response
  *   (`cire/invites/src/lib/security-headers.ts`).
  * - `webmcp`: every organiser-portal path (`cire/host/public/_headers`,
  *   which holds its own copy of the string; its test compares the two).
@@ -27,9 +27,6 @@ export const ORIGIN_TRIAL_TOKENS = {
   /** `HTMLInCanvas`: the guest site's envelope opening. Lapses 2 Mar 2027. */
   htmlInCanvas:
     "AmzwHiFc5WrSZKP9N9WR31IhpARcOoAOPUsOZ/6VgK7kchGrsYYTkpBFN4iQwr4A3qoJh2E/QzRLT2/jNs53iQQAAABpeyJvcmlnaW4iOiJodHRwczovL2NpcmV3ZWRkaW5ncy5jb206NDQzIiwiZmVhdHVyZSI6IkhUTUxJbkNhbnZhcyIsImV4cGlyeSI6MTgwMzk0NTYwMCwiaXNTdWJkb21haW4iOnRydWV9",
-  /** `AutofillEvent`: the guest site's email box. Lapses 5 Jan 2027. */
-  autofillEvent:
-    "AlNoCpTYgrEzC+ZMEhpCneR7vDdLOzsUFz8PQwsKtF7ciCBc4zlsIMjRNBApdahNSoLEp25yvWowHomYBnLObw8AAABqeyJvcmlnaW4iOiJodHRwczovL2NpcmV3ZWRkaW5ncy5jb206NDQzIiwiZmVhdHVyZSI6IkF1dG9maWxsRXZlbnQiLCJleHBpcnkiOjE3OTkxMDcyMDAsImlzU3ViZG9tYWluIjp0cnVlfQ==",
   /** `WebMCP`: the organiser portal's agent tools. Lapses 30 Mar 2027. */
   webmcp:
     "AgPxiGR6Xgoixpqap0KVAvRxTwIRut1C3PfF/TFDXNbFNBDbUMSFSFDajYg9B7YOFNynoj7zuZBXsxbDM4HK6AoAAABjeyJvcmlnaW4iOiJodHRwczovL2NpcmV3ZWRkaW5ncy5jb206NDQzIiwiZmVhdHVyZSI6IldlYk1DUCIsImV4cGlyeSI6MTgwNjM2NDgwMCwiaXNTdWJkb21haW4iOnRydWV9",

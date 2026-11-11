@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Cire invite builder
 
@@ -1078,8 +1078,8 @@ never fetches the page to see a `noindex`, and a disallowed URL can still be
 indexed from links elsewhere. The prerendered legal pages are served by the
 static-asset layer without running the Worker, so they get only the
 `public/_headers` rules, which leave `X-Robots-Tag` out on purpose.
-`Origin-Trial` is left out of that file for the same reason: the legal pages use
-neither trial ([[cire-development#Chrome origin trials]]).
+`Origin-Trial` is left out of that file for the same reason: the legal pages do
+not use the trial ([[cire-development#Chrome origin trials]]).
 `tests/lib/security-headers.test.ts` fails if `_headers` gains either, and
 `tests/pages/legal-pages.test.ts` fails if a legal page stops prerendering.
 
