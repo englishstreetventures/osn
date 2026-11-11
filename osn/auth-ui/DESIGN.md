@@ -13,7 +13,7 @@ differ, with the issue that brings the code to the rule.
 ## 1. Scope and hosts
 
 **What the package exports.** One subpath per view in `package.json`
-(`ChangeEmailForm`, `CheckEmailView`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
+(`ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
 `ProfileSwitcher`, `RecoveryCodesView`, `Register`, `SecurityEventsBanner`,
 `SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`) and a barrel,
 `src/index.ts`, which also carries `RecoveryLoginForm`, `TurnstileWidget`,
@@ -23,9 +23,10 @@ types.
 **Hosts today.** `@musubi/social` is the one workspace that depends on the
 package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
-Four views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
-(#2056), `ProfileSwitcher` (#2045) and `CheckEmailView` (#2085). Only their
-tests render them, and `CheckEmailView` its lab stories too (§11).
+Five views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
+(#2056), `ProfileSwitcher` (#2045), and `CheckEmailView` and `ConfirmLinkPage`
+(#2085). Only their tests render them, and `CheckEmailView` and
+`ConfirmLinkPage` their lab stories too (§11).
 
 **What a host supplies.**
 
@@ -50,6 +51,7 @@ tests render them, and `CheckEmailView` its lab stories too (§11).
 | `SessionsView` | `client` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
 | `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
+| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
@@ -74,8 +76,8 @@ never names a host's own vocabulary, a raw palette colour or an arbitrary
 value.
 
 **As it stands.** The `@shared/ui` parts the views are built from render
-through the contract, and so do `CheckEmailView`'s own classes, which are
-`ui-*` utilities alone. The other views' own classes do not yet (#2045). They name the
+through the contract, and so do `CheckEmailView`'s and `ConfirmLinkPage`'s own
+classes, which are `ui-*` utilities alone. The other views' own classes do not yet (#2045). They name the
 shadcn colour vocabulary — `text-foreground`, `text-muted-foreground`,
 `text-destructive`, `text-primary`, `text-accent-foreground`, `bg-muted`,
 `bg-accent`, `border-border` — Tailwind's default type steps and
@@ -127,6 +129,19 @@ the one thing the person carries to another screen. It takes tabular figures,
 not the Codes row's `font-mono`: it is digits only, which tabular figures
 already set at one width, and it is read here, never typed or copied here.
 
+`ConfirmLinkPage` follows the rule too. Its `h1` is `text-ui-base font-medium`,
+the step `CheckEmailView`'s heading takes, because the card is the page's whole
+content; its lines `text-ui-sm` with `leading-ui-snug`. Each number it offers is
+`text-ui-xl font-medium leading-ui-tight tabular-nums` inside its Button, the
+size and figures the waiting screen draws the number in, so the person matches
+like with like. The number picked, repeated in "You picked {n}.", is
+`font-medium tabular-nums` at the line's size. Where recovery asks for the
+number to be typed, the field takes `Input`'s `code` face, mono with wide
+tracking, as the Codes row does: the person checks a typed value character by
+character. Its label is a plain one, as every form field's is (§4). The field
+is one `Input`, not `OtpInput`'s boxes: the boxes are a fixed six, and the
+number runs from one digit to six, a length the page is not told.
+
 ## 4. Layout
 
 As built:
@@ -175,6 +190,19 @@ As built:
   it (`flex-col gap-2`); the line about opening the link; when there is one, the number over its caption
   (`flex-col gap-1`), unboxed; then Resend and "Use a different email" as
   full-width `ghost` `sm` Buttons, 40px tall below `md` (`max-md:h-10`).
+- **`ConfirmLinkPage`** is a shared `Card` (`padding="lg"`) holding a
+  `flex-col gap-6` column for a bare route; the host draws the `<main>` around
+  it. Its `h1` and sentences (`gap-2`); then, while it asks, a `<fieldset>`
+  whose `<legend>` is the instruction, the numbers in one column at every width
+  as full-width `outline` Buttons 48px tall (`h-12`), and under them "I didn't
+  ask for this" as a full-width `ghost` `sm` Button, 44px below `md`
+  (`max-md:h-11`); then the line about the number picked, the slow line and
+  the error `Notice`; then Try again or Continue, full-width default `lg`
+  Buttons, 44px below `md`. With `typeNumber`, the numbers give way to a
+  `Field` with a plain label 6px above one `Input` (`size="touch"`,
+  `face="code"`, `fill="ink"`), then a full-width default `lg` Confirm, 44px
+  below `md`, above the decline.
+  Left-aligned.
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
   and Acknowledge (`outline`, `sm`) at the right.
@@ -208,6 +236,7 @@ besides the default:
 | `SecurityEventsBanner` | Button, Notice | `outline` |
 | `ChangeEmailForm` | Button, Field, Input, Notice, OtpInput | — |
 | `CheckEmailView` | Button, Notice | `ghost` |
+| `ConfirmLinkPage` | Button, Card, Field, Input, Notice | `outline`, `ghost` |
 | `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `ghostDanger`, `destructive` |
@@ -370,6 +399,24 @@ says "If that address has an account, …".
 | Error | The waiting copy, the number kept, and the host's `errorMessage` (or "Something went wrong. Try again in a moment.") under the sentence |
 | Expired | "Your link has expired"; "Ask for a new link to {email}."; no flow line and no number; "Send a new link" as the default Button, at once |
 
+**`ConfirmLinkPage`** — the page an emailed link opens. "{address}" is the
+host's `email`, or "this address". Each flow's sentence: sign-up "Confirming
+lets the device that asked finish signing up with {address}."; recovery "…
+back into your account. It also signs out every other device."; step-up "… go
+ahead with something sensitive, such as adding a passkey or deleting the
+account."; email change "Confirming sets {address} as the email of the account
+that asked."
+
+| State | What shows |
+| --- | --- |
+| Ready | "Confirm this email"; the flow's sentence; "Only confirm if you asked for this. If you didn't, choose “I didn't ask for this” below." (step-up: "If you didn't, someone else may be signed in to your account. Choose … below, then sign out your other sessions."); "Pick the number shown on the screen where you started." and the numbers; "I didn't ask for this" |
+| Ready, typed (`typeNumber`) | As Ready, but "Type the number shown on the screen where you started." labels one field for up to six digits, and Confirm, disabled until the field holds one to six digits, comes before "I didn't ask for this"; Enter in the field does what Confirm does |
+| Confirming | The same; the control that started the call busy — the number tapped (its digits kept), Confirm ("Confirming…"), "I didn't ask for this" ("Cancelling…") or Try again ("Confirming…" or "Cancelling…", the same attempt again) — and every other one disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds "This is taking longer than usual. Keep this page open." |
+| Error | The same, the numbers (typed: the field) disabled and Confirm gone, "I didn't ask for this" still open; "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again, which sends the same attempt, while the decline sends `null` as a new one |
+| Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
+| Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
+| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link." (step-up adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions."). The same for every refusal, a list the page cannot offer included |
+
 **`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
 "Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
 
@@ -456,6 +503,11 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   `errorMessage`, a sentence from `describeAuthError`, as an alert of its own
   beside the view's status region. Resend is the action, and the line goes
   while it sends, so a second failure mounts it again.
+- **Directly above Try again** in `ConfirmLinkPage`: a fixed line, never the
+  thrown error's text. The page's polite `<output>`, which says its other
+  changes, leaves the line to its own alert. It never says a number was wrong:
+  a refused number shows the expired state, and the typed field is never
+  marked invalid.
 
 **How the tie meets `Field`.** Each field sits in a `Field`, which mints its id
 and draws its label and any hint; the view passes it no `errors`. The control's
@@ -569,6 +621,15 @@ when the view appears, and when a send ends with Resend holding focus and the
 wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
 (`focus:outline-none`): it is where focus is put, not a control.
 
+`ConfirmLinkPage` draws no control by hand either: its numbers, the decline,
+Try again, Confirm and Continue are `@shared/ui` Buttons, which draw their own
+ring, and its typed field is `@shared/ui`'s `Input`, whose ink fill draws a 2px
+outline 2px off. Its
+`h1` takes focus the same way, on mount and on every change, except that the
+control that started a call keeps focus while it is busy; focus left on a
+choice that disables, or in the typed field after Enter, goes to the `h1`, so
+it never falls to `<body>`.
+
 **Code boxes.** Every row of code boxes that opens its step takes `OtpInput`'s
 `autofocus`, so focus is in box 1 as the step opens. `RecoveryLoginForm`'s
 authenticator step does not, since its handle or email field comes first. A
@@ -603,6 +664,8 @@ no product.
   code").
 - Going back: Cancel, Back, "Back to sign in", "← Use a different email"
   (`Register`), "Use a different email" (`CheckEmailView`), "Start again".
+- Saying no: "I didn't ask for this" (`ConfirmLinkPage`), answered by
+  "Cancelled".
 
 ## 11. Tests
 
@@ -616,10 +679,14 @@ As built:
   into each failure and checks the sentence `describePasskeyError` gives. Run
   `bun run --cwd osn/auth-ui test:run`.
 - **No real-browser tier** in the package. **Lab stories** for
-  `CheckEmailView` alone, `osn/auth-ui/CheckEmailView` in
+  `CheckEmailView`, `osn/auth-ui/CheckEmailView` in
   `tools/lab/src/stories/osn-auth-ui/check-email-view.story.tsx`: one per
   state, every flow, a 320px phone, and the number at rest, on recovery and
-  step-up, across a resend and on a phone; the other views get theirs in #2045.
+  step-up, across a resend and on a phone; and for `ConfirmLinkPage`,
+  `osn/auth-ui/ConfirmLinkPage` in `confirm-link-page.story.tsx`: one per
+  state, three and five numbers, the decline, step-up's expired page, an
+  opening answer, every flow, a 320px phone, and the typed field ready, confirming, after an error,
+  refused and on a 320px phone. The other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
@@ -671,8 +738,10 @@ As built:
   nothing: `RecoveryLoginForm.test.tsx` (five, with Back disabled),
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
   disabled), `ChangeEmailForm.test.tsx` (two), `StepUpDialog.test.tsx`
-  ("Email me a code" and both Confirms) and `CheckEmailView.test.tsx`
-  (Resend, with "Use a different email" disabled).
+  ("Email me a code" and both Confirms), `CheckEmailView.test.tsx`
+  (Resend, with "Use a different email" disabled) and
+  `ConfirmLinkPage.test.tsx` (a number, Confirm, the decline and Try again,
+  each with the other choices disabled).
 - **Error lines in the package tests.** Each view's tests plant text in a
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its
@@ -703,7 +772,16 @@ As built:
   renders `CheckEmailView`, which no flow reaches yet, in Musubi's auth sheet
   and holds its layout at 320px and 1280px (the long address, the countdown on
   one line, the 40px and 32px buttons, and the six-digit number at 24px in
-  tabular figures with its label read first).
+  tabular figures with its label read first). No flow reaches
+  `ConfirmLinkPage` yet either;
+  `musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx`
+  renders it on a bare route in Chromium and holds, at 320px, five six-digit
+  numbers and a long address with nothing to scroll sideways, and at 320px and
+  1280px the numbers one under another, at least 44px tall in 24px tabular
+  figures, the decline and Try again at 44px below `md`, the error notice above
+  Try again, and the typed field, Confirm and the decline inside the card at
+  44px or more, the field at 16px with an edge of at least 3:1 and a plain
+  label 6px above it.
 
 ## 12. Motion
 
