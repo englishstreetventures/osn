@@ -19,8 +19,9 @@ import {
 interface ClientStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
   totpComplete: ReturnType<typeof vi.fn>;
 }
 
@@ -28,13 +29,21 @@ function makeStub(): ClientStub {
   return {
     passkeyBegin: vi.fn(),
     passkeyComplete: vi.fn(),
-    otpBegin: vi.fn(),
-    otpComplete: vi.fn(),
+    emailBegin: vi.fn(),
+    emailStatus: vi.fn(),
+    emailResend: vi.fn(),
     totpComplete: vi.fn(),
   };
 }
 
 const asClient = (s: ClientStub): StepUpClient => s as unknown as StepUpClient;
+
+const LINK_REQUEST = {
+  requestId: "stepup_0123456789ab",
+  claimSecret: "c".repeat(64),
+  pairingCode: "47",
+  expiresAt: 1_900_000_000,
+};
 
 /**
  * A minimal but well-formed WebAuthn assertion. The dialog never reads a
@@ -62,36 +71,53 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("StepUpDialog", () => {
-  it("OTP path: begin then complete calls onToken with the minted token", async () => {
-    stub.otpBegin.mockResolvedValue({ sent: true });
-    stub.otpComplete.mockResolvedValue({ token: "eyJ123", expiresIn: 300 });
+  it("email path: the wait shows the number, and the confirmed link's token reaches onToken", async () => {
+    stub.emailBegin.mockResolvedValue(LINK_REQUEST);
+    stub.emailStatus.mockResolvedValue({
+      status: "complete",
+      token: { token: "eyJlink", expiresIn: 300 },
+    });
 
     const onToken = vi.fn();
-    const onCancel = vi.fn();
-    render(() => <StepUpDialog client={asClient(stub)} onToken={onToken} onCancel={onCancel} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    await waitFor(() => expect(stub.otpBegin).toHaveBeenCalled());
-
-    await enterCode("Code", "123456");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-
-    await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJ123", expiresIn: 300 }));
-  });
-
-  // Each call's button holds focus through the wait: `busy`, not `disabled`,
-  // and the factors and Cancel beside it wait too.
-  it("keeps Email me a code busy, not disabled, while it sends", async () => {
-    stub.otpBegin.mockReturnValue(new Promise(() => {}));
     render(() => (
       <StepUpDialog
         client={asClient(stub)}
+        purpose="account_export"
+        onToken={onToken}
+        onCancel={() => {}}
+      />
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
+    await waitFor(() =>
+      expect(stub.emailBegin).toHaveBeenCalledWith({ purpose: "account_export" }),
+    );
+    expect(await screen.findByRole("heading", { name: "Check your email" })).toBeTruthy();
+    expect(screen.getByText("47")).toBeTruthy();
+
+    // Coming back to the tab polls at once.
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJlink", expiresIn: 300 }));
+    expect(stub.emailStatus).toHaveBeenCalledWith({
+      requestId: LINK_REQUEST.requestId,
+      claimSecret: LINK_REQUEST.claimSecret,
+    });
+  });
+
+  // The button holds focus through the wait: `busy`, not `disabled`, and the
+  // factors and Cancel beside it wait too.
+  it("keeps Use email instead busy, not disabled, while it sends", async () => {
+    stub.emailBegin.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <StepUpDialog
+        client={asClient(stub)}
+        purpose="account_export"
         onToken={() => {}}
         onCancel={() => {}}
         runPasskeyCeremony={async () => assertion}
       />
     ));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
     const sending = await screen.findByRole("button", { name: "Sending…" });
     expect(sending.getAttribute("aria-busy")).toBe("true");
     expect((sending as HTMLButtonElement).disabled).toBe(false);
@@ -103,25 +129,7 @@ describe("StepUpDialog", () => {
     );
     fireEvent.click(sending);
     await Promise.resolve();
-    expect(stub.otpBegin).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps Confirm busy, not disabled, while it checks an emailed code", async () => {
-    stub.otpBegin.mockResolvedValue({ sent: true });
-    stub.otpComplete.mockReturnValue(new Promise(() => {}));
-    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    await enterCode("Code", "123456");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    const checking = await screen.findByRole("button", { name: "Checking…" });
-    expect(checking.getAttribute("aria-busy")).toBe("true");
-    expect((checking as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
-    fireEvent.click(checking);
-    await Promise.resolve();
-    expect(stub.otpComplete).toHaveBeenCalledTimes(1);
+    expect(stub.emailBegin).toHaveBeenCalledTimes(1);
   });
 
   it("passkey path: runs caller-supplied ceremony and exchanges the assertion", async () => {
@@ -142,41 +150,6 @@ describe("StepUpDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /Use passkey/ }));
     await waitFor(() => expect(runPasskey).toHaveBeenCalled());
     await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 }));
-  });
-
-  // Tied to every box whatever the cause; marked invalid only when the code
-  // itself was refused, never for a wait.
-  it.each([
-    ["a 400", apiError("PLANTED Invalid or expired code"), CODE, "true"],
-    ["a 429", apiError("PLANTED-otp-429", 429, "rate_limited"), WAIT, null],
-  ] as const)(
-    "an emailed code refused with %s reads the map's sentence under the code, tied to it",
-    async (_, error, sentence, invalid) => {
-      stub.otpBegin.mockResolvedValue({ sent: true });
-      stub.otpComplete.mockRejectedValue(error);
-
-      render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
-
-      fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-      const boxes = await enterCode("Code", "000000");
-      fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-      const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toContain(sentence);
-      expect(alertsText()).not.toContain("PLANTED");
-      expectTied(boxes, alert.id, invalid);
-    },
-  );
-
-  it("a short code is tied to the boxes and marks them invalid", async () => {
-    stub.otpBegin.mockResolvedValue({ sent: true });
-    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    const boxes = await enterCode("Code", "12");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Enter the 6-digit code");
-    expectTied(boxes, alert.id, "true");
-    expect(stub.otpComplete).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -206,13 +179,22 @@ describe("StepUpDialog", () => {
     },
   );
 
-  // Focus lands in the code, not on Cancel or the page, when a code step opens.
-  it("puts focus in box 1 when the emailed-code step opens", async () => {
-    stub.otpBegin.mockResolvedValue({ sent: true });
-    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    const boxes = await findCodeBoxes("Code");
-    await waitFor(() => expect(document.activeElement).toBe(boxes[0]));
+  // Focus lands on the wait's heading, not on Cancel or the page, when the
+  // email step opens inside the panel.
+  it("puts focus on the wait's heading when the email step opens", async () => {
+    stub.emailBegin.mockResolvedValue(LINK_REQUEST);
+    stub.emailStatus.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <StepUpDialog
+        client={asClient(stub)}
+        purpose="account_export"
+        onToken={() => {}}
+        onCancel={() => {}}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
+    const heading = await screen.findByRole("heading", { name: "Check your email" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
   });
 
   it("puts focus in box 1 when the authenticator step opens", async () => {
@@ -258,11 +240,11 @@ describe("StepUpDialog", () => {
     expect(alert.textContent).not.toMatch(/try again/i);
   });
 
-  // passkeyOnly: the "Email me a code" OTP factor is hidden entirely. Used by
-  // the cire organiser portal where transactional email is degraded
-  // (OSN_EMAIL_OPTIONAL=true), so an OTP step-up would dead-end the user. The
-  // passkey ceremony starts immediately on mount — no factor picker.
-  it("passkeyOnly: hides the OTP option and auto-starts the passkey ceremony", async () => {
+  // passkeyOnly: the emailed-link factor is hidden entirely. Used where
+  // transactional email is degraded (OSN_EMAIL_OPTIONAL=true), so an emailed
+  // step-up would dead-end the user. The passkey ceremony starts immediately
+  // on mount — no factor picker.
+  it("passkeyOnly: hides the email option and auto-starts the passkey ceremony", async () => {
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
     stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
     const runPasskey = vi.fn(async () => assertion);
@@ -278,12 +260,12 @@ describe("StepUpDialog", () => {
       />
     ));
 
-    // No OTP affordance at all.
-    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    // No email affordance at all.
+    expect(screen.queryByRole("button", { name: /Use email instead/i })).toBeNull();
     // Ceremony fires without the user clicking "Use passkey".
     await waitFor(() => expect(runPasskey).toHaveBeenCalled());
     await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 }));
-    expect(stub.otpBegin).not.toHaveBeenCalled();
+    expect(stub.emailBegin).not.toHaveBeenCalled();
   });
 
   it("passkeyOnly: surfaces a retry affordance when the ceremony fails", async () => {
@@ -309,11 +291,18 @@ describe("StepUpDialog", () => {
   });
 
   it("announces the failure rather than leaving it to be noticed", async () => {
-    stub.otpBegin.mockRejectedValue(apiError("PLANTED Could not send code", 429, "rate_limited"));
+    stub.emailBegin.mockRejectedValue(apiError("PLANTED Could not send code", 429, "rate_limited"));
 
-    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
+    render(() => (
+      <StepUpDialog
+        client={asClient(stub)}
+        purpose="account_export"
+        onToken={() => {}}
+        onCancel={() => {}}
+      />
+    ));
 
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
     // A step-up failure is why the user cannot proceed. Rendering it in a
     // coloured paragraph tells a sighted user only.
     const alert = await screen.findByRole("alert");
@@ -458,7 +447,7 @@ describe("StepUpDialog — authenticator app factor", () => {
     await Promise.resolve();
     expect(screen.queryByText("HOST FALLBACK")).toBeNull();
     expect(screen.getByRole("button", { name: /Use passkey/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use email instead/i })).toBeTruthy();
   });
 
   it("keeps the other factors when the status read fails", async () => {
@@ -468,7 +457,7 @@ describe("StepUpDialog — authenticator app factor", () => {
       purpose: "recovery_generate",
     });
     expect(underTest.getByRole("button", { name: /Use passkey/i })).toBeTruthy();
-    expect(underTest.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
+    expect(underTest.getByRole("button", { name: /Use email instead/i })).toBeTruthy();
     expect(underTest.queryByRole("button", { name: TOTP_BUTTON })).toBeNull();
   });
 
@@ -489,7 +478,7 @@ describe("StepUpDialog — authenticator app factor", () => {
     );
     expect(onToken).toHaveBeenCalledWith({ token: "eyJtotp", expiresIn: 300 });
     // TOTP is challenge-free: there is no `begin` half to call.
-    expect(stub.otpBegin).not.toHaveBeenCalled();
+    expect(stub.emailBegin).not.toHaveBeenCalled();
   });
 
   it("keeps Confirm busy, not disabled, while it checks an authenticator code", async () => {
@@ -511,7 +500,7 @@ describe("StepUpDialog — authenticator app factor", () => {
     // delivered, so it cannot dead-end the way the prop exists to prevent.
     mount({ totp: totpStub({ enrolled: true }), purpose: "recovery_generate", passkeyOnly: true });
     expect(await screen.findByRole("button", { name: TOTP_BUTTON })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Use email instead/i })).toBeNull();
   });
 });
 
@@ -576,21 +565,21 @@ describe("StepUpDialog — factors the ceremony would refuse", () => {
     // rename as well as delete.
     const refuses = await mountBesideAnAdmittingCeremony("passkey_delete");
     expect(refuses.getByRole("button", { name: /Use passkey/i })).toBeTruthy();
-    expect(refuses.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    expect(refuses.queryByRole("button", { name: /Use email instead/i })).toBeNull();
     expect(refuses.queryByRole("button", { name: TOTP_BUTTON })).toBeNull();
   });
 
-  it("email_change keeps the emailed code but not the authenticator", async () => {
+  it("email_change keeps the emailed link but not the authenticator", async () => {
     // The emailed code proves control of the CURRENT mailbox; an
     // authenticator seed does not, which is the whole point of that gate.
     const refuses = await mountBesideAnAdmittingCeremony("email_change");
-    expect(refuses.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
+    expect(refuses.getByRole("button", { name: /Use email instead/i })).toBeTruthy();
     expect(refuses.queryByRole("button", { name: TOTP_BUTTON })).toBeNull();
   });
 
   it("passkey_register admits both, so a lost device is not a lock-out", async () => {
     render(() => dialog("passkey_register"));
     expect(await screen.findByRole("button", { name: TOTP_BUTTON })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use email instead/i })).toBeTruthy();
   });
 });

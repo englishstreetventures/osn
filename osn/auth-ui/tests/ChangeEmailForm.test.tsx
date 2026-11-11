@@ -4,19 +4,34 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { ChangeEmailForm } from "../src/ChangeEmailForm";
-import { codeBoxes, enterCode, expectTied } from "./helpers/code";
-import { CODE, DETAILS, WAIT, alertsText, apiError } from "./helpers/errors";
+import { DETAILS, WAIT, alertsText, apiError } from "./helpers/errors";
 
 interface AccountStub {
   changeEmailBegin: ReturnType<typeof vi.fn>;
+  changeEmailStatus: ReturnType<typeof vi.fn>;
+  changeEmailResend: ReturnType<typeof vi.fn>;
   changeEmailComplete: ReturnType<typeof vi.fn>;
 }
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
 }
+
+const CHANGE_REQUEST = {
+  requestId: "emailchange_0123456789ab",
+  claimSecret: "a".repeat(64),
+  pairingCode: "42",
+  expiresAt: 1_900_000_000,
+};
+const STEP_UP_REQUEST = {
+  requestId: "stepup_0123456789ab",
+  claimSecret: "b".repeat(64),
+  pairingCode: "47",
+  expiresAt: 1_900_000_000,
+};
 
 describe("ChangeEmailForm", () => {
   let account: AccountStub;
@@ -25,25 +40,22 @@ describe("ChangeEmailForm", () => {
   beforeEach(() => {
     account = {
       changeEmailBegin: vi.fn(),
+      changeEmailStatus: vi.fn(),
+      changeEmailResend: vi.fn(),
       changeEmailComplete: vi.fn(),
     };
     stepUp = {
       passkeyBegin: vi.fn(),
       passkeyComplete: vi.fn(),
-      otpBegin: vi.fn(),
-      otpComplete: vi.fn(),
+      emailBegin: vi.fn(),
+      emailStatus: vi.fn(),
+      emailResend: vi.fn(),
     };
   });
 
   afterEach(() => cleanup());
 
-  it("runs the full begin → step-up → complete happy path", async () => {
-    account.changeEmailBegin.mockResolvedValue({ sent: true });
-    account.changeEmailComplete.mockResolvedValue({ email: "next@example.com" });
-    stepUp.otpBegin.mockResolvedValue({ sent: true });
-    stepUp.otpComplete.mockResolvedValue({ token: "eyJsu", expiresIn: 300 });
-
-    const onChanged = vi.fn();
+  function mount(onChanged?: (email: string) => void) {
     render(() => (
       <ChangeEmailForm
         accountClient={account as unknown as AccountClient}
@@ -51,47 +63,56 @@ describe("ChangeEmailForm", () => {
         onChanged={onChanged}
       />
     ));
+  }
 
-    // Phase 1: enter email.
-    const emailInput = screen.getByRole("textbox");
-    fireEvent.input(emailInput, { target: { value: "next@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
-    await waitFor(() => expect(account.changeEmailBegin).toHaveBeenCalled());
+  /** From the address field to the step-up: the link sent, then confirmed elsewhere. */
+  async function toStepUp() {
+    account.changeEmailBegin.mockResolvedValue(CHANGE_REQUEST);
+    account.changeEmailStatus.mockResolvedValue({ status: "confirmed" });
+    stepUp.emailBegin.mockResolvedValue(STEP_UP_REQUEST);
+    stepUp.emailStatus.mockResolvedValue({
+      status: "complete",
+      token: { token: "eyJsu", expiresIn: 300 },
+    });
+    fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send a link/ }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    expect(screen.getByText("42")).toBeTruthy();
+    window.dispatchEvent(new Event("focus"));
+    fireEvent.click(await screen.findByRole("button", { name: /Use email instead/ }));
+    await screen.findByText("47");
+    window.dispatchEvent(new Event("focus"));
+  }
 
-    // Phase 2: enter OTP, triggers step-up modal on confirm.
-    await enterCode("Code", "123456");
-    fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
+  it("runs the full begin → confirmed link → step-up → complete happy path", async () => {
+    account.changeEmailComplete.mockResolvedValue({ email: "next@example.com" });
+    const onChanged = vi.fn();
+    mount(onChanged);
+    await toStepUp();
 
-    // Step-up modal: pick OTP, enter code.
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    await enterCode("Code", "654321");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-
-    await waitFor(() => expect(account.changeEmailComplete).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(account.changeEmailComplete).toHaveBeenCalledWith({
+        requestId: CHANGE_REQUEST.requestId,
+        claimSecret: CHANGE_REQUEST.claimSecret,
+        stepUpToken: "eyJsu",
+      }),
+    );
+    expect(account.changeEmailBegin).toHaveBeenCalledWith({ newEmail: "next@example.com" });
+    expect(stepUp.emailBegin).toHaveBeenCalledWith({ purpose: "email_change" });
     await waitFor(() => expect(onChanged).toHaveBeenCalledWith("next@example.com"));
   });
-
-  function mount() {
-    render(() => (
-      <ChangeEmailForm
-        accountClient={account as unknown as AccountClient}
-        stepUpClient={stepUp as unknown as StepUpClient}
-      />
-    ));
-  }
 
   it.each([
     ["a refusal", apiError("PLANTED-begin"), DETAILS, "true"],
     ["a 429", apiError("PLANTED-begin-429", 429, "rate_limited"), WAIT, null],
   ])(
-    "reads %s to send the code under the email field, tied to it",
+    "reads %s to send the link under the email field, tied to it",
     async (_, error, sentence, invalid) => {
       account.changeEmailBegin.mockRejectedValue(error);
       mount();
       const emailInput = screen.getByLabelText("New email");
       fireEvent.input(emailInput, { target: { value: "next@example.com" } });
-      fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Send a link/ }));
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain(sentence);
@@ -102,12 +123,12 @@ describe("ChangeEmailForm", () => {
     },
   );
 
-  // Both buttons hold focus through their wait: `busy`, not `disabled`.
-  it("keeps Send verification code busy, not disabled, while it sends", async () => {
+  // The button holds focus through its wait: `busy`, not `disabled`.
+  it("keeps Send a link busy, not disabled, while it sends", async () => {
     account.changeEmailBegin.mockReturnValue(new Promise(() => {}));
     mount();
     fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Send a link/ }));
     const sending = await screen.findByRole("button", { name: "Sending…" });
     expect(sending.getAttribute("aria-busy")).toBe("true");
     expect((sending as HTMLButtonElement).disabled).toBe(false);
@@ -116,55 +137,17 @@ describe("ChangeEmailForm", () => {
     expect(account.changeEmailBegin).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the confirm busy, not disabled, while it changes the email", async () => {
-    account.changeEmailBegin.mockResolvedValue({ sent: true });
-    account.changeEmailComplete.mockReturnValue(new Promise(() => {}));
-    stepUp.otpBegin.mockResolvedValue({ sent: true });
-    stepUp.otpComplete.mockResolvedValue({ token: "eyJsu", expiresIn: 300 });
+  // A refused complete goes back to the wait with the map's sentence; the
+  // poll then says whether the request can still be completed.
+  it("reads a refused complete in the wait, without the server's text", async () => {
+    account.changeEmailComplete.mockRejectedValue(
+      apiError("PLANTED-complete-429", 429, "rate_limited"),
+    );
     mount();
-    fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
-    await enterCode("Code", "123456");
-    fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /Email me a code/ }));
-    await enterCode("Code", "654321");
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    const checking = await screen.findByRole("button", { name: "Checking…" });
-    expect(checking.getAttribute("aria-busy")).toBe("true");
-    expect((checking as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(checking);
-    await Promise.resolve();
-    expect(account.changeEmailComplete).toHaveBeenCalledTimes(1);
+    await toStepUp();
+    await waitFor(() => expect(account.changeEmailComplete).toHaveBeenCalledTimes(1));
+    await screen.findByRole("heading", { name: "Check your email" });
+    await waitFor(() => expect(document.body.textContent).toContain(WAIT));
+    expect(document.body.textContent).not.toContain("PLANTED");
   });
-
-  it.each([
-    ["a 400", apiError("PLANTED-complete"), CODE, "true"],
-    ["a 429", apiError("PLANTED-complete-429", 429, "rate_limited"), WAIT, null],
-  ] as const)(
-    "reads a code refused with %s under the code boxes, tied to them",
-    async (_, error, sentence, invalid) => {
-      account.changeEmailBegin.mockResolvedValue({ sent: true });
-      account.changeEmailComplete.mockRejectedValue(error);
-      stepUp.otpBegin.mockResolvedValue({ sent: true });
-      stepUp.otpComplete.mockResolvedValue({ token: "eyJsu", expiresIn: 300 });
-      mount();
-
-      fireEvent.input(screen.getByLabelText("New email"), {
-        target: { value: "next@example.com" },
-      });
-      fireEvent.click(screen.getByRole("button", { name: /Send verification code/ }));
-      await enterCode("Code", "123456");
-      fireEvent.click(screen.getByRole("button", { name: /Confirm identity/ }));
-      await waitFor(() => screen.getByRole("button", { name: /Email me a code/ }));
-      fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-      await enterCode("Code", "654321");
-      fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-
-      const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toContain(sentence);
-      expect(alertsText()).not.toContain("PLANTED");
-      // The step-up has gone: the boxes on screen are the change's own.
-      expectTied(codeBoxes("Code"), alert.id, invalid);
-    },
-  );
 });

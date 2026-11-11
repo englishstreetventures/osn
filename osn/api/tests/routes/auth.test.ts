@@ -1,4 +1,5 @@
 import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
+import type { StepUpPurpose } from "@shared/observability/metrics";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { SignJWT } from "jose";
@@ -23,32 +24,21 @@ import {
   registerThroughRoutes,
 } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
+import {
+  beginEmailChangeThroughRoutes,
+  completeEmailChangeThroughRoutes,
+  emailChangeStatusThroughRoutes,
+  linkForRequest,
+  stepUpThroughRoutes,
+} from "../helpers/step-up-link";
 
-/**
- * Builds a `LogEmailLive` + merged test layer, the mails it recorded, and a
- * lazy accessor for the latest 6-digit code (step-up) in their text.
- */
+/** Builds a `LogEmailLive` + merged test layer and the mails it recorded. */
 function buildEmailCapture(baseLayer: ReturnType<typeof createTestLayer>) {
   const rec = makeLogEmailLive();
   return {
     layer: Layer.merge(baseLayer, rec.layer),
     /** Every mail sent, for reading a sign-up link back. */
     recorded: () => rec.recorded(),
-    /** Latest captured 6-digit OTP across all recorded sends. */
-    code: () => {
-      const all = rec.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
-    /** Array of captured codes in order. */
-    codes: () =>
-      rec
-        .recorded()
-        .map((e: RecordedEmail) => e.text.match(/code is: (\d{6})/)?.[1])
-        .filter((c): c is string => !!c),
   };
 }
 
@@ -69,61 +59,15 @@ async function registerAndGetAccessToken(
   return accessToken;
 }
 
-async function mintStepUpToken(
-  freshApp: ReturnType<typeof createAuthRoutes>,
-  accessToken: string,
-  captured: { last?: string },
-  /** Binds the token to a purpose-gated ceremony (e.g. `email_change`). */
-  purpose?: string,
-): Promise<string> {
-  await freshApp.handle(
-    new Request("http://localhost/step-up/otp/begin", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }),
-  );
-  const completeRes = await freshApp.handle(
-    new Request("http://localhost/step-up/otp/complete", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ code: captured.last, purpose }),
-    }),
-  );
-  const json = (await completeRes.json()) as { step_up_token: string };
-  return json.step_up_token;
-}
-
 // Step-up `jti`s are single-use, so each ack call needs its own token.
 async function mintStepUp(
   freshApp: ReturnType<typeof createAuthRoutes>,
   accessToken: string,
-  latestCode: () => string | undefined,
+  recorded: () => readonly RecordedEmail[],
   /** Binds the token to one gate — required by `/recovery/generate`. */
-  purpose?: string,
+  purpose: StepUpPurpose,
 ): Promise<string> {
-  await freshApp.handle(
-    new Request("http://localhost/step-up/otp/begin", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }),
-  );
-  const stepUpRes = await freshApp.handle(
-    new Request("http://localhost/step-up/otp/complete", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ code: latestCode(), purpose }),
-    }),
-  );
-  const { step_up_token: stepUpToken } = (await stepUpRes.json()) as {
-    step_up_token: string;
-  };
-  return stepUpToken;
+  return stepUpThroughRoutes(freshApp, accessToken, recorded, purpose);
 }
 
 describe("auth routes", () => {
@@ -501,7 +445,8 @@ describe("auth routes", () => {
   // WebAuthn is the only primary login factor. An emailed link proves an
   // address and signs nobody in: its confirm never mints a session, and only
   // the sign-up's own status poll, from the tab holding the claim secret,
-  // gets one. Neither an OTP nor a magic-link login route may come back.
+  // gets one; a step-up link's poll gets a step-up token, never a session.
+  // Neither an OTP nor a magic-link login route may come back.
   // -------------------------------------------------------------------------
   describe("OTP / magic-link primary-login surface (absent)", () => {
     for (const path of [
@@ -540,6 +485,42 @@ describe("auth routes", () => {
       expect(confirmed.status).toBe(200);
       expect(confirmed.headers.getSetCookie()).toEqual([]);
       expect(await confirmed.json()).toEqual({ status: "confirmed" });
+    });
+
+    for (const path of ["/step-up/otp/begin", "/step-up/otp/complete", "/account/email/complete"]) {
+      it(`${path} returns 404 — no emailed code exchanges for a token or a change`, async () => {
+        const res = await app.handle(
+          new Request(`http://localhost${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: "000000", step_up_token: "x" }),
+          }),
+        );
+        expect(res.status).toBe(404);
+      });
+    }
+
+    it("a step-up link's claim yields a step-up token and never a session", async () => {
+      // The step-up link is confirmed on any device and signs nobody in; the
+      // tab that began, already signed in, gets a token only gates accept.
+      const capture = buildEmailCapture(layer);
+      const linkApp = createAuthRoutes(config, capture.layer);
+      const accessToken = await registerAndGetAccessToken(
+        linkApp,
+        capture,
+        "link-stepup@example.com",
+        "linkstepup",
+      );
+      const token = await stepUpThroughRoutes(
+        linkApp,
+        accessToken,
+        capture.recorded,
+        "account_export",
+      );
+      const claims = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString()) as {
+        aud: string;
+      };
+      expect(claims.aud).toBe("osn-step-up");
     });
 
     it("/login/recovery/email/complete returns 404 — no emailed code exchanges for a session", async () => {
@@ -1567,8 +1548,6 @@ describe("auth routes", () => {
       identifier: string;
       stepUpToken: string;
     }> {
-      // Buffer every captured code so we can distinguish register-OTP from
-      // the subsequent step-up OTP emailed after we've already logged in.
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
       const completeRes = await registeredResponse(
@@ -1583,35 +1562,19 @@ describe("auth routes", () => {
       };
       const accessToken = json.session.access_token;
 
-      // M-PK1: /recovery/generate requires a step-up token. Drive the OTP
-      // ceremony now so the caller can attach `step_up_token` to its body.
-      await verifiedApp.handle(
-        new Request("http://localhost/step-up/otp/begin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }),
+      // M-PK1: /recovery/generate requires a step-up token. Drive the emailed
+      // link now so the caller can attach `step_up_token` to its body.
+      const stepUpToken = await stepUpThroughRoutes(
+        verifiedApp,
+        accessToken,
+        capture.recorded,
+        "recovery_generate",
       );
-      const stepUpCode = capture.code()!;
-      const stepUpRes = await verifiedApp.handle(
-        new Request("http://localhost/step-up/otp/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code: stepUpCode, purpose: "recovery_generate" }),
-        }),
-      );
-      const stepUpJson = (await stepUpRes.json()) as { step_up_token: string };
-
       return {
         accessToken,
         email: "recovery-user@example.com",
         identifier: "recoveryuser",
-        stepUpToken: stepUpJson.step_up_token,
+        stepUpToken,
       };
     }
 
@@ -1854,36 +1817,24 @@ describe("auth routes", () => {
   describe("step-up routes", () => {
     function appWithCapturingEmail(): {
       app: ReturnType<typeof createAuthRoutes>;
-      captured: {
-        readonly code: string | undefined;
-        readonly all: readonly string[];
-        readonly recorded: () => readonly RecordedEmail[];
-      };
+      captured: { readonly recorded: () => readonly RecordedEmail[] };
     } {
       const cap = buildEmailCapture(layer);
-      // Matches step-up-OTP ("step-up code is: NNNNNN") and email-change-OTP
-      // ("code is:") — a single shared regex lets tests grab whichever code
-      // was last sent.
-      const captured = {
-        get code(): string | undefined {
-          return cap.code();
-        },
-        get all(): readonly string[] {
-          return cap.codes();
-        },
-        recorded: cap.recorded,
-      };
-      return { app: createAuthRoutes(config, cap.layer), captured };
+      return { app: createAuthRoutes(config, cap.layer), captured: { recorded: cap.recorded } };
     }
 
-    it("POST /step-up/otp/begin returns 401 without Bearer auth", async () => {
+    it("POST /step-up/email/begin returns 401 without Bearer auth", async () => {
       const res = await app.handle(
-        new Request("http://localhost/step-up/otp/begin", { method: "POST" }),
+        new Request("http://localhost/step-up/email/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purpose: "recovery_generate" }),
+        }),
       );
       expect(res.status).toBe(401);
     });
 
-    it("POST /step-up/otp/{begin,complete} mints a token the recovery gate accepts", async () => {
+    it("POST /step-up/email/{begin,status} mints a token the recovery gate accepts", async () => {
       const { app: freshApp, captured } = appWithCapturingEmail();
       const accessToken = await registerAndGetAccessToken(
         freshApp,
@@ -1892,29 +1843,13 @@ describe("auth routes", () => {
         "suroute",
       );
 
-      const beginRes = await freshApp.handle(
-        new Request("http://localhost/step-up/otp/begin", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
+      const stepUpToken = await stepUpThroughRoutes(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "recovery_generate",
       );
-      expect(beginRes.status).toBe(200);
-      expect(captured.code).toMatch(/^\d{6}$/);
-
-      const completeRes = await freshApp.handle(
-        new Request("http://localhost/step-up/otp/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code: captured.code, purpose: "recovery_generate" }),
-        }),
-      );
-      expect(completeRes.status).toBe(200);
-      const json = (await completeRes.json()) as { step_up_token: string; expires_in: number };
-      expect(json.step_up_token).toMatch(/^eyJ/);
-      expect(json.expires_in).toBe(300);
+      expect(stepUpToken).toMatch(/^eyJ/);
 
       // The minted token now satisfies the /recovery/generate gate.
       const recoveryRes = await freshApp.handle(
@@ -1924,7 +1859,7 @@ describe("auth routes", () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ step_up_token: json.step_up_token }),
+          body: JSON.stringify({ step_up_token: stepUpToken }),
         }),
       );
       expect(recoveryRes.status).toBe(200);
@@ -1948,17 +1883,19 @@ describe("auth routes", () => {
       expect([400, 404]).toContain(res.status);
     });
 
-    it("rate limits step-up OTP begin requests", async () => {
+    it("rate limits step-up email begin requests", async () => {
       const denyAll: RateLimiterBackend = { check: () => false };
-      const limiters = { ...createDefaultAuthRateLimiters(), stepUpOtpBegin: denyAll };
+      const limiters = { ...createDefaultAuthRateLimiters(), stepUpEmailBegin: denyAll };
       const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
       const res = await freshApp.handle(
-        new Request("http://localhost/step-up/otp/begin", {
+        new Request("http://localhost/step-up/email/begin", {
           method: "POST",
           headers: {
+            "Content-Type": "application/json",
             "x-forwarded-for": "10.10.10.10",
             Authorization: "Bearer any",
           },
+          body: JSON.stringify({ purpose: "recovery_generate" }),
         }),
       );
       expect(res.status).toBe(429);
@@ -2112,14 +2049,9 @@ describe("auth routes", () => {
     async function setupWithStepUp(): Promise<{
       app: ReturnType<typeof createAuthRoutes>;
       accessToken: string;
-      captured: { last?: string };
+      captured: { recorded: () => readonly RecordedEmail[] };
     }> {
       const cap = buildEmailCapture(layer);
-      const captured = {
-        get last(): string | undefined {
-          return cap.code();
-        },
-      };
       const freshApp = createAuthRoutes(config, cap.layer);
       const completeRes = await registeredResponse(
         freshApp,
@@ -2130,7 +2062,31 @@ describe("auth routes", () => {
       const json = (await completeRes.json()) as {
         session: { access_token: string };
       };
-      return { app: freshApp, accessToken: json.session.access_token, captured };
+      return {
+        app: freshApp,
+        accessToken: json.session.access_token,
+        captured: { recorded: cap.recorded },
+      };
+    }
+
+    /** Begins a change to `newEmail` and confirms the link mailed there. */
+    async function confirmedChange(
+      freshApp: ReturnType<typeof createAuthRoutes>,
+      accessToken: string,
+      recorded: () => readonly RecordedEmail[],
+      newEmail: string,
+    ) {
+      const { res, body } = await beginEmailChangeThroughRoutes(freshApp, accessToken, newEmail);
+      expect(res.status).toBe(200);
+      const link = linkForRequest(recorded(), body.requestId)!;
+      const confirmed = await confirmThroughRoutes(
+        freshApp,
+        body.requestId,
+        link.linkSecret,
+        body.pairingCode,
+      );
+      expect(confirmed.status).toBe(200);
+      return body;
     }
 
     it("POST /account/email/begin requires Bearer auth", async () => {
@@ -2144,53 +2100,56 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    it("POST /account/email/complete refuses a missing or invalid bearer token", async () => {
+    it("POST /account/email/:requestId/complete refuses a missing or invalid bearer token", async () => {
       const attempts: Record<string, string>[] = [
         { "Content-Type": "application/json" },
         { "Content-Type": "application/json", Authorization: "Bearer not.a.jwt" },
       ];
       for (const headers of attempts) {
         const res = await app.handle(
-          new Request("http://localhost/account/email/complete", {
+          new Request("http://localhost/account/email/emailchange_0123456789ab/complete", {
             method: "POST",
             headers,
-            body: JSON.stringify({ code: "000000", step_up_token: "not.a.jwt" }),
+            body: JSON.stringify({ claimSecret: "a".repeat(64), step_up_token: "not.a.jwt" }),
           }),
         );
         expect(res.status).toBe(401);
       }
     });
 
-    it("end-to-end: begin → mint step-up → complete swaps the email", async () => {
+    it("end-to-end: begin → confirm → step-up → complete swaps the email", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
 
-      // 1. Begin — sends OTP to the new address.
-      const beginRes = await freshApp.handle(
-        new Request("http://localhost/account/email/begin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ new_email: "ec-route-next@example.com" }),
-        }),
+      // 1. Begin — mails a link to the new address; its page confirms.
+      const request = await confirmedChange(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "ec-route-next@example.com",
       );
-      expect(beginRes.status).toBe(200);
-      const beginOtp = captured.last!;
+      const status = await emailChangeStatusThroughRoutes(
+        freshApp,
+        accessToken,
+        request.requestId,
+        request.claimSecret,
+      );
+      expect(await status.json()).toEqual({ status: "confirmed" });
 
       // 2. Mint a step-up token for the complete step.
-      const stepUpToken = await mintStepUpToken(freshApp, accessToken, captured, "email_change");
+      const stepUpToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "email_change",
+      );
 
       // 3. Complete — atomic swap.
-      const completeRes = await freshApp.handle(
-        new Request("http://localhost/account/email/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code: beginOtp, step_up_token: stepUpToken }),
-        }),
+      const completeRes = await completeEmailChangeThroughRoutes(
+        freshApp,
+        accessToken,
+        request.requestId,
+        request.claimSecret,
+        stepUpToken,
       );
       expect(completeRes.status).toBe(200);
       const json = (await completeRes.json()) as { email: string };
@@ -2199,31 +2158,29 @@ describe("auth routes", () => {
 
     it("a completed change lists an email_changed event naming the device that made it", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
-      await freshApp.handle(
-        new Request("http://localhost/account/email/begin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ new_email: "ec-route-event@example.com" }),
-        }),
-      );
-      const beginOtp = captured.last!;
-      const stepUpToken = await mintStepUpToken(freshApp, accessToken, captured, "email_change");
-
-      const completeRes = await settledHandle(
+      const request = await confirmedChange(
         freshApp,
-        new Request("http://localhost/account/email/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-            "User-Agent":
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:128.0) Gecko/20100101 Firefox/128.0",
-          },
-          body: JSON.stringify({ code: beginOtp, step_up_token: stepUpToken }),
-        }),
+        accessToken,
+        captured.recorded,
+        "ec-route-event@example.com",
+      );
+      const stepUpToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "email_change",
+      );
+
+      const completeRes = await completeEmailChangeThroughRoutes(
+        freshApp,
+        accessToken,
+        request.requestId,
+        request.claimSecret,
+        stepUpToken,
+        {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:128.0) Gecko/20100101 Firefox/128.0",
+        },
       );
       expect(completeRes.status).toBe(200);
 
@@ -2243,23 +2200,26 @@ describe("auth routes", () => {
 
     it("a fresh email_changed event is held: 403 email_change_held alone, left by ack-all", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
-      await freshApp.handle(
-        new Request("http://localhost/account/email/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ new_email: "ec-route-held@example.com" }),
-        }),
-      );
-      const beginOtp = captured.last!;
-      const changeToken = await mintStepUpToken(freshApp, accessToken, captured, "email_change");
-      await settledHandle(
+      const request = await confirmedChange(
         freshApp,
-        new Request("http://localhost/account/email/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ code: beginOtp, step_up_token: changeToken }),
-        }),
+        accessToken,
+        captured.recorded,
+        "ec-route-held@example.com",
       );
+      const changeToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "email_change",
+      );
+      const completeRes = await completeEmailChangeThroughRoutes(
+        freshApp,
+        accessToken,
+        request.requestId,
+        request.claimSecret,
+        changeToken,
+      );
+      expect(completeRes.status).toBe(200);
       const list = async () => {
         const res = await freshApp.handle(
           new Request("http://localhost/account/security-events", {
@@ -2272,7 +2232,12 @@ describe("auth routes", () => {
       };
       const event = (await list()).find((e) => e.kind === "email_changed")!;
 
-      const ackToken = await mintStepUpToken(freshApp, accessToken, captured, "security_event_ack");
+      const ackToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "security_event_ack",
+      );
       const single = await freshApp.handle(
         new Request(`http://localhost/account/security-events/${event.id}/ack`, {
           method: "POST",
@@ -2286,7 +2251,12 @@ describe("auth routes", () => {
         holdEndsAt: event.createdAt + 7 * 24 * 60 * 60,
       });
 
-      const allToken = await mintStepUpToken(freshApp, accessToken, captured, "security_event_ack");
+      const allToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "security_event_ack",
+      );
       const all = await freshApp.handle(
         new Request("http://localhost/account/security-events/ack-all", {
           method: "POST",
@@ -2298,30 +2268,22 @@ describe("auth routes", () => {
       expect((await list()).map((e) => e.id)).toContain(event.id);
     });
 
-    it("POST /account/email/complete fails without a step-up token", async () => {
+    it("POST /account/email/:requestId/complete fails without a step-up token", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
-      await freshApp.handle(
-        new Request("http://localhost/account/email/begin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ new_email: "ec-nostepup@example.com" }),
-        }),
+      const request = await confirmedChange(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "ec-nostepup@example.com",
       );
-      const otp = captured.last!;
-      const res = await freshApp.handle(
-        new Request("http://localhost/account/email/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code: otp, step_up_token: "not.a.jwt" }),
-        }),
+      const res = await completeEmailChangeThroughRoutes(
+        freshApp,
+        accessToken,
+        request.requestId,
+        request.claimSecret,
+        "not.a.jwt",
       );
-      expect([400, 401, 403]).toContain(res.status);
+      expect(res.status).toBe(400);
     });
 
     it("rate limits /account/email/begin aggressively (3/hr)", async () => {
@@ -2350,8 +2312,8 @@ describe("auth routes", () => {
     async function setupWithRecovery(): Promise<{
       app: ReturnType<typeof createAuthRoutes>;
       accessToken: string;
-      /** Live getter — returns the latest captured 6-digit OTP. */
-      latestCode: () => string | undefined;
+      /** Every mail sent, for reading a step-up link back. */
+      recorded: () => readonly RecordedEmail[];
       generatedEventId: string;
     }> {
       // Drive the full register → step-up → /recovery/generate ceremony so
@@ -2370,7 +2332,12 @@ describe("auth routes", () => {
         session: { access_token: accessToken },
       } = (await completeRes.json()) as { session: { access_token: string } };
 
-      const stepUpToken = await mintStepUp(freshApp, accessToken, cap.code, "recovery_generate");
+      const stepUpToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        cap.recorded,
+        "recovery_generate",
+      );
 
       // Generate recovery codes — this records the security_events row.
       await freshApp.handle(
@@ -2396,7 +2363,7 @@ describe("auth routes", () => {
       return {
         app: freshApp,
         accessToken,
-        latestCode: cap.code,
+        recorded: cap.recorded,
         generatedEventId: events[0]!.id,
       };
     }
@@ -2474,13 +2441,8 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/:id/ack with a valid step-up token hides the event from subsequent lists", async () => {
-      const {
-        app: freshApp,
-        accessToken,
-        latestCode,
-        generatedEventId,
-      } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
+      const { app: freshApp, accessToken, recorded, generatedEventId } = await setupWithRecovery();
+      const stepUpToken = await mintStepUp(freshApp, accessToken, recorded, "security_event_ack");
       const ackRes = await freshApp.handle(
         new Request(`http://localhost/account/security-events/${generatedEventId}/ack`, {
           method: "POST",
@@ -2505,8 +2467,8 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/:id/ack rejects malformed ids via path regex", async () => {
-      const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
+      const { app: freshApp, accessToken, recorded } = await setupWithRecovery();
+      const stepUpToken = await mintStepUp(freshApp, accessToken, recorded, "security_event_ack");
       const res = await freshApp.handle(
         new Request("http://localhost/account/security-events/not-a-valid-id/ack", {
           method: "POST",
@@ -2523,8 +2485,8 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/:id/ack for a nonexistent id returns 200 with acknowledged:false", async () => {
-      const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
+      const { app: freshApp, accessToken, recorded } = await setupWithRecovery();
+      const stepUpToken = await mintStepUp(freshApp, accessToken, recorded, "security_event_ack");
       const res = await freshApp.handle(
         new Request("http://localhost/account/security-events/sev_000000000000/ack", {
           method: "POST",
@@ -2540,16 +2502,11 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/ack-all dismisses every unacked event in one call", async () => {
-      const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
+      const { app: freshApp, accessToken, recorded } = await setupWithRecovery();
       // Generate two more events so there are 3 unacked rows.
       for (const _ of [1, 2]) {
-        // eslint-disable-next-line no-await-in-loop -- step-up OTP capture is sequential
-        const freshStepUp = await mintStepUp(
-          freshApp,
-          accessToken,
-          latestCode,
-          "recovery_generate",
-        );
+        // eslint-disable-next-line no-await-in-loop -- each step-up reads its own mailed link
+        const freshStepUp = await mintStepUp(freshApp, accessToken, recorded, "recovery_generate");
         // eslint-disable-next-line no-await-in-loop -- each generate depends on the prior step-up mint
         await freshApp.handle(
           new Request("http://localhost/recovery/generate", {
@@ -2563,7 +2520,7 @@ describe("auth routes", () => {
         );
       }
 
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
+      const stepUpToken = await mintStepUp(freshApp, accessToken, recorded, "security_event_ack");
       const ackAllRes = await freshApp.handle(
         new Request("http://localhost/account/security-events/ack-all", {
           method: "POST",

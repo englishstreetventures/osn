@@ -130,7 +130,9 @@ or TOTP code that minted the session already was a ceremony, at an AMR strength
 `passkeyRegisterAllowedAmr` accepts. The alternative — letting a
 restricted session mint step-up tokens — would let it reach
 `/recovery/generate`, `DELETE /account`, `GET /account/export` and
-`/account/email/complete`, i.e. everything the restriction claims to prevent.
+`/account/email/:requestId/complete`, i.e. everything the restriction claims to
+prevent. The step-up routes refuse a recovery-audience bearer, the emailed-link
+step-up included ([[email-links#Step-up]]).
 
 **And that strength is enforced, not assumed.** `issueRecoverySession` takes a
 **required** `amr` — `otp`, `totp` or `webauthn` — refuses at mint time anything
@@ -142,8 +144,8 @@ operator narrowing the allow-list withdraws the bypass from sessions already
 issued, and a restricted row with no recorded factor admits nothing. Whichever
 route ends a recovery therefore has to name the factor it verified — that
 argument is how the endpoints in §B connect to this gate. The emailed link
-names `otp`: a one-time secret sent to the mailbox, the factor class the
-emailed code was.
+names `otp`: a one-time secret sent to the mailbox. The value keeps that name
+because passkey rows store it as their provenance ([[step-up#Credential provenance]]).
 
 ### C. Recovery is loud — most of which already exists
 
@@ -159,7 +161,7 @@ notice. That is not new scope. What is new:
 A global 72-hour lock on `passkey_delete` and `email_change` after any recovery
 protects the wrong party. Trace it: an attacker with the mailbox recovers,
 every other session is revoked, they enrol their own passkey (satisfying the
-`passkey_register` step-up with an OTP to the mailbox they now own). The owner
+`passkey_register` step-up with a link to the mailbox they now own). The owner
 signs in with their real passkey, sees the notice — and cannot delete the
 attacker's credential or move off the compromised mailbox for three days. The
 attacker moved first, so a symmetric lock hands them the window. The
@@ -231,8 +233,8 @@ perform the deletion itself cannot be made safer by restricting its children,
 and raw inheritance would restrict every device in a lineage for the life of the
 account.
 
-**Bootstrap is `webauthn`.** The account's first passkey follows an email-OTP
-registration, so a literal reading stamps it `otp` — and through inheritance
+**Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
+proved by an emailed link, so a literal reading stamps it `otp` — and through inheritance
 that restricts every credential the account ever derives from it.
 
 **"One recovery per 72 hours" excludes the recovery-CODE path.** It stamps the

@@ -88,11 +88,19 @@ describe("AuthRateLimitedEndpoint", () => {
       recovery_disown: true,
       step_up_passkey_begin: true,
       step_up_passkey_complete: true,
-      step_up_otp_begin: true,
-      step_up_otp_complete: true,
+      // Step-up and email change by emailed link. The link only verifies the
+      // mailbox; `step_up_email_status` hands the tab that began, signed in as
+      // the account that began, a purpose-bound step-up token, and
+      // `email_change_complete` needs a step-up token besides. Neither signs
+      // anyone in.
+      step_up_email_begin: true,
+      step_up_email_status: true,
+      step_up_email_resend: true,
       session_list: true,
       session_revoke: true,
       email_change_begin: true,
+      email_change_status: true,
+      email_change_resend: true,
       email_change_complete: true,
       security_event_list: true,
       security_event_ack: true,
@@ -123,7 +131,7 @@ describe("AuthRateLimitedEndpoint", () => {
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
     // Runtime snapshot — catches a drop that the `satisfies` check would miss
     // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(57);
+    expect(Object.keys(members)).toHaveLength(60);
     // Negative: primary-login OTP/magic-link endpoints must not reappear. An
     // emailed link that verifies an address is not one: it signs nobody in.
     expect(Object.keys(members)).not.toContain("otp_begin");

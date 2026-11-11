@@ -76,11 +76,12 @@ describe("flow sources", () => {
   // `/authorize` (20 a minute, `oidcAuthorize` in
   // osn/api/src/routes/auth/limiters.ts). A Pulse sign-in, `signInToPulse`,
   // spends one `/authorize` too. A Musubi sign-in as the dev profile,
-  // `signInToMusubiAsDev`, spends one `/dev/login` and nothing else. All of it
+  // `signInToMusubiAsDev` or `signInToMusubiAsDevWithoutApp`, spends one
+  // `/dev/login` and nothing else. All of it
   // from the suite's one address, in fixed windows, so a sign-in past the
-  // budget fails only on a fast machine. Seven organiser sign-ins, one Musubi
-  // one and two Pulse ones keep every window with room: 14 of the 15 redirect
-  // legs, 8 of the 10 dev logins, 9 of the 20 authorizes.
+  // budget fails only on a fast machine. Seven organiser sign-ins, two Musubi
+  // ones and two Pulse ones keep every window with room: 14 of the 15 redirect
+  // legs, 9 of the 10 dev logins, 9 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     // The support modules too, less the helpers' own definitions.
     const sources = dirs.flatMap((dir) =>
@@ -92,7 +93,7 @@ describe("flow sources", () => {
       sources.reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
     const signIns = count(/(?<!function )signInToCireHost\(|\/dev\/login\?/g);
     const pulseSignIns = count(/(?<!function )signInToPulse\(/g);
-    const musubiDevSignIns = count(/(?<!function )signInToMusubiAsDev\(/g);
+    const musubiDevSignIns = count(/(?<!function )signInToMusubiAsDev(?:WithoutApp)?\(/g);
     expect(signIns).toBeGreaterThan(0);
     expect(signIns).toBeLessThanOrEqual(7);
     expect(signIns + pulseSignIns).toBeLessThanOrEqual(9);
@@ -108,8 +109,8 @@ describe("flow sources", () => {
   // dialog, resends with "Resend link", and confirms by pressing a number on
   // the link's page, right or wrong, or "I didn't ask for this" there, written
   // exactly as the patterns below; `registerThroughApi` does one begin and one
-  // confirm. A recovery link's confirm, typing the number, spends the same
-  // confirm budget.
+  // confirm. A recovery or step-up link's confirm, typing the number, and an
+  // email change's, picking it, spend the same confirm budget.
   //
   // A flow that calls `throughEmailVerificationApi` sends its osn-api calls to
   // the stack's second osn-api, whose windows are its own, so its begins are

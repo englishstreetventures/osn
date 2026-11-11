@@ -16,6 +16,7 @@ import {
   createTestLayerWithSqlite,
 } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
+import { confirmedEmailChange, profileOf } from "../helpers/step-up-link";
 
 /**
  * Session list/revoke behaviour:
@@ -502,14 +503,7 @@ describe("account-wide deletes keep the caller's device across its own refresh",
       layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
       hold: queries.hold,
       sqlite,
-      latestCode: (): string => {
-        const all = email.recorded();
-        for (let i = all.length - 1; i >= 0; i--) {
-          const m = all[i]!.text.match(/code is: (\d{6})/);
-          if (m) return m[1]!;
-        }
-        throw new Error("no code mailed");
-      },
+      recorded: () => email.recorded(),
     };
   }
   type Held = ReturnType<typeof held>;
@@ -574,9 +568,22 @@ describe("account-wide deletes keep the caller's device across its own refresh",
       prepare: (profile, h) =>
         Effect.gen(function* () {
           const stepUp = yield* auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-          yield* auth.beginEmailChange(profile.accountId, `new-${profile.email}`);
-          const code = h.latestCode();
-          return (hash: string) => auth.completeEmailChange(profile.accountId, code, stepUp, hash);
+          const begun = yield* confirmedEmailChange(
+            auth,
+            profile.accountId,
+            `new-${profile.email}`,
+            h.recorded,
+          );
+          const profileId = yield* profileOf(auth, profile.accountId);
+          return (hash: string) =>
+            auth.completeEmailChange(
+              profile.accountId,
+              profileId,
+              begun.requestId,
+              begun.claimSecret,
+              stepUp,
+              hash,
+            );
         }),
     },
     {

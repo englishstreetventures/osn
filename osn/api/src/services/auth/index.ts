@@ -52,9 +52,9 @@ export function createAuthService(config: AuthConfig) {
   const profiles = createProfilesModule();
   const tokens = createTokensModule(ctx, profiles);
   const sessions = createSessionsModule();
-  const stepUp = createStepUpModule(ctx);
-  const securityEvents = createSecurityEventsModule(ctx, stepUp);
   const emailLinks = createEmailLinkModule(ctx);
+  const stepUp = createStepUpModule(ctx, emailLinks);
+  const securityEvents = createSecurityEventsModule(ctx, stepUp);
   const emailVerification = createEmailVerificationModule(ctx);
   const registration = createRegistrationModule(
     ctx,
@@ -67,7 +67,7 @@ export function createAuthService(config: AuthConfig) {
   const passkeys = createPasskeysModule(ctx, profiles, tokens, sessions, stepUp, securityEvents);
   const passkeyManagement = createPasskeyManagementModule(ctx, sessions, securityEvents);
   const recovery = createRecoveryModule(ctx, profiles, tokens);
-  const emailChange = createEmailChangeModule(ctx, stepUp, securityEvents);
+  const emailChange = createEmailChangeModule(ctx, stepUp, emailLinks, securityEvents);
   const crossDevice = createCrossDeviceModule(ctx, profiles, tokens, securityEvents);
   const oidc = createOidcModule(ctx, profiles);
   const totp = createTotpModule(ctx, securityEvents, stepUp);
@@ -150,8 +150,11 @@ export function createAuthService(config: AuthConfig) {
     notifySecurityEventByAccountId: securityEvents.notifySecurityEventByAccountId,
     beginStepUpPasskey: stepUp.beginStepUpPasskey,
     completeStepUpPasskey: stepUp.completeStepUpPasskey,
-    beginStepUpOtp: stepUp.beginStepUpOtp,
-    completeStepUpOtp: stepUp.completeStepUpOtp,
+    // Step-up by a link to the account's own address. The link's page only
+    // confirms; the token goes to the status poll of the tab that began.
+    beginStepUpEmail: stepUp.beginStepUpEmail,
+    stepUpEmailStatus: stepUp.stepUpEmailStatus,
+    resendStepUpEmail: stepUp.resendStepUpEmail,
     verifyStepUpForRecoveryGenerate: stepUp.verifyStepUpForRecoveryGenerate,
     verifyStepUpForPasskeyDelete: stepUp.verifyStepUpForPasskeyDelete,
     verifyStepUpForEmailChange: stepUp.verifyStepUpForEmailChange,
@@ -171,6 +174,8 @@ export function createAuthService(config: AuthConfig) {
     revokeAccountSession: sessions.revokeAccountSession,
     revokeAllOtherAccountSessions: sessions.revokeAllOtherAccountSessions,
     beginEmailChange: emailChange.beginEmailChange,
+    emailChangeStatus: emailChange.emailChangeStatus,
+    resendEmailChange: emailChange.resendEmailChange,
     completeEmailChange: emailChange.completeEmailChange,
     beginCrossDeviceLogin: crossDevice.beginCrossDeviceLogin,
     getCrossDeviceLoginStatus: crossDevice.getCrossDeviceLoginStatus,

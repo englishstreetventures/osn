@@ -1,16 +1,15 @@
 /**
  * Step-up (sudo) tokens — M-PK1. Short-lived ES256 JWTs minted by a fresh
- * authentication ceremony (passkey or OTP to the account's verified email)
- * and required by the most sensitive endpoints. Signed with the same ES256
- * key as access tokens but with a distinct audience claim (`osn-step-up`)
- * so they cannot be cross-used. Replay-guarded via single-use `jti`s in the
- * injected {@link StepUpJtiStore}.
+ * authentication ceremony (a passkey, a link to the account's own address, or
+ * an authenticator code) and required by the most sensitive endpoints. Signed
+ * with the same ES256 key as access tokens but with a distinct audience claim
+ * (`osn-step-up`) so they cannot be cross-used. Replay-guarded via single-use
+ * `jti`s in the injected {@link StepUpJtiStore}.
  */
 
 import { accounts, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { type EmailError, EmailService } from "@shared/email";
+import { EmailService } from "@shared/email";
 import type {
   StepUpFactor,
   StepUpPurpose,
@@ -24,34 +23,30 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import {
-  metricAuthOtpSent,
+  metricEmailLinkSend,
   metricRecoveryCooldown,
   metricStepUpIssued,
   metricStepUpVerified,
   withStepUp,
 } from "../../metrics";
-import { claimEntry, guessEntry, spendEntry } from "./attempts";
-import {
-  CHALLENGE_TTL_MS,
-  MAX_OTP_ATTEMPTS,
-  RECOVERY_COOLDOWN_MS,
-  STEP_UP_CLAIM_MARGIN_MS,
-} from "./constants";
+import { CHALLENGE_TTL_MS, RECOVERY_COOLDOWN_MS, STEP_UP_CLAIM_MARGIN_MS } from "./constants";
 import type { AuthContext } from "./context";
+import type { EmailLinkModule } from "./email-link";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import {
-  genOtpCode,
-  hashSessionToken,
   JWT_CLOCK_TOLERANCE_S,
-  logDevOtp,
+  logDevLink,
+  mailboxKey,
   signJwt,
   type StepUpTokenClaims,
   verifyJwt,
 } from "./helpers";
 import { recordAssertion } from "./passkey-counter";
 import { storeCall } from "./store-call";
-import type { AssertingCredential, PasskeyProvenance } from "./types";
+import type { EmailLinkChallenge } from "./stores";
+import type { AssertingCredential, PasskeyProvenance, SessionMeta } from "./types";
 import { requestOptions, type RequestOptions, storedTransports } from "./webauthn-options";
 
 /**
@@ -86,13 +81,53 @@ interface StepUpProvenanceClaims {
 const PROVENANCE_VALUES = new Set<string>(["webauthn", "otp", "totp", "recovery"]);
 
 /**
+ * What a step-up for each purpose lets the device that asked do, as the link's
+ * email names it after "asked to". Every purpose has one, so a reader who did
+ * not ask knows what they would be allowing.
+ */
+const STEP_UP_ACTION = {
+  recovery_generate: "make new recovery codes",
+  passkey_register: "add a passkey",
+  passkey_delete: "rename or remove a passkey",
+  email_change: "change the account's email address",
+  security_event_ack: "dismiss a security alert",
+  account_delete: "delete the account",
+  account_export: "download a copy of the account's data",
+  totp_enroll: "set up an authenticator app",
+  totp_disable: "remove the authenticator app",
+  pulse_app_delete: "delete the account's Pulse data",
+  zap_app_delete: "delete the account's Zap data",
+} as const satisfies Record<StepUpPurpose, string>;
+
+const isStepUpPurpose = (value: string): value is StepUpPurpose =>
+  Object.hasOwn(STEP_UP_ACTION, value);
+
+/** What `POST /step-up/email/begin` answers the tab that began. */
+export interface StepUpEmailBegun {
+  readonly requestId: string;
+  readonly claimSecret: string;
+  /** The number the tab shows, which the reader types on the link's page. */
+  readonly pairingCode: string;
+  /** Unix seconds. */
+  readonly expiresAt: number;
+}
+
+/** What a step-up link's status poll answers. */
+export type StepUpEmailStatus =
+  | { readonly status: "pending"; readonly pairingCode?: string }
+  | { readonly status: "expired" }
+  | { readonly status: "complete"; readonly stepUpToken: string; readonly expiresIn: number };
+
+const LINK_EXPIRED = { status: "expired" } as const;
+
+/**
  * The whole cooldown rule, in one pure function so it can be read and tested
  * without a database.
  *
  * Two independent 72-hour windows; either one refuses.
  *
  * **W1, registration provenance.** A passkey registered a minute ago under an
- * emailed code mints an `amr: ["webauthn"]` step-up indistinguishable from one
+ * emailed link mints an `amr: ["webauthn"]` step-up indistinguishable from one
  * the user has held for a year, so the narrow `passkeyDeleteAllowedAmr` and
  * `emailChangeAllowedAmr` constrain only the direct path: register a credential
  * of your own, assert it, and you hold a token either gate accepts. W1 refuses
@@ -101,7 +136,7 @@ const PROVENANCE_VALUES = new Set<string>(["webauthn", "otp", "totp", "recovery"
  * change the account email.
  *
  * **W2, the recovery window.** After any recovery, a step-up minted from the
- * recovery-enrolled credential — or from an emailed OTP, whose "proves control
+ * recovery-enrolled credential — or from the emailed link, whose "proves control
  * of the current mailbox" property is exactly what a recovery calls into
  * question — may not remove a pre-recovery credential or change the email for
  * 72 hours. A credential that PREDATES the recovery is the owner acting and is
@@ -167,7 +202,7 @@ function provenanceRefusal(
   if (nowMs - recoveredAt * 1000 >= RECOVERY_COOLDOWN_MS) return null;
 
   if (check.gate === "email_change") {
-    // An emailed OTP is admitted at this gate because it proves control of the
+    // The emailed link is admitted at this gate because it proves control of the
     // CURRENT mailbox. A recovery is precisely the event after which that no
     // longer follows.
     return claims.amr.includes("otp") ? refusal : null;
@@ -194,10 +229,14 @@ function provenanceRefusal(
   return null;
 }
 
-export function createStepUpModule(ctx: AuthContext) {
+export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const {
     config,
     stores,
+    serverMac,
+    stepUpLinkLockoutStore,
+    stepUpLinkCeiling,
+    linkResendCap,
     jtiStore,
     otpTtl,
     stepUpTokenTtl,
@@ -227,7 +266,7 @@ export function createStepUpModule(ctx: AuthContext) {
      * The credential that was asserted, when the factor was a passkey. Carried
      * into the token so the two gates that apply the cooldown can tell a
      * credential the user has held for a year from one registered a minute ago
-     * under an emailed code — `amr: ["webauthn"]` says the same thing for both.
+     * under an emailed link — `amr: ["webauthn"]` says the same thing for both.
      *
      * Optional so the other two ceremonies, and callers minting for gates that
      * do not apply the rule, are unchanged. A `webauthn` token that omits it is
@@ -551,87 +590,271 @@ export function createStepUpModule(ctx: AuthContext) {
       return { stepUpToken, expiresIn: stepUpTokenTtl };
     }).pipe(withStepUp("complete"));
 
+  /** The keyed digest of the address a step-up link went to, which its claim checks again. */
+  const addressDigest = (address: string): string =>
+    serverMac.probeKey(address.trim().toLowerCase());
+
+  const linkTtlMinutes = otpTtl / 60;
+
+  /** The account's address, or null when the account is gone. */
+  const accountEmail = (accountId: string): Effect.Effect<string | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ email: accounts.email })
+            .from(accounts)
+            .where(eq(accounts.id, accountId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows[0]?.email ?? null;
+    });
+
   /**
-   * Step-up OTP: begin. Emails a fresh 6-digit code to the account's
-   * verified email. Keyed separately from login OTPs so a login code
-   * cannot authorise a sensitive action and vice versa.
+   * Mails a step-up link for `accountId` to `address`, after the answer: the
+   * caller forks it (`forkBackground`), so the send adds nothing to the time to
+   * answer. The account's limits are read here, where a link would go out:
+   *
+   *  - no link goes while the account's step-up lockout holds, or when it
+   *    cannot be read;
+   *  - a Resend's link counts against the mailbox's Resends a day; a begin's
+   *    first link never does;
+   *  - a Resend's link counts against the account's ceiling on step-up links a
+   *    day here; a begin's first link has counted already, in begin.
+   *
+   * A held-back or failed send is counted and goes no further; the request
+   * stays live either way, and Resend is the retry.
    */
-  const beginStepUpOtp = (
+  const sendStepUpLink = (
     accountId: string,
+    address: string,
+    url: string,
+    ttlMinutes: number,
+    purpose: StepUpPurpose,
+    kind: "first" | "resend",
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<void, never, EmailService> =>
+    Effect.gen(function* () {
+      const lockout = yield* Effect.promise(() => stepUpLinkLockoutStore.status(accountId));
+      const allowed =
+        lockout.status === "open" &&
+        (kind === "first" ||
+          ((yield* Effect.promise(() =>
+            linkResendCap.check(`step_up:${serverMac.probeKey(mailboxKey(address))}`),
+          )) &&
+            (yield* Effect.promise(() => stepUpLinkCeiling.check(accountId)))));
+      if (!allowed) {
+        metricEmailLinkSend("step_up", "capped");
+        return;
+      }
+      const emailSvc = yield* EmailService;
+      yield* emailSvc
+        .send({
+          template: "link-step-up",
+          to: address,
+          data: {
+            url,
+            ttlMinutes,
+            instanceName: config.instanceName,
+            action: STEP_UP_ACTION[purpose],
+            device: sessionMeta?.uaLabel ?? null,
+          },
+        })
+        .pipe(
+          Effect.timeout("10 seconds"),
+          Effect.tap(() => Effect.sync(() => metricEmailLinkSend("step_up", "sent"))),
+          Effect.catch(() => Effect.sync(() => metricEmailLinkSend("step_up", "failed"))),
+        );
+    }).pipe(Effect.withSpan("auth.step_up.link_send"));
+
+  /**
+   * `POST /step-up/email/begin` — emails a step-up link to the account's own
+   * address, for one `purpose`, fixed here: the token the link's claim mints
+   * names it, and nothing later can change it. The reader types the number
+   * this tab shows. Answers the request for the tab that began; the link goes
+   * out after the answer.
+   */
+  const beginStepUpEmail = (
+    accountId: string,
+    purpose: StepUpPurpose,
+    sessionMeta?: SessionMeta,
   ): Effect.Effect<
-    { sent: boolean },
+    StepUpEmailBegun,
     AuthError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
-      const { db } = yield* Db;
-      const accountRow = yield* Effect.tryPromise({
-        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const account = accountRow[0];
-      if (!account) {
+      const address = yield* accountEmail(accountId);
+      if (address === null) {
         return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
-      const code = genOtpCode();
-      // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
-      yield* storeCall(stores.stepUpOtp, "set", () =>
-        stores.stepUpOtp.set(
+      // The account's ceiling on step-up links a day bounds the mail one
+      // stolen session can cause. Checked here rather than in the send, so a
+      // tab past it is told at once instead of waiting on a link that never
+      // comes; the caller is signed in to the account, so this says nothing
+      // they did not know.
+      if (!(yield* Effect.promise(() => stepUpLinkCeiling.check(accountId)))) {
+        metricEmailLinkSend("step_up", "capped");
+        return yield* Effect.fail(new AuthError({ message: "Step-up link ceiling reached" }));
+      }
+      const opened = yield* links.open("step_up", accountId, otpTtl * 1000, {
+        bound: addressDigest(address),
+        purpose,
+      });
+      // Inert unless the runtime tier is `local`.
+      yield* logDevLink("step-up", opened.url);
+      yield* forkBackground(
+        sendStepUpLink(
           accountId,
-          { codeHash: hashSessionToken(code), expiresAt: Date.now() + otpTtl * 1000 },
-          otpTtl * 1000,
+          address,
+          opened.url,
+          linkTtlMinutes,
+          purpose,
+          "first",
+          sessionMeta,
         ),
       );
-      yield* logDevOtp("step-up", code);
-      const email = yield* EmailService;
-      yield* email
-        .send({
-          template: "otp-step-up",
-          to: account.email,
-          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
-        })
-        .pipe(
-          Effect.mapError(
-            (cause: EmailError) =>
-              new AuthError({ message: `Failed to send email: ${cause.reason}` }),
-          ),
-        );
-      // S-L1: distinguish step-up OTPs from login OTPs on the dashboard.
-      metricAuthOtpSent("step_up");
-      return { sent: true };
+      return {
+        requestId: opened.requestId,
+        claimSecret: opened.claimSecret,
+        pairingCode: opened.pairingCode,
+        expiresAt: Math.floor(opened.expiresAt / 1000),
+      };
     }).pipe(withStepUp("begin"));
 
-  const completeStepUpOtp = (
+  /**
+   * Mints the step-up token for a confirmed request, or for one an earlier
+   * poll claimed and could not finish: the purpose the request was begun for,
+   * the `otp` factor (the emailed one).
+   *
+   *  - The account must still have the address the link went to (`bound`).
+   *  - Of two polls at once one claims the request; the other answers
+   *    `expired`, as does a poll that finds it held by another.
+   *  - The token is answered only once this poll has spent the request, so of
+   *    all the polls that ever hold it exactly one delivers. A refusal spends
+   *    it too. Any other failure keeps the claim and lets go of it, so the next
+   *    poll takes over at once; a token minted by a poll that did not spend
+   *    the request is never answered, and its single-use id is never seen.
+   */
+  const finishStepUp = (
     accountId: string,
-    code: string,
-    purpose?: StepUpPurpose,
+    profileId: string,
+    requestId: string,
+    link: EmailLinkChallenge,
+  ): Effect.Effect<StepUpEmailStatus, AuthError | DatabaseError | CoordinationError, Db> =>
+    Effect.gen(function* () {
+      const address = yield* accountEmail(accountId);
+      const purpose = link.purpose;
+      if (
+        address === null ||
+        link.bound !== addressDigest(address) ||
+        purpose === undefined ||
+        !isStepUpPurpose(purpose)
+      ) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired link" }));
+      }
+      const claimed = yield* links.claim(requestId, link, { accountId, profileId });
+      if (!claimed) return LINK_EXPIRED;
+
+      const minted = yield* Effect.gen(function* () {
+        if (claimed.claim.accountId !== accountId) {
+          return yield* Effect.fail(new AuthError({ message: "Invalid or expired link" }));
+        }
+        const stepUpToken = yield* issueStepUpToken(accountId, "otp", purpose);
+        // Another poll took the request over and delivers it.
+        if (!(yield* links.spend(requestId, claimed))) return null;
+        return stepUpToken;
+      }).pipe(
+        Effect.tapError((e) =>
+          (e._tag === "AuthError"
+            ? links.spend(requestId, claimed)
+            : links.letGo(requestId, claimed)
+          ).pipe(Effect.ignore),
+        ),
+      );
+      if (minted === null) return LINK_EXPIRED;
+      return { status: "complete", stepUpToken: minted, expiresIn: stepUpTokenTtl } as const;
+    }).pipe(withStepUp("complete"));
+
+  /**
+   * `POST /step-up/email/:requestId/status` — polled by the tab that began,
+   * signed in as the account that began, with its claim secret. Answers
+   * `pending` (with the number, so a reloaded tab can show it again) until
+   * the link is confirmed; then finishes the request and answers `complete`
+   * with the step-up token, once. `expired` for every refusal: an unknown,
+   * expired, declined or other-flow request, a wrong claim secret, another
+   * account's request, a poll that lost the claim or found another holding
+   * it, and an account whose address has changed since. A poll that fails
+   * after the claim leaves the request for the next poll.
+   */
+  const stepUpEmailStatus = (
+    accountId: string,
+    profileId: string,
+    requestId: string,
+    claimSecret: string,
+  ): Effect.Effect<StepUpEmailStatus, DatabaseError | CoordinationError, Db> =>
+    Effect.gen(function* () {
+      const polled = yield* links.poll("step_up", requestId, claimSecret, accountId);
+      if (polled.state === "pending") {
+        return polled.pairingCode === undefined
+          ? ({ status: "pending" } as const)
+          : ({ status: "pending", pairingCode: polled.pairingCode } as const);
+      }
+      if (polled.state === "expired") return LINK_EXPIRED;
+      return yield* finishStepUp(accountId, profileId, requestId, polled.entry).pipe(
+        Effect.catchTag("AuthError", () => Effect.succeed(LINK_EXPIRED)),
+      );
+    }).pipe(Effect.withSpan("auth.step_up.email_status"));
+
+  /**
+   * `POST /step-up/email/:requestId/resend` — another link for the same
+   * request, for the tab that holds its claim secret, signed in as the account
+   * that began. `sent` (also for a request already confirmed, which the next
+   * poll finishes), `limit` once the request has sent all it may, `expired`
+   * for every refusal. A link goes only to the address the request began for,
+   * while the account still has it.
+   */
+  const resendStepUpEmail = (
+    accountId: string,
+    requestId: string,
+    claimSecret: string,
+    sessionMeta?: SessionMeta,
   ): Effect.Effect<
-    { stepUpToken: string; expiresIn: number },
-    AuthError | DatabaseError | CoordinationError,
-    Db
+    { status: "sent" | "limit" | "expired" },
+    DatabaseError | CoordinationError,
+    Db | EmailService
   > =>
     Effect.gen(function* () {
-      // Read and counted in one call, before the code is compared; see `attempts.ts`.
-      const guessed = yield* guessEntry(stores.stepUpOtp, accountId, MAX_OTP_ATTEMPTS);
-      if (!guessed) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      const resent = yield* links.resend("step_up", requestId, claimSecret, accountId);
+      if (resent.state === "expired") return LINK_EXPIRED;
+      if (resent.state === "limit") return { status: "limit" } as const;
+      if (resent.state === "confirmed") return { status: "sent" } as const;
+      const address = yield* accountEmail(accountId);
+      const purpose = resent.purpose;
+      if (
+        address !== null &&
+        resent.bound === addressDigest(address) &&
+        purpose !== undefined &&
+        isStepUpPurpose(purpose)
+      ) {
+        const minutesLeft = Math.max(1, Math.ceil((resent.expiresAt - Date.now()) / 60_000));
+        yield* logDevLink("step-up", resent.url);
+        yield* forkBackground(
+          sendStepUpLink(
+            accountId,
+            address,
+            resent.url,
+            minutesLeft,
+            purpose,
+            "resend",
+            sessionMeta,
+          ),
+        );
       }
-      const { entry, standing } = guessed;
-      if (standing === "spent") {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
-      }
-      if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
-        if (standing === "last") yield* spendEntry(stores.stepUpOtp, accountId, entry);
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
-      }
-      // Of two right codes sent at once, exactly one claims the entry; none
-      // does once a new `begin` has replaced it.
-      if (!(yield* claimEntry(stores.stepUpOtp, accountId, entry))) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
-      }
-      const stepUpToken = yield* issueStepUpToken(accountId, "otp", purpose);
-      return { stepUpToken, expiresIn: stepUpTokenTtl };
-    }).pipe(withStepUp("complete"));
+      return { status: "sent" } as const;
+    }).pipe(withStepUp("resend"));
 
   /**
    * Read the two facts the cooldown needs about a passkey mutation: when the
@@ -692,7 +915,7 @@ export function createStepUpModule(ctx: AuthContext) {
    *
    * Takes the credential being acted on, because the AMR alone cannot answer
    * the question the cooldown asks: a passkey registered a minute ago under an
-   * emailed code mints the same `webauthn` AMR as one the user has held for a
+   * emailed link mints the same `webauthn` AMR as one the user has held for a
    * year, and the difference only matters relative to the credential it wants
    * to remove.
    *
@@ -721,10 +944,10 @@ export function createStepUpModule(ctx: AuthContext) {
     });
 
   /**
-   * Step-up verifier for `POST /account/email/complete`.
+   * Step-up verifier for `POST /account/email/:requestId/complete`.
    *
    * `emailChangeAllowedAmr` admits `webauthn` and `otp` and no deployment may
-   * widen it — the `otp` arm is there because an emailed code proves control of
+   * widen it — the `otp` arm is there because the emailed link proves control of
    * the CURRENT mailbox. Both of the ways that reasoning fails are handled
    * here rather than in the allow-list, because neither is about the factor:
    *
@@ -790,7 +1013,7 @@ export function createStepUpModule(ctx: AuthContext) {
       // it authorises cannot be made safer by restricting it. Raw inheritance
       // would restrict every device in a lineage for the life of the account —
       // and `config.ts` records that the common reason a user adds a device by
-      // OTP is that the first one is hard to reach.
+      // email is that the first one is hard to reach.
       if (result.amr.includes("webauthn")) {
         const claim = result.assertingProvenance;
         const createdAt = result.assertingCreatedAt;
@@ -864,10 +1087,11 @@ export function createStepUpModule(ctx: AuthContext) {
 
   /**
    * Step-up verifier for `DELETE /account` (Flow A — full OSN account
-   * erasure). Reuses the recovery-AMR allowlist (passkey OR OTP) — the user
-   * may have already nuked their last passkey, in which case OTP-to-email
-   * is the only escape; a stricter passkey-only rule would lock out users
-   * who legitimately want to delete after losing their authenticator.
+   * erasure). Reuses the recovery-AMR allowlist (passkey OR the emailed link) —
+   * the user may have already nuked their last passkey, in which case a link to
+   * their email is the only escape; a stricter passkey-only rule would lock
+   * out users who legitimately want to delete after losing their
+   * authenticator.
    *
    * S-C1: requires the token's `purpose` claim to be `"account_delete"`.
    * Tokens minted for any other ceremony (recovery, passkey, email change)
@@ -888,7 +1112,8 @@ export function createStepUpModule(ctx: AuthContext) {
 
   /**
    * Step-up verifier for `GET /account/export` (C-H1 — DSAR Art. 15 / 20
-   * data export). Reuses the recovery-AMR allowlist (passkey OR OTP), same
+   * data export). Reuses the recovery-AMR allowlist (passkey OR the emailed
+   * link), same
    * rationale as account-delete: exporting is a sensitive read that must
    * survive the user having lost their last passkey.
    *
@@ -939,8 +1164,9 @@ export function createStepUpModule(ctx: AuthContext) {
     verifyStepUpToken,
     beginStepUpPasskey,
     completeStepUpPasskey,
-    beginStepUpOtp,
-    completeStepUpOtp,
+    beginStepUpEmail,
+    stepUpEmailStatus,
+    resendStepUpEmail,
     verifyStepUpForPasskeyDelete,
     verifyStepUpForEmailChange,
     verifyStepUpForPasskeyRegister,

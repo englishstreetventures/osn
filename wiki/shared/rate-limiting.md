@@ -126,11 +126,11 @@ Every auth budget is set in `AUTH_RATE_LIMITS` (`osn/api/src/routes/auth/limiter
 
 | Budget | Auth limiters | Rationale |
 |---|---|---|
-| 5 / min | register begin, sign-up link resend, step-up OTP begin, TOTP enrolment begin, cross-device begin | Each sends mail or starts a ceremony that holds state — prevents email bombing |
-| 10 / min | emailed-link confirm, passkey register begin and complete, profile switch and list, emailed and TOTP recovery complete, recovery disown, step-up passkey begin and complete, step-up OTP and TOTP complete, TOTP enrolment complete and disable, session revoke, email change complete, security-event acknowledge, passkey delete, cross-device approve and reject, OIDC consent decision and signed-out decline (one budget), connections revoke, client disable | Code and assertion checks — room for honest retries |
+| 5 / min | register begin, sign-up link resend, step-up email begin and resend, email change resend, TOTP enrolment begin, cross-device begin | Each sends mail or starts a ceremony that holds state — prevents email bombing |
+| 10 / min | emailed-link confirm, passkey register begin and complete, profile switch and list, emailed and TOTP recovery complete, recovery disown, step-up passkey begin and complete, step-up TOTP complete, TOTP enrolment complete and disable, session revoke, email change complete, security-event acknowledge, passkey delete, cross-device approve and reject, OIDC consent decision and signed-out decline (one budget), connections revoke, client disable | Code and assertion checks — room for honest retries |
 | 20 / min | passkey login complete, passkey rename, OIDC `/authorize`, emailed-link candidates | A top-level navigation or a cheap settings write |
 | 30 / min | handle check, recovery status, TOTP status, session list, security-event list, passkey list, OIDC connections list, client list | Cheap reads; the Security panel polls recovery status, and `@musubi/social`'s shell reads the security events once per load |
-| 60 / min | passkey login begin, cross-device poll, sign-up status poll, OIDC `/authorize/context`, OIDC token | Fired automatically: conditional-UI autofill, 2 s polling, one call per consent screen, a relying party's server |
+| 60 / min | passkey login begin, cross-device poll, sign-up, step-up and email-change status polls, OIDC `/authorize/context`, OIDC token | Fired automatically: conditional-UI autofill, 2 s polling, one call per consent screen, a relying party's server |
 | 10 / hour | `/recovery/generate` | Flood control on a destructive action — each call burns the previous set |
 | 5 / hour | `/login/recovery/complete`, `/login/recovery/email/begin`, OIDC client registration | Brute-force defence on the lost-device escape hatch; mail to the address on file; each registration mints a credential |
 | 3 / hour | `/account/email/begin` | Each call mails a user-chosen address |
