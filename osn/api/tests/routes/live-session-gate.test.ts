@@ -1695,6 +1695,35 @@ describe("the revocation routes, and the sessions they spare", () => {
     expect(left).not.toContain(h.auth.hashSessionToken(other.refreshToken));
   });
 
+  it("sign-out-everywhere serves a caller named by its token's binding alone", async () => {
+    // Red on refusing a request that carries no session cookie: a caller whose
+    // token is bound to a live session (a native client) may sign every other
+    // session out, and keeps its own.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-rat@example.com", "lsgrat");
+    const caller = await openSession(h, profile);
+    const other = await openSession(h, profile);
+
+    const res = await post(h, "/sessions/revoke-all-other", { token: caller.accessToken });
+    expect(res.status).toBe(200);
+    const left = await sessionIds(h, profile);
+    expect(left).toContain(h.auth.hashSessionToken(caller.refreshToken));
+    expect(left).not.toContain(h.auth.hashSessionToken(other.refreshToken));
+  });
+
+  it("sign-out-everywhere refuses a logged-out session's token sent with no cookie", async () => {
+    // Red on answering anything but the session check to a token-only caller
+    // whose session has ended, or on revoking for it.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-rad@example.com", "lsgrad");
+    staleRefusals.length = 0;
+    expect(
+      await answerOf(await post(h, "/sessions/revoke-all-other", { token: ended.accessToken })),
+    ).toEqual(REFUSED);
+    expect(staleRefusals).toEqual(["session_revoke_others"]);
+    expect(await sessionIds(h, profile)).toContain(h.auth.hashSessionToken(live.refreshToken));
+  });
+
   it("an account deletion keeps the session the gate found as its cancel handle", async () => {
     // Red on taking the cancel handle from the raw cookie: a caller admitted by
     // its token's binding alone sends none, and the deletion's sweep signs out

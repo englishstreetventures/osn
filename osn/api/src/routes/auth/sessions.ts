@@ -159,14 +159,10 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-            if (!cookieToken) {
-              set.status = 400;
-              return { error: "invalid_request", message: "No current session" };
-            }
             // Before anything is revoked. The session spared is the one the
-            // check found, so a stale cookie riding with a live token spares
-            // the token's session rather than nothing.
+            // check found: the cookie's, or, with no cookie or a stale one,
+            // the session the token's `osn_sid` names. A caller that names no
+            // live session is refused, so nothing is revoked for it.
             const live = await ctx.liveSession(
               "session_revoke_others",
               profile.accountId,
