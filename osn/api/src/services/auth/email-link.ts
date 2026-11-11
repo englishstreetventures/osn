@@ -159,6 +159,8 @@ export interface OpenedEmailLink {
   readonly url: string;
   /** Milliseconds. */
   readonly expiresAt: number;
+  /** The entry as written, for a write that must name the value it replaces. */
+  readonly entry: EmailLinkChallenge;
 }
 
 /**
@@ -519,8 +521,33 @@ export function createEmailLinkModule(ctx: AuthContext) {
         pairingCode,
         url: linkUrl(requestId, linkSecret),
         expiresAt,
+        entry,
       };
     });
+
+  /**
+   * One write on a request just opened, made by every begin whose browser
+   * token verified: `confirm` true marks it confirmed, as a right pick on its
+   * link would, so the tab's next poll finishes it with no mail; false writes
+   * the same value back, so a taken or held address's begin makes the same
+   * call as a free one's. One swap naming the value `open` wrote. Answers
+   * whether the request is confirmed now; a lost swap (nothing else holds the
+   * request's secrets yet) or a failed store leaves it pending, and the caller
+   * mails its link as on any begin.
+   */
+  const markVerified = (
+    opened: OpenedEmailLink,
+    confirm: boolean,
+  ): Effect.Effect<boolean, never> => {
+    const from = opened.entry;
+    const next: EmailLinkChallenge = confirm ? { ...from, status: "confirmed" } : from;
+    return storeCall(links, "swap", () =>
+      links.swap(opened.requestId, from, next, remainingMs(from)),
+    ).pipe(
+      Effect.map((won) => won && confirm),
+      Effect.catch(() => Effect.succeed(false)),
+    );
+  };
 
   /**
    * Whether `linkSecret` is one of the request's links. Every hash is
@@ -851,7 +878,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       return yield* end(requestId, entry);
     });
 
-  return { open, candidates, confirm, poll, claim, letGo, spend, resend, retire };
+  return { open, markVerified, candidates, confirm, poll, claim, letGo, spend, resend, retire };
 }
 
 export type EmailLinkModule = ReturnType<typeof createEmailLinkModule>;

@@ -379,16 +379,26 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
  * every isolate; the in-memory default holds in one process only.
  */
 export interface ChallengeClaimStore {
-  readonly namespace: "passkey_challenge_claim";
+  /**
+   * `passkey_challenge_claim` for discoverable passkey challenges;
+   * `email_verification_nonce` for the nonces that bind a browser Email
+   * Verification API token to the sign-up tab, so a token is accepted once.
+   */
+  readonly namespace: ChallengeClaimStoreName;
   /** True for the first claim of `nonce` within `ttlMs`; false for every later one. */
   claim(nonce: string, ttlMs: number): Promise<boolean>;
 }
 
+/** The coordination stores that hold single-use claims by nonce. */
+export type ChallengeClaimStoreName = "passkey_challenge_claim" | "email_verification_nonce";
+
 /** In-memory challenge claims — single-process only, bounded like the ceremony stores. */
-export function createInMemoryChallengeClaimStore(): ChallengeClaimStore {
+export function createInMemoryChallengeClaimStore(
+  namespace: ChallengeClaimStoreName = "passkey_challenge_claim",
+): ChallengeClaimStore {
   const claimed = new Map<string, number>();
   return {
-    namespace: "passkey_challenge_claim",
+    namespace,
     async claim(nonce, ttlMs) {
       const nowMs = Date.now();
       if (claimed.size >= CEREMONY_STORE_MAX) {

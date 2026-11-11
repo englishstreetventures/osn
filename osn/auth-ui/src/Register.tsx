@@ -1,5 +1,6 @@
 import {
   describeAuthError,
+  type EmailVerificationNonce,
   type PreviousRegistration,
   type RegistrationClient,
   type RegistrationStatus,
@@ -15,7 +16,7 @@ import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { UsernameInput } from "@shared/ui/ui/username-input";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
-import { createSignal, createUniqueId, Show, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, createUniqueId, on, Show, onCleanup, onMount } from "solid-js";
 
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy } from "./error-lines";
@@ -136,6 +137,30 @@ export function Register(props: RegisterProps) {
   let resetTurnstile: (() => void) | undefined;
   // The handle box, for focus when a wait ends because the handle was taken.
   let handleField: HTMLInputElement | undefined;
+  // The browser Email Verification API field. The proposal has no feature
+  // detection: the form carries the hidden field whenever osn-api hands out a
+  // nonce (its flag is on), and a browser with the API fills it when the
+  // person picks their address and submits. The nonce secret stays here, in
+  // memory, and goes with the field's value at begin; each nonce is good for
+  // one begin, so the details step fetches a fresh one each time it shows.
+  const [verificationNonce, setVerificationNonce] = createSignal<EmailVerificationNonce | null>(
+    null,
+  );
+  let verificationField: HTMLInputElement | undefined;
+  let nonceRequest = 0;
+  async function loadVerificationNonce() {
+    const ask = client.emailVerificationNonce;
+    const request = ++nonceRequest;
+    setVerificationNonce(null);
+    if (!ask) return;
+    const minted = await ask.call(client).catch(() => null);
+    if (request === nonceRequest && step() === "details") setVerificationNonce(minted);
+  }
+  createEffect(
+    on(step, (current) => {
+      if (current === "details") void loadVerificationNonce();
+    }),
+  );
 
   // Names all three jobs the address does, so the choice of address is made
   // knowing the second: the address is a way back into an account whose
@@ -367,8 +392,34 @@ export function Register(props: RegisterProps) {
       };
       const previous = readStored<PreviousRegistration>(PREVIOUS_KEY);
       if (previous) input.previous = previous;
-      const begun = await spendingToken(() => client.beginRegistration(input));
+      // What the browser put in the hidden field, if it has the API.
+      const nonce = verificationNonce();
+      const verification = verificationField?.value ?? "";
+      if (nonce && verification) {
+        input.emailVerificationToken = verification;
+        input.nonceSecret = nonce.nonceSecret;
+      }
+      let begun: Awaited<ReturnType<RegistrationClient["beginRegistration"]>>;
+      try {
+        begun = await spendingToken(() => client.beginRegistration(input));
+      } finally {
+        // A nonce is good for one begin, refused or not.
+        if (input.emailVerificationToken) void loadVerificationNonce();
+      }
       writeStored(PREVIOUS_KEY, null);
+      // A browser token that verified has confirmed the address already: the
+      // first poll makes the account, and the person goes straight to the
+      // passkey step without a "check your email" screen. Any other answer
+      // waits on the link as every sign-up does.
+      if (input.emailVerificationToken) {
+        const first = await client
+          .registrationStatus({ requestId: begun.requestId, claimSecret: begun.claimSecret })
+          .catch(() => null);
+        if (first?.status === "complete") {
+          finish(first);
+          return;
+        }
+      }
       waitOn(
         {
           requestId: begun.requestId,
@@ -594,6 +645,19 @@ export function Register(props: RegisterProps) {
                 <Notice tone="danger" size="inline" alert id={emailErrorId}>
                   Please enter a valid email address
                 </Notice>
+              </Show>
+              {/* The browser Email Verification API field: hidden, filled by a
+                  browser that has the API when the form is submitted. */}
+              <Show when={verificationNonce()} keyed>
+                {(minted) => (
+                  <input
+                    ref={verificationField}
+                    type="hidden"
+                    name="email-verification-token"
+                    autocomplete="email-verification-token"
+                    nonce={minted.nonce}
+                  />
+                )}
               </Show>
             </div>
 

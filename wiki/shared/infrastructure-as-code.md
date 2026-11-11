@@ -371,7 +371,7 @@ Alchemy uploads a Worker with exactly the secrets its stack declares and drops t
 
 On dev, cire-api's `OSN_API_URL` is a var derived from the dev domain, not a secret; passing it as a dev secret throws `UndeclaredSecretsError`. Production keeps it as a secret. zap-api's dev Worker requires `INTERNAL_SERVICE_SECRET`.
 
-Forbidden today: `DEV_LOGIN_SECRET` on osn-api production, `RESEND_API_URL` on osn-api and cire-api on both tiers, and `GROWTHBOOK_CLIENT_KEY` on zap-api on both tiers. No zap code reads that key; it stays live on production until zap-api's first production Alchemy deploy deletes it (englishstreetventures/osn#1532). cire-api production keeps its own `GROWTHBOOK_CLIENT_KEY`.
+Forbidden today: `DEV_LOGIN_SECRET` on osn-api production, `RESEND_API_URL` on osn-api and cire-api on both tiers, `OSN_EMAIL_VERIFICATION_EMULATOR_URL` (the local issuer stand-in the sign-up token verifier can be pointed at) on osn-api on both tiers, and `GROWTHBOOK_CLIENT_KEY` on zap-api on both tiers. No zap code reads that key; it stays live on production until zap-api's first production Alchemy deploy deletes it (englishstreetventures/osn#1532). cire-api production keeps its own `GROWTHBOOK_CLIENT_KEY`.
 
 ### GitHub Environment secrets
 

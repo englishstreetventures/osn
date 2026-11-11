@@ -24,6 +24,7 @@ import { createAuthContext } from "./context";
 import { createCrossDeviceModule } from "./cross-device";
 import { createEmailChangeModule } from "./email-change";
 import { createEmailLinkModule } from "./email-link";
+import { createEmailVerificationModule } from "./email-verification-token";
 import { hashSessionToken } from "./helpers";
 import { createOidcModule } from "./oidc";
 import { createPasskeyManagementModule } from "./passkey-management";
@@ -54,7 +55,14 @@ export function createAuthService(config: AuthConfig) {
   const stepUp = createStepUpModule(ctx);
   const securityEvents = createSecurityEventsModule(ctx, stepUp);
   const emailLinks = createEmailLinkModule(ctx);
-  const registration = createRegistrationModule(ctx, profiles, tokens, emailLinks);
+  const emailVerification = createEmailVerificationModule(ctx);
+  const registration = createRegistrationModule(
+    ctx,
+    profiles,
+    tokens,
+    emailLinks,
+    emailVerification,
+  );
   const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens, sessions);
   const passkeys = createPasskeysModule(ctx, profiles, tokens, sessions, stepUp, securityEvents);
   const passkeyManagement = createPasskeyManagementModule(ctx, sessions, securityEvents);
@@ -86,6 +94,9 @@ export function createAuthService(config: AuthConfig) {
     beginRegistration: registration.beginRegistration,
     resendRegistration: registration.resendRegistration,
     registrationStatus: registration.registrationStatus,
+    // A nonce for the sign-up form's Email Verification API field; null while
+    // the flag is off.
+    emailVerificationNonce: emailVerification.mintNonce,
     // Shared by every flow that emails a link. The read offers the confirm
     // page its candidates; the confirm marks the request confirmed and nothing
     // else. Neither mints a session.

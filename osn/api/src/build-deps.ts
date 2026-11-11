@@ -20,6 +20,11 @@ import {
   generateEphemeralTotpEncryptionKey,
   importTotpEncryptionKey,
 } from "./lib/totp-secret-crypto";
+import type { AuthConfig } from "./services/auth";
+import {
+  createIssuerNetwork,
+  emulatedIssuerFetch,
+} from "./services/auth/email-verification-network";
 import { cireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
 
 export const SERVICE_NAME = "osn-api";
@@ -49,6 +54,11 @@ export type EnvVars = {
   readonly OSN_ACCESS_TOKEN_TTL?: string;
   readonly OSN_REFRESH_TOKEN_TTL?: string;
   readonly OSN_AUTHORIZE_UI_URL?: string;
+  // Sign-up accepts a browser Email Verification API token when truthy; off
+  // when unset. Read by `emailVerificationConfig` below and nowhere else.
+  readonly OSN_EMAIL_VERIFICATION_API?: string;
+  // Local E2E only: a loopback stand-in every verifier request goes to.
+  readonly OSN_EMAIL_VERIFICATION_EMULATOR_URL?: string;
   readonly TRUSTED_PROXY_COUNT?: string;
   readonly OSN_JWT_PRIVATE_KEY?: string;
   readonly OSN_JWT_PUBLIC_KEY?: string;
@@ -107,6 +117,53 @@ const servesOpenapiDocs = (env: EnvVars): boolean =>
 const DEV_LOGIN_TIERS = new Set<string>(["local", "dev", "development"]);
 const servesDevLogin = (env: EnvVars): boolean =>
   env.OSN_ENV !== undefined && DEV_LOGIN_TIERS.has(env.OSN_ENV);
+
+/** Truthy strings that turn an on/off variable on. Anything else, unset included, is off. */
+const isOn = (raw: string | undefined): boolean =>
+  raw !== undefined && ["true", "1", "yes", "on"].includes(raw.trim().toLowerCase());
+
+/**
+ * `OSN_EMAIL_VERIFICATION_API` — whether sign-up accepts a browser Email
+ * Verification API token. The one place the variable is read: off (absent)
+ * unless it reads true, so a deployed tier is off until its vars say so.
+ *
+ * `OSN_EMAIL_VERIFICATION_EMULATOR_URL` sends every verifier request to a
+ * stand-in issuer instead, for the local E2E stack. A stand-in answers DNS and
+ * holds the keys, so it would let any address verify: it is accepted only when
+ * `OSN_ENV` is exactly `local` and the origin is loopback, and the boot fails
+ * otherwise rather than ignore it. Neither message repeats the value.
+ */
+export function emailVerificationConfig(env: EnvVars): AuthConfig["emailVerification"] {
+  const emulator = env.OSN_EMAIL_VERIFICATION_EMULATOR_URL?.trim() || undefined;
+  if (emulator !== undefined) {
+    if (env.OSN_ENV !== "local") {
+      throw new Error(
+        "OSN_EMAIL_VERIFICATION_EMULATOR_URL is for the local E2E stack only and needs " +
+          'OSN_ENV="local" — unset it.',
+      );
+    }
+    let url: URL | null = null;
+    try {
+      url = new URL(emulator);
+    } catch {
+      url = null;
+    }
+    const loopback =
+      url !== null &&
+      url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) &&
+      url.pathname === "/";
+    if (!loopback) {
+      throw new Error("OSN_EMAIL_VERIFICATION_EMULATOR_URL must be a loopback http origin.");
+    }
+  }
+  if (!isOn(env.OSN_EMAIL_VERIFICATION_API)) return undefined;
+  return {
+    network: createIssuerNetwork(
+      emulator === undefined ? undefined : emulatedIssuerFetch(emulator),
+    ),
+  };
+}
 
 /**
  * `DEV_LOGIN_RETURN_ORIGINS` — comma-separated origins a dev-login `return_to`
@@ -418,6 +475,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // back to `/authorize` on the first configured origin, which is right for
     // local dev and wrong the moment the consent screen lives anywhere else.
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
+    emailVerification: emailVerificationConfig(env),
   };
 
   // Every failed store call, once, after any retry: the store's name, the
@@ -506,6 +564,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     accountErasureRateLimiters: minuteLimiters.accountErasureRateLimiters,
     stepUpJtiStore: stores.stepUpJtiStore,
     passkeyChallengeClaims: stores.passkeyChallengeClaims,
+    emailVerificationNonceClaims: stores.emailVerificationNonceClaims,
     ceremonyStores: stores.ceremonyStores,
     recoveryLockoutStore: stores.recoveryLockoutStore,
     recoveryOtpLockoutStore: stores.recoveryOtpLockoutStore,

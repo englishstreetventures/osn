@@ -63,6 +63,9 @@ export function createAuthContext(config: AuthConfig) {
   const emailChangeAllowedAmr = new Set<string>(["webauthn", "otp"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const challengeClaims = config.passkeyChallengeClaims ?? createInMemoryChallengeClaimStore();
+  const nonceClaims =
+    config.emailVerificationNonceClaims ??
+    createInMemoryChallengeClaimStore("email_verification_nonce");
 
   // Ceremony / pending-state stores. Default to per-service in-memory;
   // a deployed Worker passes the coordination store's.
@@ -145,6 +148,7 @@ export function createAuthContext(config: AuthConfig) {
     emailChangeAllowedAmr,
     jtiStore,
     challengeClaims,
+    nonceClaims,
     stores,
     profileSwitchCap,
     emailChangeBeginCap,

@@ -66,6 +66,7 @@ export {
   type EmailLinkFlow,
   type EmailLinkConfirmOutcome,
   type EmailLinkSendResult,
+  type EmailVerificationTokenOutcome,
   type OidcAuthorizeResult,
   type OidcTokenResult,
   type OidcClientKind,

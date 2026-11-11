@@ -114,6 +114,16 @@ export interface BegunRegistration {
   readonly expiresAt: number;
 }
 
+/**
+ * What the sign-up form needs for the browser Email Verification API: the
+ * `nonce` its hidden field carries, and the `nonceSecret` the tab keeps in
+ * memory and sends with the field's value at begin. Never stored or logged.
+ */
+export interface EmailVerificationNonce {
+  readonly nonce: string;
+  readonly nonceSecret: string;
+}
+
 /** A sign-up the tab began before and is replacing. */
 export interface PreviousRegistration {
   readonly requestId: string;
@@ -175,7 +185,22 @@ export interface RegistrationClient {
     turnstileToken?: string;
     /** A sign-up this tab began before: retired first, so its address is free again. */
     previous?: PreviousRegistration;
+    /**
+     * The browser Email Verification API field's value, when the browser
+     * filled it. A token that verifies proves the address with no link; any
+     * other is ignored and the link goes as ever.
+     */
+    emailVerificationToken?: string;
+    /** The secret {@link RegistrationClient.emailVerificationNonce} gave this tab. Sent with the token. */
+    nonceSecret?: string;
   }): Promise<BegunRegistration>;
+  /**
+   * A nonce for the sign-up form's Email Verification API field. Null when
+   * osn-api does not take tokens (its flag is off) or did not answer; the
+   * form then has no such field. Optional, so a host's own client may leave
+   * it out.
+   */
+  emailVerificationNonce?(): Promise<EmailVerificationNonce | null>;
   /**
    * Polls the sign-up. A refusal answers `expired`; a rate limit, a server
    * error or no answer throws, and the caller polls again later.
@@ -226,6 +251,20 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
 
   const beginRegistration = (input: Parameters<RegistrationClient["beginRegistration"]>[0]) =>
     postJson<BegunRegistration>(`${base}/register/begin`, input);
+
+  const emailVerificationNonce = async (): Promise<EmailVerificationNonce | null> => {
+    try {
+      const res = await reach(RegistrationError, `${base}/register/email-verification-nonce`, {
+        method: "POST",
+      });
+      if (res.status !== 200) return null;
+      const json = await safeJson<{ nonce?: unknown; nonceSecret?: unknown }>(res);
+      if (typeof json?.nonce !== "string" || typeof json.nonceSecret !== "string") return null;
+      return { nonce: json.nonce, nonceSecret: json.nonceSecret };
+    } catch {
+      return null;
+    }
+  };
 
   const registrationStatus = async (input: PreviousRegistration): Promise<RegistrationStatus> => {
     const res = await reach(
@@ -305,6 +344,7 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
   return {
     checkHandle,
     beginRegistration,
+    emailVerificationNonce,
     registrationStatus,
     resendRegistrationLink,
     passkeyRegisterBegin,

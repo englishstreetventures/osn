@@ -11513,7 +11513,15 @@
                   "email": {
                     "type": "string"
                   },
+                  "emailVerificationToken": {
+                    "maxLength": 8192,
+                    "type": "string"
+                  },
                   "handle": {
+                    "type": "string"
+                  },
+                  "nonceSecret": {
+                    "maxLength": 128,
                     "type": "string"
                   },
                   "previous": {
@@ -11557,7 +11565,15 @@
                   "email": {
                     "type": "string"
                   },
+                  "emailVerificationToken": {
+                    "maxLength": 8192,
+                    "type": "string"
+                  },
                   "handle": {
+                    "type": "string"
+                  },
+                  "nonceSecret": {
+                    "maxLength": 128,
                     "type": "string"
                   },
                   "previous": {
@@ -11601,7 +11617,15 @@
                   "email": {
                     "type": "string"
                   },
+                  "emailVerificationToken": {
+                    "maxLength": 8192,
+                    "type": "string"
+                  },
                   "handle": {
+                    "type": "string"
+                  },
+                  "nonceSecret": {
+                    "maxLength": 128,
                     "type": "string"
                   },
                   "previous": {
@@ -11750,6 +11774,56 @@
               }
             },
             "description": "Response for status 500"
+          }
+        }
+      }
+    },
+    "/register/email-verification-nonce": {
+      "post": {
+        "operationId": "emailVerificationNonce",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "nonce": {
+                      "type": "string"
+                    },
+                    "nonceSecret": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "nonce",
+                    "nonceSecret"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 404"
           }
         }
       }

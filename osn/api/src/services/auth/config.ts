@@ -2,6 +2,7 @@ import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
+import type { IssuerNetwork } from "./email-verification-network";
 import type {
   AccountCapLimiter,
   CeremonyStores,
@@ -141,6 +142,12 @@ export interface AuthConfig {
    */
   passkeyChallengeClaims?: ChallengeClaimStore;
   /**
+   * Single-use claims on browser Email Verification API nonces, so a token is
+   * accepted for one sign-up. A deployed Worker passes the coordination
+   * store's; the in-memory default holds in one process only.
+   */
+  emailVerificationNonceClaims?: ChallengeClaimStore;
+  /**
    * O2: per-account recovery-code lockout counter. Defaults to in-memory; a
    * deployed Worker passes the coordination store's, so the threshold holds
    * across isolates. Keyed on the resolved accountId — see
@@ -250,4 +257,12 @@ export interface AuthConfig {
    * echoes the raw OAuth parameters. Defaults to the first configured origin.
    */
   authorizeUiUrl?: string;
+  /**
+   * Sign-up accepts a browser Email Verification API token when this is set,
+   * and ignores one entirely when it is not. `buildAppDeps` sets it from
+   * `OSN_EMAIL_VERIFICATION_API`, off unless that reads true; nothing else
+   * reads the variable. `network` is every outbound request the verifier
+   * makes: DNS-over-HTTPS and the issuer's metadata and keys.
+   */
+  emailVerification?: { readonly network: IssuerNetwork };
 }

@@ -110,13 +110,29 @@ describe("flow sources", () => {
   // exactly as the patterns below; `registerThroughApi` does one begin and one
   // confirm. A recovery link's confirm, typing the number, spends the same
   // confirm budget.
-  const countIn = (pattern: RegExp): number =>
-    readdirSync(join(import.meta.dirname, "flows"))
-      .map((file) => readFileSync(join(import.meta.dirname, "flows", file), "utf8"))
+  //
+  // A flow that calls `throughEmailVerificationApi` sends its osn-api calls to
+  // the stack's second osn-api, whose windows are its own, so its begins are
+  // counted against that one's five and not the first's.
+  const flowSources = () =>
+    readdirSync(join(import.meta.dirname, "flows")).map((file) =>
+      readFileSync(join(import.meta.dirname, "flows", file), "utf8"),
+    );
+  const toSecondApi = (source: string) => /throughEmailVerificationApi\(/.test(source);
+  const countIn = (pattern: RegExp, second = false): number =>
+    flowSources()
+      .filter((source) => toSecondApi(source) === second)
       .reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
+  const BEGINS = /name: "Send verification link" \}\)\.click\(|registerThroughApi\(/g;
 
   test("the flows begin no more sign-ups than osn-api allows in a minute", () => {
-    const begins = countIn(/name: "Send verification link" \}\)\.click\(|registerThroughApi\(/g);
+    const begins = countIn(BEGINS);
+    expect(begins).toBeGreaterThan(0);
+    expect(begins).toBeLessThanOrEqual(5);
+  });
+
+  test("the flows routed to the second osn-api begin no more sign-ups than it allows in a minute", () => {
+    const begins = countIn(BEGINS, true);
     expect(begins).toBeGreaterThan(0);
     expect(begins).toBeLessThanOrEqual(5);
   });
