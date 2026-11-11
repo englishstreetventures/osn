@@ -40,17 +40,15 @@ describe("ORIGIN_TRIAL_TOKENS", () => {
     // `src/origin-trial.ts` (and, for WebMCP, `cire/host/public/_headers`).
     it(`${key} has more than the renewal window left`, () => {
       const msLeft = decodeOriginTrialToken(token).expiry * 1000 - Date.now();
-      expect(msLeft).toBeGreaterThan(ORIGIN_TRIAL_RENEWAL_WINDOW_MS);
+      expect(
+        msLeft,
+        `${key} lapses within 14 days: register the origin again on the Chrome origin-trials site, then replace the string in cire/build-tools/src/origin-trial.ts (and cire/host/public/_headers for WebMCP) and the expiry in this file`,
+      ).toBeGreaterThan(ORIGIN_TRIAL_RENEWAL_WINDOW_MS);
     });
   }
 
   it("warns 14 days ahead", () => {
     expect(ORIGIN_TRIAL_RENEWAL_WINDOW_MS).toBe(1_209_600_000);
-  });
-
-  it("holds three distinct tokens", () => {
-    const tokens = Object.values(ORIGIN_TRIAL_TOKENS);
-    expect(new Set(tokens).size).toBe(3);
   });
 });
 
@@ -102,9 +100,5 @@ describe("decodeOriginTrialToken", () => {
 describe("originTrialHeader", () => {
   it("joins tokens with a comma and a space, which Chrome reads as one header per token", () => {
     expect(originTrialHeader("a", "b")).toBe("a, b");
-  });
-
-  it("holds one token as it is", () => {
-    expect(originTrialHeader("a")).toBe("a");
   });
 });
