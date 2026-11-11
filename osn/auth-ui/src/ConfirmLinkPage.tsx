@@ -134,8 +134,23 @@ const SLOW_LINE = "This is taking longer than usual. Keep this page open.";
 
 const EXPIRED_HEADING = "This link no longer works";
 
-const EXPIRED_BODY =
-  "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link.";
+/**
+ * What the refusal says to do next. A sign-up's, recovery's or email
+ * change's waiting screen keeps reading "Check your email" after its link is
+ * refused here, as it does for an address nobody was mailed, so the way
+ * forward is its "Start again", which it shows from the first moment. Step-up's
+ * waiting screen learns of the refusal itself and offers a new link.
+ */
+const EXPIRED_BODY = {
+  "sign-up":
+    "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again.",
+  recovery:
+    "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again.",
+  "step-up":
+    "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link.",
+  "email-change":
+    "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again.",
+} as const satisfies Record<ConfirmLinkPurpose, string>;
 
 const IF_NOT_ASKED = {
   "sign-up": "If you didn't, choose “I didn't ask for this” below.",
@@ -159,11 +174,14 @@ const EXPIRED_WARNING = {
 } as const satisfies Record<ConfirmLinkPurpose, string | undefined>;
 
 const DECLINED_BODY = {
-  "sign-up": "Nothing was confirmed. You can close this page.",
-  recovery: "Nothing was confirmed. You can close this page.",
+  "sign-up":
+    "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again.",
+  recovery:
+    "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again.",
   "step-up":
     "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.",
-  "email-change": "Nothing was confirmed. You can close this page.",
+  "email-change":
+    "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again.",
 } as const satisfies Record<ConfirmLinkPurpose, string>;
 
 /** What the device that began can do once this one confirms. */
@@ -404,7 +422,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
         return `${DECLINED_HEADING}. ${DECLINED_BODY[props.purpose]}`;
       case "expired": {
         const warning = EXPIRED_WARNING[props.purpose];
-        const said = `${EXPIRED_HEADING}. ${EXPIRED_BODY}`;
+        const said = `${EXPIRED_HEADING}. ${EXPIRED_BODY[props.purpose]}`;
         return warning ? `${said} ${warning}` : said;
       }
     }
@@ -456,7 +474,9 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               </p>
             </Match>
             <Match when={view() === "expired"}>
-              <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{EXPIRED_BODY}</p>
+              <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
+                {EXPIRED_BODY[props.purpose]}
+              </p>
               <Show when={EXPIRED_WARNING[props.purpose]}>
                 {(warning) => (
                   <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{warning()}</p>

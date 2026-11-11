@@ -79,9 +79,9 @@ export const WaitingResendReady = state(
   "waiting, Resend ready",
   <>
     The wait is over (<Mono>resendWaitSeconds={"{0}"}</Mono> here). Press Resend: it turns busy,
-    "Sending…" with the orb, keeping focus, while "Use a different email" is disabled; the sentence
-    reads "Sending a new link…", then "We sent a new link". With no wait set, Resend is ready again
-    at once and keeps focus.
+    "Sending…" with the orb, keeping focus, while "Start again" is disabled; the sentence reads
+    "Sending a new link…", then "We sent a new link". With no wait set, Resend is ready again at
+    once and keeps focus.
   </>,
   () => (
     <CheckEmailView
@@ -195,7 +195,7 @@ export const TypedPairingCode: Story = {
           Recovery's and step-up's pages ask the person to type the number rather than pick it, so
           the caption says "Type". Recovery's sentence still promises nothing, since recovery
           answers every address alike; step-up mails the account's own address, so it names none and
-          offers no "Use a different email".
+          offers no "Start again".
         </>
       }
     >

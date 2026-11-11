@@ -170,7 +170,7 @@ describe("CheckEmailView — the wait before Resend", () => {
     expect(onResend).toHaveBeenCalledTimes(2);
   });
 
-  it("marks Resend busy while it sends, keeping focus, and disables Use a different email", async () => {
+  it("marks Resend busy while it sends, keeping focus, and disables Start again", async () => {
     const pending = deferred();
     render(() => (
       <CheckEmailView
@@ -183,8 +183,7 @@ describe("CheckEmailView — the wait before Resend", () => {
       />
     ));
 
-    const change = () =>
-      screen.getByRole("button", { name: "Use a different email" }) as HTMLButtonElement;
+    const change = () => screen.getByRole("button", { name: "Start again" }) as HTMLButtonElement;
     expect(resend().getAttribute("aria-busy")).toBeNull();
     expect(change().disabled).toBe(false);
 
@@ -818,7 +817,7 @@ describe("CheckEmailView — controls and focus", () => {
       </>
     ));
 
-    const buttons = screen.getAllByRole("button", { name: "Use a different email" });
+    const buttons = screen.getAllByRole("button", { name: "Start again" });
     expect(buttons).toHaveLength(1);
     fireEvent.click(buttons[0] as HTMLElement);
     expect(onChangeEmail).toHaveBeenCalledTimes(1);
@@ -840,7 +839,7 @@ describe("CheckEmailView — controls and focus", () => {
     ));
 
     fireEvent.click(resend());
-    fireEvent.click(screen.getByRole("button", { name: "Use a different email" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start again" }));
     expect(onSubmit).not.toHaveBeenCalled();
   });
 

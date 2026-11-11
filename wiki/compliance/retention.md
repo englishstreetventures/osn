@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Retention
@@ -36,6 +36,7 @@ already enforces some of them; the rest need a sweeper job.
 | `cdl_requests` | 5 min TTL; in-memory expiry on poll | App code | OK; consider lazy eviction (cdl) | Identity |
 | Ceremony entries: WebAuthn challenges, pending registrations and emailed-link requests (sign-up, recovery, step-up, email change), pending email changes and TOTP enrolments, cross-device requests, recovery disown tokens | Each entry's TTL: 2 to 10 min, 72 h for a disown token | Coordination store: expiry exact on read, then an alarm deletes the entry ([[coordination-store]]); in memory on the Bun dev server | OK | Identity |
 | Sign-up link strike counter (`registration_link_lockout:<probe key>`, coordination store; the probe key of the address as typed, lowercased, [[email-links]]) | 24 h window from its first strike | 24 h window, expires with it: the alarm deletes the counter when the window ends; in memory on the Bun dev server | OK | Identity |
+| Sign-up restart window (`registration_restart:links.<probe key>` and `registration_restart:declined.<probe key>`, coordination store; the probe key of the address's mailbox key, [[email-links]]) | The count: 1 h window from its first restart. The decline mark: 1 h from the latest decline | Each expires with its window: the alarm deletes it; in memory on the Bun dev server | OK | Identity |
 | `oauth_authorization_codes` (OIDC) | 60 s TTL. Deleted on redemption (`DELETE … RETURNING`), on consent revoke (in-flight purge), and on account erasure; abandoned rows reaped by `runExpiredAuthCodeSweep` on the Worker `scheduled` cron. | App code + scheduled sweep | OK | Identity |
 | `oauth_consents` (OIDC) | Until account deletion or explicit withdrawal (`DELETE /oidc/connections/:clientId`). Revoked rows retain `revoked_at` as the withdrawal record until account deletion. | App code (erasure `commitBatch` + revoke route) | OK | Identity |
 | Parked `/authorize` requests + binding-cookie hashes (ceremony store) | 10 min TTL (`AUTHORIZE_REQUEST_TTL_MS`); consumed when the visitor approves, refuses or declines | Store TTL (coordination store expiry and alarm / in-memory expiry) | OK | Identity |

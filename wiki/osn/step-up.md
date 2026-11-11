@@ -8,7 +8,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Step-up (sudo) tokens
@@ -110,8 +110,12 @@ The emailed link signs nobody in: the page it opens confirms the request, and
 only the tab that began, signed in as the same account and holding the claim
 secret, receives the token. The link's reader types the number that tab shows,
 so a blind guess is right one time in a hundred; a wrong one ends the request
-and counts toward a per-account lockout. The whole contract is in
-[[email-links#Step-up]].
+and counts toward a per-account lockout, whose fifth wrong number writes a
+`step_up_link_lockout` security event. A reader who did not ask can say so
+("I didn't ask for this"): that writes a `step_up_link_declined` security
+event, which the account's other devices show in the security banner, since
+it means someone signed in to the account asked to act and the owner said no.
+No notice is mailed. The whole contract is in [[email-links#Step-up]].
 
 TOTP has **no `begin`**: it is challenge-free, so there is nothing to mint, park
 or send. Whether the factor is available is what `GET /totp/status` answers. A
@@ -318,6 +322,8 @@ Each outcome increments `osn.auth.step_up.verified{result}` with a distinct boun
 - `osn.auth.step_up.verified{result}` — one per gated-endpoint check
 - Spans: `auth.step_up.begin`, `auth.step_up.resend`, `auth.step_up.complete`, `auth.step_up.email_status`, `auth.step_up.link_send`
 - `osn.auth.email_link.sends{flow="step_up", result}` — step-up links sent, held back or failed
+- `osn.auth.step_up.lockout{result}` — wrong typed numbers on step-up links: `recorded`, `locked` (the count at or past five, or a right number refused while it holds), `unavailable` (the counter could not be read or written)
+- `osn.auth.security_event.recorded{kind}` — `step_up_link_declined` and `step_up_link_lockout` among its kinds, written after the answer (span `auth.email_link.event`)
 - Redaction: `stepUpToken` / `step_up_token` are in the logger deny-list
 
 ## Threat model

@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Coordination store
 
@@ -122,7 +122,9 @@ ten ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
 `pending_totp_enroll`, `recovery_disown`, `oidc_authorize_request`,
 `email_link`); the five lockouts (`recovery_lockout`,
 `recovery_otp_lockout`, `totp_lockout`, `registration_link_lockout`,
-`step_up_link_lockout`); `step_up_jti`;
+`step_up_link_lockout`); `registration_restart` (per mailbox: the sign-up
+restart window's `links.<key>` count and its `declined.<key>` mark,
+[[email-links#Sign-up]]); `step_up_jti`;
 `passkey_challenge_claim`; `health_probe`; and one per limiter, named in the budget table
 in `osn/api/src/routes/auth/limiters.ts` (`auth.<endpoint>` for the auth
 limiters, `account.export`, `auth.profile_switch_cap` and the like for the rest).
@@ -290,14 +292,15 @@ for (counted from the code, 2026-10-28):
 | Email change `complete`, success | 4 (the request's `get`, the pending change's `get`, the claim's `swap`, then, after the D1 commit, the request's `consume`); the pending change's delete runs after the answer |
 | Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure; it takes back only those failures |
 | TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success, and takes back only this attempt's count. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
-| Sign-up link `begin` | 2 (the request's `set`, then the pending entry's `swap`), after a D1 collision probe; 6 when `previous` retires an earlier request first (a `get`, a `consume`, then the pending entry's `get` and `delete`). The send's lockout lookup and, for a resend, its cap check run after the answer |
+| Sign-up link `begin` | 2 (the request's `set`, then the pending entry's `swap`), after a D1 collision probe; 6 when `previous` retires an earlier request first (a `get`, a `consume`, then the pending entry's `get` and `delete`). After the answer, the send's lockout lookup, then the restart window: a `read` of the decline mark for a plain begin, and an `increment` for a restart or a begin after a decline; a Resend's send reads the cap instead |
 | Sign-up link status, pending | 1 `get` |
 | Sign-up link status, completing | 4 (the request's `get`, the pending entry's `get`, the claim's `swap`, then, after the D1 insert and the session's write, the request's `consume`); the pending entry's delete runs after the answer. A poll whose finish fails adds a `swap` that lets go of the claim; a poll that finds the request held by another makes the two `get`s only |
-| Sign-up link Resend | 4 (the request's `get`, its `swap`, the pending entry's `swap` from nothing, which parks a request whose address is free and cannot win where an entry is live, then its `get`), then, when a link goes, 1 to 2 after the answer: the lockout lookup, and the send cap's check unless the lockout already refuses |
+| Sign-up link Resend | 4 (the request's `get`, its `swap`, the pending entry's `swap` from nothing, which parks a request whose address is free and cannot win where an entry is live, then its `get`), then, when a link goes, 1 to 2 after the answer: the lockout lookup, and the send cap's check unless the lockout already refuses. A request its reader ended makes the same 4, its pending swap at the probe key of its address, and sends nothing |
 | Sign-up link candidates | 1 `get` |
 | Sign-up link confirm, right pick | 2 (`guess`, then `swap`) |
-| Sign-up link confirm, decline | 4 (`guess`, `swap`, then the pending entry's `get` and `delete`) |
-| Sign-up link confirm, wrong pick | 5 (`guess`, `consume`, the pending entry's `get` and `delete`, then the strike's `recordFailure`); when another write removed the request first, the request's re-read `get` takes the strike's place and no strike counts |
+| Sign-up link confirm, decline | 4 (`guess`, `swap` to `declined`, then the pending entry's `get` and `delete`); after the answer, the restart window's decline mark (`write`) |
+| Sign-up link confirm, wrong pick | 5 (`guess`, `swap` to `ended`, the pending entry's `get` and `delete`, then the strike's `recordFailure`); when another write changed the request first, the request's re-read `get` follows the lost `swap`, and no strike counts if another close ended it |
+| Sign-up, recovery or email-change link confirm, wrong secret | 1 (`guess`), the fifth and every one after it included: a quiet flow's capped guess ends nothing |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |

@@ -28,7 +28,11 @@ const PICK_LINE = "Pick the number shown on the screen where you started.";
 const ERROR_LINE = "We couldn't confirm this email just now.";
 const SLOW_LINE = "This is taking longer than usual. Keep this page open.";
 const EXPIRED_HEADING = "This link no longer works";
+/** Sign-up's, recovery's and email change's: their waiting screen keeps waiting, so the way on is Start again. */
 const EXPIRED_BODY =
+  "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again.";
+/** Step-up's: its waiting screen learns of the refusal and offers a new link. */
+const STEP_UP_EXPIRED_BODY =
   "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link.";
 
 const STEP_UP_EXPIRED_WARNING =
@@ -501,7 +505,10 @@ describe("ConfirmLinkPage — I didn't ask for this", () => {
   });
 
   it.each([
-    ["sign-up", "Nothing was confirmed. You can close this page."],
+    [
+      "sign-up",
+      "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again.",
+    ],
     [
       "step-up",
       "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.",
@@ -1033,12 +1040,11 @@ describe("ConfirmLinkPage — the words for each flow", () => {
       await settle();
 
       expect(heading().textContent).toBe(EXPIRED_HEADING);
+      const body = purpose === "step-up" ? STEP_UP_EXPIRED_BODY : EXPIRED_BODY;
       const lines = [...heading().parentElement!.querySelectorAll("p")].map((p) => p.textContent);
-      expect(lines).toEqual(warning ? [EXPIRED_BODY, warning] : [EXPIRED_BODY]);
+      expect(lines).toEqual(warning ? [body, warning] : [body]);
       expect(announcer(container).textContent).toBe(
-        warning
-          ? `${EXPIRED_HEADING}. ${EXPIRED_BODY} ${warning}`
-          : `${EXPIRED_HEADING}. ${EXPIRED_BODY}`,
+        warning ? `${EXPIRED_HEADING}. ${body} ${warning}` : `${EXPIRED_HEADING}. ${body}`,
       );
     },
   );
