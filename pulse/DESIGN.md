@@ -230,10 +230,13 @@ sits 10px in, which needs 116px. From 768px up it reads "Happening now".
 - The time, venue and host lines wrap rather than clip, and a word too long for
   its line breaks (`overflow-wrap: anywhere`).
 - The time never splits from its AM or PM.
-- The venue and neighbourhood run as one line of text with a dot between them.
-- A wrapped line may break on either side of a separator dot, in the time line
-  and the venue line alike. The venue's dot is a 3px box, not a character, so no
-  text rule can tie it to the word beside it.
+- The venue and neighbourhood run as one line of text with a `·` between them,
+  in `--foreground` at 20%, a word space either side. The time line's day and
+  time have the same `·`, in the line's own colour.
+- A separator `·` is tied to the word before it by a no-break space, so a
+  wrapped line ends in the dot and never starts with one. The owner chose this
+  on 2026-11-11 (#2161), over a 3px drawn dot, which no text rule can tie to a
+  word.
 - The clock and pin icons keep their size and sit centred on their text's first
   line; the host's avatar starts level with its first line.
 - The footer's category and status wrap to two lines when one does not fit, and
@@ -250,8 +253,9 @@ card looking like the rest.
 
 `pulse/web/tests/explore/ExploreCard.phone.browser.test.tsx` holds, on the
 explore page with five events at 320 and 390px, the 112px column, the "Live"
-tag, and the list's rules for wrapping, the time, the icons and avatar, the
-footer and the title. One event is built to break them: a venue that is one
+tag, and the list's rules for wrapping, the time, the separator dots, the icons
+and avatar, the footer and the title. For the dots it also narrows a line until
+the dot no longer fits after its word, and checks the word moves down with it. One event is built to break them: a venue that is one
 unbroken word and a status too long to sit beside its category. At 1440px it
 holds the 180px column and "Happening now". It shoots the page at all three
 widths in light and dark.

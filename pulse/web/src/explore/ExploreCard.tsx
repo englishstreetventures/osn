@@ -193,7 +193,9 @@ export function ExploreCard(props: {
               <Icon name="clock" size={11} />
             </span>
             <span class="min-w-0">
-              {dayLabel()} · <span class="whitespace-nowrap">{time()}</span>
+              {/* A no-break space ties the dot to the day, so a line never starts with it. */}
+              {dayLabel()}
+              {"\u00A0"}· <span class="whitespace-nowrap">{time()}</span>
             </span>
           </div>
 
@@ -209,8 +211,12 @@ export function ExploreCard(props: {
             </span>
             <span class="min-w-0">
               <Show when={e().venue}>{e().venue}</Show>
+              {/* A no-break space ties the dot to the venue, so a line never starts with it. */}
               <Show when={e().venue && e().location}>
-                <span class="bg-foreground/20 mx-2 inline-block h-0.75 w-0.75 rounded-full align-middle" />
+                {"\u00A0"}
+                <span aria-hidden="true" class="text-foreground/20">
+                  ·
+                </span>{" "}
               </Show>
               <Show when={e().location}>{e().location}</Show>
             </span>

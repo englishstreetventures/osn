@@ -10,8 +10,10 @@
  * line wider than its box, no text past the card's edge, and the card not wider
  * than it draws. Then each rule `pulse/DESIGN.md` §Event Cards lists for the
  * wrapped body: the time on one line, the clock, pin and avatar on their line's
- * first line, the footer's status flush right on whichever line it lands, and
- * the title at most two lines, ending in an ellipsis when it is longer.
+ * first line, each separator dot on the line of the word before it, the
+ * footer's status flush right on whichever line it lands, and the title at
+ * most two lines, ending in an ellipsis when it is longer. A narrowed line
+ * checks the dot's tie: it must move down with its word, never start a line.
  *
  * The arrangement is the one §Event Cards records: below 768px a 112px media
  * column beside the body, with the live tag reading "Live" inside it; from
@@ -119,10 +121,11 @@ function events(): EventItem[] {
       location: "Williamsburg",
       createdByName: "Sana Patel",
     }),
+    // Over a week out, so its day label ("Sun, Nov 22") has words to break between.
     makeEvent({
       id: "evt_run",
       title: "Sunday Run Club",
-      startTime: at(4, 12, 30),
+      startTime: at(8, 7, 30),
       category: "outdoor",
       venue: "Prospect Park Boathouse",
       location: "Park Slope",
@@ -169,6 +172,54 @@ function textRects(node: Node): DOMRect[] {
   return Array.from(range.getClientRects()).filter((r) => r.width > 0);
 }
 
+/** The first `text` in `el`, as a range. */
+function textRange(el: HTMLElement, text: string): Range {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const at = node.textContent?.indexOf(text) ?? -1;
+    if (at < 0) continue;
+    const range = document.createRange();
+    range.setStart(node, at);
+    range.setEnd(node, at + text.length);
+    return range;
+  }
+  throw new Error(`no "${text}" in ${el.textContent}`);
+}
+
+/** The last line box of the text in `el` before `end`. */
+function lastLineBefore(el: HTMLElement, end: Range | Node): DOMRect {
+  const range = document.createRange();
+  range.setStart(el, 0);
+  if (end instanceof Range) range.setEnd(end.startContainer, end.startOffset);
+  else range.setEndBefore(end);
+  const last = Array.from(range.getClientRects()).findLast((r) => r.width > 0);
+  if (!last) throw new Error(`no text before the mark in ${el.textContent}`);
+  return last;
+}
+
+/** Two boxes on one line: each one's vertical centre inside the other. */
+function sameLine(a: DOMRect, b: DOMRect): boolean {
+  const ca = (a.top + a.bottom) / 2;
+  const cb = (b.top + b.bottom) / 2;
+  return ca > b.top && ca < b.bottom && cb > a.top && cb < a.bottom;
+}
+
+/** The time line's dot and the venue line's dot, each with the text before it. */
+function dots(id: string) {
+  const { time, place } = cardParts(id);
+  const timeText = time.lastElementChild as HTMLElement;
+  const placeText = place.lastElementChild as HTMLElement;
+  const timeDot = textRange(timeText, "·");
+  const venueDot = placeText.querySelector<HTMLElement>('span[aria-hidden="true"]');
+  if (!venueDot) throw new Error(`no venue dot on ${id}`);
+  return {
+    timeText,
+    placeText,
+    time: { dot: timeDot.getBoundingClientRect(), before: lastLineBefore(timeText, timeDot) },
+    venue: { dot: venueDot.getBoundingClientRect(), before: lastLineBefore(placeText, venueDot) },
+  };
+}
+
 /** A line's leading mark (icon box or avatar) and its text's first line box. */
 function leadAndFirstLine(line: HTMLElement) {
   const [lead, text] = Array.from(line.children) as HTMLElement[];
@@ -208,9 +259,14 @@ async function mount(size: { width: number; height: number }) {
   return view;
 }
 
+/** Two frames: `page.viewport()` resolves before the resized frame is drawn. */
+const settle = () =>
+  new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+
 async function shoot(name: string) {
   const height = document.documentElement.scrollHeight;
   await page.viewport(window.innerWidth, height);
+  await settle();
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
@@ -291,6 +347,11 @@ describe("a non-featured event card on a phone", () => {
           avatar.first.top + EPSILON,
         );
 
+        // Each separator dot sits on the line of the word before it.
+        const d = dots(id);
+        expect(sameLine(d.time.dot, d.time.before), `${id} time dot`).toBe(true);
+        expect(sameLine(d.venue.dot, d.venue.before), `${id} venue dot`).toBe(true);
+
         // The status sits flush right on whichever footer line it lands.
         const status = footer.lastElementChild!.getBoundingClientRect();
         const f = footer.getBoundingClientRect();
@@ -326,6 +387,29 @@ describe("a non-featured event card on a phone", () => {
     const [category, status] = Array.from(cardParts("evt_long").footer.children);
     expect(status.getBoundingClientRect().top).toBeGreaterThanOrEqual(
       category.getBoundingClientRect().bottom - EPSILON,
+    );
+  });
+
+  it("moves a dot down with the word before it when the line is just too short", async () => {
+    await mount(PHONES[0]);
+
+    // Narrow each line's text to 2px past the word before its dot, so the dot
+    // no longer fits beside it: the line has to break before that word.
+    const run = dots("evt_run");
+    const day = textRange(run.timeText, "22").getBoundingClientRect();
+    run.timeText.style.width = `${day.right - run.timeText.getBoundingClientRect().left + 2}px`;
+    const live = dots("evt_live");
+    const venue = textRange(live.placeText, "Records").getBoundingClientRect();
+    live.placeText.style.width = `${venue.right - live.placeText.getBoundingClientRect().left + 2}px`;
+
+    const after = { run: dots("evt_run"), live: dots("evt_live") };
+    expect(textRects(after.run.timeText).length, "the time did not wrap").toBeGreaterThan(1);
+    expect(sameLine(after.run.time.dot, after.run.time.before), "time dot starts a line").toBe(
+      true,
+    );
+    expect(textRects(after.live.placeText).length, "the venue did not wrap").toBeGreaterThan(1);
+    expect(sameLine(after.live.venue.dot, after.live.venue.before), "venue dot starts a line").toBe(
+      true,
     );
   });
 
