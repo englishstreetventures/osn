@@ -1477,15 +1477,14 @@ the consent screen must never be framed, and the smoke check reads neither heade
 
 ### 5.8 Holding a site's host off its Worker 🔑
 
-A host taken off its site Worker in the dashboard stays off only while
+A host taken off its site Worker in the dashboard stays off while
 `PRODUCTION_HOST_HOLDS` in
 [`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts)
-holds it. Without an entry the site is still `worker`, so the next release that ships
-its stack attaches the host again, and only the approver reading **Domains added** in
-the `alchemy-plan` summary stands in the way. With an entry, the stack declares the
-site's Worker with no custom domain, the plan guard refuses any plan in which a site
-Worker would serve the host, and the site's smoke check passes once it has read that
-the host is off its Worker ([[infrastructure-as-code#Production sites]]). The Worker
+holds it: the stack declares the site's Worker with no custom domain, the plan guard
+refuses any plan in which a site Worker would serve the host, and the site's smoke
+check passes once it has read that the host is off its Worker
+([[infrastructure-as-code#Production sites]]). A site with no entry is a plain
+`worker`, and its stack's releases attach its production host. The Worker
 keeps getting each release's build. The rule holds for releases built from a commit
 that holds the entry: never re-run a release run from an older commit while the host
 is held. A hand-run `deploy:production` from such a commit declares no domain for the
