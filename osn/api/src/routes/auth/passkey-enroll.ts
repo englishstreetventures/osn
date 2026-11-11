@@ -1,6 +1,8 @@
 import { Elysia, t } from "elysia";
 
 import { readSessionCookie } from "../../lib/cookie-session";
+import { staleRefusal } from "../../lib/live-session";
+import { metricSessionStaleRefused } from "../../metrics";
 import type { AuthRouteContext } from "./context";
 import { errorResponse, publicKeyCredentialCreationOptions } from "./response-schemas";
 
@@ -105,11 +107,18 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             // A recovery-audience caller may enrol past the step-up gate, and
             // the service grants that on the factor the session row records —
             // so name the caller's own session here, the same way `/complete`
-            // does. When it cannot be named the bypass is simply unavailable
-            // and the ordinary gate applies; nothing here has to fail loudly.
+            // does.
             const caller = principal.restricted
               ? await classifyCaller(principal, headers.cookie)
               : null;
+            // A restricted caller whose own session names no row has ended:
+            // refused before a step-up token is read, as an ordinary one is
+            // above.
+            if (caller !== null && caller._tag !== "resolved") {
+              metricSessionStaleRefused("passkey_register_begin");
+              set.status = 409;
+              return staleRefusal();
+            }
             const recoverySessionHash = caller?._tag === "resolved" ? caller.sessionHash : null;
             const result = await run(
               auth.beginPasskeyRegistration(

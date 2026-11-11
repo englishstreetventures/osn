@@ -94,6 +94,18 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before anything is revoked: a token whose session has ended
+            // ends no session of the account.
+            const staleErr = await ctx.liveSessionGate(
+              "session_revoke",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
             const currentHash = cookieToken ? auth.hashSessionToken(cookieToken) : null;
             const result = await run(
@@ -115,6 +127,8 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
             200: t.Object({ success: t.Boolean(), revokedSelf: t.Boolean() }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -150,7 +164,20 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
               set.status = 400;
               return { error: "invalid_request", message: "No current session" };
             }
-            const currentHash = auth.hashSessionToken(cookieToken);
+            // Before anything is revoked. The session spared is the one the
+            // check found, so a stale cookie riding with a live token spares
+            // the token's session rather than nothing.
+            const live = await ctx.liveSession(
+              "session_revoke_others",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
+            }
+            const currentHash = live.sessionHash;
             // Once the OSN sessions are gone, the account's cire organiser
             // sessions go too, in the background: the response never waits for
             // cire-api.
@@ -173,6 +200,8 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
             200: t.Object({ success: t.Boolean() }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },

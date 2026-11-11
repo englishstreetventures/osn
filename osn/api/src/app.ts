@@ -372,6 +372,7 @@ export function createApp(deps: AppDeps) {
     .use(
       createAccountExportRoutes(
         sharedAuthConfig,
+        cookieConfig,
         DbLive,
         observabilityLayer,
         accountExportLimiter,
