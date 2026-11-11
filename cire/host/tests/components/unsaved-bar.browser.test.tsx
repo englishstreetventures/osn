@@ -160,28 +160,40 @@ async function editControl(name: string) {
 /** How far the bar sits below its resting place, which is flush with the window's foot. */
 const drop = (bar: HTMLElement) => bar.getBoundingClientRect().bottom - window.innerHeight;
 
+/** Frames read once the bar's transition has ended, to see it stay at rest. */
+const AFTER_END = 6;
+
+/** Frames past which a transition that has not ended fails the case. */
+const MOST_FRAMES = 600;
+
 /**
  * Presses `edit` with a synchronous click, so the bar mounts in this task, and
  * reads the bar's drop on each frame from the first one painted with it, until
- * its transition has run and a few frames more. Read in `requestAnimationFrame`,
- * so each value is the one that frame paints.
+ * the engine reports no transition running on the bar and `AFTER_END` frames
+ * more. Read in `requestAnimationFrame`, so each value is the one that frame
+ * paints. The end is the engine's own, not a span of wall time, so a loaded
+ * machine that draws fewer frames still reads the whole transition.
+ *
+ * `ended` is the first frame read with no transition running. `span` is the
+ * longest time, delay included, that a transition on the bar takes, in ms.
  */
 async function editAndWatch(edit: HTMLElement) {
   edit.click();
   const el = findBar();
   const height = el.getBoundingClientRect().height;
-  const longest = Math.max(
-    ...getComputedStyle(el)
-      .transitionDuration.split(",")
-      .map((s) => Number.parseFloat(s)),
+  const span = Math.max(
+    0,
+    ...el.getAnimations().map((a) => Number(a.effect?.getComputedTiming().endTime)),
   );
   const drops: number[] = [];
-  const until = performance.now() + longest * 1000 + 100;
-  while (performance.now() < until) {
+  let ended = -1;
+  while (ended < 0 || drops.length < ended + AFTER_END) {
+    if (drops.length >= MOST_FRAMES) throw new Error("the bar's transition never ended");
     await nextFrame();
+    if (ended < 0 && el.getAnimations().length === 0) ended = drops.length;
     drops.push(drop(el));
   }
-  return { bar: el, height, drops };
+  return { bar: el, height, drops, ended, span };
 }
 
 /** Slows the portal threefold, so a rise spans enough frames to read. */
@@ -248,13 +260,16 @@ describe.each(EDITORS)("the unsaved-changes bar in $name", (editor) => {
     editor.mount();
     const edit = await editControl(editor.edit);
 
-    const { height, drops } = await editAndWatch(edit);
+    const { height, drops, ended, span } = await editAndWatch(edit);
     expect(drops.filter((d) => d > 1 && d < height - 1)).toEqual([]);
-    // The engine may paint its start for a frame or two before the switch's
-    // 0.01ms runs out; from the first frame at rest, it stays there.
+    // The switch gives the rise no time of its own, delay included.
+    expect(span).toBeLessThan(1);
+    // The engine may paint its start until it ends the switch's 0.01ms, on as
+    // many frames as a loaded machine takes to get there. It is at rest by the
+    // first frame after, and from the first frame at rest, it stays there.
     const rest = drops.findIndex((d) => Math.abs(d) < 0.5);
     expect(rest).toBeGreaterThanOrEqual(0);
-    expect(rest).toBeLessThanOrEqual(2);
+    expect(rest).toBeLessThanOrEqual(ended);
     for (const d of drops.slice(rest)) expect(d).toBeCloseTo(0, 0);
   });
 

@@ -783,12 +783,14 @@ as appearing rather than rising. The `translate` is on the fixed bar itself,
 never an ancestor, so the window stays its containing block. An engine without
 `@starting-style` (before Chrome 117, Safari 17.5, Firefox 129) shows the bar
 at rest at once. Under reduced motion the global switch puts it straight at
-rest: it may show its start for a frame or two, then rest, on no frame
-partway. `tests/components/unsaved-bar.browser.test.tsx` reads both editors'
-bar frame by frame: drawn first below its place by no more than its height,
-rising over several frames and never sinking, at rest at the end, gone on the
-frame Discard runs, and under reduced motion on no frame partway, at its start
-for at most two frames.
+rest: it may show its start until the engine ends the switch's 0.01ms
+transition, a frame or two and more on a loaded machine, then rest, on no
+frame partway. `tests/components/unsaved-bar.browser.test.tsx` reads both
+editors' bar frame by frame: drawn first below its place by no more than its
+height, rising over several frames and never sinking, at rest at the end, gone
+on the frame Discard runs, and under reduced motion on no frame partway, its
+transition under a millisecond with its delay, and at rest by the first frame
+after the engine ends it.
 
 **A dropped row settles into its slot** (the owner's choice). Let go with a
 pointer, a sortable row eases from where it was released into its new slot; a
