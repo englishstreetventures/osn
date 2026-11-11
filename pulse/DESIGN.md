@@ -218,10 +218,10 @@ Horizontal card: a media column beside the body, 180px wide from 768px up and
 
 **Below 768px a card keeps its media beside the body**, in the 112px column.
 At 320px that leaves the body 142px of text, and 212px at 390px. A card is
-215–235px tall at 320px, so a 568px-tall screen shows about two and a half,
-and the featured card stays the one large card. The live tag reads "Live"
-there: "Happening now" is 106px wide and sits 10px in, which needs 116px. From
-768px up it reads "Happening now".
+215–235px tall at 320px, 256px when its venue and footer both wrap, so a
+568px-tall screen shows more than two, and the featured card stays the one
+large card. The live tag reads "Live" there: "Happening now" is 106px wide and
+sits 10px in, which needs 116px. From 768px up it reads "Happening now".
 
 *Measured 2026-11-11 — element boxes on the page `ExploreCard.phone.browser.test.tsx` renders, `bunx --bun vitest run --project browser` in `pulse/web`, headless Chromium, macOS*
 
@@ -231,8 +231,13 @@ there: "Happening now" is 106px wide and sits 10px in, which needs 116px. From
   its line breaks (`overflow-wrap: anywhere`).
 - The time never splits from its AM or PM.
 - The venue and neighbourhood run as one line of text with a dot between them.
-- The clock and pin icons keep their size and sit on the first line.
-- The footer's category and status wrap to two lines when one does not fit.
+- A wrapped line may break on either side of a separator dot, in the time line
+  and the venue line alike. The venue's dot is a 3px box, not a character, so no
+  text rule can tie it to the word beside it.
+- The clock and pin icons keep their size and sit centred on their text's first
+  line; the host's avatar starts level with its first line.
+- The footer's category and status wrap to two lines when one does not fit, and
+  the status stays flush right on either line.
 - The title is the one line that may be cut: it stops at two lines and ends in
   an ellipsis (`line-clamp-2`).
 
@@ -241,11 +246,15 @@ media above the body below 768px, as the featured card does, which makes a card
 302–323px tall at 320px, under two to a 568px screen, and leaves the featured
 card looking like the rest.
 
-*Measured 2026-11-11 — the same page with the stacked card, same command*
+*Measured 2026-11-11 — the same page and command, with the non-featured card at `grid-cols-1 md:grid-cols-[180px_1fr]` and its media at `h-[140px] md:h-full md:min-h-[140px]`*
 
-`pulse/web/tests/explore/ExploreCard.phone.browser.test.tsx` holds these rules
-on the explore page with four events, at 320 and 390px, and the 180px column at
-1440px, and shoots the page at all three widths in light and dark.
+`pulse/web/tests/explore/ExploreCard.phone.browser.test.tsx` holds, on the
+explore page with five events at 320 and 390px, the 112px column, the "Live"
+tag, and the list's rules for wrapping, the time, the icons and avatar, the
+footer and the title. One event is built to break them: a venue that is one
+unbroken word and a status too long to sit beside its category. At 1440px it
+holds the 180px column and "Happening now". It shoots the page at all three
+widths in light and dark.
 
 **Placeholder system**: 8 gradient classes (`ph-1` through `ph-8`) with overlay pattern and category glyph — used when events lack an image.
 

@@ -219,8 +219,8 @@ export function ExploreCard(props: {
           {/* Host */}
           <Show when={e().createdByName}>
             {(name) => (
-              <div class="text-muted-foreground text-ui-xs flex items-center gap-1.5">
-                <Avatar class="h-4.5 w-4.5 shrink-0">
+              <div class="text-muted-foreground text-ui-xs flex items-start gap-1.5">
+                <Avatar class="h-4.5 w-4.5">
                   <Show when={e().createdByAvatar}>
                     {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
                   </Show>
@@ -241,7 +241,7 @@ export function ExploreCard(props: {
               </span>
             </Show>
             <span
-              class="text-muted-foreground text-ui-xs"
+              class="text-muted-foreground text-ui-xs ml-auto"
               style={{ "font-family": "var(--font-mono)" }}
             >
               {e().status === "ongoing"

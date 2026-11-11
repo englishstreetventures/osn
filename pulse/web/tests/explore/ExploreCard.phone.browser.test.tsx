@@ -2,18 +2,24 @@
  * Does a non-featured event card show its text whole on a phone?
  *
  * The explore page lays every card out in real Chromium with the app's own
- * stylesheet, at 320 and 390px, with four events: one live, one featured and
- * two more, so three cards are non-featured. For each of those, the time, the
- * title, the venue, the host and the footer must sit inside the card with
- * nothing cut off: no line wider than its box, no text past the card's edge,
- * and the card itself not wider than it draws. The title may end in the
- * two-line ellipsis `pulse/DESIGN.md` §Event Cards names; nothing else may be
- * cut.
+ * stylesheet, at 320 and 390px, with five events: one live, one featured and
+ * three more, so four cards are non-featured. One of them is built to break
+ * each wrap rule: a venue that is one unbroken word and a status long enough
+ * to push the footer onto two lines. For every non-featured card, the time,
+ * title, venue, host and footer sit inside the card with nothing cut off: no
+ * line wider than its box, no text past the card's edge, and the card not wider
+ * than it draws. Then each rule `pulse/DESIGN.md` §Event Cards lists for the
+ * wrapped body: the time on one line, the clock, pin and avatar on their line's
+ * first line, the footer's status flush right on whichever line it lands, and
+ * the title at most two lines, ending in an ellipsis when it is longer.
  *
  * The arrangement is the one §Event Cards records: below 768px a 112px media
  * column beside the body, with the live tag reading "Live" inside it; from
- * 768px up a 180px column, with the tag reading "Happening now". Every width is
- * shot in light and dark into `e2e-artifacts/pulse-web/explore-card/`.
+ * 768px up a 180px column, with the tag reading "Happening now".
+ *
+ * The clock is pinned, so every label and date stamp is the same on every run.
+ * Every width is shot in light and dark into the gitignored
+ * `e2e-artifacts/pulse-web/explore-card/`.
  */
 
 import { render } from "@solidjs/testing-library";
@@ -74,29 +80,22 @@ const PHONE_MEDIA = 112;
 const DESKTOP_MEDIA = 180;
 /** Sub-pixel slack for a rect compared with another. */
 const EPSILON = 0.5;
+/**
+ * Saturday 14 November 2026, noon, local time. Four days later is a
+ * Wednesday, the longest weekday name, so the widest day label shows.
+ */
+const NOW = new Date(2026, 10, 14, 12, 0);
 
-/** A day 2–6 days out whose weekday name is longest, so its label is widest. */
-function widestWeekday(now: Date): Date {
-  let best = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 12, 30);
-  for (let offset = 3; offset <= 6; offset++) {
-    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, 12, 30);
-    const name = (d: Date) => d.toLocaleString("en-US", { weekday: "long" });
-    if (name(day).length > name(best).length) best = day;
-  }
-  return best;
-}
-
-/** Four events: live, featured, and two more. Only the featured one stacks. */
+/** Five events: live, featured, and three more. Only the featured one stacks. */
 function events(): EventItem[] {
-  const now = new Date();
-  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 19, 30);
-  const later = widestWeekday(now);
+  const at = (days: number, hours: number, minutes: number) =>
+    new Date(2026, 10, 14 + days, hours, minutes).toISOString();
   return [
     makeEvent({
       id: "evt_live",
       title: "Late-night vinyl session with guest selectors",
       status: "ongoing",
-      startTime: new Date(now.getTime() - 60 * 60 * 1000).toISOString(),
+      startTime: at(0, 11, 0),
       category: "music",
       venue: "Public Records",
       location: "Gowanus",
@@ -105,7 +104,7 @@ function events(): EventItem[] {
     makeEvent({
       id: "evt_featured",
       title: "Rooftop Jazz Session",
-      startTime: tomorrow.toISOString(),
+      startTime: at(1, 19, 30),
       category: "music",
       venue: "The Vessel",
       location: "East Village",
@@ -114,7 +113,7 @@ function events(): EventItem[] {
     makeEvent({
       id: "evt_ceramics",
       title: "Ceramics open studio and wheel-throwing night",
-      startTime: later.toISOString(),
+      startTime: at(4, 12, 30),
       category: "art",
       venue: "Brooklyn Clay Collective",
       location: "Williamsburg",
@@ -123,31 +122,59 @@ function events(): EventItem[] {
     makeEvent({
       id: "evt_run",
       title: "Sunday Run Club",
-      startTime: later.toISOString(),
+      startTime: at(4, 12, 30),
       category: "outdoor",
       venue: "Prospect Park Boathouse",
       location: "Park Slope",
       createdByName: "Kai Ito",
     }),
+    makeEvent({
+      id: "evt_long",
+      title: "Zine fair and risograph workshop",
+      status: "maybe_finished",
+      startTime: at(4, 12, 30),
+      category: "outdoor",
+      venue: "KunstvereinHalleWilliamsburg",
+      location: "Williamsburg",
+      createdByName: "Ana Ruiz",
+    }),
   ];
 }
 
-const NON_FEATURED = ["evt_live", "evt_ceramics", "evt_run"] as const;
+const NON_FEATURED = ["evt_live", "evt_ceramics", "evt_run", "evt_long"] as const;
 
 interface CardParts {
   readonly card: HTMLElement;
   readonly media: HTMLElement;
   readonly body: HTMLElement;
-  /** Time, title, venue, host and footer, in the order the card draws them. */
-  readonly lines: readonly HTMLElement[];
+  readonly time: HTMLElement;
+  readonly title: HTMLElement;
+  readonly place: HTMLElement;
+  readonly host: HTMLElement;
+  readonly footer: HTMLElement;
 }
 
 function cardParts(id: string): CardParts {
   const card = document.querySelector<HTMLElement>(`a[href="/events/${id}"]`);
   if (!card) throw new Error(`no card for ${id}`);
   const [media, body] = Array.from(card.children) as HTMLElement[];
-  const lines = Array.from(body.children) as HTMLElement[];
-  return { card, media, body, lines };
+  const [time, title, place, host, footer] = Array.from(body.children) as HTMLElement[];
+  return { card, media, body, time, title, place, host, footer };
+}
+
+/** Every rect the text inside `node` draws, one per line box. */
+function textRects(node: Node): DOMRect[] {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  return Array.from(range.getClientRects()).filter((r) => r.width > 0);
+}
+
+/** A line's leading mark (icon box or avatar) and its text's first line box. */
+function leadAndFirstLine(line: HTMLElement) {
+  const [lead, text] = Array.from(line.children) as HTMLElement[];
+  const first = textRects(text)[0];
+  if (!first) throw new Error(`no text in ${line.textContent}`);
+  return { lead: lead.getBoundingClientRect(), first };
 }
 
 /** The media column sits beside the body, top-aligned, at `width`. */
@@ -172,13 +199,6 @@ function liveTag() {
   return { label: tag.innerText.trim(), fits: t.right <= m.right + EPSILON };
 }
 
-/** Every rect the text inside `el` draws, one per line box. */
-function textRects(el: HTMLElement): DOMRect[] {
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  return Array.from(range.getClientRects()).filter((r) => r.width > 0);
-}
-
 async function mount(size: { width: number; height: number }) {
   await page.viewport(size.width, size.height);
   feed.events = events();
@@ -195,6 +215,10 @@ async function shoot(name: string) {
 }
 
 beforeAll(() => {
+  // Only `Date` is faked: timers and animation frames stay real, so the
+  // page's resource and `findByText` still run.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   // A theme switch starts colour transitions; a shot taken mid-fade shows
   // neither theme.
   const stop = document.createElement("style");
@@ -208,12 +232,13 @@ afterEach(() => {
 });
 
 afterAll(() => {
+  vi.useRealTimers();
   feed.events = [];
 });
 
 describe("a non-featured event card on a phone", () => {
   for (const size of PHONES) {
-    it(`shows its time, title, venue and host whole at ${size.width}px`, async () => {
+    it(`shows its time, title, venue, host and footer whole at ${size.width}px`, async () => {
       await mount(size);
       // Shot first, so a failing run still leaves the picture of what failed.
       for (const theme of ["light", "dark"] as const) {
@@ -226,12 +251,13 @@ describe("a non-featured event card on a phone", () => {
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
 
       for (const id of NON_FEATURED) {
-        const { card, lines } = cardParts(id);
+        const parts = cardParts(id);
+        const { card, body, time, title, place, host, footer } = parts;
         const box = card.getBoundingClientRect();
 
         expect(card.scrollWidth, `${id} card overflows`).toBeLessThanOrEqual(card.clientWidth);
-        expect(lines).toHaveLength(5);
-        for (const line of lines) {
+        expect(body.children, `${id} body lines`).toHaveLength(5);
+        for (const line of [time, title, place, host, footer]) {
           const label = `${id}: "${line.textContent?.trim()}"`;
           expect(line.scrollWidth, `${label} is wider than its line`).toBeLessThanOrEqual(
             line.clientWidth,
@@ -245,14 +271,63 @@ describe("a non-featured event card on a phone", () => {
             );
           }
         }
-        expectBeside(id, PHONE_MEDIA);
+
+        // The time keeps its AM or PM on one line.
+        const walker = document.createTreeWalker(time, NodeFilter.SHOW_TEXT);
+        let clock: Node | null = walker.nextNode();
+        while (clock && !/\d:\d\d [AP]M/.test(clock.textContent ?? "")) clock = walker.nextNode();
+        expect(clock, `${id} has no time`).not.toBeNull();
+        expect(textRects(clock!), `${id} time splits`).toHaveLength(1);
+
+        // The clock and pin sit centred on their text's first line.
+        for (const line of [time, place]) {
+          const { lead, first } = leadAndFirstLine(line);
+          const offset = (lead.top + lead.bottom) / 2 - (first.top + first.bottom) / 2;
+          expect(Math.abs(offset), `${id} icon off its first line`).toBeLessThan(1);
+        }
+        // The avatar starts level with the host's first line, not centred on two.
+        const avatar = leadAndFirstLine(host);
+        expect(avatar.lead.top, `${id} avatar below its first line`).toBeLessThanOrEqual(
+          avatar.first.top + EPSILON,
+        );
+
+        // The status sits flush right on whichever footer line it lands.
+        const status = footer.lastElementChild!.getBoundingClientRect();
+        const f = footer.getBoundingClientRect();
+        expect(Math.abs(status.right - f.right), `${id} status off the right`).toBeLessThan(
+          EPSILON,
+        );
+
+        // The title stops at two lines.
+        const leading = parseFloat(getComputedStyle(title).lineHeight);
+        expect(title.clientHeight, `${id} title over two lines`).toBeLessThanOrEqual(
+          2 * leading + EPSILON,
+        );
       }
+
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+      for (const id of NON_FEATURED) expectBeside(id, PHONE_MEDIA);
 
       const tag = liveTag();
       expect(tag.label).toBe("Live");
       expect(tag.fits, "the live tag runs past the media column").toBe(true);
     });
   }
+
+  it("cuts a long title at two lines and wraps a long footer at 320px", async () => {
+    await mount(PHONES[0]);
+
+    // The live card's title runs to three lines at 320px, so the clamp shows.
+    const { title } = cardParts("evt_live");
+    expect(getComputedStyle(title).webkitLineClamp).toBe("2");
+    expect(title.scrollHeight).toBeGreaterThan(title.clientHeight);
+
+    // "Maybe finished" does not fit beside the category, so it drops a line.
+    const [category, status] = Array.from(cardParts("evt_long").footer.children);
+    expect(status.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      category.getBoundingClientRect().bottom - EPSILON,
+    );
+  });
 
   it("keeps the 180px media column and the full live tag at 1440px", async () => {
     await mount(DESKTOP);
