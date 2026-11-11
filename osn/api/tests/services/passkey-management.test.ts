@@ -1,14 +1,15 @@
 import { it, expect, describe } from "@effect/vitest";
-import { passkeys, recoveryCodes, sessions } from "@osn/db/schema";
+import { passkeys, recoveryCodes, securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 import { NO_LIVE_SESSION, stepUpThroughService } from "../helpers/step-up-link";
 
 /** Fresh email recorder + merged test layer. Replaces the old sendEmail callback. */
@@ -508,3 +509,45 @@ describe("deletePasskey does not touch recovery codes", () => {
 // surface-verification checks.
 void recoveryCodes;
 void sessions;
+
+describe("two deletes of an account's two passkeys at once", () => {
+  it.live("the one that finds its passkey the last is refused, and records nothing", () => {
+    // Red on answering the losing delete as a success: its guarded delete
+    // removes nothing, yet it would record a deletion, mail the owner and
+    // sweep the account's other sessions for a passkey that is still there.
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+    return Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-race@example.com", "pkrace");
+      const first = yield* seedPasskey(alice.accountId);
+      const second = yield* seedPasskey(alice.accountId);
+
+      const held = queries.hold(/^delete from "passkeys"/);
+      const losing = yield* Effect.forkChild(
+        Effect.result(auth.deletePasskey(alice.accountId, first, NO_LIVE_SESSION)),
+      );
+      yield* Effect.promise(() => held.reached);
+      yield* auth.deletePasskey(alice.accountId, second, NO_LIVE_SESSION);
+      held.release();
+
+      const outcome = yield* Fiber.join(losing);
+      expect(outcome._tag).toBe("Failure");
+      const { db: read } = yield* Db;
+      const left = yield* Effect.promise(() =>
+        read
+          .select({ id: passkeys.id })
+          .from(passkeys)
+          .where(eq(passkeys.accountId, alice.accountId)),
+      );
+      expect(left.map((r) => r.id)).toEqual([first]);
+      const events = yield* Effect.promise(() =>
+        read
+          .select({ kind: securityEvents.kind })
+          .from(securityEvents)
+          .where(eq(securityEvents.accountId, alice.accountId)),
+      );
+      expect(events.filter((e) => e.kind === "passkey_delete")).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
+});

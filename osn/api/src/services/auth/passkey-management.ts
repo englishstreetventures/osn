@@ -5,14 +5,15 @@
  * these methods accept or emit secret material.
  */
 
-import { passkeys, securityEvents } from "@osn/db/schema";
+import { accounts, passkeys, securityEvents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, notExists, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
 import { forkBackground } from "../../lib/background";
+import { bound } from "../../lib/bound";
 import { metricSecurityEventRecorded, withPasskeyOp } from "../../metrics";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError, ValidationError } from "./errors";
@@ -147,15 +148,6 @@ export function createPasskeyManagementModule(
       const { db } = yield* Db;
 
       const nowSec = Math.floor(Date.now() / 1000);
-      const securityEventRow: typeof securityEvents.$inferInsert = {
-        id: genId("sev_"),
-        accountId,
-        kind: "passkey_delete",
-        createdAt: nowSec,
-        acknowledgedAt: null,
-        ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
-        uaLabel: eventMeta?.uaLabel ?? null,
-      };
 
       // Gate-then-delete inside one transaction so two concurrent
       // DELETEs cannot race past the last-passkey guard.
@@ -167,8 +159,9 @@ export function createPasskeyManagementModule(
       // whose WHERE clause re-asserts ">1 passkey" in the same statement. That
       // guard is what keeps the last-passkey invariant race-safe on D1 — two
       // concurrent deletes can't both succeed, because the second's subquery
-      // sees the count would drop to 1 and deletes nothing. (A losing racer may
-      // still write a redundant audit row; harmless.)
+      // sees the count would drop to 1 and deletes nothing. The audit row is
+      // written only once the passkey is gone, and a racer whose delete found
+      // nothing to delete is refused below, before any event, sweep or mail.
       const accountPasskeys = yield* Effect.tryPromise({
         try: () =>
           db.select({ id: passkeys.id }).from(passkeys).where(eq(passkeys.accountId, accountId)),
@@ -194,10 +187,51 @@ export function createPasskeyManagementModule(
                     sql`(select count(*) from ${passkeys} where ${passkeys.accountId} = ${accountId}) > 1`,
                   ),
                 ),
-              db.insert(securityEvents).values(securityEventRow),
+              db.insert(securityEvents).select(
+                db
+                  .select({
+                    id: bound(genId("sev_"), securityEvents.id),
+                    accountId: bound(accountId, securityEvents.accountId),
+                    kind: bound("passkey_delete", securityEvents.kind),
+                    createdAt: bound(nowSec, securityEvents.createdAt),
+                    ipHash: bound(
+                      eventMeta?.ip ? hashIp(eventMeta.ip) : null,
+                      securityEvents.ipHash,
+                    ),
+                    uaLabel: bound(eventMeta?.uaLabel ?? null, securityEvents.uaLabel),
+                  })
+                  .from(accounts)
+                  .where(
+                    and(
+                      eq(accounts.id, accountId),
+                      notExists(
+                        db
+                          .select({ one: sql`1` })
+                          .from(passkeys)
+                          .where(eq(passkeys.id, passkeyId)),
+                      ),
+                    ),
+                  ),
+              ),
             ]),
           catch: (cause) => new DatabaseError({ cause }),
         });
+        // A concurrent delete of the account's other passkey can leave this
+        // one the last, and the guarded delete then removes nothing.
+        const stillThere = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({ id: passkeys.id })
+              .from(passkeys)
+              .where(eq(passkeys.id, passkeyId))
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        if (stillThere.length > 0) {
+          return yield* Effect.fail(
+            new AuthError({ message: "Enroll another passkey before removing this one" }),
+          );
+        }
       }
 
       if (!txResult.ok) {
