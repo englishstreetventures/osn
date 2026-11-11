@@ -124,6 +124,10 @@ describe("prefers-reduced-motion", () => {
     const body = () => getComputedStyle(details!, "::details-content");
     const height = (el: Element) => el.getBoundingClientRect().height;
     const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+    // Measured in the invite's own faces. Until Lato arrives the answer wraps
+    // in its fallback, `local("Arial")`; a machine with no Arial draws it in a
+    // wider face, a line taller, and the face swaps in partway through the test.
+    await document.fonts.ready;
     const closed = height(details!);
     const full = height(alreadyOpen!);
 
@@ -149,7 +153,7 @@ describe("prefers-reduced-motion", () => {
     details!.open = true;
     expect(body().transitionDuration).toBe("0s");
     await nextFrame();
-    expect(height(details!)).toBe(full);
+    expect(height(details!)).toBe(height(alreadyOpen!));
     expect(body().opacity).toBe("1");
   });
 });

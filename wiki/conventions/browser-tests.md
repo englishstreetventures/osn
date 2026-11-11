@@ -276,7 +276,18 @@ Three rules, all cheap to get wrong:
 And one that is not about the viewport at all but bites the same tests: **await
 `document.fonts.ready` before measuring anything text-shaped.** The invite's
 faces are self-hosted, and a line count taken against the fallback metrics is a
-different number.
+different number. A Mac hides a missing wait: the fallbacks are `local("Arial")`
+and `local("Georgia")` sized to Lato's and Cormorant Garamond's metrics, so the
+lines come out the same there. The CI runner draws a wider fallback, so a
+height read before Lato arrives can be a line taller than the same box a few
+frames later.
+
+*Measured 2026-11-11 — CI run 42858252778 (`ubuntu-latest`), `cire/invites`
+`reduced-motion.browser.test.tsx` with no wait: an FAQ answer read 185.95px on
+mount and 161.95px once open. On macOS the same case reads 161.95px both times;
+with `--font-body` set to `"Lato", Verdana, sans-serif` to stand in for a wider
+fallback, it read 185.95 then 161.95 in 10 of 10 runs, and with
+`await document.fonts.ready` first, 161.95 both times in 10 of 10.*
 
 **This Chromium never shows a scrollbar.** Playwright launches headless
 Chromium with `--hide-scrollbars`, so `innerWidth` equals
