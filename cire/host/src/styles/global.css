@@ -245,7 +245,7 @@
 /* ── A theme change: one cross-fade ─────────────────────────────────────────
  * A theme chosen in the account menu is applied inside
  * `document.startViewTransition` (`@cire/ui/lib/theme`), so the whole page
- * fades from one ramp to the other on the slow step. Nothing moves: the page,
+ * fades from one ramp to the other on the base step. Nothing moves: the page,
  * the open menu included, is one snapshot of the viewport. The group is timed
  * with the two snapshots so the transition, and the pointer's wait under it,
  * ends with the fade rather than on the browser's own 0.25s.
@@ -257,7 +257,7 @@
   ::view-transition-group(root),
   ::view-transition-old(root),
   ::view-transition-new(root) {
-    animation-duration: var(--dur-slow);
+    animation-duration: var(--dur-base);
     animation-timing-function: var(--ease-in-out);
   }
 }

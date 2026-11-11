@@ -98,7 +98,7 @@ afterEach(async () => {
 });
 
 describe("a theme change cross-fades the page", () => {
-  it("runs the root snapshots on --dur-slow and --ease-in-out, and ends with them", async () => {
+  it("runs the root snapshots on --dur-base and --ease-in-out, and ends with them", async () => {
     await openMenu();
     const start = vi.spyOn(document, "startViewTransition");
 
@@ -109,21 +109,21 @@ describe("a theme change cross-fades the page", () => {
     await transition.ready;
     expect(document.documentElement.dataset.theme).toBe("light");
 
-    const slowMs = parseFloat(resolved("animationDuration", "--dur-slow")) * 1000;
+    const baseMs = parseFloat(resolved("animationDuration", "--dur-base")) * 1000;
     const inOut = resolved("animationTimingFunction", "--ease-in-out");
     const running = transitionAnimations();
     const byPseudo = new Map(running.map((a) => [(a.effect as KeyframeEffect).pseudoElement, a]));
     for (const pseudo of ["::view-transition-old(root)", "::view-transition-new(root)"]) {
       const snapshot = byPseudo.get(pseudo);
       expect(snapshot, `${pseudo} animates`).toBeDefined();
-      expect(snapshot!.effect!.getComputedTiming().duration).toBe(slowMs);
+      expect(snapshot!.effect!.getComputedTiming().duration).toBe(baseMs);
       expect(getComputedStyle(document.documentElement, pseudo).animationTimingFunction).toBe(
         inOut,
       );
     }
     // Nothing in the transition outlasts the fade: the overlay goes when it does.
     const ends = running.map((a) => Number(a.effect!.getComputedTiming().endTime));
-    expect(Math.max(...ends)).toBe(slowMs);
+    expect(Math.max(...ends)).toBe(baseMs);
 
     await transition.finished;
   });

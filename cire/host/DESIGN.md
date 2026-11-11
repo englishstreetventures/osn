@@ -751,10 +751,10 @@ the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 **A theme change cross-fades the page.** A theme chosen in the account menu
 (§6) is applied inside `document.startViewTransition` (`@cire/ui/lib/theme`),
 so the whole page, the open menu included, fades from one ramp to the other as
-one snapshot: nothing moves, only colour changes. The fade runs on `--dur-slow`
-with `--ease-in-out`, 200ms at a desk and 320ms on touch. The owner chose the
-slow step over the compare page's `--dur-base` (2026-11-10: "just a tad slower
-to allow people to feel the animation"), as for a disclosure. The in-out curve
+one snapshot: nothing moves, only colour changes. The fade runs on `--dur-base`
+with `--ease-in-out`, 150ms at a desk and 200ms on touch. The owner chose this
+step, and the curve, for a fade that is brief and does not hold the page
+(2026-11-11). The in-out curve
 passes quickly through the halfway frame, where the two ramps meet in a flat
 grey. `::view-transition-group(root)` is timed with the two snapshots, so the
 transition ends with the fade, not on the browser's own 0.25s. The vendor
