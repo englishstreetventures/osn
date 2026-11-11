@@ -51,6 +51,42 @@ export function applyTheme(resolved: Theme): void {
   document.documentElement.setAttribute("data-theme", resolved);
 }
 
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+/**
+ * Run `update` inside a view transition, so the page cross-fades from its old
+ * look to its new one; the portal's stylesheet times the fade. Runs `update` at
+ * once where the browser has no `startViewTransition`, and for a reader who
+ * asked for reduced motion: the transition's pseudo-elements escape the
+ * stylesheet's reduced-motion switch, so the script has to skip it.
+ *
+ * While the fade runs, the browser draws the page as a snapshot and every
+ * press on it lands on `<html>`. A menu still open under the fade would read
+ * that press as one outside it and close. So a press on `<html>` is held back
+ * — no listener sees it, and focus stays where it was — until the fade ends,
+ * which is the pointer's whole wait.
+ */
+function crossfade(update: () => void): void {
+  if (
+    typeof document === "undefined" ||
+    typeof document.startViewTransition !== "function" ||
+    typeof window.matchMedia !== "function" ||
+    window.matchMedia(REDUCED_MOTION_QUERY).matches
+  ) {
+    update();
+    return;
+  }
+  const root = document.documentElement;
+  const hold = (event: PointerEvent) => {
+    if (event.target !== root) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  window.addEventListener("pointerdown", hold, true);
+  const release = () => window.removeEventListener("pointerdown", hold, true);
+  document.startViewTransition(update).finished.then(release, release);
+}
+
 export interface PreferenceKeys {
   /** Where the theme choice is stored; the boot script must read the same key. */
   readonly themeKey: string;
@@ -72,6 +108,12 @@ export interface Preferences {
   /** The theme actually on screen. What a component branches on. */
   theme(): Theme;
   hapticsEnabled: Accessor<boolean>;
+  /**
+   * Store the choice and show it. The page cross-fades to the new theme where
+   * the browser has view transitions and the reader has not asked for reduced
+   * motion, so the new choice and theme read back a frame later there; it
+   * changes at once everywhere else.
+   */
   setThemePreference(next: ThemePreference): void;
   setHapticsEnabled(next: boolean): void;
   /**
@@ -121,14 +163,19 @@ export function createPreferences(keys: PreferenceKeys): Preferences {
     theme,
     hapticsEnabled: hapticsOn,
     setThemePreference(next) {
-      setPreferenceSignal(next);
       try {
         if (next === "system") localStorage.removeItem(keys.themeKey);
         else localStorage.setItem(keys.themeKey, next);
       } catch {
         // Private mode, or storage full. The choice still holds for this tab.
       }
-      applyTheme(next === "system" ? system() : next);
+      // Everything the choice changes on screen — the menu's tick, the theme
+      // every component reads, `data-theme` — happens inside the cross-fade,
+      // so all of it is in the new snapshot and none in the old.
+      crossfade(() => {
+        setPreferenceSignal(next);
+        applyTheme(next === "system" ? system() : next);
+      });
     },
     setHapticsEnabled(next) {
       setHapticsSignal(next);

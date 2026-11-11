@@ -745,6 +745,38 @@ run, and `@starting-style` gives the opening its from-state. A dialog or popover
 the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 `overlay`, which is Chrome only, so `Modal` defers `close()` in script instead.
 
+**A theme change cross-fades the page.** A theme chosen in the account menu
+(§6) is applied inside `document.startViewTransition` (`@cire/ui/lib/theme`),
+so the whole page, the open menu included, fades from one ramp to the other as
+one snapshot: nothing moves, only colour changes. The fade runs on `--dur-slow`
+with `--ease-in-out`, 200ms at a desk and 320ms on touch. The owner chose the
+slow step over the compare page's `--dur-base` (2026-11-10: "just a tad slower
+to allow people to feel the animation"), as for a disclosure. The in-out curve
+passes quickly through the halfway frame, where the two ramps meet in a flat
+grey. `::view-transition-group(root)` is timed with the two snapshots, so the
+transition ends with the fade, not on the browser's own 0.25s. The vendor
+portal carries the same rules, since it shares the script.
+
+While the fade runs the browser hit-tests the snapshot, not the page: a press
+lands on `<html>` whatever is under it. The theme choices keep the menu open,
+so a second try would read as a press outside it and close it. The script
+holds back a press on `<html>` until the fade ends — no listener sees it, focus
+stays — so the menu stays open and the pointer waits no longer than the fade. A
+choice made from the keyboard is never held. `pointer-events: none` on
+`::view-transition` does not help: the captured root takes no press either
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A view transition
+takes every press until it ends).
+
+Under reduced motion, and in a browser without `startViewTransition`, the
+theme changes at once: the rules sit inside
+`prefers-reduced-motion: no-preference`, because the global switch selects `*`
+and reaches no pseudo-element, and the script checks `matchMedia` and starts no
+transition. `tests/components/ProfileMenu.crossfade.browser.test.tsx` reads the
+two snapshots' duration and curve and the transition's end, holds the open
+menu through a press mid-fade, and changes the theme at once under reduced
+motion and with no `startViewTransition`; `cire/vendor`'s
+`tests/styles/tokens.test.ts` fails if the two portals' rules differ.
+
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
 sets no `border-radius`: the outline already follows whatever radius the element
@@ -911,6 +943,10 @@ Three states, not two: `system`, `dark`, `light` (`@cire/ui/lib/theme`'s
 
 Collapsing "system" into "dark" would silently convert a host who follows their
 OS into a host pinned to dark, the moment they opened the menu to look at it.
+
+A theme chosen in the account menu cross-fades the page (§4). Every other
+change of theme applies at once: the boot script's, before first paint, and the
+OS's while a host is on "system", which nobody in the page chose.
 
 `src/lib/preference-keys.ts` holds the storage keys and the boot script
 (`@cire/ui/lib/theme-boot`'s `themeBootScript`, over `cire.host.theme`),

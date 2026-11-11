@@ -36,7 +36,10 @@ each app's `src/styles/global.css` and fails if a corner role (`control` 999px,
 `--radius-*` step, `--toast-radius` (10px wherever `@shared/toast` loads) or a
 line of the `--dur-*` ladder, its `pointer: fine` block or the easings differs,
 or if the base-layer rules that draw an unchecked native checkbox or radio
-(host §4, Checkboxes and radios) differ in any app.
+(host §4, Checkboxes and radios) differ in any app. It also fails if this
+portal's rules timing a theme change's cross-fade differ from the host's (host
+§4, "A theme change cross-fades the page"): both portals take the transition
+from `@cire/ui/lib/theme`.
 The one gap is by design: this portal renders no `Modal`, so it sets no
 `--ui-modal-*` timing. `turbo.json` names the other three stylesheets as the
 test task's inputs, so a change to any of them re-runs this suite rather than
