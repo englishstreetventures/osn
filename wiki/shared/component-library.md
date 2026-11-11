@@ -2175,9 +2175,10 @@ For a host:
   (`@osn/client`), never the error's own `message` (`osn/auth-ui/DESIGN.md`
   §7). An answer that is not a failure takes the host's own line: `Register`
   says when the request has sent every link it may.
-- Recovery allows three sends a day per account
-  (`osn/api/src/services/auth/config.ts`), so its host should pass a longer
-  `resendWaitSeconds` than the default: at 30 seconds, a person spends the day's
+- Recovery allows three links a day per account from one client address, and
+  three Resends a day per account (`osn/api/src/services/auth/constants.ts`),
+  so its host passes a longer `resendWaitSeconds` than the default:
+  `RecoveryLoginForm` passes 120. At 30 seconds, a person spends the day's
   sends in under two minutes.
 - Pass `pairingCode`: the number the request was given, for the page the link
   opens to ask for. For sign-up and recovery, every request gets one, whether

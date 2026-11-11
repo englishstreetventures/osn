@@ -519,6 +519,25 @@ export const EVT_ISSUER = {
 export const BIRTHDATE = "1990-01-01";
 
 /**
+ * The account `musubi-recovery` gets back into through an emailed link. A row
+ * `seedOsn` writes, with one passkey on it that no authenticator in the run
+ * holds — the lost phone — so the new passkey is enrolled past an existing
+ * one, as a real recovery is. Its credential id is base64url, as an
+ * authenticator's is: enrolment lists it for the browser to exclude, and the
+ * browser decodes it, failing the ceremony on anything else.
+ */
+export const RECOVERY_PERSON = {
+  accountId: "acc_e2e_recover",
+  profileId: "usr_e2e_recover",
+  email: "recover@e2e.test",
+  passkeyUserId: "pku_e2e_recover",
+  handle: "e2e_recover",
+  name: "Recover E2E",
+  // base64url of "e2e lost phone credential".
+  lostPasskey: { id: "pk_e2e_lost", credentialId: "ZTJlIGxvc3QgcGhvbmUgY3JlZGVudGlhbA" },
+} as const;
+
+/**
  * Musubi's organisation pages (`musubi-org-detail`). The owner is osn-api's dev
  * principal (`DEV_PRINCIPAL` in osn/api/src/routes/auth/dev-login.ts), signed in
  * through `/dev/login/form`; `org` is the organisation the flow creates as them.

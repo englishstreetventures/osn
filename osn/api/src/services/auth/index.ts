@@ -73,7 +73,14 @@ export function createAuthService(config: AuthConfig) {
   const totp = createTotpModule(ctx, securityEvents, stepUp);
   // Built last — it consumes `totp`, which is itself built after everything
   // else it needs. Moving this above line 96 leaves `checkTotpCode` undefined.
-  const recoveryFactors = createRecoveryFactorsModule(ctx, profiles, tokens, totp, securityEvents);
+  const recoveryFactors = createRecoveryFactorsModule(
+    ctx,
+    profiles,
+    tokens,
+    totp,
+    securityEvents,
+    emailLinks,
+  );
 
   return {
     findProfileByEmail: profiles.findProfileByEmail,
@@ -97,8 +104,8 @@ export function createAuthService(config: AuthConfig) {
     confirmEmailLink: emailLinks.confirm,
     checkHandle: registration.checkHandle,
     issueTokens: tokens.issueTokens,
-    // The restricted-session primitive, minted by the two recovery-factor
-    // completers below and by nothing else.
+    // The restricted-session primitive, minted by the email-recovery claim
+    // and the TOTP recovery completer below, and by nothing else.
     issueRecoverySession: tokens.issueRecoverySession,
     refreshTokens: tokens.refreshTokens,
     verifyRefreshToken: tokens.verifyRefreshToken,
@@ -117,13 +124,15 @@ export function createAuthService(config: AuthConfig) {
     resolveSessionByBinding: sessions.resolveSessionByBinding,
     resolveCallerSession: sessions.resolveCallerSession,
     classifyCallerSession: sessions.classifyCallerSession,
+    holdsLiveOrdinarySession: sessions.holdsLiveOrdinarySession,
     invalidateOtherAccountSessions: sessions.invalidateOtherAccountSessions,
     generateRecoveryCodesForAccount: recovery.generateRecoveryCodesForAccount,
     consumeRecoveryCode: recovery.consumeRecoveryCode,
     completeRecoveryLogin: recovery.completeRecoveryLogin,
     countActiveRecoveryCodes: recovery.countActiveRecoveryCodes,
     beginEmailRecovery: recoveryFactors.beginEmailRecovery,
-    completeEmailRecovery: recoveryFactors.completeEmailRecovery,
+    emailRecoveryStatus: recoveryFactors.emailRecoveryStatus,
+    resendEmailRecovery: recoveryFactors.resendEmailRecovery,
     completeTotpRecovery: recoveryFactors.completeTotpRecovery,
     disownRecovery: recoveryFactors.disownRecovery,
     listUnacknowledgedSecurityEvents: securityEvents.listUnacknowledgedSecurityEvents,

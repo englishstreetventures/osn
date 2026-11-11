@@ -1,10 +1,6 @@
 import { Elysia, t } from "elysia";
 
-import {
-  EMAIL_LINK_ID_PATTERN,
-  EMAIL_LINK_PICK_PATTERN,
-  EMAIL_LINK_SECRET_PATTERN,
-} from "../../services/auth/email-link";
+import { EMAIL_LINK_ID_PATTERN, EMAIL_LINK_SECRET_PATTERN } from "../../services/auth/email-link";
 import type { AuthRouteContext } from "./context";
 import { errorResponse } from "./response-schemas";
 
@@ -20,16 +16,18 @@ import { errorResponse } from "./response-schemas";
  * the page reads and confirms only from script, and confirms only on a press.
  */
 export function createEmailLinkRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
+  const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl } = ctx;
   const requestIdParam = t.Object({ requestId: t.String({ pattern: EMAIL_LINK_ID_PATTERN }) });
   const linkSecret = t.String({ pattern: EMAIL_LINK_SECRET_PATTERN });
   return (
     new Elysia()
       // -----------------------------------------------------------------------
-      // The candidates the confirm page offers: the waiting screen's number
-      // among decoys, sorted ascending. The number was drawn uniformly from
-      // them, so its place in the list says nothing about which is right.
-      // Needs the link's secret; a wrong one is counted as a wrong confirm is.
+      // The candidates the confirm page offers where the reader picks: the
+      // waiting screen's number among decoys, sorted ascending. The number was
+      // drawn uniformly from them, so its place in the list says nothing about
+      // which is right. Needs the link's secret; a wrong one is counted as a
+      // wrong confirm is. Where the reader types the number (recovery) there is
+      // no list, and the read answers `expired`.
       // -----------------------------------------------------------------------
       .post(
         "/email-link/:requestId/candidates",
@@ -74,10 +72,10 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
         },
       )
       // -----------------------------------------------------------------------
-      // Confirm: the link's secret and the number the reader picked. The
-      // confirm step requires the number shown on the waiting screen; a wrong
-      // pick ends the request. `none` says the reader did not ask: it ends the
-      // request too, and answers `declined`, again when repeated.
+      // Confirm: the link's secret and the number the reader picked or typed.
+      // The confirm step requires the number shown on the waiting screen; a
+      // wrong one ends the request. `none` says the reader did not ask: it
+      // ends the request too, and answers `declined`, again when repeated.
       // -----------------------------------------------------------------------
       .post(
         "/email-link/:requestId/confirm",
@@ -94,10 +92,11 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
           }
           try {
             const status = await run(
-              auth.confirmEmailLink(params.requestId, {
-                linkSecret: body.linkSecret,
-                pairingPick: body.pairingPick,
-              }),
+              auth.confirmEmailLink(
+                params.requestId,
+                { linkSecret: body.linkSecret, pairingPick: body.pairingPick },
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
             );
             return { status };
           } catch (e) {
@@ -110,7 +109,11 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
           params: requestIdParam,
           body: t.Object({
             linkSecret,
-            pairingPick: t.String({ pattern: EMAIL_LINK_PICK_PATTERN }),
+            // Checked against the request's flow by the service: a candidate
+            // where the reader picks, typed digits where they type, or `none`.
+            // Anything else is refused like every other refusal, never with an
+            // error of its own; the length bound only keeps the body small.
+            pairingPick: t.String({ maxLength: 64 }),
           }),
           response: {
             200: t.Object({

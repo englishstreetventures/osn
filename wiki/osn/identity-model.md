@@ -273,8 +273,10 @@ The link, the pairing number and the refusals are in [[email-links]]. With the E
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and
-email-change verification factor. The recovery-code path is the single
-"lost device" escape hatch — see `[[recovery-codes]]`.
+email-change verification factor. A lost device has three ways back: a
+recovery code, which mints an ordinary session, and an emailed link or an
+authenticator code, each of which mints a restricted session that can only
+enrol a passkey — see [[recovery-codes]] and [[account-recovery-factors]].
 
 ## Cross-Service Impact
 

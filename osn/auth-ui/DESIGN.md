@@ -221,7 +221,7 @@ besides the default:
 | --- | --- | --- |
 | `SignIn` | Button, Field, Input, Notice | `ghost`, `secondary`, `link` |
 | `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `CheckEmailView` for the wait | `ghost` |
-| `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput | `outline`, `ghost` |
+| `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `ghost` |
 | `StepUpDialog` | Button, Notice, OtpInput | `outline`, `ghost` |
 | `PasskeysView` | Button, Input, Notice, Skeleton | `outline`, `ghost` |
 | `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
@@ -304,10 +304,10 @@ own.
 
 | State | What shows |
 | --- | --- |
-| Choose | "Pick how you'd like to prove this account is yours."; "Use a recovery code"; "Email me a code" and "Use my authenticator app" where the browser can run a passkey ceremony and the host passed both enrolment props, otherwise a list of ways forward; "Back to sign in" |
+| Choose | "Pick how you'd like to prove this account is yours."; "Use a recovery code"; "Email me a link" and "Use my authenticator app" where the browser can run a passkey ceremony and the host passed both enrolment props, otherwise a list of ways forward; "Back to sign in" |
 | Recovery code | "Handle or email", "Recovery code"; "Sign in with recovery code" ("Signing in…"); Back |
-| Email, identify | "Email address on the account", the Turnstile challenge; "Send the code" ("Sending…"); Back |
-| Email, verify | "Code from your email" and the code boxes; Continue ("Checking…"); Back |
+| Email, identify | "We'll send a link to the address on the account. Open it on any device to get back in here."; "Email address on the account", the Turnstile challenge; "Send the link" ("Sending…"); Back |
+| Email, waiting | `CheckEmailView` for recovery: "If {address} has an account, a link is on its way.", the request's number, Resend after 120 seconds, "Use a different email" (back to the address, kept); Back. Its error line says "We've sent all the links we can for this request. Use the newest one, or go back and start again." or "We couldn't send a new link just now. Try again in a moment."; once the link expires, "Send a new link" goes back to the address. A reload of the tab returns here, and `SignIn` opens on its recovery view |
 | Authenticator | "Handle or email", "Code from your authenticator app" and the code boxes; Continue ("Checking…"); Back |
 | Enrol | "Add a passkey to get back in", what a recovery session is; "Add a passkey" ("Waiting for your passkey…", "Try again" after an error), "Start again" after an error |
 | Enrolled | "You're back in"; "Sign in with your new passkey" |
@@ -365,8 +365,10 @@ step-up in progress.
 
 **`SecurityEventsBanner`** — renders nothing until there is an unacknowledged
 event, and nothing if the list cannot be read. With events: one headline per
-event (by kind, with a general line for a kind it does not know) and its time
-and device, a footer line, Acknowledge, then a step-up.
+event (by kind — "A request to get back into your {productName} account was
+turned down" for a declined recovery link — with a general line for a kind it
+does not know) and its time and device, a footer line, Acknowledge, then a
+step-up.
 
 **`SessionsView`** — heading "Active sessions" with "Sign out everywhere else".
 States: loading (one row's placeholder); failed to load ("Your sessions didn't load.", §7); the list,
@@ -647,11 +649,12 @@ no product.
   `productName`. No error line names a product: each is a sentence from §7's
   helpers or a view's own check.
 - The identifier: "Email or @handle" in `SignIn`; "Handle or email" in
-  `RecoveryLoginForm`; "Email address on the account" on its emailed-code
+  `RecoveryLoginForm`; "Email address on the account" on its emailed-link
   step; "Email" in `Register`.
 - The factors: passkey ("Use passkey", "Add passkey", "Add a passkey",
   "Enroll credential" in `Register`, with "passkey or security key" in the
-  no-WebAuthn copy); emailed code ("Email me a code"); authenticator app ("Use
+  no-WebAuthn copy); emailed code ("Email me a code" in `StepUpDialog`); emailed
+  link ("Email me a link" in `RecoveryLoginForm`); authenticator app ("Use
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
@@ -689,7 +692,10 @@ As built:
   `tools/e2e/tests/flows/musubi-register-retry.flow.ts`, which take `Register`
   through `CheckEmailView` and open the link on `ConfirmLinkPage` (a wrong
   pick, the decline, a failed read and its Try again, and the expired card for
-  a link cut short and for one with an unknown id). `musubi-passkey`
+  a link cut short and for one with an unknown id), and
+  `tools/e2e/tests/flows/musubi-recovery.flow.ts`, which takes
+  `RecoveryLoginForm` through its emailed link, its wait across a reload, the
+  typed number and enrolment. `musubi-passkey`
   checks the error lines in Chromium: a rate-limited sign-in reads the wait sentence, with
   "Lost your passkey?" inside the line, as the identifier field's accessible
   description, and with no toast. It also reads the shared parts the views
@@ -725,7 +731,7 @@ As built:
   sends. `ProfileSwitcher.test.tsx` holds Delete busy, not disabled, while
   the delete runs, and each row's delete beside its row button. The views no
   flow reaches hold each of their waits the same way, a second press sending
-  nothing: `RecoveryLoginForm.test.tsx` (five, with Back disabled),
+  nothing: `RecoveryLoginForm.test.tsx` (four, with Back disabled),
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
   disabled), `ChangeEmailForm.test.tsx` (two), `StepUpDialog.test.tsx`
   ("Email me a code" and both Confirms), `CheckEmailView.test.tsx`

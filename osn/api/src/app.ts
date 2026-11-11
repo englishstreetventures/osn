@@ -112,7 +112,9 @@ export interface AppDeps {
   registrationLinkLockoutStore: CoordinationStores["registrationLinkLockoutStore"];
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
-  recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
+  recoveryLinkAddressCap: CoordinationStores["recoveryLinkAddressCap"];
+  recoveryResendCap: CoordinationStores["recoveryResendCap"];
+  recoveryLinkCeiling: CoordinationStores["recoveryLinkCeiling"];
   registrationSendCap: CoordinationStores["registrationSendCap"];
   /** The coordination round trip `GET /health/coordination` runs. */
   healthProbe: CoordinationStores["healthProbe"];
@@ -197,7 +199,9 @@ export function createApp(deps: AppDeps) {
     registrationLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
     registrationSendCap,
     healthProbe,
     healthProbeLimiter,
@@ -288,7 +292,9 @@ export function createApp(deps: AppDeps) {
     registrationLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
     registrationSendCap,
   };
 

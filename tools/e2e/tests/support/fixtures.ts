@@ -366,18 +366,19 @@ export async function mailFor(
   return messages;
 }
 
-/** A sign-up link as the email carries it: `<musubi>/verify/<request id>#<secret>`. */
+/** An emailed link as the email carries it: `<musubi>/verify/<request id>#<secret>`. */
 export interface MailedLink {
   readonly url: string;
   readonly requestId: string;
   readonly linkSecret: string;
 }
 
-const LINK_RE = /(https?:\/\/[^\s"<>]+\/verify\/(signup_[a-f0-9]{12})#([a-f0-9]{64}))/;
+const LINK_RE = /(https?:\/\/[^\s"<>]+\/verify\/((?:signup|recovery)_[a-f0-9]{12})#([a-f0-9]{64}))/;
 
 /**
- * The newest sign-up link sent to `email` after its first `after` messages,
- * waiting for the mail to land: osn-api sends it after it answers.
+ * The newest emailed link (sign-up or recovery) sent to `email` after its
+ * first `after` messages, waiting for the mail to land: osn-api sends it after
+ * it answers.
  */
 export async function linkFor(email: string, after = 0): Promise<MailedLink> {
   let link: MailedLink | undefined;
@@ -393,7 +394,7 @@ export async function linkFor(email: string, after = 0): Promise<MailedLink> {
         link = match ? { url: match[1]!, requestId: match[2]!, linkSecret: match[3]! } : undefined;
         return link !== undefined;
       },
-      { message: `no sign-up link reached ${email}`, timeout: 15_000 },
+      { message: `no emailed link reached ${email}`, timeout: 15_000 },
     )
     .toBe(true);
   return link!;
@@ -436,6 +437,17 @@ export async function pickWrongNumberOnPage(page: Page, pairingCode: string): Pr
   if (wrong === undefined) throw new Error("the confirm card offered no other number");
   await offeredNumbers(page).getByRole("button", { name: wrong, exact: true }).click();
   return wrong;
+}
+
+/**
+ * On a page showing a recovery link's confirm card, where the reader types the
+ * number the tab that began shows, types `number` and confirms. Counted as a
+ * confirm by `flows.test.ts`. The card is `ConfirmLinkPage` with
+ * `typeNumber`: one text field and its Confirm button.
+ */
+export async function typeNumberOnPage(page: Page, number: string): Promise<void> {
+  await page.getByRole("textbox").fill(number);
+  await page.getByRole("button", { name: /^Confirm/ }).click();
 }
 
 /** On a page showing an emailed link's confirm card, says "I didn't ask for this". Counted as a confirm by `flows.test.ts`. */

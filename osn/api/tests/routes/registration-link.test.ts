@@ -671,9 +671,14 @@ describe("input the routes refuse", () => {
     const h = harness();
     const s = await begun(h, "bad-pick@example.com", "badpick");
 
+    // Checked against the flow's format before any store call, and answered
+    // as every other refusal is.
     for (const pick of ["100", "7", "abc", "1.5", "NONE"]) {
       // eslint-disable-next-line no-await-in-loop -- each refusal is checked before the next
-      expectRefused(await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, pick));
+      const res = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, pick);
+      expect(res.status).toBe(200);
+      // eslint-disable-next-line no-await-in-loop -- each refusal is checked before the next
+      expect(await res.json()).toEqual({ status: "expired" });
     }
     await stillPending(h, s);
     const confirmed = await confirmThroughRoutes(

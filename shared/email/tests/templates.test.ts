@@ -37,6 +37,22 @@ describe("renderTemplate", () => {
     expect(out.html).toContain("&lt;script&gt;");
   });
 
+  it("escapes the recovery link and the device that asked, and carries no code", () => {
+    const url = 'https://x.test/verify/recovery_0123456789ab#"><script>';
+    const out = renderTemplate("link-recovery", {
+      url,
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+      device: "<b>Chrome</b> on macOS",
+    });
+    expect(out.subject).toBe("Recover your Musubi account");
+    expect(out.html).not.toContain("<script>");
+    expect(out.html).not.toContain("<b>");
+    expect(out.html).toContain("&lt;b&gt;Chrome&lt;/b&gt; on macOS");
+    expect(out.text).toContain(url);
+    expect(out.text).not.toMatch(/\b\d{6}\b/);
+  });
+
   it("renders email-change OTP with somebody-asked framing", () => {
     const out = renderTemplate("otp-email-change", {
       code: "987654",
@@ -166,7 +182,12 @@ describe("renderTemplate", () => {
     "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
     "recovery-generated": { instanceName: "Musubi" },
     "recovery-consumed": { instanceName: "Musubi" },
-    "otp-recovery": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+    "link-recovery": {
+      url: "https://example.test/verify/recovery_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+      device: null,
+    },
     "recovery-used": { disownUrl: "https://example.test/disown/abc", instanceName: "Musubi" },
     "totp-enrolled": { instanceName: "Musubi" },
     "totp-disabled": { instanceName: "Musubi" },
@@ -254,7 +275,12 @@ describe("account emails name the instance passed in", () => {
     },
     "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName },
     "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName },
-    "otp-recovery": { code: "000000", ttlMinutes: 10, instanceName },
+    "link-recovery": {
+      url: "https://example.test/verify/recovery_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName,
+      device: "Chrome on macOS",
+    },
     "recovery-generated": { instanceName },
     "recovery-consumed": { instanceName },
     "recovery-used": { disownUrl: "https://example.test/disown/abc", instanceName },

@@ -1,5 +1,6 @@
 import {
   describeAuthError,
+  type EmailRecoveryRequest,
   type RecoveryClient,
   type RecoveryProfile,
   type RegistrationClient,
@@ -15,8 +16,11 @@ import { OtpInput } from "@shared/ui/ui/otp-input";
 import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
 import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
+import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
+import { createLinkPoll, type LinkPollStep } from "./link-poll";
 import { describePasskeyError } from "./passkey-errors";
+import { storedWait, writeStoredWait, type Waiting } from "./pending-recovery";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
@@ -28,10 +32,20 @@ import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
  *
  * 1. **A recovery code** mints an ordinary session. The user is signed in and
  *    can do anything; this component adopts the session and hands off.
- * 2. **An emailed code** and **3. an authenticator-app code** each mint a
+ * 2. **An emailed link** and **3. an authenticator-app code** each mint a
  *    *restricted* recovery session, whose one permitted action is enrolling a
  *    passkey. So those two paths end in an enrolment screen, not a signed-in
  *    app — see `wiki/osn/account-recovery-factors.md` §B.
+ *
+ * The emailed link
+ * ----------------
+ * This tab begins, shows `CheckEmailView` with the request's number, and
+ * polls with the claim secret; the person opens the link on any device and
+ * types the number there. The restricted session comes to this tab, never to
+ * the device that opened the link. The wait is kept in this tab's
+ * `sessionStorage` (the request, its claim secret, the address — never the
+ * number), so a reload or a discarded tab resumes it; the number comes back
+ * from the first poll. See `wiki/osn/email-links.md`.
  *
  * Why the restricted paths never adopt their session
  * --------------------------------------------------
@@ -87,6 +101,20 @@ export interface RecoveryLoginFormProps {
   onCancel?: () => void;
 }
 
+/**
+ * Seconds before Resend unlocks. A request lives ten minutes and sends at most
+ * three links, each counted against the account's links a day from this
+ * address; two minutes covers ordinary mail delay, and spaces a request's
+ * three links over at least four minutes.
+ */
+const RESEND_WAIT_SECONDS = 120;
+
+const LIMIT_LINE =
+  "We've sent all the links we can for this request. Use the newest one, or go back and start again.";
+const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
+
+export { hasPendingRecovery } from "./pending-recovery";
+
 type View =
   | "choose"
   | "code"
@@ -128,7 +156,6 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
   // Feature-detected on mount, matching `SignIn`, so a test can toggle the
   // underlying mock between renders.
   const [webauthnSupported, setWebauthnSupported] = createSignal(false);
-  onMount(() => setWebauthnSupported(browserSupportsWebAuthn()));
 
   const [view, setView] = createSignal<View>("choose");
   const [identifier, setIdentifier] = createSignal("");
@@ -136,15 +163,22 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
   const [code, setCode] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   // One line, drawn by whichever step is on screen: above that step's action,
-  // or under the code boxes on the two code steps.
+  // or under the code boxes on the authenticator-code step.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
-  const emailCodeLabelId = createUniqueId();
   const totpCodeLabelId = createUniqueId();
   const [held, setHeld] = createSignal<HeldRecovery | null>(null);
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
   let resetTurnstile: (() => void) | undefined;
+
+  // The emailed link's request, and what the waiting view says about it. The
+  // number is memory only — never stored, logged or put in a URL.
+  const [waiting, setWaiting] = createSignal<Waiting | null>(null);
+  const [pairingCode, setPairingCode] = createSignal<string | undefined>(undefined);
+  const [linkStatus, setLinkStatus] = createSignal<CheckEmailStatus>("waiting");
+  const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
+  const linkPoll = createLinkPoll(pollRecovery);
 
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -204,6 +238,24 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     webauthnSupported() &&
     props.registrationClient !== undefined &&
     props.runPasskeyRegistration !== undefined;
+
+  onMount(() => {
+    setWebauthnSupported(browserSupportsWebAuthn());
+    // A wait this tab began before a reload resumes on the waiting view and
+    // polls at once: its number is not kept, and the link may have been
+    // confirmed while the tab was gone. Where the session could not be used,
+    // there is nothing to wait for.
+    const resumed = storedWait();
+    if (!resumed) return;
+    if (!restrictedFactorsAvailable()) {
+      writeStoredWait(null);
+      return;
+    }
+    setEmail(resumed.email);
+    setWaiting(resumed);
+    setView("email-verify");
+    linkPoll.now();
+  });
 
   /** The screen the session is finished on. Also a state transition, so it bumps. */
   function expire() {
@@ -289,7 +341,103 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     setView("enrol");
   }
 
+  /** Waits on `request`, in this tab and in its storage; its number in memory only. */
+  function waitOn(request: Waiting, code: string) {
+    setPairingCode(code);
+    setWaiting(request);
+    setLinkStatus("waiting");
+    setLinkError(undefined);
+    setView("email-verify");
+    writeStoredWait(request);
+    linkPoll.start();
+  }
+
+  /** Stops waiting on the current request, here and in storage. */
+  function leaveWait() {
+    linkPoll.stop();
+    setWaiting(null);
+    setPairingCode(undefined);
+    writeStoredWait(null);
+  }
+
+  /**
+   * One poll of the request this tab waits on. The restricted session's
+   * cookie is in this browser once the poll completes, whatever the person did
+   * meanwhile, so a completing answer is never dropped; any other answer about
+   * a request this tab no longer waits on is stale.
+   */
+  async function pollRecovery(): Promise<LinkPollStep> {
+    const request = waiting();
+    if (!request) return "stop";
+    const answer = await props.client.emailRecoveryStatus({
+      requestId: request.requestId,
+      claimSecret: request.claimSecret,
+    });
+    if (answer.status === "complete") {
+      leaveWait();
+      beginRestricted({ session: answer.session, profile: answer.profile });
+      return "stop";
+    }
+    if (waiting() !== request) return "wait";
+    if (answer.status === "pending") {
+      if (answer.pairingCode !== undefined) setPairingCode(answer.pairingCode);
+      return "wait";
+    }
+    writeStoredWait(null);
+    setLinkError(undefined);
+    setLinkStatus("expired");
+    return "stop";
+  }
+
+  /** Back to the address, kept, where Turnstile can run again before a new request. */
+  function backToIdentify() {
+    leaveWait();
+    setError(null);
+    setView("email-identify");
+  }
+
+  /**
+   * Resend in the waiting view. A live request gets another link of its own,
+   * so a link already on its way still works; an expired one goes back to the
+   * address. A rejection is how the view learns that no new link went.
+   */
+  async function resendLink() {
+    const request = waiting();
+    if (!request) return;
+    if (linkStatus() === "expired") {
+      backToIdentify();
+      return;
+    }
+    setLinkStatus("waiting");
+    setLinkError(undefined);
+    let answer: { status: "sent" | "limit" | "expired" };
+    try {
+      answer = await props.client.emailRecoveryResend({
+        requestId: request.requestId,
+        claimSecret: request.claimSecret,
+      });
+    } catch (err) {
+      setLinkError(RESEND_FAILED_LINE);
+      setLinkStatus("error");
+      throw err;
+    }
+    if (answer.status === "sent") {
+      linkPoll.start();
+      return;
+    }
+    if (answer.status === "limit") {
+      setLinkError(LIMIT_LINE);
+      setLinkStatus("error");
+      throw new Error(LIMIT_LINE);
+    }
+    linkPoll.stop();
+    writeStoredWait(null);
+    setLinkStatus("expired");
+    throw new Error("The link expired");
+  }
+
   function restart() {
+    leaveWait();
     epoch += 1;
     clearTimeout(expiryTimer);
     setHeld(null);
@@ -319,7 +467,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     }
   }
 
-  async function sendEmailCode(e: Event) {
+  async function sendEmailLink(e: Event) {
     e.preventDefault();
     if (busy() || !email().trim()) return;
     if (turnstileOn() && !turnstileToken()) {
@@ -329,40 +477,31 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     setBusy(true);
     setError(null);
     try {
+      const address = email().trim();
+      let begun: EmailRecoveryRequest;
       try {
-        await props.client.emailRecoveryBegin({
-          identifier: email().trim(),
+        begun = await props.client.emailRecoveryBegin({
+          identifier: address,
           turnstileToken: turnstileToken() ?? undefined,
         });
       } finally {
         // The server checks the token before it answers, so the call has
         // spent it whether it was accepted or refused, and Cloudflare only
         // refreshes a token when it expires — so a second send (a typo, a
-        // retry) would replay a spent token and be refused.
+        // new link) would replay a spent token and be refused.
         if (turnstileOn()) resetTurnstile?.();
       }
-      setCode("");
-      setView("email-verify");
-    } catch (err) {
-      setError(fieldError(describeAuthError(err, "details"), err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verifyEmailCode() {
-    if (busy() || code().length !== 6) return;
-    setBusy(true);
-    setError(null);
-    try {
-      beginRestricted(
-        await props.client.emailRecoveryComplete({
-          identifier: email().trim(),
-          code: code(),
-        }),
+      waitOn(
+        {
+          requestId: begun.requestId,
+          claimSecret: begun.claimSecret,
+          expiresAt: begun.expiresAt,
+          email: address,
+        },
+        begun.pairingCode,
       );
     } catch (err) {
-      setError(fieldError(describeAuthError(err, "code"), err));
+      setError(fieldError(describeAuthError(err, "details"), err));
     } finally {
       setBusy(false);
     }
@@ -509,7 +648,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           <Button onClick={() => setView("code")}>Use a recovery code</Button>
           <Show when={restrictedFactorsAvailable()}>
             <Button variant="outline" onClick={() => setView("email-identify")}>
-              Email me a code
+              Email me a link
             </Button>
             <Button variant="outline" onClick={() => setView("totp")}>
               Use my authenticator app
@@ -557,6 +696,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             {(field) => (
               <Input
                 autocomplete="username"
+                autocapitalize="none"
                 spellcheck={false}
                 value={identifier()}
                 onInput={(e) => setIdentifier(e.currentTarget.value)}
@@ -591,9 +731,10 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
       </Show>
 
       <Show when={view() === "email-identify"}>
-        <form onSubmit={sendEmailCode} class="flex flex-col gap-3">
+        <form onSubmit={sendEmailLink} class="flex flex-col gap-3">
           <p class="text-muted-foreground text-sm">
-            We'll send a six-digit code to the address on the account.
+            We'll send a link to the address on the account. Open it on any device to get back in
+            here.
           </p>
           {/* Email only, not "handle or email": this endpoint refuses a
               handle — it puts mail in somebody's inbox and a handle is
@@ -604,6 +745,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               <Input
                 type="email"
                 autocomplete="email"
+                autocapitalize="none"
                 value={email()}
                 onInput={(e) => setEmail(e.currentTarget.value)}
                 required
@@ -625,7 +767,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               busy={busy()}
               disabled={!busy() && (!email().trim() || (turnstileOn() && !turnstileToken()))}
             >
-              {busy() ? "Sending…" : "Send the code"}
+              {busy() ? "Sending…" : "Send the link"}
             </Button>
             <Button type="button" variant="ghost" onClick={restart} disabled={busy()}>
               Back
@@ -636,28 +778,22 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
 
       <Show when={view() === "email-verify"}>
         <div class="flex flex-col gap-3">
-          <p class="text-muted-foreground text-sm">
-            If that address has an account, a code is on its way. Enter it below.
-          </p>
-          <div class="flex flex-col gap-1.5">
-            <span class={labelVariants()} id={emailCodeLabelId}>
-              Code from your email
-            </span>
-            <OtpInput value={code()} onChange={setCode} autofocus {...codeRow(emailCodeLabelId)} />
-            {errorLine()}
-          </div>
-          <div class="flex gap-2">
-            <Button
-              onClick={verifyEmailCode}
-              busy={busy()}
-              disabled={!busy() && code().length !== 6}
-            >
-              {busy() ? "Checking…" : "Continue"}
-            </Button>
-            <Button variant="ghost" onClick={restart} disabled={busy()}>
-              Back
-            </Button>
-          </div>
+          {/* The same status and error whether or not the address has an
+              account: a request for one with no account waits and expires
+              like any other. */}
+          <CheckEmailView
+            purpose="recovery"
+            email={waiting()?.email}
+            status={linkStatus()}
+            errorMessage={linkError()}
+            pairingCode={pairingCode()}
+            resendWaitSeconds={RESEND_WAIT_SECONDS}
+            onResend={resendLink}
+            onChangeEmail={backToIdentify}
+          />
+          <Button variant="ghost" onClick={restart}>
+            Back
+          </Button>
         </div>
       </Show>
 
@@ -670,6 +806,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             {(field) => (
               <Input
                 autocomplete="username"
+                autocapitalize="none"
                 spellcheck={false}
                 value={identifier()}
                 onInput={(e) => setIdentifier(e.currentTarget.value)}

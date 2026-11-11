@@ -91,13 +91,13 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 
 | Template                 | Data shape                          | Call site |
 |--------------------------|-------------------------------------|-----------|
+| `link-recovery`          | `{ url, ttlMinutes, instanceName, device }` | `beginEmailRecovery`, `resendEmailRecovery` — see [[email-links]] |
 | `link-registration`      | `{ url, ttlMinutes, instanceName, handle }` | `beginRegistration`, `resendRegistration` — see [[email-links]] |
 | `otp-step-up`            | `{ code, ttlMinutes, instanceName }` | `beginStepUpOtp` |
 | `otp-email-change`       | `{ code, ttlMinutes, instanceName }` | `beginEmailChange` |
-| `otp-recovery`           | `{ code, ttlMinutes, instanceName }` | `beginEmailRecovery` |
 | `recovery-generated`     | `{ instanceName }`                  | `notifyRecovery("recovery_code_generate")` |
 | `recovery-consumed`      | `{ instanceName }`                  | `notifyRecovery("recovery_code_consume")` |
-| `recovery-used`          | `{ disownUrl, instanceName }`       | `completeRecoveryFactor` (email + TOTP) |
+| `recovery-used`          | `{ disownUrl, instanceName }`       | `completeRecoveryFactor` (emailed link + TOTP) |
 | `passkey-added`          | `{ instanceName }`                  | `notifyPasskeyRegisteredByAccountId` |
 | `passkey-removed`        | `{ instanceName }`                  | `notifyPasskeyDeletedByAccountId` |
 | `totp-enrolled`          | `{ instanceName }`                  | `completeTotpEnrollment` |
@@ -118,11 +118,13 @@ cire-api sends from the same catalogue:
 | `vendor-claim-review-pending` | `{ pending, oldestWaitingDays, env }` — counts only, no listing or claimant | the daily cron, to the operator address in `CIRE_OPS_EMAIL` — see [[cire-vendors]] |
 | `r2-reconcile-alert` | `R2ReconcileAlertData` — one of `held` (bucket name, both row counts, runs held and left), `released`, `stopped` (bucket name, days stopped) or `disabled`, plus the tier; counts and commands only, no object key or guest data | the daily cron's R2 orphan reconcilers, to the operator address in `CIRE_OPS_EMAIL` — see [[backup-dr]] |
 
-`otp-recovery` is the only OTP template sent from an **unauthenticated**
-endpoint, which shapes its copy: anyone who knows the address can cause it to
-arrive (capped at 3 per 24 h per account), so it reads as something a stranger
-may have triggered, says plainly that ignoring it is safe, and names no handle
-or display name — the address is the only thing the sender proved they know.
+`link-recovery` is sent from an **unauthenticated** endpoint, which shapes its
+copy: anyone who knows the address can cause it to arrive (within the limits in
+[[email-links]] §Recovery), so it reads as something a stranger may have
+triggered, names the device that asked (`device`, a coarse label such as
+"Chrome on macOS") so the reader can tell their own request from another, says
+how to turn it down and that ignoring it is safe, and names no handle or
+display name — the address is the only thing the sender proved they know.
 
 `recovery-used` is the loudest notice in the catalogue: every session on the
 account has just been revoked and somebody who is not holding a passkey is

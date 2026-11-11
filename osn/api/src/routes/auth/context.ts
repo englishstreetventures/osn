@@ -19,14 +19,16 @@ import { type Effect, Layer } from "effect";
 
 import { resolveAccessTokenPrincipal, resolveRecoveryTokenPrincipal } from "../../lib/auth-derive";
 import { forkBackground } from "../../lib/background";
-import type { CookieSessionConfig } from "../../lib/cookie-session";
+import { readSessionCookie, type CookieSessionConfig } from "../../lib/cookie-session";
 import { publicError } from "../../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../../lib/route-runtime";
 import { deriveUaLabel } from "../../lib/ua-label";
 import {
   metricAuthRateLimited,
   metricAuthTurnstileRejected,
+  metricSessionStaleRefused,
   type CireSessionRevokeTrigger,
+  type LiveSessionGateEndpoint,
 } from "../../metrics";
 import { createAuthService, type AuthConfig } from "../../services/auth";
 import {
@@ -216,6 +218,45 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
   }
 
   /**
+   * Live-session gate for a Bearer route that mints a credential. Returns
+   * `null` when the caller holds a live, ordinary session on `accountId`, or
+   * the 409 body the caller sends as it is:
+   *
+   * ```ts
+   * const staleErr = await liveSessionGate("<endpoint>", profile.accountId, claims, headers.cookie);
+   * if (staleErr) {
+   *   set.status = 409;
+   *   return staleErr;
+   * }
+   * ```
+   *
+   * An access token outlives the session it was minted from by up to one
+   * token lifetime; this is what stops it minting anything once the session
+   * has ended. The session is named by the HttpOnly cookie or the token's
+   * `osn_sid` binding, never by request input, and must be unrestricted and
+   * unexpired (`holdsLiveOrdinarySession`). Call it inside the route's `try`
+   * and before any step that reads or spends a factor, so a refusal spends
+   * nothing and a database failure becomes `handleError`'s 500.
+   */
+  async function liveSessionGate(
+    endpoint: LiveSessionGateEndpoint,
+    accountId: string,
+    claims: { readonly profileId: string; readonly sessionBinding: string | null },
+    cookieHeader: string | undefined,
+  ): Promise<{ error: "session_stale"; message: string } | null> {
+    const cookieToken = readSessionCookie(cookieHeader, cookieConfig);
+    const live = await run(
+      auth.holdsLiveOrdinarySession(accountId, claims.profileId, {
+        cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
+        sessionBinding: claims.sessionBinding,
+      }),
+    );
+    if (live) return null;
+    metricSessionStaleRefused(endpoint);
+    return { error: "session_stale", message: "Re-authenticate and try again." };
+  }
+
+  /**
    * Starts ending the account's cire organiser sessions, in the background:
    * the request answers without waiting for cire-api, and on workerd the
    * request's `waitUntil` keeps the isolate alive for it. Run it only after
@@ -301,6 +342,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     rl,
     rateLimit,
     turnstileGate,
+    liveSessionGate,
     resolvePasskeyEnrollPrincipal,
     cireOrganiserRevoke,
     forkCireOrganiserRevoke,

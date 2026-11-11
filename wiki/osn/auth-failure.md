@@ -32,7 +32,7 @@ Primary login is **passkey-only**. OTP and magic link are step-up / verification
 |---|---|
 | Register | `POST /register/{begin,complete}` → mandatory `POST /passkey/register/{begin,complete}` |
 | Login (passkey) | `POST /login/passkey/{begin,complete}` (identifier-bound or discoverable) |
-| Login (recovery) | `POST /login/recovery/complete` (a recovery code); `POST /login/recovery/email/{begin,complete}` and `POST /login/recovery/totp/complete`, which mint a restricted session whose one permitted action is enrolling a passkey |
+| Login (recovery) | `POST /login/recovery/complete` (a recovery code); `POST /login/recovery/email/begin`, `…/:requestId/{status,resend}` (an emailed link, confirmed through `POST /email-link/:requestId/confirm`) and `POST /login/recovery/totp/complete`, which mint a restricted session whose one permitted action is enrolling a passkey |
 | Refresh | `POST /token` (HttpOnly cookie only — body fallback removed) |
 | Step-up | `POST /step-up/{passkey,otp}/{begin,complete}`, `POST /step-up/totp/complete` |
 | Authenticator app | `POST /totp/enroll/{begin,complete}`, `DELETE /totp`, `GET /totp/status` |
@@ -72,6 +72,14 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 | `429` after a few attempts | 5/hour/IP cap (recoveryComplete) | Wait the window or unblock at the proxy |
 | Login succeeds but other devices stay signed in | Expected | Recovery login revokes all sessions in the same transaction (`security_invalidation{trigger=recovery_code_consume}`) — only the new session survives |
 
+### Email recovery
+
+| Symptom | Likely cause | Action |
+|---|---|---|
+| "Check your email", and no recovery link arrives | The address has no account (begin answers every address alike); the send failed; or a limit held the link back: 3 links a day for the account from this client address, 3 Resends a day for the account, 20 links a day for the account in all (`osn.auth.email_link.sends{flow="recovery", result="capped"}`), or the account's email recovery is locked (five wrong numbers in 15 minutes, `osn.auth.recovery.lockout{result="locked"}`) | Check the address is the one on the account. For a send failure, as for sign-up below. A cap or the lockout passes with its window; the recovery code and the authenticator app are the other ways in |
+| The link's page says "This link no longer works" after a number was typed | A wrong number (it ends the request), the request expired (10 minutes), or the account's email recovery is locked | Ask for a new link from the tab that began, and type the number that tab shows |
+| The link was confirmed but the tab that began never moves on | The tab was closed (its wait goes with its `sessionStorage`), the account's email changed since the link was sent, or the account was recovered in the last 72 hours (the cooldown answers the poll `expired`) | Reload the same tab to resume; otherwise begin again. See [[account-recovery-factors]] §D for the cooldown |
+
 ## 3. Registration
 
 | Symptom | Likely cause | Action |
@@ -103,6 +111,7 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 | `403 email_change_held` on `POST /account/security-events/:id/ack` | The event is an `email_changed` row less than 7 days old; no factor clears it until `holdEndsAt` (unix seconds) | Wait until `holdEndsAt`; `ack-all` dismisses every other row meanwhile |
 | `403 step_up_required` on `DELETE /account`, `GET /account/export`, `POST /recovery/generate`, `PATCH` or `DELETE /passkeys/:id`, `POST /account/security-events/:id/ack` or `/ack-all`, `POST /totp/enroll/begin`, `DELETE /totp` | Token missing or wrong amr | Mint a token with `POST /step-up/{passkey,otp}/{begin,complete}` or `POST /step-up/totp/complete`. Check the route's `allowedAmr` config |
 | `400` on `POST /account/email/complete` | `step_up_token` is a required body field there, so a missing one fails body validation; a bad code or a stale token is also `400 invalid_request` | Mint a fresh token and send it with the code |
+| `409 session_stale` on `POST /recovery/generate`, or on a step-up `/complete` that calls `liveSessionGate` | The caller holds no live session: the one its access token came from was logged out, revoked or has expired, and the request carried no cookie naming a live, unrestricted session of the account. A browser tab can also meet it when its request leaves with the old cookie while another tab is renewing | The route's 409 in Workers Logs (`osn.auth.session.stale_refused{endpoint}` counts them, but metric export on workerd is deferred, englishstreetventures/osn#501). Nothing was spent: no step-up token, authenticator-app step or code set. Check the request sent the cookie (`credentials: "include"`); the client shows "For your security, sign in again to finish this." ([[sessions]], `liveSessionGate`) |
 | Token rejected with `replay` | `jti` already consumed (`StepUpJtiStore`) | Mint a fresh token — they're single-use |
 | Token rejected with `aud_mismatch` | Cross-used as access token (or vice versa) | Step-up JWTs carry `aud: "osn-step-up"` |
 | Step-up token refused as "could not be verified" | The coordination store could not check the token's single use, so the guard failed closed | `coordination store call failed` with `store: step_up_jti` in Workers Logs; restore the store ([[coordination-store]]). Watch `osn.auth.step_up.verified{result}` |
