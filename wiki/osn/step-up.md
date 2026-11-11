@@ -102,8 +102,8 @@ step-up token, overwrite no parked passkey challenge, mail the owner nothing
 and spend none of the account's daily step-up links.
 
 **Every gate that spends a token checks the session again**, before it reads
-the token: each route in the table under "When step-up is required" answers
-`409 session_stale` to a caller holding no live session, so a token minted
+the token: each route in the table under "When step-up is required" that
+takes a token answers `409 session_stale` to a caller holding no live session, so a token minted
 while a session was live is not spent by that session's token once it has
 ended. The check is on the caller's session, not on the session that minted
 the token: a caller holding another live session of the account can still

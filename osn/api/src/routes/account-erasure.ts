@@ -241,10 +241,11 @@ export function createAccountErasureRoutes(
       // ---------------------------------------------------------------------
       // POST /account/restore — cancellation flow during the grace window.
       //
-      // The user must hit this endpoint with the cancellation session that
-      // was preserved at soft-delete time (the only surviving session for
-      // this account). We don't require step-up here — the session itself
-      // is a fresh-enough authenticator within the 7-day window.
+      // The caller must hold a live session of the account. At soft-delete
+      // time the deletion spared only the cancellation handle's family, so
+      // during the grace window that is the only device that can. We don't
+      // require step-up here — the session itself is a fresh-enough
+      // authenticator within the 7-day window.
       // ---------------------------------------------------------------------
       .post(
         "/restore",

@@ -146,7 +146,8 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             // this route has no explicit 403 branch.
             400: errorResponse,
             401: errorResponse,
-            // `session_stale`: an ordinary caller's session has ended.
+            // `session_stale`: the caller's session has ended, ordinary or
+            // restricted.
             409: errorResponse,
             429: errorResponse,
             500: errorResponse,
