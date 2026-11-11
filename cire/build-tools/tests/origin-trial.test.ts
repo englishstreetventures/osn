@@ -44,6 +44,10 @@ describe("ORIGIN_TRIAL_TOKENS", () => {
     });
   }
 
+  it("warns 14 days ahead", () => {
+    expect(ORIGIN_TRIAL_RENEWAL_WINDOW_MS).toBe(1_209_600_000);
+  });
+
   it("holds three distinct tokens", () => {
     const tokens = Object.values(ORIGIN_TRIAL_TOKENS);
     expect(new Set(tokens).size).toBe(3);
@@ -78,6 +82,10 @@ describe("decodeOriginTrialToken", () => {
 
   it("refuses a token too short to hold a payload", () => {
     expect(() => decodeOriginTrialToken("AAAA")).toThrow(/too short/);
+  });
+
+  it("refuses a token with a header and no payload byte", () => {
+    expect(() => decodeOriginTrialToken(Buffer.alloc(69).toString("base64"))).toThrow(/too short/);
   });
 
   it("refuses a payload that is not JSON", () => {
