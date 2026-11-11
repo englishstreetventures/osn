@@ -643,7 +643,10 @@ slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
 `prefers-reduced-motion: reduce` is a global kill switch in `@layer base`, not a
 per-component branch. It sets `transition-duration` and `animation-duration` with
 `!important`, which beats an inline style — so a hook that writes a duration
-inline still stops, and no hook needs a `matchMedia` check of its own.
+inline still stops, and no hook needs a `matchMedia` check of its own. A view
+transition is the exception: the switch reaches none of its pseudo-elements, so
+the script that starts one checks `matchMedia` itself (the theme cross-fade,
+below).
 
 Two hooks carry the design law of §1, both from `@cire/ui` and shared with the
 vendor portal:
@@ -759,23 +762,35 @@ portal carries the same rules, since it shares the script.
 
 While the fade runs the browser hit-tests the snapshot, not the page: a press
 lands on `<html>` whatever is under it. The theme choices keep the menu open,
-so a second try would read as a press outside it and close it. The script
-holds back a press on `<html>` until the fade ends — no listener sees it, focus
-stays — so the menu stays open and the pointer waits no longer than the fade. A
-choice made from the keyboard is never held. `pointer-events: none` on
-`::view-transition` does not help: the captured root takes no press either
+so a second try would read as a press outside it and close it. Until the fade
+ends the script drops a `pointerdown` on `<html>`: no `pointerdown` listener
+after it sees the press, so the menu, which dismisses on `pointerdown`, stays
+open and focus stays put. The press is not replayed; the host makes it again
+once the fade ends, so the pointer waits no longer than the fade. The `click`
+that follows still reaches `<html>`. A choice made from the keyboard is never
+dropped. `pointer-events: none` on `::view-transition` does not help: the
+captured root takes no press either
 ([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A view transition
 takes every press until it ends).
+
+A second choice mid-fade, which only the keyboard can make, or a change of
+viewport size, such as a phone turned, skips the running fade. The skipped
+fade still applies its choice, the last choice lands, and the script handles
+the skipped fade's rejected `ready`, so nothing is logged.
 
 Under reduced motion, and in a browser without `startViewTransition`, the
 theme changes at once: the rules sit inside
 `prefers-reduced-motion: no-preference`, because the global switch selects `*`
 and reaches no pseudo-element, and the script checks `matchMedia` and starts no
 transition. `tests/components/ProfileMenu.crossfade.browser.test.tsx` reads the
-two snapshots' duration and curve and the transition's end, holds the open
-menu through a press mid-fade, and changes the theme at once under reduced
-motion and with no `startViewTransition`; `cire/vendor`'s
-`tests/styles/tokens.test.ts` fails if the two portals' rules differ.
+two snapshots' duration and curve and the transition's end, keeps the open
+menu through a press mid-fade and frees the pointer after it, lands two quick
+choices and a choice cut short by a resize with no rejection, and changes the
+theme at once under reduced motion and with no `startViewTransition`;
+`tests/components/CommandPalette.browser.test.tsx` checks that the palette's
+theme row starts no fade. `cire/vendor`'s `tests/styles/tokens.test.ts` fails
+if the two portals' rules differ, or if the guest or marketing site carries
+them.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
@@ -944,9 +959,11 @@ Three states, not two: `system`, `dark`, `light` (`@cire/ui/lib/theme`'s
 Collapsing "system" into "dark" would silently convert a host who follows their
 OS into a host pinned to dark, the moment they opened the menu to look at it.
 
-A theme chosen in the account menu cross-fades the page (§4). Every other
-change of theme applies at once: the boot script's, before first paint, and the
-OS's while a host is on "system", which nobody in the page chose.
+A theme chosen in the account menu cross-fades the page (§4): the menu passes
+`{ fade: true }` to `setThemePreference`, and nothing else does. Every other
+change of theme applies at once: the command palette's theme row, a keyboard
+action that should not wait on a fade; the boot script's, before first paint;
+and the OS's while a host is on "system", which nobody in the page chose.
 
 `src/lib/preference-keys.ts` holds the storage keys and the boot script
 (`@cire/ui/lib/theme-boot`'s `themeBootScript`, over `cire.host.theme`),

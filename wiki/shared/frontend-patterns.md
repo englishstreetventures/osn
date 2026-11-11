@@ -683,15 +683,28 @@ either.
 
 So keep the transition short, end every animation in it on the same token —
 time `::view-transition-group(root)` with the snapshots, or it runs the
-browser's 0.25s and holds the pointer that long — and hold back a press on
-`<html>` while it runs: a capturing `pointerdown` listener on `window` that calls
+browser's 0.25s and holds the pointer that long — and drop a press on `<html>`
+while it runs: a capturing `pointerdown` listener on `window` that calls
 `preventDefault()` and `stopImmediatePropagation()`, removed when `finished`
-settles. No dismiss handler sees the press, and focus stays where it was.
-`@cire/ui`'s `lib/theme` does this for the portals' theme cross-fade
-(`cire/host/DESIGN.md` §4); `tests/components/ProfileMenu.crossfade.browser.test.tsx`
-in `cire/host` holds the open menu through a press mid-fade.
+settles. The press is not replayed; the person makes it again after the fade.
+No `pointerdown` listener after that one sees it, so a dismiss handler that
+listens for `pointerdown`, as Kobalte's does, does not fire, and focus stays
+where it was. The `click` that follows still reaches `<html>`, so a popover
+that closes on a `click` outside it still closes.
 
-*Measured 2026-11-11 — a throwaway browser-tier probe in `cire/host`, HeadlessChrome 156: a press mid-transition on a menu item fired `pointerdown` and `click` on `HTML` and closed the menu, with and without `::view-transition { pointer-events: none }`.*
+A second `startViewTransition`, or a change of viewport size, skips a running
+transition. The skipped one still runs its update, and its `ready` rejects
+(`AbortError` or `InvalidStateError`). Give `ready` a handler
+(`transition.ready.catch(() => {})`), or each skip surfaces as an unhandled
+rejection, which fails a Vitest run.
+
+`@cire/ui`'s `lib/theme` does all of this for the portals' theme cross-fade
+(`cire/host/DESIGN.md` §4). In `cire/host`,
+`tests/components/ProfileMenu.crossfade.browser.test.tsx` checks that the press
+lands on `<html>` with `pointer-events: none` on `::view-transition`, that the
+open menu survives a press mid-fade and the `click` still reaches `<html>`, that
+the listener goes when the fade ends, and that two quick choices or a resize
+mid-fade raise no rejection.
 
 ### A box grown to `auto` holds its clip only while it grows
 
