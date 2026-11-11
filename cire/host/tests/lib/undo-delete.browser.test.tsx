@@ -84,10 +84,10 @@ const toastOf = (name: string) =>
     (el) => el.querySelector(".ui-toast__message")?.textContent === `Deleted “${name}”`,
   );
 
-/** What `var(--dur-slow)` resolves to here, in seconds as the engine writes it. */
-function slowRung(): string {
+/** What `var(--dur-base)` resolves to here, in seconds as the engine writes it. */
+function baseRung(): string {
   const probe = document.createElement("div");
-  probe.style.transitionDuration = "var(--dur-slow)";
+  probe.style.transitionDuration = "var(--dur-base)";
   document.body.append(probe);
   const value = getComputedStyle(probe).transitionDuration;
   probe.remove();
@@ -224,14 +224,14 @@ describe("the undo window", () => {
     expect(third.commits).toHaveLength(1);
   });
 
-  it("arrives on the slow rung and the portal's ease-out, where other toasts keep the package's", async () => {
+  it("arrives on the base rung and the portal's ease-out, where other toasts keep the package's", async () => {
     mountToaster();
     toast.success("Saved");
     deleteRow("Book the venue");
     const shown = toastOf("Book the venue")!;
     const arriving = getComputedStyle(shown);
     expect(arriving.animationName).toBe("ui-toast-in");
-    expect(arriving.animationDuration).toBe(slowRung());
+    expect(arriving.animationDuration).toBe(baseRung());
     expect(arriving.animationTimingFunction).toBe(
       resolved("transitionTimingFunction", "--ease-out"),
     );

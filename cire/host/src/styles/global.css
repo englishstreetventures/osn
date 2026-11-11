@@ -299,7 +299,7 @@
 }
 
 /* ── Undo after a one-click delete (`lib/undo-delete.ts`) ───────────────────
- * The undo toast arrives on the slow rung and the portal's ease-out, so the
+ * The undo toast arrives on the base rung and the portal's ease-out, so the
  * move can be felt (DESIGN.md §4); every other toast keeps the package's
  * arrival. It holds a live Undo, so it leaves at once: a fade would keep a
  * button that can still be pressed in a box that is going away. A row Undo
@@ -308,7 +308,7 @@
  * runs the fade and the toast's arrival at once.
  */
 .undo-toast {
-  --toast-enter-duration: var(--dur-slow);
+  --toast-enter-duration: var(--dur-base);
   --toast-enter-easing: var(--ease-out);
 }
 

@@ -283,7 +283,7 @@ Current mounts:
 | App | Position | Notes |
 |---|---|---|
 | `@cire/invites` | `top-center` | Invite page, per design pack: `Z_CLASS.TOAST` + `topLayer`, 4s dwell; the RSVP sheet's sticky bar owns the bottom edge. Gift page (`GiftRegistryPage`): `Z_CLASS.TOAST`, no `topLayer`, since its only modals are the consent dialogs, which make the page inert while open |
-| `@cire/host`, `@cire/vendor` | `bottom-right` | `topLayer` — the host's dialogs are `@shared/ui` `Modal`s, and the vendor portal, which opens none yet, sets it for any it will. The host maps the five `--toast-action-*` names onto its own button look (sentence case, a pill), and gives the undo toast alone `--dur-slow` and `--ease-out` for its arrival (`cire/host/DESIGN.md` §4); every other toast in both portals keeps the 160ms default |
+| `@cire/host`, `@cire/vendor` | `bottom-right` | `topLayer` — the host's dialogs are `@shared/ui` `Modal`s, and the vendor portal, which opens none yet, sets it for any it will. The host maps the five `--toast-action-*` names onto its own button look (sentence case, a pill), and gives the undo toast alone `--dur-base` and `--ease-out` for its arrival (`cire/host/DESIGN.md` §4); every other toast in both portals keeps the 160ms default |
 | `@musubi/social` | responsive | `top-center` on mobile with a `top` offset clearing the 3rem bar + `env(safe-area-inset-top)`. No `topLayer`: its dialogs are Kobalte's, which are not top-layer |
 | `@pulse/web` | `bottom-right` | As musubi — Kobalte dialogs, no `topLayer` |
 

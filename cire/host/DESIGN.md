@@ -759,13 +759,12 @@ sent until the toast has gone, so Undo puts back the very row, where it stood
 unless the list was reordered while the toast was up (then it can land one
 place later, after the row it ties with), and a second toast says so in its
 own live region. Several deletes stack, oldest at the bottom edge, and each
-Undo restores its own row. The undo toast arrives on `--dur-slow` and
+Undo restores its own row. The undo toast arrives on `--dur-base` and
 `--ease-out` (`.undo-toast` maps `--toast-enter-duration` and
-`--toast-enter-easing`), 200ms at a desk and 320ms on touch against the
-package's 160ms: the owner asked for these moves a little slower than the
-comparison's defaults so they can be felt. **The rung is provisional:** it was
-picked by reasoning, not by watching it move, and stays until the owner
-watches `--dur-base` against `--dur-slow` rendered and chooses. Every other
+`--toast-enter-easing`): 150ms at a desk and 200ms on touch, against the
+package's 160ms. That makes it faster than the default at a desk and slower
+on touch. The owner chose `--dur-base` over `--dur-slow` after watching both
+rendered. Every other
 portal toast keeps the package's 160ms arrival, as the vendor portal's do. An
 undo toast leaves at once (`.undo-toast.ui-toast--leaving`), because it holds
 Undo. The row Undo puts back fades in where it stood (`row-return`: opacity
