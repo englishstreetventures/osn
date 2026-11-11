@@ -4,14 +4,13 @@
  *
  *  - `off`: the stack declares no Worker for the site.
  *  - `staged`: the stack deploys the site's production build to a Worker on
- *    the site's spare host in its production zone; the Pages project still
- *    serves the production host, and its Pages job in production-release.yml
- *    still deploys it.
+ *    the site's spare host in its production zone. No Pages project is left
+ *    to serve its production host; englishstreetventures/osn#2196 removes the
+ *    mode.
  *  - `worker`: the Worker serves the production host.
  *
  * This file imports nothing, so scripts that run with no install
- * (scripts/deploy-surfaces.ts, scripts/pages-domain.ts) load it by relative
- * path.
+ * (scripts/deploy-surfaces.ts) load it by relative path.
  */
 
 export type SiteMode = "off" | "staged" | "worker";
@@ -61,10 +60,10 @@ export const SITE_SURFACES: readonly SiteSurface[] = [
 ];
 
 /**
- * The switch. A site moves from `staged` to `worker` in a pull request; its
- * stack's next release attaches the production host to the Worker once the
- * owner has taken the host off its Pages project by hand. Pulse landing stays
- * `off` until englishstreetventures/osn#1794 settles its host and app link.
+ * The switch. A site turned to `worker` in a pull request has its production
+ * host attached to its Worker by its stack's next release. Pulse landing
+ * stays `off` until englishstreetventures/osn#1794 settles its host and app
+ * link.
  */
 export const PRODUCTION_SITE_MODES: PerSite<SiteMode> = {
   cire_host: "worker",
@@ -84,8 +83,8 @@ export const PRODUCTION_ADOPTIONS: readonly string[] = [];
 
 /**
  * Today's production host of every surface, keyed as `StageHosts` in
- * hosts.ts. Each is the custom domain its Wrangler config or Pages project
- * serves, and musubi landing's the one its build names
+ * hosts.ts. Each is the custom domain its Wrangler config or its site
+ * Worker serves, and musubi landing's the one its build names
  * (musubi/landing/astro.config.mjs). Pulse landing's is the one
  * pulse/landing/astro.config.mjs names; it is `off`, so nothing serves it.
  */
@@ -124,7 +123,7 @@ export const PRODUCTION_STAGING_HOSTS: SomeSites<string> = {
   osn_social: "next.musubi.social",
 };
 
-/** The Pages project that serves each site's production host today. */
+/** The Pages project a staged site's Pages job deployed; englishstreetventures/osn#2196 removes it with the mode. */
 export const PAGES_PROJECTS: SomeSites<string> = {
   cire_host: "cire-host",
   cire_vendor: "cire-vendor",
