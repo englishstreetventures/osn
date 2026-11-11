@@ -6,8 +6,10 @@
  * `--ui-scale-enter`, Kobalte's origin variable), never written into the test,
  * so the guarantees hold whatever values the tokens carry: an exit is shorter
  * and nearer full size than its entry, every panel takes its scale from the
- * shared tokens, with both scale tokens at 1 every panel fades without
- * moving, the anchored panels grow from their trigger, a reader who
+ * shared tokens, an exit runs on `--ui-ease-exit` and an entry on
+ * `--ui-ease-out` and neither follows the other's token, with both scale
+ * tokens at 1 every panel fades without moving, the anchored panels grow
+ * from their trigger, a reader who
  * asked for reduced motion sees none, and closing a panel from the keyboard
  * still hands focus back to its trigger. Only a real engine resolves a
  * computed style or runs an animation, so none of it can sit in the unit tier.
@@ -35,6 +37,7 @@ import {
   emulateMedia,
   firstEvent,
   frames,
+  rootEasing,
   rootMs,
   wait,
   watchAnimations,
@@ -51,6 +54,8 @@ afterEach(async () => {
   await emulateMedia({ reducedMotion: "no-preference" });
   document.documentElement.style.removeProperty("--ui-scale-enter");
   document.documentElement.style.removeProperty("--ui-scale-exit");
+  document.documentElement.style.removeProperty("--ui-ease-out");
+  document.documentElement.style.removeProperty("--ui-ease-exit");
   cleanup();
 });
 
@@ -264,6 +269,44 @@ describe("an overlay's scale", () => {
       oddScales();
       const { exit } = await cycle(overlay);
       expect(exit!.exitScale).toBe("0.7");
+    });
+  }
+});
+
+describe("an overlay's curve", () => {
+  /**
+   * A curve neither token carries, so a panel running it can only have read it
+   * from the token it was set on. `--ui-ease-out` times every arrival, and an
+   * app that maps it must not move its overlays' exits too.
+   */
+  const ODD_CURVE = "cubic-bezier(0.5, 0, 0.5, 1)";
+
+  for (const overlay of EXITING) {
+    it(`${overlay.name}: leaves on --ui-ease-exit, which unset is the curve it arrives on`, async () => {
+      const { enter, exit } = await cycle(overlay);
+      expect(exit!.easing).toBe(rootEasing("--ui-ease-exit"));
+      expect(exit!.easing).toBe(enter!.easing);
+    });
+
+    it(`${overlay.name}: keeps its exit curve when only --ui-ease-out is set`, async () => {
+      const exitCurve = rootEasing("--ui-ease-exit");
+      document.documentElement.style.setProperty("--ui-ease-out", ODD_CURVE);
+      const arrival = rootEasing("--ui-ease-out");
+      expect(arrival).not.toBe(exitCurve);
+      const { enter, exit } = await cycle(overlay);
+      expect(enter!.easing, "the entry did not read --ui-ease-out").toBe(arrival);
+      expect(exit!.easing, "the exit followed --ui-ease-out").not.toBe(arrival);
+      expect(exit!.easing).toBe(exitCurve);
+    });
+
+    it(`${overlay.name}: follows --ui-ease-exit, and its entry does not`, async () => {
+      const arrival = rootEasing("--ui-ease-out");
+      document.documentElement.style.setProperty("--ui-ease-exit", ODD_CURVE);
+      const exitCurve = rootEasing("--ui-ease-exit");
+      expect(exitCurve).not.toBe(arrival);
+      const { enter, exit } = await cycle(overlay);
+      expect(exit!.easing, "the exit did not read --ui-ease-exit").toBe(exitCurve);
+      expect(enter!.easing, "the entry followed --ui-ease-exit").toBe(arrival);
     });
   }
 });
