@@ -53,6 +53,8 @@ export interface CoordinationStores {
   readonly stepUpJtiStore: StepUpJtiStore;
   /** Single-use claims on discoverable passkey challenges. */
   readonly passkeyChallengeClaims: ChallengeClaimStore;
+  /** Single-use claims on Email Verification API nonces. */
+  readonly emailVerificationNonceClaims: ChallengeClaimStore;
   readonly ceremonyStores: CeremonyStores;
   readonly recoveryLockoutStore: RecoveryLockoutStore;
   readonly recoveryOtpLockoutStore: RecoveryLockoutStore;

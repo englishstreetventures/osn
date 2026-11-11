@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 
 import { buildSessionCookies } from "../../lib/cookie-session";
 import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
+import { EMAIL_VERIFICATION_TOKEN_MAX } from "../../services/auth/email-verification-token";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, tokenResponse } from "./response-schemas";
@@ -55,6 +56,34 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
         },
       )
       // -------------------------------------------------------------------------
+      // Sign-up: a nonce for the browser Email Verification API field
+      //
+      // 404 while the flag is off, so the sign-up form adds no field. Mounted
+      // either way, so the API document names it. No limiter and no store
+      // call: one HMAC, and the secret is single-use only once a token that
+      // verifies is presented with it at begin.
+      // -------------------------------------------------------------------------
+      .post(
+        "/register/email-verification-nonce",
+        ({ set }) => {
+          const minted = auth.emailVerificationNonce();
+          if (!minted) {
+            set.status = 404;
+            return { error: "not_found" };
+          }
+          set.headers["cache-control"] = "no-store";
+          return minted;
+        },
+        {
+          response: {
+            // `nonceSecret` stays in the tab's memory; `nonce` goes in the form.
+            200: t.Object({ nonce: t.String(), nonceSecret: t.String() }),
+            404: errorResponse,
+          },
+          detail: { operationId: "emailVerificationNonce" },
+        },
+      )
+      // -------------------------------------------------------------------------
       // Sign-up: begin (opens an emailed-link request, creates nothing yet)
       //
       // Answers `{ requestId, claimSecret, pairingCode, expiresAt }` (or a
@@ -90,6 +119,12 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
                 body.birthdate,
                 body.displayName,
                 body.previous,
+                body.emailVerificationToken !== undefined && body.nonceSecret !== undefined
+                  ? {
+                      emailVerificationToken: body.emailVerificationToken,
+                      nonceSecret: body.nonceSecret,
+                    }
+                  : undefined,
               ),
             );
           } catch (e) {
@@ -122,6 +157,14 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
                 claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }),
               }),
             ),
+            // The browser Email Verification API field's value and the nonce
+            // secret this tab was given with its nonce. Read only while the
+            // flag is on; a token that does not verify is ignored and the
+            // link path runs. Both are on the log redaction deny-list.
+            emailVerificationToken: t.Optional(
+              t.String({ maxLength: EMAIL_VERIFICATION_TOKEN_MAX }),
+            ),
+            nonceSecret: t.Optional(t.String({ maxLength: 128 })),
           }),
           response: {
             // `claimSecret` and `pairingCode` match log redaction deny-list

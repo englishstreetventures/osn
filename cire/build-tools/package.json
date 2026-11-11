@@ -9,6 +9,7 @@
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
+    "./origin-trial": "./src/origin-trial.ts",
     "./tier-headers": "./src/tier-headers.ts"
   },
   "scripts": {

@@ -58,6 +58,17 @@ describe("redact", () => {
     expect(out.pairingPick).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts a sign-up's Email Verification API token and the nonce secret that binds it", () => {
+    const input = {
+      email: "ada@example.com",
+      emailVerificationToken: "eyJhbGciOiJFZDI1NTE5In0.e30.c2ln~eyJhbGciOiJFZDI1NTE5In0.e30.c2ln",
+      nonceSecret: "n".repeat(75),
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.emailVerificationToken).toBe(REDACTION_PLACEHOLDER);
+    expect(out.nonceSecret).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts the Authorization header", () => {
     const input = {
       url: "/graph/internal/connections",
@@ -560,6 +571,8 @@ describe("redact", () => {
       "pairingcode",
       "pairingcandidates",
       "pairingpick",
+      "emailverificationtoken",
+      "noncesecret",
       "privatekey",
       "private_key",
       "accountid",

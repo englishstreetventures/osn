@@ -61,6 +61,7 @@ export function createInMemoryCoordination(): CoordinationStores {
     accountErasureRateLimiters: createDefaultAccountErasureRateLimiters(),
     stepUpJtiStore: createInMemoryJtiStore(),
     passkeyChallengeClaims: createInMemoryChallengeClaimStore(),
+    emailVerificationNonceClaims: createInMemoryChallengeClaimStore("email_verification_nonce"),
     ceremonyStores: createDefaultCeremonyStores(),
     recoveryLockoutStore: createInMemoryRecoveryLockoutStore(),
     recoveryOtpLockoutStore: createInMemoryRecoveryLockoutStore(),

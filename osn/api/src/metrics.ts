@@ -30,6 +30,7 @@ import type {
   EmailLinkConfirmOutcome,
   EmailLinkFlow,
   EmailLinkSendResult,
+  EmailVerificationTokenOutcome,
   GraphBlockAction,
   GraphConnectionAction,
   OidcAuthorizeResult,
@@ -115,6 +116,7 @@ export const OSN_METRICS = {
   authCrossDeviceDuration: "osn.auth.cross_device.duration",
   authEmailLinkConfirmations: "osn.auth.email_link.confirmations",
   authEmailLinkSends: "osn.auth.email_link.sends",
+  authEmailVerificationTokens: "osn.auth.email_verification.tokens",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   orgOps: "osn.org.operations",
@@ -149,6 +151,7 @@ type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
 type EmailLinkConfirmAttrs = { outcome: EmailLinkConfirmOutcome };
 type EmailLinkSendAttrs = { flow: EmailLinkFlow; result: EmailLinkSendResult };
+type EmailVerificationTokenAttrs = { outcome: EmailVerificationTokenOutcome };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 /** Turnstile-gated endpoints. Bounded literal union — never a raw path. */
 type AuthTurnstileEndpoint = "register_begin" | "passkey_login_begin" | "recovery_email_begin";
@@ -212,6 +215,12 @@ const authEmailLinkSends = createCounter<EmailLinkSendAttrs>({
   name: OSN_METRICS.authEmailLinkSends,
   description: "Emailed links by flow: sent, held back by a per-address cap, or failed",
   unit: "{message}",
+});
+
+const authEmailVerificationTokens = createCounter<EmailVerificationTokenAttrs>({
+  name: OSN_METRICS.authEmailVerificationTokens,
+  description: "Browser Email Verification API tokens sent with a sign-up, by what became of them",
+  unit: "{token}",
 });
 
 const authRateLimited = createCounter<AuthRateLimitAttrs>({
@@ -453,6 +462,9 @@ export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid")
 
 export const metricEmailLinkSend = (flow: EmailLinkFlow, result: EmailLinkSendResult): void =>
   authEmailLinkSends.inc({ flow, result });
+
+export const metricEmailVerificationToken = (outcome: EmailVerificationTokenOutcome): void =>
+  authEmailVerificationTokens.inc({ outcome });
 
 /**
  * Wraps an emailed-link confirm: span `auth.email_link.confirm`, a count of

@@ -4,8 +4,8 @@
  * The seeded envelope wedding (`CIRE_ORGANISER.envelope`, on Crimson with the
  * Wax seal over a hero with a cropped image) opens as a guest on a Pixel 7
  * profile, in Chromium with HTML-in-Canvas switched on
- * (`--enable-blink-features=CanvasDrawElement`; Chromium turns it on by
- * default from 157). The flow:
+ * (`--enable-blink-features=CanvasDrawElement`; production Chrome gets it
+ * through an origin trial token). The flow:
  *
  * 1. warms `astro dev`'s compile of the scene modules, so the first real
  *    opening is not racing the boot script's 3 s readiness watchdog on a cold

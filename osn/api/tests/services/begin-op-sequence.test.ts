@@ -14,7 +14,9 @@ import { makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
+import { createIssuerNetwork } from "../../src/services/auth/email-verification-network";
 import { settle } from "../helpers/background";
+import { createFakeIssuer } from "../helpers/email-verification";
 import { linksTo } from "../helpers/registration";
 
 // Registration's verifier is stubbed so an account can hold a passkey: a unit
@@ -457,6 +459,70 @@ describe("POST /register/begin, twice at once for one address", () => {
       );
       expect(both.map((answer) => answer.requestId)).toHaveLength(2);
       expect(email.recorded()).toHaveLength(1);
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+  });
+});
+
+/**
+ * A begin whose browser token verified makes one more write on its request
+ * whatever the address: it confirms a free address's request, and writes a
+ * taken or held one's back unchanged. So a verified begin costs the same for
+ * all three, and mails nothing for any of them.
+ */
+describe("POST /register/begin with a browser token that verifies", () => {
+  it.live("makes the same calls whether the address is free, taken, or already pending", () => {
+    const fake = createFakeNamespace();
+    const bundle = createDurableCoordination(fake.ns, () => {});
+    const email = makeLogEmailLive();
+    return Effect.gen(function* () {
+      const issuer = yield* Effect.promise(() => createFakeIssuer());
+      const auth = createAuthService({
+        ...base,
+        // `frontendOrigin` reads the first WebAuthn origin: the token's audience.
+        origin: "http://localhost:5173",
+        ceremonyStores: bundle.ceremonyStores,
+        registrationSendCap: bundle.registrationSendCap,
+        registrationLinkLockoutStore: bundle.registrationLinkLockoutStore,
+        emailVerificationNonceClaims: bundle.emailVerificationNonceClaims,
+        emailVerification: { network: createIssuerNetwork(issuer.fetch) },
+      });
+      const tokenFor = (address: string) =>
+        Effect.promise(async () => {
+          const minted = auth.emailVerificationNonce();
+          if (!minted) throw new Error("no nonce");
+          const token = await issuer.mint({
+            email: address,
+            nonce: minted.nonce,
+            aud: "http://localhost:5173",
+          });
+          return { emailVerificationToken: token, nonceSecret: minted.nonceSecret };
+        });
+      const begin = (address: string, handle: string) =>
+        Effect.gen(function* () {
+          const input = yield* tokenFor(address);
+          const from = fake.calls.length;
+          yield* auth.beginRegistration(address, handle, "1990-01-01", undefined, undefined, input);
+          return fake.calls.slice(from).map((call) => `${call.store}.${call.op}`);
+        });
+
+      const takenAddress = `seq-vtaken@${issuer.domain}`;
+      yield* auth.registerProfile(takenAddress, "seqvtaken");
+      const freeAddress = `seq-vfree@${issuer.domain}`;
+
+      const free = yield* begin(freeAddress, "seqvfree");
+      const pending = yield* begin(freeAddress, "seqvfree");
+      const taken = yield* begin(takenAddress, "seqvother");
+
+      expect(free).toEqual([
+        "email_verification_nonce.claim",
+        "email_link.write",
+        "pending_registration.swap",
+        "email_link.swap",
+      ]);
+      expect(pending).toEqual(free);
+      expect(taken).toEqual(free);
+      yield* Effect.sleep("20 millis");
+      expect(email.recorded()).toHaveLength(0);
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
   });
 });

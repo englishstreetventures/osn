@@ -233,6 +233,14 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "pairingCandidates",
     "pairingPick",
 
+    // --- Browser Email Verification API ---
+    // `emailVerificationToken` is the issuer-signed token a browser puts in
+    // the sign-up form; it names the address and proves the mailbox.
+    // `nonceSecret` is what the sign-up tab holds to bind that token to
+    // itself. camelCase only: no snake_case spelling exists.
+    "emailVerificationToken",
+    "nonceSecret",
+
     // --- ARC token signing keys ---
     // `privateKey` is the parameter name on createArcToken /
     // getOrCreateArcToken (osn/crypto/src/arc.ts). If a service ever logs

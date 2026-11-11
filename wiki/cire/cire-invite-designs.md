@@ -566,7 +566,9 @@ event and the panel to open on.
   `md` with the 44px floor (`min-h-11`), as `aria-pressed` toggles. The chosen
   answer wears the accent edge, the readable gold and a 2px ring at 60% of the
   gold, and no fill; an unchosen one under the pointer goes halfway, its edge
-  and ink a mix of rest and chosen with a 1px ring at 30%, on `--dur-base`.
+  and ink a mix of rest and chosen with a 1px ring at 30%. The hover runs on
+  `--dur-fast` and the choosing on `--dur-base`
+  ([`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §5).
   While a reply saves the pair is locked with `aria-disabled`: it keeps its
   look, so the answer just given stays legible, and takes no click. The pair
   sits side by side while its own box is 16rem or wider and stacks below
@@ -889,6 +891,14 @@ The FAQ's questions are its `Disclosure` in the rule tone: each entry draws the
 rule under it, the trailing `+` turns into × at the question's own size, and
 classic draws one rule above the first.
 
+**The dietary pills.** Under the pointer an unticked pill goes halfway, as the
+answer pair does, and its focus is the house outline 2px off its edge, drawn
+from the checkbox's own `:focus-visible`; the phone's scrolling track keeps 4px
+of room round each pill so the ring and the outline are not cut.
+
+**Motion.** The guest site's motion rules — the ladder, what moves on which
+rung, what must not move, and the reduced-motion clamp — are in
+[`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §5.
 **Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
 and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so
 Tailwind's `ease-out` class reads the house curve. A hover, a focus or a press
@@ -898,12 +908,49 @@ runs on `--dur-fast` and `--ease-out`; a choice being made — the answer pair
 Under the pointer an unticked dietary pill goes halfway, as the pair does, and
 its focus is the house outline 2px off its edge, drawn from the checkbox's
 own `:focus-visible`; the phone's scrolling track keeps 4px of room round
-each pill so the ring and the outline are not cut. The sheet's panel
-swap, the badge's words after a press and Respond's label ink following the
-bloom fill run on `--dur-base`. An FAQ answer grows open on `--dur-slow` and
-`--ease-out`, its box and its fade together. Where the engine has no
-`interpolate-size` the box opens at once and the answer still fades in; for a
-guest who asked for less motion it opens at once with no fade
+each pill so the ring and the outline are not cut.
+
+A block that opens under a control grows through `Reveal` (`@cire/ui/reveal`),
+the owner's choice (2026-11-10, englishstreetventures/osn#2164): the dietary
+section after "Attending" and its "Anything else" field after "Other", the gift
+page's own amount after "Another amount", a gift's reserve form after Reserve,
+and the chosen member's email and musubi boxes, as one block, after "Who are
+you?". Its height grows from nothing as it fades in, on `--dur-slow` and
+`--ease-out` (`pace="slow"`), a rung slower than the portals' panels: a guest
+is reading, and the owner asked that these openings be felt. On `--dur-base` a
+desk covers three quarters of the dietary section's 340px in under 40ms.
+
+*Measured 2026-11-11 — Chromium at 1280px, the RSVP sheet's dietary section,
+its transitions paused at a quarter of `--dur-base`, which is 150ms under
+`pointer: fine` (37.5ms in)*
+
+It closes at once, because each block holds fields, and a block that is open
+when its state is restored — a reply on file, a household reopened from its
+session — paints open, with no motion. `Reveal` keeps 4px of room inside its
+clip, so a focus ring at a block's edge stays whole. When the reserve form
+closes with focus inside it — Cancel, Confirm once the reservation lands, Enter
+in a field — focus goes to the card's first action that can be pressed
+(Reserve or Change), or to the gift's title when none can, as when another
+household took the last one. Confirm is disabled while its claim is in flight,
+and the engine moves focus off it to the page then, so the card notes whether
+the claim went out from inside the form. A refused claim with some left keeps
+the form open, and focus goes back to Confirm. Focus the guest moved elsewhere
+meanwhile stays put. After a tap the moved focus draws no ring
+(`quiet-focus.ts`).
+
+The calendar and maps menus (`LinkMenu`) open as the portals' menus pop —
+scaled up from 0.96 and faded in from the corner at their trigger — a rung
+slower, on `--dur-base` and `--ease-out` (`menu-pop` in
+`src/styles/global.css`, which runs the shared `ui-enter` keyframe), and close
+at once.
+`tests/components/reveal-blocks.browser.test.tsx` and
+`tests/components/LinkMenu.browser.test.tsx` sample both.
+
+The sheet's panel swap, the badge's words after a press and Respond's label ink
+following the bloom fill run on `--dur-base`. An FAQ answer grows open on
+`--dur-slow` and `--ease-out`, its box and its fade together. Where the engine
+has no `interpolate-size` the box opens at once and the answer still fades in;
+for a guest who asked for less motion it opens at once with no fade
 (`cire/host/DESIGN.md` §4, A disclosure grows open and closes at once).
 Choreography longer than `--dur-slow` keeps its own timing:
 
