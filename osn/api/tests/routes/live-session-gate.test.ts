@@ -324,8 +324,7 @@ describe("a logged-out session's access token", () => {
 describe("what counts as a live session", () => {
   it("a token with no session binding, sent with no cookie, is refused", async () => {
     // Red on letting a caller that presents neither a cookie nor an `osn_sid`
-    // through. `/profiles/switch` mints exactly this shape of token when it
-    // cannot resolve the caller's session.
+    // through: such a caller names no session the gate could find live.
     const h = makeApp();
     const profile = await registerAccount(h, "lsg-unbound@example.com", "lsgunbound");
     const live = await openSession(h, profile);
@@ -423,9 +422,8 @@ describe("what counts as a live session", () => {
   });
 
   it("a token bound to a restricted recovery session is refused", async () => {
-    // Red on matching the binding against restricted rows. `/profiles/switch`
-    // binds the token it mints to whatever session the caller's cookie names,
-    // a restricted one included, so this shape reaches the routes.
+    // Red on matching the binding against restricted rows: an `osn-access`
+    // token whose `osn_sid` names a restricted recovery session is refused.
     const h = makeApp();
     const profile = await registerAccount(h, "lsg-rbound@example.com", "lsgrbound");
     const ended = await openSession(h, profile);
