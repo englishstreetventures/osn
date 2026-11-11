@@ -1346,7 +1346,7 @@ describe("every gated route, for a logged-out session's token", () => {
       passkey_register_begin: true,
       oidc_client_create: true,
     };
-    expect(GATED.map((r) => r.endpoint).sort()).toEqual(Object.keys(every).sort());
+    expect(GATED.map((r) => r.endpoint).toSorted()).toEqual(Object.keys(every).toSorted());
   });
 });
 

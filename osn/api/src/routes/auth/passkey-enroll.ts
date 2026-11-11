@@ -20,10 +20,11 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
   /**
    * Names the caller's own live session: the HttpOnly cookie when it names one,
    * otherwise the access token's `osn_sid` binding. Both inputs are
-   * server-derived — neither is ever read from the request body (S-H1) — and
+   * server-derived — neither is ever read from the request body, so a caller
+   * cannot name another session as its own — and
    * both routes below need the same answer, `/begin` to decide whether the
    * recovery bypass is on the table and `/complete` to spare the caller from
-   * the H1 sweep.
+   * the sweep of the account's other sessions.
    */
   const classifyCaller = (
     principal: {
@@ -47,8 +48,8 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
       // -------------------------------------------------------------------------
       // Passkey: begin registration
       //
-      // Authenticated via `Authorization: Bearer <access_token>`. S-H1:
-      // when the account already has ≥1 passkey, a fresh step-up token
+      // Authenticated via `Authorization: Bearer <access_token>`. When the
+      // account already has ≥1 passkey, a fresh step-up token
       // (via `X-Step-Up-Token` header or `step_up_token` body field) is
       // REQUIRED — a stolen access token alone cannot bind a new
       // authenticator. First-passkey enrollment (bootstrap) bypasses the
@@ -150,9 +151,9 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
       // -------------------------------------------------------------------------
       // Passkey: complete registration
       //
-      // S-H1: the caller's session token is derived from the HttpOnly
-      // cookie — NOT from optional body input — so H1 invalidation (every
-      // other session on the account gets revoked) cannot be silently
+      // The caller's session token is derived from the HttpOnly
+      // cookie — NOT from optional body input — so the sweep that revokes
+      // every other session on the account cannot be silently
       // skipped by a malicious caller.
       // -------------------------------------------------------------------------
       .post(
@@ -174,17 +175,17 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // Identify the caller's own session so H1 invalidation spares it.
+            // Identify the caller's own session so the sweep spares it.
             // The cookie is the cheap path but only counts when it names a
             // live row; otherwise fall back to the access token's `osn_sid`
             // binding. Without that fallback a cookieless — but fully
-            // authenticated — enrolment took the O4 branch and logged the
+            // authenticated — enrolment would name no session and log the
             // account out of every device.
             const caller = await classifyCaller(principal, headers.cookie);
-            // S-M2: a presented-but-stale binding (session rotated out or
+            // A presented-but-stale binding (session rotated out or
             // LRU-evicted) must NOT degrade to the account-wide wipe. Fail
             // closed and ask the caller to re-authenticate so the enrolment's
-            // H1 sweep can spare a real "self".
+            // sweep can spare a real "self".
             if (caller._tag === "stale") {
               set.status = 409;
               return { error: "session_stale", message: "Re-authenticate and try again." };
@@ -214,7 +215,7 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             200: t.Object({ passkeyId: t.String() }),
             400: errorResponse,
             401: errorResponse,
-            // S-M2: a presented-but-stale session binding.
+            // `session_stale`: a presented-but-stale session binding.
             409: errorResponse,
             429: errorResponse,
             500: errorResponse,
