@@ -66,7 +66,9 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         // skipped. OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: set only while a TOTP key
         // rotation drains (osn/api/wrangler.toml secrets block).
         optional: ["CIRE_INTERNAL_REVOKE_SECRET", "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
-        forbidden: ["RESEND_API_URL"],
+        // RESEND_API_URL and OSN_EMAIL_VERIFICATION_EMULATOR_URL point osn-api at
+        // local stand-ins; it refuses to boot with either outside a local stack.
+        forbidden: ["OSN_EMAIL_VERIFICATION_EMULATOR_URL", "RESEND_API_URL"],
       },
       production: {
         scriptName: "osn-api-production",
@@ -81,7 +83,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "TURNSTILE_SECRET_KEY",
         ],
         optional: ["CIRE_INTERNAL_REVOKE_SECRET", "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
-        forbidden: ["DEV_LOGIN_SECRET", "RESEND_API_URL"],
+        forbidden: ["DEV_LOGIN_SECRET", "OSN_EMAIL_VERIFICATION_EMULATOR_URL", "RESEND_API_URL"],
       },
     },
   },
