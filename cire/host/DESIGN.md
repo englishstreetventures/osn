@@ -719,6 +719,19 @@ holds it: a delayed open runs `menu-pop-in` from the panel's bottom edge, a
 keyboard open and the next tip in a run run nothing, and under reduced motion
 no frame is partway.
 
+**The command palette fades up.** ⌘K's centred dialog rises through the page:
+from transparent, 10px below its place and at 98.5% of its size, scaled from
+its own centre, while its scrim fades in (`palette-rise` and `palette-scrim` in
+`global.css`). Both run on `--dur-base` with `--ease-out` — 150ms at a desk,
+200ms on touch — one rung slower than a hover, so the arrival can be seen: the
+owner's choice of 2026-11-10 (englishstreetventures/osn#2164), "a bit slower
+than the fast rung", taken from a rendered comparison. It has no exit: a box
+holding live controls closes at once, so the palette and its scrim leave in
+one frame. Under reduced motion the global switch zeroes both, and it appears
+at once. `tests/components/CommandPalette.browser.test.tsx` holds the first
+frame (below its place, no sideways offset, opacity under 1), the clock, the
+one-frame exit and the reduced-motion case.
+
 **A disclosure grows open and closes at once.** As a `<details>` opens, its box
 grows from the summary row to its full height while the body drops 4px and
 fades in, all on `::details-content`; it closes instantly, because a fading
