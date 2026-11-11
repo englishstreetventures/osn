@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-11
 ---
 
 # TOTP (RFC 6238) second factor
@@ -351,8 +351,9 @@ one, or mint a step-up token. Each needs a fresh ceremony.
 
 What a stolen access token **plus** a cloud-synced authenticator seed can do: add
 a passkey, generate recovery codes, delete or export the account, acknowledge
-security events. All of those already accept an emailed OTP, so admitting TOTP
-does not widen them.
+security events (an `email_changed` event only once its 7-day hold ends, by any
+factor — [[step-up#Threat model]]). All of those already accept an emailed OTP,
+so admitting TOTP does not widen them.
 
 What it cannot do **directly** is delete the victim's existing passkeys or change
 the account email. Neither `passkeyDeleteAllowedAmr` nor `emailChangeAllowedAmr`

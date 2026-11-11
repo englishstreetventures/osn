@@ -2198,6 +2198,76 @@ describe("auth routes", () => {
       expect(changed[0]!.uaLabel).toBe("Firefox on macOS");
     });
 
+    it("a fresh email_changed event is held: 403 email_change_held alone, left by ack-all", async () => {
+      const { app: freshApp, accessToken, captured } = await setupWithStepUp();
+      const request = await confirmedChange(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "ec-route-held@example.com",
+      );
+      const changeToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "email_change",
+      );
+      const completeRes = await completeEmailChangeThroughRoutes(
+        freshApp,
+        accessToken,
+        request.requestId,
+        request.claimSecret,
+        changeToken,
+      );
+      expect(completeRes.status).toBe(200);
+      const list = async () => {
+        const res = await freshApp.handle(
+          new Request("http://localhost/account/security-events", {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }),
+        );
+        return (
+          (await res.json()) as { events: Array<{ id: string; kind: string; createdAt: number }> }
+        ).events;
+      };
+      const event = (await list()).find((e) => e.kind === "email_changed")!;
+
+      const ackToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "security_event_ack",
+      );
+      const single = await freshApp.handle(
+        new Request(`http://localhost/account/security-events/${event.id}/ack`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ step_up_token: ackToken }),
+        }),
+      );
+      expect(single.status).toBe(403);
+      expect(await single.json()).toEqual({
+        error: "email_change_held",
+        holdEndsAt: event.createdAt + 7 * 24 * 60 * 60,
+      });
+
+      const allToken = await mintStepUp(
+        freshApp,
+        accessToken,
+        captured.recorded,
+        "security_event_ack",
+      );
+      const all = await freshApp.handle(
+        new Request("http://localhost/account/security-events/ack-all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ step_up_token: allToken }),
+        }),
+      );
+      expect(all.status).toBe(200);
+      expect((await list()).map((e) => e.id)).toContain(event.id);
+    });
+
     it("POST /account/email/:requestId/complete fails without a step-up token", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
       const request = await confirmedChange(

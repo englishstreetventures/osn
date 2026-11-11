@@ -291,9 +291,19 @@ describe("security-event acknowledgements on D1", () => {
     );
     expect(repeat.acknowledged).toBe(false);
 
+    // An `email_changed` row inside its 7-day hold, which ack-all leaves.
+    await db.insert(securityEvents).values({
+      id: "sev_d1d1d1d1d1d1",
+      accountId: profile.accountId,
+      kind: "email_changed",
+      createdAt: Math.floor(Date.now() / 1000) - 60,
+      acknowledgedAt: null,
+    });
     const rest = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
     const all = await run(auth.acknowledgeAllSecurityEvents(profile.accountId, rest));
     expect(all.acknowledged).toBe(1);
+    const left = await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
+    expect(left.events.map((e) => e.id)).toEqual(["sev_d1d1d1d1d1d1"]);
   });
 });
 
