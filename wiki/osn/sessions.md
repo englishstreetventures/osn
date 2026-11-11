@@ -80,7 +80,7 @@ Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. Every insert of a new ses
 |---|---|
 | `GET /sessions` | List the caller's active sessions with coarse UA labels + timestamps, flagging the caller's device: every session in the family of the session the cookie names, live or rotated out |
 | `DELETE /sessions/:id` | Revoke a device by the 16-hex public handle (first 16 chars of SHA-256 hash) of one of its sessions: every session of that session's family |
-| `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's own device (the family of its current session), delete the account's OIDC authorization codes in flight, then end the account's cire organiser sessions |
+| `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's own device (the family of the live session its cookie names, or with no cookie the one its access token's `osn_sid` names; `409 session_stale` when neither names one), delete the account's OIDC authorization codes in flight, then end the account's cire organiser sessions |
 
 All endpoints authenticate via `Authorization: Bearer <access_token>` and resolve `accountId` server-side. A session handle from account A's log cannot be replayed to revoke a session in account B — the DELETE is scoped to the caller's own account.
 
