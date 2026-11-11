@@ -295,7 +295,9 @@ Unit: mock `@shared/toast`. Two shared factories exist —
 factory answers an empty `toasts()`, so an undo toast there has no life and
 its delete is sent at once; the window itself is held against the real store
 by `cire/host/tests/lib/undo-delete.browser.test.tsx` and the three
-`*.undo.browser.test.tsx` suites in `cire/host/tests/components/`.
+`*.undo.browser.test.tsx` suites in `cire/host/tests/components/`, and against
+the real API by the `cire-checklist-starter` E2E flow, which takes one task
+back, lets one toast run out and leaves the page with a third delete up.
 
 A host browser suite cannot import that factory and writes its own inline.
 Every one includes `toasts: () => []`: `lib/undo-delete.ts` imports `toasts`,
