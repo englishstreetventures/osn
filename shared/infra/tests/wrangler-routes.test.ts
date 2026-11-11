@@ -51,6 +51,11 @@ function routePatterns(value: unknown): string[] {
   });
 }
 
+/** Each config's route patterns, read once. */
+const ROUTES: ReadonlyMap<string, readonly string[]> = new Map(
+  CONFIGS.map((config) => [config, routePatterns(parse(config))]),
+);
+
 /** Whether a route pattern's host part, `*` matching anything, takes `host`. */
 const takes = (pattern: string, host: string): boolean => {
   const hostPart = pattern.split("/")[0] ?? "";
@@ -68,7 +73,7 @@ describe("PS8: the Wrangler-deployed Workers' routes", () => {
         "zap/api/wrangler.toml",
       ]),
     );
-    expect(CONFIGS.flatMap((config) => routePatterns(parse(config))).toSorted()).toEqual(
+    expect([...ROUTES.values()].flat().toSorted()).toEqual(
       expect.arrayContaining([
         "api.cireweddings.com",
         "id.musubi.social",
@@ -91,21 +96,30 @@ describe("PS8: the Wrangler-deployed Workers' routes", () => {
   test.each(SITE_SURFACES.map((site) => [site, productionHost(site)] as const))(
     "%s: none takes %s",
     (_, host) => {
-      for (const config of CONFIGS) {
-        const taking = routePatterns(parse(config)).filter((pattern) => takes(pattern, host));
+      for (const [config, routes] of ROUTES) {
+        const taking = routes.filter((pattern) => takes(pattern, host));
         expect({ config, taking }).toEqual({ config, taking: [] });
       }
     },
   );
 
-  test("each config it reads is an input of the cached `test:repo` task, so a change to one reruns it", () => {
+  test("every config, and any added later, is an input of the cached `test:repo` task, so a change to one reruns it", () => {
     const turbo = Bun.JSONC.parse(readFileSync(`${ROOT}shared/infra/turbo.json`, "utf8")) as {
       tasks: { "test:repo": { inputs: string[] } };
     };
-    const inputs = turbo.tasks["test:repo"].inputs
+    const globs = turbo.tasks["test:repo"].inputs
       .filter((input) => /wrangler\.(toml|jsonc|json)$/.test(input))
-      .map((input) => input.replace("$TURBO_ROOT$/", ""))
-      .toSorted();
-    expect(inputs).toEqual(CONFIGS);
+      .map((input) => input.replace("$TURBO_ROOT$/", ""));
+    expect(globs.toSorted()).toEqual([
+      "**/*wrangler.json",
+      "**/*wrangler.jsonc",
+      "**/*wrangler.toml",
+    ]);
+    for (const config of CONFIGS) {
+      expect({ config, input: globs.some((glob) => new Bun.Glob(glob).match(config)) }).toEqual({
+        config,
+        input: true,
+      });
+    }
   });
 });
