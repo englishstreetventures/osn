@@ -41,7 +41,7 @@ import { IconButton, TipLayer, TipNote } from "../../src/components/ActionTip";
  * 12. Escape is left for whatever else listens: the layer never consumes it;
  * 13. an open after the pointer's delay pops in from the control's side, while
  *     a keyboard open and the next tip in a run show at once, and under reduced
- *     motion the delayed one is whole from its first frame.
+ *     motion no frame of the delayed one is partway.
  *
  * In the browser tier because what fails is real: pointer events, focus, the
  * stacking of a panel against a sticky bar, and where Kobalte's positioner puts

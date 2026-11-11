@@ -199,7 +199,7 @@ describe.each(EDITORS)("the unsaved-changes bar in $name", (editor) => {
     expect(discard()).toBeNull();
   });
 
-  it("is at rest at once under reduced motion, on no frame partway", async () => {
+  it("comes to rest under reduced motion on no frame partway", async () => {
     slowMotion();
     await commands.emulateMedia({ reducedMotion: "reduce" });
     await page.viewport(390, 844);
