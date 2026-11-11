@@ -178,20 +178,20 @@ The portals' ladder, value for value, in `global.css`:
 | The scroll cue leaving on the first scroll †                                         | 500ms                                                      | Tailwind's default                          | yes    |
 | The hero photo fading in once it loads †                                             | 700ms                                                      | Tailwind's default                          | yes    |
 | The closing band settling into or out of its cap, on a live resize across 1536px     | 500ms                                                      | `--ease-out`                                | yes    |
-| The unlock reveal after a claim (`src/designs/<pack>/UnlockReveal.motion.ts`) †      | classic: steps of 350–500ms and a 1.2s shimmer, cards 120ms apart; gala: 300–400ms and 1s, cards 80ms apart | arrivals on the house curve written as numbers in classic, on `cubic-bezier(0.16, 1, 0.3, 1)` in gala; the shimmer on `motion`'s `easeInOut`; the form leaves on `motion`'s `easeIn` | no     |
+| The unlock reveal after a claim (`unlock-rise` and `unlock-shimmer` in `src/styles/global.css`, ordered by `src/components/unlock-reveal.ts`) | classic: rises of 450–500ms and a 1.2s shimmer, a 200ms beat, cards 120ms apart after 150ms; gala: 350–400ms and 1s, a 150ms beat, cards 80ms apart after 100ms | the rises `--ease-out`; the shimmer one CSS `ease-in-out`, cut at its keyframes | yes    |
 | A swipe between the sheet's panels settling (`SETTLE_SPRING`) †                      | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel settles in about 0.4s | —        | no     |
 | The envelope opening (`@cire/envelope`)                                              | its own timeline: `wiki/cire/cire-envelope.md` §Taps, timeline and breaks | —                    | —      |
 
 † Breaks a rule (Known breaches, below). The row records what ships, not the
 house look, and new motion copies none of it.
 
-The unlock reveal and the swipe's spring are the two moves on the `motion`
-library. The reveal fades the code form away, brings the welcome in with a
-shimmer on its heading, then lifts the events section and its cards one by
-one. The scroll cue, the card's mark, the sheet and the swipe are described
-with their tests in
-`wiki/cire/cire-invite-designs.md` (§The hero scroll cue, §Event card states,
-§The event sheet); the reveal's guards against a blank or flashing invite in
+The swipe's spring is the one move on the `motion` library. The unlock reveal
+closes the code form at once, brings the welcome in with a shimmer on its
+heading, then lifts the events section and its cards one by one. The scroll
+cue, the card's mark, the sheet, the swipe and the reveal are described with
+their tests in `wiki/cire/cire-invite-designs.md` (§The hero scroll cue,
+§Event card states, §The event sheet, §Corners, labels and motion); the
+reveal's guards against a blank or flashing invite in
 `wiki/shared/frontend-patterns.md` §Rendering and animation gotchas.
 
 In progress under englishstreetventures/osn#2175: the dietary picker, the gift
@@ -203,8 +203,8 @@ opening pop.
 - **A box that holds live controls closes at once.** `Reveal` (`@cire/ui`)
   drops its content the moment it closes, and the empty wrapper finishes
   closing behind it; a `Disclosure` closes at once; the link menus open and
-  close with no motion. `Modal`'s exit and the unlock reveal's form break this
-  rule (Known breaches, below).
+  close with no motion; the unlock reveal's code form leaves the layout before
+  anything rises. `Modal`'s exit breaks this rule (Known breaches, below).
 - **Nothing already open animates on first paint.** A `Reveal` that mounts open
   is open; a `Disclosure` open when it first paints does not fade; a reply on
   file loads with Respond already filled and ticked; the sheet's first panel
@@ -239,11 +239,6 @@ lands.
   (`src/components/EventCard.tsx`; `--animate-tick-draw` and
   `--animate-scroll-cue` in `src/styles/global.css`).
   englishstreetventures/osn#2197 puts each on a token and the scale.
-- **The unlock reveal runs on the `motion` library**, where motion is CSS
-  only; its gala arrivals run on `cubic-bezier(0.16, 1, 0.3, 1)`, which is no
-  token; and it fades the code form out over 350ms (300ms in gala), where a
-  box that holds live controls closes at once.
-  englishstreetventures/osn#2170 moves it to CSS under these rules.
 - **The swipe's settle spring runs on the `motion` library**, where motion is
   CSS only (`SETTLE_SPRING` in `src/components/sheet-swipe.ts`, started in
   `src/components/EventSheet.tsx`). It starts at the finger's speed, which a
@@ -286,7 +281,7 @@ A new pseudo-element animation or a script-driven motion needs a gate of its own
 ## 6. Design packs
 
 Each pack — `classic`, `gala` — owns its shell (`src/designs/<pack>/Document.astro`),
-its hero, its layout and its unlock reveal, and draws the shared pieces in
+its hero, its layout and its unlock reveal's timing, and draws the shared pieces in
 `src/components/`. Every pack imports this one stylesheet and declares no
 colour, corner or motion token of its own. Adding one:
 `wiki/cire/cire-invite-designs.md` §Adding a design.
