@@ -164,6 +164,22 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
+describe("RecoveryLoginForm — typed identifiers", () => {
+  it("asks phones not to capitalise any identifier field", () => {
+    mountFull();
+    openRecoveryCode();
+    expect(screen.getByLabelText(/Handle or email/i).getAttribute("autocapitalize")).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: /^Back$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    expect(
+      screen.getByLabelText(/Email address on the account/i).getAttribute("autocapitalize"),
+    ).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: /^Back$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+    expect(screen.getByLabelText(/Handle or email/i).getAttribute("autocapitalize")).toBe("none");
+  });
+});
+
 describe("RecoveryLoginForm — recovery code", () => {
   it("submit button is disabled until both fields are populated", () => {
     mountFull();

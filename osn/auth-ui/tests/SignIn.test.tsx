@@ -100,6 +100,13 @@ describe("SignIn component", () => {
     cleanup();
   });
 
+  it("asks phones not to capitalise the typed identifier", () => {
+    render(() => (
+      <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} productName="Musubi" />
+    ));
+    expect(screen.getByLabelText(/Email or @handle/).getAttribute("autocapitalize")).toBe("none");
+  });
+
   describe("WebAuthn login (passkey or security key)", () => {
     it("happy path: begin → WebAuthn → complete → adoptSession", async () => {
       login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });

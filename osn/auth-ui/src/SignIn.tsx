@@ -216,6 +216,7 @@ export function SignIn(props: SignInProps) {
                   type="text"
                   required
                   autocomplete="username webauthn"
+                  autocapitalize="none"
                   spellcheck={false}
                   value={identifier()}
                   onInput={(e) => setIdentifier(e.currentTarget.value)}

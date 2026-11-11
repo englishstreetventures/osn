@@ -751,6 +751,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             {(field) => (
               <Input
                 autocomplete="username"
+                autocapitalize="none"
                 spellcheck={false}
                 value={identifier()}
                 onInput={(e) => setIdentifier(e.currentTarget.value)}
@@ -799,6 +800,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               <Input
                 type="email"
                 autocomplete="email"
+                autocapitalize="none"
                 value={email()}
                 onInput={(e) => setEmail(e.currentTarget.value)}
                 required
@@ -859,6 +861,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             {(field) => (
               <Input
                 autocomplete="username"
+                autocapitalize="none"
                 spellcheck={false}
                 value={identifier()}
                 onInput={(e) => setIdentifier(e.currentTarget.value)}
