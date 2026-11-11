@@ -168,6 +168,8 @@ POST /recovery/generate
   Body: { step_up_token: "<jwt>" }   (or the x-step-up-token header)
   → 200 { recoveryCodes: [ "xxxx-xxxx-xxxx-xxxx", ... × 10 ] }
   → 403 { error: "step_up_required" }  when the token is missing or stale
+  → 409 { error: "session_stale" }     when the caller holds no live session
+                                        (checked first; spends nothing)
   Rate limited: 10/hour/IP (recoveryGenerate)
 ```
 
