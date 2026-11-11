@@ -256,25 +256,20 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
     expect(h.codeIds()).toEqual(["code_bob"]);
   });
 
-  it.each([
-    [
-      "no Authorization header",
-      (cookie: string) =>
-        new Request("http://localhost/sessions/revoke-all-other", {
-          method: "POST",
-          headers: { Cookie: cookie },
-        }),
-      401,
-    ],
-  ] as const)("sends nothing to cire for a request with %s", async (_, build, status) => {
+  it("sends nothing to cire for a request with no Authorization header", async () => {
     const h = setup();
     const ada = await h.register("ada@example.com", "ada");
     h.grantConsent(ada.accountId, ada.profileId, CIRE_CLIENT_ID);
     const calls = fakeCire();
 
-    const res = await h.send(build(ada.cookie, ada.accessToken));
+    const res = await h.send(
+      new Request("http://localhost/sessions/revoke-all-other", {
+        method: "POST",
+        headers: { Cookie: ada.cookie },
+      }),
+    );
 
-    expect(res.status).toBe(status);
+    expect(res.status).toBe(401);
     expect(calls).toEqual([]);
   });
 
