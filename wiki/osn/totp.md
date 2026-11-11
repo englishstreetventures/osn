@@ -236,7 +236,7 @@ factor. Which failure it actually was appears only on
 | Route | Step-up gate | Notes |
 |---|---|---|
 | `POST /totp/enroll/begin` | `totp_enroll` | Returns `otpauthUri` + `totpSecret`, once, under `Cache-Control: no-store`. 409 if a confirmed credential exists. |
-| `POST /totp/enroll/complete` | none | `begin` carried the gate, and the pending secret only exists because a gated `begin` created it. |
+| `POST /totp/enroll/complete` | none | `begin` carried the gate, and the pending secret only exists because a gated `begin` created it. The caller's session must still be live, or the answer is `409 session_stale` and the pending secret stays ([[sessions#Access-token session binding (`osn_sid`)]]). |
 | `DELETE /totp` | `totp_disable` | Idempotent. Writes the security event, sends the notice. |
 | `GET /totp/status` | none | `enrolled`, `label`, `lastUsedAt`, `createdAt`. Never the secret, the ciphertext or the step. |
 | `POST /step-up/totp/complete` | none | Exchanges a code for a step-up token with `amr: ["totp"]`. |

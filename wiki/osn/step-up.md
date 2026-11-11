@@ -63,9 +63,10 @@ widen by accident:
 > At `passkey_delete` the rest of the account's passkeys then go; the
 > last-passkey guard needs only one survivor and the new credential is one. At
 > `email_change` the second factor is a link to the **new** address, which the
-> caller chose — `POST /account/email/begin` is gated on the access token alone
-> — so the mailbox proof the narrow list was written for is not proof of the
-> *current* mailbox once the AMR arrived this way.
+> caller chose — `POST /account/email/begin` asks for no step-up, only an
+> access token and a live session — so the mailbox proof the narrow list was
+> written for is not proof of the *current* mailbox once the AMR arrived this
+> way.
 >
 > This is open to `otp` as much as to `totp`, and predates both TOTP and this
 > table. Closing it needs credential provenance — the AMR a passkey was
@@ -89,6 +90,19 @@ Three factors — a passkey, a link emailed to the account's own address and an 
 | `POST /step-up/email/:requestId/status` | `{ claimSecret }`: `pending`, `expired`, or, once the link is confirmed with the typed number, `complete` with `{ step_up_token, expires_in }` — once |
 | `POST /step-up/email/:requestId/resend` | Another link for the same request |
 | `POST /step-up/totp/complete` | Verifies a code from the account's authenticator app, returns `{ step_up_token, expires_in }` |
+
+**Every ceremony route needs a live session.** Each route in the table
+refuses a caller whose session has ended with `409 { error: "session_stale" }`
+before it writes a challenge, opens, reads or resends a link request, checks a
+code or mints a token. The caller's session cookie, or its access token's
+`osn_sid` binding, must name an unrestricted, unexpired session of the account
+([[sessions#Access-token session binding (`osn_sid`)]]). An access token
+outlives its session by up to five minutes; in that window it can mint no
+step-up token, overwrite no parked passkey challenge, mail the owner nothing
+and spend none of the account's daily step-up links. `POST /recovery/generate`,
+email change's complete and the passkey routes check the session again when
+they spend a step-up token; the other gates rely on the check at the mint, so a
+token minted while the session was live works there for its own five minutes.
 
 The emailed link signs nobody in: the page it opens confirms the request, and
 only the tab that began, signed in as the same account and holding the claim
