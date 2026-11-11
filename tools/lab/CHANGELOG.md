@@ -1,5 +1,16 @@
 # @tools/lab
 
+## 0.3.50
+
+### Patch Changes
+
+- 5bc7db4: Two `Dialog` stories in `shared/ui/overlays`: `DialogTitleWeight` sets the title weight token from a control, with an `unmapped` option that shows the 600 fallback, and `DialogFadeOnly` sets both scale tokens to 1, as a card or a sheet. The default `DialogStory` now unsets the title weight and both scale tokens, so it draws the contract's default whatever the lab's stylesheet maps.
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+  - @osn/auth-ui@4.5.1
+
 ## 0.3.49
 
 ### Patch Changes

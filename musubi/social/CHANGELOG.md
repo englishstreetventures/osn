@@ -1,5 +1,15 @@
 # @osn/social
 
+## 0.21.1
+
+### Patch Changes
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+  - @osn/auth-ui@4.5.1
+
 ## 0.21.0
 
 ### Minor Changes

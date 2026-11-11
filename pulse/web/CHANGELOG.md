@@ -1,5 +1,18 @@
 # @osn/pulse
 
+## 0.24.74
+
+### Patch Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+
 ## 0.24.73
 
 ### Patch Changes
