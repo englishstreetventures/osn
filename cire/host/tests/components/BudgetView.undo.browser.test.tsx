@@ -171,6 +171,30 @@ describe("deleting a budget line", () => {
     expect(deletes()).toEqual([]);
   });
 
+  it("takes a keyboard press of ✕ to Undo, and Undo back to the line's ✕", async () => {
+    mount();
+    await screen.findByText("Ceremony hire");
+    within(rowOf("Ceremony hire")).getByRole("button", { name: "Delete item" }).focus();
+
+    await userEvent.keyboard("{Enter}");
+
+    expect(names()).toEqual(["Reception venue", "Marquee"]);
+    const undo = within(toastOf("Ceremony hire")).getByRole("button", {
+      name: "Undo deleting “Ceremony hire”",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(undo));
+
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(names()).toEqual(["Reception venue", "Ceremony hire", "Marquee"]));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(rowOf("Ceremony hire")).getByRole("button", { name: "Delete item" }),
+      ),
+    );
+    expect(deletes()).toEqual([]);
+  });
+
   it("sends the DELETE once its toast has gone, and a reload meanwhile does not bring it back", async () => {
     mount();
     await screen.findByText("Ceremony hire");

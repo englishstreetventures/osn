@@ -182,6 +182,30 @@ describe("removing a gift", () => {
     expect(deletes()).toEqual([]);
   });
 
+  it("takes a keyboard press of ✕ to Undo, and Undo back to the gift's ✕", async () => {
+    mount();
+    await screen.findByText("Wine fridge");
+    screen.getByRole("button", { name: "Remove Wine fridge" }).focus();
+
+    await userEvent.keyboard("{Enter}");
+
+    expect(titles()).toEqual(["Copper pan", "Kettle"]);
+    const undo = within(toastOf("Wine fridge")).getByRole("button", {
+      name: "Undo removing “Wine fridge”",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(undo));
+
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(titles()).toEqual(["Copper pan", "Wine fridge", "Kettle"]));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Remove Wine fridge" }),
+      ),
+    );
+    expect(deletes()).toEqual([]);
+  });
+
   it("sends the DELETE once its toast has gone, and a reload meanwhile does not bring it back", async () => {
     mount();
     await screen.findByText("Wine fridge");
