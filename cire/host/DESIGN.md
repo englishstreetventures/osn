@@ -585,7 +585,7 @@ this package by design**.
 ```css
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
 --dur-base: calc(200ms * var(--motion-scale)); /* a panel's height, a pill slide */
---dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a view arriving */
+--dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal */
 --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
@@ -676,15 +676,13 @@ these should run a little slower than the compare page's defaults so people can
 feel them. Choose the rung per child, by eye"). `ModuleShell`'s measured box
 carries `view-arrive`, and the first change of module or sub-tab sets
 `data-swapped` on it. From then on each child the box gains fades from opacity 0
-to 1 on `--dur-slow` with `--ease-out`: a view a change mounts, and a view
+to 1 on `--dur-base` with `--ease-out`: a view a change mounts, and a view
 taking over from its `Suspense` fallback. Each view is one element in the box,
 so the states a view swaps inside itself — its own loading row giving way to
 its rows — arrive at once; the shell holds the run sheet, whose root is a
-`Switch`, in one plain element for this. englishstreetventures/osn#2169 picked
-the rung under the "a little slower" note, and the owner has yet to watch it
-moving beside `--dur-base`: `--dur-slow` (200ms at a desk, 320ms on touch) is
-one rung above `--dur-base` and above the panel's height, so the frame settles
-and the view finishes arriving into it. Opacity only, so nothing fights the
+`Switch`, in one plain element for this. The owner chose the rung on
+2026-11-11: `--dur-base` (150ms at a desk, 200ms on touch), one rung below
+`--dur-slow`. Opacity only, so nothing fights the
 height; the view it replaces goes at once, because a fading view keeps its
 controls focusable in a box that is going away. The panel the page opens on
 never fades, because `data-swapped` is not set until the first change. The fade

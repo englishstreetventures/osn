@@ -1098,7 +1098,7 @@
 @utility view-arrive {
   @media (prefers-reduced-motion: no-preference) {
     &[data-swapped] > * {
-      transition: opacity var(--dur-slow) var(--ease-out);
+      transition: opacity var(--dur-base) var(--ease-out);
 
       @starting-style {
         opacity: 0;
