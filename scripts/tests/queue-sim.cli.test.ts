@@ -58,6 +58,8 @@ let next = 0;
 interface Repo {
   /** The clone the script runs in, standing in for a worktree. */
   readonly work: string;
+  /** The bare repository the clone calls `origin`, standing in for GitHub. */
+  readonly origin: string;
   /** A TMPDIR of the case's own, so a scratch directory left behind shows. */
   readonly tmp: string;
   /** Write `content` to `file` on `branch` (checked out from `from` when new), commit and push it. */
@@ -83,6 +85,7 @@ function repo(): Repo {
 
   return {
     work,
+    origin,
     tmp,
     commit(branch, file, content, from) {
       const exists =
@@ -185,11 +188,17 @@ describe("queue-sim.sh", () => {
     expect(exitCode).toBe(1);
   });
 
-  test("it moves no ref, changes no file and leaves no worktree, after a pass and after a conflict", async () => {
+  test("it moves no branch, changes no file and touches no worktree, after a pass and after a conflict", async () => {
     const r = repo();
     stack(r);
     git(r.work, "checkout", "-q", "feat/b");
     writeFileSync(join(r.work, "uncommitted.txt"), "someone's work\n");
+    // Another session's worktree whose directory is gone for the moment:
+    // git lists it as prunable, and a cleanup that prunes would forget it.
+    const away = join(r.tmp, "..", "away");
+    git(r.work, "worktree", "add", "-q", "-b", "elsewhere", away, "main");
+    rmSync(away, { recursive: true, force: true });
+    expect(git(r.work, "worktree", "list", "--porcelain")).toContain("prunable");
     const before = snapshot(r.work);
 
     const pass = await run(r, ["feat/a", "feat/b", "feat/c"]);
@@ -231,6 +240,54 @@ describe("queue-sim.sh", () => {
     expect(verdicts(output)).toEqual([]);
     expect(snapshot(r.work)).toBe(before);
     expect(readdirSync(r.tmp)).toEqual([]);
+  });
+
+  test("a branch the remote has deleted since the last fetch is refused, not replayed from its stale ref", async () => {
+    const r = repo();
+    r.commit("feat/a", "a.txt", "a\n");
+    expect((await run(r, ["feat/a"])).exitCode).toBe(0);
+    // Deleted on the remote, as GitHub deletes a merged branch; the clone
+    // keeps its tracking ref until something fetches it.
+    git(r.origin, "branch", "-q", "-D", "feat/a");
+
+    const fetched = await run(r, ["feat/a"]);
+    expect(fetched.exitCode).toBe(2);
+    expect(fetched.output).toContain("feat/a");
+    expect(verdicts(fetched.output)).toEqual([]);
+
+    // --no-fetch says it reads the refs on disk, and does.
+    const onDisk = await run(r, ["--no-fetch", "feat/a"]);
+    expect(verdicts(onDisk.output)).toEqual(["OK feat/a"]);
+    expect(onDisk.exitCode).toBe(0);
+  });
+
+  test("a layer that shares no history with its base is refused, never OK", async () => {
+    const r = repo();
+    git(r.work, "checkout", "-q", "--orphan", "feat/orphan");
+    git(r.work, "rm", "-q", "-rf", ".");
+    writeFileSync(join(r.work, "alone.txt"), "alone\n");
+    git(r.work, "add", "-A");
+    git(r.work, "commit", "-q", "-m", "orphan");
+    git(r.work, "push", "-q", "origin", "feat/orphan");
+    git(r.work, "checkout", "-q", "main");
+
+    const { exitCode, output } = await run(r, ["feat/orphan"]);
+
+    expect(exitCode).toBe(2);
+    expect(output).toContain("feat/orphan");
+    expect(verdicts(output)).toEqual([]);
+    expect(readdirSync(r.tmp)).toEqual([]);
+  });
+
+  test("a branch argument that is not a plain branch name is refused before git sees it", async () => {
+    const r = repo();
+    r.commit("feat/a", "a.txt", "a\n");
+
+    const { exitCode, output } = await run(r, ["feat/a..main"]);
+
+    expect(exitCode).toBe(2);
+    expect(output).toContain("not a plain branch name");
+    expect(verdicts(output)).toEqual([]);
   });
 
   test("no arguments prints the usage and exits 2", async () => {
@@ -341,6 +398,61 @@ if [ "\${1:-}" = --jq ]; then jq -r "$2" "$file"; else cat "$file"; fi
       expect(output).toMatch(/feat\/a\s+\(#21\)/);
       expect(output).toMatch(/feat\/c\s+\(#23\)/);
       expect(exitCode).toBe(1);
+    });
+
+    test("a branch name from GitHub that is not a plain branch name is refused before git sees it", async () => {
+      const r = repo();
+      r.commit("feat/a", "a.txt", "a\n");
+      const env = fakeGh(r, {
+        "repos/acme/app/pulls/13": pull(13, "feat/a..main", "main", null),
+        "repos/acme/app/pulls/14": pull(14, "--upload-pack=touch", "main", null),
+      });
+
+      for (const pr of ["13", "14"]) {
+        const { exitCode, output } = await run(r, [pr], env);
+        expect(exitCode).toBe(2);
+        expect(output).toContain("not a plain branch name");
+        expect(verdicts(output)).toEqual([]);
+      }
+      expect(readdirSync(r.tmp)).toEqual([]);
+    });
+
+    test("a pull request gh cannot read exits 2, naming it", async () => {
+      const r = repo();
+      const env = fakeGh(r, {});
+
+      const { exitCode, output } = await run(r, ["99"], env);
+
+      expect(exitCode).toBe(2);
+      expect(output).toContain("#99");
+      expect(verdicts(output)).toEqual([]);
+    });
+
+    test("--stack whose base branch has no open pull request exits 2, naming the branch", async () => {
+      const r = repo();
+      stack(r);
+      const env = fakeGh(r, { "repos/acme/app/pulls/22": pull(22, "feat/b", "feat/a", 7) });
+
+      const { exitCode, output } = await run(r, ["--stack", "22"], env);
+
+      expect(exitCode).toBe(2);
+      expect(output).toContain("feat/a");
+      expect(verdicts(output)).toEqual([]);
+    });
+
+    test("--stack whose base branches point at each other exits 2 instead of walking forever", async () => {
+      const r = repo();
+      const env = fakeGh(r, {
+        "repos/acme/app/pulls/31": pull(31, "feat/x", "feat/y", 9),
+        "repos/acme/app/pulls?state=open&head=acme:feat/y": [pull(32, "feat/y", "feat/x", 9)],
+        "repos/acme/app/pulls?state=open&head=acme:feat/x": [pull(31, "feat/x", "feat/y", 9)],
+      });
+
+      const { exitCode, output } = await run(r, ["--stack", "31"], env);
+
+      expect(exitCode).toBe(2);
+      expect(output).toMatch(/loop back/);
+      expect(verdicts(output)).toEqual([]);
     });
 
     test("--stack on a pull request in no registered stack exits 2", async () => {

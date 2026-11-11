@@ -24,11 +24,14 @@
 # carries them, as the queue would see it once GitHub retargets it to `main`.
 #
 # Exit 0: every layer applies. Exit 1: a layer conflicts. Exit 2: a bad
-# argument, a branch the remote does not have, or a gh lookup that failed.
+# argument or branch name, a branch the remote does not have (or a fetch that
+# failed), a layer with no history in common with its base, or a gh lookup
+# that failed.
 #
-# Read-only: it fetches the refs it reads into refs/remotes/<remote>/, and
-# moves no other ref, writes no config and leaves no worktree. Its commits are
-# made in a detached scratch worktree under $TMPDIR, removed on exit.
+# Read-only: it refreshes the remote-tracking refs it reads
+# (refs/remotes/<remote>/<branch>; --no-fetch skips that), and moves no branch,
+# writes no config and touches no other worktree. Its commits are made in a
+# detached scratch worktree under $TMPDIR, removed on exit.
 # QUEUE_SIM_REPO (default englishstreetventures/osn), QUEUE_SIM_REMOTE (origin)
 # and QUEUE_SIM_TRUNK (main) change the defaults.
 set -u
@@ -88,10 +91,17 @@ pull_line() {
   gh api "repos/$repo/pulls/$1" --jq '[.number, .head.ref, .base.ref, (.stack.number // "")] | @tsv' 2>/dev/null
 }
 
+# A branch name from GitHub reaches no command, not even a gh query, unchecked.
+checked() {
+  valid_ref "$1" || die "not a plain branch name: $1"
+}
+
 if [ -n "$stack_pr" ]; then
   line=$(pull_line "$stack_pr") || die "gh could not read pull request #$stack_pr"
   IFS=$'\t' read -r number head base stack_number <<<"$line"
   [ -n "$stack_number" ] || die "#$stack_pr is not in a registered stack; list its pull requests instead"
+  checked "$head"
+  checked "$base"
   heads=("$head")
   bases=("$base")
   prs=("$number")
@@ -102,6 +112,12 @@ if [ -n "$stack_pr" ]; then
       --jq '.[0] | [.number, .head.ref, .base.ref] | @tsv' 2>/dev/null) || line=""
     IFS=$'\t' read -r number head base <<<"$line"
     [ -n "${number:-}" ] && [ "$number" != null ] || die "no open pull request has $below as its head"
+    checked "$head"
+    checked "$base"
+    for seen in "${heads[@]}"; do
+      [ "$seen" != "$base" ] || die "the base branches of #$stack_pr's stack loop back to $base"
+    done
+    [ ${#heads[@]} -lt 20 ] || die "#$stack_pr's stack is more than 20 deep; list its pull requests instead"
     heads=("$head" "${heads[@]}")
     bases=("$base" "${bases[@]}")
     prs=("$number" "${prs[@]}")
@@ -114,6 +130,12 @@ if [ -n "$stack_pr" ]; then
       2>/dev/null) || die "gh could not list the pull requests based on $top"
     [ -n "$line" ] || break
     IFS=$'\t' read -r number head base <<<"$line"
+    checked "$head"
+    checked "$base"
+    for seen in "${heads[@]}"; do
+      [ "$seen" != "$head" ] || die "the pull requests above #$stack_pr loop back to $head"
+    done
+    [ ${#heads[@]} -lt 20 ] || die "#$stack_pr's stack is more than 20 deep; list its pull requests instead"
     heads+=("$head")
     bases+=("$base")
     prs+=("$number")
@@ -130,6 +152,8 @@ else
       *)
         line=$(pull_line "$arg") || die "gh could not read pull request #$arg"
         IFS=$'\t' read -r number head base _ <<<"$line"
+        checked "$head"
+        checked "$base"
         heads+=("$head")
         bases+=("$base")
         prs+=("$number")
@@ -144,13 +168,13 @@ for ref in "$trunk" "${heads[@]}" "${bases[@]}"; do
 done
 
 if [ -n "$fetch" ]; then
-  refspecs=()
+  # One fetch per ref, so a missing branch is named rather than failing them
+  # all. A failed fetch stops the run: replaying a branch the remote has
+  # deleted from its stale tracking ref would answer for a stack that no
+  # longer exists.
   for ref in "$trunk" "${heads[@]}" "${bases[@]}"; do
-    refspecs+=("+refs/heads/$ref:refs/remotes/$remote/$ref")
-  done
-  # One fetch per ref, so a missing branch is named rather than failing them all.
-  for spec in "${refspecs[@]}"; do
-    git fetch --no-tags -q "$remote" "$spec" 2>/dev/null || true
+    git fetch --no-tags -q "$remote" "+refs/heads/$ref:refs/remotes/$remote/$ref" 2>/dev/null \
+      || die "cannot fetch $ref from $remote: it has no such branch, or the fetch failed (--no-fetch reads the refs on disk)"
   done
 fi
 
@@ -160,11 +184,17 @@ for ref in "$trunk" "${heads[@]}" "${bases[@]}"; do
 done
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/queue-sim.XXXXXX") || die "cannot make a scratch directory"
-tree="$scratch/tree"
+scratch=$(cd "$scratch" && pwd -P)
+tree="$scratch/$(basename "$scratch")"
+admin="$(git rev-parse --path-format=absolute --git-common-dir)/worktrees/$(basename "$tree")"
+# Removes this run's worktree and nothing else: a `git worktree prune` would
+# also forget any other worktree whose directory is missing at that moment.
 # shellcheck disable=SC2329 # runs from the EXIT trap below
 cleanup() {
   git worktree remove --force "$tree" >/dev/null 2>&1
-  git worktree prune >/dev/null 2>&1
+  if [ -f "$admin/gitdir" ]; then
+    case "$(cat "$admin/gitdir")" in "$scratch"/*) rm -rf "${admin:?}" ;; esac
+  fi
   rm -rf "${scratch:?}"
 }
 trap cleanup EXIT
@@ -187,7 +217,8 @@ for i in "${!heads[@]}"; do
     continue
   fi
   patch="$scratch/layer-$i.patch"
-  git diff --binary "refs/remotes/$remote/${bases[$i]}...refs/remotes/$remote/${heads[$i]}" >"$patch"
+  git diff --binary "refs/remotes/$remote/${bases[$i]}...refs/remotes/$remote/${heads[$i]}" >"$patch" 2>/dev/null \
+    || die "cannot diff ${heads[$i]} against ${bases[$i]}: they share no history"
   if [ ! -s "$patch" ]; then
     printf 'OK        %s (no changes)\n' "$name"
     continue
