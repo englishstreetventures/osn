@@ -11,7 +11,9 @@
  * tokens at 1 every panel fades without moving, the anchored panels grow
  * from their trigger, a reader who
  * asked for reduced motion sees none, and closing a panel from the keyboard
- * still hands focus back to its trigger. Only a real engine resolves a
+ * still hands focus back to its trigger. One guarantee depends on the values:
+ * with nothing set, an exit runs the curve its entry does, which keeps the
+ * two curve tokens' defaults equal. Only a real engine resolves a
  * computed style or runs an animation, so none of it can sit in the unit tier.
  *
  * A tooltip's open and close timing is in `tooltip-timing.browser.test.tsx`,
@@ -282,10 +284,12 @@ describe("an overlay's curve", () => {
   const ODD_CURVE = "cubic-bezier(0.5, 0, 0.5, 1)";
 
   for (const overlay of EXITING) {
-    it(`${overlay.name}: leaves on --ui-ease-exit, which unset is the curve it arrives on`, async () => {
+    // With both tokens on one curve, this case cannot tell which token the
+    // exit reads; the two cases after it can. It holds the two defaults
+    // equal, so a contract that gives exits a curve of their own fails here.
+    it(`${overlay.name}: with nothing set, leaves on the curve it arrives on`, async () => {
       const { enter, exit } = await cycle(overlay);
-      expect(exit!.easing).toBe(rootEasing("--ui-ease-exit"));
-      expect(exit!.easing).toBe(enter!.easing);
+      expect(exit!.easing, "the exit's default curve is not the entry's").toBe(enter!.easing);
     });
 
     it(`${overlay.name}: keeps its exit curve when only --ui-ease-out is set`, async () => {
