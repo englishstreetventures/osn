@@ -573,7 +573,8 @@ Alchemy prints its plan as text only: a `Plan:` line of counts, then one `[<FQN>
 A plan line reads `update` whatever an update changes, so the text cannot show a Worker gaining or losing a custom domain. The CLI therefore also takes `--domains <file>`, required: the hosts each of the stack's site Workers holds now, which `scripts/worker-deployments.ts domains` reads with the production token (`GET /accounts/{id}/workers/domains?service=<worker>`; none for a Worker that does not exist yet). For each site it compares those with the host the product's declaration gives the site's Worker (`PRODUCTION_SITE_DOMAINS`, the values the stack hands Alchemy, not worked out again), and refuses, in every release:
 
 - a Worker giving up any host: its production host, another site's host, or one `PRODUCTION_HOSTS` does not name. A host comes off its Worker only by hand, in the dashboard; when `PRODUCTION_HOST_HOLDS` holds it, the refusal says so;
-- a site Worker declared with a host `PRODUCTION_HOST_HOLDS` holds, whichever site it is and whether or not the Worker holds it now. The refusal names the host, the list, its file and the reason.
+- a site Worker declared with a host `PRODUCTION_HOST_HOLDS` holds, whichever site it is and whether or not the Worker holds it now. The refusal names the host, the list, its file and the reason;
+- with `--scheduled`, any host a Worker would gain. Each guard step passes it when the release started by its schedule (`github.event_name == 'schedule'`, which a re-run keeps), so the daily release never adds a host; adding one, a held host coming back or a site's first attach, takes a release dispatched by hand, where only the approver reads **Domains added**.
 
 Reading the declaration rather than the list is what makes the second refusal a check: a declaration that ignored a hold would still be refused. The run summary also lists the stack's held hosts under the domain table.
 

@@ -365,6 +365,20 @@ export function holdRefusals(
   });
 }
 
+/**
+ * A scheduled release adds no host to a site Worker: each host a Worker
+ * would gain is refused, so a host comes back, or is first attached, only in
+ * a release someone dispatched by hand.
+ */
+export function addedHostRefusals(changes: readonly DomainChange[]): string[] {
+  return changes.flatMap(({ site, added }) =>
+    added.map(
+      (host) =>
+        `${site}'s Worker would gain ${host}, and a scheduled release adds no host: dispatch Production release by hand to add it`,
+    ),
+  );
+}
+
 /** The kinds of a stack's production sites: each worker site is a Worker holding a domain. */
 export function productionSiteKinds(
   sites: Readonly<Partial<Record<SiteSurface, string>>>,
@@ -493,12 +507,13 @@ export interface PlanGuardCliInput {
 /**
  * The plan guard as a product's `plan:guard` script runs it: `--log <alchemy
  * log> --out <record.json> --domains <live domains.json> [--approved
- * <record.json>]`. `--domains` is what
- * `worker-deployments.ts domains` read for the stack's sites. Writes the
- * record to `--out` and a summary to $GITHUB_STEP_SUMMARY (the output when
- * unset). Exits 1 when the guard refuses the plan, its domain changes or a
- * held host, or when `--approved` names a record this one differs from; 2 on
- * bad arguments.
+ * <record.json>] [--scheduled]`. `--domains` is what
+ * `worker-deployments.ts domains` read for the stack's sites; `--scheduled`,
+ * which a release started by its schedule passes, refuses every host a Worker
+ * would gain. Writes the record to `--out` and a summary to
+ * $GITHUB_STEP_SUMMARY (the output when unset). Exits 1 when the guard
+ * refuses the plan, its domain changes or a held host, or when `--approved`
+ * names a record this one differs from; 2 on bad arguments.
  */
 export function runPlanGuardCli(input: PlanGuardCliInput): number {
   const args = input.argv.filter((arg) => arg !== "--");
@@ -543,6 +558,7 @@ export function runPlanGuardCli(input: PlanGuardCliInput): number {
     ...domains.problems,
     ...domainRefusals(domains.changes, holds),
     ...holdRefusals(input.declared, holds),
+    ...(args.includes("--scheduled") ? addedHostRefusals(domains.changes) : []),
   ];
   const record = planRecord({
     stack: input.stack,

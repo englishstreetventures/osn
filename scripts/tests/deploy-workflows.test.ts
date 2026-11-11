@@ -1322,6 +1322,8 @@ const PRODUCTION_CREDENTIALS = {
   CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}",
 } as const;
 const ON_DEPLOY = "${{ !cancelled() && steps.deploy.outcome != 'skipped' }}";
+/** What each guard step reads to know a scheduled run: `yes` on one, empty otherwise. */
+const SCHEDULED_RUN = "${{ github.event_name == 'schedule' && 'yes' || '' }}";
 const sitesJob = production.jobs.sites!;
 const planJob = production.jobs["alchemy-plan"]!;
 
@@ -1452,13 +1454,14 @@ describe("PW2: alchemy-plan, the first approval, plans each shipping stack and g
       expect(plan?.run).toContain(`> "$RUNNER_TEMP/plan/${s.key}.log" 2>&1`);
       expect(plan?.run).not.toContain("tee");
       expect(guard?.["working-directory"]).toBe(`${s.key}/infra`);
-      expect(guard?.env).toBeUndefined();
-      const guarded = runStep(guard!, {}).bunCalls;
+      expect(guard?.env).toEqual({ SCHEDULED: SCHEDULED_RUN });
+      const guardedArgs = `^run plan:guard -- --log \\S+/plan/${s.key}\\.log --out \\S+/alchemy-plan/${s.key}\\.json --domains \\S+/domains-${s.key}\\.json`;
+      const guarded = runStep(guard!, { SCHEDULED: "" }).bunCalls;
       expect(guarded).toHaveLength(1);
-      expect(guarded[0]).toMatch(
-        new RegExp(
-          `^run plan:guard -- --log \\S+/plan/${s.key}\\.log --out \\S+/alchemy-plan/${s.key}\\.json --domains \\S+/domains-${s.key}\\.json$`,
-        ),
+      expect(guarded[0]).toMatch(new RegExp(`${guardedArgs}$`));
+      // GS5: a scheduled run tells the guard so, which refuses any added host.
+      expect(runStep(guard!, { SCHEDULED: "yes" }).bunCalls[0]).toMatch(
+        new RegExp(`${guardedArgs} --scheduled$`),
       );
       // The live custom domains the guard judges, read with the production pair.
       const domains = stepById(planJob, `worker_domains_${s.key}`);
@@ -1543,11 +1546,15 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(runStep(plan!, { FORCE: "yes" }).bunCalls).toEqual(["run plan:production --force"]);
       expect(runStep(plan!, { FORCE: "" }, 3).exitCode).not.toBe(0);
       expect(guard?.["working-directory"]).toBe(`${key}/infra`);
-      expect(guard?.env).toBeUndefined();
+      expect(guard?.env).toEqual({ SCHEDULED: SCHEDULED_RUN });
       const guarded = `^run plan:guard -- --log \\S+/plan/${key}\\.log --out \\S+/plan-guard/${key}\\.json --domains \\S+/domains\\.json --approved \\S+/approved/${key}\\.json`;
-      const plain = runStep(guard!, {}).bunCalls;
+      const plain = runStep(guard!, { SCHEDULED: "" }).bunCalls;
       expect(plain).toHaveLength(1);
       expect(plain[0]).toMatch(new RegExp(`${guarded}$`));
+      // GS5: a scheduled run tells the guard so, which refuses any added host.
+      expect(runStep(guard!, { SCHEDULED: "yes" }).bunCalls[0]).toMatch(
+        new RegExp(`${guarded} --scheduled$`),
+      );
       const domains = stepById(job, "worker_domains");
       expect(domains?.run).toBe(
         `bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production ${sites.join(" ")}`,

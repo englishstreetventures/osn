@@ -586,13 +586,19 @@ jobs:
         id: guard_cire
         if: needs.plan.outputs.stack_cire == 'true'
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       - name: Guard the musubi plan
         id: guard_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       - name: Keep the approved plans
         uses: actions/upload-artifact@v4
@@ -1135,7 +1141,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1377,7 +1386,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.

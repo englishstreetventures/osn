@@ -1187,11 +1187,12 @@ automatically once you attach them.
    each site Worker's domain on deploy: `www.musubi.social` for musubi landing,
    `vendor.cireweddings.com` for cire vendor, `host.cireweddings.com` for cire host, the
    apex `cireweddings.com` for cire landing and the apex `musubi.social` for musubi social,
-   each unless `PRODUCTION_HOST_HOLDS` holds it off (§5.8). No dashboard step. Before a
-   release first attaches one, or attaches a held host again, confirm nothing holds it:
-   `dig +short <host> A`, `AAAA` and `CNAME` answer nothing. Each is its zone's apex or
-   one label below it, so the zone's own certificate covers it and the smoke check's
-   minute is enough.
+   each unless `PRODUCTION_HOST_HOLDS` holds it off (§5.8). No dashboard step. Only a
+   release dispatched by hand attaches a host: the plan guard refuses a scheduled
+   release whose plan adds one (`--scheduled`). Before a release first attaches one, or
+   attaches a held host again, confirm nothing holds it: `dig +short <host> A`, `AAAA`
+   and `CNAME` answer nothing. Each is its zone's apex or one label below it, so the
+   zone's own certificate covers it and the smoke check's minute is enough.
 3. **Re-check the allowlists** once the domains resolve: the live guest, organiser and
    vendor origins must exactly match cire-api `WEB_ORIGIN`. osn-api's `OSN_CORS_ORIGIN`
    and `OSN_ORIGIN` each hold `https://musubi.social` alone: no cire page calls osn-api
@@ -1484,11 +1485,18 @@ holds it: the stack declares the site's Worker with no custom domain, the plan g
 refuses any plan in which a site Worker would serve the host, and the site's smoke
 check passes once it has read that the host is off its Worker
 ([[infrastructure-as-code#Production sites]]). A site with no entry is a plain
-`worker`, and its stack's releases attach its production host. The Worker
-keeps getting each release's build. The rule holds for releases built from a commit
-that holds the entry: never re-run a release run from an older commit while the host
-is held. A hand-run `deploy:production` from such a commit declares no domain for the
-site but runs no guard.
+`worker`, and a release dispatched by hand that ships its stack attaches its
+production host. The Worker keeps getting each release's build.
+
+A scheduled release never adds a host: the guard refuses any plan of the daily run, or
+of a re-run of it, in which a site Worker would gain one, naming the host and saying to
+dispatch by hand. A release dispatched by hand may add one. So the hold list governs
+every release built from a commit that holds the entry, and before then, or for a
+re-run of a release dispatched from an older commit, **only the approver** stops a
+release dispatched by hand from putting a host back: never re-run such a release while
+a host is held, and reject any whose `alchemy-plan` summary lists a held host under
+**Domains added**. A hand-run `deploy:production` from an older commit declares the
+host again and runs no guard.
 
 An entry is the site, its production host and a reason:
 
@@ -1534,8 +1542,9 @@ naming no site of a production stack (`cire_api`, `cire_invites`, `osn_api`,
 
 **Taking a host off in a hurry.** When the host must go before a pull request can
 merge, take it off in the dashboard first (step 2), then open the entry's pull request
-at once. Until it is on `main`, reject every release whose `alchemy-plan` summary lists
-the host under **Domains added**: nothing else stops that release from putting it back.
+at once. Until it is on `main`, the daily release refuses to put the host back, but a
+release dispatched by hand does not: reject every such release whose `alchemy-plan`
+summary lists the host under **Domains added**. Only the approver stops it.
 
 **Bringing a host back.**
 
@@ -1544,8 +1553,9 @@ the host under **Domains added**: nothing else stops that release from putting i
    §5.4 says). A host still on another Worker fails the deploy after its approval.
 2. Open a pull request that removes the entry, with a changeset for `@shared/infra`.
    Merge it.
-3. Dispatch **Production release**. The plan lists the host under **Domains added** for
-   its site; approve it, and the smoke check asks the host as for any site.
+3. Dispatch **Production release** by hand; the daily release refuses to add the host.
+   The plan lists the host under **Domains added** for its site; approve it, and the
+   smoke check asks the host as for any site.
 
 ## 6. Optional: guest account-linking bridge (cire → osn)
 

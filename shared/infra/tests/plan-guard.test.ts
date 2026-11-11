@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 import { describe, expect, test } from "vitest";
 
 import {
+  addedHostRefusals,
   type DeclaredDomains,
   declaredDomains,
   domainRefusals,
@@ -577,6 +578,10 @@ const holdRefusal = (site: string, host: string, reason: string) =>
 const removalRefusal = (site: string, host: string) =>
   `${site}'s Worker would give up ${host}; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first`;
 
+/** What the guard says when a scheduled release would add a host. */
+const scheduledAddRefusal = (site: string, host: string) =>
+  `${site}'s Worker would gain ${host}, and a scheduled release adds no host: dispatch Production release by hand to add it`;
+
 /** What the guard says when a Worker would give up a held host. */
 const heldRemovalRefusal = (site: string, host: string) =>
   `${site}'s Worker would give up ${host}, which PRODUCTION_HOST_HOLDS in shared/infra/src/production-sites.ts holds off; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first`;
@@ -777,6 +782,42 @@ describe("runPlanGuardCli", () => {
     const result = run(logArgs, UPDATE, LIVE, declared, VENDOR_HELD);
     expect(result.code).toBe(1);
     expect(result.out).toContain(heldRemovalRefusal("cire_vendor", "vendor.cireweddings.com"));
+  });
+
+  test("GS1: a scheduled release's plan that adds a host is refused, naming the host and sending it to a release dispatched by hand", () => {
+    const result = run([...logArgs, "--scheduled"], UPDATE, { ...LIVE, cire_vendor: [] });
+    expect(result.code).toBe(1);
+    expect(result.out).toContain(
+      `::error::cire production plan refused: ${scheduledAddRefusal("cire_vendor", "vendor.cireweddings.com")}`,
+    );
+    // Its record is still written, as for any refusal.
+    expect(record()).toMatchObject({
+      domains: [{ site: "cire_vendor", added: ["vendor.cireweddings.com"], removed: [] }],
+    });
+  });
+
+  test("GS2: a release dispatched by hand may add a host", () => {
+    const result = run(logArgs, UPDATE, { ...LIVE, cire_vendor: [] });
+    expect(result.code).toBe(0);
+    expect(result.out).not.toContain("scheduled release");
+  });
+
+  test("GS3: a scheduled release with no domain change passes", () => {
+    const result = run([...logArgs, "--scheduled"], UPDATE);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("No site's custom domains change.");
+  });
+});
+
+describe("addedHostRefusals", () => {
+  test("GS4: refuses each host each Worker would gain, and nothing a Worker gives up", () => {
+    expect(
+      addedHostRefusals([
+        { site: "cire_host", added: ["host.cireweddings.com"], removed: [] },
+        { site: "cire_landing", added: [], removed: ["old.cireweddings.com"] },
+      ]),
+    ).toEqual([scheduledAddRefusal("cire_host", "host.cireweddings.com")]);
+    expect(addedHostRefusals([])).toEqual([]);
   });
 });
 
