@@ -100,8 +100,10 @@ code or mints a token. The caller's session cookie, or its access token's
 outlives its session by up to five minutes; in that window it can mint no
 step-up token, overwrite no parked passkey challenge, mail the owner nothing
 and spend none of the account's daily step-up links. `POST /recovery/generate`,
-email change's complete and the passkey routes check the session again when
-they spend a step-up token; the other gates rely on the check at the mint, so a
+email change's complete, `POST /totp/enroll/begin` and passkey registration's
+begin check the session again when they spend a step-up token, and
+`DELETE /passkeys/:id` checks it through `classifyCallerSession`. The other
+gates, `PATCH /passkeys/:id` among them, rely on the check at the mint, so a
 token minted while the session was live works there for its own five minutes.
 
 The emailed link signs nobody in: the page it opens confirms the request, and

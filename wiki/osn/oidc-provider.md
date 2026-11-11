@@ -170,7 +170,7 @@ Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (60/mi
 
 | Route | Auth | What it does |
 |---|---|---|
-| `POST /oidc/clients` | Bearer access token | Registers a client. Returns the summary plus `client_secret` **exactly once** (null for public clients); only the SHA-256 is stored |
+| `POST /oidc/clients` | Bearer access token, live session (`409 session_stale` otherwise) | Registers a client. Returns the summary plus `client_secret` **exactly once** (null for public clients); only the SHA-256 is stored |
 | `GET /oidc/clients` | Bearer access token | The caller's clients, never the secret in any form |
 | `DELETE /oidc/clients/:clientId` | Bearer access token | Disables an owned client — it reads as absent everywhere at once, so new `/authorize` flows refuse and in-flight codes die at the exchange's client lookup. 404 covers "not yours" and "not found" alike |
 

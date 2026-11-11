@@ -201,6 +201,13 @@ the gate because no step-up ceremony is reachable before the account has any
 credentials. This closes the "stolen access token → silent authenticator
 binding" vector that the enrollmentToken deletion otherwise opened.
 
+An ordinary caller of `/passkey/register/begin` must also hold a live session
+of the account, named by its session cookie or its token's `osn_sid`, or the
+answer is `409 session_stale` before the account's one parked registration
+challenge is touched ([[sessions#Access-token session binding (`osn_sid`)]]).
+A restricted recovery session is checked by `classifyCallerSession` instead,
+on both routes, since the live-session check refuses restricted sessions.
+
 Since the credential-provenance work, `/passkey/register/begin` also decides
 what the credential it is about to create will be **stamped** with — the
 effective strength of the ceremony chain behind it — and parks that on the
