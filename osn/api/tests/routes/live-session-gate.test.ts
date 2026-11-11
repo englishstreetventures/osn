@@ -1165,6 +1165,8 @@ interface GatedCall {
     path: string;
     body?: unknown;
     ok: number;
+    /** The served answer's body, where the status alone cannot show a spend. */
+    served?: unknown;
     method?: string;
     headers?: Record<string, string>;
   }>;
@@ -1377,7 +1379,8 @@ const GATED: readonly GatedCall[] = [
         },
       });
       expect(scheduled.status).toBe(202);
-      return { path: "/account/restore", ok: 200 };
+      // `cancelled: true` only if the refused call cancelled nothing.
+      return { path: "/account/restore", ok: 200, served: { cancelled: true } };
     },
   },
   {
@@ -1559,6 +1562,8 @@ describe("every gated route, for a logged-out session's token", () => {
         headers: call.headers,
       });
       expect(served.status).toBe(call.ok);
+      const servedBody = call.served === undefined ? undefined : await served.json();
+      expect(servedBody).toEqual(call.served);
       // A change of address revokes every session but the caller's device:
       // the one the cookie named stays.
       expect(await sessionIds(h, profile)).toContain(h.auth.hashSessionToken(live.refreshToken));

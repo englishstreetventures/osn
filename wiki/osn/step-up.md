@@ -99,12 +99,16 @@ code or mints a token. The caller's session cookie, or its access token's
 ([[sessions#Access-token session binding (`osn_sid`)]]). An access token
 outlives its session by up to five minutes; in that window it can mint no
 step-up token, overwrite no parked passkey challenge, mail the owner nothing
-and spend none of the account's daily step-up links. `POST /recovery/generate`,
-email change's complete, `POST /totp/enroll/begin` and passkey registration's
-begin check the session again when they spend a step-up token, and
-`DELETE /passkeys/:id` checks it through `classifyCallerSession`. The other
-gates, `PATCH /passkeys/:id` among them, rely on the check at the mint, so a
-token minted while the session was live works there for its own five minutes.
+and spend none of the account's daily step-up links.
+
+**Every gate that spends a token checks the session again**, before it reads
+the token: each route in the table under "When step-up is required" answers
+`409 session_stale` to a caller holding no live session, so a token minted
+while a session was live is not spent by that session's token once it has
+ended. The check is on the caller's session, not on the session that minted
+the token: a caller holding another live session of the account can still
+spend it. `/internal/step-up/verify` is the exception: Pulse calls it over ARC,
+and no user session reaches OSN on that hop.
 
 The emailed link signs nobody in: the page it opens confirms the request, and
 only the tab that began, signed in as the same account and holding the claim
