@@ -116,15 +116,22 @@ the tab that began finishes, on this device or another.
 | `POST /account/email/begin` (Bearer) | `{ new_email }` | `{ requestId, claimSecret, pairingCode, expiresAt }` |
 | `POST /account/email/:requestId/status` (Bearer) | `{ claimSecret }` | `pending` with the `pairingCode`, `confirmed` (claims nothing), or `expired` |
 | `POST /account/email/:requestId/resend` (Bearer) | `{ claimSecret }` | `sent`, `limit` or `expired` |
-| `POST /account/email/:requestId/complete` (Bearer) | `{ claimSecret, step_up_token }` | `{ email }`; 400 for every refusal |
+| `POST /account/email/:requestId/complete` (Bearer) | `{ claimSecret, step_up_token }` | `{ email }`; 400 for every refusal of the request or the step-up token |
 
 There is no `GET` on any of them: mail scanners open links before people do.
+
+Every Bearer route above but `POST /account/email/:requestId/status` also
+answers `409 { error: "session_stale" }` to a caller whose session has ended,
+before it mails, reads, replaces or spends anything
+([[sessions#Access-token session binding (`osn_sid`)]]).
 
 ## Rules every flow keeps
 
 - **Every refusal reads the same.** An unknown request, a wrong secret, a spent
   or expired request, a wrong pick and another flow's request all answer
-  `expired`. A poll with a wrong claim secret answers `expired` too.
+  `expired`. A poll with a wrong claim secret answers `expired` too. The one
+  answer apart is the `409 session_stale` above, which says nothing about the
+  request: it is refused before the request is read.
 - **Wrong secrets are counted** on the request against `MAX_OTP_ATTEMPTS` (5),
   by the store's `guess`, on the candidates read and the confirm alike. The
   fifth wipes the request and frees the flow's pending entry. A right secret's
@@ -314,9 +321,10 @@ There is no `GET` on any of them: mail scanners open links before people do.
 - **The link goes to the account's own address**, and names what confirming
   allows ("asked to download a copy of the account's data"). The claim checks
   the account still has that address (`bound`).
-- **Only the account that began** can poll, resend or claim: every call is
-  Bearer-authenticated, a restricted recovery session is refused, and another
-  account's request reads as `expired`. The token goes to the poll, once;
+- **Only the account that began** can poll, resend or claim, and only while
+  the caller's session is live: every call is Bearer-authenticated, a
+  restricted recovery session is refused, a session that has ended gets
+  `409 session_stale`, and another account's request reads as `expired`. The token goes to the poll, once;
   the device that confirms gets `{ status }` and nothing else.
 - **Lockout.** A wrong typed number counts on `step_up_link_lockout`, per
   account, on recovery's numbers: five in 15 minutes, and for the rest of the

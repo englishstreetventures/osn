@@ -621,13 +621,27 @@ export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationT
   authSessionSecurityInvalidation.inc({ trigger });
 
 /**
- * The routes that refuse a caller holding no live session (`liveSessionGate`
- * in `routes/auth/context.ts`), named as their rate-limit endpoints are.
+ * The routes that refuse a caller holding no live session (`liveSession` and
+ * `liveSessionGate` in `routes/auth/context.ts`), named as their rate-limit
+ * endpoints are.
  */
 export type LiveSessionGateEndpoint =
+  | "step_up_passkey_begin"
   | "step_up_passkey_complete"
+  | "step_up_email_begin"
+  | "step_up_email_status"
+  | "step_up_email_resend"
   | "step_up_totp_complete"
-  | "recovery_generate";
+  | "recovery_generate"
+  | "email_change_begin"
+  | "email_change_resend"
+  | "email_change_complete"
+  | "profile_switch"
+  | "cross_device_approve"
+  | "totp_enroll_begin"
+  | "totp_enroll_complete"
+  | "passkey_register_begin"
+  | "oidc_client_create";
 type SessionStaleRefusedAttrs = { endpoint: LiveSessionGateEndpoint };
 
 const authSessionStaleRefused = createCounter<SessionStaleRefusedAttrs>({

@@ -330,7 +330,7 @@ export function createEmailChangeModule(
     accountId: string,
     previousEmail: string,
     newEmail: string,
-    currentSessionHash: string | null,
+    currentSessionHash: string,
     nowSec: number,
     windowStart: number,
     changeId: string,
@@ -357,14 +357,12 @@ export function createEmailChangeModule(
           .where(eq(emailChanges.id, changeId)),
       );
       // Every session but the caller's device, which stays through a refresh
-      // of its own session in flight (`outsideFamilyOf`).
-      const otherSessions =
-        currentSessionHash !== null
-          ? and(
-              eq(sessions.accountId, accountId),
-              outsideFamilyOf(db, sessions.familyId, currentSessionHash),
-            )
-          : eq(sessions.accountId, accountId);
+      // of its own session in flight (`outsideFamilyOf`). A hash no live
+      // session holds spares nothing.
+      const otherSessions = and(
+        eq(sessions.accountId, accountId),
+        outsideFamilyOf(db, sessions.familyId, currentSessionHash),
+      );
       // The swap moves only the address the preflight read, which is the one
       // `previous_email` records and the notice goes to. A change that
       // committed after that read has moved it, so this swap moves nothing
@@ -595,6 +593,10 @@ export function createEmailChangeModule(
    * The account's pending change is removed after the answer, once the
    * request is spent, and only while it still names this request, so a
    * begin since keeps its own.
+   *
+   * `currentSessionHash` is the caller's live session, which the route's
+   * live-session gate resolved: the change revokes every session but that
+   * one's device.
    */
   const completeEmailChange = (
     accountId: string,
@@ -602,7 +604,7 @@ export function createEmailChangeModule(
     requestId: string,
     claimSecret: string,
     stepUpToken: string,
-    currentSessionHash: string | null,
+    currentSessionHash: string,
     eventMeta?: SessionMeta,
   ): Effect.Effect<
     { email: string },
@@ -692,7 +694,7 @@ export function createEmailChangeModule(
   const finishChange = (
     accountId: string,
     newEmail: string,
-    currentSessionHash: string | null,
+    currentSessionHash: string,
     changeId: string,
     eventMeta?: SessionMeta,
   ): Effect.Effect<{ email: string }, AuthError | DatabaseError, Db | EmailService> =>

@@ -218,9 +218,62 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
   }
 
   /**
-   * Live-session gate for a Bearer route that mints a credential. Returns
-   * `null` when the caller holds a live, ordinary session on `accountId`, or
-   * the 409 body the caller sends as it is:
+   * The caller's live, ordinary session on `accountId`, for a Bearer route
+   * that mints a credential, or that spends or overwrites what the owner's
+   * own ceremony depends on (a parked challenge, a pending change, a
+   * per-account cap, a mail). Answers the session's hash, or the 409 body
+   * the route sends as it is:
+   *
+   * ```ts
+   * const live = await liveSession("<endpoint>", profile.accountId, claims, headers.cookie);
+   * if (live.sessionHash === null) {
+   *   set.status = 409;
+   *   return live.refusal;
+   * }
+   * ```
+   *
+   * An access token outlives the session it was minted from by up to one
+   * token lifetime; this is what stops it acting once the session has ended.
+   * The session is named by the HttpOnly cookie or the token's `osn_sid`
+   * binding, never by request input, and must be unrestricted and unexpired
+   * (`resolveLiveOrdinarySession`). A route that needs the session afterwards
+   * (to bind a token to it, or to spare it from a sweep) uses the hash
+   * answered here rather than reading the cookie again. Call it inside the
+   * route's `try` and before any step that reads, spends or overwrites
+   * anything, so a refusal spends nothing and a database failure becomes
+   * `handleError`'s 500.
+   */
+  async function liveSession(
+    endpoint: LiveSessionGateEndpoint,
+    accountId: string,
+    claims: { readonly profileId: string; readonly sessionBinding: string | null },
+    cookieHeader: string | undefined,
+  ): Promise<
+    | { readonly sessionHash: string; readonly refusal: null }
+    | {
+        readonly sessionHash: null;
+        readonly refusal: { error: "session_stale"; message: string };
+      }
+  > {
+    const cookieToken = readSessionCookie(cookieHeader, cookieConfig);
+    const sessionHash = await run(
+      auth.resolveLiveOrdinarySession(accountId, claims.profileId, {
+        cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
+        sessionBinding: claims.sessionBinding,
+      }),
+    );
+    if (sessionHash !== null) return { sessionHash, refusal: null };
+    metricSessionStaleRefused(endpoint);
+    return {
+      sessionHash: null,
+      refusal: { error: "session_stale", message: "Re-authenticate and try again." },
+    };
+  }
+
+  /**
+   * {@link liveSession} for a route that needs only the yes or no: `null`
+   * when the caller holds a live, ordinary session on `accountId`, or the 409
+   * body the route sends as it is:
    *
    * ```ts
    * const staleErr = await liveSessionGate("<endpoint>", profile.accountId, claims, headers.cookie);
@@ -229,14 +282,6 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
    *   return staleErr;
    * }
    * ```
-   *
-   * An access token outlives the session it was minted from by up to one
-   * token lifetime; this is what stops it minting anything once the session
-   * has ended. The session is named by the HttpOnly cookie or the token's
-   * `osn_sid` binding, never by request input, and must be unrestricted and
-   * unexpired (`holdsLiveOrdinarySession`). Call it inside the route's `try`
-   * and before any step that reads or spends a factor, so a refusal spends
-   * nothing and a database failure becomes `handleError`'s 500.
    */
   async function liveSessionGate(
     endpoint: LiveSessionGateEndpoint,
@@ -244,16 +289,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     claims: { readonly profileId: string; readonly sessionBinding: string | null },
     cookieHeader: string | undefined,
   ): Promise<{ error: "session_stale"; message: string } | null> {
-    const cookieToken = readSessionCookie(cookieHeader, cookieConfig);
-    const live = await run(
-      auth.holdsLiveOrdinarySession(accountId, claims.profileId, {
-        cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
-        sessionBinding: claims.sessionBinding,
-      }),
-    );
-    if (live) return null;
-    metricSessionStaleRefused(endpoint);
-    return { error: "session_stale", message: "Re-authenticate and try again." };
+    return (await liveSession(endpoint, accountId, claims, cookieHeader)).refusal;
   }
 
   /**
@@ -342,6 +378,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     rl,
     rateLimit,
     turnstileGate,
+    liveSession,
     liveSessionGate,
     resolvePasskeyEnrollPrincipal,
     cireOrganiserRevoke,

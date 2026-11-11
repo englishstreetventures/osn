@@ -12,7 +12,11 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
-import { confirmedEmailChange, stepUpThroughService } from "../helpers/step-up-link";
+import {
+  confirmedEmailChange,
+  NO_LIVE_SESSION,
+  stepUpThroughService,
+} from "../helpers/step-up-link";
 
 /**
  * Build a fresh email recorder + test layer. Tests that need to capture
@@ -66,7 +70,7 @@ const completeSettled = (
       request.requestId,
       request.claimSecret,
       stepUpToken,
-      null,
+      NO_LIVE_SESSION,
       eventMeta,
     ),
   );
@@ -172,7 +176,7 @@ describe("beginEmailChange + completeEmailChange", () => {
           begun.requestId,
           begun.claimSecret,
           "not.a.jwt",
-          null,
+          NO_LIVE_SESSION,
         ),
       );
       expect(err._tag).toBe("AuthError");
@@ -286,7 +290,7 @@ describe("beginEmailChange + completeEmailChange", () => {
         codeC.requestId,
         codeC.claimSecret,
         c.stepUpToken,
-        null,
+        NO_LIVE_SESSION,
       );
       expect(result.email).toBe("ec-race-c-new@example.com");
     }).pipe(Effect.provide(layer));
@@ -408,7 +412,7 @@ describe("beginEmailChange + completeEmailChange", () => {
           "emailchange_000000000000",
           "0".repeat(64),
           stepUpToken,
-          null,
+          NO_LIVE_SESSION,
         ),
       );
       expect(err._tag).toBe("AuthError");
@@ -450,7 +454,7 @@ describe("beginEmailChange + completeEmailChange", () => {
           code.requestId,
           code.claimSecret,
           stepUpToken,
-          null,
+          NO_LIVE_SESSION,
         ),
       );
       expect(err._tag).toBe("AuthError");
@@ -492,7 +496,7 @@ describe("beginEmailChange + completeEmailChange", () => {
         codeB.requestId,
         codeB.claimSecret,
         b.stepUpToken,
-        null,
+        NO_LIVE_SESSION,
       );
 
       // Genuine UNIQUE conflict must happen first — installing the second
@@ -504,7 +508,7 @@ describe("beginEmailChange + completeEmailChange", () => {
           codeA.requestId,
           codeA.claimSecret,
           a.stepUpToken,
-          null,
+          NO_LIVE_SESSION,
         ),
       );
       expect(firstErr._tag).toBe("AuthError");
@@ -528,7 +532,7 @@ describe("beginEmailChange + completeEmailChange", () => {
           codeA.requestId,
           codeA.claimSecret,
           freshStepUpToken,
-          null,
+          NO_LIVE_SESSION,
         ),
       );
       // The request was claimed by the conflicted complete, so this
@@ -567,7 +571,7 @@ describe("beginEmailChange + completeEmailChange", () => {
             code.requestId,
             code.claimSecret,
             stepUpToken,
-            null,
+            NO_LIVE_SESSION,
           );
         });
 

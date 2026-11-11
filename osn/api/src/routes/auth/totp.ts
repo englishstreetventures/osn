@@ -44,6 +44,18 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
             set.status = 401;
             return { error: "unauthorized" };
           }
+          // Before the step-up token is read: a begin spends it and replaces
+          // the account's pending secret.
+          const staleErr = await ctx.liveSessionGate(
+            "totp_enroll_begin",
+            profile.accountId,
+            claims,
+            headers.cookie,
+          );
+          if (staleErr) {
+            set.status = 409;
+            return staleErr;
+          }
           const headerToken = headers["x-step-up-token"];
           const stepUpToken = body?.step_up_token ?? headerToken;
           if (!stepUpToken) {
@@ -67,6 +79,8 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           400: errorResponse,
           401: errorResponse,
           403: errorResponse,
+          // `session_stale`: the access token's session has ended.
+          409: errorResponse,
           429: errorResponse,
           500: errorResponse,
         },
@@ -99,7 +113,18 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           }
           // No step-up gate here, deliberately: `begin` carried it, and the
           // pending secret this verifies against exists only because a gated
-          // `begin` created it.
+          // `begin` created it. The session must still be live: confirming
+          // the code adds a factor to the account.
+          const staleErr = await ctx.liveSessionGate(
+            "totp_enroll_complete",
+            profile.accountId,
+            claims,
+            headers.cookie,
+          );
+          if (staleErr) {
+            set.status = 409;
+            return staleErr;
+          }
           return await run(
             auth.completeTotpEnrollment(
               profile.accountId,
@@ -123,6 +148,8 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           200: t.Object({ enrolled: t.Boolean() }),
           400: errorResponse,
           401: errorResponse,
+          // `session_stale`: the access token's session has ended.
+          409: errorResponse,
           429: errorResponse,
           500: errorResponse,
         },

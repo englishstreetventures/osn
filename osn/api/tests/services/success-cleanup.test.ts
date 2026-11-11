@@ -16,7 +16,11 @@ import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 import { latestLinkTo } from "../helpers/registration";
-import { changeEmailThroughService, confirmedEmailChange } from "../helpers/step-up-link";
+import {
+  changeEmailThroughService,
+  confirmedEmailChange,
+  NO_LIVE_SESSION,
+} from "../helpers/step-up-link";
 
 /**
  * A success answers once the work that matters has committed. The store call
@@ -289,7 +293,7 @@ describe("a cleanup leaves what another request wrote", () => {
         begun.requestId,
         begun.claimSecret,
         second,
-        null,
+        NO_LIVE_SESSION,
       );
       expect(done.email).toBe("keep-ec-2@example.com");
     }).pipe(Effect.provide(h.layer));
@@ -429,7 +433,7 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
           old.requestId,
           old.claimSecret,
           first,
-          null,
+          NO_LIVE_SESSION,
         ),
       );
       yield* h.holdingAtLeast(1);
@@ -450,7 +454,7 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
         begun.requestId,
         begun.claimSecret,
         second,
-        null,
+        NO_LIVE_SESSION,
       );
       expect(done.email).toBe("claim-ec-2@example.com");
     }).pipe(Effect.provide(h.layer));
