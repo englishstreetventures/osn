@@ -26,6 +26,9 @@ import {
   waitingScreenNumber,
 } from "../support/fixtures";
 
+// Musubi's forms load Turnstile, which the fixtures stand in for.
+test.use({ turnstile: true });
+
 const person = RECOVERY_PERSON;
 
 /** A two-digit number that is not `shown`. */
