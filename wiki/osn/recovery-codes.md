@@ -168,10 +168,10 @@ POST /recovery/generate
   Body: { step_up_token: "<jwt>" }   (or the x-step-up-token header)
   → 200 { recoveryCodes: [ "xxxx-xxxx-xxxx-xxxx", ... × 10 ] }
   → 403 { error: "step_up_required" }  when the token is missing or stale
-  → 409 { error: "session_stale" }     when the caller holds no live session
-                                        (checked before the step-up token; spends nothing)
   Rate limited: 10/hour/IP (recoveryGenerate)
 ```
+
+**Live session.** Before it looks at the step-up token, the route refuses a caller that holds no live, unrestricted, unexpired session of the account with `409 { error: "session_stale" }`. The refusal spends nothing: the step-up token stays unused and the codes stay as they are. See [[sessions]] §Access-token session binding.
 
 Step-up gated (M-PK1): a stolen access token on its own must not be able to burn the account's codes. Run the ceremony first (`[[step-up]]`) and pass the token it mints. Allowed factors default to `["webauthn", "otp"]`.
 
