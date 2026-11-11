@@ -19,6 +19,7 @@ import { Database } from "bun:sqlite";
 import {
   accounts,
   oauthClients,
+  oauthConsents,
   passkeys,
   recoveryCodes,
   securityEvents,
@@ -1483,6 +1484,27 @@ const GATED: readonly GatedCall[] = [
     },
   },
   {
+    endpoint: "oidc_connections_revoke",
+    prepare: async (h, profile, live) => {
+      const created = await post(h, "/oidc/clients", {
+        token: live.accessToken,
+        body: { name: "Gate test", redirect_uris: ["https://app.example.com/cb"] },
+      });
+      const { client } = (await created.json()) as { client: { clientId: string } };
+      await h.db.insert(oauthConsents).values({
+        id: "ocs_" + "b".repeat(12),
+        accountId: profile.accountId,
+        clientId: client.clientId,
+        profileId: profile.id,
+        scope: "openid",
+        grantedAt: Math.floor(Date.now() / 1000),
+      });
+      // `success` only while the consent is live: a refused call that
+      // withdrew it would leave this call a 404.
+      return { method: "DELETE", path: `/oidc/connections/${client.clientId}`, ok: 200 };
+    },
+  },
+  {
     endpoint: "session_revoke_others",
     prepare: async (h, profile) => {
       await openSession(h, profile);
@@ -1600,6 +1622,7 @@ describe("every gated route, for a logged-out session's token", () => {
       passkey_delete: true,
       session_revoke: true,
       session_revoke_others: true,
+      oidc_connections_revoke: true,
     };
     expect(GATED.map((r) => r.endpoint).toSorted()).toEqual(Object.keys(every).toSorted());
   });

@@ -15,10 +15,10 @@ import { readSessionCookie, type CookieSessionConfig } from "./cookie-session";
 /** The 409 body a refused caller gets, sent as it is. */
 export type SessionStaleBody = { error: "session_stale"; message: string };
 
-/** The caller's live session, or the refusal to send. */
+/** The caller's live session (its hash and its family), or the refusal to send. */
 export type LiveSession =
-  | { readonly sessionHash: string; readonly refusal: null }
-  | { readonly sessionHash: null; readonly refusal: SessionStaleBody };
+  | { readonly sessionHash: string; readonly familyId: string; readonly refusal: null }
+  | { readonly sessionHash: null; readonly familyId: null; readonly refusal: SessionStaleBody };
 
 export function createLiveSessionCheck(deps: {
   readonly auth: Pick<
@@ -60,15 +60,15 @@ export function createLiveSessionCheck(deps: {
     cookieHeader: string | undefined,
   ): Promise<LiveSession> {
     const cookieToken = readSessionCookie(cookieHeader, cookieConfig);
-    const sessionHash = await run(
+    const live = await run(
       auth.resolveLiveOrdinarySession(accountId, claims.profileId, {
         cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
         sessionBinding: claims.sessionBinding,
       }),
     );
-    if (sessionHash !== null) return { sessionHash, refusal: null };
+    if (live !== null) return { ...live, refusal: null };
     metricSessionStaleRefused(endpoint);
-    return { sessionHash: null, refusal: staleRefusal() };
+    return { sessionHash: null, familyId: null, refusal: staleRefusal() };
   }
 
   /**

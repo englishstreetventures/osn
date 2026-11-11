@@ -293,7 +293,12 @@ beforeEach(async () => {
 
 describe("osn/api account erasure over real D1 (Miniflare)", () => {
   it("requestErasure commits the multi-statement batch atomically on D1", async () => {
-    const out = await run(requestErasure({ accountId: ACCOUNT_ID, cancelSessionId: "ses_keep" }));
+    const out = await run(
+      requestErasure({
+        accountId: ACCOUNT_ID,
+        cancel: { sessionId: "ses_keep", familyId: "fam_keep" },
+      }),
+    );
     expect(out.newlyScheduled).toBe(true);
 
     // The batch tombstoned the account and wrote a deletion job.
@@ -305,7 +310,12 @@ describe("osn/api account erasure over real D1 (Miniflare)", () => {
   });
 
   it("cancelErasure clears the job + un-tombstones via the async batch path", async () => {
-    await run(requestErasure({ accountId: ACCOUNT_ID, cancelSessionId: "ses_keep" }));
+    await run(
+      requestErasure({
+        accountId: ACCOUNT_ID,
+        cancel: { sessionId: "ses_keep", familyId: "fam_keep" },
+      }),
+    );
     const cancelled = await run(cancelErasure(ACCOUNT_ID));
     expect(cancelled.cancelled).toBe(true);
 

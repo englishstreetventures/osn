@@ -655,7 +655,8 @@ export type LiveSessionGateEndpoint =
   | "account_restore"
   | "account_export"
   | "session_revoke"
-  | "session_revoke_others";
+  | "session_revoke_others"
+  | "oidc_connections_revoke";
 type SessionStaleRefusedAttrs = { endpoint: LiveSessionGateEndpoint };
 
 const authSessionStaleRefused = createCounter<SessionStaleRefusedAttrs>({

@@ -183,15 +183,14 @@ export function createAccountErasureRoutes(
               return { error: "step_up_required", detail: errBody };
             }
 
-            // Cancellation handle = the caller's live session (hashed), which
-            // the deletion's sweep spares, so the user can cancel during the
-            // grace window without further auth.
-            const cancelSessionId = live.sessionHash;
+            // Cancellation handle = the caller's live session, whose device the
+            // deletion's sweep spares, so the user can cancel during the grace
+            // window without further auth.
 
             const result = await run(
               accountErasure.requestErasure({
                 accountId: profile.accountId,
-                cancelSessionId,
+                cancel: { sessionId: live.sessionHash, familyId: live.familyId },
               }),
             );
 

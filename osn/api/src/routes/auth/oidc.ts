@@ -873,6 +873,18 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before anything is revoked: a token whose session has ended
+            // withdraws no consent and ends no session.
+            const staleErr = await ctx.liveSessionGate(
+              "oidc_connections_revoke",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             // Revoking cire's connection also ends the account's cire organiser
             // sessions, in the background. Any other client's revoke, and a
             // revoke that found nothing live, leaves cire alone; with cire's
@@ -909,6 +921,8 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             // No live consent for that pair — already revoked, or never
             // granted. The two are not told apart.
             404: oidcErrorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: oidcErrorResponse,
             429: oidcErrorResponse,
             500: oidcErrorResponse,
           },
