@@ -861,7 +861,11 @@ export function RsvpPanel(props: RsvpPanelProps) {
                   </div>
                 </Show>
 
-                <Show when={showsDietary(guestId)}>
+                {/* `Reveal`: "Attending" grows the dietary section open under
+                    the answer pair rather than dropping it in between two
+                    frames; "Not attending" takes it away at once. A reply on
+                    file that already shows it mounts open, with no motion. */}
+                <Reveal pace="slow" when={showsDietary(guestId)}>
                   <div class="mt-3">
                     {/* `wrap="md"`: the sheet keeps its 480px at every width,
                         so from `md:`, where it becomes a centred panel and a
@@ -891,6 +895,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                       wrapper mounts open, so there is nothing to transition
                       from. */}
                   <Reveal
+                    pace="slow"
                     when={
                       responses()[guestId]?.dietaryPresets.includes("other") ||
                       (responses()[guestId]?.dietary.trim().length ?? 0) > 0
@@ -913,7 +918,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                       />
                     </label>
                   </Reveal>
-                </Show>
+                </Reveal>
               </fieldset>
             );
           }}
