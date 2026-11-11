@@ -749,6 +749,44 @@ walk passes. On a failed walk, reject that release — or dispatch one with
 revert. Leaving the release waiting instead holds every surface in it, not only
 the portal, and holds back the next release behind it.
 
+## Chrome origin trials
+
+Cire uses three Chrome features that are not on by default yet. Each runs on a
+token that Chrome checks against the page's origin, sent in an `Origin-Trial`
+response header. The tokens are public and cover `cireweddings.com` with
+subdomain matching, so they work on `invite.`, `host.`, `vendor.` and `api.`
+there and nowhere else. The dev tier runs on its own zone and gets none of the
+features; Chrome ignores a token on another origin, so every tier sends the
+same header.
+
+| Feature | Used by | Served from | Token lapses |
+|---|---|---|---|
+| `HTMLInCanvas` | the invite envelope ([[cire-envelope]]) | every guest-site SSR response | 2 Mar 2027 |
+| `AutofillEvent` | the guest email box | every guest-site SSR response | 5 Jan 2027 |
+| `WebMCP` | the organiser portal's agent tools | every organiser-portal path | 30 Mar 2027 |
+
+The strings, a decoder and the renewal window are in
+`cire/build-tools/src/origin-trial.ts` (`@cire/build-tools/origin-trial`, pure,
+so the guest Worker imports it). The guest site adds its two tokens in
+`securityHeaders()` (`cire/invites/src/lib/security-headers.ts`), SSR-only like
+`X-Robots-Tag`, so the prerendered legal pages enable neither. The portal is a
+static build, so its token is a line in `cire/host/public/_headers`, a second copy
+of the string that its test compares with the module's. The vendor portal and
+the marketing site carry none.
+
+**Renewal.** `cire/build-tools/tests/origin-trial.test.ts` fails once a token is
+within 14 days of its expiry, so a pull request goes red with time to act. Register
+the origin again for the feature on the Chrome origin-trials site (Match
+subdomains on), replace the string in `origin-trial.ts` (and, for WebMCP, in the
+host `_headers`), and move the expiry date in that test. A trial can also end
+before its token does: each feature is gated by `typeof` probes in the page, never
+assumed.
+
+**What a token cannot prove.** Chrome checks the signature and the origin, so
+no local test shows a feature turned on. The check is on production after a
+release, in stable Chrome with no flags, from the console of the page that uses
+it.
+
 ## Links to a site's own pages
 
 Link every page of a cire site by the address it is served at, with its
