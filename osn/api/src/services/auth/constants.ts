@@ -7,12 +7,58 @@
 /** CDL request TTL in seconds. */
 export const CDL_TTL_SECONDS = 300; // 5 min
 
-// Max OTP guesses against a single pending entry before it is wiped.
+// Max OTP guesses against a single pending entry before it is wiped. An emailed
+// link's secret is counted against the same number.
 export const MAX_OTP_ATTEMPTS = 5;
 
 /**
+ * Links one emailed-link request may send: the first, then two Resends. Every
+ * link sent stays usable until the request ends, so a slow first message still
+ * works after an impatient Resend. Counted on a taken address's decoy request
+ * too, so a Resend answers alike for both.
+ */
+export const EMAIL_LINK_MAX_SENDS = 3;
+
+/**
+ * Cap on Resend links per `mailboxKey` (every `+tag` variant of a local part
+ * shares one), keyed on its probe key: the request-level cap bounds one
+ * request's Resends, and this bounds them across the requests one key can be
+ * given in an hour. A begin's first link does not count, so the newest
+ * sign-up always gets its first link. Checked inside the send that runs after
+ * the answer, so it adds nothing to the time to answer, and only where a link
+ * would go out, so a taken address never reaches it.
+ */
+export const REGISTRATION_SENDS_PER_ADDRESS_MAX = 6;
+export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Candidates the confirm page shows for an emailed link: the number on the
+ * waiting screen among decoys. A pick made without seeing that screen is right
+ * one time in this many, and a wrong pick ends the request.
+ */
+export const EMAIL_LINK_PAIRING_CANDIDATES = 5;
+
+/**
+ * How long one poll holds a claimed emailed-link request while it finishes
+ * the flow, in milliseconds. Every other poll of the request is refused until
+ * the hold passes or its poll lets go. Far longer than a finish takes; short
+ * enough that a poll which died holding the request is taken over by the
+ * tab's next poll after a failure, which comes ten seconds later.
+ */
+export const EMAIL_LINK_CLAIM_HOLD_MS = 5_000;
+
+/**
+ * Wrong picks on sign-up links to one address, per window, before no more
+ * sign-up links go to it until the window passes. A decline counts nothing.
+ * Keyed on the probe key of the address exactly as typed, lowercased; begin
+ * answers the same either way.
+ */
+export const REGISTRATION_LINK_LOCKOUT_THRESHOLD = 3;
+export const REGISTRATION_LINK_LOCKOUT_MS = 24 * 60 * 60 * 1000;
+
+/**
  * COPPA hard age gate. Registration rejects anyone under this age
- * before any personal information is collected (before the OTP is sent), so
+ * before any personal information is collected (before the link is sent), so
  * OSN never gains "actual knowledge" of an under-13 user. The birthdate is
  * validated transiently and NEVER persisted. See [[compliance/coppa]].
  */

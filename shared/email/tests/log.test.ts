@@ -12,7 +12,7 @@ describe("LogEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "otp-step-up",
           to: "alice@example.com",
           data: { code: "111111", ttlMinutes: 10, instanceName: "Musubi" },
         });
@@ -21,9 +21,9 @@ describe("LogEmailLive", () => {
 
     const sent = recorded();
     expect(sent).toHaveLength(1);
-    expect(sent[0].template).toBe("otp-registration");
+    expect(sent[0].template).toBe("otp-step-up");
     expect(sent[0].to).toBe("alice@example.com");
-    expect(sent[0].subject).toBe("Verify your Musubi email");
+    expect(sent[0].subject).toBe("Confirm a sensitive action");
     expect(sent[0].text).toContain("111111");
   });
 
@@ -69,7 +69,7 @@ describe("LogEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "otp-step-up",
           to: "alice@example.com",
           data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
         });

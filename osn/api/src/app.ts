@@ -107,9 +107,11 @@ export interface AppDeps {
   recoveryLockoutStore: CoordinationStores["recoveryLockoutStore"];
   recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
   totpLockoutStore: CoordinationStores["totpLockoutStore"];
+  registrationLinkLockoutStore: CoordinationStores["registrationLinkLockoutStore"];
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
   recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
+  registrationSendCap: CoordinationStores["registrationSendCap"];
   /** The coordination round trip `GET /health/coordination` runs. */
   healthProbe: CoordinationStores["healthProbe"];
   /** Per-IP limiter in front of it: native where the Worker has the binding. */
@@ -189,9 +191,11 @@ export function createApp(deps: AppDeps) {
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryEmailBeginCap,
+    registrationSendCap,
     healthProbe,
     healthProbeLimiter,
     clientIpConfig,
@@ -208,7 +212,10 @@ export function createApp(deps: AppDeps) {
   // AOT on (default). Mirrors cire's Workers app. The flag propagates to the
   // route plugins composed via `.use()` below.
   const base = new Elysia({ aot })
-    .use(cors({ origin: corsOrigins, credentials: true }))
+    // `maxAge` is in seconds. A waiting sign-up tab polls the same URL every few
+    // seconds; a cached preflight halves its requests. A narrowed allow-list
+    // reaches a browser within ten minutes.
+    .use(cors({ origin: corsOrigins, credentials: true, maxAge: 600 }))
     .onBeforeHandle(originGuard);
 
   // The per-request observability plugin is gated behind a deps flag: the Bun
@@ -274,9 +281,11 @@ export function createApp(deps: AppDeps) {
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryEmailBeginCap,
+    registrationSendCap,
   };
 
   return withDocs

@@ -8,9 +8,9 @@ import { createTokenRoutes } from "../../src/routes/auth/tokens";
 import { AuthError, DatabaseError } from "../../src/services/auth/errors";
 import { hashSessionToken } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
@@ -105,24 +105,11 @@ describe("POST /token marker retraction (S-M2)", () => {
     const { layer, sqlite, email } = createTestLayerWithSqlite();
     const app = createAuthRoutes(await makeTestAuthConfig(), layer);
     const registerEmail = "rotation-write@example.com";
-    await settledHandle(
+    const completed = await registeredResponse(
       app,
-      new Request("http://localhost/register/begin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: registerEmail, handle: "rotwrite", birthdate: "1990-01-01" }),
-      }),
-    );
-    const code = email
-      .recorded()
-      .at(-1)
-      ?.text.match(/code is: (\d{6})/)?.[1];
-    const completed = await app.handle(
-      new Request("http://localhost/register/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: registerEmail, code }),
-      }),
+      () => email.recorded(),
+      registerEmail,
+      "rotwrite",
     );
     const sessionToken = completed.headers.get("set-cookie")?.match(/osn_session=([^;]+)/)?.[1];
     expect(sessionToken).toBeTruthy();

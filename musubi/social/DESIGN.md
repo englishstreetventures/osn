@@ -88,9 +88,8 @@ Three hues, each held to its uses:
 - **Success** — `text-success` in app code, `text-ui-success` in shared parts
   (`--toast-accent-success`: `oklch(48% 0.13 150)` light, `oklch(78% 0.13 150)`
   dark). Ink for a confirmed good state. Uses today: "Verified by Musubi" on
-  `/authorize` (`AuthorizePage.tsx`), the "Accepted" line after an email code
-  in `Register`, "@handle is available" in `@shared/ui`'s `UsernameInput`, and
-  the accepted border of `OtpInput`.
+  `/authorize` (`AuthorizePage.tsx`), "@handle is available" in `@shared/ui`'s
+  `UsernameInput`, and the accepted border of `OtpInput`.
 - **Warn** — `--toast-accent-warn` (`oklch(52% 0.12 75)` light,
   `oklch(80% 0.12 75)` dark). Ink inside `@shared/ui`'s `Notice`
   (`tone="warn"`) and only there: its words and its circled "!" mark, on the
@@ -377,6 +376,21 @@ authenticator's setup, a step-up's code): a fade would only hold back what the
 reader is waiting for, and the jump in height it leaves could be bridged only
 by spatial motion.
 
+On the emailed-link page (`/verify/:requestId`) the loaded shape is the whole
+card, so the placeholder is one `Skeleton` standing for a card
+(`ResponsiveSkeleton`), at the ready card's height with five numbers on a
+360–430px phone and on desktop: 552px below `md` and 520px from it (138 and 130
+spacing steps). The product name above it stays put when the card arrives.
+Meanwhile the page's live region says "Checking this link…".
+
+*Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
+Chromium (Vitest browser tier, `ConfirmLinkPage` with five numbers, Musubi's
+`App.css`): 568.9px at 320px wide; 550.7px at 360, 375, 390, 414 and 430px;
+532.5px at 600px; 520.5px at 768 and 1280px. At 320×640 the column is taller
+than the screen either way, so the name does not move;
+`tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
+390×844 and 1280×800.*
+
 Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
 sheet), Popover and default menu run the shared overlay motion. They fade and
 scale from 96% as they open and to 98% as they close (`zoom-in`, `zoom-out`),
@@ -431,10 +445,12 @@ following it, its one motion that is not a colour or opacity change.
 - **Page title** = the page's `h1` text, then " · Musubi" ("Discover ·
   Musubi"), set by `usePageTitle` (`src/lib/page-title.ts`); "Musubi" alone
   while the head is unknown. An organisation's page names the organisation
-  once it loads and "Organisations" until then, as its `h1` does. `/authorize`
-  keeps the plain "Musubi" from `index.html`.
-- `/authorize` = no shell; one centred column, `max-w-md px-6 py-10`, centred
-  vertically in the viewport.
+  once it loads and "Organisations" until then, as its `h1` does. The bare
+  routes, `/authorize` and `/verify/:requestId`, keep the plain "Musubi" from
+  `index.html`.
+- Bare routes (`/authorize`, `/verify/:requestId`) = no shell; one centred
+  column, `max-w-md px-6 py-10`, centred vertically in the viewport.
+  `/verify/:requestId` sets the product name above its card, `gap-6` apart.
 
 ## Responsive layout
 
@@ -503,8 +519,9 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
   `active:` classes for touch feedback. A full-width pill that is a page's
-  one next step, such as the emailed-link confirm page's Try again, draws it
-  at `size="lg"` with `max-md:h-11`: 40px from `md`, 44px below it. The
+  one next step, such as Try again on a bare route's card (`/authorize`, the
+  emailed-link page), draws it at `size="lg"` with `max-md:h-11`: 40px from
+  `md`, 44px below it. The
   numbers that page offers to pick from are full-width `outline` Buttons 48px
   tall at every width (`h-12`), and its "I didn't ask for this" a full-width
   `ghost` `sm` Button, 44px below `md`. Tab rows scroll (`overflow-x-auto`)
@@ -529,13 +546,11 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
     334px viewport), after `main`'s `px-4` and the card's `p-5` and edge, for
     `TotpView`'s enrolment and `StepUpDialog`'s code steps alike. The step-up
     leaves the card when it becomes a sheet (#2045).
-  - `/authorize` gives `Register` 230px (35px boxes; 260px from 350px), after
-    `main`'s `px-6`, the frame's edge and `p-1`, and the view's own `px-4`
-    (#2046).
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
-- The bare `/authorize` route renders with **no shell at any width**.
+- The bare routes, `/authorize` and `/verify/:requestId`, render with **no
+  shell at any width**.
 
 Where the app does not follow this yet:
 
@@ -615,6 +630,14 @@ Where the app does not follow this yet:
   never a "something went wrong, try again" beside the button. Uses: the
   profile list ("Your profiles didn't load.", `ShellNotices`), and the
   Security views' lists (§Auth surfaces).
+- **On a bare route**, whose one card is what failed to load (`/authorize`,
+  `/verify/:requestId`), the card offers its own Try again, so the line does
+  not say "Reload". The card is `Card` at `padding="lg"`, left-aligned: its
+  `h1`, then the line as an inline danger `Notice` with `alert`, the copy
+  map's sentence (`describeAuthError`), then Try again, full width at
+  `size="lg"` with `max-md:h-11`. On `/verify/:requestId`, Try again is busy
+  ("Checking…") while the read runs, the card stays up, and the page's live
+  region says the try and, when it fails again, the line.
 - **A page that throws while it renders** shows "This page didn't load." with
   "Try again" in the content column, inside the shell: `PageErrorBoundary`
   wraps each route, so the rail, the tab bar and the account banners stay
@@ -648,8 +671,7 @@ apart by its underline or by standing alone at 500.
 - **A link standing alone** is `variant="link" size="sm"`: 13px at 500 in a
   32px box with 12px sides, underlined only under the pointer. It sits centred
   under the action it follows (`self-center`), so no column edge sits 12px off
-  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue and
-  "Resend code" under "Verify email".
+  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue.
 - **The action that ends an error line is neither.** It keeps the line's ink
   and is underlined at rest: `@osn/auth-ui`'s `InlineAction`, and "Try again"
   in `ShellNotices` and `PageErrorBoundary`. `link` would paint it the accent
@@ -667,8 +689,8 @@ orb (§The orb).
 - **Only the button that started the wait.** Every other action in the same
   form or dialog is `disabled` while it runs, its Cancel, Back and links among
   them, so nothing leaves it mid-call: the organisation dialogs' Cancel while
-  Create or Save runs, `@osn/auth-ui`'s "Verify email" while "Resend code"
-  sends, and the reverse. A row's action leaves the other rows alone.
+  Create or Save runs, and `@osn/auth-ui`'s sign-up Cancel while its link is
+  sent or resent. A row's action leaves the other rows alone.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -683,8 +705,9 @@ orb (§The orb).
 
 Uses in the app: the create-organisation dialog's Create ("Creating…"), the
 edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
-apps' Revoke ("Revoking…"), and `/search`'s Connect ("Sending…") and Accept
-("Accepting…"). The rail's results panel shows the same words as text, since
+apps' Revoke ("Revoking…"), `/search`'s Connect ("Sending…") and Accept
+("Accepting…"), and Try again on a bare route's failed card ("Checking…"). The
+rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
 in `osn/auth-ui/DESIGN.md` §6.
 
@@ -705,9 +728,8 @@ default look (the control step, 14px, at 500, full ink, the words as written)
   label/value pair (Settings' Profile and Account cards, a muted `sm` `Label`
   over a disabled value). The code boxes (`OtpInput`) take a span in the label's
   look 6px above them, its id the boxes' `aria-labelledby`: `Field`'s
-  `<label for>` names one control, and the boxes are a group. `Register`'s
-  code step has none, since its sentence leads the step, and its group keeps
-  `OtpInput`'s own name (`osn/auth-ui/DESIGN.md` §4).
+  `<label for>` names one control, and the boxes are a group
+  (`osn/auth-ui/DESIGN.md` §4).
 
 Uses in the app: the create-organisation dialog (Handle, with its hint; Name;
 Description) and the edit dialog (Name, Description); in the auth views, every
@@ -742,6 +764,8 @@ control the views draw by hand shows the base focus outline (§Borders,
 | --- | --- | --- |
 | `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
 | `SignIn`, `Register` | `/authorize`, in a bordered `rounded-card` frame under the client card; "No account yet? Create one" swaps to `Register` | `components/AuthorizeSignIn.tsx` |
+| `CheckEmailView` | Inside `Register`, once its link is sent | — |
+| `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column. Its expired card also answers a link whose id names no flow | `pages/VerifyEmailLinkPage.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
 | `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-code step, when a site key is set | — |
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, the last under the app's own "Recovery codes" heading | `components/SecuritySection.tsx` (lazy) |

@@ -166,6 +166,13 @@ export interface AuthConfig {
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
   /**
+   * Per address as typed (lowercased): wrong picks on sign-up links
+   * ({@link REGISTRATION_LINK_LOCKOUT_THRESHOLD} in
+   * {@link REGISTRATION_LINK_LOCKOUT_MS}). Read before every sign-up link is
+   * mailed; past the threshold, none is.
+   */
+  registrationLinkLockoutStore?: RecoveryLockoutStore;
+  /**
    * The AES-GCM keys TOTP shared secrets are encrypted under at rest, by the
    * version stamped on a row. `buildAppDeps` builds it at boot from
    * `OSN_TOTP_ENCRYPTION_KEY` and the optional `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`
@@ -206,6 +213,13 @@ export interface AuthConfig {
    * {@link RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX}.
    */
   recoveryEmailBeginCap?: AccountCapLimiter;
+  /**
+   * Cap on resent sign-up links (6 an hour), keyed on the probe key of
+   * `mailboxKey(address)` and checked only
+   * where a link goes out. See
+   * {@link REGISTRATION_SENDS_PER_ADDRESS_MAX}.
+   */
+  registrationSendCap?: AccountCapLimiter;
   /**
    * HMAC key for pairwise subject identifiers. Every relying party sees a
    * different `sub` for the same profile, derived from this key plus the

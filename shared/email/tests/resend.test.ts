@@ -52,7 +52,7 @@ describe("ResendEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "otp-step-up",
           to: "alice@example.com",
           data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
         });
@@ -74,7 +74,7 @@ describe("ResendEmailLive", () => {
     };
     expect(payload.from).toBe("noreply@osn.test");
     expect(payload.to).toEqual(["alice@example.com"]);
-    expect(payload.subject).toBe("Verify your Musubi email");
+    expect(payload.subject).toBe("Confirm a sensitive action");
     expect(payload.text).toContain("000000");
     expect(payload.html).toContain("000000");
   });
@@ -104,7 +104,7 @@ describe("ResendEmailLive", () => {
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     });
     await send({
-      template: "otp-registration",
+      template: "otp-step-up",
       to: "alice@example.com",
       data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
     });
@@ -156,7 +156,7 @@ describe("ResendEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "otp-step-up",
         to: "alice@example.com",
         data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
       },
@@ -182,7 +182,7 @@ describe("ResendEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "otp-step-up",
         to: "alice@example.com",
         data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
       },
@@ -222,7 +222,7 @@ describe("ResendEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "otp-step-up",
           to: "alice@example.com",
           data: { code: "424242", ttlMinutes: 10, instanceName: "Musubi" },
         });
@@ -263,7 +263,7 @@ const sendOne = (layer: ReturnType<typeof makeResendEmailLive>) =>
     Effect.gen(function* () {
       const email = yield* EmailService;
       yield* email.send({
-        template: "otp-registration",
+        template: "otp-step-up",
         to: "alice@example.com",
         data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
       });

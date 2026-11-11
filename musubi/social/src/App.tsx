@@ -77,18 +77,23 @@ const PrivacyPage = lazy(() =>
   import("./pages/PrivacyPage").then((m) => ({ default: m.PrivacyPage })),
 );
 const TermsPage = lazy(() => import("./pages/TermsPage").then((m) => ({ default: m.TermsPage })));
+const VerifyEmailLinkPage = lazy(() =>
+  import("./pages/VerifyEmailLinkPage").then((m) => ({ default: m.VerifyEmailLinkPage })),
+);
 
 /**
  * The consent screen runs bare: no navigation out of the flow, nothing to
- * click but the decision itself.
+ * click but the decision itself. So does the page an emailed link opens,
+ * `/verify/<request id>`, which is matched by its prefix.
  */
 const BARE_ROUTES = new Set(["/authorize"]);
+const BARE_PREFIXES = ["/verify/"];
 
 /**
  * Bare routes also run outside `AuthProvider`. Mounting it bootstraps a
  * session — `POST /token`, which rotates the refresh session — and then lists
  * profiles; the consent screen reads neither, since `/authorize/context`
- * already carries both. It mounts its own provider around the sign-in island
+ * already carries both, and the emailed-link page signs nobody in. It mounts its own provider around the sign-in island
  * when a ceremony is actually needed.
  */
 export function Layout(props: { children?: JSX.Element }) {
@@ -97,7 +102,10 @@ export function Layout(props: { children?: JSX.Element }) {
   // `/authorize/` to the consent route, but an exact-string `BARE_ROUTES` miss
   // would render it inside the full app shell — sidebar nav mid-consent and an
   // AuthProvider mount that rotates the refresh session.
-  const bare = () => BARE_ROUTES.has(location.pathname.replace(/(.)\/$/, "$1"));
+  const bare = () => {
+    const path = location.pathname.replace(/(.)\/$/, "$1");
+    return BARE_ROUTES.has(path) || BARE_PREFIXES.some((prefix) => path.startsWith(prefix));
+  };
   const isMobile = useIsMobile();
   return (
     <div class="px-safe flex h-dvh flex-col overflow-hidden md:flex-row">
@@ -224,6 +232,7 @@ export default function App() {
       <Route path="/organisations/:handle" component={OrgDetailPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/authorize" component={AuthorizePage} />
+      <Route path="/verify/:requestId" component={VerifyEmailLinkPage} />
       {/* Reachable signed-out on purpose: a notice you can only read once you have
           already handed over your data is not a notice. */}
       <Route path="/privacy" component={PrivacyPage} />

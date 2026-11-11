@@ -25,13 +25,8 @@ import {
   type RegistryGiftSummaryGift,
   type RegistryGiftSummaryTotal,
 } from "./gift-summary";
-import {
-  type OtpData,
-  renderEmailChangeOtp,
-  renderRecoveryOtp,
-  renderRegistrationOtp,
-  renderStepUpOtp,
-} from "./otp";
+import { type LinkData, type RegistrationLinkData, renderRegistrationLink } from "./link";
+import { type OtpData, renderEmailChangeOtp, renderRecoveryOtp, renderStepUpOtp } from "./otp";
 import { renderR2ReconcileAlert, type R2ReconcileAlertData } from "./r2-reconcile-alert";
 import {
   renderRsvpChangeDigest,
@@ -71,7 +66,7 @@ export type EmailTemplate =
   | "enquiry-new"
   | "enquiry-reply"
   | "enquiry-quote"
-  | "otp-registration"
+  | "link-registration"
   | "otp-step-up"
   | "otp-email-change"
   | "otp-recovery"
@@ -97,7 +92,7 @@ export type EmailTemplate =
  * identity instance it comes from, from `instanceName` in its data.
  */
 export type AccountEmailTemplate =
-  | "otp-registration"
+  | "link-registration"
   | "otp-step-up"
   | "otp-email-change"
   | "otp-recovery"
@@ -116,7 +111,7 @@ export interface EmailTemplateDataMap {
   "enquiry-new": EnquiryNewData;
   "enquiry-reply": EnquiryReplyData;
   "enquiry-quote": EnquiryQuoteData;
-  "otp-registration": OtpData;
+  "link-registration": RegistrationLinkData;
   "otp-step-up": OtpData;
   "otp-email-change": OtpData;
   "otp-recovery": OtpData;
@@ -169,8 +164,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderEnquiryReply(data as EmailTemplateData<"enquiry-reply">);
     case "enquiry-quote":
       return renderEnquiryQuote(data as EmailTemplateData<"enquiry-quote">);
-    case "otp-registration":
-      return renderRegistrationOtp(data as EmailTemplateData<"otp-registration">);
+    case "link-registration":
+      return renderRegistrationLink(data as EmailTemplateData<"link-registration">);
     case "otp-step-up":
       return renderStepUpOtp(data as EmailTemplateData<"otp-step-up">);
     case "otp-email-change":
@@ -221,7 +216,7 @@ export {
   renderEnquiryNew,
   renderEnquiryReply,
   renderEnquiryQuote,
-  renderRegistrationOtp,
+  renderRegistrationLink,
   renderStepUpOtp,
   renderEmailChangeOtp,
   renderRecoveryOtp,
@@ -247,7 +242,9 @@ export type {
   EmailChangedData,
   EnquiryNewData,
   InstanceNameData,
+  LinkData,
   OtpData,
+  RegistrationLinkData,
   EnquiryReplyData,
   EnquiryQuoteData,
   R2ReconcileAlertData,

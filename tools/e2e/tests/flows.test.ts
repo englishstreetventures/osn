@@ -99,26 +99,35 @@ describe("flow sources", () => {
     expect(signIns + musubiDevSignIns).toBeLessThanOrEqual(9);
   });
 
-  // osn-api allows 5 sign-up begins a minute per client address
-  // (`registerBegin` in `AUTH_RATE_LIMITS`, osn/api/src/routes/auth/limiters.ts,
-  // in-memory on this stack), one window shared by the whole run, so a sixth begin is a 429
-  // only on a machine fast enough to fit them in one minute. A flow begins a
-  // sign-up by pressing "Send verification code" or "Resend code" in Musubi's
-  // dialog, written exactly as the patterns below, or by `registerThroughApi`.
+  // osn-api allows 5 sign-up begins, 5 link Resends and 10 link confirms a
+  // minute per client address (`registerBegin`, `registerResend` and
+  // `emailLinkConfirm` in `AUTH_RATE_LIMITS`, osn/api/src/routes/auth/limiters.ts,
+  // in-memory on this stack), each one window shared by the whole run, so one
+  // more is a 429 only on a machine fast enough to fit them in one minute. A
+  // flow begins a sign-up by pressing "Send verification link" in Musubi's
+  // dialog, resends with "Resend link", and confirms by pressing a number on
+  // the link's page, right or wrong, or "I didn't ask for this" there, written
+  // exactly as the patterns below; `registerThroughApi` does one begin and one
+  // confirm.
+  const countIn = (pattern: RegExp): number =>
+    readdirSync(join(import.meta.dirname, "flows"))
+      .map((file) => readFileSync(join(import.meta.dirname, "flows", file), "utf8"))
+      .reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
+
   test("the flows begin no more sign-ups than osn-api allows in a minute", () => {
-    const dir = join(import.meta.dirname, "flows");
-    const begins = readdirSync(dir)
-      .map((file) => readFileSync(join(dir, file), "utf8"))
-      .reduce(
-        (sum, source) =>
-          sum +
-          (source.match(
-            /name: "(?:Send verification code|Resend code)" \}\)\.click\(|registerThroughApi\(/g,
-          )?.length ?? 0),
-        0,
-      );
+    const begins = countIn(/name: "Send verification link" \}\)\.click\(|registerThroughApi\(/g);
     expect(begins).toBeGreaterThan(0);
     expect(begins).toBeLessThanOrEqual(5);
+  });
+
+  test("the flows resend and confirm no more links than osn-api allows in a minute", () => {
+    const resends = countIn(/name: "Resend link" \}\)\.click\(/g);
+    const confirms = countIn(
+      /confirmLinkOnPage\(|pickWrongNumberOnPage\(|declineLinkOnPage\(|registerThroughApi\(/g,
+    );
+    expect(resends).toBeLessThanOrEqual(5);
+    expect(confirms).toBeGreaterThan(0);
+    expect(confirms).toBeLessThanOrEqual(10);
   });
 
   // The organiser's window exists only because the stack's cire-api keeps a

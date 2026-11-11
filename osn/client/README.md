@@ -12,15 +12,16 @@ Every export is listed in [`src/index.ts`](src/index.ts) and
 ### REST clients
 
 Each factory returns a client whose methods throw its own error class, a
-subclass of `OsnApiError`. `createRegistrationClient`, `createLoginClient`
-and `createAuthorizeClient` take `{ issuerUrl }`. Every other factory takes
+subclass of `OsnApiError`. `createRegistrationClient`, `createEmailLinkClient`,
+`createLoginClient` and `createAuthorizeClient` take `{ issuerUrl }`. Every other factory takes
 `{ issuerUrl, authFetch }`, the page runtime's `authFetch`, and no method
 takes an access token (the step-up gated ones take a `stepUpToken`).
 `authFetch` sends only to the issuer's origin.
 
 | Factory | Source | Error class | Calls |
 |---|---|---|---|
-| `createRegistrationClient` | `register.ts` | `RegistrationError` | email-verified sign-up (`checkHandle`, `beginRegistration`, `completeRegistration`) and first-passkey enrolment; returns a `Session` |
+| `createRegistrationClient` | `register.ts` | `RegistrationError` | sign-up through an emailed link (`checkHandle`, `beginRegistration`, `registrationStatus`, `resendRegistrationLink`) and first-passkey enrolment; the completing status poll returns a `Session` |
+| `createEmailLinkClient` | `email-link.ts` | `EmailLinkError` | the calls the page an emailed link opens makes (`candidates`, `confirm`); `emailLinkPurpose(requestId)` reads a request id's flow |
 | `createLoginClient` | `login.ts` | `LoginError` | passkey sign-in (`passkeyBegin`, `passkeyComplete`); returns a `Session` and a `LoginProfile` |
 | `createStepUpClient` | `step-up.ts` | `StepUpError` | a fresh factor before a gated action: passkey, emailed code or authenticator app |
 | `createPasskeysClient` | `passkeys.ts` | `PasskeysError` | list, rename, delete and add passkeys |

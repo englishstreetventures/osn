@@ -2268,6 +2268,354 @@
         }
       }
     },
+    "/email-link/{requestId}/candidates": {
+      "post": {
+        "operationId": "getEmailLinkCandidates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCandidates": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "status": {
+                          "const": "ready",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "pairingCandidates"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "confirmed",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
+    "/email-link/{requestId}/confirm": {
+      "post": {
+        "operationId": "confirmEmailLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "pairingPick": {
+                    "pattern": "^(?:[0-9]{2}|none)$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret",
+                  "pairingPick"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "pairingPick": {
+                    "pattern": "^(?:[0-9]{2}|none)$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret",
+                  "pairingPick"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "linkSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  "pairingPick": {
+                    "pattern": "^(?:[0-9]{2}|none)$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "linkSecret",
+                  "pairingPick"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "confirmed",
+                        "declined",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
     "/graph/blocks": {
       "get": {
         "operationId": "listBlocks",
@@ -10961,6 +11309,23 @@
                   "handle": {
                     "type": "string"
                   },
+                  "previous": {
+                    "properties": {
+                      "claimSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
+                      "requestId": {
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "requestId",
+                      "claimSecret"
+                    ],
+                    "type": "object"
+                  },
                   "turnstileToken": {
                     "type": "string"
                   }
@@ -10987,6 +11352,23 @@
                   },
                   "handle": {
                     "type": "string"
+                  },
+                  "previous": {
+                    "properties": {
+                      "claimSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
+                      "requestId": {
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "requestId",
+                      "claimSecret"
+                    ],
+                    "type": "object"
                   },
                   "turnstileToken": {
                     "type": "string"
@@ -11015,6 +11397,23 @@
                   "handle": {
                     "type": "string"
                   },
+                  "previous": {
+                    "properties": {
+                      "claimSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
+                        "type": "string"
+                      },
+                      "requestId": {
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "requestId",
+                      "claimSecret"
+                    ],
+                    "type": "object"
+                  },
                   "turnstileToken": {
                     "type": "string"
                   }
@@ -11036,12 +11435,24 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "sent": {
-                      "type": "boolean"
+                    "claimSecret": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "number"
+                    },
+                    "pairingCode": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "sent"
+                    "requestId",
+                    "claimSecret",
+                    "pairingCode",
+                    "expiresAt"
                   ],
                   "type": "object"
                 }
@@ -11136,24 +11547,32 @@
         }
       }
     },
-    "/register/complete": {
+    "/register/{requestId}/resend": {
       "post": {
-        "operationId": "completeRegistration",
+        "operationId": "resendRegistrationLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "email": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "email",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -11161,16 +11580,13 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "email": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "email",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -11178,16 +11594,13 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
-                  "code": {
-                    "type": "string"
-                  },
-                  "email": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "email",
-                  "code"
+                  "claimSecret"
                 ],
                 "type": "object"
               }
@@ -11196,6 +11609,207 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "sent",
+                        "limit",
+                        "expired"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
+    "/register/{requestId}/status": {
+      "post": {
+        "operationId": "getRegistrationStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:signup)_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "claimSecret": {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "claimSecret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "expired",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "conflict",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
           "201": {
             "content": {
               "application/json": {
@@ -11233,9 +11847,14 @@
                         "scope"
                       ],
                       "type": "object"
+                    },
+                    "status": {
+                      "const": "complete",
+                      "type": "string"
                     }
                   },
                   "required": [
+                    "status",
                     "profileId",
                     "handle",
                     "email",

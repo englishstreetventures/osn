@@ -63,7 +63,7 @@ export type AuthMethod =
   | "refresh";
 
 /** Registration funnel steps. */
-export type RegisterStep = "begin" | "otp_verify" | "passkey_enroll" | "complete";
+export type RegisterStep = "begin" | "resend" | "passkey_enroll" | "complete";
 
 /** ARC token verification outcomes — used for S2S security dashboards. */
 export type ArcVerifyResult =
@@ -369,6 +369,32 @@ export type OriginGuardRejectionReason = "missing" | "mismatch";
 /** Cross-device login protocol steps. */
 export type CrossDeviceStep = "begin" | "poll" | "approve" | "reject";
 
+/** The flows that prove an address with an emailed link. */
+export type EmailLinkFlow = "registration";
+
+/**
+ * What a confirm of an emailed link did: approved the request, answered an
+ * accepted confirm or decline sent again (`repeat`), refused it, refused it
+ * and wiped the request (the wrong secret that reached the cap), or ended the
+ * request because the pick was not the waiting screen's number (`wrong_pick`)
+ * or the reader said they did not ask for it (`declined`). Never the number
+ * itself.
+ */
+export type EmailLinkConfirmOutcome =
+  | "confirmed"
+  | "repeat"
+  | "refused"
+  | "wiped"
+  | "wrong_pick"
+  | "declined";
+
+/**
+ * What became of one emailed link: sent, held back by a per-address limit
+ * (`capped`), not sent because an account has the address or the handle by
+ * the time it would go (`taken`), or failed.
+ */
+export type EmailLinkSendResult = "sent" | "capped" | "taken" | "failed";
+
 /**
  * Outcome of a call to the OIDC authorization endpoint. Mirrors the OAuth
  * error codes we are allowed to emit, plus the two success shapes: straight
@@ -393,7 +419,10 @@ export type OidcClientKind = "first_party" | "third_party";
 /** Auth endpoints subject to IP-based rate limiting. */
 export type AuthRateLimitedEndpoint =
   | "register_begin"
-  | "register_complete"
+  | "register_status"
+  | "register_resend"
+  | "email_link_confirm"
+  | "email_link_candidates"
   | "handle_check"
   | "passkey_login_begin"
   | "passkey_login_complete"

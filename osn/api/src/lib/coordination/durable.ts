@@ -47,7 +47,12 @@ import {
   type AuthRateLimiters,
   type RateLimitBudget,
 } from "../../routes/auth/limiters";
-import { TOTP_LOCKOUT_MS, TOTP_LOCKOUT_THRESHOLD } from "../../services/auth/constants";
+import {
+  REGISTRATION_LINK_LOCKOUT_MS,
+  REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  TOTP_LOCKOUT_MS,
+  TOTP_LOCKOUT_THRESHOLD,
+} from "../../services/auth/constants";
 import type {
   CeremonyStores,
   ChallengeClaimStore,
@@ -59,6 +64,7 @@ import type {
   PendingRegistration,
   PendingTotpEnrollment,
   RecoveryDisownToken,
+  EmailLinkChallenge,
   RegistrationChallengeEntry,
   StepUpJtiStore,
   StepUpOtpEntry,
@@ -292,6 +298,7 @@ export function createDurableCoordination(
     crossDeviceRequests: ceremony<CrossDeviceRequest>("cross_device"),
     authorizeRequests: ceremony<PendingAuthorizeRequest>("oidc_authorize_request"),
     recoveryDisownTokens: ceremony<RecoveryDisownToken>("recovery_disown"),
+    emailLinks: ceremony<EmailLinkChallenge>("email_link"),
   };
 
   const accountErasureRateLimiters: AccountErasureRateLimiters = {
@@ -342,9 +349,16 @@ export function createDurableCoordination(
       { threshold: TOTP_LOCKOUT_THRESHOLD, lockoutMs: TOTP_LOCKOUT_MS },
       onError,
     ),
+    registrationLinkLockoutStore: createDurableLockoutStore(
+      ns,
+      "registration_link_lockout",
+      { threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD, lockoutMs: REGISTRATION_LINK_LOCKOUT_MS },
+      onError,
+    ),
     profileSwitchCap: named(OSN_RATE_LIMITS.profileSwitchCap),
     emailChangeBeginCap: named(OSN_RATE_LIMITS.emailChangeBeginCap),
     recoveryEmailBeginCap: named(OSN_RATE_LIMITS.recoveryEmailBeginCap),
+    registrationSendCap: named(OSN_RATE_LIMITS.registrationSendCap),
     healthProbe: createCoordinationProbe(client(ns, "health_probe", onError)),
     healthProbeLimiter: named(OSN_RATE_LIMITS.healthCoordination),
   };

@@ -52,12 +52,15 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 | Recovery code | Lost-device fallback (`POST /login/recovery/complete`) |
 | Step-up passkey ceremony | Sudo gate for sensitive endpoints — see [[step-up]] |
 | Step-up OTP (to verified email) | Step-up fallback factor — see [[step-up]] |
+| Emailed link (to the address being signed up) | Proves the address at sign-up; confirms it and signs nobody in — see [[email-links]] |
 
 ### Public route surface
 
 | Route | Purpose |
 |---|---|
-| `POST /register/{begin,complete}` | New account + first profile (issues access + session cookie) |
+| `POST /register/begin` | Opens a sign-up and mails its link; answers the request id, claim secret and pairing number |
+| `POST /register/:requestId/{status,resend}` | The tab that began polls (the poll that finds the link confirmed makes the account and issues access + session cookie), or asks for another link |
+| `POST /email-link/:requestId/{candidates,confirm}` | The link's page: the numbers to pick from, then the confirm. Never a session |
 | `POST /passkey/register/{begin,complete}` | Bind a passkey (mandatory at signup; step-up gated thereafter) |
 | `POST /login/passkey/{begin,complete}` | Identifier-bound or discoverable WebAuthn login |
 | `POST /login/recovery/complete` | Recovery-code login |
@@ -107,6 +110,7 @@ Auth routes use `createAuthRoutes(authConfig, dbLayer?)` — `authConfig` is req
 
 - [[identity-model]] — accounts, profiles, organisations, token model
 - [[passkey-primary]] — primary login contract
+- [[email-links]] — the emailed-link challenge sign-up uses
 - [[recovery-codes]] — Copenhagen Book M2 recovery flow
 - [[sessions]] — per-device session management
 - [[step-up]] — sudo token gating

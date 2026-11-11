@@ -27,6 +27,9 @@ import type {
   DeletionPhase,
   DeletionRequestResult,
   EmailChangeStep,
+  EmailLinkConfirmOutcome,
+  EmailLinkFlow,
+  EmailLinkSendResult,
   GraphBlockAction,
   GraphConnectionAction,
   OidcAuthorizeResult,
@@ -111,6 +114,8 @@ export const OSN_METRICS = {
   authPasskeyLoginDiscoverable: "osn.auth.passkey.login_discoverable",
   authCrossDeviceAttempts: "osn.auth.cross_device.attempts",
   authCrossDeviceDuration: "osn.auth.cross_device.duration",
+  authEmailLinkConfirmations: "osn.auth.email_link.confirmations",
+  authEmailLinkSends: "osn.auth.email_link.sends",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   orgOps: "osn.org.operations",
@@ -143,7 +148,9 @@ type RegisterAttrs = { step: RegisterStep; result: Result };
 type LoginAttrs = { method: AuthMethod; result: Result };
 type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
-type OtpSentAttrs = { purpose: "registration" | "step_up" | "email_change" | "recovery" };
+type OtpSentAttrs = { purpose: "step_up" | "email_change" | "recovery" };
+type EmailLinkConfirmAttrs = { outcome: EmailLinkConfirmOutcome };
+type EmailLinkSendAttrs = { flow: EmailLinkFlow; result: EmailLinkSendResult };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 /** Turnstile-gated endpoints. Bounded literal union — never a raw path. */
 type AuthTurnstileEndpoint = "register_begin" | "passkey_login_begin" | "recovery_email_begin";
@@ -200,6 +207,18 @@ const authHandleCheck = createCounter<HandleCheckAttrs>({
 const authOtpSent = createCounter<OtpSentAttrs>({
   name: OSN_METRICS.authOtpSent,
   description: "OTP codes successfully sent",
+  unit: "{message}",
+});
+
+const authEmailLinkConfirmations = createCounter<EmailLinkConfirmAttrs>({
+  name: OSN_METRICS.authEmailLinkConfirmations,
+  description: "Emailed-link confirms by what they did to the request",
+  unit: "{confirm}",
+});
+
+const authEmailLinkSends = createCounter<EmailLinkSendAttrs>({
+  name: OSN_METRICS.authEmailLinkSends,
+  description: "Emailed links by flow: sent, held back by a per-address cap, or failed",
   unit: "{message}",
 });
 
@@ -440,9 +459,32 @@ export const withGraphBlockOp =
 export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid"): void =>
   authHandleCheck.inc({ result });
 
-export const metricAuthOtpSent = (
-  purpose: "registration" | "step_up" | "email_change" | "recovery",
-): void => authOtpSent.inc({ purpose });
+export const metricAuthOtpSent = (purpose: "step_up" | "email_change" | "recovery"): void =>
+  authOtpSent.inc({ purpose });
+
+export const metricEmailLinkSend = (flow: EmailLinkFlow, result: EmailLinkSendResult): void =>
+  authEmailLinkSends.inc({ flow, result });
+
+/**
+ * Wraps an emailed-link confirm: span `auth.email_link.confirm`, a count of
+ * what the confirm did, and an error log on a store failure. The outcome is
+ * read off the effect's own answer through `outcomeOf`.
+ */
+export const withEmailLinkConfirm =
+  <A>(outcomeOf: (answer: A) => EmailLinkConfirmOutcome) =>
+  <E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      Effect.tap((answer) =>
+        Effect.sync(() => authEmailLinkConfirmations.inc({ outcome: outcomeOf(answer) })),
+      ),
+      Effect.tapError((e) =>
+        Effect.logError("auth.email_link operation failed", {
+          step: "confirm",
+          ...safeErrorSummary(e),
+        }),
+      ),
+      Effect.withSpan("auth.email_link.confirm"),
+    );
 
 export const withOrgOp =
   (action: OrgAction) =>

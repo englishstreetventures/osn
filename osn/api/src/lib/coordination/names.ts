@@ -31,10 +31,19 @@ export type CeremonyStoreName =
   // email, holding only the SHA-256 of its secret half. Never in D1.
   | "recovery_disown"
   // OIDC: validated /authorize requests parked while the consent UI runs.
-  | "oidc_authorize_request";
+  | "oidc_authorize_request"
+  // An emailed link's request, by request id: hashes of the link and claim
+  // secrets and whether the link was confirmed. Never in D1.
+  | "email_link";
 
 /** Per-account failed-attempt counters. Three, so no factor can lock out another. */
-export type LockoutStoreName = "recovery_lockout" | "recovery_otp_lockout" | "totp_lockout";
+export type LockoutStoreName =
+  | "recovery_lockout"
+  | "recovery_otp_lockout"
+  | "totp_lockout"
+  // Wrong picks on sign-up links, per address as typed. Its own counter,
+  // so it never locks anyone out of a recovery factor.
+  | "registration_link_lockout";
 
 export type CoordinationStoreName =
   | CeremonyStoreName

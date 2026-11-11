@@ -165,15 +165,17 @@ describe("durable lockout counters", () => {
   });
 
   // F-CL9
-  it("keeps the three counters apart for one account", async () => {
+  it("keeps the four counters apart for one account", async () => {
     const fake = createFakeNamespace();
     const bundle = createDurableCoordination(fake.ns, vi.fn());
     await bundle.recoveryLockoutStore.recordFailure(KEY);
     await bundle.recoveryOtpLockoutStore.recordFailure(KEY);
     await bundle.totpLockoutStore.recordFailure(KEY);
-    expect(new Set(fake.names).size).toBe(3);
+    await bundle.registrationLinkLockoutStore.recordFailure(KEY);
+    expect(new Set(fake.names).size).toBe(4);
     expect(await bundle.recoveryLockoutStore.recordFailure(KEY)).toBe(2);
     expect(await bundle.totpLockoutStore.recordFailure(KEY)).toBe(2);
+    expect(await bundle.registrationLinkLockoutStore.recordFailure(KEY)).toBe(2);
   });
 });
 

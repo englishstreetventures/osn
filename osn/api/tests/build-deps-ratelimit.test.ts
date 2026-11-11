@@ -174,6 +174,7 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
     await built.deps.profileSwitchCap.check("acc_1");
     await built.deps.emailChangeBeginCap.check("acc_1");
     await built.deps.recoveryEmailBeginCap.check("acc_1");
+    await built.deps.registrationSendCap.check("prb_1");
     await built.deps.accountExportLimiter.check("acc_1");
     await built.deps.accountErasureRateLimiters.accountDelete.check("acc_1");
     expect(seen).toEqual([]);

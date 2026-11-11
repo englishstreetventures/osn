@@ -1,25 +1,18 @@
-import { makeLogEmailLive } from "@shared/email";
+import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
 import { Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createTestLayer } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { registerThroughRoutes } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 function buildEmailCapture(baseLayer: ReturnType<typeof createTestLayer>) {
   const rec = makeLogEmailLive();
   return {
     layer: Layer.merge(baseLayer, rec.layer),
-    code: () => {
-      const all = rec.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => rec.recorded(),
   };
 }
 
@@ -32,27 +25,11 @@ beforeAll(async () => {
 /** Register a user and return an access token for authenticated CDL endpoints. */
 async function registerAndGetAccessToken(
   app: ReturnType<typeof createAuthRoutes>,
-  captured: { code: () => string | undefined },
+  captured: { recorded: () => readonly RecordedEmail[] },
   email: string,
   handle: string,
 ): Promise<string> {
-  await settledHandle(
-    app,
-    new Request("http://localhost/register/begin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, handle, birthdate: "1990-01-01" }),
-    }),
-  );
-  const completeRes = await app.handle(
-    new Request("http://localhost/register/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, code: captured.code() }),
-    }),
-  );
-  const json = (await completeRes.json()) as { session: { access_token: string } };
-  return json.session.access_token;
+  return (await registerThroughRoutes(app, captured.recorded, email, handle)).accessToken;
 }
 
 describe("cross-device login routes", () => {

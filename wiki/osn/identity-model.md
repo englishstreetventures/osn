@@ -242,15 +242,25 @@ This keeps the short access-token TTL (XSS blast-radius cap) intact while making
 
 ```mermaid
 sequenceDiagram
-  participant U as User
+  participant U as Tab that began
+  participant M as Device the email is opened on
   participant API as @osn/api
   participant DB as accounts + users + passkeys
 
-  U->>API: POST /register/begin<br/>{ email, handle, displayName }
-  API->>U: 200 (OTP emailed)
-  U->>API: POST /register/complete { otp }
-  API->>DB: tx { insert account, insert profile }
-  API-->>U: 200 + access token + HttpOnly session cookie
+  U->>API: POST /register/begin<br/>{ email, handle, birthdate, displayName }
+  API-->>U: 200 { requestId, claimSecret, pairingCode }
+  API-)M: email: /verify/<requestId>#<link secret>
+  loop until confirmed
+    U->>API: POST /register/:requestId/status { claimSecret }
+    API-->>U: 200 { status: pending, pairingCode }
+  end
+  M->>API: POST /email-link/:requestId/candidates { linkSecret }
+  API-->>M: 200 { pairingCandidates }
+  M->>API: POST /email-link/:requestId/confirm { linkSecret, pairingPick }
+  API-->>M: 200 { status: confirmed } (no cookie, no token)
+  U->>API: POST /register/:requestId/status { claimSecret }
+  API->>DB: batch { insert account, insert profile }
+  API-->>U: 201 + access token + HttpOnly session cookie
   Note over U,API: UI refuses to advance until passkey enrollment completes
   U->>API: POST /passkey/register/begin<br/>Authorization: Bearer <access>
   API-->>U: WebAuthn options
@@ -259,7 +269,7 @@ sequenceDiagram
   API-->>U: 200 — account now has ≥1 WebAuthn credential
 ```
 
-Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
+The link, the pairing number and the refusals are in [[email-links]]. Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and

@@ -23,10 +23,8 @@ types.
 **Hosts today.** `@musubi/social` is the one workspace that depends on the
 package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
-Five views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
-(#2056), `ProfileSwitcher` (#2045), and `CheckEmailView` and `ConfirmLinkPage`
-(#2085). Only their tests render them, and `CheckEmailView` and
-`ConfirmLinkPage` their lab stories too (§11).
+Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
+(#2056) and `ProfileSwitcher` (#2045). Only their tests render them.
 
 **What a host supplies.**
 
@@ -84,18 +82,16 @@ shadcn colour vocabulary — `text-foreground`, `text-muted-foreground`,
 weights (`text-xs`, `text-sm`, `text-lg`, `text-2xl`, `font-semibold`,
 `font-bold`) and Tailwind's own radii (`rounded-md`, `rounded`). So the views
 render as intended only in a host that defines that vocabulary. The `ui-*`
-utilities the views write themselves today: `text-ui-success` (`Register`),
-`border-ui-warn/40 bg-ui-warn/10` (`SecurityEventsBanner`), `text-ui-xs`
-(`ProfileSwitcher`), and `@shared/ui`'s `labelVariants()` — the plain label's
+utilities the views write themselves today: `border-ui-warn/40 bg-ui-warn/10`
+(`SecurityEventsBanner`), `text-ui-xs` (`ProfileSwitcher`), and `@shared/ui`'s `labelVariants()` — the plain label's
 classes — on the spans over a row of code boxes and over `TotpView`'s setup key
 (§4). Every error line is a `@shared/ui` `Notice`, so it
 paints `ui-danger` through the contract (§7).
 
 **Status roles in use.**
 
-- `ui-success` — ink for a confirmed good state: the "Accepted" line after an
-  email code in `Register`, and the shared parts' own success states
-  (`UsernameInput`, `OtpInput`).
+- `ui-success` — ink for a confirmed good state: the shared parts' own success
+  states (`UsernameInput`, `OtpInput`).
 - `ui-warn` — a border and a wash: the `SecurityEventsBanner` box.
 - `ui-danger` — ink for a failure: every view's error line, drawn by
   `Notice` (`tone="danger"`). `RecoveryCodesView`'s warning when an account
@@ -158,9 +154,7 @@ As built:
   (`@shared/ui/ui/label`) because six boxes have no one id for a
   `<label for>`. The span carries an id from `createUniqueId()`, and the boxes
   name their group by it (`aria-labelledby`), so box N reads "<label> Digit
-  N". `Register`'s code step has no label over its boxes: its sentence "We
-  sent a 6-digit code to …" leads the step, and the group keeps `OtpInput`'s
-  own name, "Verification code". `TotpView`'s "Or enter this setup key by
+  N". `TotpView`'s "Or enter this setup key by
   hand" is the same span over its key.
   The primary Button spans the column; a standalone link under it sits centred
   (§5).
@@ -226,7 +220,7 @@ besides the default:
 | View | Parts | Button variants |
 | --- | --- | --- |
 | `SignIn` | Button, Field, Input, Notice | `ghost`, `secondary`, `link` |
-| `Register` | Button, Field, InfoPopover, Input, Label, Notice, OtpInput, UsernameInput | `ghost`, `link` |
+| `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `CheckEmailView` for the wait | `ghost` |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput | `outline`, `ghost` |
 | `StepUpDialog` | Button, Notice, OtpInput | `outline`, `ghost` |
 | `PasskeysView` | Button, Input, Notice, Skeleton | `outline`, `ghost` |
@@ -264,8 +258,8 @@ themselves:
 in Musubi) at 500 in the accent ink, a 32px box with 12px sides, underlined
 only under the pointer,
 centred under the action it follows (`self-center`) so no column edge sits
-12px off its words. Two: "Lost your passkey?" under `SignIn`'s Continue, and
-"Resend code" under `Register`'s "Verify email". `InlineAction`, above, is the
+12px off its words. One: "Lost your passkey?" under `SignIn`'s Continue.
+`InlineAction`, above, is the
 link that ends an error line. Musubi's rules for both, and for a link inside a
 sentence, are `musubi/social/DESIGN.md` §Links.
 
@@ -301,9 +295,9 @@ own.
 | State | What shows |
 | --- | --- |
 | No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
-| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification code" ("Sending…") |
-| Verify | "We sent a 6-digit code to {email}. Enter it below to verify.", the code boxes, then "Verifying your code…", "Accepted" or the code's error line; "Verify email" ("Verifying…"); the Turnstile challenge again, for a resend; "Resend code" ("Sending…"; with a countdown while it waits, and held until the challenge hands it a token); "← Use a different email" |
-| Passkey | "Enroll a passkey or security key so you can sign back in. This is required to finish creating your account."; "Enroll credential" ("Setting up…") |
+| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification link" ("Sending…"). When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus |
+| Verify | `CheckEmailView` for sign-up: the address, the request's number, Resend ("Sending…") and "Use a different email". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
+| Passkey | "Enroll a passkey or security key so you can sign back in. This is required to finish creating your account."; the enrolment's error line; "Enroll credential" ("Setting up…") |
 | Done | "You're all set. Loading {productName}…" |
 
 **`RecoveryLoginForm`**
@@ -475,23 +469,21 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   closed passkey prompt or an unfinished challenge (`src/error-lines.ts`). A
   field with a hint names both (`Register`'s date of birth: the hint, then the
   under-13 line). Fields tied this way: `SignIn`'s identifier; `Register`'s
-  email and date of birth; `RecoveryLoginForm`'s handle or email and recovery
+  email, handle (the handle-taken line) and date of birth; `RecoveryLoginForm`'s handle or email and recovery
   code, its email address, and its authenticator step's handle or email;
   `PasskeysView`'s rename field; `ChangeEmailForm`'s email; `CreateProfileForm`'s
   handle; and every row of code boxes (below).
 - **Above the action it follows** when no field owns it: `Register`'s send and
   enrolment, `RecoveryLoginForm`'s recovery-code, send and enrolment steps,
   `RecoveryCodesView`'s generate, `CreateProfileForm`'s submit, and the
-  factor buttons in `StepUpDialog`. `Register`'s resend line sits under
-  "Resend code"; `ProfileSwitcher`'s lines sit inside the popover and the
+  factor buttons in `StepUpDialog`. `ProfileSwitcher`'s lines sit inside the popover and the
   delete dialog.
 - **Under the heading** in `PasskeysView` (add, delete) and `TotpView` (start,
   remove), and in `SessionsView`; above the `SecurityEventsBanner` box, on
   the page's ground. Never on the warn wash: danger ink there measures 4.16:1
   in light, under the 4.5:1 text floor (`musubi/social/DESIGN.md` §Status
   colours).
-- **Under the code boxes** for a refused code in `Register`,
-  `RecoveryLoginForm` (both code steps), `TotpView`, `StepUpDialog` (both code
+- **Under the code boxes** for a refused code in `RecoveryLoginForm` (both code steps), `TotpView`, `StepUpDialog` (both code
   steps) and `ChangeEmailForm`, tied to the row the same way: the line's id
   goes to `OtpInput`'s `aria-describedby`, which sets it on every box. The
   boxes' `aria-invalid` comes from `OtpInput`'s `status`: each view passes
@@ -501,7 +493,9 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   as well, since either may be what was refused.
 - **Under its sentence** in `CheckEmailView`, which has no field: the host's
   `errorMessage`, a sentence from `describeAuthError`, as an alert of its own
-  beside the view's status region. Resend is the action, and the line goes
+  beside the view's status region. The one exception is an answer, not a
+  failure: `Register` passes its own line when the request has sent every
+  link it may. Resend is the action, and the line goes
   while it sends, so a second failure mounts it again.
 - **Directly above Try again** in `ConfirmLinkPage`: a fixed line, never the
   thrown error's text. The page's polite `<output>`, which says its other
@@ -537,22 +531,21 @@ wait, status `0` to check the connection, an ended session to sign in), and a
 heading stays. `RecoveryCodesView` and `SecurityEventsBanner` already fail
 soft (§6).
 
-**Toasts are for success only** ("Signed in", "Verification code sent",
-"Email verified", "Authenticator app added", …). No view raises an error
+**Toasts are for success only** ("Signed in", "Email verified", "Welcome,
+@{handle}", "Authenticator app added", …). No view raises an error
 toast.
 
 **The verification challenge.** Every call that spends a Turnstile token —
-`SignIn`'s Continue, `Register`'s send and resend, `RecoveryLoginForm`'s
+`SignIn`'s Continue, `Register`'s send, `RecoveryLoginForm`'s
 emailed-code send — asks the widget for a fresh token when it fails: the
 server checks the token before it answers, so a refusal has spent it too.
 Once the call is over the submit stays disabled until the widget hands over a
 fresh one; while the call runs it stays busy, not disabled, though the widget
 has already dropped the spent token. `SignIn` and `RecoveryLoginForm` reset
 after a success as well. `Register` drops the spent
-token after a success instead, since its widget goes with it: the details
-step's when the code step opens, the code step's while "Resend code" counts
-down. The code step mounts its own widget only once the countdown ends, so a
-sign-up that never resends runs one challenge.
+token after a success instead, since its widget goes with the details step.
+The waiting view's Resend spends no token, so a sign-up runs one challenge
+unless it comes back to the details, which mount a new widget.
 
 A recovery session that runs out is its own state in `RecoveryLoginForm`
 ("That recovery session timed out"), not an error line.
@@ -621,6 +614,10 @@ when the view appears, and when a send ends with Resend holding focus and the
 wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
 (`focus:outline-none`): it is where focus is put, not a control.
 
+`Register` puts focus on the handle field when a wait ends because the handle
+was taken: the waiting view that held focus is gone, and the handle field is
+where the alert asks the person to act.
+
 `ConfirmLinkPage` draws no control by hand either: its numbers, the decline,
 Try again, Confirm and Continue are `@shared/ui` Buttons, which draw their own
 ring, and its typed field is `@shared/ui`'s `Input`, whose ink fill draws a 2px
@@ -634,11 +631,7 @@ it never falls to `<body>`.
 `autofocus`, so focus is in box 1 as the step opens. `RecoveryLoginForm`'s
 authenticator step does not, since its handle or email field comes first. A
 refused code (`status` `error`) puts focus back in box 1 in every row. A refusal that says nothing about the code leaves focus where it
-was: on the busy button that sent it, which kept focus through the wait. Only
-`Register`'s code step is a form, where Enter in a box sends the code and the
-boxes disable for the check: Chromium drops focus to the page, and WebKit can
-leave it on the disabled box. After such a refusal `Register` puts focus back
-in box 1 when focus is on the page or in the row, and nowhere else.
+was: on the busy button that sent it, which kept focus through the wait.
 `ChangeEmailForm` does not yet: a refusal that is not about the code, after
 the step-up, leaves focus on the page (#2056).
 
@@ -662,8 +655,8 @@ no product.
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
-- Going back: Cancel, Back, "Back to sign in", "← Use a different email"
-  (`Register`), "Use a different email" (`CheckEmailView`), "Start again".
+- Going back: Cancel, Back, "Back to sign in", "Use a different email"
+  (`CheckEmailView`), "Start again".
 - Saying no: "I didn't ask for this" (`ConfirmLinkPage`), answered by
   "Cancelled".
 
@@ -693,11 +686,11 @@ As built:
   (`vi.mock("@osn/auth-ui/…")`) and check how the app wires them. The suites
   that run the real views are the end-to-end flows
   `tools/e2e/tests/flows/musubi-passkey.flow.ts` and
-  `tools/e2e/tests/flows/musubi-register-retry.flow.ts`. `musubi-passkey`
-  checks the error lines in Chromium: a sign-up code refused with a `429`
-  leaves focus on Verify email when a click sent it, and puts it back in box 1
-  when Enter in a box sent it; a wrong emailed code at sign-up reads
-  the code sentence; a rate-limited sign-in reads the wait sentence, with
+  `tools/e2e/tests/flows/musubi-register-retry.flow.ts`, which take `Register`
+  through `CheckEmailView` and open the link on `ConfirmLinkPage` (a wrong
+  pick, the decline, a failed read and its Try again, and the expired card for
+  a link cut short and for one with an unknown id). `musubi-passkey`
+  checks the error lines in Chromium: a rate-limited sign-in reads the wait sentence, with
   "Lost your passkey?" inside the line, as the identifier field's accessible
   description, and with no toast. It also reads the shared parts the views
   draw, through `tools/e2e/tests/support/musubi-surfaces.ts`, each shot at 390
@@ -720,19 +713,16 @@ As built:
   (`totpSetupSurfaces`), the spans over the setup key and the code boxes in
   the plain label's look, 6px above them, the boxes a group named "Code from
   the app" with box 1 focused after the step-up, and the row's width and each
-  box's at 320 and 390px, shot at 320. It holds Register's send, verify and enrol calls, the step-up's
+  box's at 320 and 390px, shot at 320. It holds Register's send and enrol calls, the step-up's
   passkey begin and the authenticator's confirm (`busyButtonHeld`): "Sending…",
-  "Verifying…", "Setting up…", "Waiting for your passkey…" and "Checking…"
-  each busy, not disabled, with focus kept, and Cancel (and "← Use a different
-  email") disabled beside them.
+  "Setting up…", "Waiting for your passkey…" and "Checking…" each busy, not
+  disabled, with focus kept, and Cancel disabled beside them.
 - **Waits in the package tests.** `SignIn.test.tsx` holds Continue busy and
   not disabled while the passkey prompt is open, though the verification
-  challenge has dropped its spent token. `Register.test.tsx` holds "Resend
-  code" busy while it sends, and "Verify email" not busy (it is `disabled`
-  while the resend runs, §6); with six digits in, a pending resend leaves
-  Verify email and the code boxes disabled and the form's submit verifies
-  nothing, and a pending verify leaves Resend disabled, not busy, and sending
-  nothing. `ProfileSwitcher.test.tsx` holds Delete busy, not disabled, while
+  challenge has dropped its spent token. `Register.test.tsx` holds "Send
+  verification link" busy, not disabled, with Cancel disabled and the form's
+  submit sending nothing, and Cancel disabled while the waiting view's Resend
+  sends. `ProfileSwitcher.test.tsx` holds Delete busy, not disabled, while
   the delete runs, and each row's delete beside its row button. The views no
   flow reaches hold each of their waits the same way, a second press sending
   nothing: `RecoveryLoginForm.test.tsx` (five, with Back disabled),
@@ -750,9 +740,7 @@ As built:
   (`tests/helpers/code.ts`), and a `400` and a `429` for each code check the
   line is in every box's `aria-describedby`, with every box `aria-invalid` for
   the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as each
-  code step opens. `Register.test.tsx` checks a `429` sent with Enter from
-  box 6, with focus kept on that box as WebKit keeps it, ends with focus in
-  box 1.
+  code step opens.
 - **Loading in the package tests.** `PasskeysView`, `TotpView`,
   `RecoveryCodesView` and `SessionsView` mounted under a `Suspense` whose
   fallback is the host's show their own placeholder, never the host's, while a
@@ -769,19 +757,22 @@ As built:
   panel's 16px padding. Shots at both widths, light and dark, in
   `e2e-artifacts/musubi-settings/`.
   `musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx`
-  renders `CheckEmailView`, which no flow reaches yet, in Musubi's auth sheet
+  renders `CheckEmailView` in Musubi's auth sheet
   and holds its layout at 320px and 1280px (the long address, the countdown on
   one line, the 40px and 32px buttons, and the six-digit number at 24px in
-  tabular figures with its label read first). No flow reaches
-  `ConfirmLinkPage` yet either;
+  tabular figures with its label read first).
   `musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx`
-  renders it on a bare route in Chromium and holds, at 320px, five six-digit
+  renders `ConfirmLinkPage` on a bare route and holds, at 320px, five six-digit
   numbers and a long address with nothing to scroll sideways, and at 320px and
   1280px the numbers one under another, at least 44px tall in 24px tabular
   figures, the decline and Try again at 44px below `md`, the error notice above
   Try again, and the typed field, Confirm and the decline inside the card at
   44px or more, the field at 16px with an edge of at least 3:1 and a plain
   label 6px above it.
+  `musubi/social/tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx`
+  renders Musubi's `/verify/:requestId` page itself, and holds its own failed
+  card, its busy Try again and its `Skeleton` placeholder against
+  `ConfirmLinkPage`'s card.
 
 ## 12. Motion
 

@@ -38,6 +38,25 @@ function harness(failing: (call: RecordedCall) => boolean) {
 }
 
 describe("a ceremony begin whose entry cannot be stored", () => {
+  it("POST /register/begin answers 503 and mails nothing when the link request cannot be stored", async () => {
+    const h = harness((call) => call.store === "email_link");
+    h.fail();
+    const res = await h.app.handle(
+      new Request("http://localhost/register/begin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "nolink@example.com",
+          handle: "nolink",
+          birthdate: "1990-01-01",
+        }),
+      }),
+    );
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("temporarily_unavailable");
+    expect(h.recorded()).toEqual([]);
+  });
+
   it("POST /register/begin answers 503 and mails nothing", async () => {
     const h = harness((call) => call.store === "pending_registration");
     h.fail();

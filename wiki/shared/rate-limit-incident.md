@@ -7,7 +7,7 @@ related:
   - "[[rate-limiting]]"
   - "[[coordination-store]]"
   - "[[osn-core]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-07
 ---
 
 # Rate Limit Incident Runbook
@@ -35,8 +35,10 @@ Current limits (defined once in `AUTH_RATE_LIMITS` and `OSN_RATE_LIMITS`, `osn/a
 
 | Endpoint group | Limit | Purpose |
 |----------------|-------|---------|
-| `/register/begin`, `/step-up/otp/begin` | 5 / IP / min | OTP / email send — prevents email bombing |
-| `/register/complete`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete` | 10 / IP / min | Verify / complete — room for retries |
+| `/register/begin`, `/register/:requestId/resend`, `/step-up/otp/begin` | 5 / IP / min | Link / code send — prevents email bombing (resent sign-up links are also capped at 6 an hour per mailbox key, [[email-links]]) |
+| `/email-link/:requestId/confirm`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete` | 10 / IP / min | Verify / complete — room for retries |
+| `/email-link/:requestId/candidates` | 20 / IP / min | The link's page reads it on load and on a reload |
+| `/register/:requestId/status` | 60 / IP / min | Polled by the tab waiting on a sign-up link |
 | `/login/passkey/complete` | 20 / IP / min | Verify — needs a valid assertion |
 | `/handle/:handle`, `/login/passkey/begin` | 30 and 60 / IP / min | Fired by as-you-type handle checks and conditional-UI autofill |
 | `PATCH /passkeys/:id` (rename) | 20 / min | Cheap settings action |

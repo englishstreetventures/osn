@@ -284,7 +284,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
    * refresh re-issues the access token for the account's default profile while
    * the UI still holds a stale `activeProfileId` (Bug B: organiser "Add
    * passkey" returned 401 unauthorized). New users enroll their first passkey
-   * using the token issued by `/register/complete`; existing users add more
+   * using the token the completing sign-up status poll issues; existing users add more
    * with a normal session access token.
    */
   type Principal =

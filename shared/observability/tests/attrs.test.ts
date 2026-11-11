@@ -52,7 +52,14 @@ describe("AuthRateLimitedEndpoint", () => {
   it("covers every rate-limited route — no OTP/magic primary surface", () => {
     const members = {
       register_begin: true,
-      register_complete: true,
+      // Sign-up's emailed link. The candidates read and the confirm only mark
+      // an address as proved and never mint a session; the status route hands
+      // the session to the tab that began, which holds the claim secret. None
+      // is a login.
+      register_status: true,
+      register_resend: true,
+      email_link_confirm: true,
+      email_link_candidates: true,
       handle_check: true,
       passkey_login_begin: true,
       passkey_login_complete: true,
@@ -110,8 +117,9 @@ describe("AuthRateLimitedEndpoint", () => {
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
     // Runtime snapshot — catches a drop that the `satisfies` check would miss
     // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(53);
-    // Negative: primary-login OTP/magic-link endpoints must not reappear.
+    expect(Object.keys(members)).toHaveLength(56);
+    // Negative: primary-login OTP/magic-link endpoints must not reappear. An
+    // emailed link that verifies an address is not one: it signs nobody in.
     expect(Object.keys(members)).not.toContain("otp_begin");
     expect(Object.keys(members)).not.toContain("otp_complete");
     expect(Object.keys(members)).not.toContain("magic_begin");

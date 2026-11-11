@@ -10,6 +10,7 @@ export * from "./organisations";
 export * from "./passkeys";
 export * from "./recommendations";
 export * from "./recovery";
+export * from "./email-link";
 export * from "./register";
 export * from "./runtime";
 export * from "./security-events";
