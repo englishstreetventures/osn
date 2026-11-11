@@ -132,7 +132,7 @@ export default function EventsEditor(props: { weddingId: string }) {
   const store = createGuestEventDraft();
   /** The box that holds the rows. The unsaved-changes bar writes its height
    *  here, so a control focused behind the bar scrolls clear of it. */
-  let rowsBox: HTMLDivElement | undefined;
+  let rowsBox!: HTMLDivElement;
 
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saveError, setSaveError] = createSignal<string | null>(null);

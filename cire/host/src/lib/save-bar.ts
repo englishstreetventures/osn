@@ -17,21 +17,14 @@ export const CLEAR_OF_SAVE_BAR =
  * never a guess: the bar's content grows. Call it from the bar's `ref`, so the
  * observer and the property end with the bar.
  */
-export function trackSaveBarHeight(bar: HTMLElement, target: HTMLElement | null | undefined) {
-  if (!target || typeof ResizeObserver === "undefined") return;
-  let written: string | undefined;
-  const write = () => {
-    const value = `${bar.getBoundingClientRect().height}px`;
-    if (value === written) return;
-    written = value;
-    target.style.setProperty("--save-bar-h", value);
-  };
+export function trackSaveBarHeight(bar: HTMLElement, target: HTMLElement) {
+  const write = () =>
+    target.style.setProperty("--save-bar-h", `${bar.getBoundingClientRect().height}px`);
   queueMicrotask(write);
   const observer = new ResizeObserver(write);
   observer.observe(bar, { box: "border-box" });
   onCleanup(() => {
     observer.disconnect();
-    written = undefined;
     target.style.removeProperty("--save-bar-h");
   });
 }

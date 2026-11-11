@@ -1607,7 +1607,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
               {/* ── Save bar — sticky so it's reachable from any section ── */}
               <div
-                ref={(bar) => trackSaveBarHeight(bar, bar.closest("form"))}
+                ref={(bar) => trackSaveBarHeight(bar, bar.closest("form")!)}
                 class="border-border bg-bg/90 rounded-b-ui-lg sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 border-t px-6 py-4 backdrop-blur"
               >
                 <Show when={error()}>
