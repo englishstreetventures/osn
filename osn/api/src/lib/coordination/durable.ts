@@ -60,7 +60,6 @@ import type {
   CrossDeviceRequest,
   PendingAuthorizeRequest,
   PendingEmailChange,
-  PendingRecoveryOtp,
   PendingRegistration,
   PendingTotpEnrollment,
   RecoveryDisownToken,
@@ -292,7 +291,6 @@ export function createDurableCoordination(
     pendingRegistrations: ceremony<PendingRegistration>("pending_registration"),
     stepUpPasskeyChallenges: ceremony<ChallengeEntry>("step_up_challenge"),
     stepUpOtp: ceremony<StepUpOtpEntry>("step_up_otp"),
-    pendingRecoveryOtp: ceremony<PendingRecoveryOtp>("pending_recovery_otp"),
     pendingTotpEnrollments: ceremony<PendingTotpEnrollment>("pending_totp_enroll"),
     pendingEmailChanges: ceremony<PendingEmailChange>("pending_email_change"),
     crossDeviceRequests: ceremony<CrossDeviceRequest>("cross_device"),
@@ -335,8 +333,9 @@ export function createDurableCoordination(
       recoveryLockout,
       onError,
     ),
-    // The emailed recovery code's counter. Its own store, so grinding one
-    // recovery factor never locks the owner out of the other.
+    // Email recovery's counter: wrong numbers typed on an account's recovery
+    // links. Its own store, so failing one recovery factor
+    // never locks the owner out of another.
     recoveryOtpLockoutStore: createDurableLockoutStore(
       ns,
       "recovery_otp_lockout",
@@ -357,7 +356,9 @@ export function createDurableCoordination(
     ),
     profileSwitchCap: named(OSN_RATE_LIMITS.profileSwitchCap),
     emailChangeBeginCap: named(OSN_RATE_LIMITS.emailChangeBeginCap),
-    recoveryEmailBeginCap: named(OSN_RATE_LIMITS.recoveryEmailBeginCap),
+    recoveryLinkAddressCap: named(OSN_RATE_LIMITS.recoveryLinkAddressCap),
+    recoveryResendCap: named(OSN_RATE_LIMITS.recoveryResendCap),
+    recoveryLinkCeiling: named(OSN_RATE_LIMITS.recoveryLinkCeiling),
     registrationSendCap: named(OSN_RATE_LIMITS.registrationSendCap),
     healthProbe: createCoordinationProbe(client(ns, "health_probe", onError)),
     healthProbeLimiter: named(OSN_RATE_LIMITS.healthCoordination),

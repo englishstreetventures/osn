@@ -148,7 +148,7 @@ type RegisterAttrs = { step: RegisterStep; result: Result };
 type LoginAttrs = { method: AuthMethod; result: Result };
 type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
-type OtpSentAttrs = { purpose: "step_up" | "email_change" | "recovery" };
+type OtpSentAttrs = { purpose: "step_up" | "email_change" };
 type EmailLinkConfirmAttrs = { outcome: EmailLinkConfirmOutcome };
 type EmailLinkSendAttrs = { flow: EmailLinkFlow; result: EmailLinkSendResult };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
@@ -459,7 +459,7 @@ export const withGraphBlockOp =
 export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid"): void =>
   authHandleCheck.inc({ result });
 
-export const metricAuthOtpSent = (purpose: "step_up" | "email_change" | "recovery"): void =>
+export const metricAuthOtpSent = (purpose: "step_up" | "email_change"): void =>
   authOtpSent.inc({ purpose });
 
 export const metricEmailLinkSend = (flow: EmailLinkFlow, result: EmailLinkSendResult): void =>
@@ -762,7 +762,7 @@ type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" | "unavail
 
 const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
   name: OSN_METRICS.authRecoveryLockout,
-  description: "Recovery-code per-account lockout events by outcome",
+  description: "Recovery-code and email-recovery per-account lockout events by outcome",
   unit: "{event}",
 });
 
@@ -770,25 +770,18 @@ export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): v
   authRecoveryLockout.inc({ result });
 
 /**
- * Outcome of `POST /login/recovery/email/begin`.
+ * Outcome of `POST /login/recovery/email/begin`: whether the address named an
+ * account (`resolved`) or not.
  *
- * The endpoint answers an identical 202 on all three, by design — which is
- * exactly why it needs a counter. Without one the per-account flood cap is
- * invisible: nothing in a log or a status code distinguishes a capped request
- * from a delivered one, so an inbox under attack looks the same as an idle
- * endpoint.
+ * The endpoint answers an identical 202 on both, by design — which is exactly
+ * why it needs a counter. Whether a link then went out, or was held back by
+ * the lockout or a cap, is `osn.auth.email_link.sends{flow="recovery"}`,
+ * counted in the send that runs after the answer.
  *
  * Aggregate counts only. The submitted identifier, the resolved account and the
- * code itself appear nowhere near this.
- *
- * `capped` also covers a cap backend that could not be reached: the
- * coordination-store limiter answers `false` on a failed call (fail-closed),
- * and the limiter contract gives the caller no way to tell that from a real
- * cap. A sustained `capped` rate with no matching inbox complaint is the tell;
- * correlate with `osn.coordination.store.operations` errors on
- * `auth.recovery_email_begin_cap` rather than reading this alone.
+ * link itself appear nowhere near this.
  */
-type RecoveryEmailBeginAttrs = { result: "sent" | "capped" | "unknown_identifier" };
+type RecoveryEmailBeginAttrs = { result: "resolved" | "unknown_identifier" };
 
 const authRecoveryEmailBegin = createCounter<RecoveryEmailBeginAttrs>({
   name: OSN_METRICS.authRecoveryEmailBegin,

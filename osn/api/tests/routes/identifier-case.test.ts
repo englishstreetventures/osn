@@ -24,7 +24,7 @@ import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
-import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
+import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
@@ -67,6 +67,8 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
 const { createAuthService } = await import("../../src/services/auth");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createAuthRoutes } = await import("../helpers/routes");
+const { beginRecoveryThroughRoutes, latestRecoveryLinkTo, recoveryStatusThroughRoutes } =
+  await import("../helpers/recovery-link");
 
 type AuthConfig = Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -165,28 +167,6 @@ const offered = async (h: Harness, identifier: string): Promise<string[]> => {
   expect(res.status).toBe(200);
   return ((await res.json()) as BeginBody).options.allowCredentials.map((c) => c.id);
 };
-
-const codeOf = (text: string): string => {
-  const match = /\b(\d{6})\b/.exec(text);
-  if (!match) throw new Error("no 6-digit code in the recorded email");
-  return match[1]!;
-};
-
-const recoveryCodes = (recorded: readonly RecordedEmail[]) =>
-  recorded.filter((r) => r.template === "otp-recovery").map((r) => codeOf(r.text));
-
-/** Drive email recovery's `begin` and wait for the detached send to land. */
-async function requestCode(h: Harness, identifier: string): Promise<string> {
-  const before = recoveryCodes(h.recorded()).length;
-  const res = await h.post("/login/recovery/email/begin", { identifier });
-  expect(res.status).toBe(202);
-  for (let i = 0; i < 100 && recoveryCodes(h.recorded()).length === before; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-  const codes = recoveryCodes(h.recorded());
-  expect(codes.length).toBe(before + 1);
-  return codes.at(-1)!;
-}
 
 /** An account with a confirmed authenticator; returns its secret. */
 async function withTotp(h: Harness, email: string, handle: string): Promise<Uint8Array> {
@@ -304,34 +284,27 @@ describe("recovery-code sign-in", () => {
 });
 
 describe("email recovery", () => {
-  it("signs in when begun and completed with the address in capitals", async () => {
-    // `begin` already folded case and `complete` did not, so the mailed code
-    // was refused every time. Goes red on taking the fold out of either.
+  it.each([
+    // Goes red on taking the fold out of `normaliseIdentifier`.
+    ["the address in capitals", "ER-Case@Example.com", "er-case@example.com", "ercase"],
+    // Goes red on taking the trim out of `normaliseIdentifier`.
+    ["spaces around the address", "  er-trim@example.com ", "er-trim@example.com", "ertrim"],
+  ])("gets back in when begun with %s", async (_, typed, stored, handle) => {
     const h = makeApp();
-    await h.svc(h.auth.registerProfile("er-case@example.com", "ercase"));
-    const code = await requestCode(h, "ER-Case@Example.com");
+    await h.svc(h.auth.registerProfile(stored, handle));
+    const { res, body } = await beginRecoveryThroughRoutes(h.app, typed);
+    expect(res.status).toBe(202);
+    const link = latestRecoveryLinkTo(h.recorded(), stored);
+    expect(link?.requestId).toBe(body.requestId);
 
-    const res = await h.post("/login/recovery/email/complete", {
-      identifier: "ER-Case@Example.com",
-      code,
+    const confirmed = await h.post(`/email-link/${link!.requestId}/confirm`, {
+      linkSecret: link!.linkSecret,
+      pairingPick: body.pairingCode,
     });
-    expect(res.status).toBe(200);
-    expect(await handleOf(res)).toBe("ercase");
-  });
-
-  it("signs in when begun and completed with spaces around the address", async () => {
-    // `begin` already trimmed and `complete` did not. Goes red on taking the
-    // trim out of `normaliseIdentifier`.
-    const h = makeApp();
-    await h.svc(h.auth.registerProfile("er-trim@example.com", "ertrim"));
-    const code = await requestCode(h, "  er-trim@example.com ");
-
-    const res = await h.post("/login/recovery/email/complete", {
-      identifier: "  er-trim@example.com ",
-      code,
-    });
-    expect(res.status).toBe(200);
-    expect(await handleOf(res)).toBe("ertrim");
+    expect(await confirmed.json()).toEqual({ status: "confirmed" });
+    const done = await recoveryStatusThroughRoutes(h.app, body.requestId, body.claimSecret);
+    expect(done.status).toBe(201);
+    expect(await handleOf(done)).toBe(handle);
   });
 });
 
@@ -477,11 +450,7 @@ describe("refusals answer the same, whatever the case", () => {
     const known = await h.svc(h.auth.registerProfile("known@example.com", "known"));
     await h.svc(h.auth.generateRecoveryCodesForAccount(known.accountId));
 
-    for (const path of [
-      "/login/recovery/complete",
-      "/login/recovery/email/complete",
-      "/login/recovery/totp/complete",
-    ]) {
+    for (const path of ["/login/recovery/complete", "/login/recovery/totp/complete"]) {
       const code = path === "/login/recovery/complete" ? "dead-beef-cafe-0000" : "000000";
       const lower = await answer(await h.post(path, { identifier: "nobody@example.com", code }));
       const upper = await answer(await h.post(path, { identifier: "Nobody@Example.COM", code }));

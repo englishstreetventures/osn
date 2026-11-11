@@ -23,6 +23,19 @@ const PROBE_KEY_LABEL = "osn-api probe key\0";
 const CHALLENGE_LABEL = "osn-api discoverable passkey challenge\0";
 const PAIRING_CANDIDATES_LABEL = "osn-api email link candidates\0";
 const PAIRING_DIGEST_LABEL = "osn-api email link pairing\0";
+const RECOVERY_SEND_KEY_LABEL = "osn-api recovery send key\0";
+const TYPED_PAIRING_LABEL = "osn-api email link typed number\0";
+
+/** Typed pairing numbers: 00 to 99. */
+const TYPED_SPAN = 100;
+/** The largest multiple of `TYPED_SPAN` a byte can hold; bytes at or past it are skipped. */
+const TYPED_BYTE_CEILING = Math.floor(256 / TYPED_SPAN) * TYPED_SPAN;
+
+/** What every probe key starts with. No account id does. */
+const PROBE_KEY_PREFIX = "prb_";
+
+/** Whether `key` is a probe key, which names no account. */
+export const isProbeKey = (key: string): boolean => key.startsWith(PROBE_KEY_PREFIX);
 
 /** Two-digit pairing numbers: 10 to 99. */
 const PAIRING_MIN = 10;
@@ -81,6 +94,20 @@ export interface ServerMac {
    * naming it.
    */
   pairingDigest(requestId: string, value: string): string;
+  /**
+   * The key a recovery link's per-address cap counts under: `rsk_` and 16 hex
+   * digits of a digest of the account and the client address that asked.
+   * Keyed, so the store's object names hold neither the account nor the
+   * address in a form anyone can read back.
+   */
+  recoverySendKey(accountId: string, clientIp: string): string;
+  /**
+   * The number a flow whose reader types it (rather than picks it) shows on
+   * its waiting screen for `requestId`: two digits, `00`–`99`, uniform.
+   * Derived, never stored, and the same on every call, so a poll can show it
+   * again; nobody without this secret can work it out from the request id.
+   */
+  typedPairing(requestId: string): string;
 }
 
 export function createServerMac(secret: string | undefined): ServerMac {
@@ -90,7 +117,7 @@ export function createServerMac(secret: string | undefined): ServerMac {
     new Uint8Array(mac(CHALLENGE_LABEL).update(signed).digest());
   return {
     probeKey(normalisedIdentifier) {
-      return `prb_${mac(PROBE_KEY_LABEL).update(normalisedIdentifier).digest("hex").slice(0, 12)}`;
+      return `${PROBE_KEY_PREFIX}${mac(PROBE_KEY_LABEL).update(normalisedIdentifier).digest("hex").slice(0, 12)}`;
     },
     mintChallenge(expiresAt) {
       const bytes = new Uint8Array(CHALLENGE_BYTES);
@@ -116,6 +143,19 @@ export function createServerMac(secret: string | undefined): ServerMac {
     },
     pairingDigest(requestId, value) {
       return mac(PAIRING_DIGEST_LABEL).update(`${requestId}\0${value}`).digest("hex");
+    },
+    typedPairing(requestId) {
+      for (let round = 0; ; round++) {
+        const digest = mac(TYPED_PAIRING_LABEL).update(`${requestId}\0${round}`).digest();
+        for (const byte of digest) {
+          // Uniform over the 100 values: a byte past the last whole multiple
+          // of 100 would favour the low ones, so it is skipped.
+          if (byte < TYPED_BYTE_CEILING) return String(byte % TYPED_SPAN).padStart(2, "0");
+        }
+      }
+    },
+    recoverySendKey(accountId, clientIp) {
+      return `rsk_${mac(RECOVERY_SEND_KEY_LABEL).update(`${accountId}\0${clientIp}`).digest("hex").slice(0, 16)}`;
     },
     openChallenge(challenge, now = Date.now()) {
       const bytes = new Uint8Array(Buffer.from(challenge, "base64url"));

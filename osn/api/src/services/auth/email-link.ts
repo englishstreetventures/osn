@@ -1,6 +1,6 @@
 /**
  * The emailed-link challenge: proof that someone holds a mailbox, shared by
- * every flow that emails a link (sign-up today).
+ * every flow that emails a link (sign-up and email recovery today).
  *
  * A flow opens a request and gets back a request id, a link secret, a claim
  * secret and a pairing number. Each secret is 256 random bits, stored only as
@@ -9,11 +9,13 @@
  * - The email carries `<frontend origin>/verify/<request id>#<link secret>`.
  *   The secret rides in the fragment, which no browser sends to any server, so
  *   it reaches no log and no referrer.
- * - The tab that began shows the pairing number. The page the link opens
- *   reads a list of candidates with the link secret, and confirms with a
- *   `POST` that carries the secret and the number the reader picked. The
- *   confirm step requires the number shown on the waiting screen: a wrong
- *   pick ends the request at once. The reader can instead say they did not
+ * - The tab that began shows the pairing number, and the confirm step
+ *   requires it. Each flow has a pairing mode (`EMAIL_LINK_PAIRING_MODE`). In
+ *   `pick` (sign-up) the page reads five candidates with the link secret and
+ *   the reader picks one; in `type` (recovery) the reader types the number,
+ *   and the candidates read answers as it does for an unknown request. The
+ *   confirm `POST` carries the secret and the number; a wrong one ends the
+ *   request at once. The reader can instead say they did not
  *   ask (`none`), which ends it too, and is answered `declined`, again on a
  *   repeat. Nothing here answers a `GET`, since mail scanners open every link
  *   before a person does.
@@ -24,17 +26,23 @@
  *   request is confirmed, the poll claims it and the flow finishes. The
  *   device that opened the link and the device that gets the result can
  *   differ.
- * - A claim records what the flow finishes with (the account and profile)
- *   and stays on the request until a poll has delivered the result, so a
- *   finish that failed part way is finished by the next poll, on the same
- *   rows. Nothing else ends a claimed request: a decline, a wrong pick, wrong
- *   secrets and a retire leave it as it is, and its finish does not need the
- *   flow's pending entry.
+ * - A claim records what the flow finishes with (the account and profile,
+ *   and for recovery the id of the audit row it writes) and stays on the
+ *   request until a poll has delivered the result, so a finish that failed
+ *   part way is finished by the next poll, on the same rows. Nothing else
+ *   ends a claimed request: a decline, a wrong pick, wrong secrets and a
+ *   retire leave it as it is, and its finish does not need the flow's
+ *   pending entry.
  *
  * Every refusal answers alike: an unknown request, a wrong secret, a spent or
  * expired one, and another flow's request all read as `expired`. Wrong link
  * secrets are counted against `MAX_OTP_ATTEMPTS` on the request itself; the
  * guess that reaches it wipes the request and frees the flow's pending entry.
+ * A wrong secret counts nowhere else: whoever began a request holds its id,
+ * and a 256-bit secret needs no wider count. A wrong pick, which only the
+ * holder of a link can make, also counts against the flow's subject
+ * (`strikesOf`): sign-up's address, or recovery's account, which refuses a
+ * right pick while it is locked (`admits`).
  *
  * The request id starts with a prefix per flow (`EMAIL_LINK_ID_PREFIX`), so
  * the page can say what confirming does without reading anything.
@@ -42,13 +50,18 @@
 
 import { createHash } from "node:crypto";
 
+import type { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import type { EmailLinkConfirmOutcome } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import type { CeremonyStore } from "../../lib/ceremony-store";
-import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
-import { withEmailLinkConfirm } from "../../metrics";
+import {
+  RECOVERY_LOCKOUT_THRESHOLD,
+  type RecoveryLockoutStore,
+} from "../../lib/recovery-lockout-store";
+import { metricRecoveryLockout, withEmailLinkConfirm } from "../../metrics";
 import { claimEntry, guessEntry } from "./attempts";
 import {
   EMAIL_LINK_CLAIM_HOLD_MS,
@@ -57,14 +70,18 @@ import {
   MAX_OTP_ATTEMPTS,
 } from "./constants";
 import type { AuthContext } from "./context";
-import type { CoordinationError } from "./errors";
+import { CoordinationError } from "./errors";
 import { frontendOrigin, genId } from "./helpers";
+import { recordRecoveryLinkEvent } from "./recovery-link-event";
+import { isProbeKey } from "./server-mac";
 import { storeCall } from "./store-call";
 import type { EmailLinkChallenge, EmailLinkClaim, EmailLinkFlow, PendingSignUp } from "./stores";
+import type { SessionMeta } from "./types";
 
 /** The request-id prefix of each flow. The confirm page reads the flow off it. */
 export const EMAIL_LINK_ID_PREFIX = {
   registration: "signup_",
+  recovery: "recovery_",
 } as const satisfies Record<EmailLinkFlow, string>;
 
 const idPattern = (prefixes: readonly string[]) =>
@@ -80,11 +97,48 @@ export const emailLinkIdPattern = (flow: EmailLinkFlow): string =>
 /** A link or claim secret: 32 bytes, hex. */
 export const EMAIL_LINK_SECRET_PATTERN = "^[a-f0-9]{64}$";
 
-/** A pick: a two-digit candidate, or `none` for "I didn't ask for this". */
-export const EMAIL_LINK_PICK_PATTERN = "^(?:[0-9]{2}|none)$";
+/**
+ * How a flow's reader proves they can see the waiting screen: `pick` the
+ * number among five candidates (a blind pick is right one time in five), or
+ * `type` it (one time in a hundred: two digits, `00`–`99`).
+ */
+export type EmailLinkPairingMode = "pick" | "type";
+
+export const EMAIL_LINK_PAIRING_MODE = {
+  registration: "pick",
+  recovery: "type",
+} as const satisfies Record<EmailLinkFlow, EmailLinkPairingMode>;
+
+/**
+ * What a confirm's `pairingPick` may be, by mode: a two-digit candidate, or one
+ * to six typed digits; `none` declines in either. Anything else is refused like
+ * any other refusal, before any store call.
+ */
+const PICK_FORMAT = {
+  pick: /^(?:[0-9]{2}|none)$/,
+  type: /^(?:[0-9]{1,6}|none)$/,
+} as const satisfies Record<EmailLinkPairingMode, RegExp>;
 
 /** The pick that says the reader did not ask for the request. */
 export const EMAIL_LINK_DECLINE = "none";
+
+/** The flow a request id belongs to, read off its prefix; null for none. */
+const flowOfId = (requestId: string): EmailLinkFlow | null => {
+  for (const flow of Object.keys(EMAIL_LINK_ID_PREFIX) as EmailLinkFlow[]) {
+    if (requestId.startsWith(EMAIL_LINK_ID_PREFIX[flow])) return flow;
+  }
+  return null;
+};
+
+/**
+ * A typed number as the waiting screen writes it: `7`, `07` and `007` are
+ * the same number, `07`. A typed value past `99` is left as typed, and is
+ * never right.
+ */
+const typedAsShown = (typed: string): string => {
+  const value = Number(typed);
+  return value < 100 ? String(value).padStart(2, "0") : typed;
+};
 
 const ANY_ID = new RegExp(EMAIL_LINK_ID_PATTERN);
 
@@ -148,6 +202,8 @@ export type EmailLinkResend =
       readonly subject: string;
       /** The sign-up the request parks at `subject`; registration only. */
       readonly signUp?: PendingSignUp;
+      /** The request's `bound`, or undefined when its flow set none. */
+      readonly bound: string | undefined;
       readonly url: string;
       /** Milliseconds; the request's own expiry, unchanged by the Resend. */
       readonly expiresAt: number;
@@ -164,10 +220,19 @@ const newSecret = (): string => {
   return Buffer.from(bytes).toString("hex");
 };
 
-/** Where a flow counts a wrong pick: its store, and the key for one subject. */
+/** Where a flow counts wrong picks on a request's subject: its store, and the key for one subject. */
 interface StrikeCounter {
   readonly store: RecoveryLockoutStore;
   readonly key: string;
+  /**
+   * Runs after each failure is counted, with the count, or `"unknown"` when
+   * it could not be. Its own background work goes through `forkBackground`,
+   * so the answer never waits on it.
+   */
+  readonly counted?: (
+    count: number | "unknown",
+    sessionMeta?: SessionMeta,
+  ) => Effect.Effect<void, never, Db>;
 }
 
 const STATUSES: ReadonlySet<string> = new Set<EmailLinkChallenge["status"]>([
@@ -198,21 +263,57 @@ const randomIndex = (n: number): number => {
 };
 
 export function createEmailLinkModule(ctx: AuthContext) {
-  const { config, stores, serverMac, registrationLinkLockoutStore } = ctx;
+  const { config, stores, serverMac, hashIp, registrationLinkLockoutStore } = ctx;
+  const { recoveryOtpLockoutStore } = ctx;
   const links = stores.emailLinks;
 
-  /** Each flow's own pending store; its entries name the request they belong to. */
-  const pendingStoreOf = (flow: EmailLinkFlow): CeremonyStore<{ readonly requestId: string }> => {
+  /**
+   * Each flow's own pending store, whose entries name the request they belong
+   * to; null for a flow that keeps no pending state beside the request.
+   * Recovery keeps none: its requests stand alone, so a stranger's begin for
+   * an account neither replaces nor blocks the owner's.
+   */
+  const pendingStoreOf = (
+    flow: EmailLinkFlow,
+  ): CeremonyStore<{ readonly requestId: string }> | null => {
     switch (flow) {
       case "registration":
         return stores.pendingRegistrations;
+      case "recovery":
+        return null;
     }
   };
 
   /**
+   * Recovery's account count, after each failure: the lockout metric, and
+   * the audit row once the count reaches the threshold. A probe key names no
+   * account, so it gets no row.
+   */
+  const recoveryCounted =
+    (subject: string) =>
+    (count: number | "unknown", sessionMeta?: SessionMeta): Effect.Effect<void, never, Db> =>
+      Effect.gen(function* () {
+        if (count === "unknown") {
+          metricRecoveryLockout("unavailable");
+          return;
+        }
+        if (count < RECOVERY_LOCKOUT_THRESHOLD) {
+          metricRecoveryLockout("recorded");
+          return;
+        }
+        metricRecoveryLockout("locked");
+        if (count === RECOVERY_LOCKOUT_THRESHOLD && !isProbeKey(subject)) {
+          yield* forkBackground(
+            recordRecoveryLinkEvent(hashIp, subject, "recovery_otp_lockout", sessionMeta),
+          );
+        }
+      });
+
+  /**
    * Each flow's counter of wrong picks, and the key it counts under for a
    * request's subject. Sign-up counts per address exactly as typed,
-   * lowercased, under the probe key its send reads.
+   * lowercased, under the probe key its send reads; recovery per account (the
+   * subject is the account id).
    */
   const strikesOf = (flow: EmailLinkFlow, subject: string): StrikeCounter => {
     switch (flow) {
@@ -221,14 +322,68 @@ export function createEmailLinkModule(ctx: AuthContext) {
           store: registrationLinkLockoutStore,
           key: serverMac.probeKey(subject.toLowerCase()),
         };
+      case "recovery":
+        return {
+          store: recoveryOtpLockoutStore,
+          key: subject,
+          counted: recoveryCounted(subject),
+        };
     }
   };
+
+  /** Counts one wrong pick against `entry`'s subject. */
+  const strike = (entry: EmailLinkChallenge, sessionMeta?: SessionMeta) =>
+    Effect.gen(function* () {
+      const strikes = strikesOf(entry.flow, entry.subject);
+      const count = yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
+      if (strikes.counted) yield* strikes.counted(count, sessionMeta);
+    });
+
+  /**
+   * After a first decline of `entry`, what its flow records. Recovery writes a
+   * `recovery_link_declined` row for the account, after the answer, so the
+   * owner's other devices show that someone asked to get in. Sign-up records
+   * nothing: no account exists yet.
+   */
+  const declined = (entry: EmailLinkChallenge, sessionMeta?: SessionMeta) =>
+    entry.flow === "recovery" && !isProbeKey(entry.subject)
+      ? forkBackground(
+          recordRecoveryLinkEvent(hashIp, entry.subject, "recovery_link_declined", sessionMeta),
+        )
+      : Effect.void;
+
+  /**
+   * Whether `entry`'s flow lets a right pick confirm it now. Recovery reads the
+   * account's lockout: `locked` refuses; a count that cannot be read fails
+   * with a `CoordinationError` (fail closed, and the request is kept, so the
+   * page offers Try again). Sign-up reads nothing.
+   */
+  const admits = (entry: EmailLinkChallenge): Effect.Effect<boolean, CoordinationError> =>
+    Effect.gen(function* () {
+      if (entry.flow !== "recovery") return true;
+      const reading = yield* Effect.promise(() => recoveryOtpLockoutStore.status(entry.subject));
+      if (reading.status === "open") return true;
+      if (reading.status === "locked") {
+        metricRecoveryLockout("locked");
+        return false;
+      }
+      metricRecoveryLockout("unavailable");
+      return yield* Effect.fail(
+        new CoordinationError({ store: "recovery_otp_lockout", op: "count" }),
+      );
+    });
 
   const linkUrl = (requestId: string, linkSecret: string): string =>
     `${frontendOrigin(config)}/verify/${requestId}#${linkSecret}`;
 
   const candidatesOf = (requestId: string): string[] =>
     serverMac.pairingCandidates(requestId, EMAIL_LINK_PAIRING_CANDIDATES);
+
+  /** A `pick` flow's number: one of its candidates, drawn at random. */
+  const pickedPairing = (requestId: string): string => {
+    const candidates = candidatesOf(requestId);
+    return candidates[randomIndex(candidates.length)]!;
+  };
 
   /** What is left of `entry`'s life, for a write that must not extend it. */
   const remainingMs = (entry: EmailLinkChallenge): number =>
@@ -281,6 +436,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
   ): Effect.Effect<void, CoordinationError> =>
     Effect.gen(function* () {
       const pending = pendingStoreOf(flow);
+      if (!pending) return;
       const value = yield* storeCall(pending, "get", () => pending.get(subject));
       // The expected value names this request, so the delete removes the
       // entry only when it is this request's.
@@ -323,26 +479,26 @@ export function createEmailLinkModule(ctx: AuthContext) {
     });
 
   /**
-   * Opens a request of `flow` whose pending state sits at `subject`. One store
-   * write, whatever the flow does next, so every branch of a flow's begin can
-   * make the same call. A registration request carries `signUp`, the sign-up
-   * it parks at `subject`, so it can park later if it cannot now.
+   * Opens a request of `flow` about `subject`. One store write, whatever the
+   * flow does next, so every branch of a flow's begin can make the same call.
+   * A registration request carries `signUp`, the sign-up it parks at
+   * `subject`, so it can park later if it cannot now; a recovery request is
+   * bound to `bound` (see `EmailLinkChallenge.bound`).
    */
   const open = (
     flow: EmailLinkFlow,
     subject: string,
     ttlMs: number,
-    signUp?: PendingSignUp,
+    extra: { readonly signUp?: PendingSignUp; readonly bound?: string } = {},
   ): Effect.Effect<OpenedEmailLink, CoordinationError> =>
     Effect.gen(function* () {
       const requestId = genId(EMAIL_LINK_ID_PREFIX[flow]);
       const claimSecret = newSecret();
       const linkSecret = newSecret();
-      // The candidates are sorted ascending and the number is drawn uniformly
-      // from them, so its place in the list the page shows is uniform too:
-      // the order says nothing about which one is right.
-      const candidates = candidatesOf(requestId);
-      const pairingCode = candidates[randomIndex(candidates.length)]!;
+      const pairingCode =
+        EMAIL_LINK_PAIRING_MODE[flow] === "type"
+          ? serverMac.typedPairing(requestId)
+          : pickedPairing(requestId);
       const expiresAt = Date.now() + ttlMs;
       const entry: EmailLinkChallenge = {
         v: 1,
@@ -354,7 +510,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
         status: "pending",
         expiresAt,
       };
-      if (signUp) entry.signUp = signUp;
+      if (extra.signUp) entry.signUp = extra.signUp;
+      if (extra.bound !== undefined) entry.bound = extra.bound;
       yield* storeCall(links, "set", () => links.set(requestId, entry, ttlMs));
       return {
         requestId,
@@ -379,15 +536,24 @@ export function createEmailLinkModule(ctx: AuthContext) {
   };
 
   /** Whether `pairingPick` is the number the tab that began shows. A decline never is. */
-  const picksRight = (requestId: string, entry: EmailLinkChallenge, pairingPick: string) =>
-    pairingPick !== EMAIL_LINK_DECLINE &&
-    timingSafeEqualString(entry.pairingHash, serverMac.pairingDigest(requestId, pairingPick));
+  const picksRight = (requestId: string, entry: EmailLinkChallenge, pairingPick: string) => {
+    if (pairingPick === EMAIL_LINK_DECLINE) return false;
+    const offered =
+      EMAIL_LINK_PAIRING_MODE[entry.flow] === "type" ? typedAsShown(pairingPick) : pairingPick;
+    return timingSafeEqualString(entry.pairingHash, serverMac.pairingDigest(requestId, offered));
+  };
 
   /**
    * The request's number, recovered from its stored digest. Every candidate is
    * compared, so the work is the same whichever matches.
    */
   const pairingOf = (requestId: string, entry: EmailLinkChallenge): string | undefined => {
+    if (EMAIL_LINK_PAIRING_MODE[entry.flow] === "type") {
+      const typed = serverMac.typedPairing(requestId);
+      return timingSafeEqualString(entry.pairingHash, serverMac.pairingDigest(requestId, typed))
+        ? typed
+        : undefined;
+    }
     let found: string | undefined;
     for (const candidate of candidatesOf(requestId)) {
       if (timingSafeEqualString(entry.pairingHash, serverMac.pairingDigest(requestId, candidate))) {
@@ -404,7 +570,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * counted as a wrong confirm is, and the one that reaches the cap wipes the
    * request (never a claimed one). A confirmed or claimed request answers
    * `confirmed` and offers no list, so a page reloaded after its confirm cannot
-   * be made to pick again; a declined one is over, and answers `expired`.
+   * be made to pick again; a declined one is over, and answers `expired`. A
+   * `type` flow's request has no list to offer: it answers `expired` after the
+   * same one read an unknown request makes, and counts nothing.
    */
   const candidates = (
     requestId: string,
@@ -414,6 +582,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       if (!ANY_ID.test(requestId)) return { status: "expired" } as const;
       const entry = yield* read(requestId);
       if (!usable(entry)) return { status: "expired" } as const;
+      if (EMAIL_LINK_PAIRING_MODE[entry.flow] === "type") return { status: "expired" } as const;
       if (holdsLink(entry, linkSecret)) {
         if (entry.status === "confirmed" || entry.status === "claimed") {
           return { status: "confirmed" } as const;
@@ -432,6 +601,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
   const WRONG_PICK: Confirmed = { answer: "expired", outcome: "wrong_pick" };
   const DECLINED: Confirmed = { answer: "declined", outcome: "declined" };
   const REPEAT_DECLINE: Confirmed = { answer: "declined", outcome: "repeat" };
+  const LOCKED: Confirmed = { answer: "expired", outcome: "refused" };
   const REPEAT: Confirmed = { answer: "confirmed", outcome: "repeat" };
   const CONFIRMED: Confirmed = { answer: "confirmed", outcome: "confirmed" };
 
@@ -477,14 +647,20 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * flow's subject when it is the call that ended the request.
    * A decline (`none`) ends it too, counts nothing, and answers `declined`,
    * again when repeated. A claimed request is past both: a wrong pick and a
-   * decline on it are refused, and end nothing.
+   * decline on it are refused, and end nothing. `sessionMeta` is the
+   * caller's, for a row a wrong pick or a decline may write.
    */
   const confirm = (
     requestId: string,
     input: EmailLinkConfirmInput,
-  ): Effect.Effect<EmailLinkConfirmAnswer, CoordinationError> =>
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<EmailLinkConfirmAnswer, CoordinationError, Db> =>
     Effect.gen(function* () {
       if (!ANY_ID.test(requestId)) return REFUSED;
+      const flow = flowOfId(requestId);
+      if (!flow || !PICK_FORMAT[EMAIL_LINK_PAIRING_MODE[flow]].test(input.pairingPick)) {
+        return REFUSED;
+      }
       // Read and counted in one call, before the secret is compared.
       const guessed = yield* guessEntry(links, requestId, MAX_OTP_ATTEMPTS);
       if (!guessed || guessed.standing === "spent" || !usable(guessed.entry)) return REFUSED;
@@ -498,18 +674,23 @@ export function createEmailLinkModule(ctx: AuthContext) {
       if (entry.status === "declined") return declining ? REPEAT_DECLINE : REFUSED;
       // A decline is the reader refusing a request they did not start: it
       // ends the request and counts nothing against them.
-      if (declining) return yield* decline(requestId, entry);
+      if (declining) {
+        const answered = yield* decline(requestId, entry);
+        if (answered === DECLINED) yield* declined(entry, sessionMeta);
+        return answered;
+      }
       if (!picksRight(requestId, entry, input.pairingPick)) {
         // The strike counts only for the pick that ended the request: of two
         // wrong picks at once one counts, and a pick that lost the request to
         // the tab's claim counts nothing.
-        if (yield* end(requestId, entry)) {
-          const strikes = strikesOf(entry.flow, entry.subject);
-          yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
-        }
+        if (yield* end(requestId, entry)) yield* strike(entry, sessionMeta);
         return WRONG_PICK;
       }
-      if (entry.status === "confirmed") return REPEAT;
+      if (entry.status === "confirmed" || entry.status === "claimed") return REPEAT;
+      if (!(yield* admits(entry))) {
+        yield* end(requestId, entry);
+        return LOCKED;
+      }
 
       // Two tries: a Resend can append a link to the entry between the read
       // and the write, which loses the first swap without changing the answer.
@@ -562,7 +743,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
   const claim = (
     requestId: string,
     entry: EmailLinkChallenge,
-    ids: Pick<EmailLinkClaim, "accountId" | "profileId">,
+    ids: Pick<EmailLinkClaim, "accountId" | "profileId" | "eventId">,
   ): Effect.Effect<ClaimedEmailLink | null, CoordinationError> =>
     Effect.gen(function* () {
       const now = Date.now();
@@ -644,6 +825,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
             state: "sent",
             subject: from.subject,
             signUp: from.signUp,
+            bound: from.bound,
             url: linkUrl(requestId, linkSecret),
             expiresAt: from.expiresAt,
           } as const;

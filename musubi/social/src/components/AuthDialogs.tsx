@@ -1,3 +1,4 @@
+import { hasPendingRecovery } from "@osn/auth-ui/pending-recovery";
 import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import { Register } from "@osn/auth-ui/Register";
 import { SignIn } from "@osn/auth-ui/SignIn";
@@ -40,8 +41,12 @@ export function AuthDialogs(props: {
   // A sign-up this tab was waiting on before a reload — or before a phone
   // discarded the tab while the person read their mail — opens again on its
   // waiting view, so a link confirmed meanwhile finishes here.
+  // The same for an emailed recovery link: the sign-in dialog opens on its
+  // recovery view, which resumes the wait.
   onMount(() => {
-    if (!session() && hasPendingSignUp()) props.onShowRegisterChange(true);
+    if (session()) return;
+    if (hasPendingSignUp()) props.onShowRegisterChange(true);
+    else if (hasPendingRecovery()) props.onShowSignInChange(true);
   });
 
   return (

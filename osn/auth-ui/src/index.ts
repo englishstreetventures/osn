@@ -7,7 +7,7 @@ export { describePasskeyError, type PasskeyCeremony } from "./passkey-errors";
 export { ProfileOnboarding } from "./ProfileOnboarding";
 export { ProfileSwitcher } from "./ProfileSwitcher";
 export { RecoveryCodesView } from "./RecoveryCodesView";
-export { RecoveryLoginForm } from "./RecoveryLoginForm";
+export { hasPendingRecovery, RecoveryLoginForm } from "./RecoveryLoginForm";
 export { Register } from "./Register";
 export { SecurityEventsBanner } from "./SecurityEventsBanner";
 export { SessionsView } from "./SessionsView";

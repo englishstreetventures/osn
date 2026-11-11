@@ -6,7 +6,6 @@ import { beforeAll } from "vitest";
 
 import type { CeremonyStore } from "../../src/lib/ceremony-store";
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
-import { createInMemoryRecoveryLockoutStore } from "../../src/lib/recovery-lockout-store";
 import { createAuthService } from "../../src/services/auth";
 import { MAX_OTP_ATTEMPTS, TOTP_MAX_ENROLL_ATTEMPTS } from "../../src/services/auth/constants";
 import { createDefaultCeremonyStores, type CeremonyStores } from "../../src/services/auth/stores";
@@ -93,8 +92,8 @@ function capture() {
       return all.at(-1)!;
     },
     /**
-     * The code mailed after `seen` codes had been. The recovery code goes out
-     * in the background, so it may land a moment after `begin` answers.
+     * The code mailed after `seen` codes had been. A code goes out in the
+     * background, so it may land a moment after `begin` answers.
      */
     nth: (seen: number): Effect.Effect<string> =>
       Effect.gen(function* () {
@@ -157,56 +156,35 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
   });
 
   it.live(
-    "emailed recovery code: a burst of wrong guesses spends the code; a new one works",
+    "emailed recovery link: of two polls of a confirmed request at once, exactly one gets the session",
     () => {
       const mail = capture();
-      // The per-account lockout would refuse the right code on its own; lifted
-      // out of the way so the attempt count is the only thing that can.
-      const auth = createAuthService({
-        ...base,
-        ...bundle(),
-        recoveryOtpLockoutStore: createInMemoryRecoveryLockoutStore({ threshold: 100 }),
-      });
+      const stores = bundle();
+      const auth = createAuthService({ ...base, ...stores });
       return Effect.gen(function* () {
-        yield* auth.registerProfile("att-rec@example.com", "attrec");
-        yield* auth.beginEmailRecovery("att-rec@example.com");
-        const right = yield* mail.nth(0);
-
-        yield* Effect.all(
-          Array.from({ length: MAX_OTP_ATTEMPTS + BURST }, () =>
-            Effect.flip(auth.completeEmailRecovery("att-rec@example.com", wrongFor(right))),
-          ),
+        yield* auth.registerProfile("att-rec2@example.com", "attrec2");
+        const begun = yield* settle(auth.beginEmailRecovery("att-rec2@example.com"));
+        const link = latestLinkTo(mail.recorded(), "att-rec2@example.com")!;
+        expect(
+          yield* auth.confirmEmailLink(link.requestId, {
+            linkSecret: link.linkSecret,
+            pairingPick: begun.pairingCode,
+          }),
+        ).toBe("confirmed");
+        const polls = yield* Effect.all(
+          [0, 1].map(() => auth.emailRecoveryStatus(begun.requestId, begun.claimSecret)),
           { concurrency: "unbounded" },
         );
-
-        const late = yield* Effect.flip(auth.completeEmailRecovery("att-rec@example.com", right));
-        expect(late._tag).toBe("AuthError");
-
-        yield* auth.beginEmailRecovery("att-rec@example.com");
-        const fresh = yield* auth.completeEmailRecovery("att-rec@example.com", yield* mail.nth(1));
-        expect(fresh.session.accessToken).toMatch(/^eyJ/);
+        const statuses = polls.map((p) => p.status).toSorted();
+        expect(statuses).toEqual(["complete", "expired"]);
+        // The claim took the request: the cooldown alone would also refuse the
+        // second poll, so the spent entry is what shows the claim did it.
+        expect(
+          yield* Effect.promise(() => stores.ceremonyStores.emailLinks.get(begun.requestId)),
+        ).toBeNull();
       }).pipe(Effect.provide(mail.layer));
     },
   );
-
-  it.live("emailed recovery code: of two right codes sent at once, exactly one signs in", () => {
-    const mail = capture();
-    const auth = createAuthService({ ...base, ...bundle() });
-    return Effect.gen(function* () {
-      yield* auth.registerProfile("att-rec2@example.com", "attrec2");
-      yield* auth.beginEmailRecovery("att-rec2@example.com");
-      const right = yield* mail.nth(0);
-      const results = yield* Effect.all(
-        [0, 1].map(() => Effect.result(auth.completeEmailRecovery("att-rec2@example.com", right))),
-        { concurrency: "unbounded" },
-      );
-      const signedIn = results.filter((r) => r._tag === "Success");
-      expect(signedIn).toHaveLength(1);
-      expect(signedIn[0]!.success.session.accessToken).toMatch(/^eyJ/);
-      const refused = results.filter((r) => r._tag === "Failure");
-      expect(refused.map((r) => r.failure._tag)).toEqual(["AuthError"]);
-    }).pipe(Effect.provide(mail.layer));
-  });
 
   it.live("TOTP enrolment: a burst of wrong codes spends the secret; a new one works", () => {
     const mail = capture();

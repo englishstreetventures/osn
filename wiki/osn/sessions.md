@@ -220,7 +220,7 @@ That `UPDATE` is the one write that turns a restricted session into a full one, 
 
 **Refreshing one from the browser.** `@osn/client` exposes `refreshHeldSession` alongside `refreshSession`, and the difference is the whole reason it exists: it redeems the refresh cookie and returns the token set **without adopting it** — no storage write, no cached account, no session resource refetched. It is for a flow that deliberately holds a session rather than publishing one, which is every flow whose token the rest of the app would reject. Post-recovery passkey enrolment is the caller; holding the session is what puts it outside `authFetch`, so this is its only refresh path. Both share one single-flight `/token` grant, so a component refreshing while the provider bootstraps produces one request — two would replay a rotated cookie, which is what reuse detection revokes a family for.
 
-**Two routes mint one:** `POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete` — see `wiki/osn/account-recovery-factors.md` §B.
+**Two routes mint one:** the email recovery status poll, `POST /login/recovery/email/:requestId/status` (for the tab holding the claim secret, once the emailed link is confirmed — [[email-links]]), and `POST /login/recovery/totp/complete` — see `wiki/osn/account-recovery-factors.md` §B.
 
 ## Rotation grace window (concurrency tolerance)
 

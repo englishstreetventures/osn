@@ -259,33 +259,51 @@ export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
 export const EMAIL_CHANGE_ACK_HOLD_SECONDS = 7 * 24 * 60 * 60;
 
 // ---------------------------------------------------------------------------
-// Email account recovery (`POST /login/recovery/email/{begin,complete}`)
+// Email account recovery (`POST /login/recovery/email/begin`, `…/:id/{status,resend}`)
 // ---------------------------------------------------------------------------
 
 /**
- * Per-account cap on `/login/recovery/email/begin`, keyed on the RESOLVED
- * accountId and never on the submitted identifier.
+ * Recovery links an account may be sent from one client address in 24 hours,
+ * first links and Resends alike, keyed on the resolved account and the
+ * address that asked (`serverMac.recoverySendKey`), never on the submitted
+ * identifier alone. Each address that asks has its own allowance, so requests
+ * from one address never use another's, and a request from an address with
+ * allowance left gets its link. It is also what bounds the recovery mail one
+ * address can cause an account to be sent.
  *
- * The endpoint is unauthenticated and the recipient is the account holder's own
- * verified address, so an uncapped one floods a victim's inbox and — worse —
- * trains them to expect unsolicited recovery mail, which is the state a phishing
- * message wants them in. A per-IP limit alone does not reach this: a rotating
- * fleet defeats per-IP keys, which is why the cap exists at all.
- *
- * Three in 24 hours is above any honest retry (the code lives ten minutes and a
- * user who mistypes their address simply sends again) and far below anything
- * that reads as a flood.
+ * Three is above any honest retry from one place: a link lives ten minutes and
+ * a request may send three.
  */
-export const RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
-export const RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX = 3;
+export const RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECOVERY_LINKS_PER_ADDRESS_MAX = 3;
 
 /**
- * How long an emailed recovery code stays valid. Matches the other OTP
- * ceremonies: long enough to leave the page, find the message and come back;
- * short enough that a code sitting in a compromised mailbox is not a standing
- * key to the account.
+ * Resent recovery links an account may be sent in 24 hours, from every address
+ * together, keyed on the resolved account. A begin's first link never counts,
+ * so the newest recovery request always gets its first link, whoever has
+ * spent the Resends: what bounds first links is the per-address allowance
+ * above, the begin route's per-address limit and its Turnstile check.
  */
-export const RECOVERY_OTP_TTL_MS = 10 * 60 * 1000;
+export const RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECOVERY_RESENDS_PER_ACCOUNT_MAX = 3;
+
+/**
+ * Recovery links an account may be sent in 24 hours, first links and Resends
+ * together, from every address. What bounds the recovery mail one mailbox can
+ * be sent however many addresses ask: past it, no link goes until the window
+ * passes, and begin answers exactly as before. High enough that a stranger
+ * who reaches it has had to ask from at least seven addresses, each held to
+ * its own three a day.
+ */
+export const RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECOVERY_LINKS_PER_ACCOUNT_CEILING = 20;
+
+/**
+ * How long an emailed recovery link stays usable: long enough to leave the
+ * page, find the message and come back; short enough that a link sitting in a
+ * compromised mailbox is not a standing key to the account.
+ */
+export const RECOVERY_LINK_TTL_MS = 10 * 60 * 1000;
 
 /**
  * The post-recovery cooldown, and the window a weak-provenance passkey waits
