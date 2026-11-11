@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   origin,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
   SeedValueError,
   SiteBuildError,
@@ -16,7 +17,11 @@ import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
 import { devTarget, productionSiteTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
-import { PRODUCTION_RESOURCE_KINDS, SITE_LOGICAL_IDS } from "../src/declaration";
+import {
+  PRODUCTION_RESOURCE_KINDS,
+  PRODUCTION_SITE_DOMAINS,
+  SITE_LOGICAL_IDS,
+} from "../src/declaration";
 import { osnSeedSql } from "../src/seeds";
 import {
   ARC_KEY_ID,
@@ -293,6 +298,12 @@ describe("the musubi stack, evaluated offline", () => {
   });
 });
 
+/** Each declared Worker's custom domain, by logical id. */
+const domainsOf = (evaluation: Evaluation): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(resourcesOf(evaluation)).map(([id, resource]) => [id, resource.Props.domain]),
+  );
+
 describe("the musubi stack on production", () => {
   let production: Evaluation;
 
@@ -351,19 +362,46 @@ describe("the musubi stack on production", () => {
         [resource.LogicalId]: true,
       });
     }
-    // Staged, musubi social serves its spare host; an off site is not declared.
-    const staged = resourcesOf(
-      await evaluateMusubi({
-        stage: "production",
-        env: productionEnv(),
-        modes: { ...PRODUCTION_SITE_MODES, osn_social: "staged", musubi_landing: "off" },
-      }),
-    );
-    expect(
+    // An off site is not declared.
+    const off = await evaluateMusubi({
+      stage: "production",
+      env: productionEnv(),
+      modes: { ...PRODUCTION_SITE_MODES, musubi_landing: "off" },
+    });
+    expect(domainsOf(off)).toEqual({ MusubiSocial: "musubi.social" });
+  });
+
+  test("H6: a held site keeps its Worker and the build, with no custom domain; the other site keeps its host", async () => {
+    const held = await evaluateMusubi({
+      stage: "production",
+      env: productionEnv(),
+      holds: [
+        {
+          site: "osn_social",
+          host: "musubi.social",
+          reason: "Serves nothing until the passkey fix ships.",
+        },
+      ],
+    });
+    expect(domainsOf(held)).toEqual({ MusubiSocial: null, MusubiLanding: "www.musubi.social" });
+    expect(resourcesOf(held).MusubiSocial?.Props).toMatchObject({
+      name: "osn-social",
+      assets: { directory: "../social/dist" },
+      workersDev: { enabled: false, previewsEnabled: false },
+    });
+  });
+
+  test("H7: the domains the plan guard reads are the ones the stack declares, at production's own holds", async () => {
+    const live = await evaluateMusubi({
+      stage: "production",
+      env: productionEnv(),
+      holds: PRODUCTION_HOST_HOLDS,
+    });
+    expect(PRODUCTION_SITE_DOMAINS).toEqual(
       Object.fromEntries(
-        Object.entries(staged).map(([id, resource]) => [id, resource.Props.domain]),
+        Object.entries(SITE_LOGICAL_IDS).map(([site, id]) => [site, domainsOf(live)[id]]),
       ),
-    ).toEqual({ MusubiSocial: "next.musubi.social" });
+    );
   });
 
   test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, and writes nothing", () => {
