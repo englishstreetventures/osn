@@ -33,6 +33,9 @@ const hedy = PEOPLE.musubiVerified;
 const joan = PEOPLE.musubiVerifiedControl;
 const TOKEN_FIELD = 'input[type="hidden"][autocomplete="email-verification-token"]';
 
+// Musubi's forms load Turnstile, which the fixtures stand in for.
+test.use({ turnstile: true });
+
 test("musubi-email-verification", async ({ page, context, browser, flow }) => {
   await throughEmailVerificationApi(context);
   const authenticator = await addVirtualAuthenticator(page);
