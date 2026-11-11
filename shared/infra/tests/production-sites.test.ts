@@ -144,7 +144,7 @@ describe("PS7: each production host hold", () => {
       "two\nlines",
       "x".repeat(161),
       "See #412.",
-      "englishstreetventures/osn-tracker#9",
+      "Tracked in osn-tracker.",
       "S-H2 is open",
       "P-W1",
       "C-M3",

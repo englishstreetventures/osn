@@ -540,7 +540,7 @@ Step 1 of phase P3 (englishstreetventures/osn#1787) moved the four Pages sites t
 |---|---|
 | The stack declares | its Worker, with each release's build and no custom domain (`domain: null`) |
 | The plan guard | refuses any plan in which a site Worker would serve the held host, and, as for any host, the Worker giving it up ([[#The plan guard]]) |
-| Its smoke check | reads the Worker's custom domains and passes only when the held host is not among them; it probes nothing and rolls nothing back |
+| Its smoke check | reads the Worker's custom domains (not zone routes) and passes only when the held host is not among them; it probes nothing and rolls nothing back |
 | Its record job | runs when that check passes, as for any site |
 
 PS7 (`shared/infra/tests/production-sites.test.ts`) holds each entry to a `worker` site and that site's production host, one entry per site, and a reason of one line that names no issue or finding. PS8 (`shared/infra/tests/wrangler-routes.test.ts`) holds that no Wrangler config routes a site's production host, since the guard reads the stacks' site Workers alone. Taking a host off and bringing it back: [[production-deploy#5.8 Holding a site's host off its Worker 🔑]].

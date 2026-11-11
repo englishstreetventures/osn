@@ -1505,7 +1505,13 @@ export const PRODUCTION_HOST_HOLDS: readonly HostHold[] = [
 The reason is one line stating the constraint that keeps the host off. It is public:
 the file, the guard's run summary and the smoke check's notice print it. Never write
 the incident, a finding or an issue reference there (`AGENTS.md`, Issues); PS7 refuses
-an issue or finding reference, but cannot judge the rest.
+an issue or finding reference, but cannot judge the rest. The same holds for the pull
+request's title and body and for its changeset, which stays in
+`shared/infra/CHANGELOG.md`: name the site and the constraint, never what happened.
+
+The guard and the smoke check read the Worker's custom domains, not zone routes. Never
+send a held host to a Worker with a route (**Websites**, the zone, **Workers Routes**):
+neither would see it.
 
 **Taking a host off, the usual order.** The entry comes first, so no release can put
 the host back in between.

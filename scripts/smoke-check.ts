@@ -22,7 +22,8 @@
  * declares the Worker with no custom domain. Its check reads the Worker's
  * custom domains instead, tried as a deployments read is, and passes only
  * when the held host is not among them. It probes nothing and rolls nothing
- * back.
+ * back. It reads custom domains, not zone routes: a route sending the held
+ * host to the Worker is not seen.
  *
  * Two rounds, because no answer here names the version that gave it: a request
  * made the moment the deploy returns can still reach the version before it.
@@ -1164,7 +1165,7 @@ async function checkHeld(held: {
   const api = cloudflareCredentials(input.env, input.fetch, input.sleep);
   if (typeof api === "string") {
     return fail(
-      `${holding}, but ${api}, so the check cannot read that the Worker serves it no more.`,
+      `${holding}, but ${api}, so the check cannot read that no custom domain of the Worker is that host.`,
     );
   }
   const domains = await workerDomains(api, worker);
@@ -1176,7 +1177,7 @@ async function checkHeld(held: {
       `${worker} still serves ${hold.host}, which PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE} holds off: take it off the Worker in the Cloudflare dashboard. Nothing was rolled back.`,
     );
   }
-  const line = `${holding} (${hold.reason}), and the Worker serves no such host, so there is nothing to probe.`;
+  const line = `${holding} (${hold.reason}), and no custom domain of the Worker is that host, so there is nothing to probe.`;
   input.out(annotation("notice", `${label}: ${line}`));
   summary(line);
   return 0;
