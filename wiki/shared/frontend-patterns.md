@@ -79,6 +79,8 @@ Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). 
 - `<SessionsView />` — per-device session list + "sign out everywhere else"
 - `<PasskeysView />` — passkey rename / delete (step-up gated)
 - `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
+- `<CheckEmailView />` — the "Check your email" wait after a flow emails a link: the address, the number the page the link opens asks for (when the host passes one), a Resend that unlocks after a wait, "Use a different email". Presentational; the parent sends and polls ([[component-library]])
+- `<ConfirmLinkPage />` — the page an emailed link opens: "Confirm this email", the numbers to pick from (the person taps the one the waiting screen shows, which is the confirm), or, for recovery, one field to type it in, and "I didn't ask for this"; then confirmed, cancelled, expired, or an error with Try again. Presentational; the host route reads the link and the numbers and makes the call ([[component-library]])
 
 An app imports these from `@osn/auth-ui/*` and injects clients from `@osn/client`. `@musubi/social` is the one app that does today; its `DESIGN.md` §Auth surfaces lists where each view mounts, and `osn/auth-ui/DESIGN.md` holds the views' design rules.
 
@@ -664,6 +666,42 @@ pseudo-element matches it. An animation on `::details-content`, `::backdrop` or
 `::marker` keeps running for a reader who asked for none. Declare such an
 animation inside `@media (prefers-reduced-motion: no-preference)` instead of
 relying on the clamp to undo it.
+
+### A box grown to `auto` holds its clip only while it grows
+
+`interpolate-size: allow-keywords` lets `height` transition from `0` to
+`auto`, so a `<details>` body can grow open with no measuring. Three things go
+wrong if it is written the obvious way:
+
+- **The clip stays.** The growing box needs `overflow: clip`, or its content
+  spills past it until the height catches up. Left on at rest, it cuts a focus
+  ring at the box's edge and a row lifted by a drag. Let it go when the growth
+  ends: list `overflow` in the transition with a duration of `0s`, a delay
+  equal to the growth, and `transition-behavior: allow-discrete`, so the
+  closed state's `clip` holds through the delay and steps to `visible` at its
+  end.
+- **The fallback steps.** Only Chrome and Edge have `interpolate-size`. With
+  `allow-discrete` on the transition, an engine without it treats `0` to `auto`
+  as a discrete change and swaps it partway through. Put the height, the clip
+  and `interpolate-size` itself inside `@supports (interpolate-size:
+  allow-keywords)`, so elsewhere the height never changes and the box opens at
+  once.
+- **A frame round it chases it.** A box that animates its own height to its
+  content, such as `createAutoSize()`'s frame, sees each frame of the growth
+  as a change of content and starts a fresh transition from the last height:
+  it trails the growth, its clip cuts the content's foot, by 50px on one
+  short panel, and it catches up a transition later. `createAutoSize()`
+  follows with no transition of its own while a `<details>` inside it grows
+  (its `::details-content` is shorter than the body it holds) and for the
+  change straight after. A disclosure that opens at once is an ordinary
+  change to it.
+
+*Measured 2026-11-11 — a throwaway browser-tier probe in `cire/host`: a `createAutoSize()` frame round "Arrange tables" with a line above and below, 360px wide, motion scale 1, before the follow. The committed `tests/components/ModuleShell.disclosure.browser.test.tsx` runs at 3× and cut 24px before the follow.*
+
+Chromium does not list a transition on `::details-content` in
+`getAnimations()`, so a test reads the opening frame by frame from layout and
+`getComputedStyle(el, "::details-content")` instead. `@cire/ui`'s `Disclosure`
+is the reference (`cire/host/DESIGN.md` §4); [[browser-tests]] lists its tests.
 
 ## Server-rendered islands
 

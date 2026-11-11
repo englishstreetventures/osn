@@ -1,5 +1,6 @@
 import {
   createConnectionsClient,
+  createEmailLinkClient,
   createLoginClient,
   createPasskeysClient,
   createRecoveryClient,
@@ -14,6 +15,8 @@ import { OSN_ISSUER_URL, osnAuth } from "./auth";
 // Unauthenticated, or holding their own token (registration's first passkey).
 export const registrationClient = createRegistrationClient({ issuerUrl: OSN_ISSUER_URL });
 export const loginClient = createLoginClient({ issuerUrl: OSN_ISSUER_URL });
+// Unauthenticated and cookieless: confirming a link never signs this browser in.
+export const emailLinkClient = createEmailLinkClient({ issuerUrl: OSN_ISSUER_URL });
 
 // Authenticated: each sends through the page runtime, which supplies and
 // renews the access token. No component handles a token.

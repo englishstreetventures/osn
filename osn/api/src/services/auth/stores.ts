@@ -34,12 +34,12 @@ export interface CeremonyStores {
   pendingRegistrations: CeremonyStore<PendingRegistration>;
   stepUpPasskeyChallenges: CeremonyStore<ChallengeEntry>;
   stepUpOtp: CeremonyStore<StepUpOtpEntry>;
-  pendingRecoveryOtp: CeremonyStore<PendingRecoveryOtp>;
   pendingTotpEnrollments: CeremonyStore<PendingTotpEnrollment>;
   pendingEmailChanges: CeremonyStore<PendingEmailChange>;
   crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
   authorizeRequests: CeremonyStore<PendingAuthorizeRequest>;
   recoveryDisownTokens: CeremonyStore<RecoveryDisownToken>;
+  emailLinks: CeremonyStore<EmailLinkChallenge>;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,12 +109,111 @@ export interface RecoveryDisownToken {
   expiresAt: number;
 }
 
+/**
+ * A sign-up waiting for its emailed link, keyed by the normalised address (or,
+ * for a taken address, its probe key). One live entry per key: a second begin
+ * for the address finds it and parks nothing, so it cannot replace the request
+ * someone else's link belongs to. That request parks here on a Resend once the
+ * key is empty.
+ *
+ * `requestId` names the {@link EmailLinkChallenge} this entry belongs to. Only
+ * that request's claim creates the account, and only that request's wipe or
+ * retirement removes the entry.
+ */
 export interface PendingRegistration {
+  /** Empty for the decoy parked for a taken address: nothing is ever sent to it. */
   email: string;
   handle: string;
   displayName: string | null;
-  codeHash: string;
+  requestId: string;
   expiresAt: number;
+}
+
+/**
+ * The sign-up a registration request parks at its address: the pending entry
+ * without the request it names and its expiry. A taken address's decoy holds
+ * an empty email and handle.
+ */
+export type PendingSignUp = Omit<PendingRegistration, "requestId" | "expiresAt">;
+
+/** The flows that prove an address with an emailed link. */
+export type EmailLinkFlow = "registration" | "recovery";
+
+/**
+ * One emailed-link request, keyed by its request id. The link carries the
+ * request id in its path and the link secret in its fragment; the tab that
+ * began holds the claim secret and shows the pairing number. Only SHA-256
+ * hashes of the two secrets are stored, and only a keyed digest of the pairing
+ * number; the candidates the confirm page shows are derived from the request
+ * id, never stored.
+ *
+ * `v` names the record's shape; an entry of any other shape is refused.
+ */
+export interface EmailLinkChallenge {
+  v: 1;
+  flow: EmailLinkFlow;
+  /**
+   * What the request is about, never returned by any route. Registration: the
+   * key of its pending entry, the address or its probe key. Recovery: the
+   * account id, or the typed address's probe key when it names no account.
+   */
+  subject: string;
+  /**
+   * Registration only, on every registration request: the sign-up to park at
+   * `subject`. A request whose begin found the address held parks it from
+   * here, on a Resend, once the address is free. No birthdate.
+   */
+  signUp?: PendingSignUp;
+  /**
+   * A keyed digest the flow's claim checks again before it finishes, when the
+   * flow sets one. Recovery binds the request to the address the link went
+   * to (`serverMac.probeKey`), so a request begun before the account's email
+   * changed cannot be claimed after.
+   */
+  bound?: string;
+  /** The hash of every link sent for the request, newest last. */
+  mailSecretHashes: string[];
+  claimSecretHash: string;
+  /** `serverMac.pairingDigest(requestId, pairing number)`. */
+  pairingHash: string;
+  /**
+   * `confirmed` once a right link secret and pick were posted; the tab's poll
+   * claims it from there. `claimed` once that poll has taken it to finish the
+   * flow: `claim` says with what, and the entry stays until a poll has
+   * delivered the result, so a finish that failed part way is finished by the
+   * next poll. Nothing but the poll that finishes it ends a claimed request.
+   * `declined` once the holder of a link said they did not ask: the request is
+   * over, and the entry stays only so a repeated decline gets the same answer.
+   */
+  status: "pending" | "confirmed" | "claimed" | "declined";
+  /** Set exactly when `status` is `claimed`. */
+  claim?: EmailLinkClaim;
+  /** Milliseconds. */
+  expiresAt: number;
+}
+
+/**
+ * What a claimed request's flow finishes with, chosen once, when the claim is
+ * made, so every try writes the same rows and a try after a fault finds what
+ * an earlier one committed.
+ */
+export interface EmailLinkClaim {
+  /** The account the flow creates or signs in to. */
+  accountId: string;
+  /** The profile the session is for. */
+  profileId: string;
+  /**
+   * Recovery only: the id of the `account_recovered` row its finish writes.
+   * A try after a fault that finds this row knows the recovery it would
+   * refuse as a second one is its own, committed by an earlier try.
+   */
+  eventId?: string;
+  /**
+   * Milliseconds. While it is ahead, one poll is finishing the request and
+   * every other poll is refused. A poll whose finish failed sets it to 0, so
+   * the next poll takes over at once.
+   */
+  heldUntil: number;
 }
 
 // In-memory bounds (pending registrations, pending CDL, login challenges)
@@ -151,24 +250,6 @@ export interface CrossDeviceRequest {
 // a login OTP cannot be replayed to authorise a sensitive action, and vice
 // versa. Structure matches OtpEntry but without profileId (accountId is the key).
 export interface StepUpOtpEntry {
-  codeHash: string;
-  expiresAt: number;
-}
-
-/**
- * The 6-digit code emailed by `POST /login/recovery/email/begin`, keyed by
- * accountId and awaiting `POST /login/recovery/email/complete`.
- *
- * Structurally identical to {@link StepUpOtpEntry} and deliberately a separate
- * store rather than a share of it: a step-up code authorises an action for
- * somebody already signed in, while this one hands out a session to somebody who
- * is not. Sharing the key space would let either be presented where the other
- * was minted.
- *
- * Never in D1. A pending recovery code is not a credential — it is a ten-minute
- * ceremony — and the durable store is not where ten-minute state belongs.
- */
-export interface PendingRecoveryOtp {
   codeHash: string;
   expiresAt: number;
 }
@@ -348,10 +429,6 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       observer,
     ),
     stepUpOtp: createInMemoryCeremonyStore<StepUpOtpEntry>("step_up_otp", observer),
-    pendingRecoveryOtp: createInMemoryCeremonyStore<PendingRecoveryOtp>(
-      "pending_recovery_otp",
-      observer,
-    ),
     pendingTotpEnrollments: createInMemoryCeremonyStore<PendingTotpEnrollment>(
       "pending_totp_enroll",
       observer,
@@ -369,6 +446,7 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       "recovery_disown",
       observer,
     ),
+    emailLinks: createInMemoryCeremonyStore<EmailLinkChallenge>("email_link", observer),
   };
 }
 

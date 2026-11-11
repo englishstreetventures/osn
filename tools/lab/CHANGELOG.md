@@ -1,5 +1,23 @@
 # @tools/lab
 
+## 0.3.47
+
+### Patch Changes
+
+- ff81047: The lab depends on `@osn/auth-ui` and gains its first stories for it, `osn/auth-ui/CheckEmailView`: waiting before and after the Resend wait, expired, error, every flow, a 320px phone with a long address, the number the page the link opens asks for (at rest, on recovery and step-up, across a resend, and on a phone), and a playground.
+- f4c9fea: The lab gains stories for `@osn/auth-ui`'s `ConfirmLinkPage`, `osn/auth-ui/ConfirmLinkPage`: ready with three numbers and with five of six digits, confirming (with the slow line after 10 seconds), confirmed, confirmed with Continue, expired, an error and its retry, declined, opening on a known answer, every flow before and after the tap, three cards on a 320px phone, the typed field ready, confirming, after an error, refused and on a 320px phone, and a playground.
+- Updated dependencies [ff81047]
+- Updated dependencies [f4c9fea]
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @osn/auth-ui@4.3.0
+
+## 0.3.46
+
+### Patch Changes
+
+- 989666f: The cire `Disclosure` card story names the growth: a click shows the card grow open as the body fades in. It also says the lab declares neither cire's `--dur-slow` nor its `--ease-out`, so the opening runs on the part's 320ms fallback and the lab's own curve, and the pace is judged in the app.
+
 ## 0.3.45
 
 ### Patch Changes

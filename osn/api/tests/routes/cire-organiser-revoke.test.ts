@@ -20,9 +20,9 @@ import {
   type CireOrganiserRevokeConfig,
 } from "../../src/services/cire-organiser-revoke";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 const CIRE_URL = "https://cire-api.test";
@@ -107,26 +107,7 @@ function setup(cire: CireOrganiserRevokeConfig = CONFIGURED) {
 
   /** Registers an account; returns its cookie, access token, account id and profile id. */
   async function register(emailAddress: string, handle: string) {
-    await settledHandle(
-      app,
-      new Request("http://localhost/register/begin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailAddress, handle, birthdate: "1990-01-01" }),
-      }),
-    );
-    const code = email
-      .recorded()
-      .toReversed()
-      .map((m) => m.text.match(/code is: (\d{6})/)?.[1])
-      .find((c) => c !== undefined);
-    const res = await app.handle(
-      new Request("http://localhost/register/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailAddress, code }),
-      }),
-    );
+    const res = await registeredResponse(app, () => email.recorded(), emailAddress, handle);
     const body = (await res.json()) as { session: { access_token: string } };
     const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     expect(cookie).toContain("osn_session=");

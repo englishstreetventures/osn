@@ -103,7 +103,7 @@ export function ExploreCard(props: {
         href={`/events/${e().id}`}
         class="group border-border bg-card hover:border-foreground/20 relative grid cursor-pointer overflow-hidden rounded-2xl border transition-[border-color,translate,box-shadow] duration-(--ui-dur-fast) ease-(--ui-ease-out) hover:-translate-y-px hover:shadow-md"
         classList={{
-          "grid-cols-[180px_1fr]": !props.featured,
+          "grid-cols-[112px_1fr] md:grid-cols-[180px_1fr]": !props.featured,
           "grid-cols-1": !!props.featured,
           "rounded-t-none": !!props.series,
         }}
@@ -162,10 +162,11 @@ export function ExploreCard(props: {
             </div>
           </div>
 
-          {/* Status tags */}
+          {/* Status tags. Below `md` the media column is 112px, too narrow for
+              "Happening now" on one line, so the tag reads "Live" there. */}
           <Show when={e().status === "ongoing"}>
             <div
-              class="text-ui-xs absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.25 rounded-full px-2 py-0.75 font-medium text-white"
+              class="text-ui-xs absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.25 rounded-full px-2 py-0.75 font-medium whitespace-nowrap text-white"
               style={{ background: "oklch(0.15 0 0 / 0.7)", "backdrop-filter": "blur(8px)" }}
             >
               <span
@@ -175,20 +176,27 @@ export function ExploreCard(props: {
                   "box-shadow": "0 0 0 3px oklch(0.72 0.17 22 / 0.4)",
                 }}
               />
-              Happening now
+              <span class="md:hidden">Live</span>
+              <span class="hidden md:inline">Happening now</span>
             </div>
           </Show>
         </div>
 
         {/* Body */}
-        <div class="relative flex min-w-0 flex-col gap-1.5 px-4 py-3.5">
+        <div class="relative flex min-w-0 flex-col gap-1.5 px-4 py-3.5 wrap-anywhere">
           {/* Meta line */}
           <div
-            class="text-ui-xs flex items-center gap-1.5 tracking-wider uppercase"
+            class="text-ui-xs flex items-start gap-1.5 tracking-wider uppercase"
             style={{ "font-family": "var(--font-mono)", color: "var(--pulse-accent-strong)" }}
           >
-            <Icon name="clock" size={11} />
-            {dayLabel()} · {time()}
+            <span class="flex h-lh shrink-0 items-center">
+              <Icon name="clock" size={11} />
+            </span>
+            <span class="min-w-0">
+              {/* A no-break space ties the dot to the day, so a line never starts with it. */}
+              {dayLabel()}
+              {"\u00A0"}· <span class="whitespace-nowrap">{time()}</span>
+            </span>
           </div>
 
           {/* Title */}
@@ -197,43 +205,49 @@ export function ExploreCard(props: {
           </h3>
 
           {/* Location */}
-          <div class="text-muted-foreground text-ui-sm flex items-center gap-2">
-            <Icon name="map-pin" size={12} />
-            <Show when={e().venue}>
-              <span>{e().venue}</span>
-            </Show>
-            <Show when={e().venue && e().location}>
-              <span class="bg-foreground/20 inline-block h-0.75 w-0.75 rounded-full" />
-            </Show>
-            <Show when={e().location}>
-              <span>{e().location}</span>
-            </Show>
+          <div class="text-muted-foreground text-ui-sm flex items-start gap-2">
+            <span class="flex h-lh shrink-0 items-center">
+              <Icon name="map-pin" size={12} />
+            </span>
+            <span class="min-w-0">
+              <Show when={e().venue}>{e().venue}</Show>
+              {/* A no-break space ties the dot to the venue, so a line never starts with it. */}
+              <Show when={e().venue && e().location}>
+                {"\u00A0"}
+                <span aria-hidden="true" class="text-foreground/20">
+                  ·
+                </span>{" "}
+              </Show>
+              <Show when={e().location}>{e().location}</Show>
+            </span>
           </div>
 
           {/* Host */}
           <Show when={e().createdByName}>
             {(name) => (
-              <div class="text-muted-foreground text-ui-xs flex items-center gap-1.5">
+              <div class="text-muted-foreground text-ui-xs flex items-start gap-1.5">
                 <Avatar class="h-4.5 w-4.5">
                   <Show when={e().createdByAvatar}>
                     {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
                   </Show>
                   <AvatarFallback>{initials(name())}</AvatarFallback>
                 </Avatar>
-                Hosted by <b class="text-foreground font-semibold">{name()}</b>
+                <span class="min-w-0">
+                  Hosted by <b class="text-foreground font-semibold">{name()}</b>
+                </span>
               </div>
             )}
           </Show>
 
           {/* Footer */}
-          <div class="border-border mt-1.5 flex items-center justify-between gap-2.5 border-t border-dashed pt-2.5">
+          <div class="border-border mt-1.5 flex flex-wrap items-center justify-between gap-x-2.5 gap-y-1 border-t border-dashed pt-2.5">
             <Show when={e().category}>
               <span class="text-muted-foreground text-ui-sm font-medium tracking-wider uppercase">
                 {e().category}
               </span>
             </Show>
             <span
-              class="text-muted-foreground text-ui-xs"
+              class="text-muted-foreground text-ui-xs ml-auto"
               style={{ "font-family": "var(--font-mono)" }}
             >
               {e().status === "ongoing"

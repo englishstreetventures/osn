@@ -3,6 +3,7 @@ title: Passkey-Primary Login (M-PK)
 tags: [auth, passkey, webauthn, security-key, login]
 related:
   - "[[identity-model]]"
+  - "[[email-links]]"
   - "[[sessions]]"
   - "[[recovery-codes]]"
   - "[[step-up]]"
@@ -20,18 +21,20 @@ last-reviewed: 2026-11-11
 
 OSN accepts exactly one primary login factor: a WebAuthn credential — either a
 platform passkey (Face ID / Touch ID / Windows Hello / Android screen lock)
-or a roaming security key (FIDO2 Yubikey etc.). We removed OTP and magic-link
-primary login; OTP survives as the step-up and email-change verification
-factor.
+or a roaming security key (FIDO2 Yubikey etc.). There is no OTP or
+magic-link primary login. Sign-up proves the address with an emailed link
+([[email-links]]) that confirms the address and signs nobody in; OTP survives
+as the step-up and email-change verification factor.
 
 ## Account-level invariant
 
 **Every live account has ≥1 WebAuthn credential at all times.** The invariant
 holds from registration to deletion:
 
-- **Registration.** `/register/complete` returns a session, but the UI
-  refuses to dismiss the registration flow until `/passkey/register/complete`
-  succeeds. There is no "skip for now" button. **`Register.tsx` holds that
+- **Registration.** The completing sign-up status poll
+  (`POST /register/:requestId/status`, from the tab holding the claim secret)
+  returns a session, but the UI refuses to dismiss the registration flow until
+  `/passkey/register/complete` succeeds. There is no "skip for now" button. **`Register.tsx` holds that
   session without adopting it** — enrolment authenticates with the returned
   access token, passed explicitly as a bearer token, so nothing before the
   ceremony needs a published session. It adopts only once the credential
@@ -73,7 +76,7 @@ UI surface (`@osn/auth-ui`):
   false, shows a "passkey or security key required" screen that still lets
   the user enter a recovery code.
 - `<RecoveryLoginForm>` — the factor chooser behind that link: a recovery code,
-  an emailed code, or an authenticator code. Only the first mints an ordinary
+  an emailed link, or an authenticator code. Only the first mints an ordinary
   session; see [[#What the recovery screen does with a restricted session]].
 - `<Register>` — WebAuthn-gated. The flow stops at the start if the
   environment lacks WebAuthn support, and completion stays blocked until
@@ -256,8 +259,10 @@ the recovery would technically hold an account backed by recovery codes
 alone. Because `deletePasskey` refuses
 to leave 0 passkeys, that state is unreachable in normal operation.
 
-`POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete`
-mint a **restricted** recovery session instead.
+The email recovery status poll (`POST /login/recovery/email/:requestId/status`,
+by the tab holding the claim secret, once the emailed link is confirmed) and
+`POST /login/recovery/totp/complete` mint a **restricted** recovery session
+instead.
 See [[recovery-codes#The three ways back in]] and [[account-recovery-factors]] §B.
 
 All three stamp `accounts.last_recovered_at`, which opens a 72-hour window in
@@ -326,10 +331,12 @@ paths behave differently in four ways, each forced by the restriction:
 > token arrives with less than the refresh lead on it, the screen stops
 > granting and waits it out — the timed-out screen and the row's death coincide.
 
-> [!important] An emailed code that yields a session is not the OTP login this page removed
+> [!important] An emailed link that leads to a session is not the OTP login this page removed
 > The resemblance is real and worth stating plainly, because "we deleted OTP
-> login" and "we added an emailed six-digit code that signs you in" sound like a
-> contradiction. What separates them is not the ceremony but what it buys.
+> login" and "we added an emailed link that gets you back in" sound like a
+> contradiction. What separates them is not the ceremony but what it buys. The
+> link only verifies the mailbox — the device that opens it gets nothing — and
+> the session it leads to goes to the tab that began, and is restricted.
 >
 > OTP **primary login** minted an `osn-access` session: every route in osn-api
 > and every downstream service that verifies over JWKS. Its removal is why the
@@ -342,10 +349,19 @@ paths behave differently in four ways, each forced by the restriction:
 > passkey and nothing else, and enrolling one is what lifts the restriction.
 >
 > So the sign-in path's phishing resistance is unchanged: there is still no
-> ceremony that turns an emailed code into an ordinary session. The bounded
+> ceremony that turns an emailed link or code into an ordinary session. The bounded
 > union `AuthMethod` in `@shared/observability` is pinned by a test that exists
 > to keep it that way, and the pin now carries this argument rather than a bare
 > list of members.
+>
+> Sign-up's emailed link is not a login either. Its confirm route marks an
+> address as proved and never sets a cookie or returns a token; only the
+> sign-up's status poll, from the tab that began and holds the claim secret,
+> receives a session, and only for the account it has just created. A test in
+> `osn/api/tests/routes/auth.test.ts` keeps `/login/otp*` and `/login/magic*`
+> answering 404 and the confirm mintless, and the `AuthRateLimitedEndpoint`
+> pin in `shared/observability/tests/attrs.test.ts` holds that no OTP or
+> magic-link login endpoint comes back.
 
 ## The one bypass, and where it can exist
 
@@ -437,7 +453,7 @@ authenticating access-token routes by accident.
 - **Config fields**: `magicLinkBaseUrl`, `magicTtl`.
 - **Client SDK methods**: `LoginClient.otpBegin/otpComplete/magicBegin/magicVerify`;
   `CompleteRegistrationResult.enrollmentToken`; `passkeyRegisterBegin/Complete`
-  now take `accessToken` instead of `enrollmentToken`.
+  take `accessToken` instead of `enrollmentToken`.
 - **UI components**: `@osn/auth-ui/MagicLinkHandler` (deleted).
 - **Rate-limiter slots**: `otpBegin`, `otpComplete`, `magicBegin`.
 - **Metrics**: `osn.auth.magic_link.sent`; `AuthMethod` union narrowed to

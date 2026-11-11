@@ -61,10 +61,44 @@ describe("an input too long to be a store key", () => {
     expect(h.fake.calls).toEqual([]);
   });
 
-  it("POST /register/complete answers 400 and touches no store", async () => {
+  it("POST /register/:requestId/status answers 4xx to an over-long request id and touches no store", async () => {
     const h = harness();
-    const res = await h.post("/register/complete", { email: LONG_EMAIL, code: "000000" });
-    expect(res.status).toBe(400);
+    const res = await h.post(`/register/signup_${"a".repeat(300)}/status`, {
+      claimSecret: "a".repeat(64),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(h.fake.calls).toEqual([]);
+  });
+
+  it("POST /email-link/:requestId/confirm answers 4xx to an over-long request id and touches no store", async () => {
+    const h = harness();
+    const res = await h.post(`/email-link/signup_${"a".repeat(300)}/confirm`, {
+      linkSecret: "a".repeat(64),
+      pairingPick: "42",
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(h.fake.calls).toEqual([]);
+  });
+
+  it("POST /email-link/:requestId/candidates answers 4xx to an over-long request id and touches no store", async () => {
+    const h = harness();
+    const res = await h.post(`/email-link/signup_${"a".repeat(300)}/candidates`, {
+      linkSecret: "a".repeat(64),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(h.fake.calls).toEqual([]);
+  });
+
+  it("POST /register/:requestId/resend answers 4xx to an over-long request id and touches no store", async () => {
+    const h = harness();
+    const res = await h.post(`/register/signup_${"a".repeat(300)}/resend`, {
+      claimSecret: "a".repeat(64),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
     expect(h.fake.calls).toEqual([]);
   });
 

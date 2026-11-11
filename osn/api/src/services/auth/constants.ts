@@ -7,12 +7,58 @@
 /** CDL request TTL in seconds. */
 export const CDL_TTL_SECONDS = 300; // 5 min
 
-// Max OTP guesses against a single pending entry before it is wiped.
+// Max OTP guesses against a single pending entry before it is wiped. An emailed
+// link's secret is counted against the same number.
 export const MAX_OTP_ATTEMPTS = 5;
 
 /**
+ * Links one emailed-link request may send: the first, then two Resends. Every
+ * link sent stays usable until the request ends, so a slow first message still
+ * works after an impatient Resend. Counted on a taken address's decoy request
+ * too, so a Resend answers alike for both.
+ */
+export const EMAIL_LINK_MAX_SENDS = 3;
+
+/**
+ * Cap on Resend links per `mailboxKey` (every `+tag` variant of a local part
+ * shares one), keyed on its probe key: the request-level cap bounds one
+ * request's Resends, and this bounds them across the requests one key can be
+ * given in an hour. A begin's first link does not count, so the newest
+ * sign-up always gets its first link. Checked inside the send that runs after
+ * the answer, so it adds nothing to the time to answer, and only where a link
+ * would go out, so a taken address never reaches it.
+ */
+export const REGISTRATION_SENDS_PER_ADDRESS_MAX = 6;
+export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Candidates the confirm page shows for an emailed link: the number on the
+ * waiting screen among decoys. A pick made without seeing that screen is right
+ * one time in this many, and a wrong pick ends the request.
+ */
+export const EMAIL_LINK_PAIRING_CANDIDATES = 5;
+
+/**
+ * How long one poll holds a claimed emailed-link request while it finishes
+ * the flow, in milliseconds. Every other poll of the request is refused until
+ * the hold passes or its poll lets go. Far longer than a finish takes; short
+ * enough that a poll which died holding the request is taken over by the
+ * tab's next poll after a failure, which comes ten seconds later.
+ */
+export const EMAIL_LINK_CLAIM_HOLD_MS = 5_000;
+
+/**
+ * Wrong picks on sign-up links to one address, per window, before no more
+ * sign-up links go to it until the window passes. A decline counts nothing.
+ * Keyed on the probe key of the address exactly as typed, lowercased; begin
+ * answers the same either way.
+ */
+export const REGISTRATION_LINK_LOCKOUT_THRESHOLD = 3;
+export const REGISTRATION_LINK_LOCKOUT_MS = 24 * 60 * 60 * 1000;
+
+/**
  * COPPA hard age gate. Registration rejects anyone under this age
- * before any personal information is collected (before the OTP is sent), so
+ * before any personal information is collected (before the link is sent), so
  * OSN never gains "actual knowledge" of an under-13 user. The birthdate is
  * validated transiently and NEVER persisted. See [[compliance/coppa]].
  */
@@ -204,34 +250,60 @@ export const LAST_USED_AT_COALESCE_MS = 60_000;
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
 
+/**
+ * How long an `email_changed` security event cannot be acknowledged, by any
+ * step-up factor, after the change it records: the change cap's window. While
+ * it lasts, an emailed code, which now goes to the new address, cannot clear
+ * the banner row.
+ */
+export const EMAIL_CHANGE_ACK_HOLD_SECONDS = 7 * 24 * 60 * 60;
+
 // ---------------------------------------------------------------------------
-// Email account recovery (`POST /login/recovery/email/{begin,complete}`)
+// Email account recovery (`POST /login/recovery/email/begin`, `…/:id/{status,resend}`)
 // ---------------------------------------------------------------------------
 
 /**
- * Per-account cap on `/login/recovery/email/begin`, keyed on the RESOLVED
- * accountId and never on the submitted identifier.
+ * Recovery links an account may be sent from one client address in 24 hours,
+ * first links and Resends alike, keyed on the resolved account and the
+ * address that asked (`serverMac.recoverySendKey`), never on the submitted
+ * identifier alone. Each address that asks has its own allowance, so requests
+ * from one address never use another's, and a request from an address with
+ * allowance left gets its link. It is also what bounds the recovery mail one
+ * address can cause an account to be sent.
  *
- * The endpoint is unauthenticated and the recipient is the account holder's own
- * verified address, so an uncapped one floods a victim's inbox and — worse —
- * trains them to expect unsolicited recovery mail, which is the state a phishing
- * message wants them in. A per-IP limit alone does not reach this: a rotating
- * fleet defeats per-IP keys, which is why the cap exists at all.
- *
- * Three in 24 hours is above any honest retry (the code lives ten minutes and a
- * user who mistypes their address simply sends again) and far below anything
- * that reads as a flood.
+ * Three is above any honest retry from one place: a link lives ten minutes and
+ * a request may send three.
  */
-export const RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
-export const RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX = 3;
+export const RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECOVERY_LINKS_PER_ADDRESS_MAX = 3;
 
 /**
- * How long an emailed recovery code stays valid. Matches the other OTP
- * ceremonies: long enough to leave the page, find the message and come back;
- * short enough that a code sitting in a compromised mailbox is not a standing
- * key to the account.
+ * Resent recovery links an account may be sent in 24 hours, from every address
+ * together, keyed on the resolved account. A begin's first link never counts,
+ * so the newest recovery request always gets its first link, whoever has
+ * spent the Resends: what bounds first links is the per-address allowance
+ * above, the begin route's per-address limit and its Turnstile check.
  */
-export const RECOVERY_OTP_TTL_MS = 10 * 60 * 1000;
+export const RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECOVERY_RESENDS_PER_ACCOUNT_MAX = 3;
+
+/**
+ * Recovery links an account may be sent in 24 hours, first links and Resends
+ * together, from every address. What bounds the recovery mail one mailbox can
+ * be sent however many addresses ask: past it, no link goes until the window
+ * passes, and begin answers exactly as before. High enough that a stranger
+ * who reaches it has had to ask from at least seven addresses, each held to
+ * its own three a day.
+ */
+export const RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECOVERY_LINKS_PER_ACCOUNT_CEILING = 20;
+
+/**
+ * How long an emailed recovery link stays usable: long enough to leave the
+ * page, find the message and come back; short enough that a link sitting in a
+ * compromised mailbox is not a standing key to the account.
+ */
+export const RECOVERY_LINK_TTL_MS = 10 * 60 * 1000;
 
 /**
  * The post-recovery cooldown, and the window a weak-provenance passkey waits

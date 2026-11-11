@@ -899,6 +899,30 @@ of room round each pill so the ring and the outline are not cut.
 **Motion.** The guest site's motion rules — the ladder, what moves on which
 rung, what must not move, and the reduced-motion clamp — are in
 [`cire/invites/DESIGN.md`](../../cire/invites/DESIGN.md) §5.
+**Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
+and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so
+Tailwind's `ease-out` class reads the house curve. A hover, a focus or a press
+runs on `--dur-fast` and `--ease-out`; a choice being made — the answer pair
+(`Button` `choice`) and a ticked dietary pill — moves its colours and ring on
+`--dur-base` and `--ease-in-out` (`cire/host/DESIGN.md` §4, One motion rule).
+Under the pointer an unticked dietary pill goes halfway, as the pair does, and
+its focus is the house outline 2px off its edge, drawn from the checkbox's
+own `:focus-visible`; the phone's scrolling track keeps 4px of room round
+each pill so the ring and the outline are not cut. The sheet's panel
+swap, the badge's words after a press and Respond's label ink following the
+bloom fill run on `--dur-base`. An FAQ answer grows open on `--dur-slow` and
+`--ease-out`, its box and its fade together. Where the engine has no
+`interpolate-size` the box opens at once and the answer still fades in; for a
+guest who asked for less motion it opens at once with no fade
+(`cire/host/DESIGN.md` §4, A disclosure grows open and closes at once).
+Choreography longer than `--dur-slow` keeps its own timing:
+
+- the bloom fill, 500ms (`SWEEP_DURATION_MS` in `rsvp-responded.ts`);
+- the tick, 340ms after 180ms (`TICK_DURATION_MS`, `TICK_DELAY_MS`);
+- the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
+  scroll;
+- the hero backdrop's 700ms fade-in and the closing band's 500ms width;
+- each pack's unlock reveal, below.
 
 **The unlock reveal.** Once a household's code is accepted, the code form
 closes at once, the welcome rises while its heading shimmers, and a beat later

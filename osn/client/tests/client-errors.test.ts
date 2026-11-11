@@ -4,6 +4,7 @@ import { AccountError, createAccountClient } from "../src/account";
 import { OsnApiError } from "../src/api-error";
 import { AuthorizeError, createAuthorizeClient } from "../src/authorize";
 import { ConnectionsError, createConnectionsClient } from "../src/connections";
+import { createEmailLinkClient, EmailLinkError } from "../src/email-link";
 import {
   ActiveProfileResetError,
   AuthExpiredError,
@@ -41,6 +42,7 @@ const stepUp = createStepUpClient(authed);
 const passkeys = createPasskeysClient(authed);
 const account = createAccountClient(authed);
 const register = createRegistrationClient(config);
+const emailLink = createEmailLinkClient(config);
 const recovery = createRecoveryClient(authed);
 const events = createSecurityEventsClient(authed);
 const connections = createConnectionsClient(authed);
@@ -110,8 +112,8 @@ const SITES: Site[] = [
       birthdate: "1990-01-01",
     }),
   ),
-  site("register.completeRegistration", RegistrationError, () =>
-    register.completeRegistration({ email: "a@example.com", code: "123456" }),
+  site("register.resendRegistrationLink", RegistrationError, () =>
+    register.resendRegistrationLink({ requestId: "signup_0123456789ab", claimSecret: "c" }),
   ),
   site("register.passkeyRegisterBegin", RegistrationError, () =>
     register.passkeyRegisterBegin({ profileId: "usr_1", accessToken: TOKEN }),
@@ -126,14 +128,11 @@ const SITES: Site[] = [
   site("recovery.loginWithRecoveryCode", RecoveryError, () =>
     recovery.loginWithRecoveryCode({ identifier: "alice", code: "abcd-efgh" }),
   ),
-  site(
-    "recovery.emailRecoveryBegin",
-    RecoveryError,
-    () => recovery.emailRecoveryBegin({ identifier: "a@example.com" }),
-    false,
+  site("recovery.emailRecoveryBegin", RecoveryError, () =>
+    recovery.emailRecoveryBegin({ identifier: "a@example.com" }),
   ),
-  site("recovery.emailRecoveryComplete", RecoveryError, () =>
-    recovery.emailRecoveryComplete({ identifier: "a@example.com", code: "123456" }),
+  site("recovery.emailRecoveryResend", RecoveryError, () =>
+    recovery.emailRecoveryResend({ requestId: "recovery_0123456789ab", claimSecret: "c" }),
   ),
   site("recovery.totpRecoveryComplete", RecoveryError, () =>
     recovery.totpRecoveryComplete({ identifier: "alice", code: "123456" }),
@@ -261,9 +260,8 @@ describe("every client error carries the response's status and the server's code
 
   /**
    * A 2xx body of the wrong shape: a site with a shape check rejects, one
-   * without returns the body as sent, and `login.passkeyComplete` and
-   * `register.completeRegistration` fail decoding the session. None may read
-   * the body's `error` field as a code.
+   * without returns the body as sent, and `login.passkeyComplete` fails
+   * decoding the session. None may read the body's `error` field as a code.
    */
   const settleWrongShape = async (s: Site) => {
     stubFetch(() => json({ error: "rate_limited" }, 200));
@@ -342,11 +340,77 @@ describe("every client error carries the response's status and the server's code
   });
 });
 
+/**
+ * The calls that answer a refusal instead of throwing it: the sign-up and
+ * recovery status polls and the emailed link's two calls read every 4xx but a
+ * 429 as `expired`. What they do throw follows every other client's contract.
+ */
+const ANSWERING_SITES: Site[] = [
+  site("register.registrationStatus", RegistrationError, () =>
+    register.registrationStatus({ requestId: "signup_0123456789ab", claimSecret: "c" }),
+  ),
+  site("recovery.emailRecoveryStatus", RecoveryError, () =>
+    recovery.emailRecoveryStatus({ requestId: "recovery_0123456789ab", claimSecret: "c" }),
+  ),
+  site("emailLink.candidates", EmailLinkError, () =>
+    emailLink.candidates("signup_0123456789ab", "s"),
+  ),
+  site("emailLink.confirm", EmailLinkError, () =>
+    emailLink.confirm("signup_0123456789ab", { linkSecret: "s", pick: "12" }),
+  ),
+];
+
+describe("the calls that answer a refusal", () => {
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a 429 keeps its status and code",
+    async (_name, s) => {
+      stubFetch(() => json({ error: "rate_limited" }, 429));
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toBeInstanceOf(OsnApiError);
+      expect(err).toMatchObject({ status: 429, code: "rate_limited" });
+    },
+  );
+
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a non-JSON error page keeps its status, with no code",
+    async (_name, s) => {
+      stubFetch(() => new Response("<html>Bad gateway</html>", { status: 502 }));
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toMatchObject({ status: 502, code: undefined });
+    },
+  );
+
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a 2xx whose body is not JSON rejects with its status, with no code",
+    async (_name, s) => {
+      stubFetch(() => new Response("<html>Sign in to the Wi-Fi</html>", { status: 200 }));
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toMatchObject({ status: 200, code: undefined });
+    },
+  );
+
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a transport failure becomes the client's error at status 0",
+    async (_name, s) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+      );
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toMatchObject({ status: 0, code: undefined });
+    },
+  );
+});
+
 /** The sites that send without the page's `authFetch`. */
 const SENDS_WITHOUT_AUTH_FETCH = new Set([
   "recovery.loginWithRecoveryCode",
   "recovery.emailRecoveryBegin",
-  "recovery.emailRecoveryComplete",
+  "recovery.emailRecoveryResend",
   "recovery.totpRecoveryComplete",
   "recovery.disown",
 ]);

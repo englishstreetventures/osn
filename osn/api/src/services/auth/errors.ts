@@ -45,6 +45,16 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
 export class AgeRestrictionError extends Data.TaggedError("AgeRestrictionError")<{}> {}
 
 /**
+ * An `email_changed` security event asked to be acknowledged inside its hold
+ * (`EMAIL_CHANGE_ACK_HOLD_SECONDS`). The route answers 403
+ * `{ error: "email_change_held", holdEndsAt }`.
+ */
+export class EmailChangeHeldError extends Data.TaggedError("EmailChangeHeldError")<{
+  /** Unix seconds: when the row can be acknowledged. */
+  readonly holdEndsAt: number;
+}> {}
+
+/**
  * The closed set of OAuth 2.0 / OIDC error codes this provider emits. Every
  * one is a wire value defined by RFC 6749 §4.1.2.1 / §5.2 or OIDC Core §3.1.2.6
  * — never invent a code, because relying-party libraries switch on these

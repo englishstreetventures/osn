@@ -20,8 +20,16 @@ import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
-  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
-  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  RECOVERY_RESENDS_PER_ACCOUNT_MAX,
+  RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS,
+  RECOVERY_LINKS_PER_ACCOUNT_CEILING,
+  RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+  RECOVERY_LINKS_PER_ADDRESS_MAX,
+  RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
+  REGISTRATION_LINK_LOCKOUT_MS,
+  REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  REGISTRATION_SENDS_PER_ADDRESS_MAX,
+  REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "../../services/auth/constants";
@@ -56,14 +64,30 @@ export function createInMemoryCoordination(): CoordinationStores {
       threshold: TOTP_LOCKOUT_THRESHOLD,
       lockoutMs: TOTP_LOCKOUT_MS,
     }),
+    registrationLinkLockoutStore: createInMemoryRecoveryLockoutStore({
+      threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+      lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
+    }),
     profileSwitchCap: createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS),
     emailChangeBeginCap: createInMemoryAccountCap(
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
     ),
-    recoveryEmailBeginCap: createInMemoryAccountCap(
-      RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
-      RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+    recoveryLinkAddressCap: createInMemoryAccountCap(
+      RECOVERY_LINKS_PER_ADDRESS_MAX,
+      RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
+    ),
+    recoveryResendCap: createInMemoryAccountCap(
+      RECOVERY_RESENDS_PER_ACCOUNT_MAX,
+      RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS,
+    ),
+    recoveryLinkCeiling: createInMemoryAccountCap(
+      RECOVERY_LINKS_PER_ACCOUNT_CEILING,
+      RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+    ),
+    registrationSendCap: createInMemoryAccountCap(
+      REGISTRATION_SENDS_PER_ADDRESS_MAX,
+      REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
     ),
     healthProbe: createCoordinationProbe(createMemoryProbeTarget()),
     healthProbeLimiter: memoryLimiter(OSN_RATE_LIMITS.healthCoordination),

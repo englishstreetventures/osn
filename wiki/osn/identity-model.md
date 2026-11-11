@@ -223,6 +223,8 @@ interface StoredAccount {
 
 `toSession` yields `null` without a valid token, so a `loadSession` that trusted the stored account alone would report every reloaded user as signed out while the cookie is alive; the third case is what stops that.
 
+A session set or ended while the bootstrap grant is out wins: a sign-in adopted, a log out, or another tab storing another sign-in or none. The load then resolves to the session the page holds, or `null`, and the grant's answer is neither saved nor, if refused, allowed to forget the stored account ([[sessions#Renewal in the browser]]).
+
 **Single-flight + retry/backoff.** Both cold-start and rehydrate go through one shared, single-flighted cookie grant (`fetchTokenGrant`), so concurrent mounts fire **exactly one** `/token` — replaying a rotated cookie a second time would trip C2 reuse detection and revoke the family. The grant classifies failures:
 
 - **Terminal** (`/token` 4xx but 429, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated: fail fast, **no retry**; `loadSession` resolves to `null` (genuinely logged out, never throws). The exception is a `400 invalid_grant` the issuer marks as leaving the cookie's status unknown (a lost rotation race, a storage error): it is retried once after 250 ms — see [[sessions#Renewal in the browser]].
@@ -240,15 +242,25 @@ This keeps the short access-token TTL (XSS blast-radius cap) intact while making
 
 ```mermaid
 sequenceDiagram
-  participant U as User
+  participant U as Tab that began
+  participant M as Device the email is opened on
   participant API as @osn/api
   participant DB as accounts + users + passkeys
 
-  U->>API: POST /register/begin<br/>{ email, handle, displayName }
-  API->>U: 200 (OTP emailed)
-  U->>API: POST /register/complete { otp }
-  API->>DB: tx { insert account, insert profile }
-  API-->>U: 200 + access token + HttpOnly session cookie
+  U->>API: POST /register/begin<br/>{ email, handle, birthdate, displayName }
+  API-->>U: 200 { requestId, claimSecret, pairingCode }
+  API-)M: email: /verify/<requestId>#<link secret>
+  loop until confirmed
+    U->>API: POST /register/:requestId/status { claimSecret }
+    API-->>U: 200 { status: pending, pairingCode }
+  end
+  M->>API: POST /email-link/:requestId/candidates { linkSecret }
+  API-->>M: 200 { pairingCandidates }
+  M->>API: POST /email-link/:requestId/confirm { linkSecret, pairingPick }
+  API-->>M: 200 { status: confirmed } (no cookie, no token)
+  U->>API: POST /register/:requestId/status { claimSecret }
+  API->>DB: batch { insert account, insert profile }
+  API-->>U: 201 + access token + HttpOnly session cookie
   Note over U,API: UI refuses to advance until passkey enrollment completes
   U->>API: POST /passkey/register/begin<br/>Authorization: Bearer <access>
   API-->>U: WebAuthn options
@@ -257,12 +269,14 @@ sequenceDiagram
   API-->>U: 200 — account now has ≥1 WebAuthn credential
 ```
 
-Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
+The link, the pairing number and the refusals are in [[email-links]]. Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and
-email-change verification factor. The recovery-code path is the single
-"lost device" escape hatch — see `[[recovery-codes]]`.
+email-change verification factor. A lost device has three ways back: a
+recovery code, which mints an ordinary session, and an emailed link or an
+authenticator code, each of which mints a restricted session that can only
+enrol a passkey — see [[recovery-codes]] and [[account-recovery-factors]].
 
 ## Cross-Service Impact
 

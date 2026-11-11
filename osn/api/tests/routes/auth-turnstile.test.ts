@@ -72,7 +72,7 @@ describe("Turnstile gate — UNCONFIGURED (verifier null) is a clean no-op", () 
       }),
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { sent: boolean }).sent).toBe(true);
+    expect(((await res.json()) as { requestId: string }).requestId).toMatch(/^signup_/);
   });
 
   it("/login/passkey/begin proceeds with no token when Turnstile is unconfigured", async () => {

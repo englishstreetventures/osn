@@ -8,6 +8,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // this file tests the wrapper's open/close logic, not the forms themselves.
 // The Register stand-in exposes a button that fires `onSuccess`, which is how
 // the real component signals "account created and passkey enrolled".
+const pendingRecovery = vi.hoisted(() => ({ value: false }));
+
+vi.mock("@osn/auth-ui/pending-recovery", () => ({
+  hasPendingRecovery: () => pendingRecovery.value,
+}));
 vi.mock("@osn/auth-ui/SignIn", () => ({
   SignIn: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="signin">
@@ -17,6 +22,11 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
       </button>
     </div>
   ),
+}));
+const pendingSignUp = vi.hoisted(() => ({ value: false }));
+
+vi.mock("@osn/auth-ui/pending-sign-up", () => ({
+  hasPendingSignUp: () => pendingSignUp.value,
 }));
 vi.mock("@osn/auth-ui/Register", () => ({
   Register: (props: { onSuccess?: () => void; productName: string }) => (
@@ -89,6 +99,8 @@ function renderDialogs(
 
 afterEach(() => {
   cleanup();
+  pendingSignUp.value = false;
+  pendingRecovery.value = false;
 });
 
 describe("<AuthDialogs /> — close-on-session invariant", () => {
@@ -190,5 +202,35 @@ describe("<AuthDialogs /> — close-on-session invariant", () => {
 
     expect(onShowRegisterChange).not.toHaveBeenCalled();
     expect(onShowSignInChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("<AuthDialogs /> — a sign-up waiting on its link", () => {
+  it("opens the register dialog on load, so the waiting view resumes after a reload", () => {
+    pendingSignUp.value = true;
+    const onShowRegisterChange = vi.fn();
+    renderDialogs(
+      makeAuth(() => null),
+      {},
+      { onShowRegisterChange },
+    );
+    expect(onShowRegisterChange).toHaveBeenCalledWith(true);
+  });
+
+  it("opens nothing when there is no waiting sign-up, or a session already exists", () => {
+    const onShowRegisterChange = vi.fn();
+    renderDialogs(
+      makeAuth(() => null),
+      {},
+      { onShowRegisterChange },
+    );
+    cleanup();
+    pendingSignUp.value = true;
+    renderDialogs(
+      makeAuth(() => SAMPLE_SESSION),
+      {},
+      { onShowRegisterChange },
+    );
+    expect(onShowRegisterChange).not.toHaveBeenCalledWith(true);
   });
 });

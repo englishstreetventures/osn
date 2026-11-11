@@ -34,7 +34,6 @@ const NO_TOKEN_ON_DISK = [
   "alchemy-state.yml",
   "ci-swift.yml",
   "cire-d1-latency-probe.yml",
-  "domain-move-rehearsal.yml",
   "free-tier-ceiling-alert.yml",
   "main-audit.yml",
   "migration-history.yml",

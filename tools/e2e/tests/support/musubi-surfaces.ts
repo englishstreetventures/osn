@@ -627,6 +627,17 @@ export async function phoneTall(flow: Flow, button: Locator, what: string): Prom
 
 /** The vertical space between the bottom of `above` and the top of `below`, in whole px. */
 async function gapBetween(above: Locator, below: Locator): Promise<string> {
+  // A dialog that has just opened is still scaling in, and the two boxes are
+  // read one after the other: wait out every animation that ends first. A
+  // loading pulse never ends, so it is left running.
+  await above.page().evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
   const [a, b] = await Promise.all([above.boundingBox(), below.boundingBox()]);
   if (!a || !b) return "no box";
   return `${Math.round(b.y - (a.y + a.height))}px`;

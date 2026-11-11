@@ -1,11 +1,13 @@
 export { ChangeEmailForm } from "./ChangeEmailForm";
+export { CheckEmailView, type CheckEmailPurpose, type CheckEmailStatus } from "./CheckEmailView";
+export { ConfirmLinkPage, type ConfirmLinkPurpose, type ConfirmOutcome } from "./ConfirmLinkPage";
 export { CreateProfileForm } from "./CreateProfileForm";
 export { PasskeysView } from "./PasskeysView";
 export { describePasskeyError, type PasskeyCeremony } from "./passkey-errors";
 export { ProfileOnboarding } from "./ProfileOnboarding";
 export { ProfileSwitcher } from "./ProfileSwitcher";
 export { RecoveryCodesView } from "./RecoveryCodesView";
-export { RecoveryLoginForm } from "./RecoveryLoginForm";
+export { hasPendingRecovery, RecoveryLoginForm } from "./RecoveryLoginForm";
 export { Register } from "./Register";
 export { SecurityEventsBanner } from "./SecurityEventsBanner";
 export { SessionsView } from "./SessionsView";

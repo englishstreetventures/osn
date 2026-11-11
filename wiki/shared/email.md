@@ -75,9 +75,9 @@ import { EmailService } from "@shared/email";
 
 const email = yield* EmailService;
 yield* email.send({
-  template: "otp-registration",
+  template: "link-registration",
   to: normalisedEmail,
-  data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
+  data: { url, ttlMinutes: otpTtl / 60, instanceName: config.instanceName, handle },
 });
 ```
 
@@ -91,13 +91,13 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 
 | Template                 | Data shape                          | Call site |
 |--------------------------|-------------------------------------|-----------|
-| `otp-registration`       | `{ code, ttlMinutes, instanceName }` | `beginRegistration` |
+| `link-recovery`          | `{ url, ttlMinutes, instanceName, device }` | `beginEmailRecovery`, `resendEmailRecovery` — see [[email-links]] |
+| `link-registration`      | `{ url, ttlMinutes, instanceName, handle }` | `beginRegistration`, `resendRegistration` — see [[email-links]] |
 | `otp-step-up`            | `{ code, ttlMinutes, instanceName }` | `beginStepUpOtp` |
 | `otp-email-change`       | `{ code, ttlMinutes, instanceName }` | `beginEmailChange` |
-| `otp-recovery`           | `{ code, ttlMinutes, instanceName }` | `beginEmailRecovery` |
 | `recovery-generated`     | `{ instanceName }`                  | `notifyRecovery("recovery_code_generate")` |
 | `recovery-consumed`      | `{ instanceName }`                  | `notifyRecovery("recovery_code_consume")` |
-| `recovery-used`          | `{ disownUrl, instanceName }`       | `completeRecoveryFactor` (email + TOTP) |
+| `recovery-used`          | `{ disownUrl, instanceName }`       | `completeRecoveryFactor` (emailed link + TOTP) |
 | `passkey-added`          | `{ instanceName }`                  | `notifyPasskeyRegisteredByAccountId` |
 | `passkey-removed`        | `{ instanceName }`                  | `notifyPasskeyDeletedByAccountId` |
 | `totp-enrolled`          | `{ instanceName }`                  | `completeTotpEnrollment` |
@@ -118,11 +118,13 @@ cire-api sends from the same catalogue:
 | `vendor-claim-review-pending` | `{ pending, oldestWaitingDays, env }` — counts only, no listing or claimant | the daily cron, to the operator address in `CIRE_OPS_EMAIL` — see [[cire-vendors]] |
 | `r2-reconcile-alert` | `R2ReconcileAlertData` — one of `held` (bucket name, both row counts, runs held and left), `released`, `stopped` (bucket name, days stopped) or `disabled`, plus the tier; counts and commands only, no object key or guest data | the daily cron's R2 orphan reconcilers, to the operator address in `CIRE_OPS_EMAIL` — see [[backup-dr]] |
 
-`otp-recovery` is the only OTP template sent from an **unauthenticated**
-endpoint, which shapes its copy: anyone who knows the address can cause it to
-arrive (capped at 3 per 24 h per account), so it reads as something a stranger
-may have triggered, says plainly that ignoring it is safe, and names no handle
-or display name — the address is the only thing the sender proved they know.
+`link-recovery` is sent from an **unauthenticated** endpoint, which shapes its
+copy: anyone who knows the address can cause it to arrive (within the limits in
+[[email-links]] §Recovery), so it reads as something a stranger may have
+triggered, names the device that asked (`device`, a coarse label such as
+"Chrome on macOS") so the reader can tell their own request from another, says
+how to turn it down and that ignoring it is safe, and names no handle or
+display name — the address is the only thing the sender proved they know.
 
 `recovery-used` is the loudest notice in the catalogue: every session on the
 account has just been revoked and somebody who is not holding a passkey is
@@ -135,6 +137,18 @@ a renderer file under `shared/email/src/templates/`, and a branch in
 `renderTemplate()`. The compile-time exhaustive-switch check fails
 otherwise.
 
+### How a message looks
+
+Each template draws its own HTML in inline styles, inside the same `wrap`
+frame: the system font stack, `#0a0a0a` ink, 480px wide. A message that asks
+the reader to open one link draws it as a button, and every button is the same
+one: `display:inline-block;padding:12px 24px;background:#0a0a0a;color:#fff;text-decoration:none;border-radius:6px`,
+at the text's own weight. `link-registration` and `vendor-claim-invite` draw it
+today. The link also appears as text under the button, in `#666`, for a client
+that drops the button's styles. The button and the page the link opens use one
+verb: `link-registration` says "Confirm" in its subject, its heading and its
+button, as [[email-links]]'s page does.
+
 ### Resend API wire format (live transport)
 
 ```
@@ -144,7 +158,7 @@ Content-Type: application/json
 {
   "from":    "hello@cireweddings.com",
   "to":      ["user@example.com"],
-  "subject": "Verify your Musubi email",
+  "subject": "Confirm your Musubi email",
   "html":    "...",
   "text":    "...",
   "headers": { "List-Unsubscribe": "<https://…>" }
@@ -162,7 +176,7 @@ Content-Type: application/json
 {
   "to":      [{ "email": "user@example.com" }],
   "from":    { "email": "noreply@osn.app" },
-  "subject": "Verify your Musubi email",
+  "subject": "Confirm your Musubi email",
   "text":    "...",
   "html":    "..."
 }
@@ -226,11 +240,12 @@ Content-Type: application/json
 
 > Dev-only OTP visibility: the email transport never logs the code, but
 > `osn/api`'s auth service has a **separate** `logDevOtp` helper that emits a
-> `[dev-otp] <purpose> code=…` debug line for registration / step-up /
-> email-change flows. It is gated strictly on `OSN_ENV` being unset or
-> `"local"` (returns `Effect.void` otherwise), so the code is never logged in
-> staging/production. This makes email-OTP dev flows testable without a real
-> inbox. See `osn/api/src/services/auth/helpers.ts`.
+> `[dev-otp] <purpose> code=…` debug line for the step-up, recovery and
+> email-change flows, and `logDevLink`, which emits `[dev-link] registration
+> <url>` with the sign-up link. Both are gated strictly on `OSN_ENV` being
+> unset or `"local"` (return `Effect.void` otherwise), so no code or link is
+> ever logged in staging/production. This makes the emailed dev flows testable
+> without a real inbox. See `osn/api/src/services/auth/helpers.ts`.
 >
 > **Fixed 2026-07-30:** the line used to interpolate the **recipient
 > address** too. A free-text message is not annotation-shaped, so the
@@ -370,7 +385,7 @@ read, instead of the in-memory recorder: the Resend service in
    ([[devloop-urls#Running without the proxy]]). Bun reads the package's own
    `.env`, and wrangler its `.dev.vars`; all four files are gitignored.
 3. Send something, and read it at `http://localhost:4008/inbox`. In osn-api, a
-   registration (`POST /register/begin`) sends its OTP. Every cire mail needs a
+   registration (`POST /register/begin`) sends its link. Every cire mail needs a
    signed-in organiser or osn-api's account lookups, so cire needs the whole
    local stack running.
 

@@ -6,7 +6,7 @@
  * injected stores) and returns the flat method surface the routes and
  * tests consume. Module layering (acyclic):
  *
- *   context → profiles → tokens ─┬→ registration / profile-switch / recovery
+ *   context → profiles → tokens ─┬→ registration (over email-link) / profile-switch / recovery
  *   sessions ─────────────────────┤
  *   step-up → security-events ────┴→ passkeys / passkey-management /
  *                                     email-change / cross-device / totp
@@ -23,6 +23,7 @@ import type { AuthConfig } from "./config";
 import { createAuthContext } from "./context";
 import { createCrossDeviceModule } from "./cross-device";
 import { createEmailChangeModule } from "./email-change";
+import { createEmailLinkModule } from "./email-link";
 import { hashSessionToken } from "./helpers";
 import { createOidcModule } from "./oidc";
 import { createPasskeyManagementModule } from "./passkey-management";
@@ -52,7 +53,8 @@ export function createAuthService(config: AuthConfig) {
   const sessions = createSessionsModule();
   const stepUp = createStepUpModule(ctx);
   const securityEvents = createSecurityEventsModule(ctx, stepUp);
-  const registration = createRegistrationModule(ctx, profiles, tokens);
+  const emailLinks = createEmailLinkModule(ctx);
+  const registration = createRegistrationModule(ctx, profiles, tokens, emailLinks);
   const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens, sessions);
   const passkeys = createPasskeysModule(ctx, profiles, tokens, sessions, stepUp, securityEvents);
   const passkeyManagement = createPasskeyManagementModule(ctx, sessions, securityEvents);
@@ -63,7 +65,14 @@ export function createAuthService(config: AuthConfig) {
   const totp = createTotpModule(ctx, securityEvents, stepUp);
   // Built last — it consumes `totp`, which is itself built after everything
   // else it needs. Moving this above line 96 leaves `checkTotpCode` undefined.
-  const recoveryFactors = createRecoveryFactorsModule(ctx, profiles, tokens, totp, securityEvents);
+  const recoveryFactors = createRecoveryFactorsModule(
+    ctx,
+    profiles,
+    tokens,
+    totp,
+    securityEvents,
+    emailLinks,
+  );
 
   return {
     findProfileByEmail: profiles.findProfileByEmail,
@@ -75,11 +84,17 @@ export function createAuthService(config: AuthConfig) {
     resolveIdentifier: profiles.resolveIdentifier,
     registerProfile: registration.registerProfile,
     beginRegistration: registration.beginRegistration,
-    completeRegistration: registration.completeRegistration,
+    resendRegistration: registration.resendRegistration,
+    registrationStatus: registration.registrationStatus,
+    // Shared by every flow that emails a link. The read offers the confirm
+    // page its candidates; the confirm marks the request confirmed and nothing
+    // else. Neither mints a session.
+    emailLinkCandidates: emailLinks.candidates,
+    confirmEmailLink: emailLinks.confirm,
     checkHandle: registration.checkHandle,
     issueTokens: tokens.issueTokens,
-    // The restricted-session primitive, minted by the two recovery-factor
-    // completers below and by nothing else.
+    // The restricted-session primitive, minted by the email-recovery claim
+    // and the TOTP recovery completer below, and by nothing else.
     issueRecoverySession: tokens.issueRecoverySession,
     refreshTokens: tokens.refreshTokens,
     verifyRefreshToken: tokens.verifyRefreshToken,
@@ -98,13 +113,15 @@ export function createAuthService(config: AuthConfig) {
     resolveSessionByBinding: sessions.resolveSessionByBinding,
     resolveCallerSession: sessions.resolveCallerSession,
     classifyCallerSession: sessions.classifyCallerSession,
+    holdsLiveOrdinarySession: sessions.holdsLiveOrdinarySession,
     invalidateOtherAccountSessions: sessions.invalidateOtherAccountSessions,
     generateRecoveryCodesForAccount: recovery.generateRecoveryCodesForAccount,
     consumeRecoveryCode: recovery.consumeRecoveryCode,
     completeRecoveryLogin: recovery.completeRecoveryLogin,
     countActiveRecoveryCodes: recovery.countActiveRecoveryCodes,
     beginEmailRecovery: recoveryFactors.beginEmailRecovery,
-    completeEmailRecovery: recoveryFactors.completeEmailRecovery,
+    emailRecoveryStatus: recoveryFactors.emailRecoveryStatus,
+    resendEmailRecovery: recoveryFactors.resendEmailRecovery,
     completeTotpRecovery: recoveryFactors.completeTotpRecovery,
     disownRecovery: recoveryFactors.disownRecovery,
     listUnacknowledgedSecurityEvents: securityEvents.listUnacknowledgedSecurityEvents,

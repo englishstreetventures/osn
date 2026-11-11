@@ -1,8 +1,10 @@
+import { hasPendingRecovery } from "@osn/auth-ui/pending-recovery";
+import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import { Register } from "@osn/auth-ui/Register";
 import { SignIn } from "@osn/auth-ui/SignIn";
 import { useAuth } from "@osn/client/solid";
 import { Dialog } from "@shared/ui/ui/dialog";
-import { createEffect } from "solid-js";
+import { createEffect, onMount } from "solid-js";
 
 import { PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
@@ -34,6 +36,17 @@ export function AuthDialogs(props: {
     if (!session()) return;
     if (props.showRegister) props.onShowRegisterChange(false);
     if (props.showSignIn) props.onShowSignInChange(false);
+  });
+
+  // A sign-up this tab was waiting on before a reload — or before a phone
+  // discarded the tab while the person read their mail — opens again on its
+  // waiting view, so a link confirmed meanwhile finishes here.
+  // The same for an emailed recovery link: the sign-in dialog opens on its
+  // recovery view, which resumes the wait.
+  onMount(() => {
+    if (session()) return;
+    if (hasPendingSignUp()) props.onShowRegisterChange(true);
+    else if (hasPendingRecovery()) props.onShowSignInChange(true);
   });
 
   return (

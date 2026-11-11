@@ -26,12 +26,13 @@ import {
   type RegistryGiftSummaryTotal,
 } from "./gift-summary";
 import {
-  type OtpData,
-  renderEmailChangeOtp,
-  renderRecoveryOtp,
-  renderRegistrationOtp,
-  renderStepUpOtp,
-} from "./otp";
+  type LinkData,
+  type RecoveryLinkData,
+  type RegistrationLinkData,
+  renderRecoveryLink,
+  renderRegistrationLink,
+} from "./link";
+import { type OtpData, renderEmailChangeOtp, renderStepUpOtp } from "./otp";
 import { renderR2ReconcileAlert, type R2ReconcileAlertData } from "./r2-reconcile-alert";
 import {
   renderRsvpChangeDigest,
@@ -71,10 +72,10 @@ export type EmailTemplate =
   | "enquiry-new"
   | "enquiry-reply"
   | "enquiry-quote"
-  | "otp-registration"
+  | "link-recovery"
+  | "link-registration"
   | "otp-step-up"
   | "otp-email-change"
-  | "otp-recovery"
   | "recovery-generated"
   | "recovery-consumed"
   | "recovery-used"
@@ -97,10 +98,10 @@ export type EmailTemplate =
  * identity instance it comes from, from `instanceName` in its data.
  */
 export type AccountEmailTemplate =
-  | "otp-registration"
+  | "link-recovery"
+  | "link-registration"
   | "otp-step-up"
   | "otp-email-change"
-  | "otp-recovery"
   | "recovery-generated"
   | "recovery-consumed"
   | "recovery-used"
@@ -116,10 +117,10 @@ export interface EmailTemplateDataMap {
   "enquiry-new": EnquiryNewData;
   "enquiry-reply": EnquiryReplyData;
   "enquiry-quote": EnquiryQuoteData;
-  "otp-registration": OtpData;
+  "link-recovery": RecoveryLinkData;
+  "link-registration": RegistrationLinkData;
   "otp-step-up": OtpData;
   "otp-email-change": OtpData;
-  "otp-recovery": OtpData;
   "recovery-generated": InstanceNameData;
   "recovery-consumed": InstanceNameData;
   "recovery-used": RecoveryUsedData;
@@ -169,14 +170,14 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderEnquiryReply(data as EmailTemplateData<"enquiry-reply">);
     case "enquiry-quote":
       return renderEnquiryQuote(data as EmailTemplateData<"enquiry-quote">);
-    case "otp-registration":
-      return renderRegistrationOtp(data as EmailTemplateData<"otp-registration">);
+    case "link-recovery":
+      return renderRecoveryLink(data as EmailTemplateData<"link-recovery">);
+    case "link-registration":
+      return renderRegistrationLink(data as EmailTemplateData<"link-registration">);
     case "otp-step-up":
       return renderStepUpOtp(data as EmailTemplateData<"otp-step-up">);
     case "otp-email-change":
       return renderEmailChangeOtp(data as EmailTemplateData<"otp-email-change">);
-    case "otp-recovery":
-      return renderRecoveryOtp(data as EmailTemplateData<"otp-recovery">);
     case "recovery-generated":
       return renderRecoveryGenerated(data as EmailTemplateData<"recovery-generated">);
     case "recovery-consumed":
@@ -221,10 +222,10 @@ export {
   renderEnquiryNew,
   renderEnquiryReply,
   renderEnquiryQuote,
-  renderRegistrationOtp,
+  renderRecoveryLink,
+  renderRegistrationLink,
   renderStepUpOtp,
   renderEmailChangeOtp,
-  renderRecoveryOtp,
   renderRecoveryGenerated,
   renderRecoveryConsumed,
   renderRecoveryUsed,
@@ -247,7 +248,10 @@ export type {
   EmailChangedData,
   EnquiryNewData,
   InstanceNameData,
+  LinkData,
   OtpData,
+  RecoveryLinkData,
+  RegistrationLinkData,
   EnquiryReplyData,
   EnquiryQuoteData,
   R2ReconcileAlertData,

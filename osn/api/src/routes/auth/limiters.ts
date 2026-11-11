@@ -5,8 +5,14 @@ import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
-  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
-  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  RECOVERY_RESENDS_PER_ACCOUNT_MAX,
+  RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS,
+  RECOVERY_LINKS_PER_ACCOUNT_CEILING,
+  RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+  RECOVERY_LINKS_PER_ADDRESS_MAX,
+  RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
+  REGISTRATION_SENDS_PER_ADDRESS_MAX,
+  REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
 } from "../../services/auth/constants";
 
 /**
@@ -17,7 +23,23 @@ import {
  */
 export type AuthRateLimiters = Readonly<{
   registerBegin: RateLimiterBackend;
-  registerComplete: RateLimiterBackend;
+  /**
+   * Sign-up status poll (unauthenticated, per-IP). The tab that began polls
+   * every few seconds while it waits, so the budget is a polling one.
+   */
+  registerStatus: RateLimiterBackend;
+  /** Sign-up link Resend (unauthenticated, SENDS MAIL, per-IP). */
+  registerResend: RateLimiterBackend;
+  /**
+   * Emailed-link confirm (unauthenticated, per-IP). The 256-bit secret and the
+   * per-request wipe are the real gate; this is the brake on flooding.
+   */
+  emailLinkConfirm: RateLimiterBackend;
+  /**
+   * Emailed-link candidates read (unauthenticated, per-IP): the confirm page
+   * reads it once on load, again on a reload.
+   */
+  emailLinkCandidates: RateLimiterBackend;
   handleCheck: RateLimiterBackend;
   passkeyLoginBegin: RateLimiterBackend;
   passkeyLoginComplete: RateLimiterBackend;
@@ -33,13 +55,19 @@ export type AuthRateLimiters = Readonly<{
   recoveryComplete: RateLimiterBackend;
   /**
    * Email account-recovery begin (unauthenticated, SENDS MAIL to the address on
-   * file). Hour window, so no native binding can carry it. The per-IP budget is the coarse
-   * brake; the flood defence that matters is the per-ACCOUNT cap
-   * (`recoveryEmailBeginCap`), because a rotating fleet defeats per-IP keys.
+   * file). Hour window, so no native binding can carry it. With Turnstile, the
+   * per-(account, address) link cap (`recoveryLinkAddressCap`) and the daily
+   * ceiling (`recoveryLinkCeiling`), it is what bounds first links; the
+   * account's Resend cap never counts one.
    */
   recoveryEmailBegin: RateLimiterBackend;
-  /** Email account-recovery complete (unauthenticated, verifies a 6-digit code). */
-  recoveryEmailComplete: RateLimiterBackend;
+  /**
+   * Email account-recovery status, polled by the tab that began with its claim
+   * secret; the poll that finds the link confirmed gets the restricted session.
+   */
+  recoveryEmailStatus: RateLimiterBackend;
+  /** Email account-recovery Resend (another link for the same request; sends mail). */
+  recoveryEmailResend: RateLimiterBackend;
   /** TOTP account-recovery complete (unauthenticated, verifies a 6-digit code). */
   recoveryTotpComplete: RateLimiterBackend;
   /**
@@ -161,7 +189,13 @@ export interface AuthRateLimitBudget extends RateLimitBudget {
  */
 export const AUTH_RATE_LIMITS = {
   registerBegin: { ns: "register_begin", maxRequests: 5, windowMs: MINUTE_MS },
-  registerComplete: { ns: "register_complete", maxRequests: 10, windowMs: MINUTE_MS },
+  // Polled by the waiting tab, two to ten seconds apart: the cross-device
+  // poll's budget.
+  registerStatus: { ns: "register_status", maxRequests: 60, windowMs: MINUTE_MS },
+  registerResend: { ns: "register_resend", maxRequests: 5, windowMs: MINUTE_MS },
+  // A person presses Confirm once, maybe twice; the recovery disown budget.
+  emailLinkConfirm: { ns: "email_link_confirm", maxRequests: 10, windowMs: MINUTE_MS },
+  emailLinkCandidates: { ns: "email_link_candidates", maxRequests: 20, windowMs: MINUTE_MS },
   // Generous headroom: handle-check fires as-you-type and login-begin is
   // auto-fired by the passkey conditional-UI / autofill ceremony per page
   // load. Both are cheap; the real gates are the `*Complete` endpoints, which
@@ -192,10 +226,13 @@ export const AUTH_RATE_LIMITS = {
   // one hour rather than one minute. A locked-out user retrying honestly needs
   // two or three; anything past that is not a person.
   recoveryEmailBegin: { ns: "recovery_email_begin", maxRequests: 5, windowMs: HOUR_MS },
-  // Code entry. Mirrors the step-up OTP / TOTP completers — the real brake on
-  // guessing six digits is the per-account lockout, which no rotating fleet
-  // can spread across.
-  recoveryEmailComplete: { ns: "recovery_email_complete", maxRequests: 10, windowMs: MINUTE_MS },
+  // The waiting tab polls every two to ten seconds; sign-up's status budget.
+  recoveryEmailStatus: { ns: "recovery_email_status", maxRequests: 60, windowMs: MINUTE_MS },
+  // Sign-up's Resend budget. The per-account and per-address link caps are
+  // what bound the mail; this curbs a script.
+  recoveryEmailResend: { ns: "recovery_email_resend", maxRequests: 5, windowMs: MINUTE_MS },
+  // TOTP code entry. The real brake on guessing six digits is the per-account
+  // lockout, which no rotating fleet can spread across.
   recoveryTotpComplete: { ns: "recovery_totp_complete", maxRequests: 10, windowMs: MINUTE_MS },
   // A person clicks the link in the email once, maybe twice. Anything past
   // that is a script guessing 256 bits, which this will not be what stops.
@@ -311,12 +348,34 @@ export const OSN_RATE_LIMITS = {
     maxRequests: EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
     windowMs: EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
   },
-  // Keyed on the RESOLVED accountId by its one caller — never on the
-  // identifier a stranger submitted. See `beginEmailRecovery`.
-  recoveryEmailBeginCap: {
-    store: "auth.recovery_email_begin_cap",
-    maxRequests: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
-    windowMs: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  // Recovery links, checked only where one goes out. The address cap counts
+  // every link and is keyed on `serverMac.recoverySendKey(accountId, ip)`;
+  // the Resend cap counts Resends only, keyed on the RESOLVED accountId —
+  // never on the identifier a stranger submitted. See
+  // `RECOVERY_LINKS_PER_ADDRESS_MAX` and `RECOVERY_RESENDS_PER_ACCOUNT_MAX`.
+  recoveryLinkAddressCap: {
+    store: "auth.recovery_link_address_cap",
+    maxRequests: RECOVERY_LINKS_PER_ADDRESS_MAX,
+    windowMs: RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
+  },
+  recoveryResendCap: {
+    store: "auth.recovery_resend_cap",
+    maxRequests: RECOVERY_RESENDS_PER_ACCOUNT_MAX,
+    windowMs: RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS,
+  },
+  // Every recovery link to one account, keyed on a keyed digest of the
+  // account id (`serverMac.probeKey`). See `RECOVERY_LINKS_PER_ACCOUNT_CEILING`.
+  recoveryLinkCeiling: {
+    store: "auth.recovery_link_ceiling",
+    maxRequests: RECOVERY_LINKS_PER_ACCOUNT_CEILING,
+    windowMs: RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+  },
+  // Keyed on the probe key of `mailboxKey(address)` for the address a sign-up link goes to, and checked
+  // only where one goes out. See `REGISTRATION_SENDS_PER_ADDRESS_MAX`.
+  registrationSendCap: {
+    store: "auth.registration_send_cap",
+    maxRequests: REGISTRATION_SENDS_PER_ADDRESS_MAX,
+    windowMs: REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   },
 } as const satisfies Readonly<Record<string, NamedRateLimitBudget>>;
 

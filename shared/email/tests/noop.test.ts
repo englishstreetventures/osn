@@ -81,7 +81,7 @@ describe("NoopEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "otp-step-up",
           to: "alice@example.com",
           data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
         });

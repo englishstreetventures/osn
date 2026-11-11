@@ -57,9 +57,18 @@ export interface CoordinationStores {
   readonly recoveryLockoutStore: RecoveryLockoutStore;
   readonly recoveryOtpLockoutStore: RecoveryLockoutStore;
   readonly totpLockoutStore: RecoveryLockoutStore;
+  /** Wrong picks on sign-up links, per address as typed (lowercased). */
+  readonly registrationLinkLockoutStore: RecoveryLockoutStore;
   readonly profileSwitchCap: AccountCapLimiter;
   readonly emailChangeBeginCap: AccountCapLimiter;
-  readonly recoveryEmailBeginCap: AccountCapLimiter;
+  /** Recovery links per (account, client address), keyed on `serverMac.recoverySendKey`. */
+  readonly recoveryLinkAddressCap: AccountCapLimiter;
+  /** Resent recovery links per account, from every address together. */
+  readonly recoveryResendCap: AccountCapLimiter;
+  /** Every recovery link to one account, from every address together. */
+  readonly recoveryLinkCeiling: AccountCapLimiter;
+  /** Cap on resent sign-up links, keyed on the probe key of `mailboxKey(address)`. */
+  readonly registrationSendCap: AccountCapLimiter;
   /** `GET /health/coordination`'s write, read and remove on its own store. */
   readonly healthProbe: CoordinationProbe;
   /** Per-IP guard in front of the health probe. */

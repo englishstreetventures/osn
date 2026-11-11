@@ -351,6 +351,41 @@ export function logDevOtp(purpose: string, code: string): Effect.Effect<void> {
   return Effect.logDebug(`[dev-otp] ${purpose} code=${code}`);
 }
 
+/**
+ * The emailed link, secret included, as a local-only debug line — so a local
+ * stack with no mail provider can still be signed up through. Gated exactly as
+ * {@link logDevOtp}.
+ */
+export function logDevLink(purpose: string, url: string): Effect.Effect<void> {
+  if (!isLocalEnv()) return Effect.void;
+  return Effect.logDebug(`[dev-link] ${purpose} ${url}`);
+}
+
+/**
+ * The origin of the web app that serves pages an email links to — the recovery
+ * notice's "this wasn't me" page and an emailed link's confirm page.
+ *
+ * Derived, not configured: `authorizeUiUrl`'s origin, falling back to the first
+ * configured WebAuthn origin, the same precedence `buildInteractionRedirect`
+ * uses in `routes/auth/oidc.ts`. One answer to "where does the frontend live"
+ * rather than two that can disagree, and no `Env` key that would have to be set
+ * in every wrangler environment before it was right anywhere. A malformed value
+ * is returned as given: the mail that carries the link is already committed,
+ * and it still sends with a link that does not work.
+ */
+export function frontendOrigin(config: {
+  readonly authorizeUiUrl?: string;
+  readonly origin: string | string[];
+}): string {
+  const fallback = Array.isArray(config.origin) ? config.origin[0] : config.origin;
+  const base = config.authorizeUiUrl ?? fallback ?? "";
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Session token helpers (Copenhagen Book C1)
 // ---------------------------------------------------------------------------
@@ -500,4 +535,42 @@ export function normaliseIdentifier(identifier: string): string {
 /** Returns true if the (already-normalised) identifier looks like an email address. */
 export function looksLikeEmail(identifier: string): boolean {
   return identifier.includes("@");
+}
+
+/**
+ * Providers whose mail ignores dots in the local part, and the domain each
+ * reads as: Gmail's two domains, one mailbox. The only extras the key takes
+ * on top of the `+tag` cut every domain gets.
+ */
+const ONE_MAILBOX_PROVIDERS = new Map([
+  ["gmail.com", { domain: "gmail.com" }],
+  ["googlemail.com", { domain: "gmail.com" }],
+]);
+
+/**
+ * `address` as the sign-up Resend cap's key, and for nothing else:
+ * lowercased, the local part cut at its first `+` (when one follows the first
+ * character) on every domain, and at a provider in
+ * {@link ONE_MAILBOX_PROVIDERS} its dots dropped and the domain read as that
+ * provider's. Every `+tag` variant of a local part then shares one cap. On a
+ * domain where `+` names a different mailbox, one cap covers both. Never
+ * stored, mailed or shown, and never the key an account is looked up by: the
+ * strike counter, the account, the pending sign-up and the mail keep the
+ * address as typed, lowercased. A value with no `@` comes back lowercased and
+ * otherwise as given.
+ */
+export function mailboxKey(address: string): string {
+  const lower = address.toLowerCase();
+  const at = lower.lastIndexOf("@");
+  if (at < 0) return lower;
+  let local = lower.slice(0, at);
+  let domain = lower.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus > 0) local = local.slice(0, plus);
+  const provider = ONE_MAILBOX_PROVIDERS.get(domain);
+  if (provider) {
+    local = local.replaceAll(".", "");
+    domain = provider.domain;
+  }
+  return `${local}@${domain}`;
 }

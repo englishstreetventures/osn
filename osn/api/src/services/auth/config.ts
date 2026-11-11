@@ -158,13 +158,20 @@ export interface AuthConfig {
    */
   totpLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per-account lockout for the email-OTP recovery path. Its own instance
-   * rather than a share of {@link recoveryLockoutStore}: an attacker grinding
-   * 64-bit recovery codes must not deny the owner the email path, nor the
-   * reverse — the whole point of a second recovery factor is that it is
-   * independent of the first.
+   * Per-account lockout for email recovery: wrong numbers typed on the
+   * account's recovery links. Its own instance rather than a share of
+   * {@link recoveryLockoutStore}: an attacker grinding 64-bit recovery codes
+   * must not deny the owner the email path, nor the reverse — the whole point
+   * of a second recovery factor is that it is independent of the first.
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
+  /**
+   * Per address as typed (lowercased): wrong picks on sign-up links
+   * ({@link REGISTRATION_LINK_LOCKOUT_THRESHOLD} in
+   * {@link REGISTRATION_LINK_LOCKOUT_MS}). Read before every sign-up link is
+   * mailed; past the threshold, none is.
+   */
+  registrationLinkLockoutStore?: RecoveryLockoutStore;
   /**
    * The AES-GCM keys TOTP shared secrets are encrypted under at rest, by the
    * version stamped on a row. `buildAppDeps` builds it at boot from
@@ -199,13 +206,32 @@ export interface AuthConfig {
   profileSwitchCap?: AccountCapLimiter;
   emailChangeBeginCap?: AccountCapLimiter;
   /**
-   * Per-account cap on `/login/recovery/email/begin` (3 per 24 h). Keyed on the
-   * resolved accountId — never on the submitted identifier, or an attacker
-   * could exhaust a victim's allowance by naming them, and the cap would double
-   * as an account-existence oracle. See
-   * {@link RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX}.
+   * Recovery links per (account, client address): 3 per 24 h, keyed on
+   * `serverMac.recoverySendKey(accountId, ip)` and checked only where a link
+   * goes out. Each client address has its own allowance for an account, so
+   * requests from one address never use another's. See
+   * {@link RECOVERY_LINKS_PER_ADDRESS_MAX}.
    */
-  recoveryEmailBeginCap?: AccountCapLimiter;
+  recoveryLinkAddressCap?: AccountCapLimiter;
+  /**
+   * Resent recovery links per account, from every address together: 3 per
+   * 24 h, keyed on the resolved accountId. A begin's first link never counts.
+   * See {@link RECOVERY_RESENDS_PER_ACCOUNT_MAX}.
+   */
+  recoveryResendCap?: AccountCapLimiter;
+  /**
+   * Every recovery link to one account in 24 hours, first links and Resends
+   * together (20), keyed on `serverMac.probeKey(accountId)` and checked only
+   * where a link would go out. See {@link RECOVERY_LINKS_PER_ACCOUNT_CEILING}.
+   */
+  recoveryLinkCeiling?: AccountCapLimiter;
+  /**
+   * Cap on resent sign-up links (6 an hour), keyed on the probe key of
+   * `mailboxKey(address)` and checked only
+   * where a link goes out. See
+   * {@link REGISTRATION_SENDS_PER_ADDRESS_MAX}.
+   */
+  registrationSendCap?: AccountCapLimiter;
   /**
    * HMAC key for pairwise subject identifiers. Every relying party sees a
    * different `sub` for the same profile, derived from this key plus the

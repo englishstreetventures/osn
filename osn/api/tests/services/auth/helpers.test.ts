@@ -1,6 +1,8 @@
 import { Effect, Logger, References } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { mailboxKey } from "../../../src/services/auth/helpers";
+
 /**
  * T-U3 / S-L4. `logDevOtp` is the one place an OTP code is deliberately written
  * to a log, and until this file it had no test at all — so the security fix
@@ -126,5 +128,97 @@ describe("logDevOtp", () => {
     mod.setRuntimeTier("local");
     const lines = await capture(mod.logDevOtp("registration", "333333"));
     expect(lines).toHaveLength(1);
+  });
+});
+
+describe("logDevLink", () => {
+  const originalEnv = process.env.OSN_ENV;
+  const URL_WITH_SECRET = "https://musubi.example/verify/signup_abc#secret-value";
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.OSN_ENV;
+    else process.env.OSN_ENV = originalEnv;
+    vi.resetModules();
+  });
+
+  async function freshLogDevLink(osnEnv: string) {
+    vi.resetModules();
+    process.env.OSN_ENV = osnEnv;
+    const mod = await import("../../../src/services/auth/helpers");
+    return mod.logDevLink;
+  }
+
+  it("logs the purpose and the whole link locally", async () => {
+    const logDevLink = await freshLogDevLink("local");
+    const lines = await capture(logDevLink("registration", URL_WITH_SECRET));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("registration");
+    expect(lines[0]).toContain(URL_WITH_SECRET);
+  });
+
+  it.each(["dev", "staging", "production"])("emits nothing when OSN_ENV is %s", async (env) => {
+    const logDevLink = await freshLogDevLink(env);
+    const lines = await capture(logDevLink("registration", URL_WITH_SECRET));
+    expect(lines).toEqual([]);
+  });
+
+  it.each(["dev", "staging", "production"])(
+    "emits nothing when the stamped tier is %s, whatever process.env says",
+    async (tier) => {
+      vi.resetModules();
+      process.env.OSN_ENV = "local";
+      const mod = await import("../../../src/services/auth/helpers");
+      mod.setRuntimeTier(tier);
+      const lines = await capture(mod.logDevLink("registration", URL_WITH_SECRET));
+      expect(lines).toEqual([]);
+    },
+  );
+});
+
+// The sign-up Resend cap keys on this: every +tag variant of a local part
+// shares one count on any domain, Gmail's dotted forms share one too, and a
+// different local part never does.
+describe("mailboxKey", () => {
+  it.each([
+    ["drops a +tag on any domain", "a+x@custom.example", "a@custom.example"],
+    ["drops a +tag that holds a dot", "name+a.b@example.com", "name@example.com"],
+    ["drops dots on gmail.com", "n.a.me@gmail.com", "name@gmail.com"],
+    ["drops dots and the +tag on gmail.com", "n.ame+x@gmail.com", "name@gmail.com"],
+    ["reads googlemail.com as gmail.com", "n.ame+x@googlemail.com", "name@gmail.com"],
+    ["lowercases a Gmail address before folding it", "N.Ame+Tag@GMail.com", "name@gmail.com"],
+    ["keeps the dots of an Outlook address", "first.last@outlook.com", "first.last@outlook.com"],
+    ["keeps the dots on any other domain", "first.last@example.com", "first.last@example.com"],
+    ["lowercases", "Name+Tag@Example.COM", "name@example.com"],
+    ["leaves an address with no + alone", "plain@example.com", "plain@example.com"],
+    ["keeps a local part that starts with +", "+x@example.com", "+x@example.com"],
+  ])("%s", (_, address, folded) => {
+    expect(mailboxKey(address)).toBe(folded);
+  });
+
+  it("gives every address that reaches one Gmail mailbox one key", () => {
+    const keys = new Set(
+      ["x@gmail.com", "x+a@gmail.com", "x+b@gmail.com", "X@googlemail.com", "x.+c@GMAIL.com"].map(
+        mailboxKey,
+      ),
+    );
+    expect([...keys]).toEqual(["x@gmail.com"]);
+    expect(mailboxKey("a.b@gmail.com")).toBe(mailboxKey("ab+z@googlemail.com"));
+    expect(mailboxKey("a.b@gmail.com")).toBe(mailboxKey("ab@gmail.com"));
+  });
+
+  it("gives every +tag variant of a local part one key on any domain", () => {
+    expect(mailboxKey("a+x@custom.example")).toBe(mailboxKey("a+y@custom.example"));
+    expect(mailboxKey("a+x@custom.example")).toBe(mailboxKey("a@custom.example"));
+    expect(mailboxKey("a+x@outlook.com")).toBe(mailboxKey("a@outlook.com"));
+  });
+
+  it("never gives a different local part the same key", () => {
+    expect(mailboxKey("a@custom.example")).not.toBe(mailboxKey("b@custom.example"));
+    expect(mailboxKey("a.b@outlook.com")).not.toBe(mailboxKey("ab@outlook.com"));
+    expect(mailboxKey("a@custom.example")).not.toBe(mailboxKey("a@other.example"));
+  });
+
+  it("returns a value with no @, such as a probe key, as given", () => {
+    expect(mailboxKey("prb_0123456789ab")).toBe("prb_0123456789ab");
   });
 });

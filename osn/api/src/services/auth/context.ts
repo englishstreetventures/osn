@@ -13,8 +13,16 @@ import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
-  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
-  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  RECOVERY_RESENDS_PER_ACCOUNT_MAX,
+  RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS,
+  RECOVERY_LINKS_PER_ACCOUNT_CEILING,
+  RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+  RECOVERY_LINKS_PER_ADDRESS_MAX,
+  RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
+  REGISTRATION_LINK_LOCKOUT_MS,
+  REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  REGISTRATION_SENDS_PER_ADDRESS_MAX,
+  REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "./constants";
@@ -70,18 +78,40 @@ export function createAuthContext(config: AuthConfig) {
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
     );
-  const recoveryEmailBeginCap =
-    config.recoveryEmailBeginCap ??
+  const recoveryLinkAddressCap =
+    config.recoveryLinkAddressCap ??
+    createInMemoryAccountCap(RECOVERY_LINKS_PER_ADDRESS_MAX, RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS);
+  const recoveryResendCap =
+    config.recoveryResendCap ??
     createInMemoryAccountCap(
-      RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
-      RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+      RECOVERY_RESENDS_PER_ACCOUNT_MAX,
+      RECOVERY_RESENDS_PER_ACCOUNT_WINDOW_MS,
+    );
+  const recoveryLinkCeiling =
+    config.recoveryLinkCeiling ??
+    createInMemoryAccountCap(
+      RECOVERY_LINKS_PER_ACCOUNT_CEILING,
+      RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+    );
+  const registrationSendCap =
+    config.registrationSendCap ??
+    createInMemoryAccountCap(
+      REGISTRATION_SENDS_PER_ADDRESS_MAX,
+      REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
     );
   // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
-  // Per-account lockout for the email-OTP recovery path. Its own counter, so
-  // grinding one recovery factor never locks the owner out of the other.
+  // Per-account lockout for email recovery: wrong numbers typed on its links.
+  // Its own counter, so failing one recovery factor never locks the owner out
+  // of another.
   const recoveryOtpLockoutStore =
     config.recoveryOtpLockoutStore ?? createInMemoryRecoveryLockoutStore();
+  const registrationLinkLockoutStore =
+    config.registrationLinkLockoutStore ??
+    createInMemoryRecoveryLockoutStore({
+      threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+      lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
+    });
   // Per-account TOTP lockout. The in-memory default cannot fail; only a shared
   // store answers `"unknown"`, which every caller refuses.
   const totpLockoutStore =
@@ -118,9 +148,13 @@ export function createAuthContext(config: AuthConfig) {
     stores,
     profileSwitchCap,
     emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
+    registrationSendCap,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
+    registrationLinkLockoutStore,
     totpLockoutStore,
     hashIp,
     serverMac,
