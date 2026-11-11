@@ -29,6 +29,9 @@ import {
 
 const grace = PEOPLE.musubiRetry;
 
+// Musubi's forms load Turnstile, which the fixtures stand in for.
+test.use({ turnstile: true });
+
 test("musubi-register-retry", async ({ page, browser, flow }) => {
   await flow.step("open Musubi", async () => {
     await page.goto(ORIGINS.musubi);
@@ -110,5 +113,10 @@ test("musubi-register-retry", async ({ page, browser, flow }) => {
     "a declined sign-up made no account",
     false,
     flow.saw("POST osn-api /register/:id/status 201"),
+  );
+  flow.check(
+    "no Content-Security-Policy message on a Musubi page",
+    "",
+    flow.cspMessages(ORIGINS.musubi).join("\n"),
   );
 });
