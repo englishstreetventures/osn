@@ -574,8 +574,7 @@
      while sliding the last 1.5rem from the side it lives on — the details from
      the start, the RSVP form from the end, the order of their buttons on the
      card. A panel swap, so `--dur-base` on the house curve. A swipe settles on a
-     spring instead, started at the finger's speed (`SETTLE_SPRING`,
-     `sheet-swipe.ts`).
+     spring instead, started at the finger's speed (`[data-settling]`, below).
 
      Reduced motion needs no special case: the global clamp plays it out in
      0.01ms. */
@@ -683,9 +682,10 @@
 
 /* The event sheet's badge (`components/EventSheet`): its two labels moving
    through it like a ticker to the panel on screen, on the panels' own duration
-   and curve after a press. Under a finger and through a swipe's spring
-   (`data-dragging` on the badge) the sheet writes their place every frame, with
-   no easing. The reduced-motion clamp below reaches this too. */
+   and curve after a press. Under a finger (`data-dragging` on the badge) the
+   sheet writes their place every frame, with no easing; through a swipe's
+   settle (`data-settling`) they ride the settle's spring with the panels, below.
+   The reduced-motion clamp below reaches this too. */
 @utility transition-badge-settle {
   transition:
     opacity var(--dur-base) var(--ease-out),
@@ -694,6 +694,25 @@
   [data-dragging] & {
     transition: none;
   }
+
+  [data-settling] & {
+    transition:
+      opacity var(--swipe-settle-time) var(--swipe-settle-ease),
+      transform var(--swipe-settle-time) var(--swipe-settle-ease);
+  }
+}
+
+/* A released swipe settling between the event sheet's panels
+   (`components/EventSheet`). Its curve is a critically damped spring started
+   at the finger's speed, which no token can hold, since it differs with every
+   release: the sheet samples it into a `linear()` easing at release
+   (`settleCurve`, `sheet-swipe.ts`; a slope-matched `cubic-bezier()` where the
+   engine has no `linear()`) and writes it, with its time stretched by
+   `--motion-scale`, on the rail and the badge while `data-settling` is on them
+   (the owner's choice, `cire/invites/DESIGN.md` §5). The reduced-motion clamp
+   below cuts it to 0.01ms, so the panels land at once. */
+[data-settling] > [data-panel] {
+  transition: transform var(--swipe-settle-time) var(--swipe-settle-ease);
 }
 
 /* ── The unlock reveal ──────────────────────────────────────────────────────

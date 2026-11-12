@@ -22,6 +22,7 @@ import "../../src/styles/global.css";
 import { EventCard } from "../../src/components/EventCard";
 import { EventSheet, type EventPanel } from "../../src/components/EventSheet";
 import { applyPaletteToRoot } from "../../src/components/invite-theme";
+import { velocityOf } from "../../src/components/sheet-swipe";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 /** Typed accessor for the command registered in `vitest.config.ts`. */
@@ -1362,10 +1363,11 @@ function bodyOf(panel: EventPanel): Point {
 }
 
 /**
- * Wait for the swipe's settle. It is a scripted spring, which
- * `getAnimations()` cannot see, so this waits on the rail's `data-settling`,
- * which every settle carries until it lands — after a frame first, so a
- * release CDP has sent but the page has not yet handled is not missed.
+ * Wait for the swipe's settle. It waits on the rail's `data-settling`, which
+ * every settle carries until it lands, rather than on the transitions alone,
+ * since a settle that starts none (nothing left to move) still lands once —
+ * after a frame first, so a release CDP has sent but the page has not yet
+ * handled is not missed.
  */
 async function settleSwipe() {
   await new Promise(requestAnimationFrame);
@@ -1394,7 +1396,8 @@ async function openOnWide(panel: EventPanel, members?: FamilyMember[]) {
 
 /**
  * Every frame's offset of `el` from now until its settle lands, with the
- * frame's time — what the eye sees of a spring.
+ * frame's time — what the eye sees of a spring. Read off the computed style:
+ * the settle is a transition, so the inline style already holds where it ends.
  */
 async function framesOf(el: HTMLElement): Promise<{ t: number; x: number }[]> {
   const frames: { t: number; x: number }[] = [];
@@ -1402,7 +1405,7 @@ async function framesOf(el: HTMLElement): Promise<{ t: number; x: number }[]> {
   const deadline = performance.now() + 3000;
   while (rail().hasAttribute("data-settling") && performance.now() < deadline) {
     const t = await new Promise<number>(requestAnimationFrame);
-    frames.push({ t, x: el.style.transform === "" ? 0 : shiftOf(el) });
+    frames.push({ t, x: shiftOf(el) });
   }
   return frames;
 }
@@ -1901,6 +1904,57 @@ describe("EventSheet — the swipe's physics", () => {
     const rested = await timeTo80("rest");
     // From the spring's formula: about 105ms against 143ms. At least a frame.
     expect(flicked + 16).toBeLessThanOrEqual(rested);
+  });
+
+  it("leaves the finger at the speed it had: the settle's first frame moves at the release speed", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    const to = { x: start.x - width * 0.4, y: start.y };
+    const ms = 40;
+    const steps = 8;
+    await touchDrag(start, to, { ms, steps });
+    // The speed the sheet reads at the lift, from the same samples it takes:
+    // where the finger went down, each move, and the lift 10ms after the last.
+    const released = velocityOf([
+      ...Array.from({ length: steps + 1 }, (_, i) => ({
+        x: start.x + ((to.x - start.x) * i) / steps,
+        t: (ms * i) / steps,
+      })),
+      { x: to.x, t: ms + 10 },
+    ]);
+    expect(released).toBeLessThan(-1);
+
+    // The settle is the details' transform transition. It exists from the
+    // release; held still, it is read on its own clock, not the runner's.
+    const lead = wrapperOf("details");
+    const settleOf = () =>
+      lead
+        .getAnimations()
+        .find(
+          (a): a is CSSTransition =>
+            a instanceof CSSTransition && a.transitionProperty === "transform",
+        );
+    let slide = settleOf();
+    for (const deadline = performance.now() + 3000; !slide; slide = settleOf()) {
+      if (performance.now() > deadline) throw new Error("the settle never started");
+      await new Promise(requestAnimationFrame);
+    }
+    slide.pause();
+    expect(getComputedStyle(lead).transitionTimingFunction).toMatch(/^linear\(/);
+    slide.currentTime = 0;
+    const leftAt = shiftOf(lead);
+    slide.currentTime = 4;
+    const firstFrame = (shiftOf(lead) - leftAt) / 4;
+    // It starts where the finger let go…
+    expect(leftAt).toBeCloseTo(to.x - start.x, 0);
+    // …and moves on at the finger's speed. A spring started from rest covers
+    // under a tenth of that in its first 4ms.
+    expect(Math.abs(firstFrame - released)).toBeLessThan(Math.abs(released) * 0.1);
+
+    slide.play();
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
   });
 
   it("catches a settling panel without pressing what was under the finger", async () => {

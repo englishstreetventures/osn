@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Frontend Patterns
@@ -675,10 +675,18 @@ hand-built gesture here copies:
   stops it where it is and hands it back to the finger; an ease restarted from
   zero speed stalls for a frame instead.
 
-CSS cannot carry a velocity, so a spring that must is script — `motion`'s
-`animate(from, to, { type: "spring", velocity })`, with `velocity` in units per
-second. The reduced-motion clamp in a stylesheet does not reach it: check
-`matchMedia("(prefers-reduced-motion: reduce)")` and land at once.
+A CSS transition takes no velocity, but its easing can carry one: at release,
+sample the spring from the release speed into a `linear()` easing and set it,
+with the spring's settle time, as the transition. Put a stop a millisecond in
+on the spring's tangent, so the first frame moves at the finger's speed
+exactly, and end the curve where a fast release would pass its target. The
+cire guest site's event sheet does this (`settleCurve` in
+[`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts),
+[[cire-invite-designs#The event sheet]]). Because it is a transition, the
+stylesheet's reduced-motion clamp reaches it with no `matchMedia` check, and a
+catch reads the moving thing's place off its computed `transform`. `linear()`
+needs Chrome 113, Firefox 112 or Safari 17.2; below that, a `cubic-bezier()`
+whose first handle has the same slope (`y1 / x1`) leaves at the same speed.
 
 ### A toggled box can fade out of `display: none` in CSS alone — outside the top layer
 

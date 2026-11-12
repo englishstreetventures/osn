@@ -34,10 +34,6 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/componen
  * back under a fading panel, with every other test in the repo still passing.
  */
 
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
-
 vi.mock("@shared/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const event: EventSummary = {

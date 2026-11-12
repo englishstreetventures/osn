@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Cire development guide
@@ -859,9 +859,10 @@ caller looks its app up by name in `scripts/bundle-size-budgets.txt`, the one
 place a re-baseline touches. See that file's own comment for the exact steps.
 
 The headroom is deliberately smaller than the mistake the guard exists to
-catch, and that is the part worth getting right. `motion` costs **21261 bytes
-gzip in the minified build** ([[bundle-size-guards]] has how that was measured
-and a check you can re-run). A threshold set to "measured plus
+catch, and that is the part worth getting right. `motion`, the library that
+first set it, cost **21261 bytes gzip in the minified build**
+([[bundle-size-guards]] has how that was measured and a check you can
+re-run). A threshold set to "measured plus
 one motion" would put a fresh library of exactly that class *under* the line,
 which is how the first version of this number went wrong: it carried 47657
 bytes, motion's cost back when the build was unminified. The arithmetic is
@@ -921,8 +922,7 @@ Three choices keep the bundle small; together they took it from 285 KB to
   `import * as z from "zod/v4/core"`), which `core/routing/handler.js` calls
   on every non-prerendered request whether or not the app defines any
   actions (`src/actions` doesn't exist here). There's no app-level config to
-  skip that code path, so unlike `motion` (see the SSR-stub comment in
-  `astro.config.mjs`) this is not stubbed — it's a real, reachable Astro core
+  skip that code path, so it is not stubbed — it's a real, reachable Astro core
   dependency, not dead weight from an unreachable path.
 
 ## Related

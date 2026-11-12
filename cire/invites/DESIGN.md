@@ -190,14 +190,20 @@ The portals' ladder, value for value, in `global.css`:
 | The hero photo fading in once it loads                                               | 700ms                                                      | `--ease-out`, the default curve             | yes    |
 | The closing band settling into or out of its cap, on a live resize across 1536px     | 500ms                                                      | `--ease-out`                                | yes    |
 | The unlock reveal after a claim (`unlock-rise` and `unlock-shimmer` in `src/styles/global.css`, ordered by `src/components/unlock-reveal.ts`) | classic: rises of 450–500ms and a 1.2s shimmer, a 200ms beat, cards 120ms apart after 150ms; gala: 350–400ms and 1s, a 150ms beat, cards 80ms apart after 100ms | the rises `--ease-out`; the shimmer one CSS `ease-in-out`, cut at its keyframes | yes    |
-| A swipe between the sheet's panels settling (`SETTLE_SPRING`) †                      | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel settles in about 0.4s | —        | no     |
+| A swipe between the sheet's panels settling (`settleCurve`, `[data-settling]`)       | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel from rest settles in about 0.4s | the spring sampled into a `linear()` at release; a `cubic-bezier()` with the same first slope where the engine has none | yes    |
 | The envelope opening (`@cire/envelope`)                                              | its own timeline: `wiki/cire/cire-envelope.md` §Taps, timeline and breaks | —                    | —      |
 
 † Breaks a rule (Known breaches, below). The row records what ships, not the
 house look, and new motion copies none of it.
 
-The swipe's spring is the one move on the `motion` library. The unlock reveal
-closes the code form at once, brings the welcome in with a shimmer on its
+The swipe's settle is the one easing that is no token: its curve starts at the
+finger's speed, which differs with every release, so the sheet samples the
+spring into a CSS `linear()` easing at release and runs it as a transition
+(the owner's choice, 2026-11-12, englishstreetventures/osn#2197). Its first
+stretch moves at the release speed exactly, the curve stops where a fast flick
+would pass the panel's rest, and an engine without `linear()` (Safari before
+17.2) gets one `cubic-bezier()` that leaves at the same speed and never passes
+the rest. The unlock reveal closes the code form at once, brings the welcome in with a shimmer on its
 heading, then lifts the events section and its cards one by one. The scroll
 cue, the card's mark, the sheet, the swipe and the reveal are described with
 their tests in `wiki/cire/cire-invite-designs.md` (§The hero scroll cue,
@@ -239,11 +245,6 @@ These moves ship, and each breaks the rule named beside it. They are the rows
 marked † above. None is a pattern to copy, and each entry goes when its fix
 lands.
 
-- **The swipe's settle spring runs on the `motion` library**, where motion is
-  CSS only (`SETTLE_SPRING` in `src/components/sheet-swipe.ts`, started in
-  `src/components/EventSheet.tsx`). It starts at the finger's speed, which a
-  fixed-length ease cannot, so whether it moves to CSS is the owner's call,
-  under englishstreetventures/osn#2197.
 - **`Modal`'s exit moves a box that holds live controls**, where such a box
   closes at once: `--dur-base` at a desk, 150ms on touch. The dialog stays
   modal through the exit, so focus cannot leave it while it moves. Whether the
@@ -257,7 +258,7 @@ branch in each component. On `*`, `*::before` and `*::after` it sets every
 animation to one run of 0.01ms that starts already finished (a -1ms delay), and
 every transition to 0.01ms with no delay, all with `!important`, which beats an
 inline style. So the tick is drawn, the scroll cue is there and still, and a
-`Reveal`, a link menu's pop or a panel switch lands at once. Spinners are the
+`Reveal`, a link menu's pop, a panel switch or a swipe's settle lands at once. Spinners are the
 exception: a still ring reads as a stalled page, so `.animate-spin` keeps
 turning, once every 1.5s.
 
@@ -267,8 +268,8 @@ own gate:
 - `Disclosure`'s fade on `::details-content` is declared only under
   `prefers-reduced-motion: no-preference`;
 - `Modal` cuts its own transitions, `::backdrop` included, to 1ms;
-- the unlock reveal and the swipe's spring check
-  `matchMedia("(prefers-reduced-motion: reduce)")` and land at once;
+- the unlock reveal checks
+  `matchMedia("(prefers-reduced-motion: reduce)")` and lands at once;
 - the envelope never plays: its boot script does not seal the page while the
   query matches.
 
