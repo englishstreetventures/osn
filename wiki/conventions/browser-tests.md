@@ -458,6 +458,41 @@ holds the check, a tampered package among its cases, and the cases below, and
 [`deploy-workflows.test.ts`](../../scripts/tests/deploy-workflows.test.ts)
 holds the key.
 
+When the mirror's names do not resolve, the install still runs from the
+cache. `apt-get update` looks the mirror up about ten times in a row before it
+gives up, and apt's own timeouts do not cover a lookup: each is an SRV query
+and an address query, and glibc waits 10 s on each (5 s, twice). So on
+2026-11-11 an update needed some 200 s, and every attempt was cut inside it.
+The script turns apt's SRV query off (`Acquire::EnableSrvRecords "false"`; no
+Ubuntu mirror publishes SRV records) and runs the attempt with
+`RES_OPTIONS="timeout:2 attempts:1"`, so a lookup waits 2 s and both updates,
+the script's and the one inside `install-deps`, give up in about 20 s (ten
+lookups at 2 s). Each
+warns, exits 0 and keeps the index already on disk, which apt checked when it
+fetched it; `verify-cached-debs.sh` checks the cache against that index, and
+apt installs from its archive without the network. The step passes with one
+warning starting
+`::warning::install-chromium-system-libraries: apt-get update could not fetch every index`,
+the line to look for in a run during an outage. Its limits:
+
+- It passes only when the cache holds every package the install needs at the
+  version the index on disk names. A cache saved after a newer version reached
+  the mirror, or no cache at all, fails the step after three attempts, with the
+  `not skipped:` line the table below names.
+- It bounds name lookups only. A mirror whose name resolves but which stalls
+  is cut by apt's own retries and timeouts, and those are the image's: its
+  `/etc/apt/apt.conf.d/zz-retries` (`Acquire::Retries "1"`, 15 s timeouts)
+  sorts after every `NN-*` file, and apt keeps the last value it reads
+  ([`configure-apt.sh`](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-apt.sh)).
+- `RES_OPTIONS` reaches a lookup only while glibc's `dns` module makes it
+  (`hosts: files dns` in `/etc/nsswitch.conf`). The image's build scripts
+  leave that file alone, but no run has printed it. Behind another resolver
+  module an update takes as long as before, and the next paragraph applies.
+- A resolver slower than 2 s a query fails that lookup; apt retries once, then
+  moves to the next mirror in the image's list.
+
+*Measured 2026-11-12 — `gh run view 43054765174 --log-failed`: one `Ign:` line every 20.0 s while the update waited, and each index tried twice on `azure.archive.ubuntu.com`, then once on each other mirror (the image's one retry); SRV: `dig SRV _http._tcp.<host>` and `_https._tcp.<host>` for `azure.archive.ubuntu.com`, `archive.ubuntu.com`, `security.ubuntu.com` and `packages.microsoft.com`, no answer for any*
+
 When every attempt fails, the step passes without apt in one case only: no
 `apt-get update` finished; apt's output names a network fault (a host it could
 not resolve or connect to, a connection that timed out) and no signature or
@@ -469,20 +504,20 @@ found it, and prints one warning starting
 then run on the libraries the image already holds, and `retry.sh`'s
 `::error::` for the failed attempts still shows on the step. `apt-get update`
 exits 0 on a network failure when it finishes in time, keeping its old index,
-so a run in which one finished fails as before. Any other failure ends the
+so a run in which one finished never passes this way. Any other failure ends the
 step with the last attempt's status, after a line starting
 `install-chromium-system-libraries: not skipped:` that says why:
 
 | The line ends | What it means |
 |---|---|
+| `apt-get update could not fetch every index and kept the copies on disk, and apt could not download a package the cache lacked at the version they name` | The mirror was out of reach, and the cache did not hold every package at the version the index on disk names. A `dropped` warning above names each cached package that index does not |
 | `apt-get update finished, so apt held an index` | An update finished, so the cache was checked or an install began; the failure came after |
 | `apt reported a signature or hash failure` | An index or package failed its check. Never an outage, never skipped |
 | `apt reported no network failure` | apt failed in some other way, or printed nothing before the attempt was cut |
 | `playwright install-deps --dry-run chromium does not report every dependency installed` | Something is missing: the dry run's list is just above the line |
 
 On the Ubuntu 26.04 image the dry run lists the nine font packages above, so
-during a mirror outage the step still fails. It passes without apt only on an
-image that already holds them.
+the step passes without apt only on an image that already holds them.
 
 *Measured 2026-11-12 — the outage: `gh run view 43054765174 --log-failed`, every attempt cut at 150 s inside `apt-get update` after "Temporary failure resolving 'azure.archive.ubuntu.com'"; the fonts: `gh run view 43020427575 --job 130522151955 --log`, image `ubuntu26-20261101.186.1`, nine packages under "The following NEW packages will be installed"*
 
