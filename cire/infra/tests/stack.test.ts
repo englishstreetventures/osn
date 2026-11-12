@@ -890,8 +890,17 @@ describe("the cire stack on production", () => {
         name: worker.name,
         crons: worker.crons,
       });
-      expect(Object.keys(props?.env ?? {}).toSorted()).toEqual(worker.envNames);
+      // Every declared name, and besides them only those the provider adds.
+      const declaredNames = Object.keys(props?.env ?? {}).toSorted();
+      expect(worker.envNames.filter((name) => declaredNames.includes(name))).toEqual(declaredNames);
+      expect(
+        worker.envNames.filter(
+          (name) => !declaredNames.includes(name) && !/^(ALCHEMY_[A-Z_]+|ASSETS)$/.test(name),
+        ),
+      ).toEqual([]);
+      expect(worker.envNames).toContain("ALCHEMY_STAGE");
     }
+    expect(PRODUCTION_ADOPTED.workers.CireInvites?.envNames).toContain("ASSETS");
     expect(PRODUCTION_ADOPTED.workers.CireApi?.durableObjects).toEqual({
       REALTIME_HUB: "TopicHub",
     });

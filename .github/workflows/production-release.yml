@@ -103,7 +103,7 @@ on:
         required: false
         default: ""
       force:
-        description: "Ship those surfaces even if production already runs this commit's content, and skip the dev check. For changes no path shows: a repo Variable, or a rollback made by hand."
+        description: "Ship those surfaces' stacks even if production already runs this commit's content, uploading every Worker in them again, and skip the dev check; osn_api and cire_api still wait for zap_api's first record. For changes no path shows: a repo Variable, or a rollback made by hand."
         type: boolean
         required: false
         default: false

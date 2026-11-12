@@ -1983,23 +1983,38 @@ describe("SA: osn-api and cire-api ship only once zap-api has a production recor
     });
   });
 
-  test("SA3: a forced release skips the hold, as it skips the dev gate", () => {
+  // The hold guards secrets, which a forced upload would put at the same risk.
+  test("SA3: a forced release keeps the hold; a zap-api record lifts it", async () => {
     const decisions = decide(["osn/api/x.ts"]);
     const changes: StackChange[] = [
       { key: "musubi", ship: true, status: "ships", reason: "musubi/infra changed" },
     ];
-    const held = (production: ReadonlyMap<RecordKey, string>, force: boolean) =>
-      applyShipsAfter({ decisions, changes, production, force });
-    expect(held(new Map(), true).decisions.find((d) => d.key === "osn_api")?.ship).toBe(true);
-    expect(held(new Map(), true).changes[0]?.ship).toBe(true);
-    expect(held(new Map(), false).decisions.find((d) => d.key === "osn_api")).toMatchObject({
+    const held = applyShipsAfter({ decisions, changes, production: new Map() });
+    expect(held.decisions.find((d) => d.key === "osn_api")).toMatchObject({
       ship: false,
       status: "held back",
     });
-    expect(held(new Map(), false).changes[0]).toMatchObject({ ship: false, status: "held back" });
-    const recorded = held(new Map<RecordKey, string>([["zap_api", "a1"]]), false);
+    expect(held.changes[0]).toMatchObject({ ship: false, status: "held back" });
+    const recorded = applyShipsAfter({
+      decisions,
+      changes,
+      production: new Map<RecordKey, string>([["zap_api", "a1"]]),
+    });
     expect(recorded.decisions.find((d) => d.key === "osn_api")?.ship).toBe(true);
     expect(recorded.changes[0]?.ship).toBe(true);
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "osn/api/src/a.ts": "1" });
+      const b = await commit(repo, { "osn/api/src/a.ts": "2" });
+      const forced = await runReleasePlan({
+        env: env(b, { SURFACES: "osn_api", FORCE: "true" }),
+        fetch: fakeGitHub([...withoutZap(a, 1)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(forced.outputs)).toMatchObject({
+        osn_api: "false",
+        stack_musubi: "false",
+      });
+    });
   });
 
   // A stack deploys every Worker it declares, so a change to a sibling site,

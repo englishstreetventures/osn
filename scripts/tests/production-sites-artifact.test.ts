@@ -83,6 +83,20 @@ describe("production-sites-artifact.ts", () => {
     ]);
   });
 
+  // The guest site's server build sits in the public `production-sites`
+  // artifact, and its manifest holds the build's random encryption key, which
+  // Astro uses only to seal server-island props. So the guest site uses none.
+  test("AF1: the guest site uses no server island", () => {
+    const src = join(import.meta.dir, "..", "..", "cire", "invites", "src");
+    const files = readdirSync(src, { recursive: true, encoding: "utf8" }).filter((file) =>
+      /\.(astro|tsx?|jsx?|mdx?)$/.test(file),
+    );
+    expect(files.length).toBeGreaterThan(0);
+    expect(
+      files.filter((file) => readFileSync(join(src, file), "utf8").includes("server:defer")),
+    ).toEqual([]);
+  });
+
   test("AF2: places each site build the artifact holds, hidden files included, and nothing else", () => {
     const { base, download, root } = tree(GOOD);
     try {

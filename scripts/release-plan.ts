@@ -62,7 +62,8 @@
  *                       empty = all
  *   FORCE               "true" ships the requested surfaces whatever the
  *                       diff and dev say — for a change no path rule sees
- *                       (a repo Variable, a hand-run wrangler deploy)
+ *                       (a repo Variable, a rollback made by hand);
+ *                       SHIPS_AFTER still holds
  * Writes `<key>=true|false` per surface, `stack_<stack>=true|false` per
  * production stack, `any` and `any_stack` (a site build is needed) to
  * $GITHUB_OUTPUT (stdout when unset), and a table of what ships and why to
@@ -978,24 +979,21 @@ export interface ShipsAfterHold {
  * deploys a SHIPS_AFTER surface whose first has no production record. A stack
  * uploads every Worker it declares, so a change to a sibling site, or to the
  * stack's own paths, would otherwise upload the waiting API with it. A forced
- * release skips this, as it skips the dev gate.
+ * release is held too: it uploads every Worker of a stack it ships.
  */
 export function applyShipsAfter(input: {
   readonly decisions: readonly PlanDecision[];
   readonly changes: readonly StackChange[];
   readonly production: ReadonlyMap<RecordKey, string>;
-  readonly force: boolean;
 }): ShipsAfterHold {
   const waiting = new Map<StackKey, string>();
-  if (!input.force) {
-    for (const [key, first] of SHIPS_AFTER) {
-      const owner = surface(key).stack;
-      if (input.production.has(first) || waiting.has(owner)) continue;
-      waiting.set(
-        owner,
-        `the ${owner} stack deploys ${key}, which ships once ${first} has a production record, which proves on production that a deploy keeps the secrets it does not upload`,
-      );
-    }
+  for (const [key, first] of SHIPS_AFTER) {
+    const owner = surface(key).stack;
+    if (input.production.has(first) || waiting.has(owner)) continue;
+    waiting.set(
+      owner,
+      `the ${owner} stack deploys ${key}, which ships once ${first} has a production record, which proves on production that a deploy keeps the secrets it does not upload`,
+    );
   }
   return {
     decisions: input.decisions.map((d): PlanDecision => {
@@ -1173,7 +1171,6 @@ export async function runReleasePlan(options: {
     decisions: applyDevGate({ decisions: changed, dev, diff, force: request.force }),
     changes: applyStackDevGate({ changes: stackChanges, dev, force: request.force }),
     production,
-    force: request.force,
   });
   const planned = stackPlans(gated.decisions, request.force, gated.changes);
   const release: ReleaseDecisions = planned;

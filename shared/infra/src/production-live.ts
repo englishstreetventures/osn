@@ -11,8 +11,8 @@
  *
  *  - on every release: an adopted resource that does not exist live; a Worker
  *    that lacks a secret the inventory requires on production or holds one it
- *    forbids; a declared var or binding named like a live secret, which the
- *    upload would replace; a live Durable Object class no declared binding
+ *    forbids; a declared var or binding, or one the provider adds to every
+ *    upload, named like a live secret, which the upload would replace; a live Durable Object class no declared binding
  *    names, which the upload would delete with its storage;
  *  - for a resource the plan adopts (`adopted`, or an API Worker's `create`,
  *    which the deploy adopts): a live cron schedule that differs from the
@@ -103,6 +103,8 @@ export function adoptedWorkerOf(declared: {
   readonly vars: Readonly<Record<string, string>>;
   readonly bindings: Readonly<Record<string, DescribedBinding>>;
   readonly observability: ApiWorkerObservability;
+  /** The Worker's static assets, which the provider binds as `ASSETS`. */
+  readonly assets?: unknown;
 }): AdoptedWorker {
   return {
     name: declared.name,
@@ -115,11 +117,29 @@ export function adoptedWorkerOf(declared: {
           : [],
       ),
     ),
-    envNames: [...Object.keys(declared.vars), ...Object.keys(declared.bindings)].toSorted(),
+    envNames: [
+      ...Object.keys(declared.vars),
+      ...Object.keys(declared.bindings),
+      ...PROVIDER_VAR_NAMES,
+      ...(declared.assets === undefined || declared.assets === null ? [] : ["ASSETS"]),
+    ].toSorted(),
     previews: false,
     observability: declared.observability,
   };
 }
+
+/**
+ * The plain-text vars `@alchemy.run/cloudflare` 2.0.0-beta.85 adds to every
+ * Worker upload (`appendAlchemyAndEnvBindings`): a live secret of one of these
+ * names would be replaced by it, as by a declared var.
+ */
+const PROVIDER_VAR_NAMES = [
+  "ALCHEMY_CLOUDFLARE_ACCOUNT_ID",
+  "ALCHEMY_PHASE",
+  "ALCHEMY_STACK_NAME",
+  "ALCHEMY_STAGE",
+  "ALCHEMY_WORKER_NAME",
+];
 
 /** An adopted bucket, from a product's production declaration of it. */
 export function adoptedBucketOf(declared: {

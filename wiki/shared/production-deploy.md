@@ -1328,7 +1328,7 @@ same surfaces again with whatever merged since.
 | Input | Effect |
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. Naming one surface of a stack asks for every surface that stack deploys. The rest stay where they are until a later release. |
-| `force` | Ship those surfaces' stacks even if production already runs this commit's content, and skip the dev check and the `zap_api`-first rule (§5.10). With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), or a `.bun-version` or `bunfig.toml` change. It also passes `--force` to Alchemy in `alchemy-plan` and in each shipping stack job, so the stack uploads every Worker it declares again: the way to redeploy an unchanged API Worker, or to undo a rollback made by hand or in the dashboard. |
+| `force` | Ship those surfaces' stacks even if production already runs this commit's content, and skip the dev check; the `zap_api`-first rule (§5.10) still holds. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), or a `.bun-version` or `bunfig.toml` change. It also passes `--force` to Alchemy in `alchemy-plan` and in each shipping stack job, so the stack uploads every Worker it declares again: the way to redeploy an unchanged API Worker, or to undo a rollback made by hand or in the dashboard. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
 dispatch made while another release is in progress queues behind it, and the next
@@ -1657,7 +1657,7 @@ it offers each again. `SHIPS_AFTER` in `scripts/release-plan.ts` sets the order:
 `zap_api` has a production record, the musubi and cire stacks wait whole — every surface
 they deploy and their own changes — since a stack uploads every Worker it declares, so
 any change to it would upload osn-api or cire-api too. A release that names any surface
-of those stacks reads `zap_api`'s record, and a forced release skips the hold. zap-api
+of those stacks reads `zap_api`'s record, and a forced release is held too. zap-api
 holds a secret its stack does not upload, so its record exists only once a production
 deploy has kept every secret.
 

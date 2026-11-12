@@ -504,7 +504,15 @@ describe("the musubi stack on production", () => {
       name: adopted?.name,
       crons: adopted?.crons,
     });
-    expect(Object.keys(props?.env ?? {}).toSorted()).toEqual(adopted?.envNames);
+    // Every declared name, and besides them only those the provider adds.
+    const declaredNames = Object.keys(props?.env ?? {}).toSorted();
+    expect(adopted?.envNames.filter((name) => declaredNames.includes(name))).toEqual(declaredNames);
+    expect(
+      adopted?.envNames.filter(
+        (name) => !declaredNames.includes(name) && !/^(ALCHEMY_[A-Z_]+|ASSETS)$/.test(name),
+      ),
+    ).toEqual([]);
+    expect(adopted?.envNames).toContain("ALCHEMY_STAGE");
     expect(adopted?.durableObjects).toEqual({ COORDINATION: "CoordinationStore" });
     expect(PRODUCTION_ADOPTED.databases).toEqual({
       OsnDb: { name: "osn-db-prod", readReplication: "disabled" },

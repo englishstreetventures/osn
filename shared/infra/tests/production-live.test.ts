@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
+  adoptedWorkerOf,
   declaredRule,
   judgeLive,
   lostSecrets,
@@ -340,6 +341,43 @@ describe("LJ: the guard's judgement of the live state", () => {
     const live = withWorker(matching(), { secrets: [...REQUIRED, "OSN_ENV"] });
     expect(judgeLive({ adopted: ADOPTED, live, adopting: new Set() }).refusals).toContain(
       "cire-api-production declares vars or bindings named like its live secrets, which the upload would replace: OSN_ENV",
+    );
+  });
+
+  // The provider adds its own plain-text vars to every upload, and ASSETS to a
+  // Worker with static assets; a live secret of one of those names is replaced too.
+  test("LJ4b: the names the provider adds to every upload count as declared", () => {
+    const declared = {
+      name: "cire-invites",
+      worker: "cire-invites" as const,
+      crons: [],
+      vars: {},
+      bindings: {},
+      observability: ADOPTED.workers.CireApi!.observability,
+    };
+    const PROVIDER = [
+      "ALCHEMY_CLOUDFLARE_ACCOUNT_ID",
+      "ALCHEMY_PHASE",
+      "ALCHEMY_STACK_NAME",
+      "ALCHEMY_STAGE",
+      "ALCHEMY_WORKER_NAME",
+    ];
+    expect(adoptedWorkerOf({ ...declared, assets: null }).envNames).toEqual(PROVIDER);
+    expect(adoptedWorkerOf({ ...declared, assets: { directory: "dist/client" } }).envNames).toEqual(
+      ["ASSETS", ...PROVIDER].toSorted(),
+    );
+    const live = withWorker(matching(), { secrets: [...REQUIRED, "ALCHEMY_STAGE"] });
+    const adopted: AdoptedResources = {
+      ...ADOPTED,
+      workers: {
+        CireApi: {
+          ...ADOPTED.workers.CireApi!,
+          envNames: adoptedWorkerOf({ ...declared, assets: null }).envNames,
+        },
+      },
+    };
+    expect(judgeLive({ adopted, live, adopting: new Set() }).refusals).toContain(
+      "cire-api-production declares vars or bindings named like its live secrets, which the upload would replace: ALCHEMY_STAGE",
     );
   });
 
