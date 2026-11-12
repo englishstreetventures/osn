@@ -13,6 +13,8 @@ import {
   RECOVERY_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
   RECOVERY_LINKS_PER_ADDRESS_MAX,
   RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
+  REGISTRATION_FIRST_LINKS_MAX,
+  REGISTRATION_FIRST_LINKS_WINDOW_MS,
   REGISTRATION_SENDS_PER_ADDRESS_MAX,
   REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   STEP_UP_LINKS_PER_ACCOUNT_CEILING,
@@ -391,6 +393,13 @@ export const OSN_RATE_LIMITS = {
     store: "auth.registration_send_cap",
     maxRequests: REGISTRATION_SENDS_PER_ADDRESS_MAX,
     windowMs: REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+  },
+  // First sign-up links per mailbox, keyed on the same probe key of
+  // `mailboxKey(address)`. See `REGISTRATION_FIRST_LINKS_MAX`.
+  registrationFirstLinkCap: {
+    store: "auth.registration_first_link_cap",
+    maxRequests: REGISTRATION_FIRST_LINKS_MAX,
+    windowMs: REGISTRATION_FIRST_LINKS_WINDOW_MS,
   },
   // Every step-up link to one account, keyed on the account id. See
   // `STEP_UP_LINKS_PER_ACCOUNT_CEILING`.

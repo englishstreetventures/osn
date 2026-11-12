@@ -7,7 +7,6 @@
 import { createHmac } from "node:crypto";
 
 import { createInMemoryRecoveryLockoutStore } from "../../lib/recovery-lockout-store";
-import { createInMemoryRegistrationRestartStore } from "../../lib/registration-restart-store";
 import type { AuthConfig } from "./config";
 import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
@@ -24,6 +23,8 @@ import {
   RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
   REGISTRATION_LINK_LOCKOUT_MS,
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  REGISTRATION_FIRST_LINKS_MAX,
+  REGISTRATION_FIRST_LINKS_WINDOW_MS,
   REGISTRATION_SENDS_PER_ADDRESS_MAX,
   REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   STEP_UP_LINKS_PER_ACCOUNT_CEILING,
@@ -120,8 +121,9 @@ export function createAuthContext(config: AuthConfig) {
       threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD,
       lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
     });
-  const registrationRestartStore =
-    config.registrationRestartStore ?? createInMemoryRegistrationRestartStore();
+  const registrationFirstLinkCap =
+    config.registrationFirstLinkCap ??
+    createInMemoryAccountCap(REGISTRATION_FIRST_LINKS_MAX, REGISTRATION_FIRST_LINKS_WINDOW_MS);
   const stepUpLinkCeiling =
     config.stepUpLinkCeiling ??
     createInMemoryAccountCap(
@@ -181,7 +183,7 @@ export function createAuthContext(config: AuthConfig) {
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     registrationLinkLockoutStore,
-    registrationRestartStore,
+    registrationFirstLinkCap,
     stepUpLinkLockoutStore,
     totpLockoutStore,
     hashIp,

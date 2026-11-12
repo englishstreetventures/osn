@@ -1,7 +1,6 @@
 import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
-import type { RegistrationRestartStore } from "../../lib/registration-restart-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
 import type { IssuerNetwork } from "./email-verification-network";
 import type {
@@ -181,12 +180,6 @@ export interface AuthConfig {
    */
   registrationLinkLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per mailbox: first sign-up links mailed by restarts, and the declines that
-   * make a begin a restart (`lib/registration-restart-store.ts`). Read only
-   * inside the send, after the answer.
-   */
-  registrationRestartStore?: RegistrationRestartStore;
-  /**
    * Per account: wrong typed numbers on step-up links (recovery's numbers:
    * five in 15 minutes). While it holds, no step-up link is mailed and a right
    * number is refused. Its own counter, so a step-up never locks anyone out of
@@ -252,6 +245,12 @@ export interface AuthConfig {
    * where a link goes out. See
    * {@link REGISTRATION_SENDS_PER_ADDRESS_MAX}.
    */
+  /**
+   * Per mailbox: first sign-up links, {@link REGISTRATION_FIRST_LINKS_MAX} an
+   * hour, keyed on the probe key of `mailboxKey(address)`. Checked only inside
+   * the send, after the answer.
+   */
+  registrationFirstLinkCap?: AccountCapLimiter;
   registrationSendCap?: AccountCapLimiter;
   /**
    * Every step-up link to one account in 24 hours, first links and Resends
