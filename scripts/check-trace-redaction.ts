@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * CI and deploy guard: the Worker tiers real users reach keep query strings out
+ * CI guard: the Worker tiers real users reach keep query strings out
  * of Cloudflare logs and native traces, and no API Worker turns native traces
  * on there.
  *
@@ -12,16 +12,13 @@
  * no setting redacts, so their staging and production native traces stay off.
  * Local and dev trace unredacted on purpose and are not checked.
  *
- * Two inputs:
- *  - no arguments: the committed configs — every `[env.staging]` and
- *    `[env.production]` in the API Workers' `wrangler.toml`, and the guest
- *    Worker's `wrangler.jsonc`, whose top level is production. Run by the
- *    `script-tests` job in `.github/workflows/ci.yml`.
- *  - `--generated <path>`: the guest Worker config `@astrojs/cloudflare` writes
- *    into `dist/server/wrangler.json`, which is the file that actually deploys.
- *    Run by `deploy-cire-invites` in `.github/workflows/production-release.yml`
- *    before `wrangler deploy`, so an adapter that drops the key fails the
- *    deploy.
+ * It reads the committed configs — every `[env.staging]` and
+ * `[env.production]` in the API Workers' `wrangler.toml`, and the guest
+ * Worker's `wrangler.jsonc`, whose top level is production — in the
+ * `script-tests` job in `.github/workflows/ci.yml`. The production stacks
+ * deploy from their declarations, which their parity tests hold to these
+ * configs, and `apiWorkerProps()` in shared/infra refuses an unredacted
+ * production Worker on its own.
  */
 
 export type Finding = {
@@ -126,21 +123,12 @@ function say(stream: NodeJS.WriteStream, line: string): void {
 }
 
 if (import.meta.main) {
-  const [flag, generated] = Bun.argv.slice(2);
+  const [flag] = Bun.argv.slice(2);
   let findings: readonly Finding[];
-  let subject: string;
+  const subject = "the committed Worker configs";
   try {
-    if (flag === "--generated") {
-      if (!generated) throw new Error("--generated needs the path of a generated wrangler.json");
-      subject = generated;
-      const config = parseWorkerConfig(generated, await Bun.file(generated).text());
-      findings = checkGuestWorker(generated, config);
-    } else if (flag === undefined) {
-      subject = "the committed Worker configs";
-      findings = await checkCommittedConfigs();
-    } else {
-      throw new Error(`unknown argument ${flag}; use no arguments or --generated <path>`);
-    }
+    if (flag !== undefined) throw new Error(`unknown argument ${flag}; it takes none`);
+    findings = await checkCommittedConfigs();
   } catch (error) {
     say(
       process.stderr,

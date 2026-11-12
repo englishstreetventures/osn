@@ -243,9 +243,9 @@ export const prod = (key: SurfaceKey): string => {
 
 export const dev = (key: SurfaceKey): string => surface(key).dev.name;
 
-/** The Environment a surface's production record is in: its own job's, or its stack's record job's. */
-export const productionEnvironment = (key: SurfaceKey): "production" | "production-records" =>
-  surface(key).production?.kind === "stack" ? "production-records" : "production";
+/** The Environment a surface's production record is in: its record job's, after its stack's job. */
+export const productionEnvironment = (_key: SurfaceKey): "production-records" =>
+  "production-records";
 
 /**
  * Added to a run number for the `production-records` records of a full
@@ -255,6 +255,9 @@ export const productionEnvironment = (key: SurfaceKey): "production" | "producti
  * (only production-release.yml writes `production-records`).
  */
 export const RECORD_RUN_OFFSET = 500_000;
+
+/** Added to a run number for the stack jobs' `production` records of a full production run. */
+export const PRODUCTION_RUN_OFFSET = 400_000;
 
 /** Every production (or dev) job of one run, all successful, each record in its own Environment. */
 export function fullRun(tier: "production" | "dev", sha: string, run: number): FixtureRecord[] {
@@ -271,11 +274,13 @@ export function fullRun(tier: "production" | "dev", sha: string, run: number): F
     };
   });
   // Each stack's own job leaves a record too: in production its production
-  // job's, on dev its dev job's.
+  // job's, on dev its dev job's. A production run's number is kept apart from
+  // any dev run's, so a test that gives both the same number still finds the
+  // production run in production-release.yml.
   const stacks = (tier === "production" ? PRODUCTION_STACKS : STACKS).map((s): FixtureRecord => ({
     environment: tier,
     sha,
-    run,
+    run: tier === "production" ? run + PRODUCTION_RUN_OFFSET : run,
     job: stackJob(s.key, tier),
     states,
   }));

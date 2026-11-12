@@ -92,11 +92,25 @@ export interface HostHold {
 export const PRODUCTION_HOST_HOLDS: readonly HostHold[] = [];
 
 /**
- * Names of the production API Workers, databases and buckets a stack may
- * adopt. Empty: production stacks declare sites only, and the builders and
- * the plan guard refuse any adoption.
+ * Names of the production API Workers, databases and buckets the stacks
+ * adopt: each existed before Alchemy deployed it, and each stack declares it
+ * under its existing name. The builders refuse any other production name, so
+ * a new production Worker, database or bucket is a change to this list.
  */
-export const PRODUCTION_ADOPTIONS: readonly string[] = [];
+export const PRODUCTION_ADOPTIONS: readonly string[] = [
+  // musubi
+  "osn-api-production",
+  "osn-db-prod",
+  // cire
+  "cire-api-production",
+  "cire-invites",
+  "cire-db",
+  "cire-assets",
+  "cire-sheets",
+  // zap
+  "zap-api-production",
+  "zap-db-prod",
+];
 
 /**
  * Today's production host of every surface, keyed as `StageHosts` in
@@ -138,6 +152,34 @@ export const SITE_BUILDS: PerSite<SiteBuild> = {
   pulse_landing: { package: "@pulse/landing", directory: "pulse/landing/dist" },
 };
 
+/** Every API Worker a production stack deploys, by its key in scripts/deploy-surfaces.ts. */
+export type ApiSurface = "cire_api" | "cire_invites" | "osn_api" | "zap_api";
+
+export const API_SURFACES: readonly ApiSurface[] = [
+  "cire_api",
+  "cire_invites",
+  "osn_api",
+  "zap_api",
+];
+
+/** The `PRODUCTION_HOSTS` key of each API Worker: the custom domain its stack declares. */
+export const API_HOST_KEYS = {
+  cire_api: "cireApi",
+  cire_invites: "cireInvites",
+  osn_api: "osnApi",
+  zap_api: "zapApi",
+} as const satisfies Readonly<Record<ApiSurface, keyof typeof PRODUCTION_HOSTS>>;
+
+/**
+ * Each API Worker whose stack uploads a build made outside it: the guest
+ * site, whose Astro build writes the Worker's server modules and its static
+ * assets under one directory. Production builds it in the release's `sites`
+ * job, beside the sites.
+ */
+export const PREBUILT_WORKER_BUILDS = {
+  cire_invites: { package: "@cire/invites", directory: "cire/invites/dist" },
+} as const satisfies Readonly<Partial<Record<ApiSurface, SiteBuild>>>;
+
 /** The site's production host. */
 export function productionHost(surface: SiteSurface): string {
   return PRODUCTION_HOSTS[SITE_HOST_KEYS[surface]];
@@ -166,18 +208,23 @@ export function siteDomain(
 
 /**
  * What the `production-hosts` command writes, one GitHub step output each:
- * `<surface>_origin`, the origin of each non-off site's production host,
- * which the production stack job's smoke checks probe. A held site's is
- * written too; its smoke check reads the hold and probes nothing.
+ * `<surface>_origin`, the origin of each non-off site's production host and
+ * of each API Worker's, which the production stack jobs' smoke checks probe.
+ * A held site's is written too; its smoke check reads the hold and probes
+ * nothing.
  */
 export function productionHostOutputs(
   modes: Readonly<Record<SiteSurface, SiteMode>> = PRODUCTION_SITE_MODES,
 ): ReadonlyMap<string, string> {
-  return new Map(
-    SITE_SURFACES.flatMap((surface): [string, string][] =>
+  return new Map([
+    ...API_SURFACES.map((surface): [string, string] => [
+      `${surface}_origin`,
+      `https://${PRODUCTION_HOSTS[API_HOST_KEYS[surface]]}`,
+    ]),
+    ...SITE_SURFACES.flatMap((surface): [string, string][] =>
       modes[surface] === "off" ? [] : [[`${surface}_origin`, `https://${productionHost(surface)}`]],
     ),
-  );
+  ]);
 }
 
 /** The zone a production host is in: its last two labels. */

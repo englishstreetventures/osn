@@ -10,8 +10,8 @@
  * answer as SMOKE_DEPLOYMENT, and scripts/smoke-check.ts rolls back only that
  * deployment, and never a Worker the deploy left unchanged.
  *
- * `--tier production` (anywhere after the command) reads the production site
- * Workers a production stack deploys (SMOKE_TARGETS' `productionSite`);
+ * `--tier production` (anywhere after the command) reads the production
+ * Workers the production stacks deploy (SMOKE_TARGETS' `production`);
  * without it, the dev Workers.
  *
  *   bun run scripts/worker-deployments.ts snapshot <file> <surface>...
@@ -31,7 +31,7 @@
  *     for an `unknown`.
  *   bun run scripts/worker-deployments.ts domains <file> --tier production <surface>...
  *     Writes {"<surface>": ["<host>", ...]} to <file>: the custom domains
- *     each production site Worker holds now, sorted; none for a Worker that
+ *     each production Worker holds now, sorted; none for a Worker that
  *     does not exist yet. The plan guard (`plan:guard -- --domains <file>`)
  *     reads it to show and judge the domain change a plan makes, which the
  *     plan's own text does not show. Production only. On any read that fails
@@ -63,7 +63,7 @@ import {
   devTarget,
   isSmokeRollback,
   NO_SUCH_WORKER,
-  productionSiteTarget,
+  productionTarget,
   readDeployments,
   workerDomains,
 } from "./smoke-check";
@@ -71,7 +71,7 @@ import {
 /** The Worker a stack deploys for `surface` on `tier`, or undefined when it deploys none. */
 function stackWorker(surface: string, tier: "dev" | "production"): string | undefined {
   if (!isSurfaceKey(surface)) return undefined;
-  return tier === "production" ? productionSiteTarget(surface)?.worker : devTarget(surface)?.worker;
+  return tier === "production" ? productionTarget(surface)?.worker : devTarget(surface)?.worker;
 }
 
 /**
@@ -160,7 +160,7 @@ export async function runWorkerDeployments(input: WorkerDeploymentsInput): Promi
   if (unknown.length > 0) {
     const known = SURFACES.filter((s) => stackWorker(s.key, tier) !== undefined).map((s) => s.key);
     return usage(
-      `'${unknown.join("', '")}' is not a ${tier === "production" ? "production site" : "dev surface"}; use any of ${known.join(", ")}`,
+      `'${unknown.join("', '")}' is not a ${tier === "production" ? "production surface" : "dev surface"}; use any of ${known.join(", ")}`,
     );
   }
   const surfaces = [...new Set(names)].flatMap((name) => {

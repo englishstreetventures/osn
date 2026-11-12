@@ -12,7 +12,7 @@ related:
   - "[[d1-limits]]"
   - "[[toast]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Checklist / Tasks
 
@@ -56,8 +56,8 @@ run-time columns and `tasks_event_idx`, again in place ([[cire-run-sheet]]).
 | `run_offset_minutes` | `integer` | minutes from that event's start, negative before it, −1440..1440; every writer sets it with `event_id`. A row whose event was deleted by anything but a schedule change keeps it after the foreign key nulls `event_id`, and reads as untimed |
 | `event_removed_at` | `integer` | unix seconds; when a schedule change removed the task's event and it kept its time |
 
-The five run-time columns hold one of the states in [[cire-run-sheet#A task's
-time]] — untimed, fixed, linked, frozen with the time it kept, frozen with no
+The five run-time columns hold one of the states in
+[[cire-run-sheet#A task's time]] — untimed, fixed, linked, frozen with the time it kept, frozen with no
 time — written together by the task service and the schedule change and by
 nothing else; no CHECK holds them. A linked task's time is derived on every
 read.
@@ -355,7 +355,7 @@ The reader's seat is `viewerHostId` from `GET /tasks`; `readTaskList` in
 checklist and Overview — go through it. Every task the portal reads, from the
 list or from a write's answer, goes through `readTaskRow`, which also reads the
 API before holders: that API sends one `assignedHostId` and no
-`assigneeHostIds`, and the cire stack job that deploys the portal does not wait for `deploy-cire-api`
+`assigneeHostIds`, and the cire stack job uploads the portal and cire-api in one run in no set order
 ([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
 so the portal shows that one seat as the task's holder, or nobody. The seats come from `lib/hosts-store.ts`,
 a cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];

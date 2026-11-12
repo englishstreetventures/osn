@@ -514,10 +514,10 @@ refuses the rebuild in CI unless the pull request carries the
 `migrations:rewrite` label, so add it. `20261026040620_seating_plans.sql`
 rebuilds `seating_assignments` this way.
 
-**A field the guest site reads is optional there.** `deploy-cire-invites` has no
-`needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
-ship one without the other (a `surfaces` dispatch, or the dev check holding one
-back), so the site can reach production before the API that serves a new field. `isValidClaimResponse`
+**A field the guest site reads is optional there.** The cire stack job in
+`production-release.yml` uploads the guest site and cire-api in one Alchemy run, in
+no set order, and the guest side of a change can merge, and ship, before its API
+side, so the site can reach production before the API that serves a new field. `isValidClaimResponse`
 (`cire/invites/src/components/utils.ts`) is read as "no session" by both its
 callers when it returns `false`, so a field it requires sends every signed-in
 household back to the code form for that window. Give the field `?` in the type
@@ -528,7 +528,7 @@ API older than the column accepts the write and drops the field, so a value
 entered in that window is not stored.
 
 **The organiser portal reads both shapes of a field the API changes.**
-The cire stack job, which deploys the portal, has no `needs:` edge on `deploy-cire-api` either
+The same cire stack job uploads the portal and cire-api in no set order
 ([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
 so the portal can serve against the API before the one it ships with. A portal
 that reads only the new shape throws, or shows nothing, for that window. Read the
@@ -536,25 +536,24 @@ old shape as well, at the one place every answer passes through, until the old
 API is gone: `readTaskRow` (`cire/host/src/lib/tasks-store.ts`) takes a task's
 `assigneeHostIds`, or the single `assignedHostId` the API before holders sends.
 
-### Deploying by hand
+### Deploying
 
-CI does this in a production release ([[production-deploy]] §5.5). A hand-run
-deploy leaves no record the release planner reads, so after a hand-run rollback
-dispatch a `force` release of `cire_api` to bring production back to main. By hand:
-
-```bash
-cd cire/api && bunx wrangler deploy --env production
-```
-
-**Never a bare `wrangler deploy`** — the config blocks it, deliberately.
+Nothing deploys a cire Worker by hand. Production deploys in a release, through
+the cire stack job ([[production-deploy]] §5.2, §5.5), and dev on every push
+through the same stack. Alchemy plans against its own state, so a Worker
+uploaded or rolled back by hand stays as it is until a release that changes
+its code or declaration, or a release dispatched with `force` for it, which
+passes `--force` to Alchemy ([[production-deploy]] §5.1). **Never a bare `wrangler deploy`** — the
+config blocks it, deliberately.
 
 The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 `dist/client` and a generated `dist/server/wrangler.json` extending
-`cire/invites/wrangler.jsonc`; CI strips the unsupported `legacy_env` field first
-(see `production-release.yml`, and `deploy.yml` for dev).
+`cire/invites/wrangler.jsonc`; the cire stack stages `dist/server` and uploads
+it with `dist/client` as its assets ([[infrastructure-as-code#Bundling and the module registry]]).
+To make the production build locally:
 
 ```bash
-# The values the deploy-cire-invites job's build step sets in
+# The values the sites job's guest-site build step sets in
 # production-release.yml; with OSN_DEPLOY_TIER=production the build fails
 # unless PUBLIC_API_URL is https://api.cireweddings.com.
 PUBLIC_API_URL=https://api.cireweddings.com \
@@ -562,7 +561,6 @@ PUBLIC_SITE_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
 OSN_DEPLOY_TIER=production \
   bun run --cwd cire/invites build
-cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json
 ```
 
 ## Organiser API paths
@@ -638,9 +636,9 @@ than as a blocked API on a deployed tier:
   at all, an empty value included, which the integration reads from
   `process.env`: each deploy job's build step for the three apps sets it to
   `dev` or `production`, and turbo hashes it, so a deploy build never replays a
-  cached test build made without it. On dev the cire stack's site check also
-  refuses a build that does not name the dev API, before upload
-  ([[infrastructure-as-code]]); production has only this integration's checks.
+  cached test build made without it. The cire stack's site check also refuses
+  a build that does not name the stage's API, before upload, on dev and on
+  production ([[infrastructure-as-code#Sites]]).
 - The build deploys with a tier other than `dev` or `production`
 - The tier is `production` and the origin is not `https://api.cireweddings.com`
 
@@ -898,11 +896,9 @@ Three choices keep the bundle small; together they took it from 285 KB to
   with `sourcemap: true` set **through the same `astro:build:setup` hook** as
   `minify`, plus `upload_source_maps: true` in `cire/invites/wrangler.jsonc` —
   the adapter never sets that key itself, so it has to come from the checked-in
-  config the generated `dist/server/wrangler.json` extends. Production's CI
-  rewrite of that generated file (in `production-release.yml`) only deletes
-  `legacy_env`, so the key survives into the deployed config untouched. The dev
-  tier does not read that file: the cire stack stages `dist/server` and uploads
-  each module's map as Wrangler's `upload_source_maps` sends it
+  config the generated `dist/server/wrangler.json` extends. No deploy reads that
+  file: on both tiers the cire stack stages `dist/server` and uploads each
+  module's map as Wrangler's `upload_source_maps` sends it
   ([[infrastructure-as-code#Bundling and the module registry]]).
 
   > [!warning] Never set `sourcemap` as a plain `vite.build` value here.

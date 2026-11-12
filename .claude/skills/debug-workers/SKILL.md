@@ -25,10 +25,10 @@ VAL=$(grep -m1 '^KEY=' "$SF" | sed 's/^[^=]*=//'); printf '%s' "$VAL" | bunx wra
 
 ## 3. A secret change needs a redeploy
 
-`wrangler secret put` and `wrangler secret delete` do not restart warm isolates. When behaviour must change now, redeploy after the change:
+`wrangler secret put` and `wrangler secret delete` do not restart warm isolates. When behaviour must change now, redeploy after the change through the stack that owns the Worker, never with `wrangler deploy`: dispatch Production release with that surface and `force` on production, or Deploy on dev.
 
 ```bash
-bunx wrangler deploy --env production
+gh workflow run production-release.yml -f surfaces=osn_api -f force=true
 ```
 
 ## 4. The first deploy of a Worker crashes at module evaluation

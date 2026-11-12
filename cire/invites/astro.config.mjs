@@ -96,7 +96,7 @@ function minifySsrBuild() {
 // single wedding slug at build time — any wedding renders from its own link. The
 // `@astrojs/cloudflare` adapter emits `dist/server/entry.mjs` + `dist/client/`
 // and a generated `dist/server/wrangler.json` extending `./wrangler.jsonc`;
-// `wrangler deploy` from this directory ships it (see production-release.yml). Legal pages
+// the cire Alchemy stack uploads that build on every tier. Legal pages
 // opt back into static prerendering per-page (`export const prerender = true`)
 // — only the dynamic invite + bare-domain routes need per-request SSR.
 export default defineConfig({
