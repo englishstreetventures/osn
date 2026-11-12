@@ -850,6 +850,27 @@ describe("the cire stack on production", () => {
     ).toEqual(["@cire/vendor", "@cire/landing"]);
   });
 
+  test("KP8: production bundles cire-api from the entry dev bundles, and serves the guest site's assets as dev does", () => {
+    const prod = resourcesOf(production);
+    const devs = resourcesOf(dev);
+    const upload = (id: string, resources: typeof prod) => ({
+      main: resources[id]?.Props.main,
+      build: resources[id]?.Props.build,
+      rules: resources[id]?.Props.rules,
+    });
+    expect(upload("CireApi", prod)).toEqual(upload("CireApi", devs));
+    expect(prod.CireApi?.Props.build).toBeDefined();
+    // The directory differs by tier (each stages its own build); the routing does not.
+    const routing = (resources: typeof prod) => {
+      const assets: unknown = resources.CireInvites?.Props.assets;
+      return typeof assets === "object" && assets !== null
+        ? { ...assets, directory: "per tier" }
+        : assets;
+    };
+    expect(routing(prod)).toEqual(routing(devs));
+    expect(routing(prod)).toMatchObject({ notFoundHandling: "none" });
+  });
+
   test("KP6: each production surface's smoke target names the Worker the stack deploys for it", () => {
     const resources = resourcesOf(production);
     for (const [key, logicalId] of Object.entries({ ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS })) {
