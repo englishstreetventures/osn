@@ -473,7 +473,20 @@ fetched it; `verify-cached-debs.sh` checks the cache against that index, and
 apt installs from its archive without the network. The step passes with one
 warning starting
 `::warning::install-chromium-system-libraries: apt-get update could not fetch every index`,
-the line to look for in a run during an outage. Its limits:
+the line to look for in a run during an outage.
+
+A signature failure never ends in that warning. When an index fails its
+signature check and apt holds an older copy, apt keeps that copy and carries
+on, as after a fetch failure, then runs each command listed under
+`APT::Update::Auth-Failure` and fails the update when one fails
+([`acquire-item.cc`](https://github.com/Debian/apt/blob/main/apt-pkg/acquire-item.cc),
+`CheckStopAuthentication`). The script lists `false` there, so both updates
+fail, no cached package is checked against the old copy or installed, and the
+step fails with the `apt reported a signature or hash failure` line in the
+table below. A third-party repository whose new signing key the image does
+not hold yet fails the step the same way, on any run.
+
+Installing from the cache against the index on disk has these limits:
 
 - It passes only when the cache holds every package the install needs at the
   version the index on disk names. A cache saved after a newer version reached
@@ -489,7 +502,9 @@ the line to look for in a run during an outage. Its limits:
   leave that file alone, but no run has printed it. Behind another resolver
   module an update takes as long as before, and the next paragraph applies.
 - A resolver slower than 2 s a query fails that lookup; apt retries once, then
-  moves to the next mirror in the image's list.
+  moves to the next mirror in the image's list. If it fails on every mirror,
+  the update keeps the index on disk, as in an outage, and the step passes or
+  fails as the first bullet says, though the mirror is up.
 
 *Measured 2026-11-12 — `gh run view 43054765174 --log-failed`: one `Ign:` line every 20.0 s while the update waited, and each index tried twice on `azure.archive.ubuntu.com`, then once on each other mirror (the image's one retry); SRV: `dig SRV _http._tcp.<host>` and `_https._tcp.<host>` for `azure.archive.ubuntu.com`, `archive.ubuntu.com`, `security.ubuntu.com` and `packages.microsoft.com`, no answer for any*
 
@@ -512,7 +527,7 @@ step with the last attempt's status, after a line starting
 |---|---|
 | `apt-get update could not fetch every index and kept the copies on disk, and apt could not download a package the cache lacked at the version they name` | The mirror was out of reach, and the cache did not hold every package at the version the index on disk names. A `dropped` warning above names each cached package that index does not |
 | `apt-get update finished, so apt held an index` | An update finished, so the cache was checked or an install began; the failure came after |
-| `apt reported a signature or hash failure` | An index or package failed its check. Never an outage, never skipped |
+| `apt reported a signature or hash failure` | An index or package failed its check, an index apt held an older copy of included. Never an outage, never skipped |
 | `apt reported no network failure` | apt failed in some other way, or printed nothing before the attempt was cut |
 | `playwright install-deps --dry-run chromium does not report every dependency installed` | Something is missing: the dry run's list is just above the line |
 
