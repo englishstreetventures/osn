@@ -198,9 +198,11 @@ backdrop with that expression in each theme and palette; `cire/vendor`'s
 
 **Raised panels cast `--ui-elev-2`.** `Modal`, `Dialog` and a `Card` with
 `elevation="raised"` read it, and the accent `DropdownMenu` reads it after an
-app's own `--elev-2`, so an app that maps it once themes every floating panel.
-No app maps it, so musubi's and pulse's dialogs cast the fallback,
-`0 8px 24px rgb(0 0 0 / 0.12)`.
+app's own `--elev-2`. So an app that maps it once themes its dialogs, modals
+and raised cards, and the accent menu where the app sets no `--elev-2`.
+`Popover`, `Tooltip` and the default and touch menus cast Tailwind's
+`shadow-md` or `shadow-lg` and do not follow it. No app maps it, so musubi's
+and pulse's dialogs cast the fallback, `0 8px 24px rgb(0 0 0 / 0.12)`.
 
 `@cire/ui` also reads a few of cire's own app tokens, outside the contract,
 with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and

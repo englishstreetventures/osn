@@ -117,17 +117,18 @@ describe("DialogOverlay's scrim", () => {
 
 describe("DialogContent's corners", () => {
   // Unmapped, `--ui-radius-sheet` and `--ui-radius-lg` both fall back to 10px.
-  it.each([390, 700])("the sheet is square along the bottom edge at %ipx", async (width) => {
+  // 767 and 768px sit either side of `md`, where the sheet hands over to the card.
+  it.each([390, 700, 767])("the sheet is square along the bottom edge at %ipx", async (width) => {
     await page.viewport(width, 900);
     const { panel } = await openDialog("sheet");
     await page.screenshot({ path: shot(`sheet-${width}`) });
     expect(corners(panel)).toEqual(["10px", "10px", "0px", "0px"]);
   });
 
-  it("the sheet is the centred card again from `md`", async () => {
-    await page.viewport(1440, 900);
+  it.each([768, 1440])("the sheet is the centred card again from `md`, at %ipx", async (width) => {
+    await page.viewport(width, 900);
     const { panel } = await openDialog("sheet");
-    await page.screenshot({ path: shot("sheet-1440") });
+    await page.screenshot({ path: shot(`sheet-${width}`) });
     expect(corners(panel)).toEqual(["10px", "10px", "10px", "10px"]);
   });
 

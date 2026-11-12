@@ -1190,8 +1190,8 @@ dialogs cast `0 8px 24px rgb(0 0 0 / 0.12)` over black at 50%. With
 sheet is the centred card, round on all four at `--ui-radius-lg`. No class on
 the panel rounds it at a breakpoint under `md`: Tailwind emits a min-width
 query after the `max-md` ones, so it would round the sheet's bottom corners.
-`shared/ui/tests/dialog.browser.test.tsx` holds the shadow, the scrim and the
-corners at 390, 700 and 1440px.
+`shared/ui/tests/dialog.browser.test.tsx` holds the shadow and the scrim,
+mapped and unmapped, and the sheet's corners at 390, 700, 767, 768 and 1440px.
 
 ### Checkbox and RadioGroup — native, in two boxes
 
