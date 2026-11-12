@@ -27,8 +27,11 @@ import "../src/App.css";
  * cannot fail. A later run checks what the page holds then: with the request
  * still failing, the rail draws at once with its Sign in, and the note shows
  * its own. The failed load's alert, and a note that holds its Sign in back,
- * are checked on the first run only; from the window crossing 768px on, every
- * run checks the same.
+ * are checked on the first run only. From the window crossing 768px on, every
+ * run makes the same checks, but only the first run's closing height check
+ * shows the note kept the room its Sign in takes: on a later run the note
+ * never held the button back, so that check shows only that the note is
+ * steady across the round trip to 390px.
  */
 
 vi.mock("@osn/client/solid", async () => {
@@ -92,8 +95,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  cleanup();
-  await commands.restoreRequests();
+  try {
+    cleanup();
+  } finally {
+    // Lifted even when cleanup throws: the route holds for the whole page, so
+    // left standing it would fail the files that run after this one.
+    await commands.restoreRequests();
+  }
 });
 
 it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a later load mounts them", async ({
@@ -165,8 +173,10 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-  // Back at the first width, where the rail now draws its own Sign in: the
-  // note's button shows in the room it held, so the note is no taller.
+  // Back at the first width, where the rail now draws its own Sign in. On the
+  // first run the note's button shows in the room it held, so the note is no
+  // taller. On a later run the note never held its Sign in back, so this
+  // checks only that the note is steady across the round trip.
   await page.viewport(1440, 900);
   await railChunks();
   await waitFor(() => {
