@@ -4,8 +4,9 @@
 #
 # usage: verify-cached-debs.sh <cache dir> <archives dir>
 #
-# Run as root, after `apt-get update`, so it reads the index apt has just
-# fetched and checked against the repository's signature. apt installs, as
+# Run as root, after `apt-get update`, so it reads the index apt holds then,
+# which apt checked against the repository's signature when it fetched it:
+# just now, or earlier when the update kept the copy on disk. apt installs, as
 # root, a file it finds in its archive under the name it expects; a cache is
 # restored from outside the runner, so each file must earn its place. For each
 # <cache dir>/*.deb:
