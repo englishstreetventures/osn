@@ -600,6 +600,8 @@ jobs:
       group: ${{ format('ci-{0}-browser-{1}', github.event_name == 'pull_request' && github.ref || github.run_id, matrix.leg) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    # Room for the setup, about three minutes, and the test step's 21: two
+    # runs of the leg at their ten-minute limit.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -733,25 +735,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-browser-${{ matrix.leg }}-
 
+      # The leg runs once; when that run fails, scripts/test-with-retry.sh
+      # runs the same turbo command once more, on every event, so a test that
+      # fails only sometimes does not drop a pull request from the merge
+      # queue. turbo replays each package that passed from its cache, so only
+      # a failed package runs again, in a new Chromium page: never the failed
+      # test again inside the page it failed in, which starts from what the
+      # first run left there. A pass on the second run is a flake: the step
+      # passes with a warning and a summary naming what failed. The slowest leg
+      # takes about 2.5 minutes (165 s at most in 18 runs, 2026-11-13); each
+      # run is cut at ten.
       - name: Browser tests
         shell: bash
+        timeout-minutes: 21
         run: |
           # shellcheck disable=SC2086 # FILTERS holds several flags.
-          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
-
-      # On a pull request only, every test runs three times in one go: vitest's
-      # `--repeats=2` runs a test twice more, whatever the result, and fails the
-      # test when any run fails. `--force` runs the tests even when turbo holds a cached
-      # result for the same inputs. The merge queue and main run the plain step
-      # above only.
-      # A failure here is a test that depends on time: fix the test, never
-      # raise its timeout or add a retry.
-      - name: Browser tests again, each test three times
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          # shellcheck disable=SC2086 # FILTERS holds several flags.
-          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser --force -- --repeats=2
+          bash scripts/test-with-retry.sh 2 600 "Browser tests ($LEG)" bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
 
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
@@ -766,10 +765,11 @@ jobs:
     # The backstop under this job's own checks. Without it the job's ceiling
     # is GitHub's six hours — and because the aggregate `ci` job `needs` it,
     # and `CI` is a required check, a wedged runner here holds the merge gate
-    # open for that long. Twelve minutes is generous: the job does a checkout,
-    # a shasum, `bun test ./scripts/` (twice more, shuffled, on a pull request)
-    # and the relay's 13 s idle-timeout test, with no install.
-    timeout-minutes: 12
+    # open for that long. Fourteen minutes holds the test step's eleven (two
+    # runs of `bun test ./scripts/` at their five-minute limit, the second only
+    # when the first fails), the relay test's two, and a checkout, a shasum and
+    # two shell tests, with no install.
+    timeout-minutes: 14
     steps:
       # Two commits deep so a pull request's merge commit has its base,
       # `HEAD^1`, for the migration order check below.
@@ -891,26 +891,16 @@ jobs:
       # test, which runs in the next step. The CLI tests of the guest route
       # comparison spawn its Node child, scripts/guest-route-parity-reference.js,
       # on the Node the runner ships, with a stand-in for wrangler.
+      #
+      # The files run once; when that run fails, scripts/test-with-retry.sh
+      # runs them all once more, on every event, so a test that fails only
+      # sometimes does not drop a pull request from the merge queue. A pass on
+      # the second run is a flake: the step passes with a warning and a
+      # summary naming what failed in the first. A run takes about a minute
+      # (57 s at most in 18 runs, 2026-11-13); each is cut at five.
       - name: Test the scripts
-        run: bun run test:scripts
-
-      # A pull request's own run is the cheap place to find a test that holds
-      # its time only on an idle machine, because the merge queue meets it
-      # first on a busy one and drops the pull request for it. So on a pull
-      # request the same files run again, each twice, in random order, beside
-      # two processes that keep two cores busy. Bun prints the seed it
-      # shuffled with; `bun test ./scripts/ --rerun-each=2 --randomize
-      # --seed=<seed>` reproduces the run. A failure here is a test that depends on time or
-      # order: fix the test, never raise its timeout or add a retry. The merge
-      # queue and main run the plain step above only, so their time does not
-      # grow.
-      - name: Test the scripts again, shuffled and under load
-        if: github.event_name == 'pull_request'
-        timeout-minutes: 6
-        run: |
-          for _ in 1 2; do yes > /dev/null & done
-          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
-          bun test ./scripts/ --rerun-each=2 --randomize
+        timeout-minutes: 11
+        run: bash scripts/test-with-retry.sh 2 300 Scripts bun run test:scripts
 
       # scripts/tests/guest-route-parity-relay-idle.slow.ts: the guest route
       # comparison's relay still answers after a cire-api call that takes

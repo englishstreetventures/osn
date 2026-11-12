@@ -835,48 +835,88 @@ const rootScripts = (): Readonly<Record<string, string>> =>
     }
   ).scripts;
 
-describe("PR3: ci.yml repeats the scripts and browser tests on a pull request, and nowhere else", () => {
+// A test runs again only when its run failed, and then as a whole run on new
+// processes, never inside the page it failed in. A step that runs the tier
+// plain lets one flaky test drop a pull request from the merge queue; a step
+// that repeats tests that passed doubles the tier on every run.
+describe("PR3: ci.yml runs the scripts and browser tiers once, and the whole tier once more only when it fails, on every event", () => {
   const ci = load(".github/workflows/ci.yml");
-  const PR_ONLY = "github.event_name == 'pull_request'";
-  const scriptSteps = stepsOf(ci.jobs["script-tests"]);
-  const browserSteps = stepsOf(ci.jobs.browser);
+  // retry.sh's default grace, and its wait for an attempt's processes to go.
+  const PER_RUN_EXTRA = 10 + 10;
 
-  test("the Scripts job runs its files again, twice each in random order, on a pull request only, inside the job's limit", () => {
-    const again = scriptSteps.find(
-      (step) => step.name === "Test the scripts again, shuffled and under load",
+  /** The lines a step runs, with comments and blank lines left out. */
+  const linesOf = (step: Step | undefined): string[] =>
+    (step?.run ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("#"));
+
+  /**
+   * The one step of the job whose run matches `runs`: its command must be
+   * `wrapped`, on no condition, with room in the step for two runs at their
+   * limit and room in the job for the step.
+   */
+  const throughTheWrapper = (id: string, runs: RegExp, wrapped: string) => {
+    const job = ci.jobs[id];
+    const steps = stepsOf(job).filter((step) => linesOf(step).some((line) => runs.test(line)));
+    expect(steps.map((step) => step.name)).toHaveLength(1);
+    const step = steps[0];
+    expect(linesOf(step)).toEqual([wrapped]);
+    const [attempts, seconds] = /^bash scripts\/test-with-retry\.sh (\d+) (\d+) /
+      .exec(wrapped)
+      ?.slice(1)
+      .map(Number) ?? [0, 0];
+    expect(attempts).toBe(2);
+    expect({ if: step?.if, "continue-on-error": step?.["continue-on-error"] }).toEqual({
+      if: undefined,
+      "continue-on-error": undefined,
+    });
+    expect(job?.if ?? "").not.toContain("event_name");
+    const stepMinutes = step?.["timeout-minutes"] ?? 0;
+    expect(stepMinutes * 60).toBeGreaterThanOrEqual(attempts * (seconds + PER_RUN_EXTRA));
+    // The job holds every step's limit, so the step's own limit, not the
+    // job's, cuts a run.
+    const limits = stepsOf(job).reduce((sum, one) => sum + (one["timeout-minutes"] ?? 0), 0);
+    expect(job?.["timeout-minutes"] ?? 0).toBeGreaterThan(id === "browser" ? stepMinutes : limits);
+  };
+
+  test("the Scripts job runs `bun run test:scripts` through test-with-retry.sh, at most two runs of five minutes", () => {
+    throughTheWrapper(
+      "script-tests",
+      /\bbun run test:scripts(\s|$)/,
+      "bash scripts/test-with-retry.sh 2 300 Scripts bun run test:scripts",
     );
-    expect(again?.if).toBe(PR_ONLY);
-    expect(again?.run).toContain("bun test ./scripts/ --rerun-each=2 --randomize");
-    expect(again?.run).toContain("yes > /dev/null &");
-    expect(again?.run).toContain("trap 'kill $(jobs -p)");
-    expect(again?.["continue-on-error"]).toBeUndefined();
-    const job = ci.jobs["script-tests"]["timeout-minutes"] ?? 0;
-    expect(again?.["timeout-minutes"] ?? 0).toBeGreaterThan(0);
-    expect(job).toBeGreaterThan((again?.["timeout-minutes"] ?? 0) + 2);
   });
 
-  test("every browser leg runs each test three times on a pull request only, and fails the job when one fails", () => {
-    const again = browserSteps.find(
-      (step) => step.name === "Browser tests again, each test three times",
+  // `--force` would run every package again, and turbo's cache is how only
+  // the failed package runs on the second run.
+  test("each browser leg runs its turbo `test:browser` through test-with-retry.sh, at most two runs of ten minutes, with no `--force`", () => {
+    throughTheWrapper(
+      "browser",
+      /\bturbo run test:browser\b(?!.*--dry)/,
+      'bash scripts/test-with-retry.sh 2 600 "Browser tests ($LEG)" bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser',
     );
-    expect(again?.if).toBe(PR_ONLY);
-    expect(again?.run).toContain("test:browser $FILTERS");
-    expect(again?.run).toContain("--force -- --repeats=2");
-    expect(again?.["continue-on-error"]).toBeUndefined();
   });
 
-  test("no step that repeats or shuffles runs in the merge queue or on main, in any job", () => {
-    for (const [id, job] of Object.entries(ci.jobs)) {
-      for (const step of stepsOf(job)) {
-        if (/--rerun-each|--repeats|--randomize/.test(step.run ?? "")) {
-          expect({ id, step: step.name, if: step.if }).toEqual({
-            id,
-            step: step.name,
-            if: PR_ONLY,
-          });
-        }
-      }
-    }
+  test("the E2E step keeps its own wrapper, which sets the failed run's artifacts aside, and does not go through test-with-retry.sh", () => {
+    const steps = stepsOf(ci.jobs.e2e);
+    expect(steps.filter((step) => step.run?.includes("e2e-with-retry.sh"))).toHaveLength(1);
+    expect(steps.filter((step) => step.run?.includes("test-with-retry.sh"))).toEqual([]);
+  });
+
+  test("no step in any workflow runs a test again after it passed: none carries --rerun-each, --repeats or --randomize", () => {
+    const workflows = Array.from(
+      new Bun.Glob(".github/workflows/*.yml").scanSync({ cwd: root }),
+    ).toSorted();
+    expect(workflows).toContain(".github/workflows/ci.yml");
+    const repeating = workflows.flatMap((path) =>
+      Object.entries(load(path).jobs).flatMap(([id, job]) =>
+        stepsOf(job)
+          .filter((step) => /--rerun-each|--repeats|--randomize/.test(step.run ?? ""))
+          .map((step) => `${path} ${id}: ${step.name}`),
+      ),
+    );
+    expect(repeating).toEqual([]);
   });
 });
 

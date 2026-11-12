@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Testing Patterns
@@ -1195,34 +1195,51 @@ site serves; its `test` and `test:run` scripts name `--project unit --project
 astro`, and Stryker leaves `astro` out. `@osn/auth-ui` has one plain config and
 therefore no `test:browser` to run.
 
-### A test that holds its time only on an idle machine
+### A test that fails only sometimes
 
-The merge queue tests a pull request on the commit it would land as, on a busy
-runner, and drops the pull request when a test fails there. A test that depends
-on time or order passes on the pull request's own run and fails in the queue.
-So a pull request's own CI run repeats two tiers (`.github/workflows/ci.yml`):
+The merge queue tests a pull request on the commit it would land as, often on a
+busy runner, and drops the pull request when a check fails there. So CI runs
+each test tier once, and when a run of the Scripts tier or of a browser leg
+fails, [`test-with-retry.sh`](../../scripts/test-with-retry.sh) runs the whole
+tier once more. It does so on every event: pull request, merge queue and push
+to `main`. The `E2E` job does the same through
+[`e2e-with-retry.sh`](../../scripts/e2e-with-retry.sh) ([[#The end-to-end suite]]).
 
-- **Scripts**: `bun test ./scripts/ --rerun-each=2 --randomize`, beside two
-  processes that keep two cores busy. Bun prints the seed; `--rerun-each=2
-  --randomize --seed=<seed>` reproduces the run.
-- **Browser**: each leg runs again with `-- --repeats=2`, which runs every test
-  three times in one go and fails the test when any run fails; `--force` makes
-  turbo run them even when it holds a cached result for the same inputs.
+| Step (`.github/workflows/ci.yml`) | Runs | Each run cut at |
+|---|---|---|
+| `Scripts`, "Test the scripts" | `bun run test:scripts` | 5 minutes |
+| `Browser tests (<leg>)`, "Browser tests" | `turbo run test:browser` with the leg's filters | 10 minutes |
 
-The merge queue and main run the plain steps only. A failure in a repeat is a
-test that depends on time or order: fix the test. Never raise its timeout or
-add a retry, which hides the same failure until a busier runner shows it. A
-repeat on the same runner does not make the queue's load, so it finds a
-timing dependence that shows on a second run or a shuffled order, not every one
-the queue finds.
+- **Only after a failure.** A run that passes never runs again, and no step
+  repeats tests that passed (`--rerun-each`, `--repeats`) or shuffles them
+  (`--randomize`). The owner decided that a test runs twice only when it failed
+  once, so an always-repeat on pull requests is not used.
+  `deploy-workflows.test.ts` PR3 fails when any workflow step carries one of
+  those flags.
+- **The whole tier, on new processes.** The second run starts every process
+  afresh, so a browser test file gets a new page. Under turbo, each package
+  that passed replays from turbo's cache, and only a failed package runs again.
+  Never retry a test inside the page it failed in (Vitest's `--retry` or
+  `--repeats`): that run starts from what the first left there, such as a
+  loaded module, a request route, the pointer or the DOM, and can pass or fail
+  for that alone ([[browser-tests#A test run twice in one page]]).
+- **A pass on the second run is a flake, and shows.** The step passes with a
+  `::warning::` annotation and a section in the job's summary. Both name the
+  tier and the lines of the first run's output that name a failing test (bun's
+  `(fail)`, Vitest's `FAIL` and `×`), at most 40, with the count. The first
+  run's whole output sits above the second's in the step's log. A flake is
+  still a bug: fix the test, and never raise its timeout to quiet the warning.
+- **Both runs failing** fails the step with the last run's status (124 when
+  the run was cut at its limit), and the summary lists the last run's failing
+  lines.
 
 A test that spawns a shell or a process for each case in a loop takes one test
 per case (`test.each`), so each case has its own budget: one test that loops
 over every workflow step spends bun's 5000 ms default on a slow machine.
 `deploy-workflows.test.ts` PW10 runs each production Alchemy step as its own
-case, and its slowest case takes 0.75 s.
+case, and its slowest case takes 0.68 s.
 
-*Measured 2026-11-12 — `bun test scripts/tests/deploy-workflows.test.ts -t PW10 --reporter=junit --reporter-outfile=<file>`, slowest `testcase` time.*
+*Measured 2026-11-13 — `bun test scripts/tests/deploy-workflows.test.ts -t PW10 --reporter=junit --reporter-outfile=<file>`, slowest `testcase` time, 11 cases.*
 
 ## Related
 
