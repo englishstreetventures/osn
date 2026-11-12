@@ -202,6 +202,26 @@ describe("LR1: the live read reads each adopted resource as the provider would",
     expect(paged.calls.filter((url) => url.includes("page=3"))).toEqual([]);
   });
 
+  // Cloudflare may serve fewer per page than asked: the page count it reports
+  // decides, so a class on a later page is still found.
+  test("LR6: follows the page count Cloudflare reports, whatever page size it served", async () => {
+    const paged = scripted({
+      "/workers/durable_objects/namespaces?page=1&per_page=1000": () =>
+        ok(
+          Array.from({ length: 100 }, (_, i) => ({ id: `o${i}`, class: `Other${i}`, script: "x" })),
+          { page: 1, per_page: 100, total_pages: 2 },
+        ),
+      "/workers/durable_objects/namespaces?page=2&per_page=1000": () =>
+        ok([{ id: "n3", class: "OldHub", script: "cire-api-production" }], {
+          page: 2,
+          per_page: 100,
+          total_pages: 2,
+        }),
+    });
+    const live = await readProductionLive(ADOPTED, api(paged.fetch));
+    expect(live.workers.CireApi?.durableObjectClasses).toEqual(["OldHub"]);
+  });
+
   test("LR3: a database with no read replication setting reads as disabled, as the provider reads it", async () => {
     const live = await readProductionLive(
       ADOPTED,
@@ -445,6 +465,15 @@ describe("LS: the check after a deploy", () => {
     expect(JSON.parse(readFileSync(after, "utf8"))).toHaveProperty("workers.CireApi.exists", true);
     // Nothing printed is a value: the token never appears.
     expect(lost.out + kept.out).not.toContain("token-value");
+    // After a deploy it reads secret names alone: a failing bucket or
+    // database read cannot fail the check, and no other path is asked.
+    const narrow = scripted({ "/r2/buckets/cire-assets": () => failed(403, 10000) });
+    expect((await run(["--out", after, "--kept", before], narrow.fetch)).code).toBe(0);
+    expect(
+      narrow.calls.filter(
+        (url) => !/\/workers\/scripts\/cire-api-production\/(settings|secrets)$/.test(url),
+      ),
+    ).toEqual([]);
   });
 
   test("LS3: a bad argument, a missing credential or a failed read exits 2, naming no account", async () => {

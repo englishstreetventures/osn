@@ -290,6 +290,18 @@ const NO_CORS_CONFIGURATION = 10059;
 const notFound = (envelope: Envelope, code: number): boolean =>
   envelope.status === 404 || envelope.codes.includes(code);
 
+/**
+ * Whether a listing has a page after `page`: the page count Cloudflare
+ * reports when it reports one, else a page as long as the page size it served
+ * (which may be smaller than the one asked for).
+ */
+function hasNextPage(envelope: Envelope, page: number, listed: number, asked: number): boolean {
+  const info = envelope.resultInfo;
+  if (isRecord(info) && typeof info.total_pages === "number") return page < info.total_pages;
+  const served = isRecord(info) && typeof info.per_page === "number" ? info.per_page : asked;
+  return listed > 0 && listed >= served;
+}
+
 /** Every Durable Object namespace on the account, every page. */
 async function durableObjectNamespaces(
   api: CloudflareApi,
@@ -297,8 +309,9 @@ async function durableObjectNamespaces(
   const namespaces: { script: string; className: string }[] = [];
   for (let page = 1; ; page++) {
     const path = `/workers/durable_objects/namespaces?page=${page}&per_page=1000`;
-    // oxlint-disable-next-line no-await-in-loop -- a page's length says whether another follows
-    const listed = listOf(await get(api, path), path);
+    // oxlint-disable-next-line no-await-in-loop -- each page says whether another follows
+    const envelope = await get(api, path);
+    const listed = listOf(envelope, path);
     for (const entry of listed) {
       if (!isRecord(entry) || typeof entry.class !== "string") continue;
       namespaces.push({
@@ -306,7 +319,7 @@ async function durableObjectNamespaces(
         className: entry.class,
       });
     }
-    if (listed.length < 1000) return namespaces;
+    if (!hasNextPage(envelope, page, listed.length, 1000)) return namespaces;
   }
 }
 
@@ -314,6 +327,7 @@ async function readWorker(
   api: CloudflareApi,
   name: string,
   namespaces: () => Promise<readonly { readonly script: string; readonly className: string }[]>,
+  secretsOnly: boolean,
 ): Promise<LiveWorker> {
   const script = `/workers/scripts/${encodeURIComponent(name)}`;
   const settings = await get(api, `${script}/settings`);
@@ -329,25 +343,43 @@ async function readWorker(
   }
   const settingsResult = objectOf(settings, `${script}/settings`);
   const secretsPath = `${script}/secrets`;
-  const secrets = strings(
-    listOf(await get(api, secretsPath), secretsPath).map((entry) =>
-      isRecord(entry) ? entry.name : undefined,
-    ),
-    secretsPath,
-  ).toSorted();
+  const readSecrets = async () =>
+    strings(
+      listOf(await get(api, secretsPath), secretsPath).map((entry) =>
+        isRecord(entry) ? entry.name : undefined,
+      ),
+      secretsPath,
+    ).toSorted();
+  if (secretsOnly) {
+    return {
+      exists: true,
+      secrets: await readSecrets(),
+      crons: [],
+      durableObjectClasses: [],
+      domains: [],
+      observability: null,
+    };
+  }
   const schedulesPath = `${script}/schedules`;
-  const schedules = objectOf(await get(api, schedulesPath), schedulesPath).schedules;
+  const domainsPath = `/workers/domains?service=${encodeURIComponent(name)}`;
+  // Every path is the Worker's own, so the reads after the existence check run at once.
+  const [secrets, scheduled, listedDomains, hosted] = await Promise.all([
+    readSecrets(),
+    get(api, schedulesPath),
+    get(api, domainsPath),
+    namespaces(),
+  ]);
+  const schedules = objectOf(scheduled, schedulesPath).schedules;
   const crons = (Array.isArray(schedules) ? schedules : []).flatMap((entry: unknown) =>
     isRecord(entry) && typeof entry.cron === "string" ? [entry.cron] : [],
   );
-  const domainsPath = `/workers/domains?service=${encodeURIComponent(name)}`;
-  const domains = listOf(await get(api, domainsPath), domainsPath).flatMap((entry): LiveDomain[] =>
+  const domains = listOf(listedDomains, domainsPath).flatMap((entry): LiveDomain[] =>
     isRecord(entry) && entry.service === name && typeof entry.hostname === "string"
       ? // The provider reads an absent or null flag as off.
         [{ hostname: entry.hostname, previews: entry.previews_enabled === true }]
       : [],
   );
-  const durableObjectClasses = (await namespaces())
+  const durableObjectClasses = hosted
     .filter((namespace) => namespace.script === name)
     .map((namespace) => namespace.className);
   return {
@@ -364,12 +396,13 @@ async function readDatabase(api: CloudflareApi, name: string): Promise<LiveDatab
   let uuid: string | undefined;
   for (let page = 1; uuid === undefined; page++) {
     const path = `/d1/database?name=${encodeURIComponent(name)}&page=${page}&per_page=100`;
-    // oxlint-disable-next-line no-await-in-loop -- a page's length says whether another follows
-    const listed = listOf(await get(api, path), path);
+    // oxlint-disable-next-line no-await-in-loop -- each page says whether another follows
+    const envelope = await get(api, path);
+    const listed = listOf(envelope, path);
     // The name filter matches by part, so `osn-db` lists `osn-db-prod` too: only an exact name counts.
     const match = listed.find((entry) => isRecord(entry) && entry.name === name);
     if (isRecord(match) && typeof match.uuid === "string") uuid = match.uuid;
-    if (uuid === undefined && listed.length < 100) {
+    if (uuid === undefined && !hasNextPage(envelope, page, listed.length, 100)) {
       return { exists: false, readReplication: "disabled" };
     }
   }
@@ -418,9 +451,17 @@ async function readBucket(api: CloudflareApi, name: string): Promise<LiveBucket>
   }
   objectOf(found, bucket);
   const lifecyclePath = `${bucket}/lifecycle`;
-  const lifecycle = objectOf(await get(api, lifecyclePath), lifecyclePath).rules;
   const corsPath = `${bucket}/cors`;
-  const cors = await get(api, corsPath);
+  const managedPath = `${bucket}/domains/managed`;
+  const customPath = `${bucket}/domains/custom`;
+  // Every path is the bucket's own, so the reads after the existence check run at once.
+  const [lifecycleRead, cors, managedRead, customRead] = await Promise.all([
+    get(api, lifecyclePath),
+    get(api, corsPath),
+    get(api, managedPath),
+    get(api, customPath),
+  ]);
+  const lifecycle = objectOf(lifecycleRead, lifecyclePath).rules;
   // No CORS configuration answers an error, which the provider reads as none.
   const corsRules = cors.codes.includes(NO_CORS_CONFIGURATION)
     ? 0
@@ -428,10 +469,8 @@ async function readBucket(api: CloudflareApi, name: string): Promise<LiveBucket>
         const rules = objectOf(cors, corsPath).rules;
         return Array.isArray(rules) ? rules.length : 0;
       })();
-  const managedPath = `${bucket}/domains/managed`;
-  const managed = objectOf(await get(api, managedPath), managedPath);
-  const customPath = `${bucket}/domains/custom`;
-  const custom = objectOf(await get(api, customPath), customPath).domains;
+  const managed = objectOf(managedRead, managedPath);
+  const custom = objectOf(customRead, customPath).domains;
   return {
     exists: true,
     lifecycleRules: (Array.isArray(lifecycle) ? lifecycle : []).map((entry) =>
@@ -447,11 +486,18 @@ async function readBucket(api: CloudflareApi, name: string): Promise<LiveBucket>
   };
 }
 
-/** Reads every adopted resource of a stack, in a fixed order. Throws LiveReadError, whose message names no account id. */
+/**
+ * Reads every adopted resource of a stack, each map in logical-id order.
+ * With `secretsOnly`, the check after a deploy, it reads each Worker's
+ * existence and secret names alone, and no database or bucket. Throws
+ * LiveReadError, whose message names no account id.
+ */
 export async function readProductionLive(
   adopted: AdoptedResources,
   api: CloudflareApi,
+  options: { readonly secretsOnly?: boolean } = {},
 ): Promise<LiveState> {
+  const secretsOnly = options.secretsOnly === true;
   let listed:
     | Promise<readonly { readonly script: string; readonly className: string }[]>
     | undefined;
@@ -468,9 +514,9 @@ export async function readProductionLive(
     );
   };
   const [workers, databases, buckets] = await Promise.all([
-    byId(adopted.workers, (worker) => readWorker(api, worker.name, namespaces)),
-    byId(adopted.databases, (database) => readDatabase(api, database.name)),
-    byId(adopted.buckets, (bucket) => readBucket(api, bucket.name)),
+    byId(adopted.workers, (worker) => readWorker(api, worker.name, namespaces, secretsOnly)),
+    byId(secretsOnly ? {} : adopted.databases, (database) => readDatabase(api, database.name)),
+    byId(secretsOnly ? {} : adopted.buckets, (bucket) => readBucket(api, bucket.name)),
   ]);
   return { workers, databases, buckets };
 }
@@ -714,8 +760,9 @@ export interface ReadLiveCliInput {
  * `bun run read:live -- --out <live.json> [--kept <before.json>]`: reads the
  * stack's adopted resources with CLOUDFLARE_ACCOUNT_ID and
  * CLOUDFLARE_API_TOKEN and writes the state to `--out`. With `--kept`, the
- * state an earlier read wrote, it also fails, naming them, when a secret
- * name live then is gone now: the check after a deploy. Exits 0 when read
+ * state an earlier read wrote, it reads each Worker's secret names alone and
+ * fails, naming them, when a secret name live then is gone now: the check
+ * after a deploy. Exits 0 when read
  * (and nothing was lost), 1 when a secret was lost, 2 on a bad argument, a
  * missing credential or a read that failed; no message names the account.
  */
@@ -741,12 +788,11 @@ export async function runReadLiveCli(input: ReadLiveCliInput): Promise<number> {
   }
   let live: LiveState;
   try {
-    live = await readProductionLive(input.adopted, {
-      account,
-      token,
-      fetch: input.fetch,
-      sleep: input.sleep,
-    });
+    live = await readProductionLive(
+      input.adopted,
+      { account, token, fetch: input.fetch, sleep: input.sleep },
+      { secretsOnly: keptFile !== undefined },
+    );
   } catch (error) {
     return fail(2, error instanceof Error ? error.message : String(error));
   }
@@ -754,9 +800,11 @@ export async function runReadLiveCli(input: ReadLiveCliInput): Promise<number> {
   writeFileSync(outFile, `${JSON.stringify(live, null, 2)}\n`);
   for (const [id, worker] of Object.entries(live.workers)) {
     input.out(
-      worker.exists
-        ? `${id}: ${worker.secrets.length} secrets, ${worker.crons.length} crons, ${worker.durableObjectClasses.length} Durable Object classes, ${worker.domains.length} custom domains\n`
-        : `${id}: no such Worker\n`,
+      !worker.exists
+        ? `${id}: no such Worker\n`
+        : keptFile !== undefined
+          ? `${id}: ${worker.secrets.length} secrets\n`
+          : `${id}: ${worker.secrets.length} secrets, ${worker.crons.length} crons, ${worker.durableObjectClasses.length} Durable Object classes, ${worker.domains.length} custom domains\n`,
     );
   }
   if (keptFile === undefined) return 0;
