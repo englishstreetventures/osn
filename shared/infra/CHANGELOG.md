@@ -1,5 +1,37 @@
 # @shared/infra
 
+## 0.8.0
+
+### Minor Changes
+
+- 630cf31: A production host can be held off its site's Worker in code. `PRODUCTION_HOST_HOLDS` in `shared/infra/src/production-sites.ts` lists each held host with its site and a one-line reason; the stacks declare a held site's Worker with no custom domain, and the plan guard refuses any plan in which a site Worker would serve a held host, whether it gains the host or holds it already. The guard now reads the host each product's declaration gives its site Workers (`PRODUCTION_SITE_DOMAINS`, passed as `declared` to `runPlanGuardCli`, which no longer takes `sites` or `modes`), refuses every host a Worker would give up, and lists the stack's held hosts in its run summary. With `--scheduled`, which the production release passes when its schedule started it, the guard refuses every host a Worker would gain (`addedHostRefusals`), so only a release dispatched by hand adds a host.
+
+  A site is `off` or `worker`: the `staged` mode goes with `PRODUCTION_STAGING_HOSTS`, `PAGES_PROJECTS`, `SiteModeError` and the spare-host allowance in `domainRefusals`. `cireProductionSites` and `musubiProductionSites` take `holds`, and `siteDomain` takes them as a third argument. `@musubi/social` drops its redirect off `osn-social.pages.dev`, which no host serving its bundle can reach, so its built CSP hashes one inline script.
+
+## 0.7.6
+
+### Patch Changes
+
+- 0821963: The secret inventory forbids `OSN_EMAIL_VERIFICATION_EMULATOR_URL` on osn-api on both tiers, as the production deploy's preflight does, and the musubi stack's read check names it and `OSN_EMAIL_VERIFICATION_API` as deliberately unset on dev, each with its reason.
+
+## 0.7.5
+
+### Patch Changes
+
+- 6c2f518: `CLOUDFLARE_PAGES_DNS_TOKEN` is retired: `RETIRED_CREDENTIALS` replaces `PAGES_DNS_CREDENTIALS`, the production Environment requires it no more, `forbiddenCredentials()` forbids it on both tiers, and `knownCredentials()` leaves it out, so no workflow may read it. The domain move rehearsal stack (`rehearsal/`, `rehearsal:deploy`, `rehearsal:destroy`) is removed with its tests.
+
+## 0.7.4
+
+### Patch Changes
+
+- 6c209aa: The plan guard reads neither `--flip` nor `--unflip`, and its record carries no `flip` or `unflip` key. A Worker giving up its production host, another site's host, or one the code does not name is refused in every release; the refusal says to take the host off in the Cloudflare dashboard first. `GuardInput` loses `flip`, `sites` and `domains`, `domainRefusals()` its `unflip` argument, `planRecord()` its `flip` and `unflip` fields, and `DomainReading` its `read` list, which only the flip rules read. `@musubi/infra`'s `plan:guard` usage comment follows.
+
+## 0.7.3
+
+### Patch Changes
+
+- ab6810e: Cire landing and musubi social serve from their Workers: `PRODUCTION_SITE_MODES.cire_landing` and `.osn_social` are `worker`, so the cire production stack declares the apex `cireweddings.com` on the `cire-landing` Worker and the musubi stack the apex `musubi.social` on the `osn-social` Worker, and the release workflow records each site with `record-cire-landing` and `record-osn-social` in place of its Pages job. No site is staged any more. Each domain moves in its own release, dispatched with `flip: cire_landing`, then `flip: osn_social`. Until a stack's flip has run, every release that ships that stack, the daily run included, fails its precheck, which stops every job of that release.
+
 ## 0.7.2
 
 ### Patch Changes

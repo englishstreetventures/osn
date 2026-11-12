@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Dev environment (cire + OSN identity)
@@ -36,9 +36,7 @@ account, and a dev account is not a production account. Tests, not the
 Environment, keep it so: W8 in `shared/infra/tests/workflow-secrets.test.ts`
 holds `deploy.yml` to the dev account's credentials, and
 `shared/infra/tests/accounts.test.ts` holds `alchemy-state.yml` and the
-free-tier alert to theirs, and
-`scripts/tests/domain-move-rehearsal-workflow.test.ts` holds the domain move
-rehearsal to the dev account's. The `dev` Environment holds neither
+free-tier alert to theirs. The `dev` Environment holds neither
 `CLOUDFLARE_ACCOUNT_ID` nor `CLOUDFLARE_API_TOKEN_DEV`, the two names that
 point at the production account, and `secrets:check-github -- --tier dev`
 fails when it holds either ([[#The production account holds no dev tier]]).
@@ -65,10 +63,7 @@ its value. Each run's summary prints every host under **Dev hosts**.
 | Pulse marketing | `pulse.<D>` | `pulse-landing-dev` (pulse) | none |
 
 Every dev surface is a Worker; the sites serve from Workers static assets, not
-Pages ([[infrastructure-as-code#Sites]]). On production the cire marketing and musubi
-social hosts are still Pages projects, each with a staged Worker on a spare host until
-its domain moves; musubi marketing and the vendor portal are Workers, and so is the
-organiser portal once its flip release has moved `host.cireweddings.com`
+Pages ([[infrastructure-as-code#Sites]]). On production every site is a Worker too
 ([[infrastructure-as-code#Production sites]]).
 
 Backing resources, all in the dev account:
@@ -281,8 +276,7 @@ differ from production's so a job in the wrong Environment fails on an empty
 secret instead of reaching the other account. [[access-control]] lists who holds
 each credential.
 
-Permissions the dev deploy token holds, one line per thing the stack jobs and
-the domain move rehearsal call:
+Permissions the dev deploy token holds, one line per thing the stack jobs call:
 
 | Scope | Permission | What needs it |
 |---|---|---|
@@ -291,25 +285,14 @@ the domain move rehearsal call:
 | Account | `Workers R2 Storage: Edit` | creating the dev buckets |
 | Account | `Secrets Store: Edit` | the Alchemy state store ([[infrastructure-as-code#State store]]) |
 | Account | `Account Settings: Read` | the account lookup on every call |
-| Account | `Cloudflare Pages: Edit` | the domain move rehearsal alone ([[infrastructure-as-code#The domain move rehearsal]]): its Pages project, Wrangler's upload of its marker page, and moving its host on and off the project |
-| Zone (the dev zone) | `Zone: Read`, `DNS: Edit`, `Workers Routes: Edit` | each Worker's custom domain; the rehearsal's CNAME and DNS reads |
+| Zone (the dev zone) | `Zone: Read`, `DNS: Edit`, `Workers Routes: Edit` | each Worker's custom domain |
 
-The domain move rehearsal uses this token for every Cloudflare call it makes,
-so its zone grant stays on the dev zone alone: the rehearsal's Pages and DNS
-steps run `scripts/pages-domain.ts`'s reach check, which refuses the token
-unless `GET /accounts` lists exactly the dev account and `GET /zones` exactly
-the `DEV_DOMAIN` zone. Production keeps a separate Pages and DNS token
-(`CLOUDFLARE_PAGES_DNS_TOKEN`) that never reaches installed code; on dev the
-deploy token already holds `DNS: Edit` beside the whole installed tree in every
-stack job, so a second token there would add no protection.
-
-Every production CI token — `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_PAGES_DNS_TOKEN`
-and `CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
+Every production CI token — `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
 **Manage Account → Account API Tokens** on the production account, never under
 **My Profile**: it outlives any one person's membership and reaches only its own
 account, which `token:check` requires. An account API token answers
-`GET /accounts` with its one account, so `token:check` and `scripts/pages-domain.ts`'s
-reach check accept it unchanged.
+`GET /accounts` with its one account, so `token:check` accepts it unchanged.
 
 *Measured 2026-10-28 — `curl -H "Authorization: Bearer $T" https://api.cloudflare.com/client/v4/accounts` with an account API token: `success: true`, one result, `total_count` 1; `/accounts/<id>/tokens/verify` `active`. The `production` Environment's `CLOUDFLARE_API_TOKEN`, as an account API token, then passed `token:check` (Alchemy state store, run 40641704428) and deployed cire landing with Wrangler (Production release, run 40644019262).*
 
@@ -334,8 +317,8 @@ Before adding a workflow that touches Cloudflare, check what scope it resolves
 at: `grep -l CLOUDFLARE .github/workflows/*.yml`, then read each hit for an
 `environment:` line. `shared/infra/tests/accounts.test.ts` fails when a workflow
 reads a credential nobody classified, or when any workflow but
-`alchemy-state.yml`, `deploy.yml`, `domain-move-rehearsal.yml` and
-`free-tier-ceiling-alert.yml` reads a dev account credential. A workflow that declares no Environment and needs to write
+`alchemy-state.yml`, `deploy.yml` and `free-tier-ceiling-alert.yml` reads a
+dev account credential. A workflow that declares no Environment and needs to write
 has no credential to read — that is the design.
 
 ### The dev data is not reset
@@ -838,11 +821,12 @@ the checks already ask.
    enrol a passkey, sign out, sign back in. Proves ceremony state on the
    coordination store survives across requests, and that sign-up mail is delivered. The dev
    database starts empty, so an account, passkey or authenticator app from an
-   earlier dev tier is not there: sign up again. When "Verification code sent"
-   shows and no code arrives, search `osn-api-dev`'s Workers Logs for
+   earlier dev tier is not there: sign up again. Sign-up mails a link; open it
+   on any device and pick the number the waiting screen shows. When "Check your
+   email" shows and no link arrives, search `osn-api-dev`'s Workers Logs for
    `email.dispatch_failed`; its `status`, `resendError` and `resendDetail` say
-   why Resend refused ([[email#Observability]]). A refused send leaves nothing
-   pending, so "Resend code" sends a new one once the cause is fixed.
+   why Resend refused ([[email#Observability]]). A refused send leaves the
+   sign-up live, so "Resend link" sends another once the cause is fixed.
 4. Sign in on `https://host.cire.<D>` through the OIDC redirect. Proves the
    seeded `oauth_clients` row, the pairwise salt and the redirect URI agree. A
    consent row in `osn-db-dev` with no `organiser_sessions` row in `cire-db-dev`
@@ -918,8 +902,8 @@ production, and nothing here should ever grow one.
   while in production they are cross-site, so a defect that depends on them
   being cross-site does not show on dev.
 - **Unknown paths on the dev marketing sites answer 404.** cire landing, musubi
-  landing and pulse landing serve no `index.html` for an unknown path where
-  Pages did; musubi social and the cire organiser and vendor portals have a
+  landing and pulse landing serve no `index.html` for an unknown path, as the
+  production cire landing Worker does too; musubi social and the cire organiser and vendor portals have a
   single-page fallback ([[infrastructure-as-code#Sites]]).
 - **A rollback restores code only.** No rollback undoes a D1 migration
   ([[production-deploy]] §4), and a half-applied migration has no scripted

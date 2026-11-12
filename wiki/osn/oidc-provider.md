@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-11
 ---
 
 # OIDC provider
@@ -71,6 +71,7 @@ sequenceDiagram
 | `GET /authorize` | The browser, top-level | Authorization code flow. No TypeBox query schema — a 422 would break the RFC error contract |
 | `GET /authorize/context` | The consent screen | Describes the parked request: client, scopes, the signed-in account's profiles, any existing link. Requires the binding cookie — without it the id reads as unknown (404) |
 | `POST /authorize/decision` | The consent screen | Approve or refuse. Returns `{redirectTo}` as JSON, not a 302, so `fetch` does not follow it. Requires the binding cookie; `400 login_required` means "re-authenticate, then retry the same request id" |
+| `POST /authorize/decline` | The consent screen, signed out | Refuse only. Body `{requestId}`; returns `{redirectTo}` carrying `error=access_denied` to the registered redirect URI. Requires the binding cookie and never reads the session cookie. Unknown, expired, answered and wrong-browser ids all get `400 invalid_request` |
 | `POST /oidc/token` | The client's server | Code for tokens. Exempt from the origin guard — there is no browser here |
 | `GET /oidc/connections` | The account owner (Bearer access token) | The apps this account has authorised: client id/name/logo, linked profile, scope, granted-at |
 | `DELETE /oidc/connections/:clientId` | The account owner (Bearer access token) | Withdraws the grant (Art. 7(3)) and deletes any authorization code in flight for the pair — revocation is immediate, not "after the 60 s code window drains". 404 when nothing is live. When the client is cire's (`CIRE_OIDC_CLIENT_ID`), a live revoke also ends the account's cire organiser sessions in the background, as sign out everywhere else does ([[sessions#Sign out everywhere else reaches cire]]); no other client's revoke reaches cire. With `CIRE_OIDC_CLIENT_ID` unset, any live revoke logs the back-channel as unconfigured instead. A second revoke finds nothing live, answers 404 and sends nothing; sign out everywhere else sends the calls again |
@@ -87,7 +88,7 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **One code, one exchange.** The code table's primary key is `SHA-256(raw code)` and the row is consumed with `DELETE … RETURNING`, so the read and the delete cannot race. Codes live in D1, not the ceremony store, precisely because the store's `get`-then-`delete` can.
 
-**One request id, one decision.** The parked authorization request is deleted whichever way the user decided. A replayed approval cannot mint a second code.
+**One request id, one decision.** The parked authorization request is claimed in one atomic step, never read and then deleted, whichever way the user decided and through whichever route: of two answers sent at once on one id, exactly one is accepted. A replayed approval cannot mint a second code.
 
 **A profile the account does not own is not a profile.** `completeAuthorization` re-checks ownership before it writes consent.
 
@@ -99,7 +100,9 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **No refresh tokens, and never an `osn-access` audience.** The token endpoint returns an ID token and a scoped access token bound to the client. It cannot be used to mint a first-party session.
 
-**A parked request belongs to one browser.** When `/authorize` parks a request for the consent UI, the response also sets a per-request HttpOnly cookie (`__Host-osn_oar_…`, 600 s — the request's own TTL) carrying a 256-bit secret whose SHA-256 rides in the parked entry. `/authorize/context` answers a missing or wrong binding exactly like an unknown id, and `/authorize/decision` refuses it **before** consuming the request — so a leaked, forwarded, or guessed `oar_` id can neither be read nor approved anywhere else, and a forged attempt cannot burn the real user's pending flow.
+**A parked request belongs to one browser.** When `/authorize` parks a request for the consent UI, the response also sets a per-request HttpOnly cookie (`__Host-osn_oar_…`, 600 s — the request's own TTL) carrying a 256-bit secret whose SHA-256 rides in the parked entry. `/authorize/context` answers a missing or wrong binding exactly like an unknown id, and `/authorize/decision` and `/authorize/decline` refuse it **before** consuming the request — so a leaked, forwarded, or guessed `oar_` id can be neither read, approved nor declined anywhere else, and a forged attempt cannot burn the real user's pending flow.
+
+**Declining needs no session, and grants nothing.** A visitor who reaches the consent screen signed out can still say no: `POST /authorize/decline` takes the request id and nothing else, checks the binding cookie, claims the request and answers with the refusal redirect, built on the server from the redirect URI and `state` that `/authorize` validated and parked. Its service function cannot reach the database, so it cannot record consent or mint a code, and it makes no freshness demand, since refusing grants nothing. It is a POST only, because the binding cookie is `SameSite=Lax` and browsers send that on a cross-site top-level GET; it stays behind the origin guard like every cookie-bearing POST. Approval still needs a session: the binding cookie alone gets `401` from `/authorize/decision`.
 
 **`auth_time` is the session's truth, and freshness demands are enforced.** Codes carry the session row's `created_at` — the moment the user actually authenticated on that device — never the code-mint time. `max_age` is parsed (digits only, ≤10-year ceiling) and an exceeded value behaves exactly like `prompt=login`: the request parks with `requireAuthAfter = now`, and the decision refuses (`400 login_required`, request left alive) any session created before that instant. `max_age` is also re-checked outright at decision time, because a user can sit on the consent screen while their session ages past it.
 
@@ -159,7 +162,7 @@ The redirect URI points at **cire-api**, never at a browser origin: cire runs th
 
 ## Rate limits
 
-Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (60/min), `oidc_authorize_decision` (10/min), `oidc_token` (60/min), `oidc_connections_list` (30/min), `oidc_connections_revoke` (10/min), `oidc_client_create` (**5/hour** — mints a durable credential; like `email_change_begin` it runs on the coordination store, since no native binding has an hour window), `oidc_client_list` (30/min), `oidc_client_disable` (10/min). See [[rate-limiting]].
+Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (60/min), `oidc_authorize_decision` (10/min, one budget for the decision and the signed-out decline), `oidc_token` (60/min), `oidc_connections_list` (30/min), `oidc_connections_revoke` (10/min), `oidc_client_create` (**5/hour** — mints a durable credential; like `email_change_begin` it runs on the coordination store, since no native binding has an hour window), `oidc_client_list` (30/min), `oidc_client_disable` (10/min). See [[rate-limiting]].
 
 ## Client registration (self-serve)
 
@@ -167,7 +170,7 @@ Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (60/mi
 
 | Route | Auth | What it does |
 |---|---|---|
-| `POST /oidc/clients` | Bearer access token | Registers a client. Returns the summary plus `client_secret` **exactly once** (null for public clients); only the SHA-256 is stored |
+| `POST /oidc/clients` | Bearer access token, live session (`409 session_stale` otherwise) | Registers a client. Returns the summary plus `client_secret` **exactly once** (null for public clients); only the SHA-256 is stored |
 | `GET /oidc/clients` | Bearer access token | The caller's clients, never the secret in any form |
 | `DELETE /oidc/clients/:clientId` | Bearer access token | Disables an owned client — it reads as absent everywhere at once, so new `/authorize` flows refuse and in-flight codes die at the exchange's client lookup. 404 covers "not yours" and "not found" alike |
 
@@ -202,4 +205,4 @@ The issuer string is an identifier, not branding. The provider moved to `id.musu
 - **`offline_access`** — third parties get no refresh token, so a long-lived integration must send the user through `/authorize` again.
 - **The apex well-knowns** — `/.well-known/webauthn`, `apple-app-site-association` and `assetlinks.json`. The identity domain now exists (`musubi.social`), so this is unblocked; it needs `@musubi/social` to serve those paths, or a Worker in front of the apex. That is layers 2 and 3; layer 0 works without it.
 
-The consent screen is built (2026-07-26): `/authorize` in `@musubi/social` — see [[authorize-ui]]. `@musubi/social` deploys to the `osn-social` Pages project and is served from the apex `https://musubi.social`, the same registrable domain as the provider, so `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`. A staged Worker serves the same build on `next.musubi.social` until the apex moves to it; that host is in neither `OSN_ORIGIN` nor `OSN_CORS_ORIGIN`, so no consent or ceremony runs there ([[social#Deployment]]). The apex is also the WebAuthn RP ID, so it is the one surface that can run a ceremony — see [[musubi-identity-migration]].
+The consent screen is built (2026-07-26): `/authorize` in `@musubi/social` — see [[authorize-ui]]. `@musubi/social` is served from the apex `https://musubi.social`, the same registrable domain as the provider, so `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`, served by the `osn-social` Worker ([[social#Deployment]]). The provider names the apex as an origin, so the move changes none of its settings. No other host of the app is in `OSN_ORIGIN` or `OSN_CORS_ORIGIN`, so no consent or ceremony runs anywhere else. The apex is also the WebAuthn RP ID, so it is the one surface that can run a ceremony — see [[musubi-identity-migration]].

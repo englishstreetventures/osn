@@ -5,8 +5,8 @@
  *  2. Clear `e2e-artifacts/` — no state or artifact survives from a previous run.
  *  3. Prove the shared clock reaches a Bun and a Node child.
  *  4. Seed fresh databases.
- *  5. Start the mail and Stripe stand-ins, then every app: osn-api before pulse-api, the
- *     rest alongside them.
+ *  5. Start the mail, Stripe and issuer stand-ins, then every app: osn-api before
+ *     pulse-api, the rest alongside them.
  *  6. Run Playwright, which writes traces, screenshots and `results.json`.
  *  7. Stop every process group, the runner's included, whatever happened above
  *     and on SIGINT or SIGTERM.
@@ -29,6 +29,7 @@ import {
   STATE_DIR,
   TRACE_DIR,
 } from "./config";
+import { startIssuerServer, type IssuerServer } from "./issuer";
 import { startMailServer, type MailServer } from "./mail";
 import { takenPorts } from "./ports";
 import {
@@ -142,6 +143,7 @@ async function bootStack(realStart: number, procs: Started[]): Promise<void> {
   if (clockFailures.length > 0) throw new Error(`clock preload: ${clockFailures.join("; ")}`);
 
   seedOsn(DB_FILES.osn);
+  seedOsn(DB_FILES.osnEvt);
   seedPulse(DB_FILES.pulse);
 
   const specs = appSpecs();
@@ -223,15 +225,18 @@ async function main(): Promise<number> {
   const procs: Started[] = [];
   let mail: MailServer | null = null;
   let stripe: StripeServer | null = null;
+  let issuer: IssuerServer | null = null;
   const stopMail = async (): Promise<void> => {
     await mail?.stop();
     await stripe?.stop();
+    await issuer?.stop();
   };
   stopOnSignal(procs, stopMail);
 
   try {
     mail = startMailServer(PORTS.mail);
     stripe = startStripeServer(PORTS.stripe);
+    issuer = await startIssuerServer(PORTS.issuer, () => CLOCK_T0 + (Date.now() - realStart));
     await bootStack(realStart, procs);
     say("stack ready; running flows");
     // In `procs` like every server, so a signal or a failure stops it too.

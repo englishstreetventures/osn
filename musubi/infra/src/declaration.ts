@@ -1,13 +1,18 @@
 import { join } from "node:path";
 
 import {
+  declaredDomains,
   origin,
   physicalName,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
+  PRODUCTION_STAGE_HOSTS,
   productionSiteKinds,
   refuseProductionTier,
   siteDomain,
   type ApiWorkerInput,
+  type DeclaredDomains,
+  type HostHold,
   type PrebuiltSite,
   type ResourceKind,
   type RetainedD1Input,
@@ -175,14 +180,14 @@ interface MusubiProductionSites {
 
 /**
  * What the musubi stack declares on production: each site `modes` does not
- * turn off, under today's production name, serving its spare host while
- * staged and its production host as a worker. Every build is the
- * production build and bakes in `hosts`, today's production hosts. No
- * osn-api or database: those join the stack in a later step of phase P3.
- * Pure.
+ * turn off, under today's production name, serving its production host,
+ * or no host while `holds` holds it. Every build is the production build
+ * and bakes in `hosts`, today's production hosts, held or not. No osn-api
+ * or database: those join the stack in a later step of phase P3. Pure.
  */
 export function musubiProductionSites(input: {
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds: readonly HostHold[];
   readonly hosts: StageHosts;
 }): MusubiProductionSites {
   const shipped = MUSUBI_SITES.filter((key) => input.modes[key] !== "off");
@@ -190,12 +195,22 @@ export function musubiProductionSites(input: {
     sites: Object.fromEntries(
       shipped.map((key) => [
         SITE_LOGICAL_IDS[key],
-        SITES[key].declare("production", siteDomain(key, input.modes[key])),
+        SITES[key].declare("production", siteDomain(key, input.modes[key], input.holds)),
       ]),
     ),
     prebuilt: shipped.map((key) => SITES[key].prebuilt(input.hosts)),
   };
 }
+
+/** The host each musubi site's Worker is declared with on production, which the plan guard reads. */
+export const PRODUCTION_SITE_DOMAINS: DeclaredDomains = declaredDomains(
+  SITE_LOGICAL_IDS,
+  musubiProductionSites({
+    modes: PRODUCTION_SITE_MODES,
+    holds: PRODUCTION_HOST_HOLDS,
+    hosts: PRODUCTION_STAGE_HOSTS,
+  }).sites,
+);
 
 /**
  * Every name, var, binding, domain and setting the musubi stack declares at

@@ -26,12 +26,15 @@ import {
   type RegistryGiftSummaryTotal,
 } from "./gift-summary";
 import {
-  type OtpData,
-  renderEmailChangeOtp,
-  renderRecoveryOtp,
-  renderRegistrationOtp,
-  renderStepUpOtp,
-} from "./otp";
+  type LinkData,
+  type RecoveryLinkData,
+  type RegistrationLinkData,
+  renderEmailChangeLink,
+  renderRecoveryLink,
+  renderRegistrationLink,
+  renderStepUpLink,
+  type StepUpLinkData,
+} from "./link";
 import { renderR2ReconcileAlert, type R2ReconcileAlertData } from "./r2-reconcile-alert";
 import {
   renderRsvpChangeDigest,
@@ -39,9 +42,11 @@ import {
   type RsvpDigestChangeKind,
 } from "./rsvp-digest";
 import {
+  type EmailChangedData,
   type InstanceNameData,
   type RecoveryUsedData,
   renderCrossDeviceLogin,
+  renderEmailChanged,
   renderPasskeyAdded,
   renderPasskeyRemoved,
   renderRecoveryConsumed,
@@ -69,10 +74,10 @@ export type EmailTemplate =
   | "enquiry-new"
   | "enquiry-reply"
   | "enquiry-quote"
-  | "otp-registration"
-  | "otp-step-up"
-  | "otp-email-change"
-  | "otp-recovery"
+  | "link-email-change"
+  | "link-recovery"
+  | "link-registration"
+  | "link-step-up"
   | "recovery-generated"
   | "recovery-consumed"
   | "recovery-used"
@@ -81,6 +86,7 @@ export type EmailTemplate =
   | "totp-enrolled"
   | "totp-disabled"
   | "cross-device-login"
+  | "email-changed"
   | "r2-reconcile-alert"
   | "registry-gift-summary"
   | "rsvp-change-digest"
@@ -94,10 +100,10 @@ export type EmailTemplate =
  * identity instance it comes from, from `instanceName` in its data.
  */
 export type AccountEmailTemplate =
-  | "otp-registration"
-  | "otp-step-up"
-  | "otp-email-change"
-  | "otp-recovery"
+  | "link-email-change"
+  | "link-recovery"
+  | "link-registration"
+  | "link-step-up"
   | "recovery-generated"
   | "recovery-consumed"
   | "recovery-used"
@@ -105,17 +111,18 @@ export type AccountEmailTemplate =
   | "passkey-removed"
   | "totp-enrolled"
   | "totp-disabled"
-  | "cross-device-login";
+  | "cross-device-login"
+  | "email-changed";
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
   "enquiry-new": EnquiryNewData;
   "enquiry-reply": EnquiryReplyData;
   "enquiry-quote": EnquiryQuoteData;
-  "otp-registration": OtpData;
-  "otp-step-up": OtpData;
-  "otp-email-change": OtpData;
-  "otp-recovery": OtpData;
+  "link-email-change": LinkData;
+  "link-recovery": RecoveryLinkData;
+  "link-registration": RegistrationLinkData;
+  "link-step-up": StepUpLinkData;
   "recovery-generated": InstanceNameData;
   "recovery-consumed": InstanceNameData;
   "recovery-used": RecoveryUsedData;
@@ -124,6 +131,7 @@ export interface EmailTemplateDataMap {
   "totp-enrolled": InstanceNameData;
   "totp-disabled": InstanceNameData;
   "cross-device-login": InstanceNameData;
+  "email-changed": EmailChangedData;
   "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
   "rsvp-change-digest": RsvpChangeDigestData;
@@ -164,14 +172,14 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderEnquiryReply(data as EmailTemplateData<"enquiry-reply">);
     case "enquiry-quote":
       return renderEnquiryQuote(data as EmailTemplateData<"enquiry-quote">);
-    case "otp-registration":
-      return renderRegistrationOtp(data as EmailTemplateData<"otp-registration">);
-    case "otp-step-up":
-      return renderStepUpOtp(data as EmailTemplateData<"otp-step-up">);
-    case "otp-email-change":
-      return renderEmailChangeOtp(data as EmailTemplateData<"otp-email-change">);
-    case "otp-recovery":
-      return renderRecoveryOtp(data as EmailTemplateData<"otp-recovery">);
+    case "link-recovery":
+      return renderRecoveryLink(data as EmailTemplateData<"link-recovery">);
+    case "link-registration":
+      return renderRegistrationLink(data as EmailTemplateData<"link-registration">);
+    case "link-step-up":
+      return renderStepUpLink(data as EmailTemplateData<"link-step-up">);
+    case "link-email-change":
+      return renderEmailChangeLink(data as EmailTemplateData<"link-email-change">);
     case "recovery-generated":
       return renderRecoveryGenerated(data as EmailTemplateData<"recovery-generated">);
     case "recovery-consumed":
@@ -188,6 +196,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderTotpDisabled(data as EmailTemplateData<"totp-disabled">);
     case "cross-device-login":
       return renderCrossDeviceLogin(data as EmailTemplateData<"cross-device-login">);
+    case "email-changed":
+      return renderEmailChanged(data as EmailTemplateData<"email-changed">);
     case "r2-reconcile-alert":
       return renderR2ReconcileAlert(data as EmailTemplateData<"r2-reconcile-alert">);
     case "registry-gift-summary":
@@ -214,10 +224,10 @@ export {
   renderEnquiryNew,
   renderEnquiryReply,
   renderEnquiryQuote,
-  renderRegistrationOtp,
-  renderStepUpOtp,
-  renderEmailChangeOtp,
-  renderRecoveryOtp,
+  renderRecoveryLink,
+  renderRegistrationLink,
+  renderStepUpLink,
+  renderEmailChangeLink,
   renderRecoveryGenerated,
   renderRecoveryConsumed,
   renderRecoveryUsed,
@@ -226,6 +236,7 @@ export {
   renderTotpEnrolled,
   renderTotpDisabled,
   renderCrossDeviceLogin,
+  renderEmailChanged,
   renderR2ReconcileAlert,
   renderRegistryGiftSummary,
   renderRsvpChangeDigest,
@@ -236,9 +247,13 @@ export {
 };
 
 export type {
+  EmailChangedData,
   EnquiryNewData,
   InstanceNameData,
-  OtpData,
+  LinkData,
+  RecoveryLinkData,
+  RegistrationLinkData,
+  StepUpLinkData,
   EnquiryReplyData,
   EnquiryQuoteData,
   R2ReconcileAlertData,

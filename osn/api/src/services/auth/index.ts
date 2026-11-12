@@ -6,7 +6,7 @@
  * injected stores) and returns the flat method surface the routes and
  * tests consume. Module layering (acyclic):
  *
- *   context → profiles → tokens ─┬→ registration / profile-switch / recovery
+ *   context → profiles → tokens ─┬→ registration (over email-link) / profile-switch / recovery
  *   sessions ─────────────────────┤
  *   step-up → security-events ────┴→ passkeys / passkey-management /
  *                                     email-change / cross-device / totp
@@ -23,6 +23,8 @@ import type { AuthConfig } from "./config";
 import { createAuthContext } from "./context";
 import { createCrossDeviceModule } from "./cross-device";
 import { createEmailChangeModule } from "./email-change";
+import { createEmailLinkModule } from "./email-link";
+import { createEmailVerificationModule } from "./email-verification-token";
 import { hashSessionToken } from "./helpers";
 import { createOidcModule } from "./oidc";
 import { createPasskeyManagementModule } from "./passkey-management";
@@ -50,20 +52,35 @@ export function createAuthService(config: AuthConfig) {
   const profiles = createProfilesModule();
   const tokens = createTokensModule(ctx, profiles);
   const sessions = createSessionsModule();
-  const stepUp = createStepUpModule(ctx);
+  const emailLinks = createEmailLinkModule(ctx);
+  const stepUp = createStepUpModule(ctx, emailLinks);
   const securityEvents = createSecurityEventsModule(ctx, stepUp);
-  const registration = createRegistrationModule(ctx, profiles, tokens);
-  const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens, sessions);
+  const emailVerification = createEmailVerificationModule(ctx);
+  const registration = createRegistrationModule(
+    ctx,
+    profiles,
+    tokens,
+    emailLinks,
+    emailVerification,
+  );
+  const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens);
   const passkeys = createPasskeysModule(ctx, profiles, tokens, sessions, stepUp, securityEvents);
   const passkeyManagement = createPasskeyManagementModule(ctx, sessions, securityEvents);
   const recovery = createRecoveryModule(ctx, profiles, tokens);
-  const emailChange = createEmailChangeModule(ctx, stepUp);
+  const emailChange = createEmailChangeModule(ctx, stepUp, emailLinks, securityEvents);
   const crossDevice = createCrossDeviceModule(ctx, profiles, tokens, securityEvents);
   const oidc = createOidcModule(ctx, profiles);
   const totp = createTotpModule(ctx, securityEvents, stepUp);
   // Built last — it consumes `totp`, which is itself built after everything
   // else it needs. Moving this above line 96 leaves `checkTotpCode` undefined.
-  const recoveryFactors = createRecoveryFactorsModule(ctx, profiles, tokens, totp, securityEvents);
+  const recoveryFactors = createRecoveryFactorsModule(
+    ctx,
+    profiles,
+    tokens,
+    totp,
+    securityEvents,
+    emailLinks,
+  );
 
   return {
     findProfileByEmail: profiles.findProfileByEmail,
@@ -75,11 +92,20 @@ export function createAuthService(config: AuthConfig) {
     resolveIdentifier: profiles.resolveIdentifier,
     registerProfile: registration.registerProfile,
     beginRegistration: registration.beginRegistration,
-    completeRegistration: registration.completeRegistration,
+    resendRegistration: registration.resendRegistration,
+    registrationStatus: registration.registrationStatus,
+    // A nonce for the sign-up form's Email Verification API field; null while
+    // the flag is off.
+    emailVerificationNonce: emailVerification.mintNonce,
+    // Shared by every flow that emails a link. The read offers the confirm
+    // page its candidates; the confirm marks the request confirmed and nothing
+    // else. Neither mints a session.
+    emailLinkCandidates: emailLinks.candidates,
+    confirmEmailLink: emailLinks.confirm,
     checkHandle: registration.checkHandle,
     issueTokens: tokens.issueTokens,
-    // The restricted-session primitive, minted by the two recovery-factor
-    // completers below and by nothing else.
+    // The restricted-session primitive, minted by the email-recovery claim
+    // and the TOTP recovery completer below, and by nothing else.
     issueRecoverySession: tokens.issueRecoverySession,
     refreshTokens: tokens.refreshTokens,
     verifyRefreshToken: tokens.verifyRefreshToken,
@@ -96,15 +122,16 @@ export function createAuthService(config: AuthConfig) {
     deletePasskey: passkeyManagement.deletePasskey,
     invalidateSession: sessions.invalidateSession,
     resolveSessionByBinding: sessions.resolveSessionByBinding,
-    resolveCallerSession: sessions.resolveCallerSession,
     classifyCallerSession: sessions.classifyCallerSession,
+    resolveLiveOrdinarySession: sessions.resolveLiveOrdinarySession,
     invalidateOtherAccountSessions: sessions.invalidateOtherAccountSessions,
     generateRecoveryCodesForAccount: recovery.generateRecoveryCodesForAccount,
     consumeRecoveryCode: recovery.consumeRecoveryCode,
     completeRecoveryLogin: recovery.completeRecoveryLogin,
     countActiveRecoveryCodes: recovery.countActiveRecoveryCodes,
     beginEmailRecovery: recoveryFactors.beginEmailRecovery,
-    completeEmailRecovery: recoveryFactors.completeEmailRecovery,
+    emailRecoveryStatus: recoveryFactors.emailRecoveryStatus,
+    resendEmailRecovery: recoveryFactors.resendEmailRecovery,
     completeTotpRecovery: recoveryFactors.completeTotpRecovery,
     disownRecovery: recoveryFactors.disownRecovery,
     listUnacknowledgedSecurityEvents: securityEvents.listUnacknowledgedSecurityEvents,
@@ -122,8 +149,11 @@ export function createAuthService(config: AuthConfig) {
     notifySecurityEventByAccountId: securityEvents.notifySecurityEventByAccountId,
     beginStepUpPasskey: stepUp.beginStepUpPasskey,
     completeStepUpPasskey: stepUp.completeStepUpPasskey,
-    beginStepUpOtp: stepUp.beginStepUpOtp,
-    completeStepUpOtp: stepUp.completeStepUpOtp,
+    // Step-up by a link to the account's own address. The link's page only
+    // confirms; the token goes to the status poll of the tab that began.
+    beginStepUpEmail: stepUp.beginStepUpEmail,
+    stepUpEmailStatus: stepUp.stepUpEmailStatus,
+    resendStepUpEmail: stepUp.resendStepUpEmail,
     verifyStepUpForRecoveryGenerate: stepUp.verifyStepUpForRecoveryGenerate,
     verifyStepUpForPasskeyDelete: stepUp.verifyStepUpForPasskeyDelete,
     verifyStepUpForEmailChange: stepUp.verifyStepUpForEmailChange,
@@ -143,6 +173,8 @@ export function createAuthService(config: AuthConfig) {
     revokeAccountSession: sessions.revokeAccountSession,
     revokeAllOtherAccountSessions: sessions.revokeAllOtherAccountSessions,
     beginEmailChange: emailChange.beginEmailChange,
+    emailChangeStatus: emailChange.emailChangeStatus,
+    resendEmailChange: emailChange.resendEmailChange,
     completeEmailChange: emailChange.completeEmailChange,
     beginCrossDeviceLogin: crossDevice.beginCrossDeviceLogin,
     getCrossDeviceLoginStatus: crossDevice.getCrossDeviceLoginStatus,
@@ -153,6 +185,7 @@ export function createAuthService(config: AuthConfig) {
     prepareAuthorization: oidc.prepareAuthorization,
     loadAuthorizeRequest: oidc.loadAuthorizeRequest,
     completeAuthorization: oidc.completeAuthorization,
+    declineAuthorization: oidc.declineAuthorization,
     buildOidcCodeRedirect: oidc.buildCodeRedirect,
     buildOidcErrorRedirect: oidc.buildErrorRedirect,
     exchangeAuthorizationCode: oidc.exchangeAuthorizationCode,

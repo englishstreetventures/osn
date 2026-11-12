@@ -10,6 +10,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  heldHost,
+  PRODUCTION_SITE_MODES,
+  SITE_SURFACES,
+} from "../../shared/infra/src/production-sites";
+
 const root = join(import.meta.dir, "..", "..");
 
 // A home with no stored login, and a Cloudflare token that is set but valid
@@ -47,11 +53,20 @@ test("a call with no tier exits 2 with an annotation", async () => {
   expect(result.stdout).toContain("::error::smoke-check: usage");
 });
 
-test("a production site check with no SMOKE_ORIGIN exits 2 before asking anything", async () => {
-  const result = await run(["osn_social", "production"], { SMOKE_DEPLOYMENT: "unchanged" });
-  expect(result.exitCode).toBe(2);
-  expect(result.stdout).toContain("SMOKE_ORIGIN is not set");
-});
+// A site PRODUCTION_HOST_HOLDS does not hold: a held one's check reads the
+// Cloudflare API instead of its origin. None only while every site is held.
+const unheld = SITE_SURFACES.find(
+  (site) => PRODUCTION_SITE_MODES[site] === "worker" && heldHost(site) === undefined,
+);
+
+test.skipIf(unheld === undefined)(
+  "a production site check with no SMOKE_ORIGIN exits 2 before asking anything",
+  async () => {
+    const result = await run([unheld ?? "", "production"], { SMOKE_DEPLOYMENT: "unchanged" });
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("SMOKE_ORIGIN is not set");
+  },
+);
 
 test("a dev check with no SMOKE_ORIGIN exits 2 before asking anything", async () => {
   const result = await run(["cire_invites", "dev"], { SMOKE_DEPLOYMENT: "unchanged" });

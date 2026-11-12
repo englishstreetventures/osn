@@ -14,8 +14,8 @@ import { children, type JSX } from "solid-js";
  * `action` is resolved once, through `children()`: a JSX prop is a getter, and
  * each read of it would build the element again.
  *
- * Not `@shared/ui`'s `EmptyState`, whose light title, 16px type and small
- * corner fall outside this surface's scale, nor its `Notice`, a tinted box.
+ * Not `@shared/ui`'s `EmptyState`, whose light display title and small corner
+ * fall outside this surface's scale, nor its `Notice`, a tinted box.
  */
 export function EmptyNote(props: {
   children: JSX.Element;

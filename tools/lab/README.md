@@ -26,12 +26,12 @@ view. For a component's full range of variants and states, open its own group:
 | ----------------- | ------------------------------------------------------------------------------- |
 | `shared/ui`          | Everything, one state each                                                      |
 | `shared/ui/Button`   | All variants, all sizes; Inline (a link inside a sentence); Busy (every variant busy, and a timed wait); live playground |
-| `shared/ui/display`  | Badge, Avatar, Card                                                             |
-| `shared/ui/forms`    | Input, Label, Textarea, Select (every size, the ink fill, the chevron), Field (both label treatments: `PlainLabels`, `FieldPlayground`), Fieldset, Checkbox and RadioGroup (each state, drawn and native), UsernameInput, OtpInput |
-| `shared/ui/feedback` | Notice, Chip, EmptyState, Stat                                                  |
+| `shared/ui/display`  | Badge (`Badges`, `BadgeWeights`), Avatar, Card (title weight)               |
+| `shared/ui/forms`    | Input, Label, Textarea, Select (every size, the ink fill, the chevron), Field (both label treatments: `PlainLabels`, `FieldPlayground`), Fieldset, Checkbox and RadioGroup (each state, drawn and native), UsernameInput, OtpInput (`Otp`, `OtpStates`, `OtpNarrow`) |
+| `shared/ui/feedback` | Notice, Chip, EmptyState, Stat, Skeleton (`Skeletons`, `SkeletonGrounds`, `SkeletonInPlace`, `SkeletonPlayground`) |
 | `shared/ui/data`     | Table, Meter                                                                    |
 | `shared/ui/Orb`      | The nine states at 64 and 20px, the orb inside each Button variant, live playground |
-| `shared/ui/overlays` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs                |
+| `shared/ui/overlays` | Dialog (title weight, fade with no scale), Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs |
 | `cire/ui/Button`  | Every variant at every size in cire's light and dark mapping; states; each shape claim measured from the painted button; live playground |
 | `cire/ui/Card`    | The plain, accent, eyebrow and interactive cards in cire's light and dark mapping; each padding step, fill and tone, measured from the painted card |
 | `cire/ui/Disclosure` | Each tone closed and open, a card disclosure holding rows, and a nested one, in cire's light and dark mapping, captioned with the marker's painted turn |

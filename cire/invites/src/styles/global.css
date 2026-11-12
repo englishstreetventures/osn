@@ -643,6 +643,26 @@
   }
 }
 
+/* ── A link menu opening: menu-pop ──────────────────────────────────────────
+ * The calendar and maps menus (`components/LinkMenu`) scale up a little from
+ * the corner at their trigger and fade in, as the portals' menus do
+ * (`cire/host` `menu-pop`), one rung slower: `--dur-base`, so a guest reading
+ * on a phone sees where the menu came from. `LinkMenu` sets the origin as it
+ * places the menu, under or over the trigger; it is not a Kobalte popover, so
+ * there is no origin variable to read.
+ *
+ * The pop is the shared `ui-enter` keyframe (`@shared/design-tokens`), the
+ * one the portals' menus run. `LinkMenu` sets where it starts with
+ * `fade-in-0 zoom-in` beside this class — opacity 0 at `--ui-scale-enter` —
+ * so this utility holds only the guest site's rung.
+ *
+ * Entry only. A close takes the menu out of the document at once and hands
+ * focus back to the trigger; a menu held mounted for an exit keeps focus
+ * inside it until it goes. The reduced-motion clamp below reaches this. */
+@utility menu-pop {
+  animation: ui-enter var(--dur-base) var(--ease-out);
+}
+
 /* Fades a control's colours but never its outline, so a focus ring lands at once. */
 @utility transition-ui-colors {
   transition-property: color, background-color, border-color, text-decoration-color;
@@ -662,6 +682,114 @@
 
   [data-dragging] & {
     transition: none;
+  }
+}
+
+/* ── The unlock reveal ──────────────────────────────────────────────────────
+ * What a household sees once its code is accepted (`components/unlock-reveal`):
+ * the code form closes at once, the welcome rises while its heading shimmers,
+ * and a beat later the events rise, their cards one after another. The form
+ * has no step here: it holds a live field and button, and a box with live
+ * controls closes at once rather than fading. The sequence marks each element
+ * it moves with the step (`data-unlock`) and the design pack
+ * (`data-unlock-pack`), waits for the step to end, writes the end state inline
+ * and takes both marks off.
+ *
+ * Its own times, not the ladder's, each kept for one of the reasons
+ * wiki/conventions/house-lint-rules.md §Literal motion allows:
+ * - the welcome, shimmer, section and card times (350ms to 1.2s) are
+ *   choreography slower than the ladder's longest step, `--dur-slow` (320ms on
+ *   touch, 200ms at a desk);
+ * - the cards' start and step are a stagger;
+ * - the beat before the events is a time script waits out (each pack's
+ *   `UnlockReveal.motion.ts`), so it lives there, not here.
+ * Each scales with `--motion-scale`, the beat too: the sequence reads the
+ * scale off the root. Every rise, in both packs, is something
+ * arriving, so it runs on `--ease-out`.
+ *
+ * Reduced motion: the sequence sets no mark and lands on the end state at
+ * once, and the clamp below would end any of these at once regardless. */
+[data-unlock-pack="classic"] {
+  --unlock-welcome-time: calc(500ms * var(--motion-scale));
+  --unlock-welcome-y: 16px;
+  --unlock-shimmer-time: calc(1.2s * var(--motion-scale));
+  --unlock-shimmer-from: 0.4;
+  --unlock-shimmer-dip: 0.85;
+  --unlock-section-time: calc(500ms * var(--motion-scale));
+  --unlock-section-y: 32px;
+  --unlock-card-time: calc(450ms * var(--motion-scale));
+  --unlock-card-y: 24px;
+  --unlock-card-start: calc(150ms * var(--motion-scale));
+  --unlock-card-step: calc(120ms * var(--motion-scale));
+}
+
+[data-unlock-pack="gala"] {
+  --unlock-welcome-time: calc(400ms * var(--motion-scale));
+  --unlock-welcome-y: 10px;
+  --unlock-shimmer-time: calc(1s * var(--motion-scale));
+  --unlock-shimmer-from: 0.5;
+  --unlock-shimmer-dip: 0.9;
+  --unlock-section-time: calc(400ms * var(--motion-scale));
+  --unlock-section-y: 20px;
+  --unlock-card-time: calc(350ms * var(--motion-scale));
+  --unlock-card-y: 16px;
+  --unlock-card-start: calc(100ms * var(--motion-scale));
+  --unlock-card-step: calc(80ms * var(--motion-scale));
+}
+
+[data-unlock="welcome"] {
+  --unlock-y: var(--unlock-welcome-y);
+  animation: unlock-rise var(--unlock-welcome-time) var(--ease-out) both;
+}
+
+[data-unlock="section"] {
+  --unlock-y: var(--unlock-section-y);
+  animation: unlock-rise var(--unlock-section-time) var(--ease-out) both;
+}
+
+/* `--unlock-i` is the card's place in the list, which the sequence sets. */
+[data-unlock="card"] {
+  --unlock-y: var(--unlock-card-y);
+  animation: unlock-rise var(--unlock-card-time) var(--ease-out)
+    calc(var(--unlock-card-start) + var(--unlock-i, 0) * var(--unlock-card-step)) both;
+}
+
+[data-unlock="shimmer"] {
+  animation: unlock-shimmer var(--unlock-shimmer-time) both;
+}
+
+@keyframes unlock-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--unlock-y));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* One ease-in-out over all four values, not one per gap: the keyframes sit
+   where ease-in-out reaches a third and two thirds of the way, and each gap
+   runs on its own stretch of that curve, cut out of it exactly. */
+@keyframes unlock-shimmer {
+  0% {
+    opacity: var(--unlock-shimmer-from);
+    /* motion-literal: the first third of ease-in-out */
+    animation-timing-function: cubic-bezier(0.405, 0, 0.714, 0.449);
+  }
+  40.09% {
+    opacity: 1;
+    /* motion-literal: the middle third of ease-in-out */
+    animation-timing-function: cubic-bezier(0.338, 0.322, 0.662, 0.678);
+  }
+  59.91% {
+    opacity: var(--unlock-shimmer-dip);
+    /* motion-literal: the last third of ease-in-out */
+    animation-timing-function: cubic-bezier(0.286, 0.551, 0.595, 1);
+  }
+  100% {
+    opacity: 1;
   }
 }
 

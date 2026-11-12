@@ -140,8 +140,8 @@ export function CreateEventForm(props: { onSuccess: () => void; onCancel: () => 
           />
         </div>
 
-        {/* Time */}
-        <div class="flex gap-3">
+        {/* Time: stacked on a phone, side by side from md up */}
+        <div class="flex flex-col gap-3 md:flex-row">
           <div class="flex flex-1 flex-col gap-1">
             <Label for="startTime">Start time</Label>
             <Input

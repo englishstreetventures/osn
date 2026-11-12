@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { decodeOriginTrialToken, ORIGIN_TRIAL_TOKENS } from "@cire/build-tools/origin-trial";
 import { PRODUCTION_API_ORIGIN, retargetHeaders } from "@cire/build-tools/tier-headers";
 import { describe, expect, it } from "vitest";
 
@@ -89,6 +90,23 @@ describe("_headers", () => {
     );
     expect(csp).toContain("report-uri https://api.cireweddings.com/api/csp-report");
     expect(csp).toContain("report-to csp-endpoint");
+  });
+
+  it("sends the WebMCP origin-trial token on every path, and no other", () => {
+    // `Origin-Trial` is a Chrome trial token, public by design. The portal
+    // registers WebMCP tools; it has no use for the other two trials, whose
+    // tokens would enable features on a page that never calls them.
+    expect(headerValues(wildcardBlock, "Origin-Trial")).toEqual([ORIGIN_TRIAL_TOKENS.webmcp]);
+    expect(headerValues(contents, "Origin-Trial")).toEqual([ORIGIN_TRIAL_TOKENS.webmcp]);
+    expect(decodeOriginTrialToken(ORIGIN_TRIAL_TOKENS.webmcp).feature).toBe("WebMCP");
+  });
+
+  it("leaves the origin-trial token alone when the build points the file at another tier", () => {
+    // Only the cire-api origin is rewritten. The token is bound to the
+    // production zone and Chrome ignores it elsewhere, so a rewrite would
+    // only corrupt it.
+    const dev = retargetHeaders(contents, "https://api.dev.cireweddings.com");
+    expect(headerValues(dev, "Origin-Trial")).toEqual([ORIGIN_TRIAL_TOKENS.webmcp]);
   });
 
   it("keeps the inline theme-boot script and critical CSS running", () => {

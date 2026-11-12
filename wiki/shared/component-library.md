@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Component Library (Zaidan)
@@ -43,7 +43,7 @@ product layer, and which one a component belongs in is decided by
 | Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
-| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `SkeletonOutline`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
@@ -54,9 +54,9 @@ a named ceremony in the spec, so those stay in `osn/`.
 
 Who consumes what today: `@shared/ui` is a dependency of `musubi/social`,
 `pulse/web`, all four cire surfaces, `@cire/ui`, `@osn/auth-ui`, `tools/lab` and
-`tools/metrics`. `@osn/auth-ui` is consumed by `musubi/social` alone — it is the
-only surface that runs the ceremonies. `@cire/ui` is consumed by the four cire
-surfaces.
+`tools/metrics`. `@osn/auth-ui` is consumed by `musubi/social`, the only surface
+that runs the ceremonies, and by `tools/lab` for its stories. `@cire/ui` is
+consumed by the four cire surfaces.
 
 > [!warning] A primitive never imports upward
 > `@shared/ui` knows nothing of `@osn/client`, of a session, or of an app's
@@ -114,6 +114,7 @@ shared/ui/src/
     ├── qr-code.tsx         ← QrCode
     ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (native)
     ├── select.tsx          ← Select (native <select>, Input's box)
+    ├── skeleton.tsx        ← Skeleton — a loading placeholder in the corner of what it stands in for
     ├── stat.tsx            ← Stat
     ├── switch.tsx          ← Switch — an on/off change that takes effect at once (native)
     ├── switch-classes.ts   ← the switch's track and thumb classes, which the menu's switch row draws too
@@ -131,9 +132,13 @@ osn/auth-ui/src/
 │                             (RecoveryLoginForm and TurnstileWidget are barrel-only)
 ├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
+├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
+├── ConfirmLinkPage.tsx     ← Button, Card, Notice — the page an emailed link opens
+├── pairing-code.ts         ← isPairingCode: the number's format, for every view that draws one (not exported)
 ├── CreateProfileForm.tsx   ← UsernameInput
-├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx
-├── RecoveryCodesView.tsx   RecoveryLoginForm.tsx     ChangeEmailForm.tsx
+├── StepUpDialog.tsx  RecoveryLoginForm.tsx  ChangeEmailForm.tsx  ← OtpInput
+├── TotpView.tsx            ← OtpInput, Skeleton
+├── PasskeysView.tsx  SessionsView.tsx  RecoveryCodesView.tsx  ← Skeleton
 └── ProfileOnboarding.tsx   ProfileSwitcher.tsx  SecurityEventsBanner.tsx  TurnstileWidget.tsx
 
 cire/ui/src/
@@ -173,10 +178,12 @@ spreads its rest props onto an element therefore type-checks
 `<Td innerHTML={vendorName} />`, which reads at the call site like ordinary
 prop passing and is a script tag. `shared/ui/src/ui/props.ts` omits the three,
 so the mistake is a compile error. Anything that genuinely needs to write markup
-reaches for a bare element and says why. The menu's parts and `PopoverContent`
-are typed with it; `Notice` and `Chip` go further and take an allow-list of
-props. `shared/ui/tests/ui/markup-props.test.tsx` fails the type check if any
-of them takes markup again.
+reaches for a bare element and says why. `Badge`, `Checkbox`, `Input`, the
+menu's parts, `PopoverContent`, `RadioGroup`, `Select`, `Switch`, the table's
+parts, `Textarea` and `Tooltip` are typed with it; `Notice` and `Chip` go
+further and take an allow-list of props. `shared/ui/tests/ui/markup-props.test.tsx`
+fails the type check if the menu's parts, `PopoverContent`, `Chip` or `Badge`
+takes markup again, and `shared/ui/tests/ui/notice.test.tsx` does the same for `Notice`.
 
 ### `InfoPopover` — the form-field explainer
 
@@ -730,6 +737,15 @@ row, label and separator inside it, so one menu cannot mix two looks:
   then falls to `<body>` instead of going back to the trigger. The colour fade
   names its properties, so the ring never fades in.
 
+`DropdownMenuSeparator` draws its line as the 1px `--ui-hairline` fill in both
+looks, across the whole panel in the default one and inset in the accent one,
+with `border-0`. It renders as an `<hr>`, which keeps preflight's 1px top
+border in the panel's ink, and without `border-0` that border covers the fill
+in an app whose base styles leave border colour alone, as pulse's do
+([[frontend-patterns]] §An `<hr>` keeps preflight's border). A contrast theme
+replaces the fill with the page colour, so both separators draw their top
+border there instead, for the theme to paint.
+
 The rows:
 
 - `DropdownMenuItem` — one choice. With `as="a"` it is a real anchor taking
@@ -795,7 +811,8 @@ unstyled.
 
 `shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
 pointer, the link rules, the modal mount, the accent look's focus ring,
-motion and its contrast on cire's two ramps, the touch row and the handle.
+motion and its contrast on cire's two ramps, its separator with and without a
+contrast theme, the touch row and the handle.
 
 ### Table and its pinned cells
 
@@ -1114,6 +1131,8 @@ import { buttonVariants } from "@shared/ui/ui/button";
 Every size, the link inside a sentence, the `busy` wait and keyboard focus
 are in [[#Button — a link inside a sentence, and a wait]].
 
+**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse draws; Musubi maps 500 and draws no `Badge`, and the lab draws Musubi's 500 except in `BadgeWeights`' unmapped column, which lends `initial` ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
+
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
 These wrap Kobalte primitives with styling. They provide proper accessibility by default:
@@ -1145,6 +1164,22 @@ Key behaviours you get by default:
 - **Tooltip** — hover only, panel hidden from assistive technology; §`Tooltip` above says why
 - **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
 
+**`DialogTitle`'s weight is the contract's title weight.** It reads
+`--ui-weight-title` through `font-ui-title`, which falls back to 600, so an app
+that maps nothing draws a semibold title, and an app whose
+house style stops at 500 maps the token once ([[design-tokens#The tokens]]).
+No call site sets it with a class: `shadcn/no-restyle` refuses typography on
+`DialogTitle` ([[#What a call site may set, and what it may not]]).
+`shared/ui/tests/dialog-default.browser.test.tsx` holds what pulse draws today —
+the unmapped title's whole computed style as a snapshot written before the title
+read the token, and the panel entering from 0.96 over 120ms and leaving to 0.98
+over 80ms — so a `-u` that rewrites it changes pulse and needs the owner's
+approval. `dialog.browser.test.tsx` checks the title follows the token set on an
+ancestor. Musubi maps the token to 500 and `--ui-text-md` to its 14px title
+step, so its dialog titles draw 14px at 500. Overlays that fade without
+scaling are an app's choice too, made with the two scale tokens rather than a
+prop; Musubi makes it ([[design-tokens#Motion]]).
+
 ### Checkbox and RadioGroup — native, in two boxes
 
 `Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
@@ -1167,7 +1202,7 @@ The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then 
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 
-Thin wrappers that apply consistent base styling and accept a `class` prop for overrides. `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts`, so a date and a currency line up in a column:
+Thin wrappers that apply consistent base styling and accept a `class` prop for placement: layout, and `gap-*` on `Card`, `CardHeader`, `CardContent` and `CardFooter`. `shadcn/no-restyle` refuses the rest, so a card's room comes from its `padding` prop, not a `p-*` class ([[#What a call site may set, and what it may not]]). `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts`, so a date and a currency line up in a column:
 
 | Prop | Values | What it does |
 |---|---|---|
@@ -1194,12 +1229,258 @@ import { Card } from "@shared/ui/ui/card";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 
-<Card class="p-4">
+<Card padding="sm">
   <Field labelTreatment="plain" label="Email" errors={emailErrors()}>
     {(field) => <Input {...field} type="email" />}
   </Field>
 </Card>;
 ```
+
+**`CardTitle`'s weight is the contract's title weight**, as `DialogTitle`'s is.
+It reads `--ui-weight-title` through `font-ui-title`, which falls back to 600,
+so an app that maps nothing draws a semibold title, and an app
+whose house style stops at 500 maps the token once
+([[design-tokens#The tokens]]). No call site sets it with a class:
+`shadcn/no-restyle` refuses typography on `CardTitle`
+([[#What a call site may set, and what it may not]]). Musubi maps the token to
+500 and `--ui-text-md` to 14px, so `@osn/auth-ui`'s profile onboarding card in
+Musubi's settings draws its title at 14px and 500, and the metrics dashboard
+and the lab, through Musubi's stylesheet, draw 500. Pulse imports `Card` but
+draws no `CardTitle`. `shared/ui/tests/card-default.browser.test.tsx` holds the unmapped
+title's whole computed style as a snapshot written before the title read the
+token, so a `-u` that rewrites it changes every app that draws a card title and
+needs the owner's approval. `card.browser.test.tsx` checks the title draws 600
+with no token and follows the token set on an ancestor.
+
+### `OtpInput` — six boxes, one value with no gaps
+
+`<OtpInput value onChange status disabled autofocus aria-labelledby aria-describedby>`
+takes a six-digit code, one digit per box, in
+[otp-input.tsx](../../shared/ui/src/ui/otp-input.tsx). `@osn/auth-ui` is its
+only caller, for every six-digit code it asks for: sign-up (`Register`),
+recovery sign-in (`RecoveryLoginForm`), authenticator enrolment (`TotpView`),
+step-up (`StepUpDialog`) and an email change (`ChangeEmailForm`). Each ties its
+error line to the boxes and passes `error` only for a refused code
+(`osn/auth-ui/DESIGN.md` §7).
+
+| Prop | What it does |
+|---|---|
+| `value`, `onChange` | Controlled: a digit string of up to six, with no gaps. The caller's value follows `onChange` in the same tick |
+| `status` | `idle` (default), `error`, `verifying`, `accepted`. `verifying` and `accepted` disable the boxes. `error` paints every border `--ui-danger`, sets `aria-invalid` on every box and refocuses box 1; `accepted` paints `--ui-success`; otherwise `--ui-ink` at 55% (below) |
+| `disabled` | Disables every box |
+| `autofocus` | Focuses box 1 once it is mounted and enabled (below) |
+| `aria-labelledby` | `id` of the visible label. The group is named by it and box N is `<label> Digit N`. Without it the group is "Verification code" and box N "Digit N" |
+| `aria-describedby` | `id`s of the lines that describe the code (its error, a hint), set on every box |
+
+**Geometry.** The group is a `<fieldset>` with its browser box cleared; it
+fills its column and the boxes share it, each growing to 48px and no further,
+48px tall at every width. From a 328px column up the row is six 48px squares
+8px apart from the left edge. Narrower, the gaps close first, to 4px at a
+308px column, while the boxes stay 48px (the gap is
+`clamp(4px, 20% - 57.6px, 8px)`, a percentage of the column); then the boxes
+shrink. They are 40px wide, Musubi's touch floor
+([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md) §Responsive layout),
+at a 260px column, so a host gives the row at least 260px on a phone. Narrower
+still the row fits but breaks that floor: 32px boxes in a 212px column. Height
+stays 48px rather than following the width (`aspect-square`), which would make
+narrow boxes as short as they are wide.
+
+*Measured 2026-11-09 — `bun run --cwd shared/ui test:browser -- tests/otp-input.browser.test.tsx`, OtpInput geometry*
+
+The digit is `text-ui-md` (1.05rem unless the app maps `--ui-text-md`). iOS
+zooms a focused field set under 16px, so an app that maps `md` below 16px
+raises its form controls to 16px on a phone. Musubi maps 14px, its title step,
+and its mobile input rule sets every `input`, `select` and `textarea` to 16px
+below 768px, as it does for `Input`
+([DESIGN.md](../../musubi/social/DESIGN.md) §Typography, Mobile input
+exception).
+
+The corner is the contract's `field` radius, the one `Input`, `Textarea` and
+`Select` take, so the boxes round like the text fields beside them. An empty
+box's edge is `--ui-ink` at 55%, the ink fill's edge in `control.ts`: the box
+is filled with the ground, so the edge alone shows where it is, and the
+browser test holds it at 3:1 or more against the fill and the sheet around it
+on Musubi's light and dark grounds. Disabled boxes (`disabled`, `verifying`,
+`accepted`) dim to 70%, not the 50% the text fields take, so a code being
+checked stays readable: Musubi's ink at 70% over white is 5.5:1, at 50% 3:1,
+under the 4.5:1 text floor.
+
+*Computed 2026-11-09 — `--foreground` #292929 flattened at 0.7 and 0.5 over #ffffff (`musubi/social/src/App.css`), WCAG contrast*
+
+**The value has no gaps.** The boxes show the value from box 1, with no state
+of their own:
+
+- Focus that lands past the first empty box (a click, an arrow key, a script)
+  moves to it, and the boxes past it carry `tabindex="-1"`, so Tab leaves the
+  group rather than bouncing back.
+- Typing into a box that holds a digit replaces it and moves on; typing into
+  the first empty box appends.
+- Backspace, Delete, a cut or a phone keyboard's delete on a box that holds a
+  digit removes it, and the later digits move one box left, as in a text
+  field. Backspace on the empty box removes the digit before it and moves
+  there.
+- A paste, or an insert of more than one digit (a one-time-code autofill, a
+  keyboard's suggestion, a password manager setting the value), becomes the
+  whole value from its first six digits, wherever it lands, and focus goes to
+  the first empty box, or to box 6 when all six hold a digit. No box has
+  `maxlength`, which would cut such a fill to one digit.
+
+**Focus.** `autofocus`, and `status` being `error` (on mount, or when it
+changes to `error`), focus box 1 one task later (`setTimeout(0)`), and only if box 1 is connected and enabled then. Every
+caller sets the state that disables the boxes and the state that asks for focus
+in one synchronous run and clears its busy flag in a `finally`, so a focus
+call in `onMount` or in the effect lands on a disabled box and does nothing.
+Inside a Kobalte `Dialog` the focus scope queues its own first-focus as a 0ms
+timer before the boxes mount, so the boxes' timer runs after it and wins. If
+box 1 is still disabled when the timer runs, focus does not move.
+
+The focus mark matches the ground-fill text field's ring (`GROUND_HEAD` and
+`GROUND_TAIL` in `control.ts`), written out again in `otp-input.tsx`; a unit
+test fails when a ring class on `Input` is missing from the boxes, so a change
+to one reaches the other. It is 2px of `--ui-focus` 2px off a `--ui-ground`
+offset, drawn at once because the boxes fade only their colours, on the
+contract's `--ui-dur-fast`. `focus-visible:outline-hidden`, where the text
+field has `outline-none`, adds a transparent 2px outline that only a Windows
+contrast theme paints, on the focused box only, because the theme drops the
+ring's box shadow.
+
+**Errors.** `OtpInput` renders no text. The caller's error line takes an `id`
+the boxes name in `aria-describedby` — an inline `Notice` with `alert`, or any
+line with an id. Make it a live region (`role="alert"`, as `Notice alert` and
+`Field`'s error are): otherwise a screen reader hears the error only when the
+refocus lands on box 1 and reads the description.
+
+**What a call site sets.** `Field` cannot host it: its `<label for>` names one
+control, and a group needs the label's `id`. Put a `Label` (or a `<span>`)
+with an `id` above the boxes and pass that id as `aria-labelledby`.
+testing-library's `getByLabelText("Digit 1")` still finds a labelled box (it
+also matches `aria-label`); Playwright's `getByLabel("Digit 1")` does not,
+since it reads only the `aria-labelledby` text, so an E2E flow finds a
+labelled box with `getByRole("textbox", { name: /Digit 1$/ })`.
+
+`tests/otp-input.browser.test.tsx` holds the geometry, the empty box's edge
+contrast, the names and error as Chrome exposes them, each focus case (a
+disabled mount, a Kobalte dialog, a `Modal`, a step switch inside an open
+dialog, the error refocus), the input rules (Backspace, Delete, cut, arrow
+keys, an input that changes nothing, a whole-code fill) and the focus mark in
+and out of a contrast theme; `tests/ui/otp-input.test.tsx` holds the
+attributes, the unlabelled names, a paste into a later box and the ring shared
+with `Input`. The
+lab draws it in `shared/ui/forms` as `Otp`, `OtpStates` and `OtpNarrow`
+([[component-lab]]).
+
+### `Skeleton` — a loading placeholder in the corner of what it stands in for
+
+`Skeleton` (`shared/ui/src/ui/skeleton.tsx`) is the block a list or a panel
+shows in place of each line, row, field, button, card or chip while it loads,
+so the page holds its shape and nothing jumps when the content lands.
+
+```tsx
+<Skeleton standsFor="line" width={48} height={8} />   // a heading's line, 12rem × 2rem
+<Skeleton height={14} />                               // a row, full width × 3.5rem
+<Skeleton standsFor="pill" width={10} height={10} />  // an avatar, 2.5rem square
+```
+
+`standsFor` names what the block stands in for, and sets its corner:
+
+| `standsFor` | Stands in for | Corner | Musubi |
+|---|---|---|---|
+| `line` | a line of text | `rounded-ui-sm` | 6px |
+| `row` | a list row. The default, and the corner for any value it does not know | `rounded-ui-md` | 8px |
+| `field` | a text field or a select | `rounded-ui-field` | 8px |
+| `control` | a button | `rounded-ui-control` | pill |
+| `card` | a card | `rounded-ui-lg` | 16px |
+| `pill` | a chip; an avatar when `width` equals `height` | `rounded-ui-pill` | pill |
+
+`field` and `control` read the contract's role corners, the ones `Input`,
+`Select` and `Button` read, not a size ([[design-tokens#The tokens]]). So a
+placeholder takes the corner of the field or button that replaces it in every
+app: pulse's buttons are a rounded rectangle, not a pill, and cire's fields are
+14px against its 10px `md`.
+
+**Fill.** Every block paints the contract's sunk well, `bg-ui-surface-sunk`,
+at full strength, with no edge. Not `--ui-surface`: Musubi maps that to
+`--card`, which is its page white, and the block would vanish. Full strength
+because the pulse halves it: a half-strength `bg-muted/50` would reach about
+`#fcfcfc` on white at the pulse's low point. In Musubi's dark theme the well
+(`--muted`, `#2b2b2b`) sits close to a card (`--card`, `#242424`), so a
+skeleton inside a card is faint there; the lab's `SkeletonGrounds` shows it.
+A placeholder is `aria-hidden` and has no contrast floor to meet.
+
+**Contrast themes.** A forced-colours theme repaints every background as
+`Canvas`, the page's own colour, which would erase the block. So under
+`forced-colors: active` the block draws a 1px edge (`forced-colors:border`),
+which the theme paints in its own text colour, `CanvasText`; the pulse runs on
+it as it does anywhere else. The block does not opt out of the repaint
+(`forced-color-adjust: none`) to fill with `currentColor`, as the switch's
+thumb does: with the repaint off, `currentColor` is the page's own text colour,
+and where the page is dark and the theme light, or the reverse, that is the
+theme's `Canvas` and the block vanishes again.
+
+**Motion.** It pulses on `base:motion-safe:animate-pulse`: Tailwind's own theme
+token `--animate-pulse` (`pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite`, down
+to half strength and back), which is the token whose job is this pulse. No
+`--ui-*` motion token's job is a loop ([[design-tokens]]), so the component
+reads Tailwind's rather than writing a period of its own. Tailwind emits the
+`pulse` keyframes with the utility, so they never depend on another file using
+`animate-pulse`. An app that wants its own pace redefines `--animate-pulse` in
+its `@theme`; cire's would be `pulse calc(2s * var(--motion-scale))
+var(--ease-in-out) infinite`. Under `prefers-reduced-motion: reduce` the
+`motion-safe:` class does not apply, and the block stands still at full
+strength: neither Musubi nor pulse has a page-wide reduced-motion rule, so the
+prefix is the only thing that stops it there.
+
+**Size.** `width` and `height` are spacing steps, written inline as
+`calc(var(--spacing, 0.25rem) * n)`, which is what Tailwind's `w-n` and `h-n`
+compute (`48` is 12rem), so the size follows an app's `--spacing`. `height` is
+required. With no `width`, or `width="full"`, the block fills its container.
+It never runs wider than its container (`max-w-full`), so a 24rem line stops at
+a phone column's edge. A numeric width does not shrink in a flex row
+(`shrink-0`), so a square pill stays round beside a full-width line; two fixed
+widths in one row can still add up past it, so give one of them
+`width="full"`. A size that is not a finite number of at least 0 is refused:
+the width fills the container and the height falls to 4 steps (1rem, one line
+of body text), so a bad number from data still shows that something loads
+rather than an invalid `calc()` that draws nothing.
+
+**What reaches it.** One `<div aria-hidden="true">`, with no role and no
+children: it stands for nothing a screen reader should read. The region that
+holds the skeletons and the content that replaces them carries `aria-busy`
+while it loads; that is the caller's. Its `class` carries the block's place
+only — a margin, a flex or grid placement. Width and height are always inline,
+the full width included, so a `w-*` or `h-*` passed there never resizes the
+block. A row that is taller at one width takes one block per width, each
+hidden at the other (`md:hidden`, `max-md:hidden`): whether a block takes a
+place is placement, and Musubi's `ResponsiveSkeleton` draws the pair. No other
+prop reaches the block. That is a
+deliberate exception to step 2 of §Adding a new component (`splitProps`,
+`...others`, `SafeProps<"div">`), as `Meter` is: no role, handler, title or
+child should be able to turn a placeholder into something a reader reaches.
+
+**cire keeps its own.** cire's `Skeleton` (`cire/ui/src/skeleton.tsx`) paints
+`--ui-surface`, at full and 60%, with corners for cire's own stand-ins, and
+pulses on `--motion-scale` and the app's `--ease-in-out` through `PULSE`;
+`cire/ui/README.md` says why both exist. Neither cire nor pulse imports this
+one. The two share the prop `standsFor` and four of its words. `field`, `card`
+and `pill` take the same corner in both. `row` does not: cire's stands in for a
+row of a table, inside `Table`'s frame, and takes that frame's
+`rounded-ui-sm`; this one's stands in for a list row drawn as a block of its
+own, as Musubi's connections and members lists and `@osn/auth-ui`'s settings
+panels draw theirs, and takes `rounded-ui-md`. The defaults differ too: cire's is `card`, this one's is
+`row`. So `<Skeleton standsFor="row">` and a bare `<Skeleton>` draw different
+corners in the two packages.
+
+`tests/skeleton.browser.test.tsx` holds the pulse (the theme's token, the fade
+to half at 1s, an app's own `--animate-pulse`, and the stop under reduced
+motion), the fill and the absent edge for every stand-in, the edge in the
+theme's text colour in a contrast theme, each one's corner (a role's for `field` and `control`) and
+a row's for an unknown or missing value, the size in spacing steps under an
+app's `--spacing`, a size of 0, the refused sizes (a refused width fills what
+its flex row leaves), the phone column, the square pill in a crowded row,
+Chrome's accessibility tree hiding it for `aria-hidden`, a caller's margin, and
+a caller's `w-*` and `h-*` leaving its size alone ([[browser-tests]]). The lab draws it in `shared/ui/feedback`
+as `Skeletons`, `SkeletonGrounds`, `SkeletonInPlace` and `SkeletonPlayground`
+([[component-lab]]).
 
 ### Overlays: `Modal`, and why its exit is deferred
 
@@ -1494,8 +1775,10 @@ width, so a choice moving shifts nothing, and each choice names itself with
 55% under the accent at 14% (composited into one colour, so a test can read
 what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
 app token; white at 10% when unset), a hairline ring, the first lift and a
-12px frosted backdrop. The glass slides on the house spring
-(`--ease-spring`, falling back to the app's ease-out) at `--dur-base`, inside
+12px frosted backdrop. The glass glides at `--dur-slow`: its place on
+`--ease-glide`, a spring that goes 3% past (falling back to the app's
+ease-out, never to the bouncier `--ease-spring`), its size on `--ease-out`, so
+it never grows past the choice (host `DESIGN.md` §4). It moves inside
 its own layer clipped to the track's shape, so an overshoot is cut by the
 track and no focus ring is. Under the pointer an unchosen choice goes halfway:
 half the tint, an ink between the two. A hover's colours come and go on
@@ -1542,7 +1825,11 @@ the vendor portal's two views (`current`). Host `DESIGN.md` §7 has the look and
 §A tab strip inside a view, §The invite builder's two tiers the layouts.
 
 `createSlidingPill` (`cire/ui/src/lib/sliding-pill.ts`) is the highlight under
-it, and the module rail's marker: `ease: "out"` (the default) or `"spring"`.
+it, and the module rail's marker: `ease: "out"` (the default; place and size
+on `--dur-base` and `--ease-out`) or `"spring"` (the glide above).
+`cire/ui/tests/lib/sliding-pill.browser.test.tsx` samples the glide frame by frame: under
+4% past, a size that never passes the choice's, a second tap that starts
+from where the glass is, and no move for a reader who turned motion down.
 `cire/ui/tests/segmented-tabs.test.tsx` holds the roles and keys,
 `segmented-tabs.browser.test.tsx` where the glass lands, the 28px and 22px
 heights, each label's 4.5:1 on both ramps, the ring and the scrolling strip.
@@ -1830,6 +2117,392 @@ action that goes nowhere stays a `<button>`, outside the sentence. A link that s
 with the word in its name and its title in a row under 14rem (`cire/host/DESIGN.md` §7). The guest site's pills are `md` at its 44px
 floor.
 
+### `@osn/auth-ui`'s `CheckEmailView` — the wait after a flow emails a link
+
+[CheckEmailView.tsx](../../osn/auth-ui/src/CheckEmailView.tsx) is the screen
+sign-up, recovery, step-up and email change show once they have emailed a link:
+"Check your email". It is presentational. The parent sends the link, polls for
+the confirmation and passes `status`; the view decides what the person sees and
+hears while they wait, and when Resend may be pressed. Its design rules — type,
+layout, states, errors, focus — are in
+[`osn/auth-ui/DESIGN.md`](../../osn/auth-ui/DESIGN.md); this section holds its
+props, the decisions behind them, the host's rules and the tests. Its sizes
+resolve through `musubi/social/DESIGN.md`'s mapping, the one app that renders
+it.
+
+| Prop | What it does |
+| --- | --- |
+| `email` | The address the link went to, in the body ink, with `translate="no"` so a browser's page translation cannot rewrite it. Absent, the view says "your email address": step-up mails the account's own address, which its tab does not hold |
+| `purpose` | `sign-up`, `recovery`, `step-up` or `email-change`. Picks the line saying what opening the link does, and recovery's wording below |
+| `status` | `waiting`; `expired`, which unlocks a new link at once; `error`, beside `errorMessage` (a generic line when it is empty) |
+| `onResend` | Called once per accepted press. A rejection is the parent's to report, through `status` |
+| `onChangeEmail` | "Use a different email". Absent, no button |
+| `resendWaitSeconds` | Seconds before Resend unlocks, after the view appears and after each press. 30 by default; anything not a positive number means no wait |
+| `pairingCode` | The number the page the link opens asks the person to type (recovery, step-up) or pick (sign-up, email change), from the host; the view never makes one. Drawn only when it is one to six digits, 0-9 (`isPairingCode` in `osn/auth-ui/src/pairing-code.ts`); anything else draws nothing. Absent, the view is as it was without one |
+
+What it draws, in musubi's sizes through the contract: an `h3` at
+`text-ui-base` medium ("Check your email", or "Your link has expired"); one
+sentence at `text-ui-sm` in the secondary ink; the line saying what opening the
+link does, which an expired link drops; the number, when there is one, at
+`text-ui-xl` (musubi's `text-display`, 24px on a 30px line through
+`leading-ui-tight`), medium, in the body ink and tabular figures, with "Pick
+this number on the page the link opens." under it in the secondary ink ("Type
+this number…" on recovery and step-up, whose pages ask the person to type it), which an
+expired link also drops; then Resend and "Use a different email"
+as small ghost buttons, 40px tall below `md` (musubi's phone touch height,
+through `max-md:h-10` at the call site) and `Button`'s own 32px from `md` up. An
+expired link's Resend becomes the filled pill, "Send a new link". No code box
+and no other factor: the dialog around the view draws any way back. The number
+is not boxed either, because nothing is typed here; its size alone sets it
+apart, and it is the largest text in the view on purpose, larger than the
+heading, as the one thing the person carries to another screen
+(`musubi/social/DESIGN.md` §Typography gives `text-display` that role). The
+countdown is the disabled Resend button's own label, at `Button`'s disabled
+opacity like every other disabled `Button`: 3.03:1 on musubi's light surface and
+4.56:1 on its dark one, which WCAG 1.4.3 exempts for a disabled control.
+
+*Measured 2026-11-06 — the lab's `osn/auth-ui/CheckEmailView/WaitingBeforeResend` story at 360 and 1280px in Playwright's Chromium, the label's ink composited at its opacity over the painted card on a canvas*
+
+The number measures 14.55:1 on the light surface and 13.87:1 on the dark one,
+and its caption 6.58:1 and 6.15:1. Six digits, the most the format allows, are
+89px wide.
+
+*Measured 2026-11-06 — the lab's `WithPairingCode` and `PhoneWithPairingCode` stories at 320 and 1280px, light and dark, in Playwright's Chromium, each ink composited over the painted card on a canvas*
+
+A long address breaks where it must (`wrap-anywhere`), so a 320px
+column never scrolls sideways.
+
+- **The wait is read from the clock.** Each wait sets a deadline, and every tick
+  works out the seconds left from it, so a tab the browser held in the
+  background shows the true time on its next tick. Starting a wait stops the one
+  before, so one interval runs at a time, and the view stops it when it unmounts.
+- **What is read out.** The sentence sits in a `role="status"` region, so a
+  press ("Sending a new link…", then "We sent a new link") and an expiry are
+  announced. An error is an inline danger `Notice` with `alert`, 8px under the
+  region and outside it, so it is read once as it appears; it goes while
+  Resend sends, so a second failure is read out again. The countdown sits in
+  the disabled Resend button, outside the region, so it is never read out.
+- **The wait for a send.** Resend is `Button`'s `busy` while `onResend` runs:
+  "Sending…" with the orb, focus kept, a press refused. "Use a different email"
+  is `disabled` meanwhile, so nothing leaves the view mid-call
+  (`osn/auth-ui/DESIGN.md` §6).
+- **The number.** It sits outside the region, so it is read once in the page's
+  order and not again each time the region changes. A visually hidden "Your
+  number:" comes before the digits in the same paragraph, so the line reads
+  "Your number: 47"; Chromium exposes the two as text runs of one paragraph, in
+  that order. The digits alone carry `translate="no"`. The number is in no
+  attribute and no `title`. After a resend with a number shown, the announced
+  sentence ends "Check the number again.", because a number that changes outside
+  the region is not read out; it never says the number is new, since two
+  requests can draw the same one. It stays in `error` and while a resend is
+  sending: the link already sent still stands. The caption's verb follows the
+  flow's pairing mode (`PAIRING_MODE`): recovery's and step-up's pages have the
+  person type the number, sign-up's and email change's have them pick it from
+  a few, so the caption says "Type" or "Pick" to match.
+- **Focus.** The heading (`tabindex="-1"`) takes focus when the view appears,
+  because the form that sent the link has just gone, and again when a send
+  ends with Resend holding focus and the wait disabling it. Focus never falls
+  to `<body>`, which in a Kobalte dialog would leave the trap restoring to a
+  disabled button.
+- **Recovery promises nothing.** Recovery answers every address alike, so its
+  sentence reads "If ada@example.com has an account, a link is on its way". The
+  other three say "We sent a link to …", as the code screens they replace did.
+- **No motion of its own.** It declares no transition or animation; `Button`'s
+  colour transition is the only motion, which `musubi/social/DESIGN.md` allows.
+  The countdown is text, so the view is the same under reduced motion.
+
+For a host:
+
+- Mount it inside a dialog that is already open, as `Register` swaps its steps.
+  A Kobalte dialog that opens straight onto the view runs its own autofocus
+  after the view's, and takes the heading's focus away.
+- Both buttons are `type="button"`, so the view may sit inside a `<form>`.
+- For sign-up and recovery, pass the same `status` and `errorMessage` whether
+  or not the address has an account. A request for an address with no account
+  stays `waiting` and expires on the same timer as any other. An error that
+  depends on the caller, such as a rate limit or a failed Turnstile check, may
+  set `error`.
+- Set `status` back to `waiting` once a new link has been sent. While it stays
+  `expired`, Resend ignores the wait.
+- Pass `errorMessage` for a failed call as a sentence from `describeAuthError`
+  (`@osn/client`), never the error's own `message` (`osn/auth-ui/DESIGN.md`
+  §7). An answer that is not a failure takes the host's own line: `Register`
+  says when the request has sent every link it may.
+- Recovery allows three links a day per account from one client address, and
+  three Resends a day per account (`osn/api/src/services/auth/constants.ts`),
+  so its host passes a longer `resendWaitSeconds` than the default:
+  `RecoveryLoginForm` passes 120. At 30 seconds, a person spends the day's
+  sends in under two minutes.
+- Pass `pairingCode`: the number the request was given, for the page the link
+  opens to ask for. For sign-up and recovery, every request gets one, whether
+  or not the address has an account, so a number on screen says nothing about
+  the account.
+- Resend on a live request sends another link for the same request, and the
+  request keeps its number, so `pairingCode` does not change. An `onResend`
+  that begins a new request instead, as after an expiry, passes the new
+  request's number before it resolves, and before or with `status` going back
+  to `waiting`, so the new number is on screen when "Check the number again."
+  is read out.
+- Show the number only on this tab. Never log it, and never put it in a URL,
+  the email, storage or an attribute.
+- A value that is not one to six digits draws nothing, so a host that passes the
+  wrong thing shows no number. The host's E2E reads the number off this screen
+  and picks it on the page the link opens, or types it there on recovery and
+  step-up, which catches that.
+
+`osn/auth-ui/tests/CheckEmailView.test.tsx` holds the wait, the one call per
+press, Resend busy with "Use a different email" disabled, the region's words,
+the error as an alert of its own that goes while Resend sends, the focus moves
+and the timer's end, the address's
+`translate="no"`, and the number: drawn or not, outside the region, its hidden
+label first, kept from translation, refused unless it is one to six digits
+(and then written nowhere, text or attribute), hidden while expired, kept in
+`error` and while sending, replaced when the host passes a new one, in no
+attribute, the caption's "Type" on recovery and step-up and "Pick" on
+sign-up and email change,
+and "Check the number again." after a resend. `@osn/auth-ui` has no
+browser tier, so
+[`CheckEmailView.layout.browser.test.tsx`](../../musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx)
+in `@musubi/social` holds the layout in musubi's auth sheet under musubi's
+stylesheet: the long address that leaves a 320px phone's 288px column with
+nothing to scroll sideways, "Resend in 30s" as one run of text on one line,
+both buttons at 40px below `md` and 32px from it, and the six-digit number
+inside that column at 24px on a 30px line in tabular figures, its label a 1px
+box and the paragraph's accessible text "Your number: 123456"
+([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
+state, every flow, a 320px phone, and the number at rest, on recovery and
+step-up, across a resend and on a phone ([[component-lab]]).
+
+### `@osn/auth-ui`'s `ConfirmLinkPage` — the page an emailed link opens
+
+[ConfirmLinkPage.tsx](../../osn/auth-ui/src/ConfirmLinkPage.tsx) is what a
+sign-up, recovery, step-up or email-change link opens: "Confirm this email",
+the numbers to pick from, and "I didn't ask for this". The page asks the person
+to pick the number shown on the waiting screen, which `CheckEmailView` draws
+from its `pairingCode`; with `typeNumber`, which recovery's and step-up's hosts pass, it asks
+them to type that number instead. It is presentational. The host route reads the link,
+clears its secret from the address bar before anything else on the route can
+read the URL, reads the numbers with that secret, and passes `onConfirm`, which
+makes the confirm `POST`; the page decides when that call may run and what the
+person sees and hears around it. Its look follows `musubi/social/DESIGN.md` and
+[osn/auth-ui/DESIGN.md](../../osn/auth-ui/DESIGN.md), as `CheckEmailView`'s does.
+
+| Prop | What it does |
+| --- | --- |
+| `purpose` | `sign-up`, `recovery`, `step-up` or `email-change` — the type is `CheckEmailView`'s, so a new flow is a type error in both copy tables. Picks what confirming is said to do |
+| `email` | The address the link went to, in the body ink. Absent, the page says "this address", which is the usual case: the link carries no address. Where a host may get one is below |
+| `candidates` | The numbers to pick from, one of them the waiting screen's: three to five, all different, each one to six digits, 0-9 (`isPairingCode`). Drawn in the order given — osn-api's, sorted ascending — exactly as written. Any other list draws the expired page |
+| `onConfirm` | Called with the number tapped, or `null` for "I didn't ask for this"; once per tap or Try again, never otherwise. Resolves `"confirmed"` for a number, `"declined"` for `null`, or `"expired"` for either; a throw, or any other answer, is an error the person can try again |
+| `onContinue` | Continue, after a confirm, where the host knows the person can carry on in this tab. Absent, the page sends them back to where they started |
+| `initialOutcome` | `"confirmed"` or `"expired"`: opens the page on that answer, with nothing to pick and no call. `candidates` may then be left out |
+| `typeNumber` | `true`: one field to type the number in, in place of the numbers to pick. `onConfirm` receives the entry exactly as typed. Never with `candidates`. The props type requires one of `candidates`, `initialOutcome` and `typeNumber` |
+
+What it draws, in musubi's sizes through the contract: the shared `Card`
+(`padding="lg"`: the surface, the hairline, the 16px corner); an `h1` at
+`text-ui-base` medium; the sentences at `text-ui-sm` in the secondary ink; the
+numbers in a `<fieldset>` whose `<legend>` is "Pick the number shown on the
+screen where you started.", one column of full-width `outline` Buttons 48px
+tall, each number at `text-ui-xl` medium in tabular figures, the size the
+waiting screen draws it; under them "I didn't ask for this", a full-width
+`ghost` `sm` Button, 44px below `md` and 32px from it. Try again and Continue are
+full-width filled pills, 40px on a desktop and 44px on a phone. With
+`typeNumber`, in place of the numbers: a shared `Field` whose plain label, "Type
+the number shown on the screen where you started.", sits 6px over one shared
+`Input` (`size="touch"`: 46px
+with 16px type below 640px, so a phone does not zoom, 44px above; `face="code"`:
+mono with wide tracking, for a value checked character by character;
+`fill="ink"`, because it sits on the card rather than the page's ground), then a
+full-width Confirm, 40px and 44px like Try again, then the decline.
+
+| State | Heading | Body | Buttons |
+| --- | --- | --- | --- |
+| ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and that "I didn't ask for this" is below | the numbers, or the field and Confirm (disabled until it holds one to six digits); I didn't ask for this |
+| confirming | Confirm this email | The same; "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds, "This is taking longer than usual. Keep this page open." | the one that started the call busy — the number tapped, Confirm ("Confirming…"), I didn't ask for this ("Cancelling…") or Try again — and every other one disabled, the field still holding the entry |
+| error | Confirm this email | The same, "You picked {n}." or "You typed {n}.", then a danger `Notice` with `alert` — "We couldn't confirm this email just now.", or "We couldn't cancel this just now." — directly above Try again, the action it follows (`osn/auth-ui/DESIGN.md` §7) | the numbers, or the field, disabled; I didn't ask for this, still open; Try again |
+| confirmed | Confirmed | "Go back to where you started to …" and "You can close this page", or "Continue to …" with `onContinue` | none, or Continue |
+| declined | Cancelled | "Nothing was confirmed. You can close this page." (step-up: someone else may be signed in, so sign out the other sessions) | none |
+| expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, ask for a new link there. The same words for every refusal; step-up adds that if you didn't ask for this link, someone else may be signed in, so sign out the other sessions | none |
+
+- **Only a tap confirms.** Mail scanners open links before people do, so
+  nothing on mount, on a prop change or on a timer calls `onConfirm`. Tapping a
+  number is the confirm, with no second button: it sends that number. The
+  control pressed turns `Button`'s `busy` and every other choice disables
+  itself the moment one is pressed; neither a busy nor a disabled button takes
+  a click, so one tap is one call. A busy number keeps its digits, with the
+  orb before them, since "You picked {n}. Confirming…" under the choices names
+  the wait; Confirm, the decline and Try again read "Confirming…" or
+  "Cancelling…" (`osn/auth-ui/DESIGN.md` §6).
+- **The person picks the number the waiting screen shows.** The page does not
+  know which number is right, never reorders the list, and draws each as
+  written: no `Intl`, no padding, no grouping. The digits carry
+  `translate="no"`, so page translation cannot rewrite them. One column at every
+  width: a number runs to six digits, and five of them do not fit a row of the
+  400px card; a row whose last line held fewer would make the buttons unequal.
+- **A refusal looks like every other refusal.** A number that is not the one
+  shown ends the request on the server, and the host answers `"expired"`, so the
+  page shows the same expired page as a used or out-of-date link, or a list it
+  cannot offer. No state says a pick was wrong, and nothing offers the same
+  numbers again.
+- **Or types it.** With `typeNumber` the page draws no numbers. The field takes
+  a numeric keyboard (`inputmode="numeric"`), no autocomplete and no spelling
+  help, at most six characters, and `translate="no"`. An insertion that would
+  leave anything but digits — a letter, a space, a dash in a paste, a seventh
+  digit — is refused at `beforeinput`, so the keystroke or paste does nothing;
+  what is already typed is never changed or stripped, so the page sends
+  exactly what the person typed. Nothing says the entry is wrong: Confirm, and
+  Enter in the field, stay inert until it holds one to six digits. Enter never
+  submits a form around the page. A number that is not the one shown is a
+  refusal like any other: the expired page.
+- **"I didn't ask for this"** sends `null` at once, with no second step, and a
+  `"declined"` answer shows "Cancelled". It is the person's own act, so it reads
+  differently from a refusal. It stays open in the error state: a person who
+  did not ask must still be able to say so when the last call failed, whatever
+  that call was. There it sends `null` as a new attempt, while Try again
+  repeats the last one.
+- **An answer must fit what was sent.** A number can come back `confirmed` or
+  `expired`, a decline `declined` or `expired`. Anything else is the error
+  state, so a host's mistake never shows "Confirmed" after a decline.
+- **Try again sends the same attempt.** A throw means no answer about the link
+  came back. Try again sends the number already picked, or the decline, again,
+  never a new pick; the numbers stay on screen, disabled, with "You picked
+  {n}.". The decline is the one other way out (above). If the first call reached the server and was accepted, the repeat must
+  come back as that answer; if it was refused, the request is gone and the
+  repeat comes back expired. The pick lives in the page's memory only.
+- **It says who gets what.** The link is often opened on another device than
+  the one that asked, so each flow says what confirming lets _the device that
+  asked_ do: finish signing up; get into the account, signing out every other
+  device (recovery's completion revokes every session,
+  `osn/api/src/services/auth/recovery-factors.ts`); something sensitive such as
+  adding a passkey (step-up); set this address as the account's email. Every
+  flow points at "I didn't ask for this". For step-up that is not the end: an
+  unasked step-up means someone may be signed in, so it says to sign out the
+  other sessions, on the cancelled page and on the expired page too
+  (`EXPIRED_WARNING`), since a link that no longer works says nothing about who
+  asked for it.
+- **The page keeps its own state.** The guarantees above then hold in one
+  tested place rather than in four hosts, and the answer to the call is the
+  only source of truth. `initialOutcome` is the one way in from outside: a host
+  that already knows the answer opens the page on it.
+- **What is said aloud.** One `sr-only` `<output>` with `aria-live="polite"`
+  and `aria-atomic="true"`, mounted from the start and empty until something
+  changes, as `AuthorizePage`'s is ([[authorize-ui]]). It says "Confirming…" or
+  "Cancelling…", the slow line and each answer with its heading word
+  ("Confirmed. Go back to …"). The error line is a `Notice` with `alert`, so
+  the output says nothing for it rather than say it twice. An opening answer or a list the page cannot
+  offer is drawn from the start and says nothing. The heading sits outside it.
+- **Focus.** The heading (`tabindex="-1"`) takes focus on mount and on every
+  answer. While a call runs, the busy control that started it keeps focus;
+  focus left anywhere else, on a choice that has just disabled or in the typed
+  field after Enter, goes to the heading, so focus never falls to `<body>`.
+  When the answer comes the busy control goes or disables, and focus moves to
+  the heading, which is why the output carries the heading word.
+- **The error text is fixed.** A thrown error's own message ("Failed to fetch",
+  or whatever detail a host's error carries) never reaches the page.
+- **No deadline.** Confirming is a write. Abandoning it could offer "Try again"
+  over an approval that went through, which `AuthorizePage`'s decision call
+  avoids for the same reason. After 10 seconds the page only says it is still
+  working.
+- **Left-aligned**, unlike `AuthorizePage`'s centred terminal cards, which hold
+  one sentence each. This card holds two or three sentences and sometimes a
+  `Notice` with its mark; centred, both edges go ragged and the mark floats.
+- **No motion of its own.** `Button`'s colour transition is the only one.
+
+On the light surface the numbers measure 14.55:1, 13.23:1 hovered; the legend
+6.58:1; "I didn't ask for this" 14.55:1; the focus ring 6.58:1. On the dark one:
+15.22:1, 12.65:1, 6.15:1, 13.87:1 and 6.15:1. A disabled number is 3.03:1 and
+4.78:1, which WCAG 1.4.3 exempts. Each number's 1px border is `Button`'s
+`outline` border, 1.3:1 and 1.36:1 against the card, as on every outline
+Button: the digits, not the border, say it is a target. In a contrast theme a
+number reached from the keyboard draws a solid 2px outline 2px off.
+
+*Measured 2026-11-07 — the lab's `Ready` and `Confirming` stories at 1280px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the contrast theme through `forcedColors: "active"`*
+
+The typed field's edge measures 3.45:1 on the light card and 5.18:1 on the dark
+one, and its entry 13.46:1 and 12.47:1; focus from the keyboard draws a solid
+2px outline 2px off, 6.58:1 and 6.15:1, and the same in a contrast theme.
+Pressing "a" leaves "4821" as it was, and typing "12-3 4567" key by key leaves
+"123456". The label was measured at 6.58:1 and 6.15:1 in the secondary ink; it
+now takes the heading's full ink, as a plain label does, and was not measured
+again.
+
+*Measured 2026-11-07 — the lab's `TypedNumber` story at 1280px and `TypedNumberPhone` at 320px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the keystrokes through Playwright's keyboard*
+
+For a host:
+
+- For recovery and step-up, pass `typeNumber` and no `candidates`: the page
+  asks the person to type the number shown on the waiting screen. Never read
+  the numbers for those flows, and never show one. Send the entry as given; a number that is not
+  the one shown is refused like any other and resolves `"expired"`.
+- Read the numbers with the link's secret before the page renders, from a call
+  that presents it; never keep, log or store them, and never put them in a URL
+  or an attribute. Pass the list exactly as osn-api sends it, sorted
+  ascending; the page keeps that order. The waiting screen's number is drawn
+  uniformly from the list, so its place in it says nothing about which is
+  right, and no host reorders it.
+- Pass `pick` to the confirm call as given, and `null` as the decline. Resolve
+  `"confirmed"` only for an accepted number and `"declined"` only for an
+  accepted `null`; map nothing else to either.
+- Resolve `"expired"` for every answer that refuses the link — unknown, wrong
+  secret, a number that is not the one shown, a refused decline, used or
+  expired; over HTTP, every 4xx but 429. Throw only when no answer about the
+  link came back: a network failure, a rate limit, a server error. Try again
+  has no cap and sends the same attempt, so a refused secret or number thrown
+  instead would offer a retry the server has already ended.
+- A repeat of an accepted attempt must come back as that answer, so the server
+  must answer a correct secret and number sent again to a request it approved
+  as confirmed, and a decline sent again to a request it ended as declined.
+- Pass `initialOutcome` instead of `candidates` when the answer is already
+  known: `"confirmed"` for a link opened again after it was confirmed,
+  `"expired"` when the read of the numbers was refused.
+- The link's secret is a one-use credential. Read it from the fragment and
+  clear it with `history.replaceState` before the page renders, so nothing else
+  on the route reads it from the URL. Hold it in memory only, never in
+  `sessionStorage`, `localStorage` or a cookie. Send it in the JSON body of the
+  confirm `POST`, never in its path or query, as the cross-device routes do
+  ([cross-device.ts](../../osn/api/src/routes/auth/cross-device.ts)). Keep it
+  out of anything the host throws or logs.
+- Pass `email` only from the answer to a call that presented the secret, or
+  pass none. Never take it from the link's URL, which mail scanners, history
+  and request logs keep, nor from a read keyed by the request id alone: the id
+  sits in the path and is not secret.
+- The page is the card alone. Draw the page around it — `<main>`, the column,
+  centring, the safe areas — as `AuthorizePage` draws its own, with no app
+  shell around it.
+- Its buttons are `type="button"`, so the page may sit inside a `<form>`.
+
+`osn/auth-ui/tests/ConfirmLinkPage.test.tsx` holds the no-tap guarantee, one
+call per tap with exactly the number tapped, the numbers in order as written
+and kept from translation, every number's button the same apart from its
+digits, no number or pick in an attribute, the title or the URL, each list the
+page refuses, a refusal identical to every other, no word that a pick was
+wrong, the decline and its answer, the decline still open after an error and
+sending `null` as a new attempt, an answer that does not fit what was sent,
+Try again with the same attempt every time, the opening answer (and, through
+`typecheck`, a page given neither numbers nor an opening answer, or both
+numbers and `typeNumber`), the typed field — Confirm inert until one to six
+digits, each insertion it refuses, Enter once and Enter then Confirm once, the
+entry sent as typed and again on Try again, the decline with nothing typed,
+after an error, and blocked while a confirm runs with the slow line still
+shown, the field's attributes, never `aria-invalid` or `aria-errormessage`, the
+entry in no attribute, an opening answer with no field — each flow's words,
+step-up's warning on the expired page, the untranslated address, the focus
+moves, what the output says, the slow timer's end, no touch of the address bar
+or the history, and a silent console in both modes. `@osn/auth-ui` has no browser
+tier, so
+[`ConfirmLinkPage.layout.browser.test.tsx`](../../musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx)
+in `@musubi/social` holds the layout on a bare route under musubi's stylesheet,
+inside `AuthorizePage`'s `<main>`: at a 320px viewport five six-digit numbers
+and a long address fit a 272px card with nothing to scroll sideways; the
+numbers stand one under another at 320 and 1280px, each at least 44px tall
+with its digits 24px in tabular figures; "I didn't ask for this" sits under them
+at 44px below `md` and 32px from it; Try again and Continue are 44px below `md`
+and 40px from it; typed, the field, Confirm and the decline fit the 272px card,
+each at least 44px tall, the field at 16px with an edge of at least 3:1, and
+Confirm 40px at 1280px; the number picked and the notice sit between the numbers and
+Try again ([[browser-tests]]). The lab's `osn/auth-ui/ConfirmLinkPage` stories
+show each state, every flow, the decline, step-up's expired page, an opening
+answer, the typed field and two 320px phones ([[component-lab]]).
+
 ## Adding a new component
 
 A primitive, in `@shared/ui`:
@@ -1856,8 +2529,10 @@ obvious which of the three, [[osn-and-musubi]] decides it. Either gets lab
 stories under `tools/lab/src/stories/osn-auth-ui/` or `cire-ui/`, never beside
 the component ([[component-lab#Stories for auth and cire components]]).
 
-A new or changed component in any of the three ships in a pull request of its
-own, under the feature that uses it: [[stacked-prs#Frontend: one component per pull request]].
+A new component in any of the three that one feature uses ships inside that
+feature's pull request; a change to one another app already uses, or a new one
+several features will use, ships in a pull request of its own under them:
+[[stacked-prs#Frontend: when a component gets its own pull request]].
 
 ## Testing considerations
 
@@ -1869,7 +2544,9 @@ file lands in exactly one. `bun run --cwd shared/ui test:run` runs the first,
 project loads `cire/ui/tests/test-support/tailwind.css`, which maps cire's own
 two ramps (the literals the lab's `cire-mapping.ts` resolves) rather than a
 synthetic palette, so a contrast assertion there is a claim about cire's
-colours. `@osn/auth-ui` has a unit tier only.
+colours. `@osn/auth-ui` has a unit tier only; `@musubi/social`'s browser tier,
+where the views render, holds `CheckEmailView`'s layout (its section above
+names the file).
 
 The split exists because the unit project parses no stylesheet and computes no
 layout: it can assert a class list and a DOM shape, but not that a class emitted

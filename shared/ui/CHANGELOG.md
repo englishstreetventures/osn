@@ -1,5 +1,65 @@
 # @shared/ui
 
+## 0.15.1
+
+### Patch Changes
+
+- 2035748: `Modal`'s comment on its keyword curves says why its exit does not read the new `--ui-ease-exit`: its `ease-in` speeds up as the dialog goes, and the Kobalte overlays' exit curve slows down. Its stylesheet is unchanged. `overlay-motion.browser.test.tsx` holds `Dialog`, `Popover` and the default menu closing on `--ui-ease-exit`, apart from `--ui-ease-out`, and `dialog-default.browser.test.tsx` holds an unmapped `Dialog`'s entry and exit on `cubic-bezier(0.22, 1, 0.36, 1)`.
+
+## 0.15.0
+
+### Minor Changes
+
+- 9a86d64: `CardTitle` reads its weight from the design-token contract's title weight, `--ui-weight-title`, through `font-ui-title`, and falls back to 600, the `font-semibold` it carried before, as `DialogTitle` does. No app maps the token, so every card title draws exactly as before: a snapshot of the title's computed style written before the change still passes. Pulse imports `Card` but draws no `CardTitle`. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+### Patch Changes
+
+- e275448: `card-default.browser.test.tsx` says which apps draw the unmapped card title it holds: pulse and cire, which map no title weight. Musubi maps 500, and the metrics dashboard and the lab draw its 500. The test and its snapshot are unchanged.
+
+## 0.14.0
+
+### Minor Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+### Patch Changes
+
+- 5684587: `DropdownMenu`'s default separator draws only its 1px hairline. It renders as an `<hr>`, which kept preflight's 1px top border in the panel's ink, and that border covered the hairline in pulse's menus; Musubi's menus look the same as before, because its base styles already painted that border in the hairline colour. In a contrast theme, which replaces the fill with the page colour, the separator draws its top border, so the line still shows there. The accent separator cire's menus draw now does the same in a contrast theme, where it showed no line before; outside one it is unchanged.
+
+## 0.13.0
+
+### Minor Changes
+
+- 2c2906f: A title weight in the token contract, and `Badge` reads it.
+
+  - `@shared/design-tokens`: new role token `--ui-weight-title`, the weight a shared part sets a short title or a tag in, read through the utility `font-ui-title` (`--font-weight-ui-title` in `@theme inline`). It falls back to 600. `CONTRACT_SCALAR_TOKENS.fontWeight` lists it, and the agrees test fails if `tokens.css` does not alias it. The README's contract table gains it, with the `field` and `sheet` radius roles it was missing.
+  - `@shared/ui`: `Badge`'s label reads `font-ui-title` in place of `font-semibold`, so an app sets its weight once with `--ui-weight-title`. No app maps it, so every badge still draws at 600. `Badge`'s props refuse `innerHTML`, `innerText` and `textContent` (`SafeProps`). `Badge` carries no focus classes: a label takes no focus, so it draws no ring and removes no outline. A frozen snapshot of the unmapped badge's computed style, written before the change, holds pulse's look.
+  - `@tools/lab`: `Badges` shows both treatments and gains a treatment control; new `BadgeWeights` shows every badge unmapped and under `--ui-weight-title: 500`, captioned with the computed weight. The theming story's unmapped column also clears the weight token.
+  - `@pulse/web`: the token-contract browser test checks pulse's three badges compute 600 under its own stylesheet.
+
+- 3424e05: `OtpInput` fits a phone, names its boxes from a label, and puts focus where it says.
+
+  - The boxes share the column's width, up to 48px each and 48px tall; from a 328px column up the row is the same six 48px squares, 8px apart. Narrower, the gaps close to 4px before the boxes shrink, so the boxes are 40px wide in a 260px column, and the row still fits a 212px one.
+  - An empty box's edge is the ink at 55%, which reads at 3:1 on a light and a dark ground, and the boxes take the text fields' `field` corner.
+  - New optional `aria-labelledby` (the visible label's id): the group takes the label's name and box N is named "<label> Digit N". Without it the names stay "Verification code" and "Digit N".
+  - New optional `aria-describedby`, set on every box; every box is `aria-invalid` while `status` is `error`.
+  - `autofocus` and the refocus after an error focus box 1 one task later, once it is enabled, so they land when the caller re-enables the boxes in the same run and inside a Kobalte dialog.
+  - Focus draws the text field's 2px `--ui-focus` ring 2px off the ground, with an outline a contrast theme paints on the focused box only; colours fade on the contract's fast step.
+  - The value has no gaps: focus past the first empty box moves to it, typing over a digit replaces it, Backspace, Delete and a cut remove one, and an autofill of the whole code is taken whole (no box has `maxlength`).
+
+  The lab's `shared/ui/forms` group draws it as `Otp`, `OtpStates` and `OtpNarrow`. Musubi's `DESIGN.md` records the boxes' edge and corner, and that a screen gives the code row at least 260px on a phone.
+
+- ae53236: New `Skeleton` (`@shared/ui/ui/skeleton`): the block a list or panel shows in place of each line, row, field, button, card or chip while it loads.
+
+  - `standsFor` names what the block stands in for and sets its corner: `line` (`rounded-ui-sm`), `row` (`rounded-ui-md`, the default and the fallback for an unknown value), `field` (`rounded-ui-field`, the role `Input` and `Select` read), `control` (`rounded-ui-control`, the role `Button` reads), `card` (`rounded-ui-lg`) or `pill` (`rounded-ui-pill`).
+  - `width` and `height` are spacing steps (`48` is 12rem); no width fills the container. Both are always inline, so a caller's `w-*` or `h-*` cannot resize the block. It never runs wider than its container, a numeric width does not shrink in a flex row, and a size that is not a finite number of at least 0 is refused (full width, or a 1rem height).
+  - Every block fills with `--ui-surface-sunk`, with no edge. In a forced-colours theme, which repaints that fill as the page's `Canvas`, it draws a 1px edge the theme paints in its text colour. It pulses on Tailwind's `--animate-pulse` behind `motion-safe:`, so it stands still for a reader who asked for reduced motion.
+  - One `aria-hidden` div with no role and no children; `class` carries placement only, and no other prop reaches it.
+
+  Nothing imports it yet. The lab's `shared/ui/feedback` group draws it as `Skeletons`, `SkeletonGrounds`, `SkeletonInPlace` and `SkeletonPlayground`, and the overview has an entry. The package README's list of primitives names `Skeleton`, `Switch`, `Textarea`, `Label` and `Fieldset`.
+
 ## 0.12.0
 
 ### Minor Changes

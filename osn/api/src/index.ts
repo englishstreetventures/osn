@@ -88,6 +88,11 @@ export interface Env {
   // sign-in, profile choice, or consent. Unset falls back to `/authorize` on
   // the first configured origin.
   OSN_AUTHORIZE_UI_URL?: string;
+  // Sign-up accepts a browser Email Verification API token when truthy. Unset
+  // (every tier today) = off. Read once, in `build-deps.ts`.
+  OSN_EMAIL_VERIFICATION_API?: string;
+  // Local E2E only; a deployed tier refuses to boot with it. See `build-deps.ts`.
+  OSN_EMAIL_VERIFICATION_EMULATOR_URL?: string;
   PULSE_API_URL?: string;
   ZAP_API_URL?: string;
   // cire-api's origin and cire's OIDC client id, for ending an account's cire

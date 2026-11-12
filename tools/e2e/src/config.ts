@@ -97,6 +97,17 @@ export const PORTS = {
   mail: 4590,
   /** The Stripe stand-in cire-api's OAuth connect calls. Not a dev app. */
   stripe: 4591,
+  /**
+   * The mail provider stand-in for the browser Email Verification API: its
+   * DNS-over-HTTPS answers, metadata and keys (`src/issuer.ts`). Not a dev app.
+   */
+  issuer: 4592,
+  /**
+   * A second osn-api with the Email Verification API flag on, its own
+   * database and its own limiter windows. Musubi reaches it only in the flows
+   * that call `throughEmailVerificationApi`. Not a dev app.
+   */
+  osnApiEvt: 4593,
 } as const;
 
 export type AppName = keyof typeof PORTS;
@@ -122,6 +133,7 @@ export const E2E_RESEND_KEY = "re_e2e_local";
 /** Names the request log uses for each API origin. Only these are recorded. */
 export const API_LABELS = {
   [ORIGINS.osnApi]: "osn-api",
+  [ORIGINS.osnApiEvt]: "osn-api-evt",
   [ORIGINS.pulseApi]: "pulse-api",
   [ORIGINS.cireApi]: "cire-api",
 } satisfies Record<string, string>;
@@ -139,6 +151,7 @@ export const REALTIME_KEEPALIVE = { ping: "ping", pong: "pong", intervalMs: 25_0
 
 export const DB_FILES = {
   osn: resolve(STATE_DIR, "osn.db"),
+  osnEvt: resolve(STATE_DIR, "osn-evt.db"),
   pulse: resolve(STATE_DIR, "pulse.db"),
   cire: resolve(STATE_DIR, "cire.db"),
 } as const;
@@ -476,9 +489,53 @@ export const PEOPLE = {
   musubiRetry: { email: "grace@e2e.test", handle: "e2e_grace", name: "Grace E2E" },
   pulseHost: { email: "host@e2e.test", handle: "e2e_host", name: "Host E2E" },
   pulseGuest: { email: "guest@e2e.test", handle: "e2e_guest", name: "Guest E2E" },
+  /** Signs up with a browser Email Verification API token: no link. */
+  musubiVerified: {
+    email: "hedy@mailbox.e2e.test",
+    handle: "e2e_hedy",
+    name: "Hedy E2E",
+  },
+  /** Signs up on the same osn-api with no token: the link goes. */
+  musubiVerifiedControl: {
+    email: "joan@mailbox.e2e.test",
+    handle: "e2e_joan",
+    name: "Joan E2E",
+  },
+} as const;
+
+/**
+ * The issuer stand-in (`src/issuer.ts`): the mail domain whose
+ * `_email-verification` record names it, and its host. Its answers reach only
+ * the osn-api told `OSN_EMAIL_VERIFICATION_EMULATOR_URL`. The host's address
+ * is TEST-NET-3, which the verifier's address check allows and nothing routes;
+ * every request to it goes to the stand-in instead.
+ */
+export const EVT_ISSUER = {
+  domain: "mailbox.e2e.test",
+  host: "issuer.e2e.test",
+  address: "203.0.113.10",
 } as const;
 
 export const BIRTHDATE = "1990-01-01";
+
+/**
+ * The account `musubi-recovery` gets back into through an emailed link. A row
+ * `seedOsn` writes, with one passkey on it that no authenticator in the run
+ * holds — the lost phone — so the new passkey is enrolled past an existing
+ * one, as a real recovery is. Its credential id is base64url, as an
+ * authenticator's is: enrolment lists it for the browser to exclude, and the
+ * browser decodes it, failing the ceremony on anything else.
+ */
+export const RECOVERY_PERSON = {
+  accountId: "acc_e2e_recover",
+  profileId: "usr_e2e_recover",
+  email: "recover@e2e.test",
+  passkeyUserId: "pku_e2e_recover",
+  handle: "e2e_recover",
+  name: "Recover E2E",
+  // base64url of "e2e lost phone credential".
+  lostPasskey: { id: "pk_e2e_lost", credentialId: "ZTJlIGxvc3QgcGhvbmUgY3JlZGVudGlhbA" },
+} as const;
 
 /**
  * Musubi's organisation pages (`musubi-org-detail`). The owner is osn-api's dev

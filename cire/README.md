@@ -29,7 +29,7 @@ OSN-facing integration docs live in the root wiki: `wiki/cire/cire.md` and `wiki
 
 | Name             | Description                                                                      | Status |
 | ---------------- | -------------------------------------------------------------------------------- | ------ |
-| `cire/invites`   | Astro + SolidJS invite frontend with View Transitions and Motion One animations  | Active |
+| `cire/invites`   | Astro + SolidJS invite frontend with View Transitions and CSS animations         | Active |
 | `cire/host`      | Organiser portal — guest/event dashboards + spreadsheet import, OSN passkey auth | Active |
 | `cire/api`       | Elysia API on Cloudflare Workers — claim codes, RSVP, organiser API              | Active |
 | `cire/db`        | Drizzle ORM schema and D1 migration files (multi-tenant `weddings` root)         | Active |
@@ -40,7 +40,7 @@ OSN-facing integration docs live in the root wiki: `wiki/cire/cire.md` and `wiki
 | ---------- | ----------------------------------------------------------------------------- |
 | Runtime    | Bun + Cloudflare Workers                                                      |
 | Frontend   | Astro + SolidJS + View Transitions                                            |
-| Animations | Motion One (`@motionone/solid`) + Astro View Transitions                      |
+| Animations | CSS transitions and keyframes; `motion` for the event sheet's swipe spring    |
 | Backend    | Elysia on Cloudflare Workers + Effect (service layer)                         |
 | Database   | Cloudflare D1 + Drizzle ORM + Effect                                          |
 | Storage    | Cloudflare R2 (spreadsheet-import uploads)                                    |

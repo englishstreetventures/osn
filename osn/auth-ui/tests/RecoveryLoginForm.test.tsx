@@ -35,9 +35,9 @@ vi.mock("@simplewebauthn/browser", () => ({
 import type { RecoveryClient, RegistrationClient } from "@osn/client";
 
 import { RecoveryLoginForm } from "../src/RecoveryLoginForm";
+import { enterCode, expectTied } from "./helpers/code";
 import {
   CHECK_FAILED,
-  CODE,
   DETAILS,
   PASSKEY_NOT_ADDED,
   RECOVERY,
@@ -51,7 +51,8 @@ interface ClientStub {
   generateRecoveryCodes: ReturnType<typeof vi.fn>;
   loginWithRecoveryCode: ReturnType<typeof vi.fn>;
   emailRecoveryBegin: ReturnType<typeof vi.fn>;
-  emailRecoveryComplete: ReturnType<typeof vi.fn>;
+  emailRecoveryStatus: ReturnType<typeof vi.fn>;
+  emailRecoveryResend: ReturnType<typeof vi.fn>;
   totpRecoveryComplete: ReturnType<typeof vi.fn>;
 }
 
@@ -65,7 +66,8 @@ function makeClientStub(): ClientStub {
     generateRecoveryCodes: vi.fn(),
     loginWithRecoveryCode: vi.fn(),
     emailRecoveryBegin: vi.fn(),
-    emailRecoveryComplete: vi.fn(),
+    emailRecoveryStatus: vi.fn(),
+    emailRecoveryResend: vi.fn(),
     totpRecoveryComplete: vi.fn(),
   };
 }
@@ -161,6 +163,22 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup());
+
+describe("RecoveryLoginForm — typed identifiers", () => {
+  it("asks phones not to capitalise any identifier field", () => {
+    mountFull();
+    openRecoveryCode();
+    expect(screen.getByLabelText(/Handle or email/i).getAttribute("autocapitalize")).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: /^Back$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    expect(
+      screen.getByLabelText(/Email address on the account/i).getAttribute("autocapitalize"),
+    ).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: /^Back$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+    expect(screen.getByLabelText(/Handle or email/i).getAttribute("autocapitalize")).toBe("none");
+  });
+});
 
 describe("RecoveryLoginForm — recovery code", () => {
   it("submit button is disabled until both fields are populated", () => {
@@ -297,9 +315,9 @@ describe("RecoveryLoginForm — error lines", () => {
     async (_, error, sentence, invalid) => {
       stub.emailRecoveryBegin.mockRejectedValue(error);
       mountFull();
-      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
       const field = fill(/Email address on the account/i, "alice@example.com");
-      fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain(sentence);
@@ -309,36 +327,27 @@ describe("RecoveryLoginForm — error lines", () => {
     },
   );
 
-  it("a refused emailed code reads as the code sentence", async () => {
-    stub.emailRecoveryBegin.mockResolvedValue(undefined);
-    stub.emailRecoveryComplete.mockRejectedValue(apiError("PLANTED-recovery-email-code"));
-    mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
-    await waitFor(() => screen.getByLabelText("Digit 1"));
-    typeCode("123456");
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+  it.each([
+    ["a 400", apiError("PLANTED-recovery-totp"), RECOVERY, "true"],
+    ["a 429", apiError("PLANTED-recovery-totp-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "a refused authenticator code reads %s as the map's sentence, tied to the identifier and the boxes",
+    async (_, error, sentence, invalid) => {
+      stub.totpRecoveryComplete.mockRejectedValue(error);
+      mountFull();
+      fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+      const field = fill(/Handle or email/i, "alice");
+      const boxes = await enterCode("Code from your authenticator app", "654321");
+      fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(CODE);
-    expect(alertsText()).not.toContain("PLANTED");
-  });
-
-  it("a refused authenticator code reads as the recovery sentence, tied to the identifier", async () => {
-    stub.totpRecoveryComplete.mockRejectedValue(apiError("PLANTED-recovery-totp"));
-    mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    const field = fill(/Handle or email/i, "alice");
-    typeCode("654321");
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(RECOVERY);
-    expect(alertsText()).not.toContain("PLANTED");
-    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
-    expect(field.getAttribute("aria-invalid")).toBe("true");
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe(invalid);
+      expectTied(boxes, alert.id, invalid);
+    },
+  );
 
   describe("with the verification check on", () => {
     afterEach(() => {
@@ -359,10 +368,10 @@ describe("RecoveryLoginForm — error lines", () => {
       };
       stub.emailRecoveryBegin.mockRejectedValueOnce(apiError("PLANTED-recovery-begin"));
       mountFull({ turnstileSiteKey: "0x4AAAAAADnA2piUnbgG_kVw" });
-      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
       fill(/Email address on the account/i, "alice@example.com");
       const send = () =>
-        screen.getByRole("button", { name: /Send the code/i }) as HTMLButtonElement;
+        screen.getByRole("button", { name: /Send the link/i }) as HTMLButtonElement;
       await waitFor(() => expect(send().disabled).toBe(false));
 
       fireEvent.click(send());
@@ -379,7 +388,7 @@ describe("RecoveryLoginForm — which factors are offered", () => {
   it("offers all three when a WebAuthn ceremony can run", () => {
     mountFull();
     expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Email me a link/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Use my authenticator app/i })).toBeTruthy();
   });
 
@@ -392,7 +401,7 @@ describe("RecoveryLoginForm — which factors are offered", () => {
     mountFull();
 
     expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Use my authenticator app/i })).toBeNull();
     // And says what does work instead, rather than showing a shorter menu
     // with no explanation.
@@ -405,7 +414,7 @@ describe("RecoveryLoginForm — which factors are offered", () => {
     // to finish it is present.
     render(() => <RecoveryLoginForm client={asClient(stub)} />);
     expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Use my authenticator app/i })).toBeNull();
   });
 });
@@ -417,51 +426,81 @@ describe("RecoveryLoginForm — email recovery", () => {
     // on the wire, so a shared "handle or email" field would produce an error
     // with nothing in it.
     mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     expect(screen.getByLabelText(/Email address on the account/i)).toBeTruthy();
     expect(screen.queryByLabelText(/Handle or email/i)).toBeNull();
   });
 
-  it("sends a code, then exchanges it for a restricted session", async () => {
-    stub.emailRecoveryBegin.mockResolvedValue(undefined);
-    stub.emailRecoveryComplete.mockResolvedValue({
-      session: restrictedSession,
-      profile: sampleProfile,
-    });
+  const begun = {
+    requestId: "recovery_0123456789ab",
+    claimSecret: "c".repeat(64),
+    pairingCode: "42",
+    expiresAt: Math.floor(Date.now() / 1000) + 600,
+  };
+
+  /** Asks for a link for `address` and waits for the waiting view. */
+  async function sendLinkTo(address: string) {
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    fill(/Email address on the account/i, address);
+    fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
+    await waitFor(() => screen.getByRole("heading", { name: "Check your email" }));
+  }
+
+  it("keeps the request, its claim secret and the address in this tab, and never the number", async () => {
+    stub.emailRecoveryBegin.mockResolvedValue(begun);
+    stub.emailRecoveryStatus.mockResolvedValue({ status: "pending", pairingCode: "42" });
+    sessionStorage.clear();
     mountFull();
+    await sendLinkTo("alice@example.com");
 
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+    const stored = sessionStorage.getItem("osn.recovery.pending");
+    expect(JSON.parse(stored!)).toEqual({
+      requestId: begun.requestId,
+      claimSecret: begun.claimSecret,
+      expiresAt: begun.expiresAt,
+      email: "alice@example.com",
+    });
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i)!;
+      expect(sessionStorage.getItem(key)).not.toContain('"42"');
+      expect(sessionStorage.getItem(key)).not.toContain("pairingCode");
+    }
+    sessionStorage.clear();
+  });
 
-    await waitFor(() =>
-      expect(stub.emailRecoveryBegin).toHaveBeenCalledWith({
-        identifier: "alice@example.com",
-        turnstileToken: undefined,
-      }),
-    );
+  it("stops polling when the view goes away", async () => {
+    vi.useFakeTimers();
+    try {
+      stub.emailRecoveryBegin.mockResolvedValue(begun);
+      stub.emailRecoveryStatus.mockResolvedValue({ status: "pending" });
+      sessionStorage.clear();
+      mountFull();
+      await sendLinkTo("alice@example.com");
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(stub.emailRecoveryStatus).toHaveBeenCalledTimes(1);
 
-    typeCode("123456");
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-
-    await waitFor(() =>
-      expect(stub.emailRecoveryComplete).toHaveBeenCalledWith({
-        identifier: "alice@example.com",
-        code: "123456",
-      }),
-    );
+      cleanup();
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stub.emailRecoveryStatus).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      sessionStorage.clear();
+    }
   });
 
   it("says nothing about whether the address matched an account", async () => {
-    stub.emailRecoveryBegin.mockResolvedValue(undefined);
+    stub.emailRecoveryBegin.mockResolvedValue(begun);
+    stub.emailRecoveryStatus.mockResolvedValue({ status: "pending" });
+    sessionStorage.clear();
     mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    fill(/Email address on the account/i, "nobody@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+    await sendLinkTo("nobody@example.com");
 
     // The server answers the same either way; the copy has to match, or the
     // screen becomes the oracle the endpoint refuses to be.
-    await waitFor(() => expect(screen.getByText(/If that address has an account/i)).toBeTruthy());
+    expect(screen.getByText(/has an account,/i)).toBeTruthy();
+    sessionStorage.clear();
   });
 });
 
@@ -509,7 +548,7 @@ describe("RecoveryLoginForm — the restricted session", () => {
     expect(screen.getByText(/recovery session/i)).toBeTruthy();
     expect(screen.getByText(/add a passkey to this account/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Use a recovery code/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
   });
 
   it("enrols with the held bearer and no step-up token", async () => {
@@ -914,27 +953,13 @@ describe("RecoveryLoginForm — a wait", () => {
     expect(backDisabled()).toBe(true);
   });
 
-  it("holds Send the code busy while it sends", async () => {
+  it("holds Send the link busy while it sends", async () => {
     stub.emailRecoveryBegin.mockReturnValue(never());
     mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
     expect(await pressBusy("Sending…", stub.emailRecoveryBegin)).toEqual(HELD);
-    expect(backDisabled()).toBe(true);
-  });
-
-  it("holds Continue busy while it checks an emailed code", async () => {
-    stub.emailRecoveryBegin.mockResolvedValue(undefined);
-    stub.emailRecoveryComplete.mockReturnValue(never());
-    mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
-    await waitFor(() => screen.getByText(/If that address has an account/i));
-    typeCode("123456");
-    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
-    expect(await pressBusy("Checking…", stub.emailRecoveryComplete)).toEqual(HELD);
     expect(backDisabled()).toBe(true);
   });
 

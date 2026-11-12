@@ -157,12 +157,18 @@ function line(text: string | RegExp): HTMLElement {
   return within(dialog()).getByText(text);
 }
 
-/** The open calendar menu, once its deferred `showPopover()` and placement ran. */
+/**
+ * The open calendar menu, once its deferred `showPopover()` and placement ran
+ * and its pop has finished. Mid-pop the menu is scaled down, so its rows
+ * measure short of the 44px they are at rest, and a screenshot depends on when
+ * it was taken.
+ */
 async function calendarMenu(): Promise<HTMLElement> {
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise(requestAnimationFrame);
   const menu = document.querySelector<HTMLElement>('[role="menu"]');
   if (!menu) throw new Error("no calendar menu open");
+  await Promise.all(menu.getAnimations().map((a) => a.finished));
   return menu;
 }
 

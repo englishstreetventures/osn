@@ -35,8 +35,9 @@
  * relationship between the constants themselves.
  *
  * A toast must also clear ordinary page furniture, and the `<Toaster>` must be
- * mounted at the page root rather than inside the events section, whose Motion
- * One transform makes it a stacking context that no `z-index` can escape.
+ * mounted at the page root rather than inside the events section, whose
+ * unlock-reveal transform makes it a stacking context that no `z-index` can
+ * escape.
  *
  * The consent banner sits above every OTHER numbered layer, deliberately and
  * with a wide gap. It is the guest's route to granting — or later withdrawing —

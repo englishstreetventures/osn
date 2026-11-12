@@ -11,7 +11,9 @@ related:
   - "[[component-lab]]"
   - "[[cire-registry]]"
   - "[[cire-upgrades]]"
-last-reviewed: 2026-11-06
+  - "[[cire-checklist-tasks]]"
+  - "[[cire-budget]]"
+last-reviewed: 2026-11-11
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
 
@@ -47,7 +49,7 @@ toast.success("Saved", {
   duration: 6000,          // ms; `Infinity` pins it
   id: "save",              // stable identity — re-raising UPDATES in place
   dismissible: true,       // adds a close button
-  action: { label: "Undo", onClick: undo },
+  action: { label: "Undo", onClick: undo, ariaLabel: "Undo deleting “Venue”" },
   politeness: "polite",    // overrides the per-tone default
 });
 
@@ -73,6 +75,29 @@ link drawn with `@cire/ui`'s `proseLinkClass()`, the portal's one look for a
 link inside a sentence ([[cire-upgrades]]). Because it is the only notice of
 that refund, it waits until no modal dialog is open before it is raised (the
 warning below).
+
+An undo toast is the other case: its life *is* the time in which its action
+means anything, so it keeps a dwell and no close button. The cire portal raises
+one for each one-click delete — a checklist task, a budget line, a gift
+(`cire/host/src/lib/undo-delete.ts`) — with `duration: 5000`,
+`class: "undo-toast"` and an **Undo** action whose `ariaLabel` names the row
+("Undo deleting “Book the venue”"), since several can be up at once. The row
+leaves the list at once, and the delete is sent only once that toast has left
+the queue without Undo: the helper watches `toasts()` rather than running a
+timer of its own, so the store's clock, with its hover and focus pauses, is the
+undo window, and a toast beyond the `Toaster`'s `limit` still runs out on time.
+A ✕ pressed with no pointer — a click whose `detail` is 0, from Enter, Space or
+a screen reader — moves focus to the toast's Undo, found by its
+`data-toast-id`: the container sits at the end of the page, past every row, and
+focus inside pauses the clock, so a keyboard user reaches Undo and keeps it. A
+page left with one up sends its delete on `pagehide`, with `keepalive`. Undo
+puts the same row back, since nothing has left the server, hands focus to the
+restored row's ✕, and raises a second toast so the restore is announced in a
+live region of its own. A toast holding a live Undo leaves at once: the
+portal's stylesheet makes `.undo-toast.ui-toast--leaving` `display: none`.
+Where the stack grows from the bottom edge (`column-reverse`), the oldest toast
+sits nearest it. See [[cire-checklist-tasks]] for what holds the task reads
+back meanwhile.
 
 Three behaviours worth knowing, all of them bugs first:
 
@@ -112,6 +137,9 @@ its vocabulary onto them once:
 | `--toast-border` | Border |
 | `--toast-radius`, `--toast-shadow`, `--toast-font`, `--toast-font-size` | Shape and type |
 | `--toast-enter-duration`, `--toast-exit-duration` | The in/out animation, 160ms each by default |
+| `--toast-enter-easing` | The arrival's curve, `ease-out` by default |
+| `--toast-action-case`, `--toast-action-tracking` | The action's label: `uppercase` at `0.08em` by default |
+| `--toast-action-radius`, `--toast-action-size`, `--toast-action-weight` | The action's corner (just inside the toast's), type size (`0.78rem`) and weight (the toast's) |
 | `--toast-focus` | Focus ring on the action/close buttons |
 | `--toast-accent-success` / `-error` / `-warn` / `-info` | The tone glyph's colour |
 
@@ -139,7 +167,9 @@ Class names, for a test or a rare app-side override: the container is
 `.ui-toaster` with a `.ui-toaster--<position>` modifier, and a toast is
 `.ui-toast` with `.ui-toast--<tone>` plus `.ui-toast--leaving` while it animates
 out. Its parts are `.ui-toast__glyph`, `.ui-toast__sr`, `.ui-toast__message`,
-`.ui-toast__action` and `.ui-toast__close`.
+`.ui-toast__action` and `.ui-toast__close`. A toast also carries
+`data-toast-id`, the id `toast()` returned, so the code that raised it can find
+it.
 
 ## Contrast, and the gap this closed
 
@@ -197,7 +227,7 @@ ancestor the containing block for a fixed descendant — and a stacking context
 with it — so a toast mounted inside an animated section is positioned against
 that section and stacked inside it, below every page-level overlay, whatever
 `z-index` it carries. That is exactly what put cire's RSVP toast behind the sheet
-it fires under (Motion One leaves an inline `transform` on the events section).
+it fires under (the unlock reveal moves the events section with a `transform`).
 The portal makes it robust by construction.
 
 The centred positions (`top-center`, `bottom-center`) set both side insets and
@@ -253,7 +283,7 @@ Current mounts:
 | App | Position | Notes |
 |---|---|---|
 | `@cire/invites` | `top-center` | Invite page, per design pack: `Z_CLASS.TOAST` + `topLayer`, 4s dwell; the RSVP sheet's sticky bar owns the bottom edge. Gift page (`GiftRegistryPage`): `Z_CLASS.TOAST`, no `topLayer`, since its only modals are the consent dialogs, which make the page inert while open |
-| `@cire/host`, `@cire/vendor` | `bottom-right` | `topLayer` — both apps' dialogs are `@shared/ui` `Modal`s |
+| `@cire/host`, `@cire/vendor` | `bottom-right` | `topLayer` — the host's dialogs are `@shared/ui` `Modal`s, and the vendor portal, which opens none yet, sets it for any it will. The host maps the five `--toast-action-*` names onto its own button look (sentence case, a pill), and gives the undo toast alone `--dur-base` and `--ease-out` for its arrival (`cire/host/DESIGN.md` §4); every other toast in both portals keeps the 160ms default |
 | `@musubi/social` | responsive | `top-center` on mobile with a `top` offset clearing the 3rem bar + `env(safe-area-inset-top)`. No `topLayer`: its dialogs are Kobalte's, which are not top-layer |
 | `@pulse/web` | `bottom-right` | As musubi — Kobalte dialogs, no `topLayer` |
 
@@ -261,7 +291,18 @@ Current mounts:
 
 Unit: mock `@shared/toast`. Two shared factories exist —
 `cire/host/tests/test-support/mocks.ts` (`toastMock()`) and
-`pulse/web/tests/helpers/toast.ts` — see `[[testing-patterns]]`.
+`pulse/web/tests/helpers/toast.ts` — see `[[testing-patterns]]`. The host's
+factory answers an empty `toasts()`, so an undo toast there has no life and
+its delete is sent at once; the window itself is held against the real store
+by `cire/host/tests/lib/undo-delete.browser.test.tsx` and the three
+`*.undo.browser.test.tsx` suites in `cire/host/tests/components/`, and against
+the real API by the `cire-checklist-starter` E2E flow, which takes one task
+back, lets one toast run out and leaves the page with a third delete up.
+
+A host browser suite cannot import that factory and writes its own inline.
+Every one includes `toasts: () => []`: `lib/undo-delete.ts` imports `toasts`,
+and in the browser tier a mock missing a named export fails the whole suite
+at import, not at use.
 
 **The DOM contract, which is easy to break.**
 `cire/invites/tests/designs/InvitePage.browser.test.tsx` finds a toast with

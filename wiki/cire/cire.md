@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Cire
@@ -133,9 +133,9 @@ Free tier throughout — see [[free-tier-limits]]). Domains (#149):
 
 | Host | Surface |
 |---|---|
-| `cireweddings.com` (apex) | marketing site (`cire/landing` Pages) |
+| `cireweddings.com` (apex) | marketing site (`cire/landing`, the `cire-landing` Worker) |
 | `invite.cireweddings.com` | guest site (`cire/invites`, the `cire-invites` SSR Worker) |
-| `host.cireweddings.com` | organiser portal (`cire/host`, the `cire-host` Worker once its flip release has run; Pages until then) |
+| `host.cireweddings.com` | organiser portal (`cire/host`, the `cire-host` Worker) |
 | `vendor.cireweddings.com` | vendor portal (`cire/vendor`, the `cire-vendor` Worker) |
 | `api.cireweddings.com` | `cire-api` Worker |
 | `id.musubi.social` | `osn-api` Worker — the OSN issuer, on a **zone of its own** since 2026-07-27 (was `id.cireweddings.com`) |
@@ -150,8 +150,8 @@ host can run one any more. **That is why cire signs in over the OIDC redirect**
 cireweddings.com origin runs a WebAuthn ceremony. Production deploys run via the **GitHub Actions
 workflow** `.github/workflows/production-release.yml`: gated on a build/test job and the
 `production` Environment's approvals, it applies the remote cire D1 migrations and deploys
-the **cire-api Worker**, the **cire-invites guest Worker**, the **landing Pages** project,
-and through the cire stack the **organiser and vendor portal Workers**
+the **cire-api Worker** and the **cire-invites guest Worker**, and through the cire stack
+the **organiser portal, vendor portal and marketing site Workers**
 ([[production-deploy]] §5.3) in each daily or hand-run release; the dev tier deploys from `deploy.yml` on
 every merge. The Cloudflare API tokens sit on the `production`
 and `dev` GitHub Environments. Prod wrangler config redeclares the D1, R2, rate-limit and Durable Object bindings under

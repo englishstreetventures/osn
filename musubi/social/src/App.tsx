@@ -18,6 +18,35 @@ const Sidebar = lazy(() => import("./components/Sidebar").then((m) => ({ default
 const MobileChrome = lazy(() =>
   import("./components/MobileChrome").then((m) => ({ default: m.MobileChrome })),
 );
+
+type Shell = {
+  component: Component;
+  frame: Component<{ failed: boolean }>;
+  /** Resolves once everything the shell waits for before it draws is in. */
+  load: (loadDialogs: () => Promise<void>) => Promise<void>;
+};
+
+/**
+ * Each shell: what it draws, the frame that holds its place, and what it waits
+ * for before it draws, which is its own chunk and the shell dialogs' (through
+ * `loadDialogs`). `Reserved` awaits a shell's `load` and nothing besides it.
+ * The browser tests await the same `load` (`tests/test-support/shell-chunks.ts`)
+ * before they look for a shell, so a load added here reaches their waits too.
+ */
+export const shells = {
+  rail: {
+    component: Sidebar,
+    frame: RailFrame,
+    load: (loadDialogs) => Promise.all([Sidebar.preload(), loadDialogs()]).then(() => undefined),
+  },
+  topBar: {
+    component: MobileChrome,
+    frame: TopBarFrame,
+    load: (loadDialogs) =>
+      Promise.all([MobileChrome.preload(), loadDialogs()]).then(() => undefined),
+  },
+} satisfies Record<string, Shell>;
+
 // Shell-only too: the signed-out and failed-profiles notices.
 const ShellNotices = lazy(() =>
   import("./components/ShellNotices").then((m) => ({ default: m.ShellNotices })),
@@ -48,18 +77,23 @@ const PrivacyPage = lazy(() =>
   import("./pages/PrivacyPage").then((m) => ({ default: m.PrivacyPage })),
 );
 const TermsPage = lazy(() => import("./pages/TermsPage").then((m) => ({ default: m.TermsPage })));
+const VerifyEmailLinkPage = lazy(() =>
+  import("./pages/VerifyEmailLinkPage").then((m) => ({ default: m.VerifyEmailLinkPage })),
+);
 
 /**
  * The consent screen runs bare: no navigation out of the flow, nothing to
- * click but the decision itself.
+ * click but the decision itself. So does the page an emailed link opens,
+ * `/verify/<request id>`, which is matched by its prefix.
  */
 const BARE_ROUTES = new Set(["/authorize"]);
+const BARE_PREFIXES = ["/verify/"];
 
 /**
  * Bare routes also run outside `AuthProvider`. Mounting it bootstraps a
  * session — `POST /token`, which rotates the refresh session — and then lists
  * profiles; the consent screen reads neither, since `/authorize/context`
- * already carries both. It mounts its own provider around the sign-in island
+ * already carries both, and the emailed-link page signs nobody in. It mounts its own provider around the sign-in island
  * when a ceremony is actually needed.
  */
 export function Layout(props: { children?: JSX.Element }) {
@@ -68,7 +102,10 @@ export function Layout(props: { children?: JSX.Element }) {
   // `/authorize/` to the consent route, but an exact-string `BARE_ROUTES` miss
   // would render it inside the full app shell — sidebar nav mid-consent and an
   // AuthProvider mount that rotates the refresh session.
-  const bare = () => BARE_ROUTES.has(location.pathname.replace(/(.)\/$/, "$1"));
+  const bare = () => {
+    const path = location.pathname.replace(/(.)\/$/, "$1");
+    return BARE_ROUTES.has(path) || BARE_PREFIXES.some((prefix) => path.startsWith(prefix));
+  };
   const isMobile = useIsMobile();
   return (
     <div class="px-safe flex h-dvh flex-col overflow-hidden md:flex-row">
@@ -104,8 +141,8 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
           The dialogs sit above this switch, so one open across a crossing
           stays open. The CSS hidden classes on each shell remain as a
           paint-level fallback around the breakpoint flip. */}
-      <Show when={props.isMobile} fallback={<Reserved shell={Sidebar} frame={RailFrame} />}>
-        <Reserved shell={MobileChrome} frame={TopBarFrame} />
+      <Show when={props.isMobile} fallback={<Reserved shell={shells.rail} />}>
+        <Reserved shell={shells.topBar} />
       </Show>
       {/* Inside the scroll column, above the page: the layout is a row on
           desktop, so a sibling of `Content` would land beside the rail
@@ -126,34 +163,32 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
  * Draws a shell's frame until the shell can draw itself, so the page beside
  * it never moves when the shell's chunk lands.
  *
- * The shell shows once its own chunk and the dialogs' chunks have both loaded:
- * a shell drawn earlier would offer a Sign in that cannot open yet. By then
- * `lazy()` holds the module, so the shell renders at once, with no resource
- * and nothing to suspend. A `Suspense` fallback would not do: the shell reads
- * the session and profile resources, and a boundary above it would put the
- * frame back on every refetch.
+ * The shell shows once its `load` has resolved: its own chunk and the
+ * dialogs' chunks are in. A shell drawn earlier would offer a Sign in that
+ * cannot open yet. By then `lazy()` holds the module, so the shell renders at
+ * once, with no resource and nothing to suspend. A `Suspense` fallback would
+ * not do: the shell reads the session and profile resources, and a boundary
+ * above it would put the frame back on every refetch.
  *
- * The browser tests await the same loads, through
- * `tests/test-support/shell-chunks.ts`, before they look for a shell; a load
- * added here goes there too, or those waits fall back to a clock.
+ * The dialogs load through the provider's `load`, not their bare chunk: a
+ * load that succeeds after an earlier failure is what mounts them. Wait on
+ * nothing outside the shell's `load`; the browser tests wait on it too, and a
+ * load they cannot see falls back to `waitFor`'s one second.
  *
- * If either load fails (offline, or a chunk renamed by a deploy since the page
+ * If a load fails (offline, or a chunk renamed by a deploy since the page
  * loaded) the frame stays and says to reload. The rejection is handled here,
  * so the page beside it keeps working.
  */
-function Reserved(props: {
-  shell: Component & { preload: () => Promise<{ default: Component }> };
-  frame: Component<{ failed: boolean }>;
-}) {
+function Reserved(props: { shell: Shell }) {
   const dialogs = useShellDialogs();
   const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
-  Promise.all([props.shell.preload(), dialogs.load()]).then(
+  props.shell.load(dialogs.load).then(
     () => setState("ready"),
     () => setState("failed"),
   );
   return (
-    <Show when={state() === "ready"} fallback={<props.frame failed={state() === "failed"} />}>
-      <props.shell />
+    <Show when={state() === "ready"} fallback={<props.shell.frame failed={state() === "failed"} />}>
+      <props.shell.component />
     </Show>
   );
 }
@@ -197,6 +232,7 @@ export default function App() {
       <Route path="/organisations/:handle" component={OrgDetailPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/authorize" component={AuthorizePage} />
+      <Route path="/verify/:requestId" component={VerifyEmailLinkPage} />
       {/* Reachable signed-out on purpose: a notice you can only read once you have
           already handed over your data is not a notice. */}
       <Route path="/privacy" component={PrivacyPage} />

@@ -24,6 +24,12 @@ Three font families, all SIL Open Font License 1.1 (free commercial use):
 - Meta/eyebrow text: Geist Mono, 10.5–11.5px, uppercase, wide tracking
 - Date stamps: Geist, mixed weights (9–18px depending on element)
 
+Where the app does not follow this yet: a category pill drawn with `@shared/ui`'s
+`Badge treatment="eyebrow"` (Design Decisions §7) is set in Geist at weight 600,
+not Geist Mono at 400–500. 600 is the fallback of the contract's
+`--ui-weight-title`, which pulse does not map, and the badge takes the page's
+family (#2122).
+
 ### Named type tokens
 
 Each Pulse surface names its own off-scale type decisions in its own theme block.
@@ -107,7 +113,7 @@ Built on oklch for perceptual uniformity. Extends the base shadcn token system w
 | Token                   | Value                                                        | Usage                                                         |
 | ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------- |
 | `--pulse-accent`        | `oklch(0.68 0.18 38)`                                        | Primary accent (coral) — brand mark, hero italic, CTA buttons |
-| `--pulse-accent-strong` | `oklch(0.58 0.19 35)`                                        | Ember — date stamp month, meta-line text                      |
+| `--pulse-accent-strong` | `oklch(0.58 0.19 35)`                                        | Ember — date stamp month, meta-line text, active tab underline |
 | `--pulse-accent-soft`   | `oklch(0.95 0.05 45)`                                        | Peach background — soft highlight surfaces                    |
 | `--pulse-accent-fg`     | Light: `oklch(0.99 0.004 80)` / Dark: `oklch(0.17 0.008 60)` | Text on accent backgrounds                                    |
 
@@ -135,20 +141,124 @@ Two-pane desktop layout:
 
 Below 1180px, map collapses and events go full-width.
 
+Below 768px (Tailwind's `md`) the page takes its phone layout:
+
+- **Gutters are 16px** (`px-4`) on the brand row, the hero, the events pane and
+  the create form's wrapper, and 32px (`px-8`) from 768px up. At 320px the
+  signed-in brand line needs 260px of the 288px a 16px gutter leaves.
+- **The hero stacks**: the stats sit under the headline, not beside it. Beside
+  it, they ran past the screen's edge at 320px.
+- **The create form's start and end times stack**, and sit side by side from
+  768px up. A `datetime-local` field is 206px wide at its narrowest, so the
+  pair side by side needs 424px.
+
+The page never scrolls sideways at any width.
+`tools/e2e/tests/support/pulse-explore.ts` holds this and the navigation rules
+below at 320, 390, 768 and 1440px, signed in and signed out, and shoots the page
+at 320, 390 and 1440px in light and dark.
+
 ### Navigation
 
-Horizontal top nav (no sidebar). Three sections:
+Horizontal top nav (no sidebar). Two sections:
 
 1. **Brand row**: Logo mark (pulsing coral dot) + "Pulse" wordmark, tab bar (Home / Calendar / Hosting), search, actions
-2. **Hero**: Time-of-day greeting, editorial headline with italic accent word, live stats
+2. **Hero**: Time-of-day greeting, editorial headline with italic accent word, live stats. On a narrow phone the greeting's date wraps to a line of its own
+
+**From 768px up the brand row is one line**: brand, tabs, then the search and
+the actions on the right. The search takes the row's spare width up to 360px
+(`max-w-90`), and is the first thing to give way when the row is short: at
+768px, signed in, it is about 170px wide and its placeholder ends in an
+ellipsis. The whole header pins (`sticky`).
+
+**Below 768px the brand row wraps to three lines:**
+
+1. The brand on the left, the actions on the right (bell, Host and avatar, or
+   "Continue with musubi").
+2. The search, from gutter to gutter.
+3. The tabs, last, so the active tab's underline
+   (`.explore-tab-active::after`, 15px below the tab) lands on the row's bottom
+   border. From 768px up the tab sits centred beside taller controls, so the
+   underline sits 5px above the border when signed in.
+
+**The active tab** is marked three ways: `aria-current="page"`, the foreground
+text on a `--secondary` fill, and a 2px underline in the ember,
+`--pulse-accent-strong`. The coral measures 2.97:1 on the light `--background`,
+under the 3:1 a state mark needs; the ember measures 4.48:1 in light and 4.09:1
+in dark.
+
+**The search shows focus with an outline**: 2px of `--ui-focus`, 2px out from
+the field (4.11:1 on the light `--background`, 5.24:1 on the dark), so the mark
+holds in forced-colours mode, where a box-shadow ring vanishes. The search has
+no keyboard shortcut.
+
+**Below 768px the header scrolls with the page** instead of pinning. Three lines
+and the hero make it about 410px tall at 390px, half of an 844px screen, and
+three quarters of a 320×568 screen.
+
+**Focus follows the desktop order.** The markup runs brand, tabs, search,
+actions, and the phone lines are placed with `order`, so on a phone the focus
+moves tabs, search, actions while the lines read actions, search, tabs. Each
+control stands alone, so no meaning depends on the order. One markup order
+cannot match both layouts; it matches the desktop's, where the row reads in
+markup order.
+
+The owner chose this arrangement (#2135). Rejected: tabs
+and search sharing the second line, which leaves the search 62px wide at 320px;
+collapsing the tabs into a menu, which needs a component that does not exist;
+and the search as an icon, which hides the field.
 
 ### Event Cards
 
-Horizontal card: 180px media thumbnail + body. Featured cards go full-width with taller media.
+Horizontal card: a media column beside the body, 180px wide from 768px up and
+112px below. Featured cards stack at every width: 220px of media above the body.
 
 **Media area**: Category-derived gradient placeholder (or image), date stamp (month/day/weekday), status tag (live/filling fast).
 
 **Body area**: Time meta-line (mono), title (600 weight), venue + neighborhood, host row with avatar, dashed footer with category and status.
+
+**Below 768px a card keeps its media beside the body**, in the 112px column.
+At 320px that leaves the body 142px of text, and 212px at 390px. A card is
+215–235px tall at 320px, 256px when its venue and footer both wrap, so a
+568px-tall screen shows more than two, and the featured card stays the one
+large card. The live tag reads "Live" there: "Happening now" is 106px wide and
+sits 10px in, which needs 116px. From 768px up it reads "Happening now".
+
+*Measured 2026-11-11 — element boxes on the page `ExploreCard.phone.browser.test.tsx` renders, `bunx --bun vitest run --project browser` in `pulse/web`, headless Chromium, macOS*
+
+**The text shows whole at every width:**
+
+- The time, venue and host lines wrap rather than clip, and a word too long for
+  its line breaks (`overflow-wrap: anywhere`).
+- The time never splits from its AM or PM.
+- The venue and neighbourhood run as one line of text with a `·` between them,
+  in `--foreground` at 20%, a word space either side. The time line's day and
+  time have the same `·`, in the line's own colour.
+- A separator `·` is tied to the word before it by a no-break space, so a
+  wrapped line ends in the dot and never starts with one. The owner chose this
+  on 2026-11-11 (#2161), over a 3px drawn dot, which no text rule can tie to a
+  word.
+- The clock and pin icons keep their size and sit centred on their text's first
+  line; the host's avatar starts level with its first line.
+- The footer's category and status wrap to two lines when one does not fit, and
+  the status stays flush right on either line.
+- The title is the one line that may be cut: it stops at two lines and ends in
+  an ellipsis (`line-clamp-2`).
+
+The owner chose this arrangement (#2161, 2026-11-11). Rejected: stacking the
+media above the body below 768px, as the featured card does, which makes a card
+302–323px tall at 320px, under two to a 568px screen, and leaves the featured
+card looking like the rest.
+
+*Measured 2026-11-11 — the same page and command, with the non-featured card at `grid-cols-1 md:grid-cols-[180px_1fr]` and its media at `h-[140px] md:h-full md:min-h-[140px]`*
+
+`pulse/web/tests/explore/ExploreCard.phone.browser.test.tsx` holds, on the
+explore page with five events at 320 and 390px, the 112px column, the "Live"
+tag, and the list's rules for wrapping, the time, the separator dots, the icons
+and avatar, the footer and the title. For the dots it also narrows a line until
+the dot no longer fits after its word, and checks the word moves down with it. One event is built to break them: a venue that is one
+unbroken word and a status too long to sit beside its category. At 1440px it
+holds the 180px column and "Happening now". It shoots the page at all three
+widths in light and dark.
 
 **Placeholder system**: 8 gradient classes (`ph-1` through `ph-8`) with overlay pattern and category glyph — used when events lack an image.
 
@@ -220,7 +330,8 @@ These rules govern `pulse/web`. The landing site's motion is in
   a press or a small panel arriving; `--ui-dur-base` (200ms) for a panel swap,
   such as the onboarding step; `--ui-dur-slow` (320ms) for something crossing
   the screen; `--ui-dur-exit` for an overlay closing. `--ui-ease-out` is for an
-  arrival, `--ui-ease-in-out` for a move between two places. A literal duration,
+  arrival, `--ui-ease-in-out` for a move between two places, `--ui-ease-exit`
+  for an overlay closing. A literal duration,
   delay or curve fails `house/no-literal-motion` unless it carries a
   `motion-literal:` comment giving its reason. Loops and choreographed
   illustrations, such as the onboarding rings and the pin drop, are the cases
@@ -230,20 +341,32 @@ These rules govern `pulse/web`. The landing site's motion is in
   no `transition-ui-colors` utility yet; until it does, a control names the
   properties it fades, so the focus mark never arrives late. A bare
   `transition` fades `outline-color` too, and so does `transition-shadow` on a
-  ring.
+  ring. The explore tabs fade `color` and `background-color`, and the search
+  box fades its `border-color` while its focus outline shows at once.
 - **Entrances are short and quiet**: opacity with an 8px rise, as the onboarding
   step does (`onb-step-in`).
-- **Only the onboarding illustrations loop.** A looping animation is
-  illustration, never a control or a loading state, and it stops under
-  `prefers-reduced-motion: reduce` (`onboarding.css` holds the rule).
+- **Only illustrations loop**: the onboarding illustrations, the brand mark's
+  pulsing dot (§Navigation) and the live dot beside the hero's greeting and on a
+  live card. A looping animation is illustration, never a control or a loading
+  state, and it stops under `prefers-reduced-motion: reduce`, holding a still
+  frame (`onboarding.css` and `explore/explore.css` hold the rule).
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
+- **Overlays grow and shrink.** Pulse maps no scale token, so `@shared/ui`'s
+  Dialog, Popover and menus open from the contract's 0.96 and close to 0.98
+  (`wiki/shared/design-tokens.md` §Motion), and under reduced motion show and
+  hide at once. The menus are the shared default look: a menu's separator is a
+  1px `--ui-hairline` fill with no border.
 
-Where the app does not follow this yet: the explore page's `brand-pulse` and
-`live-pulse` loop with no reduced-motion rule (`explore/explore.css`), and these
-controls fade their focus mark with the colour: `FilterChip.tsx`,
-`ShareEventButton.tsx`, `CalendarEventCard.tsx`, the tab buttons in
-`ExploreNav.tsx` (`transition-colors`), its search box (`transition-shadow`
-under a focus ring), and `routes/series/[id].tsx` (bare `transition`).
+Where the app does not follow this yet: these controls fade their focus mark
+with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
+`CalendarEventCard.tsx` and `routes/series/[id].tsx` (bare `transition`).
+
+`tools/e2e/tests/support/pulse-explore.ts` holds the explore header to these
+rules: what its tab and search box fade, and its two loops stopping under
+reduced motion.
+`tools/e2e/tests/support/pulse-menus.ts` holds both avatar menus' separators
+at 390 and 1440px in both schemes, and holds those menus and "More filters"
+opening from 0.96.
 
 ## Future
 

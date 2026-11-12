@@ -1,6 +1,6 @@
 {
   "name": "@shared/infra",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "license": "UNLICENSED",
   "author": "English Street Ventures Pty Ltd",
@@ -25,9 +25,7 @@
     "production-hosts": "bun run scripts/production-hosts.ts",
     "plan-summary": "bun run scripts/plan-summary.ts",
     "state:bootstrap": "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare",
-    "state:check": "CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
-    "rehearsal:deploy": "CI=true DO_NOT_TRACK=1 bun alchemy deploy rehearsal/alchemy.run.ts --stage domain-move --yes",
-    "rehearsal:destroy": "CI=true DO_NOT_TRACK=1 bun alchemy destroy rehearsal/alchemy.run.ts --stage domain-move --yes"
+    "state:check": "CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.85",

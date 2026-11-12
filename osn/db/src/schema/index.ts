@@ -15,6 +15,9 @@ import {
 
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(), // "acc_" prefix
+  // Stored lower case. Two triggers refuse a capital letter A to Z on insert
+  // and update. A migration creates them; `src/triggers.ts` copies them for
+  // test and local databases.
   email: text("email").notNull().unique(),
   passkeyUserId: text("passkey_user_id").notNull().unique(), // random UUID, opaque WebAuthn user.id (never correlates to accountId)
   maxProfiles: integer("max_profiles").notNull().default(5),
@@ -35,13 +38,13 @@ export const accounts = sqliteTable("accounts", {
   processingRestrictedAt: integer("processing_restricted_at"),
   /**
    * Unix seconds of the most recent account recovery, written by all three
-   * recovery paths — the recovery code, the emailed code and the authenticator
+   * recovery paths — the recovery code, the emailed link and the authenticator
    * code. NULL on an account that has never been recovered.
    *
    * It opens a 72-hour window in which two things are refused: changing the
-   * email on a step-up whose factor was an emailed OTP, and completing a
+   * email on a step-up whose factor was the emailed link, and completing a
    * SECOND email or TOTP recovery. The first is the point — the reason
-   * `emailChangeAllowedAmr` admits `otp` at all is that an emailed code proves
+   * `emailChangeAllowedAmr` admits `otp` at all is that the emailed link proves
    * control of the CURRENT mailbox, and after a recovery that mailbox may be
    * the attacker's. The second stops a mailbox holder simply running recovery
    * again once the owner has cleaned up.

@@ -52,14 +52,13 @@ describe("stubMotionForSsr", () => {
     },
   );
 
-  it("loads a stub whose animate() and stagger() throw rather than do nothing", async () => {
+  it("loads a stub whose animate() throws rather than does nothing", async () => {
     const code = plugin.load(MOTION_SSR_STUB_ID);
     expect(code).not.toBeNull();
     const stub = (await import(
       /* @vite-ignore */ `data:text/javascript,${encodeURIComponent(code ?? "")}`
-    )) as { animate: () => unknown; stagger: () => unknown };
+    )) as { animate: () => unknown };
     expect(() => stub.animate()).toThrow(/stubbed out of the cire\/invites SSR build/);
-    expect(() => stub.stagger()).toThrow(/stubbed out of the cire\/invites SSR build/);
   });
 
   it("loads nothing for any other module id", () => {

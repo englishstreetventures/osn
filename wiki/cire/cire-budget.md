@@ -10,7 +10,8 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-27
+  - "[[toast]]"
+last-reviewed: 2026-11-11
 ---
 # Budget
 
@@ -157,6 +158,7 @@ A line with a `unit_price_minor` is priced per guest. The couple enters the pric
 **`cire/host/src/lib/budget-store.ts`** — the `weddingId`-keyed cache of one wedding's budget snapshot (`GET /api/organiser/weddings/:weddingId/budget`), shared by the Budget view and the Overview's budget widget so the two make one request.
 
 - **Writes** — a successful create or edit folds the row the server returns into the cached snapshot. Only a failed write reads the budget again, to undo the optimistic change.
+- **Deleting a line** — the ✕ hides the line and its payments at once and sends `DELETE .../budget/items/:itemId` only once its undo toast has gone without Undo, about five seconds later or longer while the toast is hovered or focused, or as the page is left (`keepalive`). Until then the line is still on the server, so co-hosts still see it, and the Budget view's own load leaves it out of any read; Undo puts back the same line and payments with no request. See [[toast]] and `cire/host/src/lib/undo-delete.ts`.
 - **Lifetime** — the same contract as its siblings (`guests-store.ts`, `events-store.ts`, `tasks-store.ts` and the rest): stale-while-revalidate after a write, and every row dropped when the wedding's dashboard closes. See [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]].
 - **Per-head refetch** — a per-head line's figures change as RSVPs arrive, with nobody touching the budget. So the Budget view loads through `revalidateBudget`: when the cached snapshot holds a per-head line it is marked stale and refetched each time the view opens, with the old rows on screen meanwhile; a refused refetch blanks them as any other does. An open while a load is already in flight joins that load rather than discarding it. A budget with no per-head line loads once. The Overview card does not refetch, because its fetcher soft-fails to an empty snapshot that would then be cached; it shows whatever was last loaded. This exception is the budget module's alone, not part of the shared cache contract.
 

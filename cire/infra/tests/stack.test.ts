@@ -20,6 +20,7 @@ import {
   cireDeclaration,
   cireProductionSites,
   PRODUCTION_RESOURCE_KINDS,
+  PRODUCTION_SITE_DOMAINS,
   SITE_LOGICAL_IDS,
 } from "../src/declaration";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
@@ -511,6 +512,12 @@ describe("the cire stack, evaluated offline", () => {
 
 const PRODUCTION_SITES = ["CireHost", "CireVendor", "CireLanding"];
 
+/** Each declared Worker's custom domain, by logical id. */
+const domainsOf = (evaluation: Evaluation): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(resourcesOf(evaluation)).map(([id, resource]) => [id, resource.Props.domain]),
+  );
+
 describe("the cire stack on production", () => {
   let production: Evaluation;
 
@@ -518,7 +525,7 @@ describe("the cire stack on production", () => {
     production = await evaluateCire({ stage: "production", env: productionEnv() });
   });
 
-  test("KP1: declares the staged sites alone, under today's production names, and nothing the guard does not know", () => {
+  test("KP1: declares the worker sites alone, under today's production names, and nothing the guard does not know", () => {
     const resources = resourcesOf(production);
     expect(production.fetches).toEqual([]);
     expect(Object.keys(resources).toSorted()).toEqual([...PRODUCTION_SITES].toSorted());
@@ -550,36 +557,21 @@ describe("the cire stack on production", () => {
     });
   });
 
-  test("KP2: a staged site serves its spare host, a worker its production host, an off site nothing; no workers.dev or preview URL", async () => {
-    expect(
-      Object.fromEntries(
-        Object.entries(resourcesOf(production)).map(([id, resource]) => [
-          id,
-          resource.Props.domain,
-        ]),
-      ),
-    ).toEqual({
+  test("KP2: a worker serves its production host, an off site nothing; no workers.dev or preview URL", async () => {
+    expect(domainsOf(production)).toEqual({
       CireHost: "host.cireweddings.com",
       CireVendor: "vendor.cireweddings.com",
-      CireLanding: "next.cireweddings.com",
+      CireLanding: "cireweddings.com",
     });
-    const flipped = resourcesOf(
-      await evaluateCire({
-        stage: "production",
-        env: productionEnv(),
-        modes: {
-          ...PRODUCTION_SITE_MODES,
-          cire_host: "staged",
-          cire_vendor: "off",
-          cire_landing: "worker",
-        },
-      }),
-    );
-    expect(
-      Object.fromEntries(
-        Object.entries(flipped).map(([id, resource]) => [id, resource.Props.domain]),
-      ),
-    ).toEqual({ CireHost: "next.host.cireweddings.com", CireLanding: "cireweddings.com" });
+    const off = await evaluateCire({
+      stage: "production",
+      env: productionEnv(),
+      modes: { ...PRODUCTION_SITE_MODES, cire_vendor: "off" },
+    });
+    expect(domainsOf(off)).toEqual({
+      CireHost: "host.cireweddings.com",
+      CireLanding: "cireweddings.com",
+    });
     for (const resource of Object.values(resourcesOf(production))) {
       expect({ [resource.LogicalId]: resource.Props.workersDev }).toEqual({
         [resource.LogicalId]: { enabled: false, previewsEnabled: false },
@@ -594,6 +586,43 @@ describe("the cire stack on production", () => {
         },
       });
     }
+  });
+
+  test("H6: a held site keeps its Worker and the build, with no custom domain; every other site keeps its host", async () => {
+    const held = await evaluateCire({
+      stage: "production",
+      env: productionEnv(),
+      holds: [
+        {
+          site: "cire_vendor",
+          host: "vendor.cireweddings.com",
+          reason: "Serves nothing until the vendor export ships.",
+        },
+      ],
+    });
+    expect(domainsOf(held)).toEqual({
+      CireHost: "host.cireweddings.com",
+      CireVendor: null,
+      CireLanding: "cireweddings.com",
+    });
+    expect(resourcesOf(held).CireVendor?.Props).toMatchObject({
+      name: "cire-vendor",
+      assets: { directory: "../vendor/dist" },
+      workersDev: { enabled: false, previewsEnabled: false },
+    });
+  });
+
+  test("H7: the domains the plan guard reads are the ones the stack declares with no holds passed, as the deploy runs it", async () => {
+    const live = await evaluateCire({
+      stage: "production",
+      env: productionEnv(),
+      holds: "stack default",
+    });
+    expect(PRODUCTION_SITE_DOMAINS).toEqual(
+      Object.fromEntries(
+        Object.entries(SITE_LOGICAL_IDS).map(([site, id]) => [site, domainsOf(live)[id]]),
+      ),
+    );
   });
 
   test("KP7: on production, an unknown path serves the portal's page on the organiser and vendor portals, as their Pages projects do, and 404s on the marketing site", () => {
@@ -665,8 +694,11 @@ describe("the cire stack on production", () => {
     }
     // Each site's build is checked for the production origins it bakes in.
     expect(
-      cireProductionSites({ modes: PRODUCTION_SITE_MODES, hosts: stageHosts(DEV_DOMAIN, "dev") })
-        .prebuilt,
+      cireProductionSites({
+        modes: PRODUCTION_SITE_MODES,
+        holds: [],
+        hosts: stageHosts(DEV_DOMAIN, "dev"),
+      }).prebuilt,
     ).toEqual([
       {
         site: "@cire/host",
@@ -692,6 +724,7 @@ describe("the cire stack on production", () => {
     expect(
       cireProductionSites({
         modes: { ...PRODUCTION_SITE_MODES, cire_host: "off" },
+        holds: [],
         hosts: stageHosts(DEV_DOMAIN, "dev"),
       }).prebuilt.map((site) => site.site),
     ).toEqual(["@cire/vendor", "@cire/landing"]);

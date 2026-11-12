@@ -209,7 +209,8 @@ what it draws, the component you checked, and the verdict — `U-<id>`, `uses
   duplicates a package's, or each of two surfaces of one product carrying its
   own. The Solution uses the package's, or moves the one component into the
   package, which ships as a pull request of its own
-  (`wiki/conventions/stacked-prs.md` §Frontend: one component per pull request).
+  (`wiki/conventions/stacked-prs.md` §Frontend: when a component gets its own
+  pull request).
 - A component two surfaces need and no package has: a finding proposing it for
   the package. One that one surface alone needs is not.
 
@@ -332,11 +333,15 @@ its own tiers, where this report writes `U-` findings. For a gesture, also read
 `.claude/skills/gestures/SKILL.md`; for a claim that an animation drops frames,
 `.claude/skills/animation-performance/SKILL.md`.
 
-- **The document wins.** A duration, easing, transform origin or reduced-motion
-  rule in the `DESIGN.md` or its stylesheet outranks `STANDARDS.md`: a miss
-  against the document is High, as any broken document rule is. Say in
-  `## Coverage` which value you held the animation to, and that the skill's
-  number gave way.
+- **The document is what ships, and the owner chooses.** Hold the animation to
+  the duration, easing, transform origin or reduced-motion rule in the
+  `DESIGN.md` or its stylesheet: a miss against the document is High, as any
+  broken document rule is, unless the branch changes that value in the
+  `DESIGN.md` and its pull request body quotes the owner's answer and where it
+  was given; a `DESIGN.md` change with no such record is High. Where `STANDARDS.md` asks for something different, do not
+  drop it: write a finding for the owner's call, as the paragraph below on a look
+  the documents do not settle says, with both values, the document's file and
+  line, and the skill's. Say in `## Coverage` which value you held the animation to.
 - **A miss no document rules on is Medium**, or Low where it is polish no one
   sees at a glance. A motion on a keyboard action or a high-frequency control is
   Medium; so is an animation of `width`, `height`, `top` or `left` where
@@ -572,10 +577,13 @@ Tiers:
 In a `--full` sweep every line is in scope, so the tier is the one a changed
 line would take.
 
-**A look the documents do not settle is the owner's.** When two answers are
-defensible and no rule chooses between them, the finding says so, names the
-options in the Solution, and leaves the choice to the owner; whoever fixes it
-shows the owner each option rendered, light and dark, before asking.
+**A look the documents do not settle, or settle differently from a skill, is the
+owner's.** When two answers are defensible and no rule chooses between them, or
+the governing document names one value and a skill's checklist another, the
+finding says so, names the options in the Solution (the document's with its file
+and line), and leaves the choice to the owner; whoever fixes it shows the owner
+each option rendered, light and dark, before asking. A branch that followed its
+document where a skill differs gets this finding at Low, never High.
 
 If the review finds nothing, write "No design concerns found." at the top of
 `## Design findings` — and still fill every other section.

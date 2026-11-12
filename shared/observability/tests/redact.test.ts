@@ -40,6 +40,35 @@ describe("redact", () => {
     expect(out.enrollment_token).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts an emailed link's secrets and every value that says which candidate is right", () => {
+    const input = {
+      requestId: "signup_0123456789ab",
+      linkSecret: "a".repeat(64),
+      claimSecret: "b".repeat(64),
+      pairingCode: "47",
+      pairingCandidates: ["12", "33", "47", "68", "90"],
+      pairingPick: "47",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.requestId).toBe("signup_0123456789ab");
+    expect(out.linkSecret).toBe(REDACTION_PLACEHOLDER);
+    expect(out.claimSecret).toBe(REDACTION_PLACEHOLDER);
+    expect(out.pairingCode).toBe(REDACTION_PLACEHOLDER);
+    expect(out.pairingCandidates).toBe(REDACTION_PLACEHOLDER);
+    expect(out.pairingPick).toBe(REDACTION_PLACEHOLDER);
+  });
+
+  it("redacts a sign-up's Email Verification API token and the nonce secret that binds it", () => {
+    const input = {
+      email: "ada@example.com",
+      emailVerificationToken: "eyJhbGciOiJFZDI1NTE5In0.e30.c2ln~eyJhbGciOiJFZDI1NTE5In0.e30.c2ln",
+      nonceSecret: "n".repeat(75),
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.emailVerificationToken).toBe(REDACTION_PLACEHOLDER);
+    expect(out.nonceSecret).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts the Authorization header", () => {
     const input = {
       url: "/graph/internal/connections",
@@ -537,6 +566,13 @@ describe("redact", () => {
       "passkey_label",
       "cdlsecret",
       "cdl_secret",
+      "linksecret",
+      "claimsecret",
+      "pairingcode",
+      "pairingcandidates",
+      "pairingpick",
+      "emailverificationtoken",
+      "noncesecret",
       "privatekey",
       "private_key",
       "accountid",

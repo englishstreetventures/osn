@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-11
 ---
 
 # TOTP (RFC 6238) second factor
@@ -235,8 +235,8 @@ factor. Which failure it actually was appears only on
 
 | Route | Step-up gate | Notes |
 |---|---|---|
-| `POST /totp/enroll/begin` | `totp_enroll` | Returns `otpauthUri` + `totpSecret`, once, under `Cache-Control: no-store`. 409 if a confirmed credential exists. |
-| `POST /totp/enroll/complete` | none | `begin` carried the gate, and the pending secret only exists because a gated `begin` created it. |
+| `POST /totp/enroll/begin` | `totp_enroll` | Returns `otpauthUri` + `totpSecret`, once, under `Cache-Control: no-store`. 400 (`invalid_request`) if a confirmed credential exists. The caller's session must be live, or the answer is `409 session_stale` before the step-up token is read. |
+| `POST /totp/enroll/complete` | none | `begin` carried the gate, and the pending secret only exists because a gated `begin` created it. The caller's session must still be live, or the answer is `409 session_stale` and the pending secret stays ([[sessions#Access-token session binding (`osn_sid`)]]). |
 | `DELETE /totp` | `totp_disable` | Idempotent. Writes the security event, sends the notice. |
 | `GET /totp/status` | none | `enrolled`, `label`, `lastUsedAt`, `createdAt`. Never the secret, the ciphertext or the step. |
 | `POST /step-up/totp/complete` | none | Exchanges a code for a step-up token with `amr: ["totp"]`. |
@@ -351,8 +351,9 @@ one, or mint a step-up token. Each needs a fresh ceremony.
 
 What a stolen access token **plus** a cloud-synced authenticator seed can do: add
 a passkey, generate recovery codes, delete or export the account, acknowledge
-security events. All of those already accept an emailed OTP, so admitting TOTP
-does not widen them.
+security events (an `email_changed` event only once its 7-day hold ends, by any
+factor — [[step-up#Threat model]]). All of those already accept an emailed OTP,
+so admitting TOTP does not widen them.
 
 What it cannot do **directly** is delete the victim's existing passkeys or change
 the account email. Neither `passkeyDeleteAllowedAmr` nor `emailChangeAllowedAmr`
@@ -376,7 +377,7 @@ admits a `totp` AMR.
 >    only one survivor, and the attacker's credential is one.
 >
 > Email change fell to the same pivot with `purpose: "email_change"` at step 3,
-> and that was the worse end of it: its second factor is an OTP to the **new**
+> and that was the worse end of it: its second factor is a link to the **new**
 > address, and `POST /account/email/begin` is gated on the access token alone,
 > so the current-mailbox proof that list was written for is not what the caller
 > ends up presenting. The outcome was a permanent, mailbox-independent takeover.

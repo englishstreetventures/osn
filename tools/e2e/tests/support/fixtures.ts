@@ -366,22 +366,94 @@ export async function mailFor(
   return messages;
 }
 
-/** The newest one-time code sent to `email`, waiting for the mail to land. */
-export async function otpFor(email: string, after = 0): Promise<string> {
-  let code = "";
+/** An emailed link as the email carries it: `<musubi>/verify/<request id>#<secret>`. */
+export interface MailedLink {
+  readonly url: string;
+  readonly requestId: string;
+  readonly linkSecret: string;
+}
+
+const LINK_RE =
+  /(https?:\/\/[^\s"<>]+\/verify\/((?:signup|recovery|stepup|emailchange)_[a-f0-9]{12})#([a-f0-9]{64}))/;
+
+/**
+ * The newest emailed link (any flow's) sent to `email` after its
+ * first `after` messages, waiting for the mail to land: osn-api sends it after
+ * it answers.
+ */
+export async function linkFor(email: string, after = 0): Promise<MailedLink> {
+  let link: MailedLink | undefined;
   await expect
     .poll(
       async () => {
         const response = await fetch(`${ORIGINS.mail}/__e2e/mail?to=${encodeURIComponent(email)}`);
         const messages = (await response.json()) as Array<{ text: string }>;
-        const latest = messages.slice(after).at(-1);
-        code = latest?.text.match(/\b(\d{6})\b/)?.[1] ?? "";
-        return code;
+        const match = messages
+          .slice(after)
+          .map((m) => LINK_RE.exec(m.text))
+          .findLast((m) => m !== null);
+        link = match ? { url: match[1]!, requestId: match[2]!, linkSecret: match[3]! } : undefined;
+        return link !== undefined;
       },
-      { message: `no one-time code reached ${email}`, timeout: 15_000 },
+      { message: `no emailed link reached ${email}`, timeout: 15_000 },
     )
-    .not.toBe("");
-  return code;
+    .toBe(true);
+  return link!;
+}
+
+/**
+ * The number the waiting screen ("Check your email") shows, which the link's
+ * page asks for: the digits after the hidden "Your number:" label.
+ */
+export async function waitingScreenNumber(page: Page): Promise<string> {
+  const number = page.locator("p", { hasText: "Your number:" }).locator('span[translate="no"]');
+  await expect(number).toBeVisible();
+  return ((await number.textContent()) ?? "").trim();
+}
+
+/** The numbers an emailed link's confirm card offers, one button each. */
+export function offeredNumbers(page: Page) {
+  return page.getByRole("group", {
+    name: "Pick the number shown on the screen where you started.",
+  });
+}
+
+/**
+ * On a page showing an emailed link's confirm card, taps `pairingCode` — the
+ * number the tab that began shows — which confirms. `flows.test.ts` counts the
+ * calls against osn-api's confirm budget.
+ */
+export async function confirmLinkOnPage(page: Page, pairingCode: string): Promise<void> {
+  await offeredNumbers(page).getByRole("button", { name: pairingCode, exact: true }).click();
+}
+
+/**
+ * On a page showing an emailed link's confirm card, taps a number that is not
+ * `pairingCode`, and answers the number tapped. Counted as a confirm by
+ * `flows.test.ts`.
+ */
+export async function pickWrongNumberOnPage(page: Page, pairingCode: string): Promise<string> {
+  const offered = await offeredNumbers(page).getByRole("button").allTextContents();
+  const wrong = offered.map((text) => text.trim()).find((text) => text !== pairingCode);
+  if (wrong === undefined) throw new Error("the confirm card offered no other number");
+  await offeredNumbers(page).getByRole("button", { name: wrong, exact: true }).click();
+  return wrong;
+}
+
+/**
+ * On a page showing a recovery link's confirm card, where the reader types the
+ * number the tab that began shows, types `number` and confirms. Counted as a
+ * confirm by `flows.test.ts`. The card is `ConfirmLinkPage` with
+ * `typeNumber`: one text field and its Confirm button.
+ */
+export async function typeNumberOnPage(page: Page, number: string): Promise<void> {
+  await page.getByRole("textbox").fill(number);
+  await page.getByRole("button", { name: /^Confirm/ }).click();
+}
+
+/** On a page showing an emailed link's confirm card, says "I didn't ask for this". Counted as a confirm by `flows.test.ts`. */
+export async function declineLinkOnPage(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "I didn't ask for this", exact: true }).click();
 }
 
 /** Makes the mail stand-in refuse the next send to `email`, as Resend refuses an unverified sender. */
@@ -429,9 +501,10 @@ export async function osnDispatchFailureLog(): Promise<string> {
 }
 
 /**
- * Registers an OSN account through the API, the way Musubi's dialog does, and
- * leaves its session cookie in `request`'s jar. For flows whose subject is not
- * registration.
+ * Registers an OSN account through the API, the way Musubi's dialog and the
+ * emailed link's page do between them — begin, confirm with the pairing code
+ * begin answered, claim — and leaves its session cookie in `request`'s jar.
+ * For flows whose subject is not registration.
  */
 export async function registerThroughApi(
   flow: Flow,
@@ -451,15 +524,24 @@ export async function registerThroughApi(
   });
   flow.recordRequest("POST", beginUrl, begin.status());
   expect(begin.status(), "register/begin").toBe(200);
+  const begun = (await begin.json()) as { claimSecret: string; pairingCode: string };
 
-  const code = await otpFor(person.email);
-  const completeUrl = `${ORIGINS.osnApi}/register/complete`;
-  const complete = await request.post(completeUrl, {
+  const link = await linkFor(person.email);
+  const confirmUrl = `${ORIGINS.osnApi}/email-link/${link.requestId}/confirm`;
+  const confirm = await request.post(confirmUrl, {
     headers,
-    data: { email: person.email, code },
+    data: { linkSecret: link.linkSecret, pairingPick: begun.pairingCode },
   });
-  flow.recordRequest("POST", completeUrl, complete.status());
-  expect(complete.status(), "register/complete").toBe(201);
+  flow.recordRequest("POST", confirmUrl, confirm.status());
+  expect(confirm.status(), "email-link confirm").toBe(200);
+
+  const statusUrl = `${ORIGINS.osnApi}/register/${link.requestId}/status`;
+  const status = await request.post(statusUrl, {
+    headers,
+    data: { claimSecret: begun.claimSecret },
+  });
+  flow.recordRequest("POST", statusUrl, status.status());
+  expect(status.status(), "register status").toBe(201);
 }
 
 /** A virtual platform authenticator on `page`, through the Chrome DevTools Protocol. */
@@ -547,6 +629,46 @@ export function holdMethod(method: string): {
     await route.fallback();
   };
   return { handler, release };
+}
+
+/**
+ * Sends every request `context` makes to the first osn-api to the second,
+ * `osnApiEvt`, which takes browser Email Verification API tokens. Musubi's
+ * build names one osn-api; this is how one flow signs up against the other.
+ * The browser still sees `localhost:4000` (cookies ignore the port either
+ * way), and every begin it makes spends the second osn-api's limiter window,
+ * which `tools/e2e/tests/flows.test.ts` counts apart for the flows that call
+ * this. The route stays for the rest of the flow, as `claimFromOrganiserAddress`
+ * explains.
+ */
+export async function throughEmailVerificationApi(context: BrowserContext): Promise<void> {
+  await context.route(`${ORIGINS.osnApi}/**`, (route: Route) =>
+    route.continue({
+      url: route.request().url().replace(ORIGINS.osnApi, ORIGINS.osnApiEvt),
+    }),
+  );
+}
+
+/**
+ * The value a browser with the Email Verification API would put in the
+ * sign-up form's hidden field: a token the issuer stand-in signs for `email`,
+ * bound to `nonce` and to Musubi's origin (`src/issuer.ts`).
+ */
+export async function emailVerificationTokenFor(email: string, nonce: string): Promise<string> {
+  const response = await fetch(`${ORIGINS.issuer}/__e2e/evt`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, nonce, aud: ORIGINS.musubi }),
+  });
+  if (!response.ok) throw new Error(`issuer stand-in answered ${response.status}`);
+  return ((await response.json()) as { token: string }).token;
+}
+
+/** How many sign-up links have reached `email` so far, without waiting for one. */
+export async function signUpLinksTo(email: string): Promise<number> {
+  const response = await fetch(`${ORIGINS.mail}/__e2e/mail?to=${encodeURIComponent(email)}`);
+  const messages = (await response.json()) as Array<{ text: string }>;
+  return messages.filter((m) => LINK_RE.test(m.text)).length;
 }
 
 /** A cookie in `context` by name, or undefined. */
@@ -719,12 +841,7 @@ export async function signInToCireHost(flow: Flow, page: Page, arriveAt?: string
  * `tests/flows.test.ts` counts the calls.
  */
 export async function signInToMusubiAsDev(flow: Flow, page: Page, path: string): Promise<string> {
-  await flow.step("owner: get an OSN session from /dev/login", async () => {
-    const url = `${ORIGINS.osnApi}/dev/login/form`;
-    const response = await page.context().request.post(url, { form: { secret: DEV_LOGIN_SECRET } });
-    flow.recordRequest("POST", url, response.status());
-    expect(response.status(), "dev login").toBe(200);
-  });
+  await devLogin(flow, page);
 
   return flow.step("owner: open Musubi signed in", async () => {
     const tokenUrl = `${ORIGINS.osnApi}/token`;
@@ -737,6 +854,59 @@ export async function signInToMusubiAsDev(flow: Flow, page: Page, path: string):
     await expect(page.getByRole("button", { name: `@${MUSUBI_ORG.owner.handle}` })).toBeVisible();
     expect(body.access_token, "access token from POST /token").toBeTruthy();
     return body.access_token ?? "";
+  });
+}
+
+/**
+ * Signs `page`'s context in as the dev profile, as `signInToMusubiAsDev` does,
+ * but never loads Musubi's app: `page` opens an empty document at Musubi's
+ * origin and makes the app's credentialed `POST /token` itself. Resolves to the
+ * access token, for API calls the flow makes as the dev profile; `page` stays
+ * at Musubi's origin, for the passkey ceremonies.
+ *
+ * Musubi lists the account's profiles on every signed-in page load, and
+ * osn-api takes 10 lists a minute per address, one window shared by the whole
+ * run; a flow that drives osn-api alone spends none of them this way.
+ *
+ * Each call spends one `/dev/login`, counted with `signInToMusubiAsDev`'s in
+ * `tests/flows.test.ts`.
+ */
+export async function signInToMusubiAsDevWithoutApp(flow: Flow, page: Page): Promise<string> {
+  await devLogin(flow, page);
+
+  return flow.step("owner: take a token at Musubi's origin, without the app", async () => {
+    const empty = `${ORIGINS.musubi}/e2e-empty`;
+    await page.route(empty, (route) =>
+      route.fulfill({ contentType: "text/html", body: "<!doctype html><title>empty</title>" }),
+    );
+    // A document Playwright answers has no address of its own, so Chromium
+    // treats it as public and refuses its calls to osn-api on loopback unless
+    // the origin holds local network access. Musubi's own pages come from
+    // loopback and need no grant.
+    await page.context().grantPermissions(["local-network-access"], { origin: ORIGINS.musubi });
+    await page.goto(empty);
+    const token = await page.evaluate(async (api) => {
+      const response = await fetch(`${api}/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        credentials: "include",
+        body: new URLSearchParams({ grant_type: "refresh_token" }).toString(),
+      });
+      if (!response.ok) return "";
+      return ((await response.json()) as { access_token?: string }).access_token ?? "";
+    }, ORIGINS.osnApi);
+    expect(token, "access token from POST /token").toBeTruthy();
+    return token;
+  });
+}
+
+/** Leaves an OSN session for the dev profile in `page`'s context's jar. */
+async function devLogin(flow: Flow, page: Page): Promise<void> {
+  await flow.step("owner: get an OSN session from /dev/login", async () => {
+    const url = `${ORIGINS.osnApi}/dev/login/form`;
+    const response = await page.context().request.post(url, { form: { secret: DEV_LOGIN_SECRET } });
+    flow.recordRequest("POST", url, response.status());
+    expect(response.status(), "dev login").toBe(200);
   });
 }
 

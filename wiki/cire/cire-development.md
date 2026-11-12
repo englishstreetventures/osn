@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Cire development guide
@@ -328,8 +328,10 @@ holds shared source to the floor.
 It lists the packages it expects, so a new dependency fails it until it meets
 the floor and joins the list. It exempts three build-only packages by name, and
 fails if any of them moves from `devDependencies` to `dependencies`:
-`@cire/build-tools` (an Astro integration that reads the filesystem; it states
-ES2022 but keeps `bun-types`), `@shared/dev-urls` and `@shared/typescript-config`.
+`@cire/build-tools` (an Astro integration that reads the filesystem, plus a pure
+module the guest Worker bundles for its response headers; neither reaches a
+browser, and it states ES2022 but keeps `bun-types`), `@shared/dev-urls` and
+`@shared/typescript-config`.
 
 What this does and does not catch:
 
@@ -586,9 +588,7 @@ hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
 
 The organiser portal (`@cire/host`) and the vendor portal (`@cire/vendor`) are
 static Astro builds served from static assets by their Workers, on dev and on
-production. On production the organiser portal's Pages project serves
-`host.cireweddings.com` until its flip release moves the host to the Worker. Every
-response header they send comes from
+production. Every response header they send comes from
 `public/_headers`, which the Workers and Pages alike apply to every path
 ([[infrastructure-as-code#Production sites]]). `astro dev` does
 not read that file, so the devloop runs with no CSP at all.
@@ -614,9 +614,11 @@ All three cire Astro apps share that integration: `tierHeaders` in
 imported as `@cire/build-tools/tier-headers`. It holds the rewrite, the URL
 checks and the bundle check, and its tests cover both kinds of build. Each
 app's `src/lib/tier-headers.ts` holds only that app's part: the env chain it
-reads and which build output must name the API. The package is build-only, so
-only an app's `astro.config.mjs` (through that file) imports it; never import
-it from app code, since it reads the filesystem.
+reads and which build output must name the API. The integration reads the
+filesystem, so only an app's `astro.config.mjs` (through that file) imports
+`tier-headers`; never import it from app code. `origin-trial` is the one module
+app code imports: it is pure, and the guest Worker uses it for its response
+headers ([[cire-development#Chrome origin trials]]).
 
 The integration reads the env from Vite's resolved config, the same object that
 fills `import.meta.env.PUBLIC_*` in the bundle. A portal resolves it through
@@ -751,6 +753,46 @@ walk passes. On a failed walk, reject that release — or dispatch one with
 revert. Leaving the release waiting instead holds every surface in it, not only
 the portal, and holds back the next release behind it.
 
+## Chrome origin trials
+
+Cire uses three Chrome features that are not on by default yet. Each runs on a
+token that Chrome checks against the page's origin, sent in an `Origin-Trial`
+response header. The tokens are public and cover `cireweddings.com` with
+subdomain matching, so they work on `invite.`, `host.`, `vendor.` and `api.`
+there and nowhere else. The dev tier runs on its own zone and gets none of the
+features; Chrome ignores a token on another origin, so every tier sends the
+same header.
+
+| Feature | Used by | Served from | Token lapses |
+|---|---|---|---|
+| `HTMLInCanvas` | the invite envelope ([[cire-envelope]]) | every guest-site SSR response | 2 Mar 2027 |
+| `AutofillEvent` | the guest email box, once englishstreetventures/osn#2208 lands | every guest-site SSR response | 5 Jan 2027 |
+| `WebMCP` | the organiser portal's agent tools, once englishstreetventures/osn#2209 lands | every organiser-portal path | 30 Mar 2027 |
+
+The strings, a decoder and the renewal window are in
+`cire/build-tools/src/origin-trial.ts` (`@cire/build-tools/origin-trial`, pure,
+so the guest Worker imports it). The guest site adds its two tokens in
+`securityHeaders()` (`cire/invites/src/lib/security-headers.ts`), SSR-only like
+`X-Robots-Tag`, so the prerendered legal pages enable neither. The portal is a
+static build, so its token is a line in `cire/host/public/_headers`, a second copy
+of the string that its test compares with the module's. The vendor portal and
+the marketing site carry none.
+
+**Renewal.** `cire/build-tools/tests/origin-trial.test.ts` fails once a token is
+within 14 days of its expiry, so a pull request goes red with time to act. Register
+the origin again for the feature on the Chrome origin-trials site (Match
+subdomains on), replace the string in `origin-trial.ts` (and, for WebMCP, in the
+host `_headers`), and move the expiry date in that test, in the table above and
+in the `Lapses` comment beside the string. A trial can also end before its token
+does, so a page tests for a feature before it uses it. The envelope does:
+`"requestPaint" in HTMLCanvasElement.prototype`
+(`cire/envelope/src/boot.ts`). The autofill and WebMCP code must do the same.
+
+**What a token cannot prove.** Chrome checks the signature and the origin, so
+no local test shows a feature turned on. The check is on production after a
+release, in stable Chrome with no flags, from the console of the page that uses
+it.
+
 ## Links to a site's own pages
 
 Link every page of a cire site by the address it is served at, with its
@@ -818,9 +860,8 @@ place a re-baseline touches. See that file's own comment for the exact steps.
 
 The headroom is deliberately smaller than the mistake the guard exists to
 catch, and that is the part worth getting right. `motion` costs **21261 bytes
-gzip in the minified build** — the size of its own already-minified client
-vendor chunk, `dist/client/_astro/animate.*.js`, and the same figure you get by
-rebuilding with `stubMotionForSsr()` removed. A threshold set to "measured plus
+gzip in the minified build** ([[bundle-size-guards]] has how that was measured
+and a check you can re-run). A threshold set to "measured plus
 one motion" would put a fresh library of exactly that class *under* the line,
 which is how the first version of this number went wrong: it carried 47657
 bytes, motion's cost back when the build was unminified. The arithmetic is

@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Social
@@ -84,7 +84,7 @@ ceremony to clear, so it stays until the user deals with it; a recovery-code
 offer is housekeeping. The prompt waits for a *settled* count from the events
 banner rather than an empty one, so it never appears for an instant and then
 gives way to an event that was still in flight. Coexistence would be ordinary
-rather than rare: most of the 18 kinds in `SecurityEventKind`
+rather than rare: most of the kinds in `SecurityEventKind`
 (`shared/observability/src/metrics/attrs.ts`) — adding a passkey, enrolling an
 authenticator, signing in from a second device — sit happily on an account with
 no recovery codes.
@@ -177,10 +177,13 @@ Environment variables (all prefixed `VITE_`):
 
 ## Deployment
 
-Cloudflare Pages, project **`osn-social`**, served at the apex
-**`https://musubi.social`**. The `deploy-osn-social` job in
-`.github/workflows/production-release.yml` builds and publishes it in each
-production release that ships it. On dev the musubi stack serves it as the
+Served at the apex **`https://musubi.social`**. The `sites` job in
+`.github/workflows/production-release.yml` builds it, and the musubi stack deploys that
+build to the **`osn-social`** Worker, which is `worker` in
+`shared/infra/src/production-sites.ts` and serves the apex since release 42817386650
+(2026-11-10); the `osn-social` Pages project it moved from is deleted
+([[production-deploy]] §5.7). `record-osn-social` records each production
+deploy whose smoke check passed. On dev the musubi stack serves it as the
 `osn-social-dev` Worker, with static assets, on `musubi.<DEV_DOMAIN>`: `deploy.yml`'s
 musubi stack job builds and deploys it on every merge to `main` that touches it,
 and `deploy-osn-social-dev` records the deploy once its smoke check passes. The
@@ -188,12 +191,10 @@ Worker serves deep links through its single-page not-found handling, not the
 `_redirects` file Pages reads ([[infrastructure-as-code#Sites]]). See
 [[production-deploy]] and [[dev-environment]].
 
-On production the musubi stack also serves the same build as the staged `osn-social`
-Worker on `next.musubi.social`, until the apex moves to it
-([[infrastructure-as-code#Production sites]]). Sign-in does not work there, by design:
-the session cookie is host-only on `id.musubi.social`, osn-api's CORS and WebAuthn
-accept only `https://musubi.social`, so only the `osn_has_session` marker reaches the
-staged host and its `/token` call is refused. Its smoke check asks static paths alone:
+The Worker signs people in only on the apex: the session cookie is host-only on
+`id.musubi.social`, and osn-api's CORS and WebAuthn accept only `https://musubi.social`,
+an origin, not the server behind it ([[infrastructure-as-code#Production sites]]). Its
+smoke check asks static paths alone:
 `/`, a deep link, and `/.well-known/apple-app-site-association`, which must come back
 as `application/json`. That file sits in a dot-directory, so the release's build
 artifact keeps hidden files; without it iOS stops offering the app's passkeys on the
@@ -217,13 +218,13 @@ would have barred the apex from ever running one. The apex also covers every
 future `*.musubi.social` surface with a single credential.
 
 - `VITE_OSN_ISSUER_URL` is baked in **at build time** (`https://id.musubi.social`
-  in the deploy job). Unset, the bundle dials `http://localhost:4000` and the
+  in the release's `sites` job). Unset, the bundle dials `http://localhost:4000` and the
   deployed app calls the visitor's own machine.
 - `public/_redirects` rewrites every path to `index.html` (200) so client-side
-  routes deep-link; `public/_headers` ships the framing denial, and the build
+  routes deep-link on Pages (the Worker serves them through its single-page fallback); `public/_headers` ships the framing denial, and the build
   adds the script and connection rules to it ([[#Response headers]]).
-- The custom domain is attached in the Cloudflare dashboard, not by wrangler —
-  see [[production-deploy]] §5.4.
+- The musubi stack attached the apex to the Worker on deploy, once the owner had taken
+  it off the Pages project — see [[production-deploy]] §5.4.
 - **No feature-branch preview.** `deploy-osn-social-preview.yml` (project
   `osn-social-preview`) was removed on 2026-07-27. A `*.pages.dev` preview could
   never sign anyone in — the RP ID is `musubi.social` and the `__Host-` session
@@ -285,7 +286,7 @@ the build:
 
 | Directive | Sources |
 |---|---|
-| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the `pages.dev` redirect and the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
+| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
 | `connect-src` | `'self'` and the issuer origin from `VITE_OSN_ISSUER_URL` (`http://localhost:4000` when unset, as `src/lib/auth.ts` reads it) |
 
 No `'unsafe-inline'`, no `'unsafe-eval'` and no `default-src`, so styles, images,
@@ -312,7 +313,7 @@ Per-user limiters on the two recommendations endpoints, both fail-closed — 20 
 
 `tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, a query that normalises to nothing never leaves the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter activates the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. A pointer click is tested in Chromium instead (`tests/components/GlobalSearch.browser.test.tsx`), because happy-dom's synthetic click skips the press and the focus change that decide whether it lands: clicking an organisation opens it, clicking a person connects once and leaves focus in the field, and a click outside still closes the results.
 
-`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders; the dialogs' one also checks that a page's signed-out note holds its Sign in back until the dialogs load, then shows it once, outside the note's live region. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
+`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders; the dialogs' one also checks that a page's signed-out note holds its Sign in back until the dialogs load, then shows it once, outside the note's live region. `tests/components/SecurityStepUp.browser.test.tsx` opens Settings' Security tab, starts Add passkey and the step-up's emailed-code step: at 320px the row of code boxes is the card's whole column and no button runs past the card; at 1440px the row keeps the step-up's 16px padding. It shoots both widths in light and dark into `e2e-artifacts/musubi-settings/`. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 
 `tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.
 
@@ -348,3 +349,21 @@ disabled, with focus kept (`busyButtonHeld`), each Connect 40px tall at 390px.
 request. The rules they hold are in
 [DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
 fields.
+
+Both flows also read what Musubi's contract block maps onto the shared
+overlays and titles (§Typography, §Borders and §Motion there).
+`musubi-passkey` opens the account menu from the rail at 1440 px and from the
+top bar at 390 px and reads its separator as a 1px `--ui-hairline` fill with
+no border, in both schemes; it holds the first frame of that menu, of the
+profile switcher (a sheet at 390 px) and of the create-account dialog's email
+popover, and the half-way frame of each closing, and finds no transform. It
+reads the switcher's title and the add-a-profile card's `CardTitle` against a
+`text-title font-medium` probe, and the authenticator setup's first code box
+("Code from the app Digit 1") at the probe's size at the flow's own width and
+at 768 px, and at 16px at 390 px.
+`musubi-org-detail` holds the create-organisation dialog's first frame and
+reads the create and edit dialogs' titles the same way. Shots go to
+`e2e-artifacts/screenshots/musubi-surfaces/` as `account-menu`,
+`profile-switcher` and `profile-onboarding`, in both schemes. Pulse's menus,
+which keep the contract's scale, are held by `pulse-event-rsvp`
+(`pulse/DESIGN.md` §Motion).

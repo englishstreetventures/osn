@@ -8,7 +8,19 @@ import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { rowsChanged } from "@shared/db-utils";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, gt, gte, inArray, lt, notExists, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  notExists,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
@@ -254,8 +266,8 @@ export function createSessionsModule() {
     }).pipe(Effect.withSpan("auth.session.resolve_binding"));
 
   /**
-   * Names the caller's own live session for the paths that revoke every
-   * OTHER session on the account (passkey register and passkey delete). Both
+   * Names the caller's own session for the paths that revoke every OTHER
+   * session on the account (passkey register and passkey delete). Both
    * inputs are server-derived: the hash comes from the HttpOnly cookie, the
    * binding from the signed access token. Neither is ever read from the
    * request body, so a caller cannot name someone else's session as its own
@@ -268,20 +280,9 @@ export function createSessionsModule() {
    * sign-you-out-everywhere failure the binding exists to prevent, reached
    * through a stale cookie instead of a missing one. Checking membership
    * costs nothing extra: the fallback already reads these rows.
-   */
-  const resolveCallerSession = (
-    accountId: string,
-    profileId: string,
-    caller: { cookieSessionHash?: string | null; sessionBinding?: string | null },
-  ): Effect.Effect<string | null, DatabaseError, Db> =>
-    classifyCallerSession(accountId, profileId, caller).pipe(
-      Effect.map((r) => (r._tag === "resolved" ? r.sessionHash : null)),
-    );
-
-  /**
-   * The three-way classification behind {@link resolveCallerSession}, for the
-   * destructive "revoke every OTHER session" paths (passkey register/delete)
-   * that must NOT degrade to an account-wide wipe on ambiguity:
+   *
+   * Three answers, because these paths must NOT degrade to an account-wide
+   * wipe on ambiguity:
    *
    *  - `resolved`  — a cookie or `osn_sid` binding names a live session. Keep
    *    it, revoke the rest.
@@ -312,6 +313,58 @@ export function createSessionsModule() {
       if (bound) return { _tag: "resolved", sessionHash: bound } as const;
       return { _tag: "stale" } as const;
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
+
+  /**
+   * The caller's live, ordinary session on the account, or null: the row its
+   * session cookie names, else the row its access token's `osn_sid` binding
+   * names, provided that row belongs to this account, is unrestricted and is
+   * not yet expired. Both inputs are server-derived: the hash from the
+   * HttpOnly cookie, the binding from the signed token.
+   *
+   * Stricter than {@link classifyCallerSession}, which counts every row of the
+   * account. Here a restricted recovery row counts for nothing, since such a
+   * session may only enrol a passkey and must never mint a step-up token or
+   * an ordinary access token, and neither does a row past its `expires_at`,
+   * which nothing deletes the moment it lapses.
+   *
+   * The cookie is read as well as the binding because each browser tab keeps
+   * its own access token while sharing the cookie: a renewal in one tab
+   * deletes the row another tab's token is bound to, and the cookie names the
+   * row that replaced it. A caller presenting neither holds nothing to check
+   * and gets null without a read.
+   */
+  const resolveLiveOrdinarySession = (
+    accountId: string,
+    profileId: string,
+    caller: { cookieSessionHash: string | null; sessionBinding: string | null },
+  ): Effect.Effect<string | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { cookieSessionHash, sessionBinding } = caller;
+      if (!cookieSessionHash && !sessionBinding) return null;
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Same window as `liveSessionIds`: newest first, so the caller's own
+      // row (recently used by definition) sits inside the cap.
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                isNull(sessions.restrictedUntil),
+                gt(sessions.expiresAt, nowSec),
+              ),
+            )
+            .orderBy(desc(sessions.lastUsedAt))
+            .limit(MAX_SESSIONS_PER_ACCOUNT),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const ids = rows.map((row) => row.id);
+      if (cookieSessionHash && ids.includes(cookieSessionHash)) return cookieSessionHash;
+      return sessionBinding ? matchBinding(ids, profileId, sessionBinding) : null;
+    }).pipe(Effect.withSpan("auth.session.check_live"));
 
   /**
    * Invalidates all sessions for an account EXCEPT the device of the one
@@ -520,8 +573,8 @@ export function createSessionsModule() {
   return {
     invalidateSession,
     resolveSessionByBinding,
-    resolveCallerSession,
     classifyCallerSession,
+    resolveLiveOrdinarySession,
     invalidateOtherAccountSessions,
     listAccountSessions,
     revokeAccountSession,

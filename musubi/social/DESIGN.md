@@ -45,7 +45,7 @@ light, `.dark` for dark).
 | `--input` | `#e2e2e2` | `#3a3a3a` | control borders |
 | `--ring` | `#5d5d5d` | `#a3a3a3` | focus ring |
 
-Text a reader needs — a handle, a status, a hint, a "Loading…" line — takes
+Text a reader needs — a handle, a status, a hint, a "Searching…" line — takes
 `text-muted-foreground`, never `text-subtle`. `--subtle` is for resting icons
 and ornaments, and clears 3:1 (WCAG 1.4.11's floor for an icon) on every
 ground it rests on:
@@ -76,8 +76,14 @@ row chevron (`OrganisationsPage.tsx`).
   edge, `currentColor`. Its fill is the ground's, so the edge alone shows where
   it is, and `--input`, the edge `@shared/ui`'s `Input` draws, sits under the
   3:1 a control's boundary needs (§The contrast contract).
+- `@shared/ui`'s `OtpInput` draws an empty box's edge in ink at 55%, which
+  holds 3:1 against the box's fill and the sheet around it in both themes.
 - A class that names a colour (`border-border`, `border-input`,
   `border-foreground`) wins over both, since utilities outrank the base layer.
+- A menu's separator (`@shared/ui`'s `DropdownMenuSeparator`, in the account
+  menu) is a 1px fill in `--ui-hairline`, which Musubi maps to `--border`, and
+  draws no border of its own: the hairline in both themes, not the panel's
+  ink. `AccountMenu.tsx` passes it no class.
 
 ### Status colours
 
@@ -86,9 +92,8 @@ Three hues, each held to its uses:
 - **Success** — `text-success` in app code, `text-ui-success` in shared parts
   (`--toast-accent-success`: `oklch(48% 0.13 150)` light, `oklch(78% 0.13 150)`
   dark). Ink for a confirmed good state. Uses today: "Verified by Musubi" on
-  `/authorize` (`AuthorizePage.tsx`), the "Accepted" line after an email code
-  in `Register`, "@handle is available" in `@shared/ui`'s `UsernameInput`, and
-  the accepted border of `OtpInput`.
+  `/authorize` (`AuthorizePage.tsx`), "@handle is available" in `@shared/ui`'s
+  `UsernameInput`, and the accepted border of `OtpInput`.
 - **Warn** — `--toast-accent-warn` (`oklch(52% 0.12 75)` light,
   `oklch(80% 0.12 75)` dark). Ink inside `@shared/ui`'s `Notice`
   (`tone="warn"`) and only there: its words and its circled "!" mark, on the
@@ -163,8 +168,8 @@ rule draws it on an element that does not name it (§Borders).
 
   | Utility | Size / line-height | Role |
   | --- | --- | --- |
-  | `text-display` | 24 / 30 | page titles (`h1`), large avatar initials |
-  | `text-title`   | 14 / 20 | person & org names, section headers, card titles, default Button labels |
+  | `text-display` | 24 / 30 | page titles (`h1`) in the shell, large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
+  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`, the emailed-link confirm page) |
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
@@ -181,6 +186,13 @@ rule draws it on an element that does not name it (§Borders).
   the screen's ask ("Choose a profile") — so the name a screen is about reads
   as a name. The rail's account trigger is shell chrome and keeps its own
   size.
+- **Dialog and card titles** — `@shared/ui`'s `DialogTitle` and `CardTitle`
+  are `text-title`'s 14px at 500. Both set their size with `--ui-text-md` and
+  their weight with `--ui-weight-title`, which the contract block in `App.css`
+  maps to `--text-title` and 500 (§Token contract); a call site sets neither,
+  and `shadcn/no-restyle` refuses a type class on either. `--ui-text-md`
+  carries the size and not the step's 20px leading: `DialogTitle` inherits the
+  body's 18px, and `CardTitle` keeps the shared part's `leading-none`, 14px.
 - **Consent marks** — `/authorize`'s "Verified by Musubi" and its "Third-party
   app" chip (§Chips) are `text-meta` at 500, so neither reads quieter than the
   other.
@@ -190,15 +202,19 @@ rule draws it on an element that does not name it (§Borders).
   `tests/styles/token-contract.browser.test.tsx` holds the default size.
 - **Text fields** — `@shared/ui`'s `Input` sets 14px (`--ui-text-base`) at its
   default size; below 768px Musubi's mobile input exception raises it to 16px.
+  `OtpInput`'s digits read `--ui-text-md`, which is also `--text-title`, so
+  they are 14px from 768px and 16px below, as `Input` is.
 - **Mobile input exception** — form controls (`input`, `select`, `textarea`)
   render at **16px** below 768px (app-scoped rule in `App.css`). Mobile Safari
   zooms the page when a focused control is under 16px; this is the one
   sanctioned deviation from the four-size scale. Never fix the zoom with
   `maximum-scale` — that breaks accessibility zoom.
 - **Shared parts** — the contract has seven steps where the app has four.
-  Musubi maps the four where they belong and fills the gaps by continuing its
-  own progression (§Token contract), so a shared part that asks for 16px, 20px
-  or 32px gets it.
+  Musubi maps the four where they belong, puts `--ui-text-md` on the title
+  step beside `--ui-text-base` (the size shared titles ask for), and fills the
+  steps above by continuing its own progression (§Token contract), so a shared
+  part that asks for `lg` or `2xl` gets 20px or 32px. No shared part in
+  Musubi draws at 16px except a form control below 768px.
 - **Legal prose** — the body of `/privacy` and `/terms` sits in `.prose-legal`
   (`App.css`, components layer), which `LegalDocument.tsx` puts round the body
   alone, not the title, draft notice or "Last updated" line above it. `h2` is
@@ -214,10 +230,7 @@ rule draws it on an element that does not name it (§Borders).
 
 Where the app does not follow this yet — known breaks include:
 
-- `@shared/ui`'s `DialogTitle` and `CardTitle`: 16px (`--ui-text-md`) at
-  weight 600 (#2040).
-- `@shared/ui`'s `AvatarFallback`: weight 600. `OtpInput`'s digits: 16px
-  (`--ui-text-md`).
+- `@shared/ui`'s `AvatarFallback`: weight 600.
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).
@@ -227,12 +240,12 @@ Where the app does not follow this yet — known breaks include:
 
 - **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows
   (`/authorize`'s bordered profile rows among them), dropdown triggers, small
-  controls; text fields (`@shared/ui`'s `Input`, `Textarea` and `Select`,
-  through the contract's `--ui-radius-field`, which Musubi maps to
-  `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s
-  Popover and menu panels and `OtpInput`'s boxes; and the rail search's
-  results panel (`GlobalSearch`), a floating panel drawn as the menus are:
-  `rounded-md`, `bg-popover`, `shadow-md`.
+  controls; text fields (`@shared/ui`'s `Input`, `Textarea` and `Select`, and
+  `OtpInput`'s boxes, through the contract's `--ui-radius-field`, which Musubi
+  maps to `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s Popover and
+  menu panels; and the rail search's results panel (`GlobalSearch`), a
+  floating panel drawn as the menus are: `rounded-md`, `bg-popover`,
+  `shadow-md`.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
   organisations list's rows, `/authorize`'s scope rows and its dead-end and
@@ -281,8 +294,12 @@ and the rail's results panel, `SearchResultRows.tsx`), and `/authorize`'s
   light.
 - **Not small caps.** The rail's "Social" tag is the only small-caps label,
   and a chip's word reads as written.
-- **Never `@shared/ui`'s `Badge`.** It sets its word at 600, a weight Musubi
-  does not use.
+- **Never `@shared/ui`'s `Badge`.** Three of its four variants fill the pill,
+  the default with the accent, which in Musubi is ink: a black pill holding a
+  white word, the look of a primary Button. `outline` fills nothing, but sets
+  its word in full ink at 13px (`--ui-text-sm`) and the title weight, 500,
+  where a chip's word is secondary ink at 12px and 400. A word that names a
+  role is the outline chip above.
 - **Weight.** A chip's word is 400, except "Third-party app": a trust mark
   beside a name the app chose for itself, it keeps 500, the weight of the
   consent screen's other mark (§Typography, Consent marks). The weight comes
@@ -367,24 +384,52 @@ own, with one exception: the orb a busy button draws (§The orb). Rows, tabs and
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
-focus mark arrives late. A loading placeholder is a block drawn at the call
-site in the loaded row's shape (`bg-muted/50 animate-pulse`), which pulses in
-opacity.
+focus mark arrives late. A loading placeholder is `@shared/ui`'s `Skeleton`
+(§Empty states and failed loads), which pulses in opacity and stands still
+under reduced motion. What replaces it arrives at once, with no fade, and so
+do an error line and a step that replaces another (a sign-in step, the
+authenticator's setup, a step-up's code): a fade would only hold back what the
+reader is waiting for, and the jump in height it leaves could be bridged only
+by spatial motion.
 
-Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
-sheet), Popover and default menu run the shared overlay motion. They fade and
-scale from 96% as they open and to 98% as they close (`zoom-in`, `zoom-out`),
-and the popover and menu grow from their trigger
-(`wiki/shared/design-tokens.md` §Motion). They move to a fade with no scale,
-the owner's decision on #2034, when #2040 lands.
+On the emailed-link page (`/verify/:requestId`) the loaded shape is the whole
+card, so the placeholder is one `Skeleton` standing for a card
+(`ResponsiveSkeleton`), at the ready card's height with five numbers on a
+360–430px phone and on desktop: 552px below `md` and 520px from it (138 and 130
+spacing steps). The product name above it stays put when the card arrives.
+Meanwhile the page's live region says "Checking this link…".
+
+*Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
+Chromium (Vitest browser tier, `ConfirmLinkPage` with five numbers, Musubi's
+`App.css`): 568.9px at 320px wide; 550.7px at 360, 375, 390, 414 and 430px;
+532.5px at 600px; 520.5px at 768 and 1280px. At 320×640 the column is taller
+than the screen either way, so the name does not move;
+`tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
+390×844 and 1280×800.*
+
+**Overlays fade, with no scale.** `@shared/ui`'s Dialog (as card and as
+sheet), Popover (the sign-up form's `InfoPopover`) and the default menu (the
+account and theme menus) change their opacity alone as they open and close,
+the owner's decision on #2034. The contract block in `App.css` maps `--ui-scale-enter` and
+`--ui-scale-exit` to 1, so the shared `zoom-in` and `zoom-out` scale nothing
+(`wiki/shared/design-tokens.md` §Motion); a call site adds no motion class.
+The timing is the contract's: in over `--ui-dur-fast` (120ms) on
+`--ui-ease-out`, out over `--ui-dur-exit` (80ms) on `--ui-ease-exit`, which
+carries the same curve. The scrim fades with the
+panel. Under reduced motion each one shows and hides at once
+(`tokens.css` sets the overlay animations to `none`). Only cire's `accent`
+menu look closes at once, and Musubi draws none.
+`tools/e2e/tests/support/musubi-surfaces.ts` holds the first frame of the
+account menu, the profile switcher and the create-organisation dialog, and
+the half-way frame of the menu and the switcher closing, and finds no
+transform on any.
 
 ## The orb
 
 A busy button (§Busy buttons) draws `@shared/ui`'s `Orb` before its label: a
 20px sphere of dots, state `working`, in the button's own text colour, so it
 reads on a filled button and on the page alike. It is the app's one canvas
-animation and, beside the shared overlays' scale that §Motion lists as not yet
-following it, its one motion that is not a colour or opacity change.
+animation and its one motion that is not a colour or opacity change.
 
 - **It stops.** It moves for five seconds at most, then holds one still frame,
   so it needs no pause control (WCAG 2.2.2). Under reduced motion it draws that
@@ -425,10 +470,12 @@ following it, its one motion that is not a colour or opacity change.
 - **Page title** = the page's `h1` text, then " · Musubi" ("Discover ·
   Musubi"), set by `usePageTitle` (`src/lib/page-title.ts`); "Musubi" alone
   while the head is unknown. An organisation's page names the organisation
-  once it loads and "Organisations" until then, as its `h1` does. `/authorize`
-  keeps the plain "Musubi" from `index.html`.
-- `/authorize` = no shell; one centred column, `max-w-md px-6 py-10`, centred
-  vertically in the viewport.
+  once it loads and "Organisations" until then, as its `h1` does. The bare
+  routes, `/authorize` and `/verify/:requestId`, keep the plain "Musubi" from
+  `index.html`.
+- Bare routes (`/authorize`, `/verify/:requestId`) = no shell; one centred
+  column, `max-w-md px-6 py-10`, centred vertically in the viewport.
+  `/verify/:requestId` sets the product name above its card, `gap-6` apart.
 
 ## Responsive layout
 
@@ -496,7 +543,13 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
-  `active:` classes for touch feedback. Tab rows scroll (`overflow-x-auto`)
+  `active:` classes for touch feedback. A full-width pill that is a page's
+  one next step, such as Try again on a bare route's card (`/authorize`, the
+  emailed-link page), draws it at `size="lg"` with `max-md:h-11`: 40px from
+  `md`, 44px below it. The
+  numbers that page offers to pick from are full-width `outline` Buttons 48px
+  tall at every width (`h-12`), and its "I didn't ask for this" a full-width
+  `ghost` `sm` Button, 44px below `md`. Tab rows scroll (`overflow-x-auto`)
   rather than wrap or shrink. Buttons keep these call-site heights: no
   `Button` size draws 40px at `sm`'s padding, and `default` would widen the
   top bar's pair past what 320px holds.
@@ -504,10 +557,25 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   search is `md`, 36px. One exception: `/search`'s field keeps `h-11`, 44px
   at every width. `Input`'s `touch` size, the only one that tall, steps from
   46px to 44px at 640px, a width this file's one breakpoint does not use.
+  Where the emailed-link confirm page asks for the number to be typed, its
+  field is `Input` at `size="touch"`: 46px with 16px type below 640px, 44px
+  above.
+- **Code boxes** = `OtpInput`'s six boxes share their column and are 40px wide
+  at a 260px column, so a screen that hosts one gives the row at least 260px
+  on a phone (drop an inner card's padding below `md` rather than squeeze the
+  boxes). `TotpView`'s enrolment step drops its frame below `md`, and
+  `StepUpDialog` its side padding, so in Settings → Security each code row
+  takes the card's whole column. Where the app does not follow this yet, at a
+  320px viewport:
+  - Settings → Security: that column is 246px (37.7px boxes; 260px from a
+    334px viewport), after `main`'s `px-4` and the card's `p-5` and edge, for
+    `TotpView`'s enrolment and `StepUpDialog`'s code steps alike. The step-up
+    leaves the card when it becomes a sheet (#2045).
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
-- The bare `/authorize` route renders with **no shell at any width**.
+- The bare routes, `/authorize` and `/verify/:requestId`, render with **no
+  shell at any width**.
 
 Where the app does not follow this yet:
 
@@ -517,6 +585,41 @@ Where the app does not follow this yet:
 
 ## Empty states and failed loads
 
+- **Loading** = `@shared/ui`'s `Skeleton`, one block in place of each row,
+  card, line, field or button, in the loaded thing's corner (`standsFor`) and
+  height in spacing steps, so nothing jumps when the content lands: a list
+  row is `row`, a card `card`, a heading or a status line `line`. It fills
+  with the sunk well (`--muted`), pulses in opacity, and stands still under
+  reduced motion. Never a "Loading…" line and never a block drawn by hand.
+  A row whose buttons grow to the touch height below `md` (§Responsive
+  layout) is taller on a phone, so its placeholder is
+  `src/components/ResponsiveSkeleton.tsx`: one block per width, each hidden
+  at the other, since `Skeleton` takes one height. Rows: a connection or a
+  member with Remove 56px and 60px below `md`, a Discover card 114px and
+  126px, a connected app 62px and 66px; an organisation card is 74px at
+  both. A placeholder list takes the gap of the list it stands for. Words
+  that do not load stay on screen: Connected apps' lead paragraph is the
+  page's, outside the section's `Suspense`, so only its list is a
+  placeholder. The region that holds the placeholders and the content that replaces them
+  carries `aria-busy` while it loads; a `Suspense` fallback, which no element
+  outlives, carries it on its own wrapper and takes it away with it
+  (Settings' Security and Connected apps tabs, `/authorize`'s sign-in frame).
+  `/authorize`'s takes the shape of the half of the panel that leads:
+  sign-up's heading beside Cancel and its four fields for `reason=create`;
+  sign-in's heading, one field, Continue, "Lost your passkey?" and the
+  "Create one" line otherwise, at the panel's `max-w-sm`. Words that wrap
+  stay words there, so they wrap where the panel's do: the heading, and the
+  date of birth's hint; labels, fields and buttons are blocks. Two browser
+  tests hold every placeholder's height against what lands, at 320 and
+  1440px, and `/authorize`'s at 390 too
+  (`tests/components/LoadingShapes.browser.test.tsx`,
+  `tests/components/AuthorizeLoading.browser.test.tsx`). A list a person
+  acts on keeps its rows on screen while it is read again (Connected apps
+  after a revoke, the passkey list after a delete), and a row that may be gone
+  is not one anyone can act on: its action stays busy or disabled until the
+  read lands. A state whose words are the content stays
+  words: `/authorize`'s "Checking this request…" and "Taking you back…",
+  search's "Searching…", and a busy button's label (§Busy buttons).
 - **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
   `rounded-card` block, 16px at the sides, `size="page"` (`py-16`) for a
   page's whole content, `size="section"` (`py-12`) for one list. Its words sit
@@ -552,6 +655,14 @@ Where the app does not follow this yet:
   never a "something went wrong, try again" beside the button. Uses: the
   profile list ("Your profiles didn't load.", `ShellNotices`), and the
   Security views' lists (§Auth surfaces).
+- **On a bare route**, whose one card is what failed to load (`/authorize`,
+  `/verify/:requestId`), the card offers its own Try again, so the line does
+  not say "Reload". The card is `Card` at `padding="lg"`, left-aligned: its
+  `h1`, then the line as an inline danger `Notice` with `alert`, the copy
+  map's sentence (`describeAuthError`), then Try again, full width at
+  `size="lg"` with `max-md:h-11`. On `/verify/:requestId`, Try again is busy
+  ("Checking…") while the read runs, the card stays up, and the page's live
+  region says the try and, when it fails again, the line.
 - **A page that throws while it renders** shows "This page didn't load." with
   "Try again" in the content column, inside the shell: `PageErrorBoundary`
   wraps each route, so the rail, the tab bar and the account banners stay
@@ -585,8 +696,7 @@ apart by its underline or by standing alone at 500.
 - **A link standing alone** is `variant="link" size="sm"`: 13px at 500 in a
   32px box with 12px sides, underlined only under the pointer. It sits centred
   under the action it follows (`self-center`), so no column edge sits 12px off
-  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue and
-  "Resend code" under "Verify email".
+  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue.
 - **The action that ends an error line is neither.** It keeps the line's ink
   and is underlined at rest: `@osn/auth-ui`'s `InlineAction`, and "Try again"
   in `ShellNotices` and `PageErrorBoundary`. `link` would paint it the accent
@@ -604,8 +714,8 @@ orb (§The orb).
 - **Only the button that started the wait.** Every other action in the same
   form or dialog is `disabled` while it runs, its Cancel, Back and links among
   them, so nothing leaves it mid-call: the organisation dialogs' Cancel while
-  Create or Save runs, `@osn/auth-ui`'s "Verify email" while "Resend code"
-  sends, and the reverse. A row's action leaves the other rows alone.
+  Create or Save runs, and `@osn/auth-ui`'s sign-up Cancel while its link is
+  sent or resent. A row's action leaves the other rows alone.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -620,8 +730,9 @@ orb (§The orb).
 
 Uses in the app: the create-organisation dialog's Create ("Creating…"), the
 edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
-apps' Revoke ("Revoking…"), and `/search`'s Connect ("Sending…") and Accept
-("Accepting…"). The rail's results panel shows the same words as text, since
+apps' Revoke ("Revoking…"), `/search`'s Connect ("Sending…") and Accept
+("Accepting…"), and Try again on a bare route's failed card ("Checking…"). The
+rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
 in `osn/auth-ui/DESIGN.md` §6.
 
@@ -640,8 +751,10 @@ default look (the control step, 14px, at 500, full ink, the words as written)
   label, since a label cannot hold a button (`@osn/auth-ui`'s Register Email),
   wired by hand and 6px above its control all the same; and the label of a
   label/value pair (Settings' Profile and Account cards, a muted `sm` `Label`
-  over a disabled value). The code boxes (`OtpInput`) keep a span label 6px
-  above them until they take an `aria-describedby` (#2041).
+  over a disabled value). The code boxes (`OtpInput`) take a span in the label's
+  look 6px above them, its id the boxes' `aria-labelledby`: `Field`'s
+  `<label for>` names one control, and the boxes are a group
+  (`osn/auth-ui/DESIGN.md` §4).
 
 Uses in the app: the create-organisation dialog (Handle, with its hint; Name;
 Description) and the edit dialog (Name, Description); in the auth views, every
@@ -676,8 +789,10 @@ control the views draw by hand shows the base focus outline (§Borders,
 | --- | --- | --- |
 | `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
 | `SignIn`, `Register` | `/authorize`, in a bordered `rounded-card` frame under the client card; "No account yet? Create one" swaps to `Register` | `components/AuthorizeSignIn.tsx` |
+| `CheckEmailView` | Inside `Register` once its link is sent, and inside `RecoveryLoginForm` once a recovery link is | — |
+| `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column. A sign-up link's page offers the numbers to pick; a recovery link's asks for the number typed (`typeNumber`). Its expired card also answers a link whose id names no flow | `pages/VerifyEmailLinkPage.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
-| `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-code step, when a site key is set | — |
+| `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-link step, when a site key is set | — |
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, the last under the app's own "Recovery codes" heading | `components/SecuritySection.tsx` (lazy) |
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
@@ -740,13 +855,18 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   | `--ui-text-xs` | `--text-meta`, 12px |
   | `--ui-text-sm` | `--text-body`, 13px |
   | `--ui-text-base` | `--text-title`, 14px |
-  | `--ui-text-md` | 16px |
+  | `--ui-text-md` | `--text-title`, 14px |
   | `--ui-text-lg` | 20px |
   | `--ui-text-xl` | `--text-display`, 24px |
   | `--ui-text-2xl` | 32px |
 
 - **Tracking.** `--ui-tracking-tight` and `-normal` are `-0.15px`; `-wide` is
   `0em`, which the rail's small-caps "Social" tag uses.
+- **Weight.** `--ui-weight-title` is 500, the weight `DialogTitle` and
+  `CardTitle` read (§Typography, Dialog and card titles).
+- **Motion.** `--ui-scale-enter` and `--ui-scale-exit` are 1: overlays fade
+  with no scale (§Motion). Durations and easings are the contract's own;
+  Musubi maps none.
 - **Overrides.** Every `@shared/ui` class sits behind the `base:` variant, which
   has zero specificity, so a class passed at a Musubi call site wins without
   touching the library. `Card`, `Button` and `DialogContent` already take the

@@ -36,6 +36,8 @@ import type { Locator, Page } from "@playwright/test";
 
 import { ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { expect, type Flow } from "./fixtures";
+import { menuSeparator } from "./menu-separator";
+import { type HeldFrame, holdOverlay } from "./overlay-frames";
 
 const SHOTS = resolve(SCREENSHOT_DIR, "musubi-surfaces");
 const PHONE = { width: 390, height: 844 } as const;
@@ -151,6 +153,18 @@ async function outline(target: Locator): Promise<string> {
     computed(target, "outline-offset"),
   ]);
   return `${style} ${width} ${offset}`;
+}
+
+/**
+ * An overlay's held frame, read as Musubi's fade with no scale: no transform
+ * on it, and opacity 0 as it starts to open or part-faded half-way out
+ * (DESIGN.md §Motion).
+ */
+function fadesOnly(flow: Flow, what: string, run: "open" | "close", frame: HeldFrame): void {
+  const when = run === "open" ? "as it opens" : "half-way out";
+  flow.check(`${what}: no transform ${when}`, true, frame.identity);
+  if (run === "open") flow.check(`${what}: opacity 0 as it opens`, 0, frame.opacity);
+  else flow.check(`${what}: part-faded half-way out`, true, frame.opacity > 0 && frame.opacity < 1);
 }
 
 /** Focus `before` from script, then Tab to `target`, as a keyboard user arrives. */
@@ -330,9 +344,11 @@ async function shell(flow: Flow, page: Page): Promise<void> {
 }
 
 /**
- * The rail's theme menu and account trigger, then the phone's account trigger
- * and the profile switcher it opens: the shared radio rows, and the house
- * outline on two controls drawn by hand.
+ * The rail's theme menu and account menu, then the phone's account menu and
+ * the profile switcher it opens: the shared radio rows, the house outline on
+ * two controls drawn by hand, the account menu's separator as a hairline, the
+ * switcher's title on Musubi's title step, and the fade with no scale each
+ * overlay opens and closes on.
  */
 async function menus(flow: Flow, page: Page): Promise<void> {
   await at(page, DESKTOP, "light");
@@ -376,6 +392,25 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     "solid 2px 2px",
     await outline(account),
   );
+  const menu = page.getByRole("menu");
+  const rule = menu.getByRole("separator").first();
+  const railOpened = await holdOverlay(page, '[role="menu"]', "ui-enter", 0);
+  await flow.step("surfaces: open the rail's account menu", async () => {
+    await page.keyboard.press("Enter");
+    await expect(rule).toBeVisible();
+  });
+  fadesOnly(flow, "rail's account menu", "open", await railOpened());
+  await menuSeparator(flow, "rail's account menu separator (light)", rule);
+  await flow.step("surfaces: shoot the rail's account menu", () =>
+    shoot(page, "account-menu", () => expect(rule).toBeVisible(), { widths: [DESKTOP] }),
+  );
+  await menuSeparator(flow, "rail's account menu separator (dark)", rule);
+  const railClosed = await holdOverlay(page, '[role="menu"]', "ui-exit", 0.5);
+  await flow.step("surfaces: close the rail's account menu", async () => {
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+  });
+  fadesOnly(flow, "rail's account menu", "close", await railClosed());
 
   await at(page, PHONE, "light");
   const header = page.locator("header");
@@ -388,11 +423,26 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     "solid 2px 2px",
     await outline(avatar),
   );
-  const switcher = page.getByRole("dialog", { name: "Switch profile" });
-  const profile = switcher.getByRole("button").first();
-  await flow.step("surfaces: open the profile switcher from the keyboard", async () => {
+  const switchProfile = page.getByRole("menuitem", { name: "Switch profile" });
+  const barOpened = await holdOverlay(page, '[role="menu"]', "ui-enter", 0);
+  await flow.step("surfaces: open the top bar's account menu", async () => {
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("menuitem", { name: "Switch profile" })).toBeFocused();
+    await expect(switchProfile).toBeFocused();
+  });
+  fadesOnly(flow, "top bar's account menu", "open", await barOpened());
+  await menuSeparator(flow, "top bar's account menu separator (light)", rule);
+  await flow.step("surfaces: shoot the top bar's account menu", () =>
+    shoot(page, "account-menu", () => expect(switchProfile).toBeFocused(), { widths: [PHONE] }),
+  );
+  await menuSeparator(flow, "top bar's account menu separator (dark)", rule);
+
+  await at(page, PHONE, "light");
+  const switcher = page.getByRole("dialog", { name: "Switch profile" });
+  const title = switcher.getByRole("heading", { name: "Switch profile" });
+  const profile = switcher.getByRole("button").first();
+  const switcherOpened = await holdOverlay(page, '[role="dialog"]', "ui-enter", 0);
+  await flow.step("surfaces: open the profile switcher from the keyboard", async () => {
+    await expect(switchProfile).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(profile).toBeVisible();
     // The dialog holds focus; Tab lands on its one row as a keyboard user's would.
@@ -400,24 +450,39 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     await expect(profile).toBeFocused();
     expect(await profile.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
   });
+  fadesOnly(flow, "profile switcher (sheet)", "open", await switcherOpened());
+  flow.check(
+    "profile switcher: the title is at title size and 500",
+    await probedType(title, "text-title font-medium"),
+    await type(title),
+  );
   flow.check(
     "profile switcher: a focused row draws its outline inside the row",
     "solid 2px -2px",
     await outline(profile),
   );
-  await flow.step("surfaces: shoot a focused profile row", async () => {
-    await shoot(page, "profile-switcher-focus", () => expect(profile).toBeFocused(), {
+  await flow.step("surfaces: shoot a focused profile row", () =>
+    shoot(page, "profile-switcher-focus", () => expect(profile).toBeFocused(), {
       widths: [PHONE],
-    });
+    }),
+  );
+  // The dialog stays open across the 768px switch: a sheet below, a card above.
+  await flow.step("surfaces: shoot the profile switcher", () =>
+    shoot(page, "profile-switcher", () => expect(title).toBeVisible()),
+  );
+  await at(page, PHONE, "light");
+  const switcherClosed = await holdOverlay(page, '[role="dialog"]', "ui-exit", 0.5);
+  await flow.step("surfaces: close the profile switcher", async () => {
     await page.keyboard.press("Escape");
     await expect(switcher).toHaveCount(0);
   });
+  fadesOnly(flow, "profile switcher (sheet)", "close", await switcherClosed());
 }
 
 /**
- * Settings: the Profile section's name at title size, its hint in secondary
- * ink and its field on the 8px corner, then Security's rows and rules, drawn
- * as hairlines.
+ * Settings: the Profile section's name and the add-a-profile card's title at
+ * title size, its hint in secondary ink and its field on the 8px corner, then
+ * Security's rows and rules, drawn as hairlines.
  */
 async function security(flow: Flow, page: Page, profileName: string): Promise<void> {
   const row = page.locator("li.rounded-md.border").first();
@@ -433,6 +498,19 @@ async function security(flow: Flow, page: Page, profileName: string): Promise<vo
     await probedType(name, "text-title font-medium"),
     await type(name),
   );
+  // The person has one profile and a fresh browser, so the card that offers a
+  // second one shows; its `CardTitle` is the one card title Musubi draws.
+  const onboarding = page.getByRole("heading", { name: "Add another profile" });
+  await expect(onboarding).toBeVisible();
+  flow.check(
+    "settings: the add-a-profile card's title is at title size and 500",
+    await probedType(onboarding, "text-title font-medium"),
+    await type(onboarding),
+  );
+  await flow.step("surfaces: shoot the add-a-profile card", () =>
+    shoot(page, "profile-onboarding", () => expect(onboarding).toBeVisible()),
+  );
+  await at(page, DESKTOP, "light");
   flow.check(
     "settings: a field's hint is secondary ink",
     await painted(hint, "var(--muted-foreground)"),
@@ -625,8 +703,45 @@ export async function phoneTall(flow: Flow, button: Locator, what: string): Prom
   flow.check(`${what}: 40px tall on a phone`, "40px", await computed(button, "height"));
 }
 
+/**
+ * The code boxes' digits (`OtpInput`, through `--ui-text-md`): on Musubi's
+ * title step from 768px, as a text field is, and 16px below it, where the
+ * mobile input rule keeps a focused field from zooming the page (DESIGN.md
+ * §Typography). `box` is one shown box; the flow passes the authenticator
+ * setup's first. Read at the flow's own width, at 768px and on a phone; puts
+ * back the viewport.
+ */
+export async function otpDigitSurfaces(flow: Flow, page: Page, box: Locator): Promise<void> {
+  await expect(box).toBeVisible();
+  const titleSize = await probed(box, "text-title", "font-size");
+  flow.check("code boxes: a digit is at title size", titleSize, await computed(box, "font-size"));
+  await restoring(page, async () => {
+    await page.setViewportSize({ width: 768, height: 900 });
+    await expect(box).toBeVisible();
+    flow.check(
+      "code boxes at 768px: a digit is at title size",
+      titleSize,
+      await computed(box, "font-size"),
+    );
+    await page.setViewportSize(PHONE);
+    await expect(box).toBeVisible();
+    flow.check("code boxes on a phone: a digit is 16px", "16px", await computed(box, "font-size"));
+  });
+}
+
 /** The vertical space between the bottom of `above` and the top of `below`, in whole px. */
 async function gapBetween(above: Locator, below: Locator): Promise<string> {
+  // The two boxes are read one after the other, so every animation that ends
+  // is waited out first and nothing on the page moves between the reads. A
+  // loading pulse never ends, so it is left running.
+  await above.page().evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
   const [a, b] = await Promise.all([above.boundingBox(), below.boundingBox()]);
   if (!a || !b) return "no box";
   return `${Math.round(b.y - (a.y + a.height))}px`;
@@ -699,14 +814,31 @@ async function formDialog(flow: Flow, label: string, field: Locator, action: Loc
   );
 }
 
+/** A dialog's `DialogTitle`, on Musubi's title step at 500 (DESIGN.md §Typography). */
+async function dialogTitle(flow: Flow, label: string, dialog: Locator, name: string) {
+  const title = dialog.getByRole("heading", { name });
+  flow.check(
+    `${label}: the title is at title size and 500`,
+    await probedType(title, "text-title font-medium"),
+    await type(title),
+  );
+}
+
 /**
- * The organisation create dialog, filled and not yet sent: its padded body and
+ * The organisation create dialog, filled and not yet sent: the fade it opened
+ * on (`opened`, held from before the click), its title, its padded body and
  * its footer, measured and shot as card and as sheet.
  */
-export async function orgCreateDialogSurfaces(flow: Flow, page: Page): Promise<void> {
+export async function orgCreateDialogSurfaces(
+  flow: Flow,
+  page: Page,
+  opened: () => Promise<HeldFrame>,
+): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Create organisation" });
   const field = dialog.getByLabel("Handle", { exact: true });
   const create = dialog.getByRole("button", { name: "Create", exact: true });
+  fadesOnly(flow, "create dialog (card)", "open", await opened());
+  await dialogTitle(flow, "create dialog", dialog, "Create organisation");
   await formDialog(flow, "create dialog", field, create);
   await plainLabel(
     flow,
@@ -729,6 +861,7 @@ export async function orgCreateDialogSurfaces(flow: Flow, page: Page): Promise<v
 /** The organisation edit dialog, filled and not yet saved. */
 export async function orgEditDialogSurfaces(flow: Flow, page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Edit organisation" });
+  await dialogTitle(flow, "edit dialog", dialog, "Edit organisation");
   await formDialog(
     flow,
     "edit dialog",
@@ -760,12 +893,6 @@ export async function orgListSurfaces(flow: Flow, page: Page, link: Locator): Pr
       "organisations: a row takes the 16px card corner",
       "16px",
       await computed(card, "border-top-left-radius"),
-    );
-    // The loading placeholder (`OrganisationsPage.tsx`) takes the row's shape.
-    flow.check(
-      "organisations: a row is as tall as its loading placeholder",
-      await probed(link, "block h-18.5", "height"),
-      await computed(link, "height"),
     );
     // The card keeps its fill under the pointer; the chevron marks the hover.
     const chevron = card.locator("svg");
@@ -1026,7 +1153,10 @@ export async function signedOutSurfaces(flow: Flow, page: Page, message: string)
  * The create-account dialog's details step, before anything is typed: every
  * field's label a plain `Field` label 6px above its control — Email's too,
  * though it is a bare `Label` beside its "i" — and the date of birth read with
- * its hint as its description.
+ * its hint as its description. Then the "i" opens its popover, the one
+ * Popover Musubi draws, held at its first frame opening and half-way closing
+ * and found to fade with no scale, as the menus and dialogs do (DESIGN.md
+ * §Motion); the dialog stays open behind it.
  */
 export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Create account" });
@@ -1054,6 +1184,24 @@ export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<voi
       shoot(page, "register-details", () => expect(dob).toBeVisible()),
     ),
   );
+
+  // Kobalte gives the popover's panel `role="dialog"` too; the positioner
+  // Popper wraps it in tells it from the register dialog.
+  const panel = '[data-popper-positioner] [role="dialog"]';
+  const uses = page.locator(panel);
+  const opened = await holdOverlay(page, panel, "ui-enter", 0);
+  await flow.step("register: open what the address is used for", async () => {
+    await dialog.getByRole("button", { name: "What this address is used for" }).click();
+    await expect(uses).toBeVisible();
+  });
+  fadesOnly(flow, "register's email popover", "open", await opened());
+  const closed = await holdOverlay(page, panel, "ui-exit", 0.5);
+  await flow.step("register: close what the address is used for", async () => {
+    await page.keyboard.press("Escape");
+    await expect(uses).toHaveCount(0);
+    await expect(dob).toBeVisible();
+  });
+  fadesOnly(flow, "register's email popover", "close", await closed());
 }
 
 /**
@@ -1271,12 +1419,46 @@ export async function discoverEmptySurfaces(flow: Flow, page: Page): Promise<voi
 /**
  * `TotpView`'s setup panel, before the code is in: the two labels `Field`
  * cannot draw, over the setup key and over the code boxes, are spans in the
- * plain label's look, 6px above what they name.
+ * plain label's look, 6px above what they name. The code boxes are a group
+ * named by their span, box 1 holds focus once the panel has opened after the
+ * step-up, and on a phone the step drops its frame, so the row takes the
+ * Settings card's whole column: recorded at 320 and 390px, and shot at 320.
  */
 export async function totpSetupSurfaces(flow: Flow, page: Page): Promise<void> {
   const keyLabel = page.getByText("Or enter this setup key by hand", { exact: true });
   const codeLabel = page.getByText("Code from the app", { exact: true });
+  const row = page.getByRole("group", { name: "Code from the app" });
+  const firstBox = row.getByRole("textbox", { name: "Code from the app Digit 1" });
   await expect(codeLabel).toBeVisible();
+  await expect(row).toBeVisible();
+  await expect(firstBox).toBeFocused();
+  flow.check(
+    "totp: the six boxes are named after the label",
+    6,
+    await row.getByRole("textbox", { name: /^Code from the app Digit [1-6]$/ }).count(),
+  );
+  // The card's column: the viewport less `main`'s `px-4`, the card's `p-5` and
+  // its 1px edges. The boxes share it at a gap of 4px to 8px, to 48px each
+  // (`OtpInput`'s geometry).
+  const widths = [
+    { width: 320, column: "246px", box: "37.7px" },
+    { width: 390, column: "316px", box: "48px" },
+  ] as const;
+  await restoring(page, async () => {
+    for (const { width, column, box } of widths) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(primaryBar(page)).toBeVisible();
+      const measured = async (target: Locator) =>
+        `${Math.round((await target.evaluate((el) => el.getBoundingClientRect().width)) * 10) / 10}px`;
+      flow.check(`totp: at ${width}px the code row is`, column, await measured(row));
+      flow.check(`totp: at ${width}px each box is`, box, await measured(firstBox));
+    }
+    await flow.step("surfaces: shoot the authenticator setup on a 320px phone", () =>
+      shoot(page, "totp-setup", () => expect(row).toBeVisible(), {
+        widths: [{ width: 320, height: 844 }],
+      }),
+    );
+  });
   await plainLabel(
     flow,
     "totp: the setup key's label",
@@ -1289,4 +1471,54 @@ export async function totpSetupSurfaces(flow: Flow, page: Page): Promise<void> {
     codeLabel,
     codeLabel.locator("xpath=following-sibling::*[1]"),
   );
+}
+
+/**
+ * Settings → Security with `GET /passkeys` held: the passkey list's place is
+ * `Skeleton`'s one row, in a region that says it is busy, under the heading
+ * that has already drawn, rather than Settings' fallback for the whole tab.
+ * The block paints the sunk well (`--muted`) and pulses, and stands still
+ * under reduced motion. Shot at 390 and 1440px in both schemes. Returns the
+ * block's height at the flow's own viewport, for the row that replaces it.
+ */
+export async function securityLoadingSurfaces(flow: Flow, page: Page): Promise<string> {
+  const view = page.getByRole("heading", { name: "Passkeys", exact: true }).locator("xpath=../..");
+  const region = view.locator(':scope > [aria-busy="true"]');
+  const block = region.locator('[aria-hidden="true"]');
+  await expect(block).toBeVisible();
+  const height = await computed(block, "height");
+  flow.check("security loading: the list's place is busy", 1, await region.count());
+  flow.check("security loading: one row's placeholder", 1, await block.count());
+  flow.check(
+    "security loading: the placeholder paints the sunk well",
+    await painted(block, "var(--muted)"),
+    await computed(block, "background-color"),
+  );
+  flow.check(
+    "security loading: the placeholder takes a row's 8px corner",
+    "8px",
+    await computed(block, "border-top-left-radius"),
+  );
+  flow.check(
+    "security loading: the placeholder pulses",
+    "pulse",
+    await computed(block, "animation-name"),
+  );
+  await restoring(page, async () => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    flow.check(
+      "security loading: under reduced motion the placeholder stands still",
+      "none",
+      await computed(block, "animation-name"),
+    );
+  });
+  // Shot under reduced motion: the pulse never ends, and `at()` waits for
+  // every running animation to finish before a shot.
+  await flow.step("surfaces: shoot Settings → Security while the list loads", () =>
+    restoring(page, async () => {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await shoot(page, "security-loading", () => expect(block).toBeVisible());
+    }),
+  );
+  return height;
 }

@@ -6,6 +6,7 @@
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com; connect-src 'self' https://api.cireweddings.com wss://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
   Cache-Control: no-store
+  Origin-Trial: AgPxiGR6Xgoixpqap0KVAvRxTwIRut1C3PfF/TFDXNbFNBDbUMSFSFDajYg9B7YOFNynoj7zuZBXsxbDM4HK6AoAAABjeyJvcmlnaW4iOiJodHRwczovL2NpcmV3ZWRkaW5ncy5jb206NDQzIiwiZmVhdHVyZSI6IldlYk1DUCIsImV4cGlyeSI6MTgwNjM2NDgwMCwiaXNTdWJkb21haW4iOnRydWV9
 
 # `Cache-Control: no-store` above is on every path because every page holds
 # the signed-in account's data: `/`, `/login/`, and the dashboard the host
@@ -14,6 +15,13 @@
 # served. `no-store` keeps the page out of the HTTP cache and, in most
 # browsers, out of the back/forward cache, so Back after sign-out cannot show
 # it again; `lib/bfcache.ts` reloads it where a browser restores it anyway.
+
+# `Origin-Trial` carries the Chrome origin-trial token for WebMCP, the page's
+# agent tools. The token is public and bound to cireweddings.com and its
+# subdomains: Chrome ignores it on any other origin, so every tier sends it.
+# It is a second copy of `ORIGIN_TRIAL_TOKENS.webmcp` in
+# `@cire/build-tools/origin-trial`, which holds the expiry and the renewal
+# steps; `tests/lib/headers.test.ts` fails if the two differ.
 
 # Long-cache the immutable, content-hashed Astro bundles, the self-hosted font
 # files (Schibsted Grotesk, Cormorant Garamond) included. Every file under

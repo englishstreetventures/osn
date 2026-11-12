@@ -1030,9 +1030,7 @@ describe("which gates a totp-AMR step-up token reaches", () => {
       // As with `passkey_delete` above, this pins the DIRECT gate only.
       const profile = yield* auth.registerProfile("totp-t@example.com", "totpt");
       const token = yield* mintTotpToken(profile.accountId, "email_change");
-      const err = yield* Effect.flip(
-        auth.completeEmailChange(profile.accountId, "123456", token, null),
-      );
+      const err = yield* Effect.flip(auth.verifyStepUpForEmailChange(profile.accountId, token));
       expect(err.message).toBe("Step-up factor not permitted");
     }).pipe(Effect.provide(makeLayer())),
   );

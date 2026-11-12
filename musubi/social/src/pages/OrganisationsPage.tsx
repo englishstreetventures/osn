@@ -6,6 +6,7 @@ import { Card } from "@shared/ui/ui/card";
 import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -74,75 +75,77 @@ export function OrganisationsPage() {
         when={session()}
         fallback={<SignedOutNote>Sign in to view your organisations.</SignedOutNote>}
       >
-        <Show
-          when={!orgs.loading}
-          fallback={
-            <div class="flex flex-col gap-2">
-              {Array.from({ length: 2 }, () => (
-                <div class="bg-muted/50 rounded-card h-18.5 animate-pulse" />
-              ))}
-            </div>
-          }
-        >
+        <div aria-busy={orgs.loading || undefined}>
           <Show
-            when={(orgs()?.organisations.length ?? 0) > 0}
-            fallback={<EmptyNote>You're not part of any organisations yet.</EmptyNote>}
+            when={!orgs.loading}
+            fallback={
+              <div class="flex flex-col gap-2">
+                {Array.from({ length: 2 }, () => (
+                  <Skeleton standsFor="card" height={18.5} />
+                ))}
+              </div>
+            }
           >
-            <div class="flex flex-col gap-2">
-              <For each={orgs()?.organisations}>
-                {(org) => (
-                  <A
-                    // Handle, not id: the public `orgProjection` never returns
-                    // an id, so this interpolated `undefined` and every row
-                    // linked to a 404. `GET /organisations/:handle` is what the
-                    // detail route actually resolves.
-                    href={`/organisations/${org.handle}`}
-                    class="group rounded-card block"
-                  >
-                    {/* A card that is a link. `Card` owns its fill, so the row
+            <Show
+              when={(orgs()?.organisations.length ?? 0) > 0}
+              fallback={<EmptyNote>You're not part of any organisations yet.</EmptyNote>}
+            >
+              <div class="flex flex-col gap-2">
+                <For each={orgs()?.organisations}>
+                  {(org) => (
+                    <A
+                      // Handle, not id: the public `orgProjection` never returns
+                      // an id, so this interpolated `undefined` and every row
+                      // linked to a 404. `GET /organisations/:handle` is what the
+                      // detail route actually resolves.
+                      href={`/organisations/${org.handle}`}
+                      class="group rounded-card block"
+                    >
+                      {/* A card that is a link. `Card` owns its fill, so the row
                         takes no wash: its chevron turns to full ink on hover
                         and press instead. */}
-                    <Card padding="sm" class="flex items-center gap-3">
-                      <Avatar class="h-10 w-10">
-                        <Show when={safeAvatarUrl(org.avatarUrl)}>
-                          {(url) => (
-                            <AvatarImage
-                              src={url()}
-                              alt={org.name}
-                              referrerpolicy="no-referrer"
-                              loading="lazy"
-                            />
-                          )}
+                      <Card padding="sm" class="flex items-center gap-3">
+                        <Avatar class="h-10 w-10">
+                          <Show when={safeAvatarUrl(org.avatarUrl)}>
+                            {(url) => (
+                              <AvatarImage
+                                src={url()}
+                                alt={org.name}
+                                referrerpolicy="no-referrer"
+                                loading="lazy"
+                              />
+                            )}
+                          </Show>
+                          <AvatarFallback>{org.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title truncate font-medium">{org.name}</p>
+                          <p class="text-muted-foreground text-meta truncate">@{org.handle}</p>
+                        </div>
+                        <Show when={org.description}>
+                          <p class="text-muted-foreground text-meta hidden max-w-48 truncate md:block">
+                            {org.description}
+                          </p>
                         </Show>
-                        <AvatarFallback>{org.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title truncate font-medium">{org.name}</p>
-                        <p class="text-muted-foreground text-meta truncate">@{org.handle}</p>
-                      </div>
-                      <Show when={org.description}>
-                        <p class="text-muted-foreground text-meta hidden max-w-48 truncate md:block">
-                          {org.description}
-                        </p>
-                      </Show>
-                      <svg
-                        class="text-subtle group-hover:text-foreground group-active:text-foreground transition-ui-colors h-5 w-5 shrink-0"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="m9 18 6-6-6-6" />
-                      </svg>
-                    </Card>
-                  </A>
-                )}
-              </For>
-            </div>
+                        <svg
+                          class="text-subtle group-hover:text-foreground group-active:text-foreground transition-ui-colors h-5 w-5 shrink-0"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </Card>
+                    </A>
+                  )}
+                </For>
+              </div>
+            </Show>
           </Show>
-        </Show>
+        </div>
       </Show>
 
       {/* Create org dialog */}

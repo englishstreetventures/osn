@@ -1,5 +1,104 @@
 # @osn/ui
 
+## 4.5.4
+
+### Patch Changes
+
+- Updated dependencies [8397b84]
+  - @shared/toast@0.3.14
+
+## 4.5.3
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+  - @shared/ui@0.15.1
+
+## 4.5.2
+
+### Patch Changes
+
+- e275448: Musubi's dialog and card titles draw at 14px and weight 500, its title step, and its overlays fade with no scale. The contract block in `App.css` maps `--ui-text-md` to `--text-title`, `--ui-weight-title` to 500, and `--ui-scale-enter` and `--ui-scale-exit` to 1, so `DialogTitle`, `CardTitle` and every Kobalte overlay (dialog as card and as sheet, popover, menus) follow with no class at a call site. `OtpInput`'s digits read `--ui-text-md` too: 14px from 768px, as `Input` is, and still 16px below through the mobile input rule. The account menu's separator is the shared hairline fill, and the account menu, the rail's account trigger and Settings' profile card hold an ellipsis character while the handle loads, never three dots, a bare `@` or `@undefined`; `@osn/auth-ui`'s `ProfileSwitcher` trigger holds the same character. `DESIGN.md` records the titles and their leading, the separator and the fade under §Typography, §Borders, §Chips, §Motion and §Token contract, and gives a reason for never drawing `Badge` that holds for each of its variants; `@osn/auth-ui`'s `DESIGN.md` says its dialogs and its sign-up form's popover fade in Musubi and what size its code boxes take there.
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @shared/ui@0.15.0
+
+## 4.5.1
+
+### Patch Changes
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/ui@0.14.0
+
+## 4.5.0
+
+### Minor Changes
+
+- f052448: Step-up and email change confirm by an emailed link in place of the six-digit code. `POST /step-up/email/begin` (Bearer, `{ purpose }`) mails a link to the account's own address for that one purpose and answers a request id, a claim secret and a number; whoever opens the link types the number, and the tab that began, signed in as the same account, polls `POST /step-up/email/:requestId/status` and gets a step-up token for that purpose, once (`amr: ["otp"]`, the emailed factor, so never accepted at `passkey_delete`). `POST /account/email/begin` mails a link to the new address and answers the same shape whether or not another account holds it; its status answers `confirmed` once the link is picked, and `POST /account/email/:requestId/complete` with a step-up token for `email_change` moves the account and revokes its other sessions. `/step-up/otp/*` and `/account/email/complete` are gone, with the code store, templates and dev log line.
+
+  `@osn/api` counts wrong typed step-up numbers on a per-account lockout (five in 15 minutes: no step-up link mailed, a right number refused), counts wrong email-change picks on the per-address link lockout sign-up uses, caps step-up links at 10 a day per account and Resends of both at 3 a day per mailbox (`+tag` and Gmail dots folded). `@osn/client` replaces `otpBegin`/`otpComplete` with `emailBegin`, `emailStatus` and `emailResend`, and gives the account client `changeEmailStatus`, `changeEmailResend` and a request-based `changeEmailComplete`; `emailLinkPurpose` knows step-up and email-change links. `@osn/auth-ui`'s `StepUpDialog` offers "Use email instead" under the passkey and waits on the link with `CheckEmailView` (no purpose, no email factor); `ChangeEmailForm` waits on the new address's link, then steps up and completes. `@musubi/social` asks for the number typed on a step-up link's page. `@shared/email` replaces `otp-step-up` and `otp-email-change` with `link-step-up` and `link-email-change`. `@shared/observability` adds the two flows, their routes and the `resend` steps. `@osn/db` updates a schema comment.
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @osn/client@3.4.0
+
+## 4.4.0
+
+### Minor Changes
+
+- 0821963: Sign-up can accept a browser Email Verification API token, behind the osn-api flag `OSN_EMAIL_VERIFICATION_API` (off unless it reads true). With it on, `POST /register/email-verification-nonce` hands the sign-up form a nonce, `Register` adds the hidden `email-verification-token` field, and a begin whose token verifies confirms a free address at once: no email, no number to match, and the first status poll makes the account before the passkey step. A taken or held address, and every token that fails a check, takes the emailed link path unchanged. `@osn/client` gains `emailVerificationNonce()` and the begin fields `emailVerificationToken` and `nonceSecret`; `@shared/observability` gains `EmailVerificationTokenOutcome` and redacts both fields.
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @osn/client@3.3.0
+
+## 4.3.0
+
+### Minor Changes
+
+- ff81047: `@osn/auth-ui` gains `CheckEmailView` (`@osn/auth-ui/CheckEmailView`, and from the barrel): the "Check your email" screen a flow shows after it emails a link, for sign-up, recovery, step-up and email change. It shows the address, kept from page translation, and what opening the link does, unlocks Resend after a wait read from the clock (30 seconds by default), and offers "Use a different email" when the host passes a handler. Where the host passes `pairingCode`, it draws that number large, in tabular figures, with a caption: the page the link opens asks the person to type it on recovery and step-up, and to pick it on sign-up and email change. Only one to six digits are drawn; the number sits outside the live region behind a hidden "Your number:" label and is hidden while the link is expired, and after a resend the announced sentence ends "Check the number again." Both buttons are 40px tall below `md`, the touch height `musubi/social/DESIGN.md` sets for phones. The sentence sits in a polite live region and an error under it as an alert of its own, cleared while Resend sends; the countdown stays out of both. Resend is busy while it sends, keeping focus, with "Use a different email" disabled. Focus moves to the heading when the view appears and when a send ends with the wait disabling Resend. Recovery's wording promises no send, since recovery answers every address alike. Nothing renders it yet.
+- f4c9fea: `@osn/auth-ui` gains `ConfirmLinkPage` (`@osn/auth-ui/ConfirmLinkPage`, and from the barrel): the page an emailed link opens for sign-up, recovery, step-up and email change. It asks the person to pick the number shown on the waiting screen from the host's `candidates` (three to five, all different, each one to six digits, passed as osn-api sends them), drawn in the order given in tabular figures and kept from page translation; any other list draws the expired page. Tapping a number is the confirm: `onConfirm` receives exactly that number, never on a mount, a prop change or a timer; the number turns busy, keeping focus, and every other choice disables itself, so one tap is one call. Confirm, the decline and Try again show their wait the same way, reading "Confirming…" or "Cancelling…". "I didn't ask for this" sends `null` and a `declined` answer shows "Cancelled". An answer must fit what was sent; every refusal shows the same expired page; a thrown error shows a fixed line and Try again, which sends the same number, or the same decline, again, and "I didn't ask for this" stays open, sending `null` as a new attempt. Step-up's expired page keeps its warning to sign out the other sessions. With `typeNumber`, which recovery's and step-up's hosts pass, the page asks the person to type the number instead: one field with a plain label for up to six digits that refuses any other insertion and never rewrites what was typed, Confirm (or Enter) once it holds one to six digits, and the entry sent exactly as typed. `initialOutcome` opens the page on `confirmed` or `expired` with no numbers, and the props type requires one of `candidates`, `typeNumber` and `initialOutcome`, never `candidates` with `typeNumber`. One polite output says each change aloud, the error line is an alert of its own, the heading takes focus on every answer, and a call still running after 10 seconds says so. Nothing renders it yet.
+- cbd32bd: Email account recovery uses an emailed link in place of the six-digit code. `POST /login/recovery/email/begin` answers every address alike with a request id, a claim secret and a pairing number (202), and mails `<frontend origin>/verify/<request id>#<link secret>` to an account's address. Whoever opens the link types the number the waiting screen shows (a blind guess is right 1 time in 100; a wrong number ends the request) or turns it down; confirming signs nobody in. The tab that began polls `POST /login/recovery/email/:requestId/status` with its claim secret and gets the restricted recovery session (passkey enrolment only), once; `POST /login/recovery/email/:requestId/resend` sends another link for the same request. `/login/recovery/email/complete` is gone.
+
+  `@osn/api` gives each emailed-link flow a pairing mode (sign-up picks among five candidates; recovery types the number), refuses a malformed pick like any other refusal, counts wrong typed numbers on the account's recovery lockout (five in 15 minutes) and wrong link secrets only on their request, records a `recovery_link_declined` security event, and caps recovery links at 3 a day per account and client address, 3 Resends a day per account and 20 links a day per account in all; the pending recovery-code store and its cap go. `@osn/client` replaces `emailRecoveryComplete` with `emailRecoveryStatus` and `emailRecoveryResend`, all sent through `reach` so `describeAuthError` reads what they throw, `emailRecoveryBegin` answers the request, and `emailLinkPurpose` knows recovery links. `@osn/auth-ui`'s `RecoveryLoginForm` waits on the link with `CheckEmailView`, survives a reload in the tab's `sessionStorage` (never the number), and `@osn/auth-ui/pending-recovery` exports `hasPendingRecovery`, with no component in it, so a page can ask without loading `SignIn`; `SignIn` opens on its recovery view when one is pending; `createLinkPoll` is the shared poll loop; `SignIn` and `RecoveryLoginForm` ask phones not to capitalise a typed identifier (`autocapitalize="none"`); the security banner names a turned-down recovery request. `@musubi/social` reopens sign-in for a pending recovery and asks for the number typed on a recovery link's page. `@shared/email` replaces `otp-recovery` with `link-recovery`. `@shared/observability` adds the recovery flow, its routes, the `email_resend` step and the `recovery_link_declined` event kind.
+
+- 9d193fe: Sign-up proves the address with an emailed link in place of the six-digit code. `POST /register/begin` answers a request id, a claim secret and a pairing number, and mails `<frontend origin>/verify/<request id>#<link secret>`; the link's page reads the candidates (`POST /email-link/:requestId/candidates`) and confirms (`POST /email-link/:requestId/confirm`) with the number picked, since the confirm step requires the number shown on the waiting screen; "I didn't ask for this" ends the request and answers `declined`, again when repeated. Confirming never signs anyone in: the tab that began polls `POST /register/:requestId/status` with its claim secret, which answers the number while it waits, and gets the account and session once; `POST /register/:requestId/resend` sends another link for the same request. `/register/complete` is gone.
+
+  `@osn/api` adds the shared email-link challenge for every flow that emails a link, the `email_link` ceremony store, the `registration_link_lockout` counter, keyed on the address as typed (lowercased), and the `registrationSendCap` limiter, keyed on the address's mailbox key (`mailboxKey`: `+tag` cut, Gmail dots dropped), which feeds no stored or mailed address. `POST /register/begin` holds `previous` to the request-id and secret patterns the status and resend routes use. A begin for an address another live sign-up holds sends nothing; its Resend parks the sign-up and sends the link once that sign-up has ended, unless an account has the address or the handle by then: every sign-up link's send checks both first. `@osn/client` replaces `completeRegistration` with `registrationStatus` and `resendRegistrationLink`, and adds `createEmailLinkClient` and `emailLinkPurpose`. `@osn/auth-ui`'s `Register` waits on the link with `CheckEmailView`, survives a reload in the tab's `sessionStorage` (the number is never stored; the first poll after a reload brings it back), and `@osn/auth-ui/pending-sign-up` exports `hasPendingSignUp`, with no component in it, so a page can ask without loading `Register`. `@musubi/social` serves the link's page at `/verify/:requestId` with `ConfirmLinkPage`. `@shared/email` replaces `otp-registration` with `link-registration`. `@shared/observability` adds the email-link metric attributes and redacts the link and claim secrets and the pairing values. `@osn/client`'s `EmailLinkError` is an `OsnApiError`, and the link calls and the status poll send through `reach`, so `describeAuthError` reads what they throw. `registerProfile` stores the address lower-cased. `@musubi/social`'s Try again on a failed `/authorize` or `/verify/:requestId` card is busy while it reads again.
+
+### Patch Changes
+
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @osn/client@3.2.0
+
+## 4.2.1
+
+### Patch Changes
+
+- Updated dependencies [bc18a2b]
+  - @osn/client@3.1.1
+
+## 4.2.0
+
+### Minor Changes
+
+- 452ec7b: Every six-digit code is typed into `OtpInput`'s boxes, tied to its error line, and every loading placeholder is `Skeleton`.
+
+  - `@osn/auth-ui`: `StepUpDialog`'s two code steps and `ChangeEmailForm`'s code are a row of `OtpInput` boxes under a span label, in place of a single `Input`; each code step puts focus in box 1 as it opens. Every row of code boxes (`Register`, `RecoveryLoginForm`'s two, `TotpView`, `StepUpDialog`'s two, `ChangeEmailForm`) names its group by its label (`aria-labelledby`; `Register`'s keeps "Verification code") and its error line by `aria-describedby`, on every box. The boxes are marked invalid, with the danger edge, only for a `400` or `422` refusal other than the verification check, so a wait or an outage ties the line without calling the code wrong. After such a refusal sent with Enter, `Register` puts focus back in box 1 when focus is on the page or still in the row, as WebKit can leave it on the disabled box. `PasskeysView`, `SessionsView`, `TotpView` and `RecoveryCodesView` show `Skeleton` while they load, in a region marked `aria-busy`, in place of "Loading…" and a hand-drawn pulse; each reads its resource's `state` before its value, so it never joins a host's `Suspense` boundary or throws a failed read, and `StepUpDialog` reads `GET /totp/status` the same way, so opening a step-up never swaps its host for the host's fallback. `PasskeysView` and `SessionsView` disable their actions while a list they have shown is read again, so a passkey just deleted or a session just revoked cannot be acted on. A passkey's or a session's name wraps inside a word, so a long one keeps the row's actions inside the card on a phone. `TotpView`'s enrolment step drops its border and padding below `md`, and `StepUpDialog` its side padding, so a code row takes the panel's whole column on a phone; a panel's header action wraps under its heading when the two do not fit.
+  - `@musubi/social`: Connections, Discover, Organisations, an organisation's head and members, Connected apps, and the fallbacks of Settings' Security and Connected apps tabs and `/authorize`'s sign-in frame draw `Skeleton` in place of "Loading…" lines and `bg-muted/50 animate-pulse` blocks, each in a region marked `aria-busy`, at the height of what replaces it at each width: a row whose buttons grow to the touch height below `md` takes one block per width (`ResponsiveSkeleton`), and each placeholder list takes its list's gap. `/authorize`'s placeholder takes the shape of the half that leads, at the panel's width: sign-up's heading, Cancel and four fields for `reason=create`, sign-in's heading, field, buttons and "Create one" line otherwise, with the heading and the birth date's hint drawn as words so they wrap as the panel's do. Connected apps' lead paragraph moves to the page, so it shows while the section loads, and its empty list is an `EmptyNote`. Connected apps says a failed list in its own line instead of throwing to the page's error boundary, and keeps its rows on screen while it reads them again after a revoke. The Settings Security tab shows each panel's own placeholder rather than its fallback for the whole tab. `DESIGN.md` gains the loading rule, that what replaces a placeholder, an error line and a step that replaces another arrive with no fade, and the code boxes' widths at 320px, and lists no `Badge`, which Musubi does not draw; the token-contract browser test drops its `Badge` case. A new browser test opens the step-up's code step in Settings' Security tab at 320 and 1440px and checks the code row's width and that no button runs past the card, nor with a 64-character passkey name at 320px. Two more hold every loading placeholder's height against what lands at 320 and 1440px (`/authorize`'s at 390 too), with its region the only busy one until then.
+  - `@tools/lab`: `SkeletonGrounds` drops the half-strength placeholder Musubi drew by hand.
+
+### Patch Changes
+
+- Updated dependencies [2c2906f]
+- Updated dependencies [3424e05]
+- Updated dependencies [ae53236]
+  - @shared/ui@0.13.0
+
 ## 4.1.2
 
 ### Patch Changes

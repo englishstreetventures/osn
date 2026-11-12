@@ -33,13 +33,12 @@ export interface CeremonyStores {
   loginChallenges: CeremonyStore<ChallengeEntry>;
   pendingRegistrations: CeremonyStore<PendingRegistration>;
   stepUpPasskeyChallenges: CeremonyStore<ChallengeEntry>;
-  stepUpOtp: CeremonyStore<StepUpOtpEntry>;
-  pendingRecoveryOtp: CeremonyStore<PendingRecoveryOtp>;
   pendingTotpEnrollments: CeremonyStore<PendingTotpEnrollment>;
   pendingEmailChanges: CeremonyStore<PendingEmailChange>;
   crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
   authorizeRequests: CeremonyStore<PendingAuthorizeRequest>;
   recoveryDisownTokens: CeremonyStore<RecoveryDisownToken>;
+  emailLinks: CeremonyStore<EmailLinkChallenge>;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,12 +108,119 @@ export interface RecoveryDisownToken {
   expiresAt: number;
 }
 
+/**
+ * A sign-up waiting for its emailed link, keyed by the normalised address (or,
+ * for a taken address, its probe key). One live entry per key: a second begin
+ * for the address finds it and parks nothing, so it cannot replace the request
+ * someone else's link belongs to. That request parks here on a Resend once the
+ * key is empty.
+ *
+ * `requestId` names the {@link EmailLinkChallenge} this entry belongs to. Only
+ * that request's claim creates the account, and only that request's wipe or
+ * retirement removes the entry.
+ */
 export interface PendingRegistration {
+  /** Empty for the decoy parked for a taken address: nothing is ever sent to it. */
   email: string;
   handle: string;
   displayName: string | null;
-  codeHash: string;
+  requestId: string;
   expiresAt: number;
+}
+
+/**
+ * The sign-up a registration request parks at its address: the pending entry
+ * without the request it names and its expiry. A taken address's decoy holds
+ * an empty email and handle.
+ */
+export type PendingSignUp = Omit<PendingRegistration, "requestId" | "expiresAt">;
+
+/** The flows that prove an address with an emailed link. */
+export type EmailLinkFlow = "registration" | "recovery" | "step_up" | "email_change";
+
+/**
+ * One emailed-link request, keyed by its request id. The link carries the
+ * request id in its path and the link secret in its fragment; the tab that
+ * began holds the claim secret and shows the pairing number. Only SHA-256
+ * hashes of the two secrets are stored, and only a keyed digest of the pairing
+ * number; the candidates the confirm page shows are derived from the request
+ * id, never stored.
+ *
+ * `v` names the record's shape; an entry of any other shape is refused.
+ */
+export interface EmailLinkChallenge {
+  v: 1;
+  flow: EmailLinkFlow;
+  /**
+   * What the request is about, never returned by any route. Registration: the
+   * key of its pending entry, the address or its probe key. Recovery: the
+   * account id, or the typed address's probe key when it names no account.
+   * Step-up and email change: the account id of the caller who began, which
+   * every later call must be signed in as.
+   */
+  subject: string;
+  /**
+   * Registration only, on every registration request: the sign-up to park at
+   * `subject`. A request whose begin found the address held parks it from
+   * here, on a Resend, once the address is free. No birthdate.
+   */
+  signUp?: PendingSignUp;
+  /**
+   * A keyed digest the flow's claim checks again before it finishes, when the
+   * flow sets one: the address the link went to (`serverMac.probeKey`).
+   * Recovery and step-up check the account still has it, so a request begun
+   * before the account's email changed cannot be claimed after; email change
+   * checks its pending entry still names it.
+   */
+  bound?: string;
+  /**
+   * Step-up only: the `StepUpPurpose` the token its claim mints will name,
+   * fixed when the request begins. The tab that polls never names one.
+   */
+  purpose?: string;
+  /** The hash of every link sent for the request, newest last. */
+  mailSecretHashes: string[];
+  claimSecretHash: string;
+  /** `serverMac.pairingDigest(requestId, pairing number)`. */
+  pairingHash: string;
+  /**
+   * `confirmed` once a right link secret and pick were posted; the tab's poll
+   * claims it from there. `claimed` once that poll has taken it to finish the
+   * flow: `claim` says with what, and the entry stays until a poll has
+   * delivered the result, so a finish that failed part way is finished by the
+   * next poll. Nothing but the poll that finishes it ends a claimed request.
+   * `declined` once the holder of a link said they did not ask: the request is
+   * over, and the entry stays only so a repeated decline gets the same answer.
+   */
+  status: "pending" | "confirmed" | "claimed" | "declined";
+  /** Set exactly when `status` is `claimed`. */
+  claim?: EmailLinkClaim;
+  /** Milliseconds. */
+  expiresAt: number;
+}
+
+/**
+ * What a claimed request's flow finishes with, chosen once, when the claim is
+ * made, so every try writes the same rows and a try after a fault finds what
+ * an earlier one committed.
+ */
+export interface EmailLinkClaim {
+  /** The account the flow creates or signs in to. */
+  accountId: string;
+  /** The profile the session is for. */
+  profileId: string;
+  /**
+   * Recovery only: the id of the `account_recovered` row its finish writes.
+   * A try after a fault that finds this row knows the recovery it would
+   * refuse as a second one is its own, committed by an earlier try.
+   */
+  eventId?: string;
+  /**
+   * Milliseconds. While it is ahead, one poll is finishing the request and
+   * every other poll is refused. A poll whose finish failed sets it to 0, so
+   * the next poll takes over at once.
+   */
+  heldUntil: number;
 }
 
 // In-memory bounds (pending registrations, pending CDL, login challenges)
@@ -147,32 +253,6 @@ export interface CrossDeviceRequest {
 // instantiated per-service (in-memory default or the injected coordination store) inside
 // createAuthService — see CeremonyStores.
 
-// Step-up OTP codes — keyed by accountId. Separate from loginOtp store so
-// a login OTP cannot be replayed to authorise a sensitive action, and vice
-// versa. Structure matches OtpEntry but without profileId (accountId is the key).
-export interface StepUpOtpEntry {
-  codeHash: string;
-  expiresAt: number;
-}
-
-/**
- * The 6-digit code emailed by `POST /login/recovery/email/begin`, keyed by
- * accountId and awaiting `POST /login/recovery/email/complete`.
- *
- * Structurally identical to {@link StepUpOtpEntry} and deliberately a separate
- * store rather than a share of it: a step-up code authorises an action for
- * somebody already signed in, while this one hands out a session to somebody who
- * is not. Sharing the key space would let either be presented where the other
- * was minted.
- *
- * Never in D1. A pending recovery code is not a credential — it is a ten-minute
- * ceremony — and the durable store is not where ten-minute state belongs.
- */
-export interface PendingRecoveryOtp {
-  codeHash: string;
-  expiresAt: number;
-}
-
 /**
  * A TOTP secret generated by `/totp/enroll/begin` and not yet confirmed —
  * keyed by accountId. It never reaches D1: an unconfirmed secret is not a
@@ -196,12 +276,17 @@ export interface PendingTotpEnrollment {
   expiresAt: number;
 }
 
-// Pending email-change OTPs — keyed by accountId. The new email sits in the
-// entry rather than the key so the service can reject attempts that belong
-// to a stale "begin" call.
+/**
+ * An email change waiting for its new address's link, keyed by account id.
+ * One per account: a new begin replaces it. `requestId` names the
+ * {@link EmailLinkChallenge} it belongs to, so only that request's complete
+ * moves the account to `newEmail`, and only that request's end removes it.
+ */
 export interface PendingEmailChange {
+  /** The new address, lowercased. */
   newEmail: string;
-  codeHash: string;
+  requestId: string;
+  /** Milliseconds. */
   expiresAt: number;
 }
 
@@ -298,16 +383,26 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
  * every isolate; the in-memory default holds in one process only.
  */
 export interface ChallengeClaimStore {
-  readonly namespace: "passkey_challenge_claim";
+  /**
+   * `passkey_challenge_claim` for discoverable passkey challenges;
+   * `email_verification_nonce` for the nonces that bind a browser Email
+   * Verification API token to the sign-up tab, so a token is accepted once.
+   */
+  readonly namespace: ChallengeClaimStoreName;
   /** True for the first claim of `nonce` within `ttlMs`; false for every later one. */
   claim(nonce: string, ttlMs: number): Promise<boolean>;
 }
 
+/** The coordination stores that hold single-use claims by nonce. */
+export type ChallengeClaimStoreName = "passkey_challenge_claim" | "email_verification_nonce";
+
 /** In-memory challenge claims — single-process only, bounded like the ceremony stores. */
-export function createInMemoryChallengeClaimStore(): ChallengeClaimStore {
+export function createInMemoryChallengeClaimStore(
+  namespace: ChallengeClaimStoreName = "passkey_challenge_claim",
+): ChallengeClaimStore {
   const claimed = new Map<string, number>();
   return {
-    namespace: "passkey_challenge_claim",
+    namespace,
     async claim(nonce, ttlMs) {
       const nowMs = Date.now();
       if (claimed.size >= CEREMONY_STORE_MAX) {
@@ -347,11 +442,6 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       "step_up_challenge",
       observer,
     ),
-    stepUpOtp: createInMemoryCeremonyStore<StepUpOtpEntry>("step_up_otp", observer),
-    pendingRecoveryOtp: createInMemoryCeremonyStore<PendingRecoveryOtp>(
-      "pending_recovery_otp",
-      observer,
-    ),
     pendingTotpEnrollments: createInMemoryCeremonyStore<PendingTotpEnrollment>(
       "pending_totp_enroll",
       observer,
@@ -369,6 +459,7 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       "recovery_disown",
       observer,
     ),
+    emailLinks: createInMemoryCeremonyStore<EmailLinkChallenge>("email_link", observer),
   };
 }
 

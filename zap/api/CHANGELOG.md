@@ -1,5 +1,49 @@
 # @zap/api
 
+## 0.9.51
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @shared/observability@0.23.0
+  - @shared/crypto@0.14.29
+  - @shared/osn-auth-client@0.4.67
+
+## 0.9.50
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @shared/observability@0.22.0
+  - @shared/crypto@0.14.28
+  - @shared/osn-auth-client@0.4.66
+
+## 0.9.49
+
+### Patch Changes
+
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @shared/observability@0.21.0
+  - @shared/crypto@0.14.27
+  - @shared/osn-auth-client@0.4.65
+
+## 0.9.48
+
+### Patch Changes
+
+- Updated dependencies [64cb5fa]
+  - @shared/observability@0.20.3
+  - @shared/crypto@0.14.26
+  - @shared/osn-auth-client@0.4.64
+
+## 0.9.47
+
+### Patch Changes
+
+- @shared/crypto@0.14.25
+  - @shared/osn-auth-client@0.4.63
+
 ## 0.9.46
 
 ### Patch Changes

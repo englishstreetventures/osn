@@ -242,6 +242,26 @@
   }
 }
 
+/* ── A theme change: one cross-fade ─────────────────────────────────────────
+ * A theme chosen in the account menu is applied inside
+ * `document.startViewTransition` (`@cire/ui/lib/theme`), so the whole page
+ * fades from one ramp to the other on the base step. Nothing moves: the page,
+ * the open menu included, is one snapshot of the viewport. The group is timed
+ * with the two snapshots so the transition, and the pointer's wait under it,
+ * ends with the fade rather than on the browser's own 0.25s.
+ *
+ * Inside `no-preference`: the reduced-motion switch selects `*` and reaches no
+ * pseudo-element. The script skips the transition under `reduce` as well.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--dur-base);
+    animation-timing-function: var(--ease-in-out);
+  }
+}
+
 /* ── The stuck stack ────────────────────────────────────────────────────────
  * What holds at the top of the window as a long view scrolls, from the top
  * down: the top bar, the module's view bar, a view's column heads or card
@@ -288,6 +308,42 @@
   --toast-accent-error: var(--error);
   --toast-accent-warn: var(--warn);
   --toast-accent-info: var(--text-muted);
+  /* A toast's action is a portal button: its label as written, at the `xs`
+   * step and medium weight of a small `Button`, on a pill (DESIGN.md §4
+   * corners, §7 Labels). */
+  --toast-action-case: none;
+  --toast-action-tracking: var(--ui-tracking-normal);
+  --toast-action-radius: var(--ui-radius-control);
+  --toast-action-size: var(--ui-text-xs);
+  --toast-action-weight: 500;
+}
+
+/* ── Undo after a one-click delete (`lib/undo-delete.ts`) ───────────────────
+ * The undo toast arrives on the base rung and the portal's ease-out, so the
+ * move can be felt (DESIGN.md §4); every other toast keeps the package's
+ * arrival. It holds a live Undo, so it leaves at once: a fade would keep a
+ * button that can still be pressed in a box that is going away. A row Undo
+ * puts back fades in where it stood, on opacity alone, since a transform would
+ * move the box a drag measures. Under reduced motion the base layer's switch
+ * runs the fade and the toast's arrival at once.
+ */
+.undo-toast {
+  --toast-enter-duration: var(--dur-base);
+  --toast-enter-easing: var(--ease-out);
+}
+
+.undo-toast.ui-toast--leaving {
+  display: none;
+}
+
+@keyframes row-return {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility row-return {
+  animation: row-return var(--dur-slow) var(--ease-out);
 }
 
 /* Every design token is an *alias* onto the ramp above, never a literal value.
@@ -349,6 +405,10 @@
      settle. A one-overshoot curve here, for the engines on the floor that have
      no `linear()`; the real spring is the `@supports` block below. */
   --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+  /* Something travelling between two places it belongs, landing with barely
+     any give: an overshoot of about 3%. The glass of a segmented strip (the
+     owner's choice). The same fallback arrangement as the spring above. */
+  --ease-glide: cubic-bezier(0.36, 1.3, 0.3, 1);
 
   /* The blur behind a modal scrim. Deliberately small: enough that the page
      below reads as out of reach, not so much that an organiser loses the row
@@ -882,9 +942,44 @@
  * does not, and an easing it cannot parse would void the whole `animation`
  * declaration — so the token holds a cubic-bezier until this block replaces
  * it. Unlayered, so it beats the theme layer that declared the fallback.
+ *
+ * `--ease-glide` is the same spring damped harder (ratio 0.75): 3% past at
+ * about half the run. Each runs 29 samples of one spring, with the same
+ * natural frequency per run, so the two differ only in their give.
  */
 @supports (animation-timing-function: linear(0, 1)) {
   :root {
+    --ease-glide: linear(
+      0,
+      0.053,
+      0.177,
+      0.33,
+      0.485,
+      0.626,
+      0.745,
+      0.839,
+      0.91,
+      0.961,
+      0.994,
+      1.014,
+      1.025,
+      1.028,
+      1.028,
+      1.025,
+      1.02,
+      1.016,
+      1.012,
+      1.008,
+      1.005,
+      1.003,
+      1.001,
+      1,
+      1,
+      0.999,
+      0.999,
+      0.999,
+      1
+    );
     --ease-spring: linear(
       0,
       0.055,
@@ -1048,6 +1143,22 @@
   }
 }
 
+/* ── A tooltip arriving after its delay: tip-pop ────────────────────────────
+ * `ActionTip`'s panel takes `menu-pop-in` from the side of the control it
+ * opened on, as `@shared/ui`'s `Tooltip` beside it scales and fades in, but
+ * only on an open a resting mouse waited for (`data-delayed`). A keyboard open
+ * and the next tip in a run show at once. `--dur-base`, a rung slower than the
+ * menus' pop, so the arrival can be felt (the owner's rung, DESIGN.md §4). No
+ * exit: the layer unmounts the panel the moment it closes.
+ */
+@utility tip-pop {
+  transform-origin: var(--kb-popper-content-transform-origin);
+
+  &[data-delayed] {
+    animation: menu-pop-in var(--dur-base) var(--ease-out);
+  }
+}
+
 /* ── The invite builder's section strip on the views' row ──────────────────
  * Under Content the builder lends the view bar its sections, on the views' own
  * row when the panel has room. Kept mounted there and `hidden` off Content, so
@@ -1074,6 +1185,54 @@
   @starting-style {
     opacity: 0;
     translate: -6px 0;
+  }
+}
+
+/* ── A view arriving in the module panel: view-arrive ───────────────────────
+ * The other half of the design law (DESIGN.md §1): `createAutoSize` moves the
+ * panel's height, and the view that arrives fades in over the held frame. On
+ * `ModuleShell`'s measured box, which gains `data-swapped` at the first change
+ * of module or sub-tab, so the panel the page opens on never fades.
+ *
+ * A transition from `@starting-style`, not keyframes: a starting style applies
+ * only to an element's first style, so a child that is new — a view a change
+ * mounts, or one taking over from its `Suspense` fallback — fades, and a child
+ * that stays mounted across the change (the invite builder across its four
+ * views) does not, even on the change that first sets `data-swapped`. Opacity
+ * only: a translate would fight the height moving around it. The old view goes
+ * at once, controls and all.
+ *
+ * Declared only under `no-preference`: the reduced-motion clamp above shortens
+ * a transition to 0.01ms rather than removing it, and a starting style would
+ * still paint its first frame at opacity 0.
+ */
+@utility view-arrive {
+  @media (prefers-reduced-motion: no-preference) {
+    &[data-swapped] > * {
+      transition: opacity var(--dur-base) var(--ease-out);
+
+      @starting-style {
+        opacity: 0;
+      }
+    }
+  }
+}
+
+/* ── The unsaved-changes bar rising: bar-rise ───────────────────────────────
+ * The events and guests editors' bar, fixed to the window's foot, rises from
+ * that edge by its own height when the first edit of a run mounts it, on
+ * `--dur-slow` (the owner's rung, DESIGN.md §4). `@starting-style` gives the
+ * arrival its from-state; an engine older than Chrome 117, Safari 17.5 or
+ * Firefox 129 drops it and the bar is at rest at once. It leaves at once: it
+ * holds Save and Discard, and a bar sliding away would keep them focusable in
+ * a box that is going. The `translate` is on the fixed bar itself, never an
+ * ancestor, so the bar keeps the viewport as its containing block.
+ */
+@utility bar-rise {
+  transition: translate var(--dur-slow) var(--ease-out);
+
+  @starting-style {
+    translate: 0 100%;
   }
 }
 

@@ -4,6 +4,7 @@ import { AccountError, createAccountClient } from "../src/account";
 import { OsnApiError } from "../src/api-error";
 import { AuthorizeError, createAuthorizeClient } from "../src/authorize";
 import { ConnectionsError, createConnectionsClient } from "../src/connections";
+import { createEmailLinkClient, EmailLinkError } from "../src/email-link";
 import {
   ActiveProfileResetError,
   AuthExpiredError,
@@ -41,6 +42,7 @@ const stepUp = createStepUpClient(authed);
 const passkeys = createPasskeysClient(authed);
 const account = createAccountClient(authed);
 const register = createRegistrationClient(config);
+const emailLink = createEmailLinkClient(config);
 const recovery = createRecoveryClient(authed);
 const events = createSecurityEventsClient(authed);
 const connections = createConnectionsClient(authed);
@@ -77,8 +79,7 @@ const SITES: Site[] = [
   ),
   site("stepUp.passkeyBegin", StepUpError, () => stepUp.passkeyBegin()),
   site("stepUp.passkeyComplete", StepUpError, () => stepUp.passkeyComplete({ assertion: {} })),
-  site("stepUp.otpBegin", StepUpError, () => stepUp.otpBegin()),
-  site("stepUp.otpComplete", StepUpError, () => stepUp.otpComplete({ code: "123456" })),
+  site("stepUp.emailBegin", StepUpError, () => stepUp.emailBegin({ purpose: "account_export" })),
   site("stepUp.totpComplete", StepUpError, () => stepUp.totpComplete({ code: "123456" })),
   site("passkeys.list", PasskeysError, () => passkeys.list()),
   site("passkeys.rename", PasskeysError, () =>
@@ -95,7 +96,11 @@ const SITES: Site[] = [
     account.changeEmailBegin({ newEmail: "b@example.com" }),
   ),
   site("account.changeEmailComplete", AccountError, () =>
-    account.changeEmailComplete({ code: "123456", stepUpToken: "su" }),
+    account.changeEmailComplete({
+      requestId: "emailchange_0123456789ab",
+      claimSecret: "c",
+      stepUpToken: "su",
+    }),
   ),
   site("account.deleteAccount", AccountError, () =>
     account.deleteAccount({ confirmHandle: "alice", stepUpToken: "su" }),
@@ -110,8 +115,8 @@ const SITES: Site[] = [
       birthdate: "1990-01-01",
     }),
   ),
-  site("register.completeRegistration", RegistrationError, () =>
-    register.completeRegistration({ email: "a@example.com", code: "123456" }),
+  site("register.resendRegistrationLink", RegistrationError, () =>
+    register.resendRegistrationLink({ requestId: "signup_0123456789ab", claimSecret: "c" }),
   ),
   site("register.passkeyRegisterBegin", RegistrationError, () =>
     register.passkeyRegisterBegin({ profileId: "usr_1", accessToken: TOKEN }),
@@ -126,14 +131,11 @@ const SITES: Site[] = [
   site("recovery.loginWithRecoveryCode", RecoveryError, () =>
     recovery.loginWithRecoveryCode({ identifier: "alice", code: "abcd-efgh" }),
   ),
-  site(
-    "recovery.emailRecoveryBegin",
-    RecoveryError,
-    () => recovery.emailRecoveryBegin({ identifier: "a@example.com" }),
-    false,
+  site("recovery.emailRecoveryBegin", RecoveryError, () =>
+    recovery.emailRecoveryBegin({ identifier: "a@example.com" }),
   ),
-  site("recovery.emailRecoveryComplete", RecoveryError, () =>
-    recovery.emailRecoveryComplete({ identifier: "a@example.com", code: "123456" }),
+  site("recovery.emailRecoveryResend", RecoveryError, () =>
+    recovery.emailRecoveryResend({ requestId: "recovery_0123456789ab", claimSecret: "c" }),
   ),
   site("recovery.totpRecoveryComplete", RecoveryError, () =>
     recovery.totpRecoveryComplete({ identifier: "alice", code: "123456" }),
@@ -261,9 +263,8 @@ describe("every client error carries the response's status and the server's code
 
   /**
    * A 2xx body of the wrong shape: a site with a shape check rejects, one
-   * without returns the body as sent, and `login.passkeyComplete` and
-   * `register.completeRegistration` fail decoding the session. None may read
-   * the body's `error` field as a code.
+   * without returns the body as sent, and `login.passkeyComplete` fails
+   * decoding the session. None may read the body's `error` field as a code.
    */
   const settleWrongShape = async (s: Site) => {
     stubFetch(() => json({ error: "rate_limited" }, 200));
@@ -342,17 +343,106 @@ describe("every client error carries the response's status and the server's code
   });
 });
 
+/**
+ * The calls that answer a refusal instead of throwing it: the sign-up and
+ * recovery status polls and the emailed link's two calls read every 4xx but a
+ * 429 as `expired`. What they do throw follows every other client's contract.
+ */
+const ANSWERING_SITES: Site[] = [
+  site("register.registrationStatus", RegistrationError, () =>
+    register.registrationStatus({ requestId: "signup_0123456789ab", claimSecret: "c" }),
+  ),
+  site("recovery.emailRecoveryStatus", RecoveryError, () =>
+    recovery.emailRecoveryStatus({ requestId: "recovery_0123456789ab", claimSecret: "c" }),
+  ),
+  site("emailLink.candidates", EmailLinkError, () =>
+    emailLink.candidates("signup_0123456789ab", "s"),
+  ),
+  site("emailLink.confirm", EmailLinkError, () =>
+    emailLink.confirm("signup_0123456789ab", { linkSecret: "s", pick: "12" }),
+  ),
+];
+
+describe("the calls that answer a refusal", () => {
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a 429 keeps its status and code",
+    async (_name, s) => {
+      stubFetch(() => json({ error: "rate_limited" }, 429));
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toBeInstanceOf(OsnApiError);
+      expect(err).toMatchObject({ status: 429, code: "rate_limited" });
+    },
+  );
+
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a non-JSON error page keeps its status, with no code",
+    async (_name, s) => {
+      stubFetch(() => new Response("<html>Bad gateway</html>", { status: 502 }));
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toMatchObject({ status: 502, code: undefined });
+    },
+  );
+
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a 2xx whose body is not JSON rejects with its status, with no code",
+    async (_name, s) => {
+      stubFetch(() => new Response("<html>Sign in to the Wi-Fi</html>", { status: 200 }));
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toMatchObject({ status: 200, code: undefined });
+    },
+  );
+
+  it.each(ANSWERING_SITES.map((s) => [s.name, s] as const))(
+    "%s: a transport failure becomes the client's error at status 0",
+    async (_name, s) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+      );
+      const err = await rejectionOf(s.call);
+      expect(err).toBeInstanceOf(s.ErrorClass);
+      expect(err).toMatchObject({ status: 0, code: undefined });
+    },
+  );
+});
+
 /** The sites that send without the page's `authFetch`. */
 const SENDS_WITHOUT_AUTH_FETCH = new Set([
   "recovery.loginWithRecoveryCode",
   "recovery.emailRecoveryBegin",
-  "recovery.emailRecoveryComplete",
+  "recovery.emailRecoveryResend",
   "recovery.totpRecoveryComplete",
   "recovery.disown",
 ]);
-const AUTH_FETCH_SITES = SITES.filter(
-  (s) => !/^(login|register)\./.test(s.name) && !SENDS_WITHOUT_AUTH_FETCH.has(s.name),
-);
+/**
+ * The emailed-link polls and Resends of step-up and email change. They answer
+ * a refusal as `expired` rather than throwing it, so they are not in `SITES`;
+ * they go through `authFetch` all the same.
+ */
+const LINK_POLL_SITES: Site[] = [
+  site("stepUp.emailStatus", StepUpError, () =>
+    stepUp.emailStatus({ requestId: "stepup_0123456789ab", claimSecret: "c" }),
+  ),
+  site("stepUp.emailResend", StepUpError, () =>
+    stepUp.emailResend({ requestId: "stepup_0123456789ab", claimSecret: "c" }),
+  ),
+  site("account.changeEmailStatus", AccountError, () =>
+    account.changeEmailStatus({ requestId: "emailchange_0123456789ab", claimSecret: "c" }),
+  ),
+  site("account.changeEmailResend", AccountError, () =>
+    account.changeEmailResend({ requestId: "emailchange_0123456789ab", claimSecret: "c" }),
+  ),
+];
+
+const AUTH_FETCH_SITES = [
+  ...SITES.filter(
+    (s) => !/^(login|register)\./.test(s.name) && !SENDS_WITHOUT_AUTH_FETCH.has(s.name),
+  ),
+  ...LINK_POLL_SITES,
+];
 
 /**
  * What `authFetch` rejects with when the session, not the network, is the
@@ -368,7 +458,7 @@ const SESSION_REJECTIONS = [
 
 describe("a session rejection from authFetch", () => {
   it("P9: covers every authenticated client method", () => {
-    expect(AUTH_FETCH_SITES).toHaveLength(36);
+    expect(AUTH_FETCH_SITES).toHaveLength(39);
   });
 
   it.each(

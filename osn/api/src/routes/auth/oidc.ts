@@ -597,6 +597,78 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
         },
       )
       // -----------------------------------------------------------------------
+      // POST /authorize/decline — a refusal from a browser with no session.
+      //
+      // The signed-out consent screen's way out: the relying party gets
+      // `access_denied` instead of nothing. The binding cookie is the only
+      // proof this browser started the flow, so this route can refuse and do
+      // nothing else, and it never reads the session cookie. A POST only: the
+      // binding cookie is SameSite=Lax, which browsers send on a cross-site
+      // top-level GET, so a GET form could be fired by a link on any site. It
+      // stays behind the Origin guard like every cookie-bearing POST.
+      // -----------------------------------------------------------------------
+      .post(
+        "/authorize/decline",
+        async ({ body, set, headers, server, request }) => {
+          set.headers["cache-control"] = "no-store";
+
+          // The decision's own limiter, so declines and decisions from one
+          // client draw on one budget. Before any store read.
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "oidc_authorize_decision",
+            rl.oidcAuthorizeDecision,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+
+          // Only `requestId` is read from the body. Whatever else a caller
+          // sends (an `approved` flag, a profile, a redirect URI, a `state`)
+          // reaches nothing.
+          const result = await run(
+            Effect.result(
+              auth.declineAuthorization({
+                requestId: body.requestId,
+                bindingSecret: readBindingCookie(headers.cookie, body.requestId, cookieConfig),
+              }),
+            ),
+          );
+
+          if (Result.isFailure(result)) {
+            const oidc = asOidcError(result.failure);
+            if (!oidc) {
+              const { status, body: errBody } = handleError(result.failure);
+              set.status = status;
+              return errBody;
+            }
+            // Unknown, expired, answered, or another browser's request: one
+            // answer for all of them, and the cookie is left as it was.
+            set.status = 400;
+            return { error: oidc.code, error_description: oidc.description };
+          }
+
+          set.headers["set-cookie"] = buildClearBindingCookie(body.requestId, cookieConfig);
+          return { redirectTo: result.success.redirectTo };
+        },
+        {
+          body: t.Object({ requestId: t.String({ pattern: "^oar_[a-f0-9]{12}$" }) }),
+          response: {
+            // `redirectTo` alone: no profiles, account or client details,
+            // whether or not the browser holds a session.
+            200: t.Object({ redirectTo: t.String() }),
+            400: oidcErrorResponse,
+            429: oidcErrorResponse,
+            // The parked-request store could not answer; a retry can succeed.
+            503: oidcErrorResponse,
+          },
+          // The binding cookie authenticates this, not a session or a token.
+          detail: { operationId: "declineOidcAuthorizeRequest" },
+        },
+      )
+      // -----------------------------------------------------------------------
       // POST /oidc/token — the authorization-code exchange.
       //
       // Mounted away from the first-party `/token` refresh grant on purpose:
