@@ -297,7 +297,9 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   inside the centred `Modal`, the RSVP reply editor in its table cell or phone
   row, the colour area in its popover, a step card inside the import guide, a
   `Disclosure` set inside another box (`nested`);
-- a compact row (`px-3 py-2`) of text and glyphs — a budget line, a checklist
+- a compact row (`px-3 py-2`) of text and glyphs — a budget line (written as
+  `py-1 pr-2 pl-3` with 4px inside each part, because its panels open through
+  `Reveal`; see "A panel that opens inside a row" below), a checklist
   task, a registry item, a seat, a vendor, an FAQ entry — and the run sheet's
   bands and rows, whose coming-up wash is a table highlight;
 - a menu row's or a nav row's highlight — the command palette, every portal
@@ -780,6 +782,35 @@ card between its two heights on several frames, the body's opacity within 0.05
 of the card's share of its growth on each, the clip while it grows and none at
 rest, a nested card and its parent growing by the same amount, and under
 emulated reduced motion the full height on the first frame.
+
+**A panel that opens inside a row grows through `Reveal`** (`@cire/ui/reveal`),
+the owner's choice (2026-11-10, englishstreetventures/osn#2164). Its height
+grows from nothing as it fades in, on `--dur-base` with `--ease-out`, so the
+rows below move down with it rather than jump; it closes at once, because it
+holds fields. Where the portal draws it: a budget line's "per head" and
+"payments (n)" panels, and a message's time on a phone (§7, `MessageThread`).
+The owner chose `--dur-base` for the budget panels on 2026-11-11: one rung
+above `--dur-fast` (200ms on touch, 150ms at a desk), a little slower than the
+comparison page's fast defaults. `Reveal` opens on `--dur-base` unless its
+caller passes `pace="slow"`, which only the guest site does; the portal passes
+none. `Reveal` clips what it holds, inside 4px of room that keeps a focus ring
+at the content's edge whole, and a matching negative margin hands that room
+back to the layout, so a closed panel takes no height
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A reveal needs a
+wrapper that outlives the content it reveals). A budget line has no `gap`,
+because both closed `Reveal`s stay in it and a gap would add to every line:
+each part carries 4px above, below and to its right instead, and the line's
+padding is 4px less, so every gap still measures 8px, the space above an
+opening panel grows with it, and a closed panel adds nothing. The clip would
+also cut text that runs past the edge, so a
+payment's label and an event's name inside a panel wrap anywhere
+(`wrap-anywhere`): either can be one 80-character word. A control inside the
+panel that closes it — Cancel, Save, "Use a fixed amount" — hands focus back to
+the toggle that opened it, and a payment's ✕ hands it to the next payment's
+box, or to "Payment label" when none follows, so focus never falls to the page.
+`BudgetView.reveal.browser.test.tsx` samples the opening frame by frame and
+measures the room, the spacing and the wrapping; `BudgetView.test.tsx` holds
+the focus.
 
 **A toggled box that is not in the top layer fades out in CSS alone.**
 `transition-behavior: allow-discrete` holds `display` until an opacity fade has
