@@ -898,7 +898,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.54",
+      "version": "0.3.55",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@osn/auth-ui": "workspace:*",

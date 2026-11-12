@@ -323,8 +323,11 @@
   --radius-md: 10px;
   --radius-pill: 999px;
 
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* What a transition that names no easing runs, in place of Tailwind's own
+     curve, as in the host (cire/host/DESIGN.md §4). */
+  --default-transition-timing-function: var(--ease-out);
   /* Something landing with a little give: an overshoot of about 8% and one
      settle. A one-overshoot curve here, for the engines on the floor that have
      no `linear()`; the real spring is the `@supports` block below. The
@@ -435,6 +438,13 @@
   --ui-on-danger: var(--bg);
 
   --ui-focus: var(--focus);
+
+  /* Something arriving, on cire's one arriving curve (cire/host/DESIGN.md §4):
+   * every entry `animate-in` runs — `Tooltip`, `Popover`, the default menu —
+   * and `Modal`'s rise, though this portal renders no `Modal`. An overlay
+   * leaving reads `--ui-ease-exit`, which stays the contract's, so this moves
+   * no exit. */
+  --ui-ease-out: var(--ease-out);
 
   /* The portals' pill, which `@cire/ui`'s `Button` reads (DESIGN.md §4, One
    * pill language): every non-primary pill sits on the glass track's ground,

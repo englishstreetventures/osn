@@ -56,7 +56,7 @@ function bezier(x1: number, y1: number, x2: number, y2: number): Curve {
 
 const EASE_IN_OUT = bezier(0.42, 0, 0.58, 1);
 /** The house `--ease-out`, which every rise in both packs runs on. */
-const HOUSE_OUT = bezier(0.22, 1, 0.36, 1);
+const HOUSE_OUT = bezier(0.23, 1, 0.32, 1);
 
 /**
  * One element's motion. The curve eases the whole tween, and the opacity

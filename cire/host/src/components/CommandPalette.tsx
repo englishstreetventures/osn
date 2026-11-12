@@ -237,9 +237,9 @@ export default function CommandPalette(props: {
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay class="sheet-scrim bg-bg/70 backdrop-blur-scrim fixed inset-0 z-40" />
+        <Dialog.Overlay class="palette-scrim bg-bg/70 backdrop-blur-scrim fixed inset-0 z-40" />
         <div class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
-          <Dialog.Content class="sheet-panel border-border bg-surface-raised rounded-ui-lg flex w-full max-w-lg flex-col overflow-hidden border shadow-(--elev-2) outline-none">
+          <Dialog.Content class="palette-rise border-border bg-surface-raised rounded-ui-lg flex w-full max-w-lg flex-col overflow-hidden border shadow-(--elev-2) outline-none">
             <Dialog.Title class="sr-only">Command palette</Dialog.Title>
 
             <div class="border-border flex items-center gap-3 border-b px-4">
