@@ -799,6 +799,44 @@ describe("EventCard", () => {
       }
     });
 
+    // `--motion-scale` slows the tick's draw in the stylesheet. A hold that
+    // kept its own pace would swap the drawing path for the still one partway
+    // through a slowed draw, and the tick would jump to drawn.
+    it("stretches the hold with --motion-scale, as the stylesheet stretches the tick", async () => {
+      vi.useFakeTimers();
+      document.documentElement.style.setProperty("--motion-scale", "3");
+      try {
+        const onCelebrated = vi.fn();
+        const [justResponded, setJustResponded] = createSignal(false);
+        const { container } = render(() => (
+          <EventCard
+            event={baseEvent}
+            responded
+            justResponded={justResponded()}
+            onCelebrated={onCelebrated}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        ));
+        const drawing = () =>
+          respondButton(container)
+            .querySelector("svg path")
+            ?.getAttribute("class")
+            ?.includes("animate-tick-draw") === true;
+
+        setJustResponded(true);
+        await vi.advanceTimersByTimeAsync(3 * TOTAL_DURATION_MS - 10);
+        expect(drawing()).toBe(true);
+        expect(onCelebrated).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(20);
+        expect(drawing()).toBe(false);
+        expect(onCelebrated).toHaveBeenCalledTimes(1);
+      } finally {
+        document.documentElement.style.removeProperty("--motion-scale");
+        vi.useRealTimers();
+      }
+    });
+
     it("restarts the choreography from the top when a re-submit lands mid-celebration", async () => {
       // Documented behaviour in `playCelebration`: an edited, re-submitted
       // reply arriving while the previous celebration is still fading must

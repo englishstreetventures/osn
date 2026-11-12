@@ -45,8 +45,20 @@ describe("production-sites.ts", () => {
     ).toBe(true);
   });
 
-  test("PS2: no production API Worker, database or bucket is adopted", () => {
-    expect(PRODUCTION_ADOPTIONS).toEqual([]);
+  test("PS2: the stacks adopt each production API Worker, database and bucket by its existing name", () => {
+    expect(PRODUCTION_ADOPTIONS.toSorted()).toEqual(
+      [
+        "osn-api-production",
+        "osn-db-prod",
+        "cire-api-production",
+        "cire-invites",
+        "cire-db",
+        "cire-assets",
+        "cire-sheets",
+        "zap-api-production",
+        "zap-db-prod",
+      ].toSorted(),
+    );
   });
 
   test("PS3: every site but pulse landing serves its host from its Worker, pulse landing is off", () => {
@@ -84,8 +96,12 @@ describe("production-sites.ts", () => {
     }
   });
 
-  test("production-hosts names each non-off site's production origin, held or not, the origin its smoke check probes", () => {
+  test("production-hosts names each API Worker's and each non-off site's production origin, held or not, the origin its smoke check probes", () => {
     expect(Object.fromEntries(productionHostOutputs())).toEqual({
+      cire_api_origin: "https://api.cireweddings.com",
+      cire_invites_origin: "https://invite.cireweddings.com",
+      osn_api_origin: "https://id.musubi.social",
+      zap_api_origin: "https://zap.cireweddings.com",
       cire_host_origin: "https://host.cireweddings.com",
       cire_vendor_origin: "https://vendor.cireweddings.com",
       cire_landing_origin: "https://cireweddings.com",

@@ -17,14 +17,11 @@ import {
   annotation,
   CI_USER_AGENT,
   type Deployment,
-  deployedVersion,
-  devRestorePlan,
   devTarget,
   judge,
   type Outcome,
   probeOnce,
   type Probe,
-  productionSiteTarget,
   productionTarget,
   restorePlan,
   rollbackMessage,
@@ -178,7 +175,7 @@ const workerOf = (args: readonly string[]) => {
   if (surface === undefined || !isSurfaceKey(surface)) return undefined;
   if (tier === "dev") return devTarget(surface)?.worker;
   if (tier !== "production") return undefined;
-  return (productionSiteTarget(surface) ?? productionTarget(surface))?.worker;
+  return productionTarget(surface)?.worker;
 };
 
 // Dev hosts come from the stack job's dev-hosts step, never from this script.
@@ -193,6 +190,32 @@ const devEnv = (origin: string, extra: Record<string, string | undefined> = {}) 
   SMOKE_DEPLOYMENT: DEP_THIS_JOB,
   ...extra,
 });
+
+/**
+ * What a production stack job's smoke step passes for each surface: its
+ * production origin (production-hosts) and the guest site's marketing origin.
+ */
+const PRODUCTION_ORIGINS: Readonly<Partial<Record<string, Record<string, string>>>> = {
+  cire_api: { SMOKE_ORIGIN: "https://api.cireweddings.com" },
+  cire_invites: {
+    SMOKE_ORIGIN: "https://invite.cireweddings.com",
+    SMOKE_MARKETING_ORIGIN: "https://cireweddings.com",
+  },
+  osn_api: { SMOKE_ORIGIN: "https://id.musubi.social" },
+  zap_api: { SMOKE_ORIGIN: "https://zap.cireweddings.com" },
+  cire_host: { SMOKE_ORIGIN: "https://host.cireweddings.com" },
+  cire_vendor: { SMOKE_ORIGIN: "https://vendor.cireweddings.com" },
+  cire_landing: { SMOKE_ORIGIN: "https://cireweddings.com" },
+  osn_social: { SMOKE_ORIGIN: "https://musubi.social" },
+  musubi_landing: { SMOKE_ORIGIN: "https://www.musubi.social" },
+};
+
+/** The production stack job's env for `args`, the deployment its deploy made included; none on dev. */
+const productionEnvFor = (args: readonly string[]): Record<string, string> => {
+  const [surface, tier] = args;
+  if (tier !== "production" || surface === undefined) return {};
+  return { ...PRODUCTION_ORIGINS[surface], SMOKE_DEPLOYMENT: DEP_THIS_JOB };
+};
 const INVITES_ENV = (extra: Record<string, string | undefined> = {}) =>
   devEnv(INVITES_DEV, { SMOKE_MARKETING_ORIGIN: CIRE_LANDING_DEV, ...extra });
 
@@ -220,7 +243,7 @@ async function smoke(
   const lines: string[] = [];
   const code = await runSmokeCheck({
     args,
-    env: { ...RUN_ENV, ...options.env },
+    env: { ...RUN_ENV, ...productionEnvFor(args), ...options.env },
     fetch: http.fetch,
     now: clock.now,
     sleep: clock.sleep,
@@ -536,57 +559,36 @@ describe("restorePlan", () => {
     deployment("d1", "2026-10-14T09:00:00Z", "v1"),
   ];
 
-  test("restores the newest version that served all traffic before the newest deployment", () => {
-    expect(restorePlan(history, undefined)).toEqual({ ok: true, newest: "d3", version: "v1" });
-    expect(restorePlan(history, "v3")).toEqual({ ok: true, newest: "d3", version: "v1" });
-  });
-
-  test("refuses when the newest deployment is not the version this job deployed", () => {
-    const plan = restorePlan(history, "v-this-job");
-    expect(plan.ok).toBe(false);
-    expect(plan.ok === false && plan.refused).toBe(true);
-    expect(plan.ok === false && plan.reason).toContain("not v-this-job");
-  });
-
-  test("a Worker with one deployment has nothing to restore", () => {
-    const plan = restorePlan([deployment("d1", "2026-10-16T09:00:00Z", "v1")], "v1");
-    expect(plan.ok).toBe(false);
-    expect(plan.ok === false && plan.refused).toBe(false);
-    expect(plan.ok === false && plan.reason).toContain("first deploy");
-    expect(restorePlan([], undefined).ok).toBe(false);
-  });
-});
-
-describe("devRestorePlan", () => {
   test("restores the newest version that served all traffic before the deployment this run made", () => {
-    const history = [
-      deployment("d3", "2026-10-16T09:00:00Z", "v3"),
-      deployment("d2", "2026-10-15T09:00:00Z", "v2", 50),
-      deployment("d1", "2026-10-14T09:00:00Z", "v1"),
-    ];
-    expect(devRestorePlan(history, "d3", "osn-api-dev")).toEqual({
+    expect(restorePlan(history, "d3", "osn-api-production")).toEqual({
       ok: true,
       newest: "d3",
       version: "v1",
     });
   });
-});
 
-describe("deployedVersion", () => {
-  test("reads the last deploy entry of wrangler's output file", () => {
-    const ndjson = [
-      JSON.stringify({ type: "wrangler-session", version: 1 }),
-      "not json",
-      JSON.stringify({ type: "deploy", version: 1, version_id: "v-first" }),
-      "",
-      JSON.stringify({ type: "deploy", version: 1, version_id: "v-this-job" }),
-    ].join("\n");
-    expect(deployedVersion(ndjson)).toBe("v-this-job");
+  test("refuses when another deployment replaced this run's, or the run deployed nothing or could not read what it deployed", () => {
+    for (const [deployed, says] of [
+      ["d-this-run", "was deployed again since this run deployed d-this-run"],
+      ["unchanged", "this run deployed nothing"],
+      ["unknown", "could not be read"],
+    ] as const) {
+      const plan = restorePlan(history, deployed, "osn-api-production");
+      expect({ deployed, ok: plan.ok, refused: plan.ok === false && plan.refused }).toEqual({
+        deployed,
+        ok: false,
+        refused: true,
+      });
+      expect(plan.ok === false && plan.reason).toContain(says);
+    }
   });
 
-  test("names nothing when no entry is a deploy", () => {
-    expect(deployedVersion(JSON.stringify({ type: "deploy" }))).toBeUndefined();
-    expect(deployedVersion("")).toBeUndefined();
+  test("a Worker with one deployment has nothing to restore", () => {
+    const plan = restorePlan([deployment("d1", "2026-10-16T09:00:00Z", "v1")], "d1", "zap-api");
+    expect(plan.ok).toBe(false);
+    expect(plan.ok === false && plan.refused).toBe(false);
+    expect(plan.ok === false && plan.reason).toContain("first deploy");
+    expect(restorePlan([], "d1", "zap-api").ok).toBe(false);
   });
 });
 
@@ -910,62 +912,32 @@ describe("a broken deploy", () => {
   });
 });
 
-describe("the rollback restores only what served before this job's deploy", () => {
+describe("the rollback restores only what served before this run's deploy", () => {
   const BROKEN = { ...OSN_PROD, "https://id.musubi.social/health": MISCONFIGURED };
 
-  async function withOutput(contents: string | undefined, api?: ApiOptions) {
-    const dir = await mkdtemp(join(tmpdir(), "smoke-check-output-"));
-    try {
-      const file = join(dir, "wrangler-deploy.ndjson");
-      if (contents !== undefined) await Bun.write(file, contents);
-      return await smoke(["osn_api", "production"], BROKEN, {
-        env: { WRANGLER_OUTPUT_FILE_PATH: file },
-        api,
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
-  const deployEntry = (version: string) =>
-    `${JSON.stringify({ type: "deploy", version: 1, version_id: version })}\n`;
-
-  test("rolls back when the newest deployment is the version the deploy step reported", async () => {
-    const result = await withOutput(deployEntry("v-this-job"));
+  test("rolls back when the newest deployment is the one the stack deploy made", async () => {
+    const result = await smoke(["osn_api", "production"], BROKEN);
     expect(result.code).toBe(1);
     expect(result.posts).toHaveLength(1);
   });
 
   test("refuses when another deploy landed before the check began", async () => {
-    const result = await withOutput(deployEntry("v-this-job"), {
-      reads: [[...HISTORY, deployment("dep-other", "2026-10-16T09:00:05Z", "v-other")]],
+    const result = await smoke(["osn_api", "production"], BROKEN, {
+      api: { reads: [[...HISTORY, deployment("dep-other", "2026-10-16T09:00:05Z", "v-other")]] },
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
     expect(result.output).toContain("::error title=Rollback refused::");
-    expect(result.output).toContain("serves v-other, not v-this-job");
+    expect(result.output).toContain("was deployed again since this run deployed");
   });
 
-  test.each([
-    ["is missing", undefined, "cannot be read"],
-    [
-      "names no deploy",
-      `${JSON.stringify({ type: "wrangler-session" })}\n`,
-      "names no deployed version",
-    ],
-  ])("fails, rolling nothing back, when the output file %s", async (_, contents, reason) => {
-    const result = await withOutput(contents);
-    expect(result.code).toBe(1);
-    expect(result.posts).toEqual([]);
-    expect(result.output).toContain("::error title=Rollback failed::");
-    expect(result.output).toContain(reason);
-  });
-
-  test("a refused or failed rollback names the version to restore by hand, and claims nothing about what serves", async () => {
+  test("a refused or failed rollback names the version that served before, tells nobody to roll the stack's Worker back by hand, and claims nothing about what serves", async () => {
     const refused = await smoke(["osn_api", "production"], BROKEN, {
       api: { rollback: apiError(SECRETS_CHANGED, "secrets have changed: X") },
     });
-    expect(refused.output).toContain("`bunx wrangler rollback v-before`");
+    expect(refused.output).toContain("The version that served before this deploy is v-before.");
     expect(refused.output).toContain("Check what osn-api-production serves");
+    expect(refused.output).not.toContain("wrangler rollback");
     expect(refused.output).not.toContain("still runs");
 
     const timedOut = await smoke(["osn_api", "production"], BROKEN, {
@@ -1538,7 +1510,7 @@ describe("a production site the production stack deployed", () => {
 
   test("SM2: without an https SMOKE_ORIGIN or a SMOKE_DEPLOYMENT it exits 2, asking nothing", async () => {
     for (const env of [
-      { SMOKE_DEPLOYMENT: DEP_THIS_JOB },
+      { SMOKE_ORIGIN: undefined, SMOKE_DEPLOYMENT: DEP_THIS_JOB },
       siteEnv({ SMOKE_ORIGIN: "http://musubi.social" }),
       siteEnv({ SMOKE_DEPLOYMENT: undefined }),
       siteEnv({ SMOKE_DEPLOYMENT: "latest" }),
@@ -1707,7 +1679,7 @@ describe("a production site held off its host", () => {
     const result = await smoke(
       ["cire_host", "production"],
       {},
-      { env: { SMOKE_DEPLOYMENT: DEP_THIS_JOB }, holds: VENDOR_HELD },
+      { env: { SMOKE_ORIGIN: undefined, SMOKE_DEPLOYMENT: DEP_THIS_JOB }, holds: VENDOR_HELD },
     );
     expect(result.code).toBe(2);
     expect(result.output).toContain("SMOKE_ORIGIN is not set");
@@ -1784,7 +1756,7 @@ describe("a production site's check, at its worst", () => {
       .flatMap((job) => job.steps ?? [])
       .filter((step) => {
         const surface = SITE_CHECK.test(step.run ?? "") ? (step.run ?? "").split(" ")[3] : "";
-        return surface !== undefined && isSurfaceKey(surface) && productionSiteTarget(surface);
+        return surface !== undefined && isSurfaceKey(surface) && productionTarget(surface);
       })
       .map((step) => (step["timeout-minutes"] ?? 0) * 60_000);
     expect(limits.length).toBeGreaterThan(0);
@@ -1796,7 +1768,7 @@ describe("usage", () => {
   test.each([
     [["osn_api"]],
     [["osn_api", "staging"]],
-    [["osn_social", "production"]],
+    [["osn_social", "production", "extra"]],
     [["no_such_surface", "dev"]],
     [["osn_api", "dev", "extra"]],
   ])("%j is refused with exit 2, asking nothing and rolling nothing back", async (args) => {
@@ -1842,27 +1814,26 @@ describe("annotation", () => {
 });
 
 describe("SMOKE_TARGETS", () => {
-  test("covers every surface on dev, and production for the four Workers production deploys", () => {
+  test("covers every surface on dev and on production", () => {
     const keys = Object.keys(SMOKE_TARGETS) as (keyof typeof SMOKE_TARGETS)[];
     expect(keys.filter((key) => devTarget(key) === undefined)).toEqual([]);
-    expect(keys.filter((key) => productionTarget(key) !== undefined).toSorted()).toEqual([
-      "cire_api",
-      "cire_invites",
-      "osn_api",
-      "zap_api",
-    ]);
+    expect(keys.filter((key) => productionTarget(key) === undefined)).toEqual([]);
   });
 
-  test("SM1: names the Worker each production site stack deploys, by its production name", () => {
+  test("SM1: names the Worker each production stack deploys, by its production name; only the guest site needs the marketing origin", () => {
     const keys = Object.keys(SMOKE_TARGETS) as (keyof typeof SMOKE_TARGETS)[];
     expect(
       Object.fromEntries(
         keys.flatMap((key) => {
-          const worker = productionSiteTarget(key)?.worker;
+          const worker = productionTarget(key)?.worker;
           return worker === undefined ? [] : [[key, worker]];
         }),
       ),
     ).toEqual({
+      cire_api: "cire-api-production",
+      cire_invites: "cire-invites",
+      osn_api: "osn-api-production",
+      zap_api: "zap-api-production",
       cire_host: "cire-host",
       cire_vendor: "cire-vendor",
       cire_landing: "cire-landing",
@@ -1870,13 +1841,12 @@ describe("SMOKE_TARGETS", () => {
       musubi_landing: "musubi-landing",
       pulse_landing: "pulse-landing",
     });
-    // No surface is both: a site Worker is the stack's, an API Worker Wrangler's.
-    expect(keys.filter((key) => productionSiteTarget(key) && productionTarget(key))).toEqual([]);
+    expect(keys.filter((key) => productionTarget(key)?.needsMarketing)).toEqual(["cire_invites"]);
   });
 
   test("checks osn-api's JWKS on both tiers", () => {
     const dev = devTarget("osn_api")?.probes({ origin: OSN_API_DEV });
-    const production = productionTarget("osn_api")?.probes;
+    const production = productionTarget("osn_api")?.probes({ origin: "https://id.musubi.social" });
     for (const probes of [dev, production]) {
       expect(probes?.map((p) => p.expects.kind)).toContain("jwks");
     }
@@ -1884,7 +1854,7 @@ describe("SMOKE_TARGETS", () => {
 
   test("checks osn-api's coordination store round trip on both tiers", () => {
     const dev = devTarget("osn_api")?.probes({ origin: OSN_API_DEV });
-    const production = productionTarget("osn_api")?.probes;
+    const production = productionTarget("osn_api")?.probes({ origin: "https://id.musubi.social" });
     expect(dev).toContainEqual({
       url: `${OSN_API_DEV}/health/coordination`,
       expects: { kind: "json", fields: { ok: true } },

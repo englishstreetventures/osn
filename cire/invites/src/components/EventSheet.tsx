@@ -1,5 +1,4 @@
 import Button from "@cire/ui/button";
-import { animate } from "motion";
 import {
   batch,
   createEffect,
@@ -11,6 +10,7 @@ import {
   splitProps,
 } from "solid-js";
 
+import { motionScale } from "../lib/motion-scale";
 import { AnimatedModal } from "./AnimatedModal";
 import { DetailsPanel } from "./DetailsPanel";
 import { moveFocus, pressedByPointer } from "./quiet-focus";
@@ -22,7 +22,7 @@ import {
   beginsDrag,
   clampOffset,
   pastSlop,
-  SETTLE_SPRING,
+  settleCurve,
   shouldCommit,
   startsInside,
   velocityOf,
@@ -121,26 +121,39 @@ interface Touch {
   /** A caught touch: where the settle it stopped was going. */
   commit?: boolean;
   /** A drag's painter, built once when it begins (`painter`). */
-  paint?: (dx: number) => void;
+  paint?: Paint;
 }
+
+/**
+ * Draws the panels at an offset. `dragging` holds the badge's words to it
+ * with no easing; otherwise they ride the settle's transition (see "The
+ * badge").
+ */
+type Paint = (x: number, dragging?: boolean) => void;
 
 /** What the swipe is doing, from a touch's slop to its settle. */
 type SwipePhase = "idle" | "dragging" | "banding" | "caught" | "springing";
 
-/** A settle in flight, and what to do when it lands. */
+/** A settle in flight. */
 interface Settle {
-  controls: ReturnType<typeof animate> | null;
-  /** The panels' offset at its last frame. */
-  x: number;
-  to: number;
+  /** The panel whose transition ends the settle, and whose place a catch reads. */
+  lead: HTMLElement | undefined;
   /** A swipe's settle can be caught; a band's runs on. */
   kind: "swipe" | "band";
   /** A swipe's: whether it is carrying on to the other panel. */
   commit: boolean;
-  /** Set when a catch takes it over: its completion must not run. */
+  /** Set when a catch takes it over: its landing must not run. */
   dropped: boolean;
-  paint: (x: number) => void;
-  done: () => void;
+  paint: Paint;
+}
+
+/** Whether this engine reads a `linear()` easing; Chrome before 113 and Safari before 17.2 do not. */
+function readsLinearEasing(): boolean {
+  return (
+    typeof CSS !== "undefined" &&
+    typeof CSS.supports === "function" &&
+    CSS.supports("transition-timing-function", "linear(0, 1)")
+  );
 }
 
 /**
@@ -292,13 +305,18 @@ interface Settle {
  *   panel on screen gives a little under the finger and springs back. It
  *   draws nothing in — the other panel is never mounted for it, so a pull
  *   loads no map or board the guest swiped away from.
- * - Released, both panels spring to their resting places (`SETTLE_SPRING`,
- *   through `motion`), starting at the speed the finger had, so a flick
- *   carries on rather than braking and a slow release does not jump. A
- *   spring is script, which no stylesheet clamp reaches: under reduced motion
- *   the panels land at once. A committed swipe then switches exactly as the
- *   badge does, less the slide.
- * - A touch on a settling swipe catches it: the panels stop under the finger,
+ * - Released, both panels spring to their resting places, starting at the
+ *   speed the finger had, so a flick carries on rather than braking and a
+ *   slow release does not jump. The spring is a CSS transition: at release
+ *   `settleCurve` samples a critically damped spring from that speed into a
+ *   `linear()` easing, and the rail and the badge carry its time and easing
+ *   (`--swipe-settle-time`, `--swipe-settle-ease`) while `data-settling` is
+ *   on them, so the panels and the badge's words ride one curve. The time is
+ *   stretched by `--motion-scale`, and the reduced-motion clamp cuts it to
+ *   0.01ms, so the panels land at once. A committed swipe then switches
+ *   exactly as the badge does, less the slide.
+ * - A touch on a settling swipe catches it: the panels stop where they are on
+ *   screen (their computed transform, read mid-transition) under the finger,
  *   which drags on from there. A catch that turns out to be a tap, a held
  *   finger or a vertical scroll lets the settle go on to where it was going.
  *   The click such a tap fires is swallowed — it would land on whatever the
@@ -471,18 +489,12 @@ export function EventSheet(props: EventSheetProps) {
     e.stopImmediatePropagation();
   }
 
+  // A settle still running lands on nothing once this is set (`spring`).
   onCleanup(() => {
     disposed = true;
-    if (settle) {
-      settle.dropped = true;
-      settle.controls?.stop();
-    }
     clearTimeout(swallowTimer);
     rail?.removeEventListener("click", swallowClick, true);
   });
-
-  const reducedMotion = () =>
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /** Where the panel coming in sits, relative to the one on screen. */
   const incomingSide = (target: EventPanel) => (target === "rsvp" ? 1 : -1);
@@ -514,29 +526,41 @@ export function EventSheet(props: EventSheetProps) {
    * for the panels at `dx`. Its elements are taken now, so a settle that
    * outlives a change of `active()` keeps drawing the panels it started with.
    */
-  function painter(width: number): ((dx: number) => void) | null {
+  function painter(width: number): Paint | null {
     const from = active();
     const target = gesture()?.target;
     const current = wrappers[from];
     const incoming = target && wrappers[target];
     if (!target || !current || !incoming) return null;
     const side = incomingSide(target);
-    return (dx) => {
+    return (dx, dragging = true) => {
       current.style.transform = `translateX(${dx}px)`;
       incoming.style.transform = `translateX(${dx + side * width}px)`;
       // Toward the form is toward the start (`dx < 0`), and the badge's 1.
       // Held inside its two rests: a pull past either end moves the panels,
       // not the words.
-      setBadgeProgress(Math.min(1, Math.max(0, restOf(from) - dx / width)), true);
+      setBadgeProgress(Math.min(1, Math.max(0, restOf(from) - dx / width)), dragging);
     };
+  }
+
+  /** The elements a settle's time and easing are set on: the panels' rail and the badge. */
+  const settling = () => [rail, badgeEl].filter((el) => el !== undefined);
+
+  /** Takes a settle's time, easing and mark off, so nothing on the sheet eases. */
+  function endSettle() {
+    for (const el of settling()) {
+      el.removeAttribute("data-settling");
+      el.style.removeProperty("--swipe-settle-time");
+      el.style.removeProperty("--swipe-settle-ease");
+    }
   }
 
   /**
    * Spring the panels from `from` to `to`, starting at `velocity` px/ms, then
-   * run `done`. A critically damped spring can still pass its target when it
-   * starts fast enough toward it; once it has crossed, it is held there, so no
-   * empty rail shows beyond the panel's rest. Under reduced motion it lands at
-   * once — no stylesheet clamp reaches a scripted spring.
+   * run `done`. A CSS transition on `settleCurve`'s spring carries them, and
+   * `lead`'s transition ending lands it. The panels are painted at `from` and
+   * that place resolved before the settle's timing goes on, so the transition
+   * starts where the finger let go, not where the last style recalc saw them.
    */
   function spring(
     kind: Settle["kind"],
@@ -544,55 +568,51 @@ export function EventSheet(props: EventSheetProps) {
     from: number,
     to: number,
     velocity: number,
-    paint: (x: number) => void,
+    lead: HTMLElement | undefined,
+    paint: Paint,
     done: () => void,
   ) {
-    const run: Settle = { controls: null, x: from, to, kind, commit, dropped: false, paint, done };
+    const run: Settle = { lead, kind, commit, dropped: false, paint };
     settle = run;
     setPhase("springing");
-    rail?.setAttribute("data-settling", "");
     const land = () => {
       if (run.dropped || disposed) return;
       settle = null;
-      rail?.removeAttribute("data-settling");
+      endSettle();
       // Idle before `done`, so the commit's own `show` is not refused.
       setPhase("idle");
       done();
     };
-    if (reducedMotion() || from === to) {
-      paint(to);
+    const curve = settleCurve(from, to, velocity);
+    if (!curve || !lead) {
+      paint(to, false);
       land();
       return;
     }
-    const toward = Math.sign(to - from);
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
+    paint(from);
+    // Reading a computed style resolves the place just painted, so it is the
+    // transition's start.
+    getComputedStyle(lead).getPropertyValue("transform");
+    const time = `${curve.duration * motionScale()}ms`;
+    const ease = readsLinearEasing() ? curve.easing : curve.fallback;
+    for (const el of settling()) {
+      el.style.setProperty("--swipe-settle-time", time);
+      el.style.setProperty("--swipe-settle-ease", ease);
+      el.setAttribute("data-settling", "");
+    }
+    paint(to, false);
+    const slide =
+      typeof lead.getAnimations === "function"
+        ? lead
+            .getAnimations()
+            .find((a) => a instanceof CSSTransition && a.transitionProperty === "transform")
+        : undefined;
+    if (!slide) {
       land();
-    };
-    run.controls = animate(from, to, {
-      type: "spring",
-      ...SETTLE_SPRING,
-      // motion takes units per second; the finger is measured per ms.
-      velocity: velocity * 1000,
-      onUpdate: (value: number) => {
-        if (run.dropped || finished) return;
-        if (Math.sign(to - value) === -toward) {
-          // Crossed: the panel is at rest, so the settle is over now, not
-          // when the spring would have come back from beyond it.
-          run.x = to;
-          paint(to);
-          finished = true;
-          run.controls?.stop();
-          land();
-          return;
-        }
-        run.x = value;
-        paint(value);
-      },
-      onComplete: finish,
-    });
+      return;
+    }
+    // A catch cancels it, and so does the sheet going: neither lands it.
+    void slide.finished.then(land, () => {});
   }
 
   /** Whether the panels at `dx` sit between their two rests on `panel`. */
@@ -600,22 +620,24 @@ export function EventSheet(props: EventSheetProps) {
     clampOffset(dx, panel, width) === dx;
 
   /**
-   * Stop a settling swipe where it is and hand it to the finger. Only a
-   * swipe's settle, and only between its two rests: inside a rubber band the
-   * finger and the panels are not one-to-one. Returns the offset it stopped
-   * at and where it was going, or null when there is nothing to catch.
+   * Stop a settling swipe where it is on screen and hand it to the finger.
+   * Only a swipe's settle, and only between its two rests: inside a rubber
+   * band the finger and the panels are not one-to-one. Returns the offset it
+   * stopped at and where it was going, or null when there is nothing to catch.
    */
   function catchSettle(width: number): { x: number; commit: boolean } | null {
     const run = settle;
-    if (!run || run.kind !== "swipe" || !inTravel(run.x, active(), width)) return null;
-    // `stop()` ticks to now, which can paint once more and can finish the
-    // spring: the frame is taken, the completion is not.
-    run.controls?.stop();
+    if (!run || run.kind !== "swipe" || !run.lead) return null;
+    const x = new DOMMatrix(getComputedStyle(run.lead).transform).m41;
+    if (!inTravel(x, active(), width)) return null;
     run.dropped = true;
     settle = null;
-    rail?.removeAttribute("data-settling");
+    // With the settle's timing off, the panels painted where they are end
+    // its transitions there and start none.
+    endSettle();
+    run.paint(x);
     setPhase("caught");
-    return { x: run.x, commit: run.commit };
+    return { x, commit: run.commit };
   }
 
   /** Spring the swipe from `dx` back to rest on its own panel, or on to the other. */
@@ -631,7 +653,7 @@ export function EventSheet(props: EventSheetProps) {
     const travel = dx * -incomingSide(target);
     const over = travel < 0 ? travel : travel > width ? travel - width : 0;
     const speed = over === 0 ? velocity : velocity * bandSlope(over, width);
-    spring("swipe", commit, dx, to, speed, paint, () => {
+    spring("swipe", commit, dx, to, speed, current, paint, () => {
       for (const el of [current, incoming]) {
         if (!el) continue;
         el.style.transform = "";
@@ -791,6 +813,7 @@ export function EventSheet(props: EventSheetProps) {
         state.dx,
         0,
         speed * bandSlope(raw, state.width),
+        panel,
         (x) => {
           if (panel) panel.style.transform = `translateX(${x}px)`;
         },

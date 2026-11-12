@@ -3,16 +3,19 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { tierSecrets } from "@shared/infra";
+import { Redacted } from "effect";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
-import { devTarget } from "../../../scripts/smoke-check";
+import { devTarget, productionTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
+import { API_LOGICAL_IDS, PRODUCTION_ADOPTED, PRODUCTION_RESOURCE_KINDS } from "../src/declaration";
 import {
   DEV_DOMAIN,
   evaluateZap,
   failureOf,
+  productionEnv,
   removeEvaluations,
   resourcesOf,
   stackEnv,
@@ -109,7 +112,7 @@ describe("the zap stack, evaluated offline", () => {
     );
   });
 
-  test.each(refusedTargets(["zap-api"], "refused"))(
+  test.each(refusedTargets(["zap-api"], "declared"))(
     "K12: $name refuses the run before it writes or calls anything",
     async (target) => {
       const refused = await evaluateZap({
@@ -143,5 +146,86 @@ describe("the zap stack, evaluated offline", () => {
     const chain = listMigrations(join(repoRoot, "zap/db/drizzle")).toSorted();
     expect(chain.length).toBeGreaterThan(0);
     expect(readdirSync(migrations).toSorted()).toEqual(chain);
+  });
+});
+
+describe("the zap stack on production", () => {
+  let production: Evaluation;
+
+  beforeAll(async () => {
+    production = await evaluateZap({ stage: "production", env: productionEnv() });
+  });
+
+  test("KP1: declares zap-api and its database under today's production names, retained, zap-api to be adopted, and nothing the guard does not know", () => {
+    const resources = resourcesOf(production);
+    expect(production.fetches).toEqual([]);
+    expect(
+      Object.fromEntries(
+        Object.entries(resources).map(([id, resource]) => [
+          id,
+          [resource.Type, resource.Props.name, resource.RemovalPolicy, resource.Adopt],
+        ]),
+      ),
+    ).toEqual({
+      ZapApi: ["Cloudflare.Worker", "zap-api-production", "retain", true],
+      ZapDb: ["Cloudflare.D1Database", "zap-db-prod", "retain", undefined],
+    });
+    expect(PRODUCTION_RESOURCE_KINDS).toEqual({ ZapApi: "api-worker", ZapDb: "d1" });
+    expect(API_LOGICAL_IDS).toEqual({ zap_api: "ZapApi" });
+  });
+
+  test("KP2: zap-api serves zap.cireweddings.com, with no workers.dev or preview URL; zap-db-prod has no migrations or imports", () => {
+    const resources = resourcesOf(production);
+    expect(resources.ZapApi?.Props.domain).toBe("zap.cireweddings.com");
+    expect(resources.ZapApi?.Props.workersDev).toEqual({ enabled: false, previewsEnabled: false });
+    expect(resources.ZapDb?.Props).toEqual({
+      name: "zap-db-prod",
+      readReplication: { mode: "disabled" },
+      jurisdiction: "default",
+    });
+  });
+
+  test("KP3: reads no zap secret or DEV_DOMAIN, uploads no secret, and writes nothing", async () => {
+    expect(existsSync(production.generatedDir)).toBe(false);
+    const names = (["dev", "production"] as const).flatMap((tier) => {
+      const row = tierSecrets("zap-api", tier);
+      return row.secrets.concat(row.optional, row.forbidden);
+    });
+    const withSecrets = await evaluateZap({
+      stage: "production",
+      env: {
+        ...stackEnv(),
+        ...Object.fromEntries(names.map((name) => [name, `placeholder-${name}`])),
+        ...productionEnv(),
+      },
+    });
+    const env = resourcesOf(withSecrets).ZapApi?.Props.env ?? {};
+    expect(Object.values(env).some((value) => Redacted.isRedacted(value))).toBe(false);
+    expect(existsSync(withSecrets.generatedDir)).toBe(false);
+  });
+
+  test("KP6: zap-api's production smoke target names the Worker the stack deploys", () => {
+    expect(productionTarget("zap_api")?.worker).toBe(resourcesOf(production).ZapApi?.Props.name);
+  });
+
+  test("KA4: the adopted resources the live read and the guard compare are the ones the stack declares", () => {
+    const props = resourcesOf(production).ZapApi?.Props;
+    const adopted = PRODUCTION_ADOPTED.workers.ZapApi;
+    expect({ name: props?.name, crons: props?.crons }).toEqual({
+      name: adopted?.name,
+      crons: adopted?.crons,
+    });
+    // Every declared name, and besides them only those the provider adds.
+    const declaredNames = Object.keys(props?.env ?? {}).toSorted();
+    expect(adopted?.envNames.filter((name) => declaredNames.includes(name))).toEqual(declaredNames);
+    expect(
+      adopted?.envNames.filter(
+        (name) => !declaredNames.includes(name) && !/^(ALCHEMY_[A-Z_]+|ASSETS)$/.test(name),
+      ),
+    ).toEqual([]);
+    expect(adopted?.envNames).toContain("ALCHEMY_STAGE");
+    expect(PRODUCTION_ADOPTED.databases).toEqual({
+      ZapDb: { name: "zap-db-prod", readReplication: "disabled" },
+    });
   });
 });

@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -143,21 +143,14 @@ While a claim waits, the listing is `draft` with no owner. The claimant's portal
 
 The same address receives the R2 orphan reconcilers' alerts (`r2-reconcile-alert`): at most three a day, and only while a reconciler is held or stopped or the tier has them disabled ([[backup-dr]]).
 
-`CIRE_OPS_EMAIL` is a secret, not a `[vars]` entry, because the repository is public and the address is a person's. The secret inventory decides which secrets a Worker keeps: an Alchemy deploy deletes any live secret it does not declare ([[infrastructure-as-code#Secrets]]). The inventory does not declare this one on either tier yet; englishstreetventures/osn#1572 adds it to cire-api's production row. Set it on production in this order, the one [[production-deploy]] §3 sets for every secret:
+`CIRE_OPS_EMAIL` is a secret, not a `[vars]` entry, because the repository is public and the address is a person's. cire-api's production row in `shared/infra/src/secrets/inventory.ts` lists it as optional; the dev row does not list it ([[infrastructure-as-code#Secrets]]). Production secrets stay on the Worker, and no stack uploads one, so set it there ([[production-deploy#5.9 Setting a production secret 🔑]]):
 
-1. Add `CIRE_OPS_EMAIL` to cire-api's production row in `shared/infra/src/secrets/inventory.ts`, in a reviewed pull request (englishstreetventures/osn#1572).
-2. Put the address in the `production` GitHub Environment:
+```bash
+cd cire/api
+printf '%s' "$ADDRESS" | bunx wrangler secret put CIRE_OPS_EMAIL --env production
+```
 
-   ```bash
-   printf '%s' "$ADDRESS" | gh secret set CIRE_OPS_EMAIL --env production --repo englishstreetventures/osn
-   ```
-
-3. Set it on the Worker, then redeploy it, since a secret change does not reach warm isolates:
-
-   ```bash
-   cd cire/api
-   bunx wrangler secret put CIRE_OPS_EMAIL --env production
-   ```
+A warm isolate may keep the old value until cire-api deploys again, which a release does only when cire-api's code or declaration changed.
 
 The dev Worker holds no `CIRE_OPS_EMAIL`: the cire stack uploads only the secrets the inventory declares, so dev sends no reminder.
 

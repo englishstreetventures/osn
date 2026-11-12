@@ -13,7 +13,7 @@ related:
   - "[[social]]"
   - "[[recovery-codes]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Migrating OSN identity to musubi.social
@@ -223,9 +223,10 @@ ladder did not move.
 >
 > Next time, list the secrets as well as the files:
 > `bunx wrangler secret list --env production` in each service, and read the
-> values out of `osn-prod-secrets.env`. A deploy-time preflight that fails when
-> a required secret is absent or points at an unreachable host is open as an
-> issue in `englishstreetventures/osn`.
+> values out of `osn-prod-secrets.env`. Each production release refuses to
+> deploy a Worker that lacks a secret its inventory row requires
+> ([[production-deploy#5.9 Setting a production secret 🔑]]); nothing checks
+> that a value points at a host that answers.
 
 Out-of-band, not in the repo:
 

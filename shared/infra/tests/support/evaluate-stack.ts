@@ -74,6 +74,8 @@ export interface EvaluatedResource {
   readonly Type: string;
   readonly LogicalId: string;
   readonly RemovalPolicy: string;
+  /** The adopt policy the resource was declared under, undefined when none. */
+  readonly Adopt: boolean | undefined;
   readonly Props: Cloudflare.WorkerProps & Cloudflare.D1.DatabaseProps & Cloudflare.R2.BucketProps;
 }
 

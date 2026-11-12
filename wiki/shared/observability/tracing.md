@@ -10,7 +10,7 @@ related:
   - "[[arc-tokens]]"
   - "[[free-tier-limits]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-12
 ---
 # Tracing
 
@@ -18,9 +18,9 @@ The deployed Workers are traced by Cloudflare: Workers traces record every invoc
 
 ## Native Workers traces
 
-Production Workers configure Cloudflare's automatic traces in Wrangler; dev
-Workers take theirs from their Alchemy stack
-([[infrastructure-as-code#Production observability]]). The local Wrangler
+Production and dev Workers take Cloudflare's automatic traces from their Alchemy
+stack; each production Worker's `[env.production]` Wrangler block mirrors its
+production setting ([[infrastructure-as-code#Production observability]]). The local Wrangler
 configs trace requests without URL redaction. On dev every API Worker and the
 guest site trace every request: osn-api, cire-api and cire-invites remove query
 strings, zap-api keeps them, and the static sites trace nothing. Staging and
@@ -37,8 +37,9 @@ runs, so the shared logger's `redact()` cannot change native span attributes.
 [`scripts/check-trace-redaction.ts`](../../../scripts/check-trace-redaction.ts)
 holds that line. CI runs it on the committed configs: every staging and
 production tier must set `redact_query_string = true`, and no API Worker may
-trace there. The production guest deploy runs it again on the adapter's
-generated `dist/server/wrangler.json` before `wrangler deploy`.
+trace there. The production stacks deploy from their declarations, which each
+stack's parity test holds to those configs, and `apiWorkerProps()` refuses an
+unredacted production Worker on its own.
 
 Cloudflare records, with no code: the fetch, scheduled and queue handler spans;
 every outbound `fetch`; D1 (`d1_first`, `d1_run`, `d1_all`, `d1_raw`,

@@ -18,7 +18,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-12
 ---
 
 # Database Environments
@@ -31,7 +31,7 @@ drivers** behind a single driver-agnostic Drizzle type:
 | `local` | **bun:sqlite** | Dev machine | `bun run dev` (Bun.serve) + in-memory unit tests |
 | `dev` | **Cloudflare D1** | Deployed, in the dev account (zap and pulse also run a local `wrangler dev --env dev`) | the Alchemy stacks, from `deploy.yml` ([[infrastructure-as-code]]) |
 | `staging` | **Cloudflare D1** | Deployed | `wrangler deploy --env staging` |
-| `production` | **Cloudflare D1** | Deployed | `wrangler deploy --env production` |
+| `production` | **Cloudflare D1** | Deployed | the Alchemy stacks, from `production-release.yml`, which adopt each production database by name; Wrangler applies its migrations ([[production-deploy]]) |
 
 `local` stays on bun:sqlite because it is the cheapest, fastest way to create a
 fresh database per test (`new Database(":memory:")` resolves in microseconds and

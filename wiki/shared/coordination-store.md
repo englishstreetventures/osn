@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Coordination store
 
@@ -234,14 +234,19 @@ mints is a wrong token, answered with that route's uniform 202.
 - **Every tier needs the binding.** `fetch` answers 503 `Worker misconfigured:
   missing COORDINATION` without it, `local` included: no per-isolate stand-in is
   safe to run instead.
-- **Production and staging** declare the binding in `osn/api/wrangler.toml`,
-  top level and in each named environment (named environments inherit no
-  binding), with one migration, `tag = "v1"`, `new_sqlite_classes = ["CoordinationStore"]`.
-  Never edit `v1`; a renamed or removed class needs a new tag.
-- **Dev** declares `COORDINATION: { kind: "durable-object", className: "CoordinationStore" }`
-  in `musubi/infra/src/declaration.ts`. Alchemy hosts the class on the Worker
-  through the upload's `exports` map, SQLite-backed, and the stack's K10 test
-  fails if `entry.ts` stops exporting it ([[infrastructure-as-code]]).
+- **Dev and production** declare `COORDINATION: { kind: "durable-object", className: "CoordinationStore" }`
+  in `musubi/infra/src/declaration.ts` (`musubiDeclaration()` and
+  `musubiProductionApis()`). Alchemy hosts the class on the Worker through the
+  upload's `exports` map, SQLite-backed; on production it reuses the class
+  Wrangler made under migration `v1`, since the binding keeps its name. The
+  stack's K10 test fails if `entry.ts` stops exporting it, and the release's
+  live read refuses any production release while osn-api hosts a class no
+  declared binding names ([[infrastructure-as-code#Production API Workers and storage]]).
+- **`osn/api/wrangler.toml`** declares the binding at the top level and in each
+  named environment (named environments inherit no binding), with one
+  migration, `tag = "v1"`, `new_sqlite_classes = ["CoordinationStore"]`, which
+  `wrangler dev` reads. Its `[env.production]` block mirrors the musubi stack's
+  declaration (`musubi/infra/tests/parity.test.ts`). Never edit `v1`.
 - **Failed calls are logged once**, through the app runtime `buildAppDeps`
   builds, by the reporter it passes to the bundle builder.
 
