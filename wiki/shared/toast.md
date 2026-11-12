@@ -305,6 +305,13 @@ by `cire/host/tests/lib/undo-delete.browser.test.tsx` and the three
 the real API by the `cire-checklist-starter` E2E flow, which takes one task
 back, lets one toast run out and leaves the page with a third delete up.
 
+The same browser file holds the rule that hover and focus cannot touch a
+leaving toast's clock, in one pass: with fake timers, it presses an Undo that
+holds focus, counts the timers left, then raises the next delete under the
+same id and checks it keeps its whole window. `shared/toast/tests/store.test.ts`
+stands in for the replaced row's `focusout` with a Solid computation on the
+queue, since happy-dom fires no event when it drops focus.
+
 A host browser suite cannot import that factory and writes its own inline.
 Every one includes `toasts: () => []`: `lib/undo-delete.ts` imports `toasts`,
 and in the browser tier a mock missing a named export fails the whole suite

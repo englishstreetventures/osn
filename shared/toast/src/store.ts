@@ -142,7 +142,7 @@ export function upsert(input: UpsertInput): string {
   if (existing) {
     // Reviving a toast that was on its way out: kill the pending removal, or
     // the stale timer fires a moment later and takes the revived toast with it.
-    // The item's effect restarts the dwell when `dismissing` flips back.
+    // `upsert` restarts the dwell below, once `dismissing` is false again.
     if (existing.dismissing) clearTimer(id);
     // REPLACE the options rather than merging over them. An upsert declares the
     // toast's whole new state, and a merge would let the previous state's
