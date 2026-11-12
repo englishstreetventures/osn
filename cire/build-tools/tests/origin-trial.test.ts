@@ -12,7 +12,6 @@ const SITE_ORIGIN = "https://cireweddings.com:443";
 /** What each token must be: its feature, and the day it lapses (UTC). */
 const EXPECTED = {
   htmlInCanvas: { feature: "HTMLInCanvas", expiry: "2027-03-02T00:00:00Z" },
-  autofillEvent: { feature: "AutofillEvent", expiry: "2027-01-05T00:00:00Z" },
   webmcp: { feature: "WebMCP", expiry: "2027-03-30T00:00:00Z" },
 } as const;
 

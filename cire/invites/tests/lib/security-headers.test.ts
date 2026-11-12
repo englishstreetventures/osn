@@ -183,10 +183,10 @@ describe("securityHeaders", () => {
 describe("Origin-Trial", () => {
   const sent = () => (securityHeaders()["Origin-Trial"] ?? "").split(", ");
 
-  it("sends the HTMLInCanvas and AutofillEvent tokens, which the invite uses", () => {
-    expect(sent()).toEqual([ORIGIN_TRIAL_TOKENS.htmlInCanvas, ORIGIN_TRIAL_TOKENS.autofillEvent]);
+  it("sends the HTMLInCanvas token alone, which the invite uses", () => {
+    expect(sent()).toEqual([ORIGIN_TRIAL_TOKENS.htmlInCanvas]);
     expect(securityHeaders()["Origin-Trial"]).toBe(
-      originTrialHeader(ORIGIN_TRIAL_TOKENS.htmlInCanvas, ORIGIN_TRIAL_TOKENS.autofillEvent),
+      originTrialHeader(ORIGIN_TRIAL_TOKENS.htmlInCanvas),
     );
   });
 
