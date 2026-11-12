@@ -1,6 +1,6 @@
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
-import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
 import "../src/App.css";
@@ -17,7 +17,18 @@ import "../src/App.css";
  * dialogs mount on the load that succeeds, not only on the first. The note's
  * Sign in shows then, once, outside the note's `<output>`.
  *
- * Its own file because a page keeps a failed module for the rest of the file.
+ * Its own file because the request fails for the whole page, and the page
+ * keeps the dialogs' module once a load of it succeeds: a test before this one
+ * that loaded it would leave nothing to fail. A failed load is not kept, which
+ * is why the later load here can succeed.
+ *
+ * Nothing a test can reach unloads that module, so a repeat of this test in
+ * the same page (`--repeats`) finds the dialogs already in, and their chunk
+ * cannot fail. A later run checks what the page holds then: with the request
+ * still failing, the rail draws at once with its Sign in, and the note shows
+ * its own. The failed load's alert, and a note that holds its Sign in back,
+ * are checked on the first run only; from the window crossing 768px on, every
+ * run checks the same.
  */
 
 vi.mock("@osn/client/solid", async () => {
@@ -74,19 +85,23 @@ import { Layout } from "../src/App";
 import { SignedOutNote } from "../src/components/SignedOutNote";
 import { railChunks, topBarChunks } from "./test-support/shell-chunks";
 
-beforeAll(async () => {
+// Set before each run, not once for the file: the test lifts the route part-way
+// through.
+beforeEach(async () => {
   await commands.failRequests("/src/components/ShellDialogSet.tsx");
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
-});
-
-afterAll(async () => {
   await commands.restoreRequests();
 });
 
-it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a later load mounts them", async () => {
+it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a later load mounts them", async ({
+  task,
+}) => {
+  // Vitest's index of this repeat. A retry keeps its run's index, so a retry
+  // of the first run makes the first run's checks.
+  const first = !task.result?.repeatCount;
   await page.viewport(1440, 900);
   render(() => (
     <MemoryRouter root={Layout}>
@@ -102,17 +117,32 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
     </MemoryRouter>
   ));
 
-  const alert = await waitFor(() => screen.getByRole("alert"));
-  expect(alert.textContent).toBe("Musubi could not finish loading. Reload and try again.");
-  expect(alert.closest("aside")!.getBoundingClientRect().width).toBe(240);
-  // Neither the shell's Sign in nor the note's: the dialog it opens is not there.
-  expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  // The dialogs' chunk cannot arrive on the first run. A later run finds it
+  // in the page already, so the rail's load needs no request.
+  const railLoad = await railChunks().then(
+    () => "loaded",
+    () => "failed",
+  );
+  expect(railLoad).toBe(first ? "failed" : "loaded");
+  const rail = () => within(document.querySelector("aside")!);
+  const settled = await waitFor(() =>
+    first ? rail().getByRole("alert") : rail().getByRole("button", { name: "Sign in" }),
+  );
+  expect(settled.closest("aside")!.getBoundingClientRect().width).toBe(240);
+  expect(screen.queryByRole("alert")?.textContent).toBe(
+    first ? "Musubi could not finish loading. Reload and try again." : undefined,
+  );
+  // A Sign in shows only where its dialog can open: on the first run neither
+  // the shell's nor the note's, on a later run both.
+  expect(screen.queryAllByRole("button", { name: "Sign in" })).toHaveLength(first ? 0 : 2);
   expect(screen.getByRole("status").textContent).toBe("Sign in to discover people.");
   const note = screen.getByRole("status").parentElement!;
-  const heldBack = note.getBoundingClientRect().height;
+  const noteHeight = note.getBoundingClientRect().height;
   expect(screen.getByRole("heading", { name: "Discover" })).toBeDefined();
   expect(document.querySelector("main")!.getBoundingClientRect().left).toBe(504);
-  await page.screenshot({ path: "../../../e2e-artifacts/musubi-shell/dialogs-failed-1440.png" });
+  await page.screenshot({
+    path: `../../../e2e-artifacts/musubi-shell/dialogs-${first ? "failed" : "loaded"}-1440.png`,
+  });
 
   await commands.restoreRequests();
   await page.viewport(390, 844);
@@ -145,5 +175,5 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
       .find((b) => b.closest("aside"));
     expect(inRail).toBeDefined();
   });
-  expect(note.getBoundingClientRect().height).toBe(heldBack);
+  expect(note.getBoundingClientRect().height).toBe(noteHeight);
 });
