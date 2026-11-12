@@ -30,7 +30,8 @@ export class SecurityEventsError extends OsnApiError {
 export type SecurityEventKind =
   | "recovery_code_generate"
   | "recovery_code_consume"
-  | "recovery_link_declined";
+  | "recovery_link_declined"
+  | "step_up_link_declined";
 
 export interface SecurityEventSummary {
   id: string;

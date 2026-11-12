@@ -1,14 +1,17 @@
 /**
- * Musubi: a sign-up whose first link the mail provider refuses, then declined.
+ * Musubi: a sign-up whose first link the mail provider refuses, then declined,
+ * then started again.
  *
  * The person is told a link was sent, as every sign-up is told. A refused send
  * leaves the request live, so "Resend link" sends a new link for the same
  * request. That link opens on another device and offers the numbers, which a
  * dead link would not, and "I didn't ask for this" there is answered
- * "Cancelled": the request ends, no account is made, and the tab that began
- * learns the link has expired. osn-api's log says why the first send failed —
- * the status, Resend's error code and what its message meant — and never the
- * address it was for or the key it was sent with.
+ * "Cancelled": the request ends and no account is made. The tab that began
+ * keeps waiting, as it would for an address nobody was mailed, and its
+ * "Start again" goes back to the details with the fields kept.
+ * osn-api's log says why the first send failed — the status, Resend's error
+ * code and what its message meant — and never the address it was for or the
+ * key it was sent with.
  *
  * The mail stand-in refuses the first send the way Resend refuses a sender
  * domain it has not verified (`tools/e2e/src/mail.ts`).
@@ -99,13 +102,28 @@ test("musubi-register-retry", async ({ page, browser, flow }) => {
   );
   await phoneContext.close();
 
-  await flow.step("register: the first browser learns the link is gone", async () => {
-    await expect(page.getByRole("heading", { name: "Your link has expired" })).toBeVisible({
-      timeout: 20_000,
-    });
+  const statusPolls = "POST osn-api /register/:id/status";
+  const pollsBeforeWait = flow.count(statusPolls);
+  await flow.step("register: the first browser polls again and still waits", async () => {
+    await page.clock.runFor(10_000);
+    await expect
+      .poll(() => flow.count(statusPolls) > pollsBeforeWait, { timeout: 20_000 })
+      .toBe(true);
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   });
-
+  flow.check(
+    "the waiting tab is not told of the decline",
+    0,
+    await page.getByRole("heading", { name: "Your link has expired" }).count(),
+  );
   flow.check("one link reached the inbox, the resent one", 1, (await mailFor(grace.email)).length);
+
+  // A begin from here would be this run's sixth in a minute from one address
+  // (`flows.test.ts`); `musubi-passkey` sends the restart's link.
+  await flow.step("register: start again, back to the details", async () => {
+    await page.getByRole("button", { name: "Start again" }).click();
+    await expect(page.getByLabel("Email")).toHaveValue(grace.email);
+  });
   flow.check("sign-up begun once", 1, flow.count("POST osn-api /register/begin "));
   flow.check("the begin answered 200", true, flow.saw("POST osn-api /register/begin 200"));
   flow.check("the link resent", true, flow.saw("POST osn-api /register/:id/resend 200"));

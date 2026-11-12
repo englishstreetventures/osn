@@ -314,6 +314,12 @@ export type SecurityEventKind =
   // The holder of a recovery link said they did not ask for it ("I didn't ask
   // for this"): the request ended, and the owner's other devices show it.
   | "recovery_link_declined"
+  // Emitted when an account crosses the failed-attempt threshold on step-up
+  // links: wrong numbers typed on its step-up links. Keyed on the account.
+  | "step_up_link_lockout"
+  // The holder of a step-up link said they did not ask for it: someone signed
+  // in to the account asked to act, and the owner said no.
+  | "step_up_link_declined"
   | "passkey_register"
   | "passkey_delete"
   // A credential was deleted to pay for one a recovery session enrolled at the

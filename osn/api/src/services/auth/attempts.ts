@@ -12,8 +12,9 @@
  *   this guess, in one atomic call. No entry, or an expired one, counts
  *   nothing and is refused — there is nothing to guess against.
  * - The guess that reaches the cap, if wrong, deletes the entry
- *   ({@link spendEntry}), and its count with it. Every guess past the cap is
- *   refused without the code being compared. Because the read and the count
+ *   ({@link spendEntry}), and its count with it, where the ceremony ends on
+ *   it; a quiet emailed-link flow keeps the entry (`EMAIL_LINK_QUIET`).
+ *   Every guess past the cap is refused without the code being compared. Because the read and the count
  *   are one call, no guess can read the entry and then count from a number
  *   the entry no longer has; a guess that arrives after the delete finds
  *   nothing and counts nothing. A guess past the cap does not delete the entry
@@ -28,10 +29,7 @@
  * new entry at the same key, which stays, with its count, and the old code
  * wins nothing. A call that finds the new entry writes nothing where one that
  * removes the old entry writes, so the two cost differently only when a
- * `begin` landed in that gap. On the one unauthenticated refusal path that
- * deletes — registration's capped guess — that needs the old entry to have
- * expired in the gap, since a registration `begin` writes only where nothing
- * is live.
+ * `begin` landed in that gap.
  */
 
 import { Effect } from "effect";

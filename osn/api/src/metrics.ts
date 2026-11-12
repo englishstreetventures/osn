@@ -88,6 +88,7 @@ export const OSN_METRICS = {
   authSessionStaleRefused: "osn.auth.session.stale_refused",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
   authRecoveryLockout: "osn.auth.recovery.lockout",
+  authStepUpLockout: "osn.auth.step_up.lockout",
   authRecoveryEmailBegin: "osn.auth.recovery.email_begin",
   authRecoveryCooldown: "osn.auth.recovery.cooldown",
   authRecoveryDisown: "osn.auth.recovery.disown",
@@ -783,6 +784,23 @@ const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
 
 export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): void =>
   authRecoveryLockout.inc({ result });
+
+/**
+ * Step-up links' per-account lockout: a wrong typed number counted
+ * (`recorded`), the count at or past the threshold or a right number refused
+ * while it holds (`locked`), and a counter that could not be read or written
+ * (`unavailable`).
+ */
+type StepUpLockoutAttrs = { result: "recorded" | "locked" | "unavailable" };
+
+const authStepUpLockout = createCounter<StepUpLockoutAttrs>({
+  name: OSN_METRICS.authStepUpLockout,
+  description: "Step-up link per-account lockout events by outcome",
+  unit: "{event}",
+});
+
+export const metricStepUpLockout = (result: StepUpLockoutAttrs["result"]): void =>
+  authStepUpLockout.inc({ result });
 
 /**
  * Outcome of `POST /login/recovery/email/begin`: whether the address named an

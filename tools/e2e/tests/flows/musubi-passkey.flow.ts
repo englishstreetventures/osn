@@ -37,9 +37,11 @@
  * never holds one.
  *
  * The first sign-up link is spent the wrong way: a `GET` on its routes
- * approves nothing, and a number that is not the one shown ends the request,
- * which the waiting tab learns on its own. A new link from the details, with
- * a new number, is the one confirmed, after its page's first read fails once.
+ * approves nothing, and a number that is not the one shown ends the request.
+ * The link's page says so; the waiting tab keeps waiting, as it would for an
+ * address nobody was mailed, and its "Start again" goes back to the details.
+ * A new link from there, with a new number, is the one confirmed, after its
+ * page's first read fails once.
  *
  * The session cookie is set by osn-api (`localhost:4000`) on responses to
  * Musubi's (`localhost:1422`) cross-origin fetches, so it only lands — and only
@@ -316,19 +318,27 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     flow.saw("POST osn-api /email-link/:id/confirm 200"),
   );
 
-  await flow.step("register: the first browser learns the link is gone", async () => {
-    await expect(page.getByRole("heading", { name: "Your link has expired" })).toBeVisible({
-      timeout: 20_000,
-    });
+  const statusPolls = "POST osn-api /register/:id/status";
+  const pollsBeforeWait = flow.count(statusPolls);
+  await flow.step("register: the first browser polls again and still waits", async () => {
+    await expect
+      .poll(() => flow.count(statusPolls) > pollsBeforeWait, { timeout: 20_000 })
+      .toBe(true);
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   });
+  flow.check(
+    "the waiting tab is not told of the wrong pick",
+    0,
+    await page.getByRole("heading", { name: "Your link has expired" }).count(),
+  );
   flow.check(
     "a wrong pick made no account",
     false,
     flow.saw("POST osn-api /register/:id/status 201"),
   );
 
-  await flow.step("register: a new link from the details", async () => {
-    await page.getByRole("button", { name: "Send a new link" }).click();
+  await flow.step("register: start again, and a new link from the details", async () => {
+    await page.getByRole("button", { name: "Start again" }).click();
     await expect(page.getByLabel("Email")).toHaveValue(ada.email);
     await expect(page.getByRole("button", { name: "Send verification link" })).toBeEnabled();
     await page.getByRole("button", { name: "Send verification link" }).click();

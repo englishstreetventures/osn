@@ -7,7 +7,7 @@
 ---
 
 Chrome origin-trial tokens for `cireweddings.com`. Every server-rendered
-guest-site response carries the `HTMLInCanvas` and `AutofillEvent` tokens, so the invite envelope
+guest-site response carries the `HTMLInCanvas` token, so the invite envelope
 runs in stable Chrome without a flag; the organiser portal carries the `WebMCP`
 token on every path. `@cire/build-tools/origin-trial` holds the tokens and a
 decoder, and its tests fail within 14 days of a token's expiry. The notes that

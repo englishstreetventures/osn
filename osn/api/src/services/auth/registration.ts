@@ -85,8 +85,15 @@ export function createRegistrationModule(
   links: EmailLinkModule,
   emailVerification: EmailVerificationModule,
 ) {
-  const { config, stores, otpTtl, serverMac, registrationSendCap, registrationLinkLockoutStore } =
-    ctx;
+  const {
+    config,
+    stores,
+    otpTtl,
+    serverMac,
+    registrationSendCap,
+    registrationLinkLockoutStore,
+    registrationRestartStore,
+  } = ctx;
   const { issueTokens } = tokens;
 
   /**
@@ -233,7 +240,13 @@ export function createRegistrationModule(
    *    mailbox (`mailboxKey`: every `+tag` variant of a local part shares
    *    one), and goes no further past it. A begin's first link does not
    *    count, so the newest sign-up always gets its first link whatever
-   *    Resends came before it.
+   *    Resends came before it;
+   *  - a restart's first link (`kind` `restart`: its begin carried
+   *    `previous`), and a first link to a mailbox a sign-up was declined at in
+   *    the hour before, counts against the mailbox's restart window
+   *    (`registrationRestartStore`), and goes no further past it. A first
+   *    begin with neither is never counted, and a fresh window always admits
+   *    the first link it counts.
    *
    * The probe or either store failing to answer sends nothing. A held-back
    * or failed send is counted and goes no further; the transport has already
@@ -245,7 +258,7 @@ export function createRegistrationModule(
     handle: string,
     url: string,
     ttlMinutes: number,
-    kind: "first" | "resend",
+    kind: "first" | "restart" | "resend",
   ) =>
     Effect.gen(function* () {
       const standing = yield* isTaken(address, handle).pipe(
@@ -266,9 +279,20 @@ export function createRegistrationModule(
       const strikeKey = serverMac.probeKey(address.toLowerCase());
       const capKey = serverMac.probeKey(mailboxKey(address));
       const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(strikeKey));
-      const allowed =
-        strikes.status === "open" &&
-        (kind === "first" || (yield* Effect.promise(() => registrationSendCap.check(capKey))));
+      const withinCaps = (): Effect.Effect<boolean> => {
+        if (kind === "resend") return Effect.promise(() => registrationSendCap.check(capKey));
+        return Effect.gen(function* () {
+          // A decline that cannot be read counts the link, as one would.
+          const restart =
+            kind === "restart" ||
+            (yield* Effect.promise(() => registrationRestartStore.declinedLately(capKey))) !==
+              false;
+          return (
+            !restart || (yield* Effect.promise(() => registrationRestartStore.admitLink(capKey)))
+          );
+        });
+      };
+      const allowed = strikes.status === "open" && (yield* withinCaps());
       if (!allowed) {
         metricEmailLinkSend("registration", "capped");
         return;
@@ -314,7 +338,8 @@ export function createRegistrationModule(
    *  - `previous`, the request and claim secret of a sign-up this tab began
    *    before, retires that request and frees its address first, so a person
    *    who goes back to fix their handle can begin again at once. Without the
-   *    claim secret it retires nothing.
+   *    claim secret it retires nothing. A begin that carries it is a restart:
+   *    its first link counts against the mailbox's restart window.
    *  - The pending store is self-bounding (CEREMONY_STORE_MAX in memory,
    *    per-entry TTL on the Durable Object store).
    *  - The local-only debug line with the link is gated on `OSN_ENV` being
@@ -430,7 +455,9 @@ export function createRegistrationModule(
       // address has an account. `forkBackground` registers the fibre with the
       // request's `waitUntil`, so the send still runs on workerd once the
       // response is out.
-      yield* forkBackground(sendLink(normalisedEmail, handle, opened.url, otpTtl / 60, "first"));
+      yield* forkBackground(
+        sendLink(normalisedEmail, handle, opened.url, otpTtl / 60, previous ? "restart" : "first"),
+      );
 
       return answer;
     }).pipe(withAuthRegister("begin"));
@@ -442,9 +469,10 @@ export function createRegistrationModule(
    *
    *  - `sent` — another link is on its way; also for a taken address's request
    *    (nothing goes out), for a request whose address another live sign-up
-   *    holds or an account has taken since begin (nothing goes out), and for a
-   *    request already confirmed (the next poll finishes it, so nothing more
-   *    is needed);
+   *    holds or an account has taken since begin (nothing goes out), for a
+   *    request its link's reader ended (nothing goes out: the tab is answered
+   *    as a taken address's would be), and for a request already confirmed
+   *    (the next poll finishes it, so nothing more is needed);
    *  - `limit` — the request has sent all the links it may;
    *  - `expired` — no live request matches.
    *
@@ -453,7 +481,10 @@ export function createRegistrationModule(
    * goes, unless an account has the address or the handle by then (the send
    * checks). Every request makes that swap, which cannot win where an entry is
    * live, so a free address's request, a taken one's and a held one's make the
-   * same store calls. Like begin, it mails after the answer.
+   * same store calls. A request its reader ended parks a decoy at the probe
+   * key of its subject instead, never at the address, so it never holds a
+   * free address again; that swap is the same call. Like begin, it mails
+   * after the answer.
    *
    * A request that parks at an address an account has since taken stays
    * parked. Its entry blocks nobody: while an account has the address, every
@@ -476,21 +507,22 @@ export function createRegistrationModule(
       if (resent.state === "expired") return { status: "expired" } as const;
       if (resent.state === "limit") return { status: "limit" } as const;
       if (resent.state === "confirmed") return { status: "sent" } as const;
+      const key = resent.ended ? serverMac.probeKey(resent.subject) : resent.subject;
       const parked: PendingRegistration = {
-        ...(resent.signUp ?? DECOY_SIGN_UP),
+        ...(resent.ended ? DECOY_SIGN_UP : (resent.signUp ?? DECOY_SIGN_UP)),
         requestId,
         expiresAt: resent.expiresAt,
       };
       yield* storeCall(stores.pendingRegistrations, "swap", () =>
         stores.pendingRegistrations.swap(
-          resent.subject,
+          key,
           null,
           parked,
           Math.max(1, resent.expiresAt - Date.now()),
         ),
       );
       const pending = yield* storeCall(stores.pendingRegistrations, "get", () =>
-        stores.pendingRegistrations.get(resent.subject),
+        stores.pendingRegistrations.get(key),
       );
       if (pending?.requestId === requestId && pending.email) {
         const minutesLeft = Math.max(1, Math.ceil((resent.expiresAt - Date.now()) / 60_000));

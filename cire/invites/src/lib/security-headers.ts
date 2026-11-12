@@ -220,8 +220,8 @@ export function reportingEndpointsHeader(apiOrigin: string = API_ORIGIN): string
  * a crawler that obeys a disallow never fetches the page to see a `noindex`,
  * and a disallowed URL can still be indexed from links elsewhere. The
  * prerendered `/privacy` and `/terms` never reach the middleware, so they stay
- * indexable. `Origin-Trial` is SSR-only for the same reason: the legal pages use
- * neither trial.
+ * indexable. `Origin-Trial` is SSR-only for the same reason: the legal pages do
+ * not use the trial.
  *
  * The CSP ships in Report-Only mode until {@link CSP_ENFORCE} is flipped — see
  * its doc. The non-CSP headers are always enforced (they carry no breakage
@@ -238,15 +238,12 @@ export function securityHeaders(apiOrigin: string = API_ORIGIN) {
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "X-Robots-Tag": "noindex, nofollow",
-    // The two Chrome origin trials the guest site uses: HTML-in-Canvas for the
-    // envelope opening, the autofill event for the email box. SSR-only like
-    // `X-Robots-Tag`, so the prerendered legal pages enable neither. The tokens
-    // are valid on cireweddings.com only; Chrome ignores them on any other
-    // origin, so every tier sends the same header.
-    "Origin-Trial": originTrialHeader(
-      ORIGIN_TRIAL_TOKENS.htmlInCanvas,
-      ORIGIN_TRIAL_TOKENS.autofillEvent,
-    ),
+    // The Chrome origin trial the guest site uses: HTML-in-Canvas for the
+    // envelope opening. SSR-only like `X-Robots-Tag`, so the prerendered legal
+    // pages do not enable it. The token is valid on cireweddings.com only;
+    // Chrome ignores it on any other origin, so every tier sends the same
+    // header.
+    "Origin-Trial": originTrialHeader(ORIGIN_TRIAL_TOKENS.htmlInCanvas),
   } satisfies Record<string, string>;
 }
 

@@ -1,6 +1,7 @@
 import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
+import type { RegistrationRestartStore } from "../../lib/registration-restart-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
 import type { IssuerNetwork } from "./email-verification-network";
 import type {
@@ -84,7 +85,7 @@ export interface AuthConfig {
    * Permitted AMR values for `DELETE /passkeys/:id` step-up. Defaults to
    * passkey-only (`["webauthn"]`) — by construction the caller already
    * has at least one passkey (the last-passkey guard fires otherwise),
-   * so accepting OTP would weaken the gate without UX gain (S-L4).
+   * so accepting OTP would weaken the gate without UX gain.
    *
    * TOTP is deliberately NOT admitted here, and the type permits it only so
    * this array is assignable from the same literals as its two siblings.
@@ -110,7 +111,7 @@ export interface AuthConfig {
   passkeyDeleteAllowedAmr?: readonly ("webauthn" | "otp" | "totp")[];
   /**
    * Permitted AMR values for `/passkey/register/{begin,complete}` step-up
-   * when the account already has ≥1 passkey (S-H1). First-passkey
+   * when the account already has ≥1 passkey. First-passkey
    * enrollment bypasses the gate entirely — no step-up ceremony is
    * reachable before the account has any credentials. Defaults to
    * `["webauthn", "otp"]` because a user who legitimately wants to add a
@@ -148,7 +149,7 @@ export interface AuthConfig {
    */
   emailVerificationNonceClaims?: ChallengeClaimStore;
   /**
-   * O2: per-account recovery-code lockout counter. Defaults to in-memory; a
+   * Per-account recovery-code lockout counter. Defaults to in-memory; a
    * deployed Worker passes the coordination store's, so the threshold holds
    * across isolates. Keyed on the resolved accountId — see
    * `recovery-lockout-store.ts`.
@@ -179,6 +180,12 @@ export interface AuthConfig {
    * mailed; past the threshold, none is.
    */
   registrationLinkLockoutStore?: RecoveryLockoutStore;
+  /**
+   * Per mailbox: first sign-up links mailed by restarts, and the declines that
+   * make a begin a restart (`lib/registration-restart-store.ts`). Read only
+   * inside the send, after the answer.
+   */
+  registrationRestartStore?: RegistrationRestartStore;
   /**
    * Per account: wrong typed numbers on step-up links (recovery's numbers:
    * five in 15 minutes). While it holds, no step-up link is mailed and a right

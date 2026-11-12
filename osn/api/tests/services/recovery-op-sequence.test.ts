@@ -13,6 +13,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createCapturingTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { latestLinkTo } from "../helpers/registration";
 
 /**
  * F-CL13. The recovery routes answer the same whether or not the identifier
@@ -180,6 +181,68 @@ describe("POST /login/recovery/email/:requestId/resend and /status", () => {
       );
       expect(knownPoll.ops).toEqual(["email_link.read"]);
       expect(nobodyPoll).toEqual(knownPoll);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("make the same calls and statements for a request its reader declined", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("seq-rsd@example.com", "seqrsd");
+      const known = yield* settle(h.auth.beginEmailRecovery("seq-rsd@example.com", meta));
+      const nobody = yield* settle(h.auth.beginEmailRecovery("seq-rsdnobody@example.com", meta));
+      const link = latestLinkTo(h.recorded(), "seq-rsd@example.com")!;
+      yield* settle(
+        h.auth.confirmEmailLink(known.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: "none",
+        }),
+      );
+      const mailed = h.recorded().length;
+
+      const knownResend = yield* h.record(
+        settle(h.auth.resendEmailRecovery(known.requestId, known.claimSecret, meta)),
+      );
+      const nobodyResend = yield* h.record(
+        settle(h.auth.resendEmailRecovery(nobody.requestId, nobody.claimSecret, meta)),
+      );
+      expect(knownResend.ops.length).toBeGreaterThan(0);
+      expect(nobodyResend).toEqual(knownResend);
+      const knownPoll = yield* h.record(
+        h.auth.emailRecoveryStatus(known.requestId, known.claimSecret),
+      );
+      const nobodyPoll = yield* h.record(
+        h.auth.emailRecoveryStatus(nobody.requestId, nobody.claimSecret),
+      );
+      expect(knownPoll.ops).toEqual(["email_link.read"]);
+      expect(nobodyPoll).toEqual(knownPoll);
+      expect(h.recorded().length).toBe(mailed);
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+describe("a wrong recovery number whose writes the store fails", () => {
+  it.live("leaves the request refused: the right number after it confirms nothing", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("seq-rstuck@example.com", "seqrstuck");
+      const begun = yield* settle(h.auth.beginEmailRecovery("seq-rstuck@example.com", meta));
+      const link = latestLinkTo(h.recorded(), "seq-rstuck@example.com")!;
+      h.fake.failWhen(
+        (call) => call.store === "email_link" && (call.op === "swap" || call.op === "remove"),
+      );
+      const wrong = yield* h.auth.confirmEmailLink(begun.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode === "00" ? "01" : "00",
+      });
+      h.fake.failWhen(null);
+      expect(wrong).toBe("expired");
+      const right = yield* h.auth.confirmEmailLink(begun.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      expect(right).toBe("expired");
+      const polled = yield* settle(h.auth.emailRecoveryStatus(begun.requestId, begun.claimSecret));
+      expect(polled.status).not.toBe("complete");
     }).pipe(Effect.provide(h.layer));
   });
 });

@@ -48,7 +48,7 @@ type Phase = "enter_email" | "check_email" | "step_up" | "finishing" | "done";
 const RESEND_WAIT_SECONDS = 120;
 
 const LIMIT_LINE =
-  "We've sent all the links we can for this request. Use the newest one, or use a different email.";
+  "We've sent all the links we can for this request. Use the newest one, or start again.";
 const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 
 export function ChangeEmailForm(props: ChangeEmailFormProps) {

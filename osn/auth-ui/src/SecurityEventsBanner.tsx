@@ -84,6 +84,8 @@ function headlineFor(kind: SecurityEventSummary["kind"], productName: string): s
       return `A recovery code was used on your ${productName} account`;
     case "recovery_link_declined":
       return `A request to get back into your ${productName} account was turned down`;
+    case "step_up_link_declined":
+      return `A request to confirm a sensitive action on your ${productName} account was turned down`;
     default:
       return "Security event on your account";
   }

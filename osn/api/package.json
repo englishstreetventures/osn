@@ -1,14 +1,14 @@
 {
   "name": "@osn/api",
-  "version": "3.36.2",
+  "version": "3.37.0",
   "private": true,
-  "type": "module",
-  "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
+  "author": "English Street Ventures Pty Ltd",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
+  "type": "module",
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env bun run --watch src/local.ts --devloop",
@@ -21,10 +21,6 @@
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test tests/d1/"
-  },
-  "portless": {
-    "name": "id.musubi",
-    "script": "dev:app"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
@@ -53,5 +49,9 @@
     "miniflare": "^4.20260730.0",
     "vitest": "5.0.5",
     "wrangler": "4.149.0"
+  },
+  "portless": {
+    "name": "id.musubi",
+    "script": "dev:app"
   }
 }

@@ -4,10 +4,11 @@
  * shows — then add a passkey in the first, and sign in with it.
  *
  * Before that, the first link is spent the wrong way: a `GET` on its routes
- * approves nothing, and a number that is not the one shown ends the request,
- * which the waiting tab learns on its own. The second link is turned down
- * ("I didn't ask for this"). The third is the one confirmed. The wait also
- * survives a reload of the first browser.
+ * approves nothing, and a number that is not the one shown ends the request.
+ * The second link is turned down ("I didn't ask for this"). Each time the
+ * waiting tab keeps waiting, as it would for an address with no account, and
+ * its "Start again" goes back to the address. The third is the one confirmed.
+ * The wait also survives a reload of the first browser.
  *
  * The restricted recovery session reaches only the first browser, the one
  * holding the claim secret: the second never gets a session cookie.
@@ -123,12 +124,26 @@ test("musubi-recovery", async ({ page, context, browser, flow }) => {
     flow.count("POST osn-api /email-link/:id/candidates"),
   );
 
-  await flow.step("laptop: learns the link is gone, and sends a second", async () => {
-    await expect(page.getByRole("heading", { name: "Your link has expired" })).toBeVisible({
-      timeout: 20_000,
+  const statusPolls = "POST osn-api /login/recovery/email/:id/status";
+  /** Waits for the laptop's next poll, which finds it still waiting, then starts again. */
+  const stillWaitsThenStartsAgain = async (step: string) => {
+    const before = flow.count(statusPolls);
+    await flow.step(step, async () => {
+      await expect.poll(() => flow.count(statusPolls) > before, { timeout: 20_000 }).toBe(true);
+      await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
     });
-    await page.getByRole("button", { name: "Send a new link" }).click();
-  });
+    const told = await page.getByRole("heading", { name: "Your link has expired" }).count();
+    await flow.step(`${step}: start again`, async () => {
+      await page.getByRole("button", { name: "Start again" }).click();
+    });
+    return told;
+  };
+
+  flow.check(
+    "the laptop is not told of the wrong number",
+    0,
+    await stillWaitsThenStartsAgain("laptop: still waits after the wrong number"),
+  );
   const second = await askForLink("laptop: send the second link");
   const secondLink = await linkFor(person.email, 1);
   flow.check("the second link is a new request", true, secondLink.requestId !== link.requestId);
@@ -140,12 +155,11 @@ test("musubi-recovery", async ({ page, context, browser, flow }) => {
   });
   flow.check("the number shown is two digits", true, /^\d{2}$/.test(second));
 
-  await flow.step("laptop: learns it was turned down, and sends a third", async () => {
-    await expect(page.getByRole("heading", { name: "Your link has expired" })).toBeVisible({
-      timeout: 20_000,
-    });
-    await page.getByRole("button", { name: "Send a new link" }).click();
-  });
+  flow.check(
+    "the laptop is not told of the decline",
+    0,
+    await stillWaitsThenStartsAgain("laptop: still waits after the decline"),
+  );
   const third = await askForLink("laptop: send the third link");
   const thirdLink = await linkFor(person.email, 2);
 

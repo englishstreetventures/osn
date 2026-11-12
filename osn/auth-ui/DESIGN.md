@@ -182,7 +182,7 @@ As built:
 - **`CheckEmailView`** is a `flex-col gap-4` column for a step inside a dialog:
   its `h3`; the sentence in its live region, with any error line 8px under
   it (`flex-col gap-2`); the line about opening the link; when there is one, the number over its caption
-  (`flex-col gap-1`), unboxed; then Resend and "Use a different email" as
+  (`flex-col gap-1`), unboxed; then Resend and "Start again" as
   full-width `ghost` `sm` Buttons, 40px tall below `md` (`max-md:h-10`).
 - **`ConfirmLinkPage`** is a shared `Card` (`padding="lg"`) holding a
   `flex-col gap-6` column for a bare route; the host draws the `<main>` around
@@ -296,7 +296,7 @@ own.
 | --- | --- |
 | No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
 | Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification link" ("Sending…"). When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus |
-| Verify | `CheckEmailView` for sign-up: the address, the request's number, Resend ("Sending…") and "Use a different email". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
+| Verify | `CheckEmailView` for sign-up: the address, the request's number, Resend ("Sending…") and "Start again" (back to Details with the fields kept, from the first moment). After the link's reader declines or picks a wrong number the view keeps waiting, as for an address nobody was mailed, and the link's page sends the person back here to "Start again". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
 | Passkey | "Enroll a passkey or security key so you can sign back in. This is required to finish creating your account."; the enrolment's error line; "Enroll credential" ("Setting up…") |
 | Done | "You're all set. Loading {productName}…" |
 
@@ -307,7 +307,7 @@ own.
 | Choose | "Pick how you'd like to prove this account is yours."; "Use a recovery code"; "Email me a link" and "Use my authenticator app" where the browser can run a passkey ceremony and the host passed both enrolment props, otherwise a list of ways forward; "Back to sign in" |
 | Recovery code | "Handle or email", "Recovery code"; "Sign in with recovery code" ("Signing in…"); Back |
 | Email, identify | "We'll send a link to the address on the account. Open it on any device to get back in here."; "Email address on the account", the Turnstile challenge; "Send the link" ("Sending…"); Back |
-| Email, waiting | `CheckEmailView` for recovery: "If {address} has an account, a link is on its way.", the request's number, Resend after 120 seconds, "Use a different email" (back to the address, kept); Back. Its error line says "We've sent all the links we can for this request. Use the newest one, or go back and start again." or "We couldn't send a new link just now. Try again in a moment."; once the link expires, "Send a new link" goes back to the address. A reload of the tab returns here, and `SignIn` opens on its recovery view |
+| Email, waiting | `CheckEmailView` for recovery: "If {address} has an account, a link is on its way.", the request's number, Resend after 120 seconds, "Start again" (back to the address, kept, from the first moment; after a decline or a wrong number the view keeps waiting, as for an address with no account); Back. Its error line says "We've sent all the links we can for this request. Use the newest one, or go back and start again." or "We couldn't send a new link just now. Try again in a moment."; once the link expires, "Send a new link" goes back to the address. A reload of the tab returns here, and `SignIn` opens on its recovery view |
 | Authenticator | "Handle or email", "Code from your authenticator app" and the code boxes; Continue ("Checking…"); Back |
 | Enrol | "Add a passkey to get back in", what a recovery session is; "Add a passkey" ("Waiting for your passkey…", "Try again" after an error), "Start again" after an error |
 | Enrolled | "You're back in"; "Sign in with your new passkey" |
@@ -366,8 +366,9 @@ step-up in progress.
 **`SecurityEventsBanner`** — renders nothing until there is an unacknowledged
 event, and nothing if the list cannot be read. With events: one headline per
 event (by kind — "A request to get back into your {productName} account was
-turned down" for a declined recovery link — with a general line for a kind it
-does not know) and its time and device, a footer line, Acknowledge, then a
+turned down" for a declined recovery link, "A request to confirm a sensitive
+action on your {productName} account was turned down" for a declined step-up
+link — with a general line for a kind it does not know) and its time and device, a footer line, Acknowledge, then a
 step-up.
 
 **`SessionsView`** — heading "Active sessions" with "Sign out everywhere else".
@@ -378,10 +379,10 @@ Revoke (disabled on the current one).
 
 **`ChangeEmailForm`** — heading "Change email". Phases: new email ("New email",
 "Send a link" ("Sending…")); the wait (`CheckEmailView` for email change: "We
-sent a link to {email}.", the request's number, Resend after 120 seconds, "Use
-a different email" back to the address; its error line says "We've sent all
-the links we can for this request. Use the newest one, or use a different
-email." or "We couldn't send a new link just now. Try again in a moment.";
+sent a link to {email}.", the request's number, Resend after 120 seconds,
+"Start again" back to the address (after a decline or a wrong pick the view
+keeps waiting, as for a taken address); its error line says "We've sent all
+the links we can for this request. Use the newest one, or start again." or "We couldn't send a new link just now. Try again in a moment.";
 once the link expires, "Send a new link" sends a new request to the same
 address); step-up ("Re-authenticate to change your email."), once the link is
 confirmed; finishing ("Changing your email…"); done ("Your email is now
@@ -394,8 +395,8 @@ says "If that address has an account, …".
 
 | State | What shows |
 | --- | --- |
-| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery and step-up, whose pages ask the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Use a different email" when the host passes `onChangeEmail` |
-| Sending | "Sending a new link…"; Resend busy, reading "Sending…"; "Use a different email" disabled; no error line |
+| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery and step-up, whose pages ask the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Start again" when the host passes `onChangeEmail`, from the first moment |
+| Sending | "Sending a new link…"; Resend busy, reading "Sending…"; "Start again" disabled; no error line |
 | Sent again | "We sent a new link to {email}." (recovery: "If {email} has an account, a new link is on its way."), ending "Check the number again." when a number shows |
 | Error | The waiting copy, the number kept, and the host's `errorMessage` (or "Something went wrong. Try again in a moment.") under the sentence |
 | Expired | "Your link has expired"; "Ask for a new link to {email}."; no flow line and no number; "Send a new link" as the default Button, at once |
@@ -415,8 +416,8 @@ that asked."
 | Confirming | The same; the control that started the call busy — the number tapped (its digits kept), Confirm ("Confirming…"), "I didn't ask for this" ("Cancelling…") or Try again ("Confirming…" or "Cancelling…", the same attempt again) — and every other one disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds "This is taking longer than usual. Keep this page open." |
 | Error | The same, the numbers (typed: the field) disabled and Confirm gone, "I didn't ask for this" still open; "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again, which sends the same attempt, while the decline sends `null` as a new one |
 | Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
-| Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
-| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link." (step-up adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions."). The same for every refusal, a list the page cannot offer included |
+| Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
+| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again." (step-up's ends "If not, go back and ask for a new link.", since its waiting screen learns of the refusal and offers one, and adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions."). The same for every refusal, a list the page cannot offer included |
 
 **`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
 "Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
@@ -671,8 +672,8 @@ no product.
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
-- Going back: Cancel, Back, "Back to sign in", "Use a different email"
-  (`CheckEmailView`), "Start again".
+- Going back: Cancel, Back, "Back to sign in", "Start again"
+  (`CheckEmailView`, `RecoveryLoginForm`).
 - Saying no: "I didn't ask for this" (`ConfirmLinkPage`), answered by
   "Cancelled".
 
@@ -748,7 +749,7 @@ As built:
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
   disabled), `ChangeEmailForm.test.tsx` ("Send a link"), `StepUpDialog.test.tsx`
   ("Use email instead" and the authenticator's Confirm), `CheckEmailView.test.tsx`
-  (Resend, with "Use a different email" disabled) and
+  (Resend, with "Start again" disabled) and
   `ConfirmLinkPage.test.tsx` (a number, Confirm, the decline and Try again,
   each with the other choices disabled).
 - **Error lines in the package tests.** Each view's tests plant text in a

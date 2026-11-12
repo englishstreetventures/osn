@@ -753,7 +753,7 @@ the portal, and holds back the next release behind it.
 
 ## Chrome origin trials
 
-Cire uses three Chrome features that are not on by default yet. Each runs on a
+Cire uses two Chrome features that are not on by default yet. Each runs on a
 token that Chrome checks against the page's origin, sent in an `Origin-Trial`
 response header. The tokens are public and cover `cireweddings.com` with
 subdomain matching, so they work on `invite.`, `host.`, `vendor.` and `api.`
@@ -764,14 +764,23 @@ same header.
 | Feature | Used by | Served from | Token lapses |
 |---|---|---|---|
 | `HTMLInCanvas` | the invite envelope ([[cire-envelope]]) | every guest-site SSR response | 2 Mar 2027 |
-| `AutofillEvent` | the guest email box, once englishstreetventures/osn#2208 lands | every guest-site SSR response | 5 Jan 2027 |
 | `WebMCP` | the organiser portal's agent tools, once englishstreetventures/osn#2209 lands | every organiser-portal path | 30 Mar 2027 |
+
+**The autofill event is not used.** Chrome's `autofill` event (`AutofillEvent`
+trial) fires at `document` just before the browser fills a field, with the
+values in `event.autofillValues`. A real autofill gives the guest email box
+nothing the browser does not already give it without a token: `input` and
+`change` fire on the field after the fill, with the value in place, and
+`input.matches(":autofill")` is already true inside the `input` handler. A page
+can read that in every Chrome, with no trial and no token.
+
+*Measured 2026-11-12 — headed Chromium 156.0.8078.4 under Playwright, a real fill through the DevTools `Autofill.trigger` command on a lone `<input type="email" autocomplete="email">`, with and without `--enable-blink-features=AutofillEvent`; with the flag, the `autofill` event fired once at `document` with an empty `field.value`; in both runs `input` and `change` then fired on the field with the value set and `:autofill` true.*
 
 The strings, a decoder and the renewal window are in
 `cire/build-tools/src/origin-trial.ts` (`@cire/build-tools/origin-trial`, pure,
-so the guest Worker imports it). The guest site adds its two tokens in
+so the guest Worker imports it). The guest site adds its token in
 `securityHeaders()` (`cire/invites/src/lib/security-headers.ts`), SSR-only like
-`X-Robots-Tag`, so the prerendered legal pages enable neither. The portal is a
+`X-Robots-Tag`, so the prerendered legal pages do not enable it. The portal is a
 static build, so its token is a line in `cire/host/public/_headers`, a second copy
 of the string that its test compares with the module's. The vendor portal and
 the marketing site carry none.
@@ -784,7 +793,7 @@ host `_headers`), and move the expiry date in that test, in the table above and
 in the `Lapses` comment beside the string. A trial can also end before its token
 does, so a page tests for a feature before it uses it. The envelope does:
 `"requestPaint" in HTMLCanvasElement.prototype`
-(`cire/envelope/src/boot.ts`). The autofill and WebMCP code must do the same.
+(`cire/envelope/src/boot.ts`). The WebMCP code must do the same.
 
 **What a token cannot prove.** Chrome checks the signature and the origin, so
 no local test shows a feature turned on. The check is on production after a

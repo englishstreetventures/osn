@@ -24,8 +24,10 @@ import { isPairingCode } from "./pairing-code";
  *
  * - **One message, two quiet controls.** A heading, one sentence about the
  *   link, one line saying what opening it does, then Resend and (where the
- *   address was typed here) "Use a different email". No code box, no other
- *   factor: the dialog around the view draws any way back.
+ *   address was typed here) "Start again", there from the first moment, so a
+ *   person whose link page says it no longer works always has a way forward.
+ *   No code box, no other factor: the dialog around the view draws any way
+ *   back.
  * - **The number.** Where the host passes `pairingCode`, the view draws it
  *   large under the line about the link, with a caption: the page the link
  *   opens asks the person to type it on recovery and step-up, and to pick it
@@ -46,7 +48,7 @@ import { isPairingCode } from "./pairing-code";
  *   order with a hidden "Your number:" before it; after a resend the region's
  *   sentence says to check the number again, without naming it.
  * - **The wait for a send.** Resend is busy while the host sends: it keeps
- *   focus and refuses a press, and "Use a different email" is disabled, so
+ *   focus and refuses a press, and "Start again" is disabled, so
  *   nothing leaves the view mid-call.
  * - **Focus.** The heading takes focus when the view appears, because the form
  *   that sent the link has just gone, and again when a send ends with Resend
@@ -84,7 +86,10 @@ export interface CheckEmailViewProps {
    * parent's to report, through `status` and `errorMessage`.
    */
   onResend: () => void | Promise<void>;
-  /** Back to edit the address. Absent, no button: step-up mails the account's own address. */
+  /**
+   * "Start again": back to the address, kept, to send a new request. Absent,
+   * no button: step-up mails the account's own address.
+   */
   onChangeEmail?: () => void;
   /**
    * Seconds before Resend unlocks, after the view appears and after each
@@ -319,7 +324,7 @@ export function CheckEmailView(props: CheckEmailViewProps) {
             disabled={pending()}
             onClick={() => props.onChangeEmail?.()}
           >
-            Use a different email
+            Start again
           </Button>
         </Show>
       </div>

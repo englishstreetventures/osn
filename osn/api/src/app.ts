@@ -110,6 +110,7 @@ export interface AppDeps {
   recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
   totpLockoutStore: CoordinationStores["totpLockoutStore"];
   registrationLinkLockoutStore: CoordinationStores["registrationLinkLockoutStore"];
+  registrationRestartStore: CoordinationStores["registrationRestartStore"];
   stepUpLinkLockoutStore: CoordinationStores["stepUpLinkLockoutStore"];
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
@@ -200,6 +201,7 @@ export function createApp(deps: AppDeps) {
     recoveryOtpLockoutStore,
     totpLockoutStore,
     registrationLinkLockoutStore,
+    registrationRestartStore,
     stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
@@ -296,6 +298,7 @@ export function createApp(deps: AppDeps) {
     recoveryOtpLockoutStore,
     totpLockoutStore,
     registrationLinkLockoutStore,
+    registrationRestartStore,
     stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
