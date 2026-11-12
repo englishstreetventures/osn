@@ -1,0 +1,186 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/ci-chromium-libs-offline",
+    "base_sha": "916105e2939f3299a783ad40f38befc78ec61966",
+    "head_sha": "828aa70a6148706d133fa55d170569c202e047dc",
+    "generated_at": "2026-11-12T03:00:07.396Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2236,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-11T16:35:39.463Z",
+    "last_ts": "2026-11-12T02:59:59.177Z",
+    "span_seconds": 37460,
+    "active_seconds": 13934,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 26.384525999999994,
+    "tokens": {
+      "input": 606,
+      "output": 353982,
+      "thinking": 213864,
+      "cache_write_5m": 1141638,
+      "cache_write_1h": 0,
+      "cache_read": 33985680
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 606,
+          "output": 353982,
+          "thinking": 213864,
+          "cache_write_5m": 1141638,
+          "cache_write_1h": 0,
+          "cache_read": 33985680
+        },
+        "usd_equivalent": 26.384525999999994,
+        "messages": 289
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 606,
+          "output": 353982,
+          "thinking": 213864,
+          "cache_write_5m": 1141638,
+          "cache_write_1h": 0,
+          "cache_read": 33985680
+        },
+        "usd_equivalent": 26.384525999999994,
+        "messages": 290
+      }
+    },
+    "effort": {
+      "xhigh": 260,
+      "high": 29
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 2,
+      "docs": 1,
+      "config": 0,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 480,
+        "deleted": 30
+      },
+      "docs": {
+        "added": 80,
+        "deleted": 2
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 137,
+        "deleted": 12
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 214,
+      "Edit": 74,
+      "Read": 33,
+      "Skill": 16,
+      "Write": 8,
+      "StructuredOutput": 4,
+      "ToolSearch": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 6,
+      "max_edits_one_file": 17
+    },
+    "skills": {
+      "new-feat": 4,
+      "stress-plan": 1,
+      "superpowers:test-driven-development": 1,
+      "write-wiki": 3,
+      "obsidian:obsidian-markdown": 3,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-docs": 1,
+      "prep-pr": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 289,
+      "with_tools": 288,
+      "with_one_tool": 250,
+      "context_median": 117718,
+      "context_p90": 191884
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 5,
+    "located": 5,
+    "acted_on": 4,
+    "paired": 5,
+    "acted_on_paired": 4,
+    "control_changed": 1,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
