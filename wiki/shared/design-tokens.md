@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -199,9 +199,10 @@ lists them. A duration, delay or easing written out where a token belongs
 fails `house/no-literal-motion` in TypeScript and
 `scripts/check-motion-literals.ts` in `.css` and `.astro` files; a fallback
 inside `var()` passes. A literal moves to the token of its job even when the
-value changes. Outside cire, Tailwind's `ease-out` class is Tailwind's own
-curve, not `--ui-ease-out`: write `ease-(--ui-ease-out)` ([[house-lint-rules]]
-§Literal motion).
+value changes. Tailwind's `ease-out` class reads the app's `--ease-out`:
+Tailwind's own curve outside cire, cire's own curve inside it (below). It is
+never `--ui-ease-out`: for the contract's curve write `ease-(--ui-ease-out)`
+([[house-lint-rules]] §Literal motion).
 
 | Token | Value | Used for |
 | --- | --- | --- |
@@ -209,8 +210,9 @@ curve, not `--ui-ease-out`: write `ease-(--ui-ease-out)` ([[house-lint-rules]]
 | `--ui-dur-base` | 200ms | A panel swap, a pill sliding |
 | `--ui-dur-slow` | 320ms | Something crossing the screen |
 | `--ui-dur-exit` | 80ms | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on its own `--ui-modal-exit` ([[component-library]], §Overlays: `Modal`) |
-| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving; a Kobalte overlay leaving runs on it too. `Modal`'s exit runs `ease-in` |
+| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving |
 | `--ui-ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | Something moving between two places |
+| `--ui-ease-exit` | `cubic-bezier(0.22, 1, 0.36, 1)` | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal`'s exit runs `ease-in` |
 | `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` |
 | `--ui-scale-exit` | 0.98 | How small an overlay ends as it leaves, `Modal` included |
 | `--ui-distance-enter` | 24px | How far `Modal` rises into place |
@@ -223,6 +225,33 @@ its exit is softer by distance and time alone (8px in 150ms against 24px in
 350ms). Musubi sets the two scale tokens to 1 (below); no app sets the
 durations or distances, so every app runs those, and pulse and cire run the
 scales too.
+
+**An exit has its own curve.** `--ui-ease-exit` carries the same curve as
+`--ui-ease-out`, so a Kobalte overlay leaves on the curve it arrives on. They
+are two tokens so that an app can map `--ui-ease-out` onto its own arriving
+curve without moving its overlays' exits, which `animate-out` times. Cire
+maps `--ui-ease-out` (below); no app sets `--ui-ease-exit`.
+`overlay-motion.browser.test.tsx` holds each overlay that exits
+on `--ui-ease-exit`, unmoved by `--ui-ease-out`, and
+`dialog-default.browser.test.tsx` holds an unmapped `Dialog`'s entry and exit
+on the one curve ([[browser-tests]]).
+
+Cire's own `--ease-out` is a different curve, `cubic-bezier(0.23, 1, 0.32, 1)`,
+the owner's choice of 2026-11-11 for all four cire apps and their one curve
+for something arriving ([`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §4).
+The shared parts that read `var(--ease-out, var(--ui-ease-out))` follow it
+there, and so does every transition that names no easing: each cire stylesheet
+sets Tailwind's `--default-transition-timing-function` to `var(--ease-out)`,
+which outside cire stays Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`. Each cire
+stylesheet's contract mapping also sets `--ui-ease-out: var(--ease-out)` (the
+owner's choice of 2026-11-12), so `Modal`'s rise and every `animate-in` entry
+(`Tooltip`, `Popover`, the default `DropdownMenu`) arrive on cire's curve too.
+The exits stay where they were: `animate-out` reads `--ui-ease-exit`, which no
+cire stylesheet maps, and `Modal` leaves on `ease-in`.
+`cire/vendor/tests/styles/tokens.test.ts` fails if one cire app drops the
+mapping or maps an exit, and cire host's
+`tests/styles/overlay-curves.browser.test.tsx` reads a `Popover`'s and a
+`Modal`'s curves back as they run.
 
 `Dialog`'s `sheet` presentation scales like its centred card, from its
 centre. Below `md` the sheet is pinned to the bottom edge at full width, so
@@ -253,12 +282,12 @@ filters" dialog on the contract's 0.96 (`musubi-surfaces.ts`,
 `pulse-menus.ts`).
 
 The overlays reach them through four utilities in `tokens.css`, not by
-reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` and
-`animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` set the scale an
-element enters from and leaves to from `--ui-scale-enter` and
-`--ui-scale-exit`. Two pairs of names sit close: `--ui-scale-enter` is the
-token an app sets, `--ui-enter-scale` is what `zoom-in` writes on one element
-for the keyframes to read.
+reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` on
+`--ui-ease-out` and `animate-out` runs `--ui-dur-exit` on `--ui-ease-exit`;
+`zoom-in` and `zoom-out` set the scale an element enters from and leaves to
+from `--ui-scale-enter` and `--ui-scale-exit`. Two pairs of names sit close:
+`--ui-scale-enter` is the token an app sets, `--ui-enter-scale` is what
+`zoom-in` writes on one element for the keyframes to read.
 
 **Reduced motion has one home for the Kobalte overlays.** Under
 `prefers-reduced-motion: reduce`, a flat block in `tokens.css` sets

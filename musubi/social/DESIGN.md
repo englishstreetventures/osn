@@ -413,8 +413,9 @@ account and theme menus) change their opacity alone as they open and close,
 the owner's decision on #2034. The contract block in `App.css` maps `--ui-scale-enter` and
 `--ui-scale-exit` to 1, so the shared `zoom-in` and `zoom-out` scale nothing
 (`wiki/shared/design-tokens.md` §Motion); a call site adds no motion class.
-The timing is the contract's: in over `--ui-dur-fast` (120ms), out over
-`--ui-dur-exit` (80ms), both on `--ui-ease-out`. The scrim fades with the
+The timing is the contract's: in over `--ui-dur-fast` (120ms) on
+`--ui-ease-out`, out over `--ui-dur-exit` (80ms) on `--ui-ease-exit`, which
+carries the same curve. The scrim fades with the
 panel. Under reduced motion each one shows and hides at once
 (`tokens.css` sets the overlay animations to `none`). Only cire's `accent`
 menu look closes at once, and Musubi draws none.

@@ -18,9 +18,12 @@ this portal and the vendor portal — share one corner scale and one motion ladd
 > **The container is continuous; only its contents change.**
 
 When a host moves between modules, sub-tabs, or steps of the invite builder, the
-panel does not unmount and remount. It keeps its box, animates its height to the
-new content, and cross-fades what is inside. Nothing in the chrome may jump: the
-module's view bar animates its height with the panel's (§The stuck stack).
+panel does not unmount and remount. It keeps its box and animates its height to
+the new content. A view that a module or sub-tab change mounts fades in over the
+held frame, and the view it replaces goes at once; the invite builder, one view
+across its four steps, does not fade between them (§4, "A view arrives by fading
+in"). Nothing in the chrome may jump: the module's view bar animates its height
+with the panel's (§The stuck stack).
 
 Every motion decision below follows from this. Where a transition would need the
 frame to disappear and come back, the transition is wrong, not the frame.
@@ -297,7 +300,9 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   inside the centred `Modal`, the RSVP reply editor in its table cell or phone
   row, the colour area in its popover, a step card inside the import guide, a
   `Disclosure` set inside another box (`nested`);
-- a compact row (`px-3 py-2`) of text and glyphs — a budget line, a checklist
+- a compact row (`px-3 py-2`) of text and glyphs — a budget line (written as
+  `py-1 pr-2 pl-3` with 4px inside each part, because its panels open through
+  `Reveal`; see "A panel that opens inside a row" below), a checklist
   task, a registry item, a seat, a vendor, an FAQ entry — and the run sheet's
   bands and rows, whose coming-up wash is a table highlight;
 - a menu row's or a nav row's highlight — the command palette, every portal
@@ -576,17 +581,51 @@ corner. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
 matches the shared one beside it. A pill stays flat but for the glass's own
 lift. Nothing else writes Tailwind's other shadow steps.
 
-**Motion.** Three durations and three easings, and **no animation library in
+**Motion.** Three durations and four easings, and **no animation library in
 this package by design**.
 
 ```css
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
---dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a pill slide */
---dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a disclosure opening */
---ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--dur-base: calc(200ms * var(--motion-scale)); /* a panel's height, a pill slide */
+--dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a disclosure opening, a strip's glass */
+--ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
+--ease-glide: linear(0, 0.053, …, 1.028, …, 1); /* a strip's glass, travelling with barely any */
+--default-transition-timing-function: var(--ease-out); /* a transition that names no easing */
 ```
+
+`--ease-out` is the strong ease-out the motion skills name (`emil-design-eng`,
+`animate`), the owner's choice of 2026-11-11 for all four cire apps, and
+cire's one curve for something arriving: "consolidate to one arriving
+curve … Use our default curve not tailwind's" (the owner, 2026-11-11). Each
+cire stylesheet's `@theme` sets Tailwind's `--default-transition-timing-function`
+to it, so a transition that names no easing runs cire's curve, never
+Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`: a bare `transition-colors` or
+`transition-ui-colors`, and the `@shared/ui` parts cire renders that write
+one — `Checkbox`'s and `RadioGroupItem`'s drawn box, `Switch`'s track and
+thumb, `Meter`'s fill. Tailwind's `ease-out` class reads it, and so does every
+shared part that reads `var(--ease-out, var(--ui-ease-out))`: the fields, the
+native checkbox and radio classes, the accent `DropdownMenu`'s pop and its
+rows, `SegmentedTabs`.
+
+The shared overlays arrive on it too. Each cire stylesheet's contract mapping
+sets `--ui-ease-out: var(--ease-out)` (the owner's choice of 2026-11-12, once
+the contract gave exits a token of their own, englishstreetventures/osn#2228),
+so `Modal`'s rise and every entry run by `@shared/design-tokens`' `animate-in`
+— `Tooltip` and `Popover` opening, the default `DropdownMenu`'s pop — follow
+cire's curve rather than the contract's `cubic-bezier(0.22, 1, 0.36, 1)`.
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if one app drops the
+mapping or maps an exit; `tests/styles/overlay-curves.browser.test.tsx` reads a
+`Popover`'s and a `Modal`'s curves back as they run. `@shared/toast` alone
+arrives on CSS's own `ease-out`, a keyword in its own stylesheet.
+
+Exits keep their own curves. `Popover`'s exit, like every `animate-out`, runs
+the contract's `--ui-ease-exit`, `cubic-bezier(0.22, 1, 0.36, 1)`, which no
+cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the nav sheet's
+and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s fill move
+between two places, which would take `--ease-in-out`, but they name no easing,
+so they run `--ease-out`; naming one is a change to `@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
@@ -595,6 +634,23 @@ the whole `animation` declaration, so `@theme` declares a one-overshoot
 `cubic-bezier` and an unlayered `@supports` block swaps the spring in. It is for
 small things arriving — a popover, a tick — never for a sheet or a page, which
 should not bounce.
+
+`--ease-glide` is the same spring damped harder (ratio 0.75, the same natural
+frequency per run): it goes 3% past at about half the run and settles, against
+`--ease-spring`'s 8%. Its `@theme` fallback is `cubic-bezier(0.36, 1.3, 0.3, 1)`,
+3% past, swapped out by the same `@supports` block. It moves one thing: the
+glass of a segmented strip (§7, `SegmentedTabs`), whose place glides on it while
+its width and height ease out, all on `--dur-slow` — 320ms on touch, 200ms at a
+desk. The move is the owner's choice from a rendered comparison (#2164): the
+house spring grew the glass past its own tab and threw it 8% past a far one,
+and a host taps these strips many times a session, so the move is a little
+slower than a pill slide, to be felt, and lands without a bounce. The glide is
+a token of its own rather than a firmer `--ease-spring`, so the droplet, a task
+holder's tick and the thread's send button keep the house spring. A second tap
+mid-move starts from where the glass is on screen, never from where it was
+going; a CSS transition carries the place over but not the speed, so the glass
+starts the new move at the curve's own pace. `@cire/ui`'s
+`tests/lib/sliding-pill.browser.test.tsx` samples it frame by frame.
 
 **The ladder follows the input, not the screen.** With a fine pointer — a mouse
 or a trackpad, at a desk — an organiser waits on every popover and panel before
@@ -616,22 +672,30 @@ keyframes over `calc(2s * var(--motion-scale))` on `--ease-in-out`.
 
 **One motion rule: choosing on base, hovering on fast** (the owner's
 choice). A choice being made — a strip's choice, a reply
-filter's — moves its colours on `--dur-base` with `--ease-in-out`, the glass's
-own step; a hover comes and goes on `--dur-fast` with `--ease-out`, halfway
-hovers included. A browser takes a transition from the state an element moves
-to, so the choice giving the mark up runs on the rest state's clock, the fast
-one: no marker is kept on the old choice for it. So the owner's "a chosen or
+filter's — moves its colours on `--dur-base` with `--ease-in-out`; a hover
+comes and goes on `--dur-fast` with `--ease-out`, halfway hovers included. A
+browser takes a transition from the state an element moves to, so the choice
+giving the mark up runs on the rest state's clock, the fast one: no marker is kept on the old choice for it. So the owner's "a chosen or
 unchosen change runs on base" holds only for the choice arriving; whether the
 one leaving should hold the base clock too is the owner's call (#1959). The
-glass still slides on the spring.
+glass under a strip's choice moves on its own, slower clock (`--dur-slow` with
+`--ease-glide`, above), so the chosen word's colour lands first: at 200ms on
+touch against the glass's 320ms, at 150ms at a desk against its 200ms.
 
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
-marketing site carry this ladder, its `pointer: fine` block and the two easings
-`--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
-fails if any copy differs. The spring is the two portals' alone, because only
-their animations read it — the glass strips slide on it in both, the droplet
-in host: the guest site and the marketing site declare neither the token nor
-the `@supports` block, and the test fails if one gains a copy. The vendor portal
+marketing site carry this ladder, its `pointer: fine` block, the two easings
+`--ease-out` and `--ease-in-out`, and the default curve set to `--ease-out`;
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if any copy differs or
+drops the default curve. The same test holds the two copies outside the apps
+to this file: `@cire/ui`'s test stylesheet (`tests/test-support/tailwind.css`,
+the desk ladder, both easings, the default curve and the springs' `@theme`
+fallbacks) and every
+`--dur-*` or `--ease-*` a cire story in the component lab sets inline. The two
+springs are the two portals' alone, because only their animations read them —
+the glass strips glide on `--ease-glide` in both, the thread's send button
+grows on `--ease-spring` in both, the droplet in host: the guest site and the
+marketing site declare neither token nor the `@supports` block, and the test
+fails if one gains a copy. The vendor portal
 renders no `Modal`, so it alone
 sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
 own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
@@ -643,7 +707,10 @@ slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
 `prefers-reduced-motion: reduce` is a global kill switch in `@layer base`, not a
 per-component branch. It sets `transition-duration` and `animation-duration` with
 `!important`, which beats an inline style — so a hook that writes a duration
-inline still stops, and no hook needs a `matchMedia` check of its own.
+inline still stops, and no hook needs a `matchMedia` check of its own. A view
+transition is the exception: the switch reaches none of its pseudo-elements, so
+the script that starts one checks `matchMedia` itself (the theme cross-fade,
+below).
 
 Two hooks carry the design law of §1, both from `@cire/ui` and shared with the
 vendor portal:
@@ -660,14 +727,54 @@ vendor portal:
 - **`createSlidingPill`** (`@cire/ui/sliding-pill`, shared with the vendor
   portal) — moves one highlight between tabs instead of cross-fading one
   highlight per tab. That is what makes a strip read as a single control rather
-  than a row of them. `SegmentedTabs` (§7) moves its glass with it on
-  `--ease-spring`; the module rail's marker keeps `--ease-out`. The pill's row
+  than a row of them. `SegmentedTabs` (§7) moves its glass with it, the place
+  on `--ease-glide` and the size on `--ease-out`, on `--dur-slow`; the module
+  rail's marker keeps `--ease-out` on `--dur-base` for both. The pill's row
   must be `relative`: an absolutely positioned element paints above
   non-positioned siblings in the same stacking context, and without it the
   underlay covers its own labels.
 
 The sheet variant of the module nav deliberately gets no pill. A pill measures a
 strip the eye can see all of at once, and a sheet is a list.
+
+**A view arrives by fading in** (the owner's choice, 2026-11-10, from a
+rendered comparison, englishstreetventures/osn#2164: "the arriving view fades in
+(opacity, `--dur-base`, `--ease-out`, never on first paint)", and "several of
+these should run a little slower than the compare page's defaults so people can
+feel them. Choose the rung per child, by eye"). `ModuleShell`'s measured box
+carries `view-arrive`, and the first change of module or sub-tab sets
+`data-swapped` on it. From then on each child the box gains fades from opacity 0
+to 1 on `--dur-base` with `--ease-out`: a view a change mounts, and a view
+taking over from its `Suspense` fallback. Each view is one element in the box,
+so the states a view swaps inside itself — its own loading row giving way to
+its rows — arrive at once; the shell holds the run sheet, whose root is a
+`Switch`, in one plain element for this. The owner chose the rung on
+2026-11-11: `--dur-base` (150ms at a desk, 200ms on touch), one rung below
+`--dur-slow`. Opacity only, so nothing fights the
+height; the view it replaces goes at once, because a fading view keeps its
+controls focusable in a box that is going away. The panel the page opens on
+never fades, because `data-swapped` is not set until the first change. The fade
+is a transition from `@starting-style`, not keyframes: a starting style applies
+only to an element's first style, so a child that stays mounted across a change
+— the invite builder across its four views — is never re-faded. None of these
+is a new child of the box, so each arrives at once: the builder's own steps and
+Content's sections, which show their cards by `hidden`; the re-mint panel the
+owner sees on Codes, which mounts inside the builder's column; a `Suspense`
+nested inside a view (the two editors in `EditWorkspace`, the builder in its
+column); and the controls a view lends the view bar. Under
+`prefers-reduced-motion: reduce` the view arrives at once: the transition is
+declared only under `no-preference`, because the kill switch's
+0.01ms still paints a starting style's opacity 0 for a frame or more. An engine
+without `@starting-style` (before Chrome 117, Safari 17.5, Firefox 129) swaps
+at once. A fading view is a stacking context, and the z-20 view bar stays
+painted over it; the two editors' save bars portal to `<body>` and never fade
+with it. `tests/components/ModuleShell.view-arrive.browser.test.tsx` checks the
+first paint, a sub-tab press under the stuck bar, a module change to a view with
+no `Suspense`, the `Suspense` hand-off, the run sheet's day arriving at once,
+reduced motion, the builder not re-faded, and both editors' save bars. The
+builder's hidden cards, the re-mint panel, a nested `Suspense`, the view bar's
+controls and an engine without `@starting-style` are read from the code, not
+tested.
 
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,
@@ -719,6 +826,20 @@ holds it: a delayed open runs `menu-pop-in` from the panel's bottom edge, a
 keyboard open and the next tip in a run run nothing, and under reduced motion
 no frame is partway.
 
+**The command palette fades up.** ⌘K's centred dialog rises through the page:
+from transparent, 10px below its place and at 98.5% of its size, scaled from
+its own centre, while its scrim fades in (`palette-rise` and `palette-scrim` in
+`global.css`). Both run on `--dur-base` with `--ease-out` — 150ms at a desk,
+200ms on touch — one rung slower than a hover, so the arrival can be seen. The
+owner asked for "a little slower than the compare page's fast rung"
+(englishstreetventures/osn#2164, 2026-11-10), and chose `--dur-base` for the
+entry (2026-11-11: "keep --dur-base for cmd palette entry"). It has no exit: a box
+holding live controls closes at once, so the palette and its scrim leave in
+one frame. Under reduced motion the global switch zeroes both, and it appears
+at once. `tests/components/CommandPalette.browser.test.tsx` holds the first
+frame (below its place, no sideways offset, opacity under 1), the clock, the
+one-frame exit at rest and mid-arrival, and the reduced-motion case.
+
 **A disclosure grows open and closes at once.** As a `<details>` opens, its box
 grows from the summary row to its full height while the body drops 4px and
 fades in, all on `::details-content`; it closes instantly, because a fading
@@ -759,6 +880,35 @@ card between its two heights on several frames, the body's opacity within 0.05
 of the card's share of its growth on each, the clip while it grows and none at
 rest, a nested card and its parent growing by the same amount, and under
 emulated reduced motion the full height on the first frame.
+
+**A panel that opens inside a row grows through `Reveal`** (`@cire/ui/reveal`),
+the owner's choice (2026-11-10, englishstreetventures/osn#2164). Its height
+grows from nothing as it fades in, on `--dur-base` with `--ease-out`, so the
+rows below move down with it rather than jump; it closes at once, because it
+holds fields. Where the portal draws it: a budget line's "per head" and
+"payments (n)" panels, and a message's time on a phone (§7, `MessageThread`).
+The owner chose `--dur-base` for the budget panels on 2026-11-11: one rung
+above `--dur-fast` (200ms on touch, 150ms at a desk), a little slower than the
+comparison page's fast defaults. `Reveal` opens on `--dur-base` unless its
+caller passes `pace="slow"`, which only the guest site does; the portal passes
+none. `Reveal` clips what it holds, inside 4px of room that keeps a focus ring
+at the content's edge whole, and a matching negative margin hands that room
+back to the layout, so a closed panel takes no height
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A reveal needs a
+wrapper that outlives the content it reveals). A budget line has no `gap`,
+because both closed `Reveal`s stay in it and a gap would add to every line:
+each part carries 4px above, below and to its right instead, and the line's
+padding is 4px less, so every gap still measures 8px, the space above an
+opening panel grows with it, and a closed panel adds nothing. The clip would
+also cut text that runs past the edge, so a
+payment's label and an event's name inside a panel wrap anywhere
+(`wrap-anywhere`): either can be one 80-character word. A control inside the
+panel that closes it — Cancel, Save, "Use a fixed amount" — hands focus back to
+the toggle that opened it, and a payment's ✕ hands it to the next payment's
+box, or to "Payment label" when none follows, so focus never falls to the page.
+`BudgetView.reveal.browser.test.tsx` samples the opening frame by frame and
+measures the room, the spacing and the wrapping; `BudgetView.test.tsx` holds
+the focus.
 
 **A toggled box that is not in the top layer fades out in CSS alone.**
 `transition-behavior: allow-discrete` holds `display` until an opacity fade has
@@ -805,6 +955,79 @@ the row at once. A drag that catches a settling row picks it up where it is.
 `@shared/sortable` does it for every list
 ([drag-and-drop](../../wiki/shared/drag-and-drop.md) §A dropped row settles
 into its slot).
+
+**A one-click delete can be taken back.** A task's, a budget line's or a
+gift's ✕ takes the row off at once, since it holds live controls, and raises a
+`@shared/toast` toast that offers Undo for five seconds (`lib/undo-delete.ts`,
+the owner's choice of a toast over an in-place strip, englishstreetventures/osn#2164).
+The toast's own clock is the window, so it pauses while the pointer or focus
+is on the toast. A ✕ pressed from the keyboard or by a screen reader moves
+focus to its Undo, so the window waits for as long as focus stays there, and
+Undo hands focus back to the restored row's ✕. Each Undo is named after its
+row for a screen reader ("Undo deleting “Book the venue”"), and is drawn like
+every portal action: its label as written, on a pill (§7 Labels). Nothing is
+sent until the toast has gone, so Undo puts back the very row, where it stood
+unless the list was reordered while the toast was up (then it can land one
+place later, after the row it ties with), and a second toast says so in its
+own live region. Several deletes stack, oldest at the bottom edge, and each
+Undo restores its own row. The undo toast arrives on `--dur-base` and
+`--ease-out` (`.undo-toast` maps `--toast-enter-duration` and
+`--toast-enter-easing`): 150ms at a desk and 200ms on touch, against the
+package's 160ms. That makes it faster than the default at a desk and slower
+on touch. The owner chose `--dur-base` over `--dur-slow` after watching both
+rendered. Every other
+portal toast keeps the package's 160ms arrival, as the vendor portal's do. An
+undo toast leaves at once (`.undo-toast.ui-toast--leaving`), because it holds
+Undo. The row Undo puts back fades in where it stood (`row-return`: opacity
+alone, so the box a drag measures does not move, on `--dur-slow` and
+`--ease-out`), and only on that return. Under reduced motion the global switch
+makes all of it immediate. `tests/lib/undo-delete.browser.test.tsx` and the
+three `*.undo.browser.test.tsx` files hold it, and picture the stack at 390
+and 1280px in both ramps in `e2e-artifacts/cire-host/undo-delete/`.
+
+**A theme change cross-fades the page.** A theme chosen in the account menu
+(§6) is applied inside `document.startViewTransition` (`@cire/ui/lib/theme`),
+so the whole page, the open menu included, fades from one ramp to the other as
+one snapshot: nothing moves, only colour changes. The fade runs on `--dur-base`
+with `--ease-in-out`, 150ms at a desk and 200ms on touch. The owner chose this
+step, and the curve, for a fade that is brief and does not hold the page
+(2026-11-11). The in-out curve
+passes quickly through the halfway frame, where the two ramps meet in a flat
+grey. `::view-transition-group(root)` is timed with the two snapshots, so the
+transition ends with the fade, not on the browser's own 0.25s. The vendor
+portal carries the same rules, since it shares the script.
+
+While the fade runs the browser hit-tests the snapshot, not the page: a press
+lands on `<html>` whatever is under it. The theme choices keep the menu open,
+so a second try would read as a press outside it and close it. Until the fade
+ends the script drops a `pointerdown` on `<html>`: no `pointerdown` listener
+after it sees the press, so the menu, which dismisses on `pointerdown`, stays
+open and focus stays put. The press is not replayed; the host makes it again
+once the fade ends, so the pointer waits no longer than the fade. The `click`
+that follows still reaches `<html>`. A choice made from the keyboard is never
+dropped. `pointer-events: none` on `::view-transition` does not help: the
+captured root takes no press either
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A view transition
+takes every press until it ends).
+
+A second choice mid-fade, which only the keyboard can make, or a change of
+viewport size, such as a phone turned, skips the running fade. The skipped
+fade still applies its choice, the last choice lands, and the script handles
+the skipped fade's rejected `ready`, so nothing is logged.
+
+Under reduced motion, and in a browser without `startViewTransition`, the
+theme changes at once: the rules sit inside
+`prefers-reduced-motion: no-preference`, because the global switch selects `*`
+and reaches no pseudo-element, and the script checks `matchMedia` and starts no
+transition. `tests/components/ProfileMenu.crossfade.browser.test.tsx` reads the
+two snapshots' duration and curve and the transition's end, keeps the open
+menu through a press mid-fade and frees the pointer after it, lands two quick
+choices and a choice cut short by a resize with no rejection, and changes the
+theme at once under reduced motion and with no `startViewTransition`;
+`tests/components/CommandPalette.browser.test.tsx` checks that the palette's
+theme row starts no fade. `cire/vendor`'s `tests/styles/tokens.test.ts` fails
+if the two portals' rules differ, or if the guest or marketing site carries
+them.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
@@ -973,6 +1196,12 @@ Three states, not two: `system`, `dark`, `light` (`@cire/ui/lib/theme`'s
 Collapsing "system" into "dark" would silently convert a host who follows their
 OS into a host pinned to dark, the moment they opened the menu to look at it.
 
+A theme chosen in the account menu cross-fades the page (§4): the menu passes
+`{ fade: true }` to `setThemePreference`, and nothing else does. Every other
+change of theme applies at once: the command palette's theme row, a keyboard
+action that should not wait on a fade; the boot script's, before first paint;
+and the OS's while a host is on "system", which nobody in the page chose.
+
 `src/lib/preference-keys.ts` holds the storage keys and the boot script
 (`@cire/ui/lib/theme-boot`'s `themeBootScript`, over `cire.host.theme`),
 inlined in `<head>` before the stylesheet on every page. It has to run before first paint — a host
@@ -1017,7 +1246,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `SkeletonOutline` | A loading placeholder that is the real row drawn hollow (§4, Hollow rows): the view renders its own markup from a typed sample inside it. `aria-hidden` and `inert`, so nothing inside is read, focused or pressed; the region that holds it and what replaces it carries `aria-busy`, and an outline lent to the view bar, outside that region, needs none. It renders in the browser only (`client:only`). It takes no `class`: its children bring their own layout. A part of the row that is a disc or a chip takes `data-skeleton="block"`, a button drawn as words `data-skeleton="text"`. Its children are a still picture: a part that changes inside them after it mounts is not redrawn, so a layout that changes renders a new outline. |
 | `MessageThread`                                                 | An enquiry thread, the same in both portals: the messages oldest first in segments, each opened by a centred time line, and the reply box under them (§An enquiry thread). Your words on a 20% gold wash, theirs on half the surface inside a hairline, both at the 16px corner, `px-4 py-2.5`, the base step in full ink, 3/4 of the column wide. |
 | `Note`                                                          | Cire's standing note: `Notice`'s `accent` tone led by a ✦, drawn as `Notice`'s circled icons are (inline, `aria-hidden`, in the tone's readable gold, sized from the text step) with "Note" read in its place; `sm` unless a size is asked for. **Placed only where the owner asks for one** (englishstreetventures/osn#1868: "I'll let you know when to use a cire note"); a standing note anywhere else is `Notice`'s unmarked `accent`. Not on the marketing site, whose readable gold is its metal gold, not inside the invite preview, which re-declares the couple's palette below the root, and not on `--bg-deep`, where its words read 4.35:1 in light; `tests/styles/notice-contrast.browser.test.tsx` holds it and every `Notice` tone at 4.5:1 on the page, the card's three fills, the raised surface and the run sheet's coming-up row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), `--inner-lip` and `--elev-1` — that slides to the chosen one on `--dur-base` and `--ease-spring` (`createSlidingPill`), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone. |
+| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), `--inner-lip` and `--elev-1` — that glides to the chosen one on `--dur-slow`, its place on `--ease-glide` and its size on `--ease-out` so it never grows past the choice (`createSlidingPill`, §4; the move is the owner's choice, #2164), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone. |
 | `Wordmark`, `WordmarkPlaceholder`                               | The top bar's way home, "✦ Cire": a button named by its label alone ("Cire — all weddings"), the ✦ in readable gold at rest and under the pointer, "Cire" in the display face at `md`, light, wide tracking, in a 6px box that takes the surface at 60% under the pointer. `Button`'s own ring; the box pulls 4px left and none right, so the ring clears the divider by 4px. Only the wash fades, on `--dur-fast`. `WordmarkPlaceholder` is the same box and glyphs with nothing to press, which `index.astro`'s boot bar renders to HTML, so the island's swap moves nothing. |
 | `SignInCard`, `SignInPanel`, `signInCardClass`                 | The login page, the same on both portals but for the portal's name: "Cire · Host portal" over a roman "Sign in", and the opaque `xl` card with its top edge lit by `--inner-lip`, at a 30rem measure set at the top of the page so the header never moves while the island fills the card. The panel: copy at the small step, one large pill, a danger `Notice` for a declined, failed or unavailable sign-in; after the press "Connecting to musubi…" at full strength, a second press ignored and announced, and the button back after a back-forward restore or ten seconds. It resumes on `?returnTo` only when it is a same-origin path. The card, the measure, the type, the label and the pending state are the owner's choices. |
 | `PersonAvatar`, `avatarTriggerClass`                           | A person's photo, drawn only from an https URL with no `Referer`, with a page-wide set of URLs that failed. `blank`, a face in a stack or a list: the empty avatar (§Who holds a task), with `ring` for the stack's 2px band in the page's colour outside the circle. `initial`, an account's circle: a hairline with no fill of its own, photo or letter, the letter as §3 sets it. `avatarTriggerClass` is the 36px button the account menu opens from: the portals' pill ground (`--pill-ground`) and `Button`'s ring; the avatar's edge turns `--gold-dim` under its pointer. The fill is the trigger's because the guest site's account card lays no ground under a gold word. |

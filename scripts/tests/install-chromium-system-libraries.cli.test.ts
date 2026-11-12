@@ -71,13 +71,16 @@ interface World {
 
 let next = 0;
 
-/** A fake runner: the mirror and its signed index, an empty archive, and stubs on a PATH of its own. */
-function world(mirror: readonly Pkg[]): World {
+/**
+ * A fake runner: the mirror and its signed index, an empty archive, and stubs
+ * on a PATH of its own. The cache is the directory `cacheName` in it.
+ */
+function world(mirror: readonly Pkg[], cacheName = "cache"): World {
   next += 1;
   const dir = mkdtempSync(join(scratch, `case-${next}-`));
   const w: World = {
     dir,
-    cache: join(dir, "cache"),
+    cache: join(dir, cacheName),
     archives: join(dir, "root", "var", "cache", "apt", "archives"),
     work: join(dir, "work"),
     bin: join(dir, "bin"),
@@ -170,6 +173,12 @@ function install(w: World): Run {
   };
 }
 
+/** Each file in the cache and the bytes it holds. */
+const cacheContents = (w: World) =>
+  Object.fromEntries(
+    readdirSync(w.cache).map((file) => [file, readFileSync(join(w.cache, file), "utf8")]),
+  );
+
 /** Each needed package was installed with the mirror's bytes, from `from`. */
 function expectGenuine(run: Run, expected: ReadonlyArray<readonly [Pkg, "archive" | "network"]>) {
   expect(Object.fromEntries(run.installed), run.output).toEqual(
@@ -185,6 +194,61 @@ const BETA: Pkg = { name: "fonts-beta", version: "1.0", arch: "all" };
 const GAMMA: Pkg = { name: "fonts-gamma", version: "1.0", arch: "all" };
 const LIB64: Pkg = { name: "libfoo1", version: "1.0", arch: "amd64" };
 const LIB32: Pkg = { name: "libfoo1", version: "1.0", arch: "i386", needed: false };
+
+/** The prefix of the one warning the script prints when it carries on without apt. */
+const SKIPPED = "::warning::install-chromium-system-libraries: skipped apt: ";
+
+/** The start of the line the script prints when it fails rather than carry on without apt. */
+const NOT_SKIPPED = "install-chromium-system-libraries: not skipped: ";
+
+/**
+ * What `apt-get update` printed in each attempt of ci.yml run 43054765174 on
+ * 2026-11-11, when the runner could resolve none of Ubuntu's mirrors: one
+ * other repository answered, the Ubuntu ones never did.
+ */
+const UNREACHABLE = [
+  "Get:6 https://packages.microsoft.com/ubuntu/26.04/prod resolute InRelease [3964 B]",
+  "Ign:2 http://azure.archive.ubuntu.com/ubuntu resolute InRelease",
+  "Err:2 https://security.ubuntu.com/ubuntu resolute InRelease",
+  "  Temporary failure resolving 'azure.archive.ubuntu.com'",
+  "  Temporary failure resolving 'archive.ubuntu.com'",
+  "  Temporary failure resolving 'security.ubuntu.com'",
+  "",
+].join("\n");
+
+/** apt's own words for an index it fetched and could not trust (methods/gpgv.cc, apt-pkg/acquire-item.cc). */
+const UNTRUSTED: Readonly<Record<string, string>> = {
+  NO_PUBKEY: [
+    "Err:6 https://packages.microsoft.com/ubuntu/26.04/prod resolute InRelease",
+    "  The following signatures couldn't be verified because the public key is not available: NO_PUBKEY EB3E94ADBE1229CF",
+    "",
+  ].join("\n"),
+  BADSIG: [
+    "Err:6 https://packages.microsoft.com/ubuntu/26.04/prod resolute InRelease",
+    "  The following signatures were invalid: BADSIG EB3E94ADBE1229CF Microsoft (Release signing) <gpgsecurity@microsoft.com>",
+    "",
+  ].join("\n"),
+  "Hash Sum mismatch": [
+    "E: Failed to fetch https://packages.microsoft.com/ubuntu/26.04/prod/dists/resolute/main/binary-amd64/Packages.bz2  Hash Sum mismatch",
+    "   Hashes of expected file:",
+    "    - SHA256:0000000000000000000000000000000000000000000000000000000000000000",
+    "",
+  ].join("\n"),
+};
+
+/**
+ * What `apt-get update` warns when an index fails its signature check and apt
+ * holds an older copy: it keeps that copy (apt-pkg/acquire-item.cc).
+ */
+const UNTRUSTED_KEPT = [
+  "Err:2 http://azure.archive.ubuntu.com/ubuntu resolute InRelease",
+  "  The following signatures were invalid: BADSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key (2018) <ftpmaster@ubuntu.com>",
+  "W: An error occurred during the signature verification. The repository is not updated and the previous index files will be used. OpenPGP signature verification failed: http://azure.archive.ubuntu.com/ubuntu resolute InRelease: The following signatures were invalid: BADSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key (2018) <ftpmaster@ubuntu.com>",
+  "",
+].join("\n");
+
+/** Makes every `apt-get update` print `text` and fail without an index. */
+const unreachable = (w: World, text: string) => writeFileSync(join(w.dir, "update-fails"), text);
 
 describe("install-chromium-system-libraries.sh", () => {
   test("a cached package whose bytes the signed index names, one with an epoch among them, is installed from the archive and not downloaded", () => {
@@ -204,16 +268,22 @@ describe("install-chromium-system-libraries.sh", () => {
       run.log.findIndex((line) => line.startsWith("apt-cache show")),
     );
     expect(run.log).toContain(`apt-cache show ${EPOCH.name}=${EPOCH.version}`);
+    // A mirror apt reaches installs as it always has: no dry run, no warning.
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output).not.toMatch(/^::warning::/m);
     // Without the first line apt deletes what it downloads and the cache saves
-    // nothing; without the timeouts a stalled mirror holds an attempt for 120 s.
+    // nothing. The second spares each connection a DNS query no mirror answers;
+    // when names do not resolve, that query is half the wait. The third makes an
+    // index that fails its signature check fail the update, where apt would
+    // otherwise keep the old copy and carry on. Retries and timeouts are the
+    // image's own (zz-retries), which apt reads after this file.
     expect(
       readFileSync(join(w.dir, "root", "etc", "apt", "apt.conf.d", "80-ci-chromium"), "utf8"),
     ).toBe(
       [
         'APT::Keep-Downloaded-Packages "true";',
-        'Acquire::Retries "5";',
-        'Acquire::http::Timeout "30";',
-        'Acquire::https::Timeout "30";',
+        'Acquire::EnableSrvRecords "false";',
+        'APT::Update::Auth-Failure { "false"; };',
         "",
       ].join("\n"),
     );
@@ -256,9 +326,7 @@ describe("install-chromium-system-libraries.sh", () => {
     cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
     cacheFile(w, fileOf(old), bytesOf(old));
     writeFileSync(join(w.dir, "fail"), "");
-    const before = Object.fromEntries(
-      readdirSync(w.cache).map((file) => [file, readFileSync(join(w.cache, file), "utf8")]),
-    );
+    const before = cacheContents(w);
     const run = install(w);
     // apt's own status, through retry.sh and out of the step.
     expect(run.status, run.output).toBe(100);
@@ -267,11 +335,7 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.output.match(/^::error::/gm)?.length, run.output).toBe(1);
     expect(run.output).not.toContain("kept for the cache");
     // Neither emptied nor swapped for a partial archive the E2E job would save.
-    expect(
-      Object.fromEntries(
-        readdirSync(w.cache).map((file) => [file, readFileSync(join(w.cache, file), "utf8")]),
-      ),
-    ).toEqual(before);
+    expect(cacheContents(w)).toEqual(before);
   });
 
   test("a cached package holding the bytes the index names for another architecture is dropped", () => {
@@ -379,5 +443,258 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.status, run.output).toBe(0);
     expect(run.archiveAtInstall).toEqual([]);
     expectGenuine(run, [[ALPHA, "network"]]);
+  });
+
+  test("an index that fails its signature check where apt holds an older copy fails every update, so no cached package is checked against that copy or installed, and the step fails saying why", () => {
+    const w = world([ALPHA]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    writeFileSync(join(w.dir, "update-untrusted"), UNTRUSTED_KEPT);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log.filter((line) => line === "apt-get update")).toHaveLength(3);
+    expect(
+      run.log.filter((line) => line.startsWith("apt-cache show") || line === "install-deps"),
+    ).toEqual([]);
+    expect(run.installed.size).toBe(0);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output).toContain(`${NOT_SKIPPED}apt reported a signature or hash failure`);
+    // Never read as an outage.
+    expect(run.output).not.toContain(KEPT_INDEX);
+    expect(cacheContents(w)).toEqual(before);
+  });
+
+  test("when the script cannot keep its copy of the output, the step fails, though the install passed, and leaves the cache as it found it", () => {
+    const old: Pkg = { ...ALPHA, version: "0.9-1" };
+    const w = world([ALPHA]);
+    // A cache the install would refresh: the old version out, the new one in.
+    cacheFile(w, fileOf(old), bytesOf(old));
+    // A tee that cannot write its file, as on a full disk: it still passes
+    // what it reads on to the log, and exits 1. apt's configuration it writes.
+    writeFileSync(
+      join(w.bin, "tee"),
+      [
+        "#!/usr/bin/env bash",
+        'case "${*: -1}" in */apt.conf.d/*) exec /usr/bin/tee "$@" ;; esac',
+        "cat",
+        "exit 1",
+      ].join("\n"),
+    );
+    chmodSync(join(w.bin, "tee"), 0o755);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(1);
+    expect(run.log).toContain("install-deps");
+    expect(run.output.match(/^::error::install-chromium-system-libraries: /gm), run.output).toEqual(
+      ["::error::install-chromium-system-libraries: "],
+    );
+    expect(run.output).not.toContain("kept for the cache");
+    expect(cacheContents(w)).toEqual(before);
+  });
+});
+
+// The step carries on without apt only when no `apt-get update` finished, apt
+// said the network failed and never that an index was untrusted, and
+// Playwright's dry run finds nothing missing. Then it installs nothing, so no
+// cached package can reach apt; every other failure fails the step as before.
+describe("install-chromium-system-libraries.sh when apt cannot reach the mirror", () => {
+  test("with nothing missing, the step passes with one warning, after three attempts, having installed nothing and left the cache as it found it", () => {
+    // retry.sh's annotations quote the command line, cache path and all; a
+    // path holding words apt's integrity errors use must not read as one.
+    const w = world([ALPHA], "cache-signed-hash");
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    unreachable(w, UNREACHABLE);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    expect(
+      run.output.match(/^::warning::install-chromium-system-libraries: /gm),
+      run.output,
+    ).toEqual([`::warning::install-chromium-system-libraries: `]);
+    expect(run.output).toContain(SKIPPED);
+    expect(run.log.filter((line) => line === "apt-get update")).toHaveLength(3);
+    expect(run.log.at(-1)).toBe("install-deps --dry-run");
+    // Nothing judged against an index, nothing put in the archive or installed.
+    expect(
+      run.log.filter((line) => line.startsWith("apt-cache show") || line === "install-deps"),
+    ).toEqual([]);
+    expect(readdirSync(w.archives)).toEqual([]);
+    expect(run.installed.size).toBe(0);
+    expect(cacheContents(w)).toEqual(before);
+  });
+
+  test("with a package missing, the step fails with apt's status and the dry run's list", () => {
+    const w = world([ALPHA]);
+    unreachable(w, UNREACHABLE);
+    writeFileSync(join(w.dir, "missing"), "xfonts-utils\nfonts-unifont\n");
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log.at(-1)).toBe("install-deps --dry-run");
+    expect(run.output).toContain(
+      "Missing system dependencies (2):\n  fonts-unifont\n  xfonts-utils\n",
+    );
+    expect(run.output).toContain(`${NOT_SKIPPED}playwright install-deps --dry-run chromium`);
+    expect(run.output).not.toContain(SKIPPED);
+  });
+
+  test.each(Object.keys(UNTRUSTED))(
+    "beside a network failure, an index apt could not trust (%s) fails the step without a dry run",
+    (kind) => {
+      const w = world([ALPHA]);
+      unreachable(w, `${UNREACHABLE}${UNTRUSTED[kind]}`);
+      const run = install(w);
+      expect(run.status, run.output).toBe(100);
+      expect(run.log).not.toContain("install-deps --dry-run");
+      expect(run.output).toContain(`${NOT_SKIPPED}apt reported a signature or hash failure`);
+      expect(run.output).not.toContain(SKIPPED);
+    },
+  );
+
+  test("once an `apt-get update` has finished, a download failing on the network fails the step, and the cache was checked against that index", () => {
+    const w = world([ALPHA, BETA]);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    writeFileSync(
+      join(w.dir, "fail"),
+      [
+        `Err:1 http://azure.archive.ubuntu.com/ubuntu resolute/universe amd64 ${BETA.name} all ${BETA.version}`,
+        "  Temporary failure resolving 'azure.archive.ubuntu.com'",
+        `E: Failed to fetch http://azure.archive.ubuntu.com/ubuntu/pool/universe/f/${BETA.name}/${fileOf(BETA)}  Temporary failure resolving 'azure.archive.ubuntu.com'`,
+        "E: Unable to fetch some archives, maybe run apt-get update or try with --fix-missing?",
+        "",
+      ].join("\n"),
+    );
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output).toContain(`${NOT_SKIPPED}apt-get update finished`);
+    expect(run.output).not.toContain(SKIPPED);
+    // In every attempt the cached package was checked after the update.
+    const updates = run.log.flatMap((line, at) => (line === "apt-get update" ? [at] : []));
+    const checks = run.log.flatMap((line, at) =>
+      line === `apt-cache show ${ALPHA.name}=${ALPHA.version}` ? [at] : [],
+    );
+    expect(updates).toHaveLength(3);
+    expect(checks).toHaveLength(3);
+    for (const [attempt, at] of updates.entries()) expect(checks[attempt]).toBeGreaterThan(at);
+  });
+
+  test("a failure in which apt names no network fault fails the step without a dry run", () => {
+    const w = world([ALPHA]);
+    unreachable(
+      w,
+      "E: The repository 'http://azure.archive.ubuntu.com/ubuntu resolute Release' does not have a Release file.\n",
+    );
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output).toContain(`${NOT_SKIPPED}apt reported no network failure`);
+    expect(run.output).not.toContain(SKIPPED);
+  });
+
+  test("a dry run that passes without saying every dependency is installed, as on a platform Playwright does not know, fails the step", () => {
+    const w = world([ALPHA]);
+    unreachable(w, UNREACHABLE);
+    writeFileSync(join(w.dir, "unsupported"), "");
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log.at(-1)).toBe("install-deps --dry-run");
+    expect(run.output).toContain(`${NOT_SKIPPED}playwright install-deps --dry-run chromium`);
+    expect(run.output).not.toContain(SKIPPED);
+  });
+});
+
+/** The start of the warning the script prints when apt installed against the index copies on disk. */
+const KEPT_INDEX =
+  "::warning::install-chromium-system-libraries: apt-get update could not fetch every index";
+
+/**
+ * Makes the mirror's names unresolvable, as on 2026-11-11: every `apt-get
+ * update`, the script's and Playwright's own, prints `UNREACHABLE` and
+ * finishes keeping the index on disk only when the resolver gives up fast
+ * enough (fake-apt.ts says how fast), and a download fails.
+ */
+const unresolvable = (w: World) => writeFileSync(join(w.dir, "unresolvable"), UNREACHABLE);
+
+/**
+ * The index the runner image was built with: the mirror's, as apt fetched
+ * and checked it then, already in apt's lists before the step runs.
+ */
+function indexOnDisk(w: World): void {
+  const lists = join(w.dir, "root", "var", "lib", "apt", "lists");
+  mkdirSync(lists, { recursive: true });
+  writeFileSync(join(lists, "Packages"), readFileSync(join(w.dir, "mirror", "Packages")));
+}
+
+// With the resolver bounded, `apt-get update` gives up on names that do not
+// resolve inside its attempt, exits 0 and keeps the index on disk. Each cached
+// package is then checked against that index, as against a fresh one, and apt
+// installs what it can without the network.
+describe("install-chromium-system-libraries.sh when the mirror's names do not resolve", () => {
+  test("with the cache holding what the index on disk names, the first attempt installs it all from the cache and passes with one warning", () => {
+    const w = world([ALPHA, EPOCH]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    cacheFile(w, fileOf(EPOCH), bytesOf(EPOCH));
+    unresolvable(w);
+    // On the image the fonts are not installed, so carrying on without apt is
+    // not open: only the install can pass the step.
+    writeFileSync(join(w.dir, "missing"), `${ALPHA.name}\n${EPOCH.name}\n`);
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    // Both updates, the script's and Playwright's, finished in the one attempt.
+    expect(run.output).not.toContain("::warning::retry.sh");
+    expect(run.log.filter((line) => line === "apt-get update")).toHaveLength(1);
+    expect(run.log.filter((line) => line === "install-deps")).toHaveLength(1);
+    expectGenuine(run, [
+      [ALPHA, "archive"],
+      [EPOCH, "archive"],
+    ]);
+    expect(run.downloaded).toEqual([]);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output.match(/^::warning::/gm), run.output).toEqual(["::warning::"]);
+    expect(run.output).toContain(KEPT_INDEX);
+    expect(cacheContents(w)).toEqual({
+      [fileOf(ALPHA)]: bytesOf(ALPHA),
+      [fileOf(EPOCH)]: bytesOf(EPOCH),
+    });
+  });
+
+  test("with the cache holding a newer version than the index on disk names, the step fails after three attempts with one line saying so, having put nothing unchecked in the archive", () => {
+    const old: Pkg = { ...ALPHA, version: "0.9-1" };
+    // The image's index names 0.9-1; the cache was saved after 1.0-1 reached the mirror.
+    const w = world([old]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    unresolvable(w);
+    writeFileSync(join(w.dir, "missing"), `${ALPHA.name}\n`);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log.filter((line) => line === "install-deps")).toHaveLength(3);
+    expect(run.archiveAtInstall).toEqual([]);
+    expect(run.installed.size).toBe(0);
+    expect(run.output).toMatch(new RegExp(`^::warning::.*dropped ${fileOf(ALPHA)}`, "m"));
+    expect(run.output.match(new RegExp(`^${NOT_SKIPPED}`, "gm")), run.output).toHaveLength(1);
+    expect(run.output).toContain(`${NOT_SKIPPED}apt-get update could not fetch every index`);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output).not.toContain(SKIPPED);
+    expect(cacheContents(w)).toEqual(before);
+  });
+
+  test("with the index on disk kept, an install that fails for a reason other than a download does not blame the cache", () => {
+    const w = world([ALPHA]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    unresolvable(w);
+    writeFileSync(join(w.dir, "fail"), "E: Sub-process /usr/bin/dpkg returned an error code (1)\n");
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.output).toContain(
+      "W: Some index files failed to download. They have been ignored, or old ones used instead.",
+    );
+    expect(run.output.match(new RegExp(`^${NOT_SKIPPED}`, "gm")), run.output).toHaveLength(1);
+    expect(run.output).toContain(`${NOT_SKIPPED}apt-get update finished, so apt held an index`);
+    expect(run.output).not.toContain("could not fetch every index");
   });
 });

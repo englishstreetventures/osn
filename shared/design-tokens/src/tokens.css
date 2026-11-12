@@ -293,10 +293,12 @@
     --ui-dur-slow: 320ms;
     /* A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on `--ui-modal-exit`. */
     --ui-dur-exit: 80ms;
-    /* Something arriving; a Kobalte overlay leaving runs on it too. `Modal`'s exit runs `ease-in`. */
+    /* Something arriving. */
     --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     /* Something moving between two places. */
     --ui-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    /* A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal`'s exit runs `ease-in`. */
+    --ui-ease-exit: cubic-bezier(0.22, 1, 0.36, 1);
     /* How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog`. */
     --ui-scale-enter: 0.96;
     /* How small an overlay ends as it leaves, `Modal` included. Nearer 1 than the entry. */
@@ -333,7 +335,9 @@
  *
  * An entry runs `--ui-dur-fast`; an exit runs `--ui-dur-exit`, shorter, and
  * ends nearer full size than the entry starts. A panel leaving has nothing
- * more to tell the reader, so it gets out of the way.
+ * more to tell the reader, so it gets out of the way. An entry's curve is
+ * `--ui-ease-out` and an exit's is `--ui-ease-exit`, so an app that maps its
+ * arrivals onto its own curve leaves its exits where they were.
  *
  * Reduced motion has one home: the block after the utilities switches
  * `--ui-enter-animation` and `--ui-exit-animation` to `none`, which the two
@@ -369,7 +373,7 @@
 @utility animate-out {
   animation-name: var(--ui-exit-animation, ui-exit);
   animation-duration: var(--ui-dur-exit, 80ms);
-  animation-timing-function: var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  animation-timing-function: var(--ui-ease-exit, cubic-bezier(0.22, 1, 0.36, 1));
   animation-fill-mode: both;
 }
 

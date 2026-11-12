@@ -10,6 +10,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-auth]]"
   - "[[d1-limits]]"
+  - "[[toast]]"
   - "[[realtime]]"
 last-reviewed: 2026-11-12
 ---
@@ -576,7 +577,11 @@ function it returns, so a read that lands while one is out, or was sent before
 one ended, is dropped, and is sent again once the last write ends. The read
 that sees the write therefore always goes, whichever reaches the tab first,
 the write's answer or its signal, and no re-read undoes what the organiser did
-on screen. See [[cire-host-portal-layout]].
+on screen. See [[cire-host-portal-layout]]. A delete's write is out from its ✕
+until the delete is final: the task leaves the list at once, and the `DELETE`
+goes only once its undo toast has gone without Undo ([[toast]]), so no re-read
+in that window brings the task back. Undo puts the task back as the list held
+it and ends the write, with nothing sent.
 
 The run sheet (`run-sheet-store.ts`) follows the same writes and the same
 signals ([[cire-run-sheet#In the portal]]).
@@ -585,7 +590,8 @@ The tests are `cire/api/tests/routes/tasks.test.ts` ("task writes publish
 tasks-changed"), `organiser-settings.test.ts` ("a date move tells open
 checklists"), `organiser-changes.test.ts` ("a schedule change and the checklist
 tasks linked to its events"), `cire/host/tests/lib/tasks-store.test.ts` ("the portal's own
-writes", "a signal's re-read") and `cire/host/tests/components/ChecklistView.test.tsx`. No E2E flow
+writes", "a signal's re-read"), `cire/host/tests/components/ChecklistView.test.tsx`
+and, for the undo window, `ChecklistView.undo.browser.test.tsx` beside it. No E2E flow
 reaches the hub ([[realtime#Tests]]).
 
 ## Tasks store (organiser client)

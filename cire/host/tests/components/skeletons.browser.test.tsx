@@ -51,7 +51,10 @@ const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({
   useAuth: () => ({ authFetch, activeProfileId: () => "usr_amy" }),
 }));
-vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
+vi.mock("@shared/toast", () => ({
+  toast: { success: () => {}, error: () => {}, info: () => {} },
+  toasts: () => [],
+}));
 vi.mock("../../src/lib/touch-feedback", () => ({
   haptic: () => {},
   hapticsAvailable: () => false,

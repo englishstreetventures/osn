@@ -716,10 +716,49 @@ which is why `Modal` defers `close()` in script (its overlays section in
 ### A pseudo-element escapes a `*` reduced-motion clamp
 
 Each app's reduced-motion block selects `*, *::before, *::after`, and no other
-pseudo-element matches it. An animation on `::details-content`, `::backdrop` or
-`::marker` keeps running for a reader who asked for none. Declare such an
-animation inside `@media (prefers-reduced-motion: no-preference)` instead of
-relying on the clamp to undo it.
+pseudo-element matches it. An animation on `::details-content`, `::backdrop`,
+`::marker` or a `::view-transition-*` keeps running for a reader who asked for
+none. Declare such an animation inside
+`@media (prefers-reduced-motion: no-preference)` instead of relying on the clamp
+to undo it. A view transition needs the script to check too: outside that block
+its pseudo-elements fall back to the browser's own 0.25s fade, so the script
+that would start one checks `matchMedia("(prefers-reduced-motion: reduce)")`
+and applies the change at once instead (`@cire/ui`'s `lib/theme`).
+
+### A view transition takes every press until it ends
+
+While `document.startViewTransition` runs, the browser draws the page as
+snapshots and hit-tests those, not the page: every press lands on `<html>`,
+whatever is under it, and `elementFromPoint` returns `<html>`. A menu or popover
+left open under the transition reads that press as one outside it and closes.
+`pointer-events: none` on `::view-transition` does not help when the root is
+captured, as it is by default: the live page under the overlay takes no press
+either.
+
+So keep the transition short, end every animation in it on the same token —
+time `::view-transition-group(root)` with the snapshots, or it runs the
+browser's 0.25s and holds the pointer that long — and drop a press on `<html>`
+while it runs: a capturing `pointerdown` listener on `window` that calls
+`preventDefault()` and `stopImmediatePropagation()`, removed when `finished`
+settles. The press is not replayed; the person makes it again after the fade.
+No `pointerdown` listener after that one sees it, so a dismiss handler that
+listens for `pointerdown`, as Kobalte's does, does not fire, and focus stays
+where it was. The `click` that follows still reaches `<html>`, so a popover
+that closes on a `click` outside it still closes.
+
+A second `startViewTransition`, or a change of viewport size, skips a running
+transition. The skipped one still runs its update, and its `ready` rejects
+(`AbortError` or `InvalidStateError`). Give `ready` a handler
+(`transition.ready.catch(() => {})`), or each skip surfaces as an unhandled
+rejection, which fails a Vitest run.
+
+`@cire/ui`'s `lib/theme` does all of this for the portals' theme cross-fade
+(`cire/host/DESIGN.md` §4). In `cire/host`,
+`tests/components/ProfileMenu.crossfade.browser.test.tsx` checks that the press
+lands on `<html>` with `pointer-events: none` on `::view-transition`, that the
+open menu survives a press mid-fade and the `click` still reaches `<html>`, that
+the listener goes when the fade ends, and that two quick choices or a resize
+mid-fade raise no rejection.
 
 ### A box grown to `auto` holds its clip only while it grows
 

@@ -40,6 +40,7 @@ vi.mock("@shared/rp-auth/solid", async () => {
 vi.mock("@shared/toast", () => ({
   Toaster: () => null,
   toast: { success: () => {}, error: () => {} },
+  toasts: () => [],
 }));
 // The same shape `PreviewInviteButton.browser.test.tsx` mocks it with.
 // `test-support/mocks`' `organiserApiMock` cannot be loaded from a

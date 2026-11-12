@@ -136,7 +136,7 @@ export default function ProfileMenu(props: {
           <DropdownMenuLabel tone="eyebrow">Appearance</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={themePreference()}
-            onChange={(next) => setThemePreference(next as ThemePreference)}
+            onChange={(next) => setThemePreference(next as ThemePreference, { fade: true })}
           >
             <For each={THEME_OPTIONS}>
               {(option) => (

@@ -1,5 +1,35 @@
 # @tools/lab
 
+## 0.3.55
+
+### Patch Changes
+
+- add334b: The cire stories for `MessageThread`, `PersonAvatar` and `Wordmark` set cire's
+  `--ease-out` to `cubic-bezier(0.23, 1, 0.32, 1)`, the curve the cire apps run.
+
+## 0.3.54
+
+### Patch Changes
+
+- @osn/auth-ui@4.5.4
+
+## 0.3.53
+
+### Patch Changes
+
+- a6a57fc: The `SegmentedTabs` stories set the portals' `--ease-glide` on their panels, in the `cubic-bezier` form the portals fall back to, so the glass glides in the lab on the portals' curve. It runs at the touch pace, 320ms, even with a mouse, where the portals take 200ms.
+
+## 0.3.52
+
+### Patch Changes
+
+- 2035748: The design system's `Motion` story names `ease-exit`, the curve an overlay leaves on, in its introduction; its grid shows the new token beside the other easings.
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+  - @osn/auth-ui@4.5.3
+
 ## 0.3.51
 
 ### Patch Changes

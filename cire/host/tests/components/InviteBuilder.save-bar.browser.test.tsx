@@ -29,7 +29,10 @@ import "../../src/styles/global.css";
 
 const { authFetchMock } = vi.hoisted(() => ({ authFetchMock: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch: authFetchMock }) }));
-vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {} } }));
+vi.mock("@shared/toast", () => ({
+  toast: { success: () => {}, error: () => {} },
+  toasts: () => [],
+}));
 vi.mock("../../src/lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
   return {

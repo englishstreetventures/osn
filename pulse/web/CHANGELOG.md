@@ -1,5 +1,21 @@
 # @osn/pulse
 
+## 0.24.77
+
+### Patch Changes
+
+- Updated dependencies [8397b84]
+  - @shared/toast@0.3.14
+
+## 0.24.76
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+
 ## 0.24.75
 
 ### Patch Changes
