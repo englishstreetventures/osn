@@ -11,7 +11,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[step-up]]"
   - "[[email-verification-api]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Emailed links
@@ -270,26 +270,23 @@ before it mails, reads, replaces or spends anything
   can hold back a Resend for the second; that is accepted. The key feeds this
   cap and nothing else: the strike counter, the account, the pending sign-up
   and the mail keep the address as typed, lowercased.
-- **A begin's first link** does not count against that cap, so the newest
-  sign-up always gets its first link. It is bounded by begin's own limits —
-  Turnstile, and five begins a minute per IP — and by one live sign-up per
-  address. The strike lockout stops it as it stops a Resend.
-- **Restarts count against a window of their own.** Two things free an
-  address at once: `previous` on the next begin, and the reader's decline. So
-  a first link counts against `registrationRestartStore`, ten an hour per
-  mailbox key (`REGISTRATION_RESTART_LINKS_MAX`, the same probe key as the
-  Resend cap's, in the `registration_restart` store), when its begin carried
-  `previous`, or when a sign-up to the mailbox was declined in the hour before
-  (a decline writes a mark that lasts an hour from the latest one). Past ten,
-  the restart's link is not sent; begin answers as ever. A begin with neither
-  is never counted, so a person's first begin always mails, and a fresh window
-  admits the first restart. The window bounds restarts, not distinct `+tag`
-  or Gmail forms, each of which has its own pending entry. A stranger can
-  spend a mailbox's restarts for an hour with ten Turnstile-gated begins; the
-  owner's plain begin still mails, unless a sign-up to the mailbox was declined
-  in that hour, when it is a restart too and waits for the window. A decline
-  with the link's secret goes through even once whoever began the request has
-  spent its five guesses, so the reader can always free the address.
+- **A begin's first link** does not count against that cap, so a Resend
+  never spends it. The strike lockout stops it as it stops a Resend.
+- **First links count against a window of their own.** Every begin's first
+  link counts against `registrationFirstLinkCap`, ten an hour per mailbox key
+  (`REGISTRATION_FIRST_LINKS_MAX`; the same probe key as the Resend cap's, in
+  the `auth.registration_first_link_cap` store), whatever form of the address
+  was typed: every `+tag` variant and every Gmail form share it, though each
+  has a pending entry of its own. The mailbox's first link of the hour is the
+  window's first count, so it always goes; past ten, the link is not sent and
+  begin answers as ever (`sends{result="capped"}`), its poll `pending` as a
+  never-mailed request's. Two things free an address at once, `previous` on
+  the next begin and the reader's decline; the begin after either is a first
+  link like any other and counts the same. A stranger who spends a mailbox's
+  window, with ten Turnstile-gated begins, holds back the owner's next begin
+  for up to an hour; the owner accepted that cost. A decline with the link's
+  secret goes through even once whoever began the request has spent its five
+  guesses, so the reader can always free the address.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
   address and handle (no birthdate) in this tab's `sessionStorage`, and the
   auth dialogs and `/authorize` reopen it. The pairing number is never stored:

@@ -89,7 +89,7 @@ import {
 } from "./constants";
 import type { AuthContext } from "./context";
 import { CoordinationError } from "./errors";
-import { frontendOrigin, genId, mailboxKey } from "./helpers";
+import { frontendOrigin, genId } from "./helpers";
 import { recordLinkEvent } from "./link-event";
 import { isProbeKey } from "./server-mac";
 import { storeCall } from "./store-call";
@@ -332,7 +332,7 @@ const randomIndex = (n: number): number => {
 
 export function createEmailLinkModule(ctx: AuthContext) {
   const { config, stores, serverMac, hashIp, registrationLinkLockoutStore } = ctx;
-  const { recoveryOtpLockoutStore, stepUpLinkLockoutStore, registrationRestartStore } = ctx;
+  const { recoveryOtpLockoutStore, stepUpLinkLockoutStore } = ctx;
   const links = stores.emailLinks;
 
   /**
@@ -454,9 +454,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * answer. Recovery writes a `recovery_link_declined` row for the account, so
    * the owner's other devices show that someone asked to get in; step-up
    * writes `step_up_link_declined`, since someone signed in to the account
-   * asked to act and the owner said no. Sign-up marks the address's mailbox
-   * (`markDeclined`), so the next begin's first link counts against its
-   * restart window. Email change records nothing.
+   * asked to act and the owner said no. Sign-up and email change record
+   * nothing: the next begin's first link counts against the mailbox's
+   * first-link window as every first link does.
    */
   const declined = (entry: EmailLinkChallenge, sessionMeta?: SessionMeta) => {
     switch (entry.flow) {
@@ -470,12 +470,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
         return forkBackground(
           recordLinkEvent(hashIp, entry.subject, "step_up_link_declined", sessionMeta),
         );
-      case "registration": {
-        const address = entry.signUp?.email;
-        if (!address) return Effect.void;
-        const key = serverMac.probeKey(mailboxKey(address));
-        return forkBackground(Effect.promise(() => registrationRestartStore.markDeclined(key)));
-      }
+      case "registration":
       case "email_change":
         return Effect.void;
     }

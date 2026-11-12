@@ -19,7 +19,7 @@ import {
   EMAIL_LINK_PAIRING_CANDIDATES,
   MAX_OTP_ATTEMPTS,
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
-  REGISTRATION_RESTART_LINKS_MAX,
+  REGISTRATION_FIRST_LINKS_MAX,
 } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
@@ -1099,93 +1099,114 @@ describe("a request its reader ended", () => {
 });
 
 /**
- * First links mailed by restarts count against the mailbox's window: a begin
- * that carried `previous`, and a begin after a decline of a sign-up to the
- * mailbox. A begin with neither is not counted.
+ * Every first sign-up link counts against the mailbox's window, whatever form
+ * of the address was typed: `+tag` variants, and Gmail's dots and
+ * googlemail.com, share one. The mailbox's first link of the hour always goes;
+ * a begin past the window answers as a mailed one does, and nothing is sent.
+ * A carried `previous` and a decline count as every first link does.
  */
-describe("the restart window", () => {
+describe("the first-link window", () => {
   const ip = (n: number) => ({ "x-forwarded-for": `10.1.${Math.floor(n / 200)}.${n % 200}` });
+  const MAX = REGISTRATION_FIRST_LINKS_MAX;
 
-  it(`mails at most ${REGISTRATION_RESTART_LINKS_MAX} links an hour to a loop of begin and decline`, async () => {
+  it(`mails at most ${MAX} first links an hour to the +tag variants of one mailbox`, async () => {
+    const h = harness();
+    const forms = Array.from({ length: MAX + 1 }, (_, n) => `name+${n}@x.example`);
+    for (const [n, email] of forms.entries()) {
+      await beginThroughRoutes(h.app, { email, handle: `plusvar${n}` }, ip(n));
+    }
+    const mailed = forms.filter((email) => linksTo(h.recorded(), email).length > 0);
+    expect(mailed).toHaveLength(MAX);
+    expect(linksTo(h.recorded(), forms.at(-1)!)).toHaveLength(0);
+    // Another mailbox on the same domain has a window of its own.
+    await begun(h, "other@x.example", "plusother");
+  });
+
+  it(`mails at most ${MAX} first links an hour to the Gmail forms of one mailbox`, async () => {
+    const h = harness();
+    const forms = [
+      "n.ame@gmail.com",
+      "name@googlemail.com",
+      "na.me+a@gmail.com",
+      "name+b@googlemail.com",
+      "nam.e@gmail.com",
+      "n.a.m.e@gmail.com",
+      "name+c@gmail.com",
+      "na.me@googlemail.com",
+      "name+d@gmail.com",
+      "n.ame+e@googlemail.com",
+      "name+f@gmail.com",
+    ];
+    expect(forms).toHaveLength(MAX + 1);
+    for (const [n, email] of forms.entries()) {
+      await beginThroughRoutes(h.app, { email, handle: `gmailform${n}` }, ip(n));
+    }
+    const mailed = forms.filter((email) => linksTo(h.recorded(), email).length > 0);
+    expect(mailed).toHaveLength(MAX);
+  });
+
+  it("answers a begin past the window as a mailed one, sends it nothing, and polls it pending", async () => {
+    const h = harness();
+    const forms = Array.from({ length: MAX + 1 }, (_, n) => `held+${n}@x.example`);
+    const begins = [];
+    for (const [n, email] of forms.entries()) {
+      begins.push(await beginThroughRoutes(h.app, { email, handle: `heldform${n}` }, ip(n)));
+    }
+    const first = begins[0]!;
+    const held = begins.at(-1)!;
+    expect(linksTo(h.recorded(), forms.at(-1)!)).toHaveLength(0);
+    expect(held.res.status).toBe(first.res.status);
+    expect(Object.keys(held.body).toSorted()).toEqual(Object.keys(first.body).toSorted());
+    const poll = await statusThroughRoutes(h.app, held.body.requestId, held.body.claimSecret);
+    expect(poll.status).toBe(200);
+    expect(pollShape(await poll.json())).toEqual({ status: "pending", pairingCode: "two digits" });
+  });
+
+  it(`counts a loop of begin and decline, and of begins that retire the last, as first links`, async () => {
     const h = harness();
     const email = "loop-decline@example.com";
-    for (let n = 0; n < REGISTRATION_RESTART_LINKS_MAX + 3; n++) {
+    for (let n = 0; n < MAX + 3; n++) {
       const { body } = await beginThroughRoutes(h.app, { email, handle: "loopdecline" }, ip(n));
       const link = latestLinkTo(h.recorded(), email);
       if (link?.requestId === body.requestId) {
         await confirmThroughRoutes(h.app, link.requestId, link.linkSecret, "none", ip(n));
       }
     }
-    // The first begin, then the window's allowance.
-    expect(linksTo(h.recorded(), email)).toHaveLength(1 + REGISTRATION_RESTART_LINKS_MAX);
-  });
+    expect(linksTo(h.recorded(), email)).toHaveLength(MAX);
 
-  it(`mails at most ${REGISTRATION_RESTART_LINKS_MAX} links an hour to a loop of begins that retire the last`, async () => {
-    const h = harness();
-    // Every form of one mailbox shares the window.
-    const forms = ["loop.prev@gmail.com", "loopprev+a@gmail.com", "loopprev@googlemail.com"];
-    let current = await beginThroughRoutes(h.app, { email: forms[0]!, handle: "loopprev" }, ip(0));
-    for (let n = 1; n <= REGISTRATION_RESTART_LINKS_MAX + 2; n++) {
+    const other = "loop-previous@example.com";
+    let current = await beginThroughRoutes(h.app, { email: other, handle: "loopprev" }, ip(50));
+    for (let n = 1; n <= MAX + 2; n++) {
       current = await beginThroughRoutes(
         h.app,
         {
-          email: forms[n % forms.length]!,
+          email: other,
           handle: "loopprev",
           previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
         },
-        ip(n),
+        ip(50 + n),
       );
     }
-    const mailed = forms.reduce((sum, form) => sum + linksTo(h.recorded(), form).length, 0);
-    expect(mailed).toBe(1 + REGISTRATION_RESTART_LINKS_MAX);
+    expect(linksTo(h.recorded(), other)).toHaveLength(MAX);
   });
 
-  it("always mails a begin that is no restart, and a restart once a fresh hour begins", async () => {
+  it("always mails the mailbox's first begin of a fresh hour", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const h = harness();
-    const email = "fresh-window@example.com";
-    let current = await beginThroughRoutes(h.app, { email, handle: "freshwindow" }, ip(0));
-    for (let n = 1; n <= REGISTRATION_RESTART_LINKS_MAX + 1; n++) {
-      current = await beginThroughRoutes(
+    for (let n = 0; n <= MAX; n++) {
+      await beginThroughRoutes(
         h.app,
-        {
-          email,
-          handle: "freshwindow",
-          previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
-        },
+        { email: `fresh+${n}@x.example`, handle: `fresh${n}` },
         ip(n),
       );
     }
-    const spent = linksTo(h.recorded(), email).length;
-    expect(spent).toBe(1 + REGISTRATION_RESTART_LINKS_MAX);
+    const late = "fresh+late@x.example";
+    await beginThroughRoutes(h.app, { email: late, handle: "freshlate" }, ip(100));
+    expect(linksTo(h.recorded(), late)).toHaveLength(0);
 
-    // The last request expires; a begin with no `previous` and no decline
-    // behind it is not counted, so it mails though the window is spent.
-    vi.setSystemTime(Date.now() + 11 * MINUTE);
-    const plain = await beginThroughRoutes(h.app, { email, handle: "freshwindow" }, ip(50));
-    expect(linksTo(h.recorded(), email)).toHaveLength(spent + 1);
-
-    // A restart in the same hour is held back; in a fresh hour it mails.
-    const held = await beginThroughRoutes(
-      h.app,
-      {
-        email,
-        handle: "freshwindow",
-        previous: { requestId: plain.body.requestId, claimSecret: plain.body.claimSecret },
-      },
-      ip(51),
-    );
-    expect(linksTo(h.recorded(), email)).toHaveLength(spent + 1);
-    vi.setSystemTime(Date.now() + 60 * MINUTE);
-    await beginThroughRoutes(
-      h.app,
-      {
-        email,
-        handle: "freshwindow",
-        previous: { requestId: held.body.requestId, claimSecret: held.body.claimSecret },
-      },
-      ip(52),
-    );
-    expect(linksTo(h.recorded(), email)).toHaveLength(spent + 2);
+    vi.setSystemTime(Date.now() + 61 * MINUTE);
+    const next = "fresh+next@x.example";
+    await begun(h, next, "freshnext");
+    expect(linksTo(h.recorded(), next)).toHaveLength(1);
   });
 });

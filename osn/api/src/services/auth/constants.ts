@@ -32,14 +32,17 @@ export const REGISTRATION_SENDS_PER_ADDRESS_MAX = 6;
 export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
 
 /**
- * First sign-up links one mailbox (`mailboxKey`) may be sent in an hour by
- * restarts: begins that carried `previous`, and begins after a sign-up to the
- * mailbox was declined in the hour before. A begin with neither is never
- * counted. Checked inside the send, after the answer, only where a link would
- * go out (`lib/registration-restart-store.ts`).
+ * First sign-up links one mailbox may be sent in an hour, whatever form of its
+ * address was typed: keyed on the probe key of `mailboxKey(address)`, as the
+ * Resend cap is, so every `+tag` variant and every Gmail form share it. The
+ * mailbox's first link of the hour is the window's first count, so it always
+ * goes; past the tenth, nothing more does until the window ends. A begin that
+ * carried `previous`, or that follows a decline, counts as every first link
+ * does. Checked inside the send, after the answer, only where a link would go
+ * out (`registrationFirstLinkCap`).
  */
-export const REGISTRATION_RESTART_LINKS_MAX = 10;
-export const REGISTRATION_RESTART_WINDOW_MS = 60 * 60 * 1000;
+export const REGISTRATION_FIRST_LINKS_MAX = 10;
+export const REGISTRATION_FIRST_LINKS_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Candidates the confirm page shows for an emailed link: the number on the

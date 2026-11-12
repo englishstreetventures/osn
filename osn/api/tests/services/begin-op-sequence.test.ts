@@ -58,7 +58,7 @@ beforeAll(async () => {
 const SEND_LIMIT_STORES = [
   "auth.registration_send_cap",
   "registration_link_lockout",
-  "registration_restart",
+  "auth.registration_first_link_cap",
 ];
 
 /**
@@ -101,7 +101,7 @@ function harness() {
     ceremonyStores: bundle.ceremonyStores,
     registrationSendCap: bundle.registrationSendCap,
     registrationLinkLockoutStore: bundle.registrationLinkLockoutStore,
-    registrationRestartStore: bundle.registrationRestartStore,
+    registrationFirstLinkCap: bundle.registrationFirstLinkCap,
   });
   const email = makeLogEmailLive();
   const layer = Layer.merge(createTestLayer(), email.layer);
@@ -273,9 +273,9 @@ describe("POST /register/begin", () => {
         });
         expect(pending).toEqual(free);
         expect(taken).toEqual(free);
-        // Only the free address's send reads its limits: the lockout, and
-        // whether a decline makes it a restart. A begin's first link does not
-        // count against the Resend cap.
+        // Only the free address's send reads its limits: the lockout, and the
+        // mailbox's first-link window. A begin's first link does not count
+        // against the Resend cap.
         expect(yield* h.sendLimitCalls(2)).toBe(2);
       }).pipe(Effect.provide(h.layer));
     },

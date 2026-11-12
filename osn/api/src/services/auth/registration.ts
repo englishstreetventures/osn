@@ -92,7 +92,7 @@ export function createRegistrationModule(
     serverMac,
     registrationSendCap,
     registrationLinkLockoutStore,
-    registrationRestartStore,
+    registrationFirstLinkCap,
   } = ctx;
   const { issueTokens } = tokens;
 
@@ -241,12 +241,12 @@ export function createRegistrationModule(
    *    one), and goes no further past it. A begin's first link does not
    *    count, so the newest sign-up always gets its first link whatever
    *    Resends came before it;
-   *  - a restart's first link (`kind` `restart`: its begin carried
-   *    `previous`), and a first link to a mailbox a sign-up was declined at in
-   *    the hour before, counts against the mailbox's restart window
-   *    (`registrationRestartStore`), and goes no further past it. A first
-   *    begin with neither is never counted, and a fresh window always admits
-   *    the first link it counts.
+   *  - a begin's first link counts against the mailbox's first-link window
+   *    (`registrationFirstLinkCap`, the same mailbox key), and goes no further
+   *    past it, whatever form of the address was typed. The mailbox's first
+   *    link of the hour is the window's first count, so it always goes. A
+   *    begin that carried `previous`, or that follows a decline, is a first
+   *    link like any other and counts the same.
    *
    * The probe or either store failing to answer sends nothing. A held-back
    * or failed send is counted and goes no further; the transport has already
@@ -258,7 +258,7 @@ export function createRegistrationModule(
     handle: string,
     url: string,
     ttlMinutes: number,
-    kind: "first" | "restart" | "resend",
+    kind: "first" | "resend",
   ) =>
     Effect.gen(function* () {
       const standing = yield* isTaken(address, handle).pipe(
@@ -279,20 +279,8 @@ export function createRegistrationModule(
       const strikeKey = serverMac.probeKey(address.toLowerCase());
       const capKey = serverMac.probeKey(mailboxKey(address));
       const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(strikeKey));
-      const withinCaps = (): Effect.Effect<boolean> => {
-        if (kind === "resend") return Effect.promise(() => registrationSendCap.check(capKey));
-        return Effect.gen(function* () {
-          // A decline that cannot be read counts the link, as one would.
-          const restart =
-            kind === "restart" ||
-            (yield* Effect.promise(() => registrationRestartStore.declinedLately(capKey))) !==
-              false;
-          return (
-            !restart || (yield* Effect.promise(() => registrationRestartStore.admitLink(capKey)))
-          );
-        });
-      };
-      const allowed = strikes.status === "open" && (yield* withinCaps());
+      const cap = kind === "resend" ? registrationSendCap : registrationFirstLinkCap;
+      const allowed = strikes.status === "open" && (yield* Effect.promise(() => cap.check(capKey)));
       if (!allowed) {
         metricEmailLinkSend("registration", "capped");
         return;
@@ -338,8 +326,8 @@ export function createRegistrationModule(
    *  - `previous`, the request and claim secret of a sign-up this tab began
    *    before, retires that request and frees its address first, so a person
    *    who goes back to fix their handle can begin again at once. Without the
-   *    claim secret it retires nothing. A begin that carries it is a restart:
-   *    its first link counts against the mailbox's restart window.
+   *    claim secret it retires nothing. Its first link counts against the
+   *    mailbox's first-link window as every begin's does.
    *  - The pending store is self-bounding (CEREMONY_STORE_MAX in memory,
    *    per-entry TTL on the Durable Object store).
    *  - The local-only debug line with the link is gated on `OSN_ENV` being
@@ -455,9 +443,7 @@ export function createRegistrationModule(
       // address has an account. `forkBackground` registers the fibre with the
       // request's `waitUntil`, so the send still runs on workerd once the
       // response is out.
-      yield* forkBackground(
-        sendLink(normalisedEmail, handle, opened.url, otpTtl / 60, previous ? "restart" : "first"),
-      );
+      yield* forkBackground(sendLink(normalisedEmail, handle, opened.url, otpTtl / 60, "first"));
 
       return answer;
     }).pipe(withAuthRegister("begin"));

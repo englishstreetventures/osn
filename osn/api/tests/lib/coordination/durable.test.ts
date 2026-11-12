@@ -7,10 +7,6 @@ import {
   createDurableLockoutStore,
 } from "../../../src/lib/coordination/durable";
 import * as metrics from "../../../src/metrics";
-import {
-  REGISTRATION_RESTART_LINKS_MAX,
-  REGISTRATION_RESTART_WINDOW_MS,
-} from "../../../src/services/auth/constants";
 import { createFakeNamespace } from "../../helpers/coordination-namespace";
 
 const KEY = "acc_secretkey1";
@@ -185,54 +181,6 @@ describe("durable lockout counters", () => {
     expect(await bundle.recoveryLockoutStore.recordFailure(KEY)).toBe(2);
     expect(await bundle.totpLockoutStore.recordFailure(KEY)).toBe(2);
     expect(await bundle.registrationLinkLockoutStore.recordFailure(KEY)).toBe(2);
-  });
-});
-
-describe("durable sign-up restart store", () => {
-  it("admits the window's allowance of counted links, then refuses until the window ends", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      const fake = createFakeNamespace();
-      const store = createDurableCoordination(fake.ns, vi.fn()).registrationRestartStore;
-      for (let n = 0; n < REGISTRATION_RESTART_LINKS_MAX; n++) {
-        // eslint-disable-next-line no-await-in-loop -- links count in order
-        expect(await store.admitLink(KEY)).toBe(true);
-      }
-      expect(await store.admitLink(KEY)).toBe(false);
-      vi.setSystemTime(Date.now() + REGISTRATION_RESTART_WINDOW_MS + 1);
-      expect(await store.admitLink(KEY)).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps a decline for one window from the latest", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      const fake = createFakeNamespace();
-      const store = createDurableCoordination(fake.ns, vi.fn()).registrationRestartStore;
-      expect(await store.declinedLately(KEY)).toBe(false);
-      await store.markDeclined(KEY);
-      vi.setSystemTime(Date.now() + REGISTRATION_RESTART_WINDOW_MS - 1_000);
-      await store.markDeclined(KEY);
-      vi.setSystemTime(Date.now() + REGISTRATION_RESTART_WINDOW_MS - 1_000);
-      expect(await store.declinedLately(KEY)).toBe(true);
-      vi.setSystemTime(Date.now() + 2_000);
-      expect(await store.declinedLately(KEY)).toBe(false);
-      // The decline and the count are apart.
-      expect(await store.admitLink(KEY)).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("fails closed: a mark it cannot read counts, and a count it cannot make refuses", async () => {
-    const fake = createFakeNamespace();
-    fake.failWhen(() => true);
-    const store = createDurableCoordination(fake.ns, vi.fn()).registrationRestartStore;
-    await expect(store.markDeclined(KEY)).resolves.toBeUndefined();
-    expect(await store.declinedLately(KEY)).toBe("unknown");
-    expect(await store.admitLink(KEY)).toBe(false);
   });
 });
 
