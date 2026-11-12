@@ -14,8 +14,8 @@ import "../../src/styles/global.css";
  * - neither panel takes focus as it opens, and "payments (n)" reports itself
  *   open and closed through `aria-expanded`;
  * - a closed panel adds no height to its line, though its wrapper stays in it;
- * - every control in an open panel keeps its whole focus ring inside the
- *   `Reveal`'s clip, at a desk and on a phone;
+ * - every control in an open panel keeps its whole focus ring inside every box
+ *   that clips it, the `Reveal` among them, at a desk and on a phone;
  * - an open line keeps the spacing of the row it replaced: 8px in from its top
  *   and bottom, 12px from its sides, 8px between its parts, and a payment's ✕
  *   under the line's ✕;
@@ -136,6 +136,20 @@ function reveals(li: HTMLElement): HTMLElement[] {
   );
 }
 
+/**
+ * The height a panel takes in its line: its `Reveal` wrapper's box plus its
+ * margins. The wrapper keeps 4px of room for the focus ring on every side and a
+ * matching negative margin hands that room back, so its box alone is 8px taller
+ * than the space the line gives it. Not the row inside the wrapper: mid-opening
+ * Chrome sizes that row against the wrapper's own height, so it lags the line.
+ */
+function takenHeight(reveal: HTMLElement): number {
+  const s = getComputedStyle(reveal);
+  return (
+    reveal.getBoundingClientRect().height + parseFloat(s.marginTop) + parseFloat(s.marginBottom)
+  );
+}
+
 function longestTransitionMs(el: HTMLElement): number {
   return Math.max(
     ...getComputedStyle(el)
@@ -151,7 +165,7 @@ interface Frame {
 }
 
 /** Clicks `toggle` and records, each frame until the transition is over, the
- *  panel's height, how far the next line has moved, and where focus is. */
+ *  height the panel takes, how far the next line has moved, and where focus is. */
 async function sampleOpening(
   toggle: HTMLElement,
   reveal: HTMLElement,
@@ -167,7 +181,7 @@ async function sampleOpening(
   do {
     await nextFrame();
     frames.push({
-      height: reveal.getBoundingClientRect().height,
+      height: takenHeight(reveal),
       belowMoved: below.getBoundingClientRect().top - belowTop,
       panelHasFocus: reveal.contains(document.activeElement),
     });
@@ -212,6 +226,29 @@ async function openBothPanels() {
 
 const rect = (el: Element) => el.getBoundingClientRect();
 
+/** Every box between `el` and its budget line `li` that clips it, nearest
+ *  first: one whose `overflow` is not `visible` on either axis. */
+function clipsRound(el: Element, li: Element): Element[] {
+  const clips: Element[] = [];
+  for (let a = el.parentElement; a && a !== li; a = a.parentElement) {
+    const s = getComputedStyle(a);
+    if (s.overflowX !== "visible" || s.overflowY !== "visible") clips.push(a);
+  }
+  return clips;
+}
+
+/** A box's padding edge, where its clip cuts. */
+function paddingEdge(el: Element) {
+  const r = rect(el);
+  const s = getComputedStyle(el);
+  return {
+    top: r.top + parseFloat(s.borderTopWidth),
+    bottom: r.bottom - parseFloat(s.borderBottomWidth),
+    left: r.left + parseFloat(s.borderLeftWidth),
+    right: r.right - parseFloat(s.borderRightWidth),
+  };
+}
+
 /** Where a flex row's own items start and end, not its padding. */
 function itemsBox(row: Element): { top: number; bottom: number } {
   const boxes = [...row.children].map(rect);
@@ -246,7 +283,7 @@ describe("BudgetView line panels, as they open", () => {
       const below = line("Ceremony venue");
       const reveal = reveals(hall)[index]!;
       const toggle = screen.getAllByRole("button", { name })[0]!;
-      expect(reveal.getBoundingClientRect().height).toBe(0);
+      expect(takenHeight(reveal)).toBe(0);
 
       const frames = await sampleOpening(toggle, reveal, below);
       const full = frames.at(-1)!.height;
@@ -283,10 +320,10 @@ describe("BudgetView line panels, as they open", () => {
       [screen.getAllByRole("button", { name: "per head" })[0]!, perHead!],
     ] as const) {
       await sampleOpening(toggle, reveal, below);
-      expect(reveal.getBoundingClientRect().height).toBeGreaterThan(40);
+      expect(takenHeight(reveal)).toBeGreaterThan(40);
       toggle.click();
       await nextFrame();
-      expect(reveal.getBoundingClientRect().height).toBe(0);
+      expect(takenHeight(reveal)).toBe(0);
       expect(below.getBoundingClientRect().top).toBeCloseTo(belowTop, 1);
       expect(toggle.getAttribute("aria-expanded")).toBe("false");
     }
@@ -336,7 +373,6 @@ describe("BudgetView line panels, as they open", () => {
         ["per head", panels.perHead],
         ["payments", panels.payments],
       ] as const) {
-        const clip = rect(reveal.firstElementChild!);
         const controls = [
           ...reveal.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href]"),
         ].filter((el) => el.getClientRects().length > 0);
@@ -344,10 +380,14 @@ describe("BudgetView line panels, as they open", () => {
         for (const el of controls) {
           const box = rect(el);
           const what = `${name}: ${el.getAttribute("aria-label") ?? el.textContent?.trim() ?? el.tagName}`;
-          expect(box.top - ring, `${what} top`).toBeGreaterThanOrEqual(clip.top - 0.5);
-          expect(box.bottom + ring, `${what} bottom`).toBeLessThanOrEqual(clip.bottom + 0.5);
-          expect(box.left - ring, `${what} left`).toBeGreaterThanOrEqual(clip.left - 0.5);
-          expect(box.right + ring, `${what} right`).toBeLessThanOrEqual(clip.right + 0.5);
+          const clips = clipsRound(el, panels.li);
+          expect(clips, `${what}: clipped by its panel`).toContain(reveal);
+          for (const clip of clips.map(paddingEdge)) {
+            expect(box.top - ring, `${what} top`).toBeGreaterThanOrEqual(clip.top - 0.5);
+            expect(box.bottom + ring, `${what} bottom`).toBeLessThanOrEqual(clip.bottom + 0.5);
+            expect(box.left - ring, `${what} left`).toBeGreaterThanOrEqual(clip.left - 0.5);
+            expect(box.right + ring, `${what} right`).toBeLessThanOrEqual(clip.right + 0.5);
+          }
         }
       }
     });
@@ -399,7 +439,8 @@ describe("BudgetView line panels, as they open", () => {
   });
 
   // A payment label or an event name may be one 80-character word. It wraps
-  // inside the panel instead of running under the panel's clip.
+  // inside the panel's content instead of running into the `Reveal`'s ring
+  // room and under its clip.
   it("wraps a long unbroken payment label and event name inside the panel at 390px", async () => {
     await page.viewport(390, 844);
     const { perHead, payments } = await openBothPanels();
@@ -418,7 +459,7 @@ describe("BudgetView line panels, as they open", () => {
       ["event name", eventText, perHead],
     ] as const) {
       expect(text.scrollWidth, `${what} runs past its box`).toBeLessThanOrEqual(text.clientWidth);
-      expect(rect(text).right, `${what} past the clip`).toBeLessThanOrEqual(
+      expect(rect(text).right, `${what} past the panel's content`).toBeLessThanOrEqual(
         rect(reveal.firstElementChild!).right + 0.5,
       );
     }

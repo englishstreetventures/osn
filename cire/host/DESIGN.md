@@ -791,13 +791,18 @@ holds fields. Where the portal draws it: a budget line's "per head" and
 "payments (n)" panels, and a message's time on a phone (§7, `MessageThread`).
 The owner chose `--dur-base` for the budget panels on 2026-11-11: one rung
 above `--dur-fast` (200ms on touch, 150ms at a desk), a little slower than the
-comparison page's fast defaults. It is the one rung `Reveal` runs on for every
-caller; `Reveal` takes no duration prop, so a slower one is a change to
-`Reveal`, not to a call site. `Reveal` clips what it holds, so a
-control at a panel's edge needs 4px of room inside it for the focus ring: each
-part of a budget line carries 4px above, below and to its right, and the
-line's padding is 4px less, so every gap still measures 8px and a closed panel
-adds nothing. The clip would also cut text that runs past the edge, so a
+comparison page's fast defaults. `Reveal` opens on `--dur-base` unless its
+caller passes `pace="slow"`, which only the guest site does; the portal passes
+none. `Reveal` clips what it holds, inside 4px of room that keeps a focus ring
+at the content's edge whole, and a matching negative margin hands that room
+back to the layout, so a closed panel takes no height
+([frontend-patterns](../../wiki/shared/frontend-patterns.md) §A reveal needs a
+wrapper that outlives the content it reveals). A budget line has no `gap`,
+because both closed `Reveal`s stay in it and a gap would add to every line:
+each part carries 4px above, below and to its right instead, and the line's
+padding is 4px less, so every gap still measures 8px, the space above an
+opening panel grows with it, and a closed panel adds nothing. The clip would
+also cut text that runs past the edge, so a
 payment's label and an event's name inside a panel wrap anywhere
 (`wrap-anywhere`): either can be one 80-character word. A control inside the
 panel that closes it — Cancel, Save, "Use a fixed amount" — hands focus back to
