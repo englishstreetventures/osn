@@ -13,7 +13,6 @@ import {
   origin,
   PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
-  productionSiteKinds,
   refuseDotEnvFiles,
   requireSecrets,
   requireSeedValue,
@@ -30,8 +29,11 @@ import { Data } from "effect";
 import * as Effect from "effect/Effect";
 
 import {
+  API_LOGICAL_IDS,
   musubiDeclaration,
+  musubiProductionApis,
   musubiProductionSites,
+  productionResourceKinds,
   SITE_LOGICAL_IDS,
   type BindingDescription,
 } from "./src/declaration";
@@ -88,40 +90,53 @@ function writeSeed(path: string, sql: string): void {
 }
 
 /**
- * The musubi stack on production: each site `modes` does not turn off,
- * built for production and checked to be, under today's name, with no
- * custom domain while `holds` holds its host. It reads no secret or seed
- * value, writes no file, and declares neither osn-api nor its database;
- * anything else declared fails the scope check before the plan.
+ * The musubi stack on production: osn-api and its database, each adopted
+ * under today's name, and each site `modes` does not turn off, built for
+ * production and checked to be, with no custom domain while `holds` holds
+ * its host. It reads no secret or seed value (production's secrets stay on
+ * the Worker), writes no file, and migrates nothing: Wrangler migrates
+ * osn-db-prod in the stack job before the deploy. Anything else declared
+ * fails the scope check before the plan.
  */
 const musubiProductionStack = (input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
   readonly stage: string;
   readonly workingDir: string;
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
   readonly holds: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
-    const declared = musubiProductionSites({
-      modes: input.modes,
-      holds: input.holds,
-      hosts: hostsFor(input.stage, {}),
-    });
+    const { stage } = input;
+    const hosts = hostsFor(stage, {});
+    const declared = musubiProductionSites({ modes: input.modes, holds: input.holds, hosts });
+    const apis = musubiProductionApis({ hosts });
     for (const site of declared.prebuilt) {
       assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
     }
-    const workers = [];
+    const secrets = requireSecrets({ worker: "osn-api", stage, env: input.env });
+
+    const db = yield* retainedD1("OsnDb", apis.osnDb);
+    const osnApi = yield* apiWorker(API_LOGICAL_IDS.osn_api, {
+      ...apis.osnApi,
+      bindings: toBindings(apis.osnApi.bindings, { DB: db }),
+      secrets,
+    });
+    const workers = [osnApi];
     for (const [logicalId, site] of Object.entries(declared.sites)) {
       workers.push(yield* siteWorker(logicalId, site));
     }
-    assertStackRetained({ stage: input.stage, storage: [], workers });
+    assertStackRetained({ stage, storage: [db], workers });
     assertProductionScope({
-      stage: input.stage,
-      resources: workers,
-      allowed: Object.keys(productionSiteKinds(SITE_LOGICAL_IDS, input.modes)),
+      stage,
+      resources: [db, ...workers],
+      allowed: Object.keys(productionResourceKinds(input.modes)),
     });
-    return Object.fromEntries(
-      Object.entries(declared.sites).map(([logicalId, site]) => [logicalId, site.domain]),
-    );
+    return {
+      osnApi: apis.osnApi.domain,
+      ...Object.fromEntries(
+        Object.entries(declared.sites).map(([logicalId, site]) => [logicalId, site.domain]),
+      ),
+    };
   });
 
 /**
@@ -148,6 +163,7 @@ export const musubiStack = (input: {
     const stage = assertDeployTarget(yield* Alchemy.Stage, env);
     if (tierOf(stage) === "production") {
       return yield* musubiProductionStack({
+        env,
         stage,
         workingDir: input.workingDir,
         modes: input.modes ?? PRODUCTION_SITE_MODES,

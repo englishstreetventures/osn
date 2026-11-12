@@ -9,16 +9,20 @@ import {
   SiteBuildError,
   STACK_STEP_SECRETS,
   stageHosts,
+  tierSecrets,
 } from "@shared/infra";
+import { Redacted } from "effect";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
-import { devTarget, productionSiteTarget } from "../../../scripts/smoke-check";
+import { devTarget, productionTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
+  API_LOGICAL_IDS,
+  PRODUCTION_ADOPTED,
+  PRODUCTION_DOMAINS,
   PRODUCTION_RESOURCE_KINDS,
-  PRODUCTION_SITE_DOMAINS,
   SITE_LOGICAL_IDS,
 } from "../src/declaration";
 import { osnSeedSql } from "../src/seeds";
@@ -300,7 +304,9 @@ describe("the musubi stack, evaluated offline", () => {
 /** Each declared Worker's custom domain, by logical id. */
 const domainsOf = (evaluation: Evaluation): Record<string, unknown> =>
   Object.fromEntries(
-    Object.entries(resourcesOf(evaluation)).map(([id, resource]) => [id, resource.Props.domain]),
+    Object.entries(resourcesOf(evaluation))
+      .filter(([, resource]) => resource.Type === "Cloudflare.Worker")
+      .map(([id, resource]) => [id, resource.Props.domain]),
   );
 
 describe("the musubi stack on production", () => {
@@ -310,21 +316,25 @@ describe("the musubi stack on production", () => {
     production = await evaluateMusubi({ stage: "production", env: productionEnv() });
   });
 
-  test("KP1: declares musubi social and musubi landing alone, under today's production names; no osn-api or database", () => {
+  test("KP1: declares osn-api, its database, musubi social and musubi landing under today's production names, every one retained", () => {
     const resources = resourcesOf(production);
     expect(production.fetches).toEqual([]);
     expect(
       Object.fromEntries(
         Object.entries(resources).map(([logicalId, resource]) => [
           logicalId,
-          [resource.Type, resource.Props.name, resource.RemovalPolicy],
+          [resource.Type, resource.Props.name, resource.RemovalPolicy, resource.Adopt],
         ]),
       ),
     ).toEqual({
-      MusubiSocial: ["Cloudflare.Worker", "osn-social", "retain"],
-      MusubiLanding: ["Cloudflare.Worker", "musubi-landing", "retain"],
+      OsnApi: ["Cloudflare.Worker", "osn-api-production", "retain", true],
+      OsnDb: ["Cloudflare.D1Database", "osn-db-prod", "retain", undefined],
+      MusubiSocial: ["Cloudflare.Worker", "osn-social", "retain", undefined],
+      MusubiLanding: ["Cloudflare.Worker", "musubi-landing", "retain", undefined],
     });
     expect(PRODUCTION_RESOURCE_KINDS).toEqual({
+      OsnApi: "api-worker",
+      OsnDb: "d1",
       MusubiSocial: "custom-domain",
       MusubiLanding: "custom-domain",
     });
@@ -332,14 +342,24 @@ describe("the musubi stack on production", () => {
       osn_social: "MusubiSocial",
       musubi_landing: "MusubiLanding",
     });
+    expect(API_LOGICAL_IDS).toEqual({ osn_api: "OsnApi" });
   });
 
-  test("KP2: musubi social serves musubi.social and musubi landing www.musubi.social, with the dev site settings; no workers.dev or preview URL", async () => {
+  test("KA2: osn-db-prod is declared as production holds it: no migrations, nothing imported, no location hint", () => {
+    expect(resourcesOf(production).OsnDb?.Props).toEqual({
+      name: "osn-db-prod",
+      readReplication: { mode: "disabled" },
+      jurisdiction: "default",
+    });
+  });
+
+  test("KP2: every Worker serves its production host, with the dev site settings; no workers.dev or preview URL", async () => {
     const resources = resourcesOf(production);
-    expect({
-      social: resources.MusubiSocial?.Props.domain,
-      landing: resources.MusubiLanding?.Props.domain,
-    }).toEqual({ social: "musubi.social", landing: "www.musubi.social" });
+    expect(domainsOf(production)).toEqual({
+      OsnApi: "id.musubi.social",
+      MusubiSocial: "musubi.social",
+      MusubiLanding: "www.musubi.social",
+    });
     // musubi social's deep links take the single-page fallback, with the
     // built `_redirects` (for Pages) emptied; musubi landing 404s.
     expect(resources.MusubiSocial?.Props.assets).toEqual({
@@ -353,12 +373,12 @@ describe("the musubi stack on production", () => {
       htmlHandling: "auto-trailing-slash",
       notFoundHandling: "none",
     });
-    for (const resource of Object.values(resources)) {
-      expect({ [resource.LogicalId]: resource.Props.workersDev }).toEqual({
-        [resource.LogicalId]: { enabled: false, previewsEnabled: false },
+    for (const id of ["OsnApi", "MusubiSocial", "MusubiLanding"]) {
+      expect({ [id]: resources[id]?.Props.workersDev }).toEqual({
+        [id]: { enabled: false, previewsEnabled: false },
       });
-      expect({ [resource.LogicalId]: resource.Props.observability?.redactQueryString }).toEqual({
-        [resource.LogicalId]: true,
+      expect({ [id]: resources[id]?.Props.observability?.redactQueryString }).toEqual({
+        [id]: true,
       });
     }
     // An off site is not declared.
@@ -367,10 +387,10 @@ describe("the musubi stack on production", () => {
       env: productionEnv(),
       modes: { ...PRODUCTION_SITE_MODES, musubi_landing: "off" },
     });
-    expect(domainsOf(off)).toEqual({ MusubiSocial: "musubi.social" });
+    expect(domainsOf(off)).toEqual({ OsnApi: "id.musubi.social", MusubiSocial: "musubi.social" });
   });
 
-  test("H6: a held site keeps its Worker and the build, with no custom domain; the other site keeps its host", async () => {
+  test("H6: a held site keeps its Worker and the build, with no custom domain; every other Worker keeps its host", async () => {
     const held = await evaluateMusubi({
       stage: "production",
       env: productionEnv(),
@@ -382,7 +402,11 @@ describe("the musubi stack on production", () => {
         },
       ],
     });
-    expect(domainsOf(held)).toEqual({ MusubiSocial: null, MusubiLanding: "www.musubi.social" });
+    expect(domainsOf(held)).toEqual({
+      OsnApi: "id.musubi.social",
+      MusubiSocial: null,
+      MusubiLanding: "www.musubi.social",
+    });
     expect(resourcesOf(held).MusubiSocial?.Props).toMatchObject({
       name: "osn-social",
       assets: { directory: "../social/dist" },
@@ -396,24 +420,42 @@ describe("the musubi stack on production", () => {
       env: productionEnv(),
       holds: "stack default",
     });
-    expect(PRODUCTION_SITE_DOMAINS).toEqual(
+    expect(PRODUCTION_DOMAINS).toEqual(
       Object.fromEntries(
-        Object.entries(SITE_LOGICAL_IDS).map(([site, id]) => [site, domainsOf(live)[id]]),
+        Object.entries({ ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS }).map(([surface, id]) => [
+          surface,
+          domainsOf(live)[id],
+        ]),
       ),
     );
   });
 
-  test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, and writes nothing", () => {
+  test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, uploads no secret, and writes nothing", async () => {
     expect(Object.keys(productionEnv()).toSorted()).toEqual([
       "CLOUDFLARE_ACCOUNT_ID",
       "CLOUDFLARE_API_TOKEN",
       "OSN_DEPLOY_TIER",
     ]);
-    expect(Object.keys(resourcesOf(production)).toSorted()).toEqual([
-      "MusubiLanding",
-      "MusubiSocial",
-    ]);
     expect(existsSync(production.generatedDir)).toBe(false);
+    // Every osn-api secret name of both tiers set in the env changes nothing.
+    const names = (["dev", "production"] as const).flatMap((tier) => {
+      const row = tierSecrets("osn-api", tier);
+      return row.secrets.concat(row.optional, row.forbidden);
+    });
+    const withSecrets = await evaluateMusubi({
+      stage: "production",
+      env: {
+        ...stackEnv(arcPublicJwk),
+        ...Object.fromEntries(names.map((name) => [name, `placeholder-${name}`])),
+        ...productionEnv(),
+      },
+    });
+    const env = resourcesOf(withSecrets).OsnApi?.Props.env ?? {};
+    expect(Object.values(env).some((value) => Redacted.isRedacted(value))).toBe(false);
+    expect(Object.keys(env).toSorted()).toEqual(
+      Object.keys(resourcesOf(production).OsnApi?.Props.env ?? {}).toSorted(),
+    );
+    expect(existsSync(withSecrets.generatedDir)).toBe(false);
   });
 
   test("KP5: site output built for dev hosts refuses the run, naming the production origins each build must hold", async () => {
@@ -445,13 +487,27 @@ describe("the musubi stack on production", () => {
     expect(refused.fetches).toEqual([]);
   });
 
-  test("KP6: each production site's smoke target names the Worker the stack deploys for it", () => {
+  test("KP6: each production surface's smoke target names the Worker the stack deploys for it", () => {
     const resources = resourcesOf(production);
-    for (const [key, logicalId] of Object.entries(SITE_LOGICAL_IDS)) {
-      expect({ key, worker: productionSiteTarget(key as SurfaceKey)?.worker }).toEqual({
+    for (const [key, logicalId] of Object.entries({ ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS })) {
+      expect({ key, worker: productionTarget(key as SurfaceKey)?.worker }).toEqual({
         key,
         worker: resources[logicalId]?.Props.name,
       });
     }
+  });
+
+  test("KA4: the adopted resources the live read and the guard compare are the ones the stack declares", () => {
+    const props = resourcesOf(production).OsnApi?.Props;
+    const adopted = PRODUCTION_ADOPTED.workers.OsnApi;
+    expect({ name: props?.name, crons: props?.crons }).toEqual({
+      name: adopted?.name,
+      crons: adopted?.crons,
+    });
+    expect(Object.keys(props?.env ?? {}).toSorted()).toEqual(adopted?.envNames);
+    expect(adopted?.durableObjects).toEqual({ COORDINATION: "CoordinationStore" });
+    expect(PRODUCTION_ADOPTED.databases).toEqual({
+      OsnDb: { name: "osn-db-prod", readReplication: "disabled" },
+    });
   });
 });

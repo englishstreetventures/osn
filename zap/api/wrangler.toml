@@ -68,8 +68,10 @@ migrations_dir = "../db/drizzle"
 # Custom-domain route: serves zap-api on zap.cireweddings.com (mirrors cire-api's
 # api.cireweddings.com on the account's cireweddings.com zone; osn-api sits on a
 # zone of its own at id.musubi.social). `custom_domain = true` auto-provisions the DNS record +
-# cert. Named envs do NOT inherit top-level routes, so a deploy target must be
-# declared here; without it `wrangler deploy --env production` errors (no target).
+# cert. Production deploys through the zap Alchemy stack (zap/infra/src/declaration.ts),
+# never Wrangler: every [env.production] block mirrors that declaration, and
+# zap/infra/tests/parity.test.ts holds the two equal. Wrangler still reads them
+# for `d1 migrations apply` and `secret put`.
 # zap-api is internal S2S (ARC-gated) + user routes (osnAuth) — auth-gated, so a
 # public subdomain is fine. cire-api reaches it via ZAP_API_URL = this origin.
 [[env.production.routes]]

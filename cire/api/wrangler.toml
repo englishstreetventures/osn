@@ -21,8 +21,8 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 # block carries the PRODUCTION D1 binding but a local security posture
 # (WEB_ORIGIN=localhost, no prod secrets), so a bare `wrangler deploy` would
 # otherwise create a public shadow Worker with full read/write on prod guest
-# PII. With no top-level routes, a bare deploy now fails loudly. Real deploys go
-# through `--env production` (custom_domain routes below); CI's
+# PII. With no top-level routes, a bare deploy now fails loudly. Production
+# deploys through the cire Alchemy stack, never Wrangler; CI's
 # `d1 migrations apply` still uses this block's DB binding and is unaffected.
 workers_dev = false
 
@@ -361,7 +361,11 @@ binding = "IMAGES"
 # id = "<paste-namespace-id>"
 
 # ═══ production tier ═════════════════════════════════════════════════════════
-# Deployed only after the manual approval on the `production` GitHub Environment.
+# Production deploys through the cire Alchemy stack (cire/infra/src/declaration.ts)
+# after the plan and deploy approvals on the `production` GitHub Environment, never
+# through `wrangler deploy`. Every [env.production] block below mirrors that
+# declaration, and cire/infra/tests/parity.test.ts holds the two equal. Wrangler
+# still reads these blocks for `d1 migrations apply`, `secret put` and `types`.
 [env.production.vars]
 # Deployment tier — see the top-level [vars] note. Named envs inherit NO vars,
 # so this must be set here or the production Worker resolves `local`: local log
@@ -434,17 +438,16 @@ crons = ["0 4 * * *"]
 
 # Custom-domain route: serves cire-api on api.cireweddings.com. `custom_domain =
 # true` auto-provisions DNS + edge cert because the cireweddings.com zone is in
-# this Cloudflare account. Named envs do NOT inherit top-level routes, so this
-# applies only to `wrangler deploy --env production`.
+# this Cloudflare account. The cire stack declares the same domain.
 [[env.production.routes]]
 pattern = "api.cireweddings.com"
 custom_domain = true
 
 # Wrangler named environments do NOT inherit top-level [[d1_databases]] /
 # [[r2_buckets]] / [[unsafe.bindings]] — they must be redeclared per-env.
-# Without these, `wrangler deploy --env production` ships with no DB/R2 (worker
-# fail-closes 503 at index.ts) and no CLAIM_RATE_LIMITER (the claim endpoint
-# loses its edge rate limit). Keep these in sync with the top-level bindings.
+# Without the DB/R2 bindings the Worker fail-closes 503 at index.ts, and without
+# CLAIM_RATE_LIMITER the claim endpoint loses its edge rate limit. Keep these in
+# sync with the top-level bindings and the cire stack's production declaration.
 [[env.production.unsafe.bindings]]
 name = "CLAIM_RATE_LIMITER"
 type = "ratelimit"
@@ -501,8 +504,8 @@ bucket_name = "cire-assets"
 
 # Mirror of the top-level [images] binding — named environments do NOT inherit
 # top-level bindings (see the binding-inheritance note above), so the Images
-# binding must be redeclared here or `wrangler deploy --env production` ships
-# without it and every serve falls back to the un-transformed R2 original.
+# binding must be redeclared here; a production Worker without it falls back
+# to the un-transformed R2 original on every serve.
 [env.production.images]
 binding = "IMAGES"
 

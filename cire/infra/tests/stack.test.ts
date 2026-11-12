@@ -7,20 +7,26 @@ import {
   PREBUILT_MODULE_RULES,
   PrebuiltSourceMapError,
   PRODUCTION_SITE_MODES,
+  PRODUCTION_STAGE_HOSTS,
   SiteBuildError,
   stageHosts,
+  tierSecrets,
 } from "@shared/infra";
+import { Redacted } from "effect";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
-import { devTarget, productionSiteTarget } from "../../../scripts/smoke-check";
+import { devTarget, productionTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
+  API_LOGICAL_IDS,
   cireDeclaration,
+  cireProductionApis,
   cireProductionSites,
+  PRODUCTION_ADOPTED,
+  PRODUCTION_DOMAINS,
   PRODUCTION_RESOURCE_KINDS,
-  PRODUCTION_SITE_DOMAINS,
   SITE_LOGICAL_IDS,
 } from "../src/declaration";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
@@ -38,6 +44,13 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+/** Every secret name a Worker holds on either tier: required, optional and forbidden. */
+const tierSecretNames = (worker: "cire-api" | "cire-invites"): string[] =>
+  (["dev", "production"] as const).flatMap((tier) => {
+    const row = tierSecrets(worker, tier);
+    return row.secrets.concat(row.optional, row.forbidden);
+  });
 
 /**
  * The bucket cire-api's reconcile alerts name for `label` on dev. Its module
@@ -511,11 +524,15 @@ describe("the cire stack, evaluated offline", () => {
 });
 
 const PRODUCTION_SITES = ["CireHost", "CireVendor", "CireLanding"];
+const PRODUCTION_APIS = ["CireApi", "CireInvites"];
+const PRODUCTION_STORAGE = ["CireDb", "CireAssets", "CireSheets"];
 
 /** Each declared Worker's custom domain, by logical id. */
 const domainsOf = (evaluation: Evaluation): Record<string, unknown> =>
   Object.fromEntries(
-    Object.entries(resourcesOf(evaluation)).map(([id, resource]) => [id, resource.Props.domain]),
+    Object.entries(resourcesOf(evaluation))
+      .filter(([, resource]) => resource.Type === "Cloudflare.Worker")
+      .map(([id, resource]) => [id, resource.Props.domain]),
   );
 
 describe("the cire stack on production", () => {
@@ -525,10 +542,12 @@ describe("the cire stack on production", () => {
     production = await evaluateCire({ stage: "production", env: productionEnv() });
   });
 
-  test("KP1: declares the worker sites alone, under today's production names, and nothing the guard does not know", () => {
+  test("KP1: declares cire-api, the guest site, the database, the buckets and the worker sites under today's production names, every one retained, and nothing the guard does not know", () => {
     const resources = resourcesOf(production);
     expect(production.fetches).toEqual([]);
-    expect(Object.keys(resources).toSorted()).toEqual([...PRODUCTION_SITES].toSorted());
+    expect(Object.keys(resources).toSorted()).toEqual(
+      [...PRODUCTION_APIS, ...PRODUCTION_STORAGE, ...PRODUCTION_SITES].toSorted(),
+    );
     expect(
       Object.fromEntries(
         Object.entries(resources).map(([logicalId, resource]) => [
@@ -537,28 +556,86 @@ describe("the cire stack on production", () => {
         ]),
       ),
     ).toEqual({
+      CireApi: ["Cloudflare.Worker", "cire-api-production", "retain"],
+      CireInvites: ["Cloudflare.Worker", "cire-invites", "retain"],
+      CireDb: ["Cloudflare.D1Database", "cire-db", "retain"],
+      CireAssets: ["Cloudflare.R2.Bucket", "cire-assets", "retain"],
+      CireSheets: ["Cloudflare.R2.Bucket", "cire-sheets", "retain"],
       CireHost: ["Cloudflare.Worker", "cire-host", "retain"],
       CireVendor: ["Cloudflare.Worker", "cire-vendor", "retain"],
       CireLanding: ["Cloudflare.Worker", "cire-landing", "retain"],
     });
-    // The plan guard knows each one, as a Worker holding a domain.
-    expect(PRODUCTION_RESOURCE_KINDS).toEqual(
-      Object.fromEntries(PRODUCTION_SITES.map((logicalId) => [logicalId, "custom-domain"])),
-    );
-    for (const resource of Object.values(resources)) {
-      expect({ [resource.LogicalId]: typeof resource.Props.domain }).toEqual({
-        [resource.LogicalId]: "string",
-      });
+    // The plan guard knows each one by its kind.
+    expect(PRODUCTION_RESOURCE_KINDS).toEqual({
+      CireApi: "api-worker",
+      CireInvites: "api-worker",
+      CireDb: "d1",
+      CireAssets: "r2",
+      CireSheets: "r2",
+      CireHost: "custom-domain",
+      CireVendor: "custom-domain",
+      CireLanding: "custom-domain",
+    });
+    for (const id of [...PRODUCTION_APIS, ...PRODUCTION_SITES]) {
+      expect({ [id]: typeof resources[id]?.Props.domain }).toEqual({ [id]: "string" });
     }
     expect(SITE_LOGICAL_IDS).toEqual({
       cire_host: "CireHost",
       cire_vendor: "CireVendor",
       cire_landing: "CireLanding",
     });
+    expect(API_LOGICAL_IDS).toEqual({ cire_api: "CireApi", cire_invites: "CireInvites" });
   });
 
-  test("KP2: a worker serves its production host, an off site nothing; no workers.dev or preview URL", async () => {
+  test("KA1: the API Workers are declared to be adopted; the storage and the sites need no adopt policy", () => {
+    const adopt = Object.fromEntries(
+      Object.entries(resourcesOf(production)).map(([id, resource]) => [id, resource.Adopt]),
+    );
+    expect(adopt).toEqual({
+      CireApi: true,
+      CireInvites: true,
+      CireDb: undefined,
+      CireAssets: undefined,
+      CireSheets: undefined,
+      CireHost: undefined,
+      CireVendor: undefined,
+      CireLanding: undefined,
+    });
+  });
+
+  test("KA2: the database and buckets are declared as production holds them: no migrations, nothing imported, no location hint", () => {
+    const resources = resourcesOf(production);
+    expect(resources.CireDb?.Props).toEqual({
+      name: "cire-db",
+      readReplication: { mode: "auto" },
+      jurisdiction: "default",
+    });
+    for (const id of ["CireAssets", "CireSheets"]) {
+      expect(resources[id]?.Props).not.toHaveProperty("locationHint");
+      expect(resources[id]?.Props).toMatchObject({
+        storageClass: "Standard",
+        jurisdiction: "default",
+        publicAccess: false,
+        cors: [],
+        domains: [],
+        lifecycleRules: [expect.objectContaining({ id: "Default Multipart Abort Rule" })],
+      });
+    }
+  });
+
+  test("KA3: no API Worker uploads a secret: production's stay on the Workers", () => {
+    const resources = resourcesOf(production);
+    for (const id of PRODUCTION_APIS) {
+      const env = resources[id]?.Props.env ?? {};
+      const secrets = Object.entries(env).filter(([, value]) => Redacted.isRedacted(value));
+      expect({ id, secrets }).toEqual({ id, secrets: [] });
+    }
+  });
+
+  test("KP2: every Worker serves its production host, an off site nothing; no workers.dev or preview URL", async () => {
     expect(domainsOf(production)).toEqual({
+      CireApi: "api.cireweddings.com",
+      CireInvites: "invite.cireweddings.com",
       CireHost: "host.cireweddings.com",
       CireVendor: "vendor.cireweddings.com",
       CireLanding: "cireweddings.com",
@@ -569,15 +646,20 @@ describe("the cire stack on production", () => {
       modes: { ...PRODUCTION_SITE_MODES, cire_vendor: "off" },
     });
     expect(domainsOf(off)).toEqual({
+      CireApi: "api.cireweddings.com",
+      CireInvites: "invite.cireweddings.com",
       CireHost: "host.cireweddings.com",
       CireLanding: "cireweddings.com",
     });
-    for (const resource of Object.values(resourcesOf(production))) {
-      expect({ [resource.LogicalId]: resource.Props.workersDev }).toEqual({
-        [resource.LogicalId]: { enabled: false, previewsEnabled: false },
+    const resources = resourcesOf(production);
+    for (const id of [...PRODUCTION_APIS, ...PRODUCTION_SITES]) {
+      expect({ [id]: resources[id]?.Props.workersDev }).toEqual({
+        [id]: { enabled: false, previewsEnabled: false },
       });
-      expect({ [resource.LogicalId]: resource.Props.observability }).toEqual({
-        [resource.LogicalId]: {
+    }
+    for (const id of PRODUCTION_SITES) {
+      expect({ [id]: resources[id]?.Props.observability }).toEqual({
+        [id]: {
           enabled: true,
           redactQueryString: true,
           logs: { enabled: true, invocationLogs: false },
@@ -588,7 +670,7 @@ describe("the cire stack on production", () => {
     }
   });
 
-  test("H6: a held site keeps its Worker and the build, with no custom domain; every other site keeps its host", async () => {
+  test("H6: a held site keeps its Worker and the build, with no custom domain; every other Worker keeps its host", async () => {
     const held = await evaluateCire({
       stage: "production",
       env: productionEnv(),
@@ -601,6 +683,8 @@ describe("the cire stack on production", () => {
       ],
     });
     expect(domainsOf(held)).toEqual({
+      CireApi: "api.cireweddings.com",
+      CireInvites: "invite.cireweddings.com",
       CireHost: "host.cireweddings.com",
       CireVendor: null,
       CireLanding: "cireweddings.com",
@@ -618,9 +702,12 @@ describe("the cire stack on production", () => {
       env: productionEnv(),
       holds: "stack default",
     });
-    expect(PRODUCTION_SITE_DOMAINS).toEqual(
+    expect(PRODUCTION_DOMAINS).toEqual(
       Object.fromEntries(
-        Object.entries(SITE_LOGICAL_IDS).map(([site, id]) => [site, domainsOf(live)[id]]),
+        Object.entries({ ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS }).map(([surface, id]) => [
+          surface,
+          domainsOf(live)[id],
+        ]),
       ),
     );
   });
@@ -628,13 +715,9 @@ describe("the cire stack on production", () => {
   test("KP7: on production, an unknown path serves the portal's page on the organiser and vendor portals, as their Pages projects do, and 404s on the marketing site", () => {
     // cire-api's enquiry emails link the organiser portal at
     // `/vendors/enquiries/<id>`, a path no file answers.
+    const resources = resourcesOf(production);
     expect(
-      Object.fromEntries(
-        Object.entries(resourcesOf(production)).map(([id, resource]) => [
-          id,
-          resource.Props.assets,
-        ]),
-      ),
+      Object.fromEntries(PRODUCTION_SITES.map((id) => [id, resources[id]?.Props.assets])),
     ).toEqual({
       CireHost: {
         directory: "../host/dist",
@@ -654,7 +737,7 @@ describe("the cire stack on production", () => {
     });
   });
 
-  test("KP3: reads no Worker secret, seed value or DEV_DOMAIN, and writes nothing", async () => {
+  test("KP3: reads no Worker secret, seed value or DEV_DOMAIN, and writes only the guest site's staged server output", async () => {
     const env = productionEnv();
     expect(Object.keys(env).toSorted()).toEqual([
       "CLOUDFLARE_ACCOUNT_ID",
@@ -662,17 +745,38 @@ describe("the cire stack on production", () => {
       "OSN_DEPLOY_TIER",
     ]);
     resourcesOf(production);
-    expect(existsSync(production.generatedDir)).toBe(false);
-    // A dev env holding every cire secret and the dev domain declares the same.
-    const withDev = await evaluateCire({
+    expect(readdirSync(production.generatedDir)).toEqual(["invites-server"]);
+    // An env holding every cire secret, both tiers', and the dev domain declares the same, and uploads none of them.
+    const withSecrets = await evaluateCire({
       stage: "production",
-      env: { ...stackEnv(), ...productionEnv(), CIRE_DEV_OWNER_PROFILE_ID: "usr_abc" },
+      env: {
+        ...stackEnv(),
+        ...Object.fromEntries(
+          ["cire-api", "cire-invites"].flatMap((worker) =>
+            tierSecretNames(worker as "cire-api" | "cire-invites").map((name) => [
+              name,
+              `placeholder-${name}`,
+            ]),
+          ),
+        ),
+        ...productionEnv(),
+        CIRE_DEV_OWNER_PROFILE_ID: "usr_abc",
+      },
     });
-    expect(Object.keys(resourcesOf(withDev)).toSorted()).toEqual([...PRODUCTION_SITES].toSorted());
-    expect(existsSync(withDev.generatedDir)).toBe(false);
+    expect(Object.keys(resourcesOf(withSecrets)).toSorted()).toEqual(
+      Object.keys(resourcesOf(production)).toSorted(),
+    );
+    for (const id of PRODUCTION_APIS) {
+      const uploaded = resourcesOf(withSecrets)[id]?.Props.env ?? {};
+      expect({
+        id,
+        redacted: Object.values(uploaded).some((value) => Redacted.isRedacted(value)),
+      }).toEqual({ id, redacted: false });
+    }
+    expect(readdirSync(withSecrets.generatedDir)).toEqual(["invites-server"]);
   });
 
-  test("KP5: site output built for dev hosts, or none, refuses the run before it declares anything", async () => {
+  test("KP5: site or guest output built for dev hosts, or none, refuses the run before it declares anything", async () => {
     const devBuilt = Object.fromEntries(
       SITE_DIRECTORIES.map((directory) => [
         directory,
@@ -683,14 +787,11 @@ describe("the cire stack on production", () => {
       const refused = await evaluateCire({ stage: "production", env: productionEnv(), sites });
       expect(failureOf(refused)).toBeInstanceOf(SiteBuildError);
       expect(failureOf(refused)).toMatchObject({
-        site: "@cire/host",
-        missing: [
-          "https://api.cireweddings.com",
-          "https://musubi.social",
-          "https://invite.cireweddings.com",
-        ],
+        site: "@cire/invites client",
+        missing: ["https://api.cireweddings.com"],
       });
       expect(refused.fetches).toEqual([]);
+      expect(existsSync(refused.generatedDir)).toBe(false);
     }
     // Each site's build is checked for the production origins it bakes in.
     expect(
@@ -720,6 +821,25 @@ describe("the cire stack on production", () => {
         origins: [`https://cire.${DEV_DOMAIN}`, `https://host.cire.${DEV_DOMAIN}`],
       },
     ]);
+    // The guest site's production build is checked for what production-release.yml bakes in.
+    expect(
+      cireProductionApis({ hosts: PRODUCTION_STAGE_HOSTS, generatedDir: ".generated" }).prebuilt,
+    ).toEqual([
+      {
+        site: "@cire/invites client",
+        directory: "../invites/dist/client",
+        origins: ["https://api.cireweddings.com"],
+      },
+      {
+        site: "@cire/invites server",
+        directory: "../invites/dist/server",
+        origins: [
+          "https://api.cireweddings.com",
+          "https://invite.cireweddings.com",
+          "https://cireweddings.com",
+        ],
+      },
+    ]);
     // An off site's build is neither required nor checked.
     expect(
       cireProductionSites({
@@ -730,13 +850,37 @@ describe("the cire stack on production", () => {
     ).toEqual(["@cire/vendor", "@cire/landing"]);
   });
 
-  test("KP6: each production site's smoke target names the Worker the stack deploys for it", () => {
+  test("KP6: each production surface's smoke target names the Worker the stack deploys for it", () => {
     const resources = resourcesOf(production);
-    for (const [key, logicalId] of Object.entries(SITE_LOGICAL_IDS)) {
-      expect({ key, worker: productionSiteTarget(key as SurfaceKey)?.worker }).toEqual({
+    for (const [key, logicalId] of Object.entries({ ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS })) {
+      expect({ key, worker: productionTarget(key as SurfaceKey)?.worker }).toEqual({
         key,
         worker: resources[logicalId]?.Props.name,
       });
+    }
+  });
+
+  test("KA4: the adopted resources the live read and the guard compare are the ones the stack declares", () => {
+    const resources = resourcesOf(production);
+    for (const [id, worker] of Object.entries(PRODUCTION_ADOPTED.workers)) {
+      const props = resources[id]?.Props;
+      expect({ id, name: props?.name, crons: props?.crons }).toEqual({
+        id,
+        name: worker.name,
+        crons: worker.crons,
+      });
+      expect(Object.keys(props?.env ?? {}).toSorted()).toEqual(worker.envNames);
+    }
+    expect(PRODUCTION_ADOPTED.workers.CireApi?.durableObjects).toEqual({
+      REALTIME_HUB: "TopicHub",
+    });
+    expect(Object.keys(PRODUCTION_ADOPTED.databases)).toEqual(["CireDb"]);
+    expect(Object.keys(PRODUCTION_ADOPTED.buckets).toSorted()).toEqual([
+      "CireAssets",
+      "CireSheets",
+    ]);
+    for (const [id, bucket] of Object.entries(PRODUCTION_ADOPTED.buckets)) {
+      expect({ id, name: resources[id]?.Props.name }).toEqual({ id, name: bucket.name });
     }
   });
 });

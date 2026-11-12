@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   declaredDomains,
+  adoptedBucketOf,
+  adoptedWorkerOf,
   origin,
   physicalName,
   PRODUCTION_HOST_HOLDS,
@@ -11,12 +13,15 @@ import {
   productionSiteKinds,
   refuseProductionTier,
   siteDomain,
+  type AdoptedResources,
+  type ApiSurface,
   type ApiWorkerInput,
   type ApiWorkerObservability,
   type DeclaredDomains,
   type HostHold,
   type PrebuiltSite,
   type ResourceKind,
+  type ResourceKinds,
   type RetainedBucketInput,
   type RetainedD1Input,
   type SiteMode,
@@ -114,6 +119,7 @@ const RATE_LIMITS: readonly {
  * redacted: the OIDC callback takes its code in one.
  */
 const DEV_OBSERVABILITY: ApiWorkerObservability = {
+  logs: true,
   headSamplingRate: 1,
   redactQueryString: true,
   traces: { enabled: true, headSamplingRate: 1 },
@@ -128,6 +134,7 @@ const DEV_OBSERVABILITY: ApiWorkerObservability = {
  * deploys to production, so dev runs the guest Worker as production does.
  */
 export const GUEST_OBSERVABILITY: ApiWorkerObservability = {
+  logs: true,
   headSamplingRate: 1,
   redactQueryString: true,
   traces: { enabled: true, headSamplingRate: 1 },
@@ -255,9 +262,32 @@ const sitePrebuilt = (key: CireSite, hosts: StageHosts): PrebuiltSite => ({
   origins: SITES[key].baked(hosts).map(origin),
 });
 
+/** Each cire API Worker's logical id, the dev ones, which key its state row on every stage. */
+export const API_LOGICAL_IDS = {
+  cire_api: "CireApi",
+  cire_invites: "CireInvites",
+} as const satisfies Readonly<Partial<Record<ApiSurface, string>>>;
+
+/** The adopted storage and Workers the cire stack declares on production, by logical id, with each kind for the plan guard. */
+const ADOPTED_KINDS = {
+  CireApi: "api-worker",
+  CireInvites: "api-worker",
+  CireDb: "d1",
+  CireAssets: "r2",
+  CireSheets: "r2",
+} as const satisfies Readonly<Record<string, ResourceKind>>;
+
+/** Every resource the cire stack declares on production at `modes`, by logical id, with its kind for the plan guard. */
+export const productionResourceKinds = (
+  modes: Readonly<Record<SiteSurface, SiteMode>>,
+): ResourceKinds => ({
+  ...ADOPTED_KINDS,
+  ...productionSiteKinds(SITE_LOGICAL_IDS, modes),
+});
+
 /** Every resource the cire stack declares on production, by logical id, with its kind for the plan guard. */
-export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
-  productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
+export const PRODUCTION_RESOURCE_KINDS: ResourceKinds =
+  productionResourceKinds(PRODUCTION_SITE_MODES);
 
 /** The cire stack on production: its sites, by logical id, and the build each uploads. */
 interface CireProductionSites {
@@ -266,12 +296,162 @@ interface CireProductionSites {
 }
 
 /**
+ * cire-api's production limiters: the namespace ids and budgets
+ * `[env.production]` in `cire/api/wrangler.toml` declares, each over 60 seconds.
+ */
+const PRODUCTION_RATE_LIMITS: typeof RATE_LIMITS = RATE_LIMITS.map((limit) => ({
+  ...limit,
+  namespaceId: limit.namespaceId - 100,
+}));
+
+/**
+ * cire-api on production, as `[env.production.observability]` deploys it:
+ * logs on, every request sampled, query strings redacted, native traces off,
+ * invocation logs off (its paths name weddings).
+ */
+const PRODUCTION_OBSERVABILITY: ApiWorkerObservability = {
+  logs: true,
+  headSamplingRate: 1,
+  redactQueryString: true,
+  traces: { enabled: false },
+  invocationLogs: false,
+  issues: true,
+};
+
+/** The cire stack's API Workers and storage on production, and the guest build each release uploads. */
+interface CireProductionApis {
+  readonly cireApi: CireApiDeclaration;
+  readonly cireDb: RetainedD1Input;
+  readonly cireAssets: RetainedBucketInput;
+  readonly cireSheets: RetainedBucketInput;
+  readonly cireInvites: CireInvitesDeclaration;
+  readonly invitesServer: CireDeclaration["invitesServer"];
+  readonly prebuilt: readonly PrebuiltSite[];
+}
+
+/** A production bucket as it is live: Standard, default jurisdiction, private, no CORS or custom domain, the one lifecycle rule; no location hint, since it is adopted. */
+const productionBucket = (name: string): RetainedBucketInput => ({
+  ...bucket({ base: name, dev: `${name}-dev`, production: name }, "production"),
+  locationHint: null,
+});
+
+/**
+ * What the cire stack declares on production beside its sites: cire-api with
+ * its database and buckets, and the guest site's Worker, each under today's
+ * name and adopted in place. Every var, binding, domain, cron and setting is
+ * `[env.production]`'s in `cire/api/wrangler.toml` and `cire/invites/wrangler.jsonc`
+ * (tests/parity.test.ts holds them equal), plus `legacy_module_registry` for
+ * the bundled Worker. No secret: production's stay on the Workers. The
+ * database names no migrations: Wrangler migrates it, in the stack job,
+ * before the deploy. Pure; every host comes from `hosts`.
+ */
+export function cireProductionApis(input: {
+  readonly hosts: StageHosts;
+  readonly generatedDir: string;
+}): CireProductionApis {
+  const { hosts } = input;
+  const stage = "production";
+  const issuer = origin(hosts.osnApi);
+  const api = origin(hosts.cireApi);
+  const invitesServer = join(input.generatedDir, "invites-server");
+  return {
+    cireApi: {
+      worker: "cire-api",
+      name: "cire-api-production",
+      stage,
+      main: "../api/src/entry.ts",
+      bundle: true,
+      assets: null,
+      compatibility: {
+        date: "2025-03-01",
+        flags: ["nodejs_compat", "nodejs_compat_populate_process_env", "legacy_module_registry"],
+      },
+      domain: hosts.cireApi,
+      crons: ["0 4 * * *"],
+      workersDev: false,
+      previewUrls: false,
+      vars: {
+        OSN_ENV: "production",
+        // Guest site, organiser portal, vendor portal, in that order (cire/api/src/lib/web-origin.ts).
+        WEB_ORIGIN: [hosts.cireInvites, hosts.cireHost, hosts.cireVendor].map(origin).join(","),
+        OSN_JWKS_URL: `${issuer}/.well-known/jwks.json`,
+        OSN_ISSUER_URL: issuer,
+        OSN_AUDIENCE: "osn-access",
+        CIRE_API_ORIGIN: api,
+        CIRE_OIDC_CLIENT_ID: "cid_cire",
+        ZAP_API_URL: origin(hosts.zapApi),
+        GROWTHBOOK_API_HOST: "https://cdn.growthbook.io",
+        CIRE_R2_RECONCILE_DISABLED: "false",
+      },
+      bindings: {
+        DB: { kind: "d1" },
+        SHEETS: { kind: "r2" },
+        ASSETS: { kind: "r2" },
+        IMAGES: { kind: "images" },
+        // The class Wrangler made under migration tag v1; the first Alchemy
+        // upload reuses it because the binding keeps its name.
+        REALTIME_HUB: { kind: "durable-object", className: "TopicHub" },
+        ...Object.fromEntries(
+          PRODUCTION_RATE_LIMITS.map((limit): [string, BindingDescription] => [
+            limit.name,
+            { kind: "ratelimit", namespaceId: limit.namespaceId, limit: limit.limit, period: 60 },
+          ]),
+        ),
+      },
+      observability: PRODUCTION_OBSERVABILITY,
+    },
+    cireDb: {
+      name: "cire-db",
+      stage,
+      readReplication: "auto",
+      jurisdiction: "default",
+      locationHint: null,
+      migrations: null,
+      importFiles: [],
+    },
+    cireAssets: productionBucket("cire-assets"),
+    cireSheets: productionBucket("cire-sheets"),
+    cireInvites: {
+      worker: "cire-invites",
+      name: "cire-invites",
+      stage,
+      main: join(invitesServer, INVITES_ENTRY),
+      bundle: false,
+      assets: {
+        directory: INVITES_CLIENT,
+        htmlHandling: "auto-trailing-slash",
+        notFoundHandling: "none",
+        runWorkerFirst: false,
+      },
+      compatibility: { date: "2026-04-15", flags: ["nodejs_compat"] },
+      domain: hosts.cireInvites,
+      crons: [],
+      workersDev: false,
+      previewUrls: false,
+      vars: {},
+      bindings: {},
+      observability: GUEST_OBSERVABILITY,
+    },
+    invitesServer: { source: INVITES_SERVER, main: INVITES_ENTRY, target: invitesServer },
+    // What production-release.yml's guest-site build bakes in (PUBLIC_API_URL,
+    // PUBLIC_SITE_URL, PUBLIC_MARKETING_URL).
+    prebuilt: [
+      { site: "@cire/invites client", directory: INVITES_CLIENT, origins: [api] },
+      {
+        site: "@cire/invites server",
+        directory: INVITES_SERVER,
+        origins: [api, origin(hosts.cireInvites), origin(hosts.cireLanding)],
+      },
+    ],
+  };
+}
+
+/**
  * What the cire stack declares on production: each site `modes` does not
  * turn off, under today's production name, serving its production host,
  * or no host while `holds` holds it. Every build is the production build,
- * so it bakes in `hosts`, today's production hosts, held or not. No API
- * Worker, database or bucket: those join the stack in later steps of phase
- * P3. Pure.
+ * so it bakes in `hosts`, today's production hosts, held or not. The API
+ * Workers, database and buckets are `cireProductionApis`. Pure.
  */
 export function cireProductionSites(input: {
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
@@ -290,14 +470,24 @@ export function cireProductionSites(input: {
   };
 }
 
-/** The host each cire site's Worker is declared with on production, which the plan guard reads. */
-export const PRODUCTION_SITE_DOMAINS: DeclaredDomains = declaredDomains(
-  SITE_LOGICAL_IDS,
-  cireProductionSites({
-    modes: PRODUCTION_SITE_MODES,
-    holds: PRODUCTION_HOST_HOLDS,
-    hosts: PRODUCTION_STAGE_HOSTS,
-  }).sites,
+/** The host each cire Worker, site or API, is declared with on production, which the plan guard reads. */
+export const PRODUCTION_DOMAINS: DeclaredDomains = declaredDomains(
+  { ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS },
+  {
+    ...cireProductionSites({
+      modes: PRODUCTION_SITE_MODES,
+      holds: PRODUCTION_HOST_HOLDS,
+      hosts: PRODUCTION_STAGE_HOSTS,
+    }).sites,
+    [API_LOGICAL_IDS.cire_api]: cireProductionApis({
+      hosts: PRODUCTION_STAGE_HOSTS,
+      generatedDir: ".generated",
+    }).cireApi,
+    [API_LOGICAL_IDS.cire_invites]: cireProductionApis({
+      hosts: PRODUCTION_STAGE_HOSTS,
+      generatedDir: ".generated",
+    }).cireInvites,
+  },
 );
 
 /**
@@ -456,3 +646,21 @@ export function cireDeclaration(input: {
     ],
   };
 }
+
+/** The cire stack's adopted resources on production, by logical id, as the live read and the plan guard compare them. */
+export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
+  const apis = cireProductionApis({ hosts: PRODUCTION_STAGE_HOSTS, generatedDir: ".generated" });
+  return {
+    workers: {
+      [API_LOGICAL_IDS.cire_api]: adoptedWorkerOf(apis.cireApi),
+      [API_LOGICAL_IDS.cire_invites]: adoptedWorkerOf({ ...apis.cireInvites, bindings: {} }),
+    },
+    databases: {
+      CireDb: { name: apis.cireDb.name, readReplication: apis.cireDb.readReplication },
+    },
+    buckets: {
+      CireAssets: adoptedBucketOf(apis.cireAssets),
+      CireSheets: adoptedBucketOf(apis.cireSheets),
+    },
+  };
+})();
