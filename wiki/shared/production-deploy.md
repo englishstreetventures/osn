@@ -398,7 +398,7 @@ bunx wrangler secret put RESEND_API_KEY             --env <staging|production>
 # not used now Resend is live). Only set if falling back off Resend:
 bunx wrangler secret put CLOUDFLARE_ACCOUNT_ID      --env <staging|production>
 bunx wrangler secret put CLOUDFLARE_EMAIL_API_TOKEN --env <staging|production>
-# REQUIRED on production — the coordination probe and the cire→osn ARC bridge (§6.2):
+# REQUIRED on production — the coordination probe and the cire-to-osn ARC bridge (§6.2):
 bunx wrangler secret put INTERNAL_SERVICE_SECRET    --env <staging|production>
 # Turnstile bot protection (optional in code, §3.4; the production inventory
 # requires it on osn-api):
@@ -1198,12 +1198,12 @@ is attached.
 
 1. **API Worker custom domains (Alchemy, verify only).** Each stack declares its API
    Workers' hosts, which each Wrangler config mirrors as a `custom_domain` route:
-   - osn-api → **`id.musubi.social`** (`musubiProductionApis()`; `osn/api/wrangler.toml`).
-   - cire-api → **`api.cireweddings.com`** (`cireProductionApis()`; `cire/api/wrangler.toml`).
-   - cire/invites → **`invite.cireweddings.com`** (`cireProductionApis()`; `cire/invites/wrangler.jsonc`).
-   - zap-api → **`zap.cireweddings.com`** (`zapProductionApis()`; `zap/api/wrangler.toml`).
-   Confirm each shows as an active custom domain for its Worker (dashboard → Workers →
-   *worker* → Settings → Domains & Routes). The plan guard refuses a plan in which any
+   - osn-api: **`id.musubi.social`** (`musubiProductionApis()`; `osn/api/wrangler.toml`).
+   - cire-api: **`api.cireweddings.com`** (`cireProductionApis()`; `cire/api/wrangler.toml`).
+   - cire/invites: **`invite.cireweddings.com`** (`cireProductionApis()`; `cire/invites/wrangler.jsonc`).
+   - zap-api: **`zap.cireweddings.com`** (`zapProductionApis()`; `zap/api/wrangler.toml`).
+   Confirm each shows as an active custom domain for its Worker (in the dashboard:
+   Workers, the Worker, Settings, then Domains & Routes). The plan guard refuses a plan in which any
    of them would give up its host, and each stack job's smoke check asks these hosts
    straight after the deploy (§7), so a green job already shows the domain answers. No
    manual DNS entry is needed. The **proxied wildcard record on

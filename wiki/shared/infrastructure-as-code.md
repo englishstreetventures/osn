@@ -368,7 +368,7 @@ Run it by hand against an investigation stage the same way, with that stage's gu
 | `forbidden` | Names that must never be set on that Worker on that tier |
 | `plainVars` | Names this tier holds as plain-text vars although another tier holds them as secrets. Only cire-api's dev `OSN_API_URL`, osn-api's dev origin derived from the dev domain |
 
-**Dev.** A dev Worker starts holding a new secret only through an inventory change in a reviewed pull request: setting a GitHub secret alone deploys nothing, and a secret an earlier deploy uploaded and the inventory no longer lists is deleted by that Worker's next deploy.
+**Dev.** A dev Worker starts holding a new secret only through an inventory change in a reviewed pull request: setting a GitHub secret alone deploys nothing, and a secret an earlier deploy uploaded and the inventory does not list is deleted by that Worker's next deploy.
 
 **Production.** The stacks upload no production secret, and every Alchemy upload keeps the secrets it does not name (the provider patch's `keep_bindings`, [[#Dependency review]]), so each value is set on the Worker and stays there ([[production-deploy#5.9 Setting a production secret 🔑]]). The release reads each Worker's live secret names before every deploy and refuses one that lacks a required name or holds a forbidden one ([[#Production API Workers and storage]]); a live name the row does not list is shown and kept. So a production secret the code needs is a change to its row in the pull request that first reads it.
 
