@@ -1,5 +1,11 @@
 # @tools/lab
 
+## 0.3.53
+
+### Patch Changes
+
+- a6a57fc: The `SegmentedTabs` stories set the portals' `--ease-glide` on their panels, in the `cubic-bezier` form the portals fall back to, so the glass glides in the lab on the portals' curve. It runs at the touch pace, 320ms, even with a mouse, where the portals take 200ms.
+
 ## 0.3.52
 
 ### Patch Changes
