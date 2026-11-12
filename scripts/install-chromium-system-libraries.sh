@@ -21,9 +21,24 @@
 #   whatever the archive lacks, and resumes the downloads an attempt left.
 #   Playwright's install-deps fetches the index again; that second fetch finds
 #   it unchanged and takes seconds.
-# - apt keeps what it downloads, retries a failed fetch, and gives up on a
-#   connection that sends nothing for 30 s (its default is 120 s), moving on to
-#   the next mirror in the image's list.
+# - apt keeps what it downloads. How often it retries a fetch and how long it
+#   waits on a silent connection are the image's: its
+#   /etc/apt/apt.conf.d/zz-retries sorts after every NN-* file, and apt keeps
+#   the last value it reads.
+# - When the mirror's names do not resolve, `apt-get update` makes about ten
+#   lookups in a row before it gives up, and apt's timeouts do not cover them.
+#   Each lookup is two DNS queries, SRV and address, and glibc waits 10 s on
+#   each (5 s, twice): 200 s, so on 2026-11-11 every attempt was cut inside
+#   the update. Here apt skips the SRV query, which no Ubuntu mirror answers,
+#   and the attempt runs with RES_OPTIONS="timeout:2 attempts:1", so a lookup
+#   waits 2 s and both updates, the script's and Playwright's, finish in the
+#   attempt. apt-get update then warns, exits 0 and keeps the index already on
+#   disk, which apt checked when it fetched it; verify-cached-debs.sh checks
+#   the cache against that index, and apt installs from its archive what the
+#   index names, without the network. The step passes with one warning
+#   starting "::warning::install-chromium-system-libraries: apt-get update
+#   could not fetch every index". A resolver that answers within 2 s works as
+#   before.
 # - After the install, the .debs in apt's archive, each checked against the
 #   index by verify-cached-debs.sh or by apt as it downloaded it, replace
 #   those in <cache dir>, for the workflow to save.
@@ -35,7 +50,9 @@
 #   verify-cached-debs.sh records one that did, so the step never carries on
 #   after a cached package was checked or an install began. apt-get update
 #   exits 0 on a network failure when it finishes in time (it warns and keeps
-#   the old index), so that case fails the step too;
+#   the old index), so that case fails the step too: when apt then could not
+#   download a package the cache lacked at the version that index names, the
+#   line saying why says so;
 # - apt's output (the lines not starting `::`, since retry.sh's annotations
 #   quote the command line) names a network fault: a name it could not
 #   resolve, a host it could not connect to, a connection that timed out;
@@ -68,6 +85,16 @@ network="Temporary failure resolving '|Could not resolve '|Could not connect to 
 # ... and for an index or package it could not trust (methods/gpgv.cc,
 # apt-pkg/acquire-item.cc). Wide on purpose: a false match only fails the step.
 untrusted="NO_PUBKEY|BADSIG|EXPKEYSIG|REVKEYSIG|[Ss]ignature|[Ss]igned|[Hh]ash|not valid yet"
+# apt-get update's warning when a fetch failed on the network and it kept the
+# index on disk (apt-pkg/update.cc), and apt-get install's error when it could
+# not download a package (apt-private/private-install.cc).
+kept_index="W: Some index files failed to download. They have been ignored, or old ones used instead."
+not_fetched="E: Unable to fetch some archives"
+
+# Each try of a DNS query waits 2 s, once: glibc's default is 5 s, twice
+# (resolv/resolv.h), and RES_OPTIONS overrides /etc/resolv.conf
+# (resolv/res_init.c). A stub resolver answers in milliseconds.
+resolver="timeout:2 attempts:1"
 
 state=$(mktemp -d)
 trap 'rm -rf "$state"' EXIT
@@ -77,11 +104,15 @@ trap 'rm -rf "$state"' EXIT
 # missing; then it warns once and passes, having installed nothing.
 without_apt() {
   local status=$1 checked=0
+  awk '!/^::/' "$state/output" >"$state/apt"
   if [ -e "$state/updated" ]; then
-    echo "install-chromium-system-libraries: not skipped: apt-get update finished, so apt held an index"
+    if grep -qxF "$kept_index" "$state/apt" && grep -qF "$not_fetched" "$state/apt"; then
+      echo "install-chromium-system-libraries: not skipped: apt-get update could not fetch every index and kept the copies on disk, and apt could not download a package the cache lacked at the version they name"
+    else
+      echo "install-chromium-system-libraries: not skipped: apt-get update finished, so apt held an index"
+    fi
     exit "$status"
   fi
-  awk '!/^::/' "$state/output" >"$state/apt"
   if grep -Eq "$untrusted" "$state/apt"; then
     echo "install-chromium-system-libraries: not skipped: apt reported a signature or hash failure"
     exit "$status"
@@ -104,20 +135,19 @@ without_apt() {
 mkdir -p "$cache"
 printf '%s\n' \
   'APT::Keep-Downloaded-Packages "true";' \
-  'Acquire::Retries "5";' \
-  'Acquire::http::Timeout "30";' \
-  'Acquire::https::Timeout "30";' |
+  'Acquire::EnableSrvRecords "false";' |
   sudo tee "$root/etc/apt/apt.conf.d/80-ci-chromium" >/dev/null
 
 shopt -s nullglob
 cached=("$cache"/*.deb)
 echo "install-chromium-system-libraries: ${#cached[@]} packages in the cache"
 
-# Run as root, Playwright calls apt-get itself rather than through sudo. The
-# output reaches the log as it comes, and a file without_apt reads.
+# Run as root, Playwright calls apt-get itself rather than through sudo, with
+# this environment. The output reaches the log as it comes, and a file
+# without_apt and the warning below read.
 status=0
 # shellcheck disable=SC2016 # $1-$4 are the inner shell's own arguments.
-sudo env "PATH=$PATH" bash "$scripts/retry.sh" 3 150 \
+sudo env "PATH=$PATH" "RES_OPTIONS=$resolver" bash "$scripts/retry.sh" 3 150 \
   sh -c 'dpkg --configure -a &&
     apt-get update &&
     : >"$4" &&
@@ -126,6 +156,9 @@ sudo env "PATH=$PATH" bash "$scripts/retry.sh" 3 150 \
   sh "$scripts/verify-cached-debs.sh" "$cache" "$archives" "$state/updated" \
   2>&1 | tee "$state/output" || status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then without_apt "$status"; fi
+if grep -qxF "$kept_index" "$state/output"; then
+  echo "::warning::install-chromium-system-libraries: apt-get update could not fetch every index and kept the copies on disk; its W: lines above name them"
+fi
 
 kept=("$archives"/*.deb)
 if [ "${#cached[@]}" -gt 0 ]; then rm -rf -- "${cached[@]}"; fi

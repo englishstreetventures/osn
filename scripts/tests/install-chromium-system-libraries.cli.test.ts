@@ -259,19 +259,17 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.log).toContain(`apt-cache show ${EPOCH.name}=${EPOCH.version}`);
     // A mirror apt reaches installs as it always has: no dry run, no warning.
     expect(run.log).not.toContain("install-deps --dry-run");
-    expect(run.output).not.toContain(SKIPPED);
+    expect(run.output).not.toMatch(/^::warning::/m);
     // Without the first line apt deletes what it downloads and the cache saves
-    // nothing; without the timeouts a stalled mirror holds an attempt for 120 s.
+    // nothing. The second spares each connection a DNS query no mirror answers;
+    // when names do not resolve, that query is half the wait. Retries and
+    // timeouts are the image's own (zz-retries), which apt reads after this file.
     expect(
       readFileSync(join(w.dir, "root", "etc", "apt", "apt.conf.d", "80-ci-chromium"), "utf8"),
     ).toBe(
-      [
-        'APT::Keep-Downloaded-Packages "true";',
-        'Acquire::Retries "5";',
-        'Acquire::http::Timeout "30";',
-        'Acquire::https::Timeout "30";',
-        "",
-      ].join("\n"),
+      ['APT::Keep-Downloaded-Packages "true";', 'Acquire::EnableSrvRecords "false";', ""].join(
+        "\n",
+      ),
     );
   });
 
@@ -539,5 +537,84 @@ describe("install-chromium-system-libraries.sh when apt cannot reach the mirror"
     expect(run.log.at(-1)).toBe("install-deps --dry-run");
     expect(run.output).toContain(`${NOT_SKIPPED}playwright install-deps --dry-run chromium`);
     expect(run.output).not.toContain(SKIPPED);
+  });
+});
+
+/** The start of the warning the script prints when apt installed against the index copies on disk. */
+const KEPT_INDEX =
+  "::warning::install-chromium-system-libraries: apt-get update could not fetch every index";
+
+/**
+ * Makes the mirror's names unresolvable, as on 2026-11-11: every `apt-get
+ * update`, the script's and Playwright's own, prints `UNREACHABLE` and
+ * finishes keeping the index on disk only when the resolver gives up fast
+ * enough (fake-apt.ts says how fast), and a download fails.
+ */
+const unresolvable = (w: World) => writeFileSync(join(w.dir, "unresolvable"), UNREACHABLE);
+
+/**
+ * The index the runner image was built with: the mirror's, as apt fetched
+ * and checked it then, already in apt's lists before the step runs.
+ */
+function indexOnDisk(w: World): void {
+  const lists = join(w.dir, "root", "var", "lib", "apt", "lists");
+  mkdirSync(lists, { recursive: true });
+  writeFileSync(join(lists, "Packages"), readFileSync(join(w.dir, "mirror", "Packages")));
+}
+
+// With the resolver bounded, `apt-get update` gives up on names that do not
+// resolve inside its attempt, exits 0 and keeps the index on disk. Each cached
+// package is then checked against that index, as against a fresh one, and apt
+// installs what it can without the network.
+describe("install-chromium-system-libraries.sh when the mirror's names do not resolve", () => {
+  test("with the cache holding what the index on disk names, the first attempt installs it all from the cache and passes with one warning", () => {
+    const w = world([ALPHA, EPOCH]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    cacheFile(w, fileOf(EPOCH), bytesOf(EPOCH));
+    unresolvable(w);
+    // On the image the fonts are not installed, so carrying on without apt is
+    // not open: only the install can pass the step.
+    writeFileSync(join(w.dir, "missing"), `${ALPHA.name}\n${EPOCH.name}\n`);
+    const run = install(w);
+    expect(run.status, run.output).toBe(0);
+    // Both updates, the script's and Playwright's, finished in the one attempt.
+    expect(run.output).not.toContain("::warning::retry.sh");
+    expect(run.log.filter((line) => line === "apt-get update")).toHaveLength(1);
+    expect(run.log.filter((line) => line === "install-deps")).toHaveLength(1);
+    expectGenuine(run, [
+      [ALPHA, "archive"],
+      [EPOCH, "archive"],
+    ]);
+    expect(run.downloaded).toEqual([]);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output.match(/^::warning::/gm), run.output).toEqual(["::warning::"]);
+    expect(run.output).toContain(KEPT_INDEX);
+    expect(cacheContents(w)).toEqual({
+      [fileOf(ALPHA)]: bytesOf(ALPHA),
+      [fileOf(EPOCH)]: bytesOf(EPOCH),
+    });
+  });
+
+  test("with the cache holding a newer version than the index on disk names, the step fails after three attempts with one line saying so, having put nothing unchecked in the archive", () => {
+    const old: Pkg = { ...ALPHA, version: "0.9-1" };
+    // The image's index names 0.9-1; the cache was saved after 1.0-1 reached the mirror.
+    const w = world([old]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    unresolvable(w);
+    writeFileSync(join(w.dir, "missing"), `${ALPHA.name}\n`);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log.filter((line) => line === "install-deps")).toHaveLength(3);
+    expect(run.archiveAtInstall).toEqual([]);
+    expect(run.installed.size).toBe(0);
+    expect(run.output).toMatch(new RegExp(`^::warning::.*dropped ${fileOf(ALPHA)}`, "m"));
+    expect(run.output.match(new RegExp(`^${NOT_SKIPPED}`, "gm")), run.output).toHaveLength(1);
+    expect(run.output).toContain(`${NOT_SKIPPED}apt-get update could not fetch every index`);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output).not.toContain(SKIPPED);
+    expect(cacheContents(w)).toEqual(before);
   });
 });

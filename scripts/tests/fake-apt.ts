@@ -9,7 +9,8 @@
 //   mirror/Packages                  the signed index, records as `apt-cache show` prints them
 //   mirror/<file>                    the mirror's packages
 //   needed                           the files install-deps installs, one per line
-//   root/var/lib/apt/lists/Packages  the index once `apt-get update` has run
+//   root/var/lib/apt/lists/Packages  the index apt holds: the mirror's once `apt-get update` has reached
+//                                    it, or one a test puts there first, as the runner image does
 //   root/var/cache/apt/archives/     apt's archive
 //   log                              one line per call, per archive entry and per package installed
 //   fail                             when present, install-deps fails as apt does when a download does
@@ -19,6 +20,10 @@
 //   missing                          the packages the dry run reports missing, one per line; none when absent
 //   unsupported                      when present, the dry run takes Playwright's unknown-platform path: a
 //                                    warning, no check, exit 0
+//   unresolvable                     when present, no mirror's name resolves: every `apt-get update`,
+//                                    the one install-deps runs too, prints what it holds and either
+//                                    finishes keeping the index on disk or is cut (see unresolvedUpdate),
+//                                    and a download fails
 //
 // install-deps behaves as the worst apt could: it installs whatever file of
 // the right name it finds in the archive, unchecked, and downloads from the
@@ -50,10 +55,58 @@ const log = (line: string) => appendFileSync(join(world, "log"), `${line}\n`);
 const sha256 = (path: string) =>
   new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
 
-/** `apt-get update`: the mirror's index becomes the one apt reads. */
-function update(): void {
-  mkdirSync(lists, { recursive: true });
-  copyFileSync(join(mirror, "Packages"), join(lists, "Packages"));
+/** The text a world file holds, or undefined when the world has no such file. */
+const worldFile = (name: string) =>
+  existsSync(join(world, name)) ? readFileSync(join(world, name), "utf8") : undefined;
+
+/**
+ * The longest an `apt-get update` may take when no name resolves: its share of
+ * the script's 150 s attempt, which holds the script's update, Playwright's own
+ * and the install.
+ */
+const UPDATE_SHARE_SECONDS = 60;
+
+/**
+ * How long `apt-get update` waits on names that never resolve, as on the
+ * runner in ci.yml run 43054765174: ten lookups one after another (four
+ * indexes, each tried twice on the first mirror under the image's
+ * `Acquire::Retries "1"`, then once on each of the other two), each an SRV
+ * query unless `Acquire::EnableSrvRecords` is false and an address query, and
+ * each query waits glibc's timeout times its attempts, 5 s and 2 unless
+ * RES_OPTIONS sets them. Unbounded that is 200 s, 20 s a lookup, as the log
+ * shows.
+ */
+function unresolvedSeconds(): number {
+  const option = (name: string, fallback: number) => {
+    const set = new RegExp(`(?:^|\\s)${name}:(\\d+)`).exec(process.env.RES_OPTIONS ?? "");
+    return set?.[1] === undefined ? fallback : Number(set[1]);
+  };
+  const conf = join(world, "root", "etc", "apt", "apt.conf.d");
+  const srv = !readdirSync(conf).some((file) =>
+    readFileSync(join(conf, file), "utf8").includes('Acquire::EnableSrvRecords "false";'),
+  );
+  return 10 * (srv ? 2 : 1) * option("timeout", 5) * option("attempts", 2);
+}
+
+/**
+ * `apt-get update`, the script's or install-deps' own. With the mirror
+ * reachable, its index becomes the one apt reads. With its names unresolvable,
+ * apt warns and keeps the index already on disk (apt-pkg/update.cc) when it
+ * gives up in time; otherwise retry.sh cuts the attempt first, which exits 124.
+ */
+function update(): number {
+  const unresolvable = worldFile("unresolvable");
+  if (unresolvable === undefined) {
+    mkdirSync(lists, { recursive: true });
+    copyFileSync(join(mirror, "Packages"), join(lists, "Packages"));
+    return 0;
+  }
+  process.stdout.write(unresolvable);
+  if (unresolvedSeconds() > UPDATE_SHARE_SECONDS) return 124;
+  process.stderr.write(
+    "W: Some index files failed to download. They have been ignored, or old ones used instead.\n",
+  );
+  return 0;
 }
 
 /** The records of the index apt holds now, each as its lines' fields. */
@@ -96,13 +149,10 @@ function aptCacheShow(): number {
   return 0;
 }
 
-/** The text a world file holds, or undefined when the world has no such file. */
-const worldFile = (name: string) =>
-  existsSync(join(world, name)) ? readFileSync(join(world, name), "utf8") : undefined;
-
 function installDeps(): number {
   // Playwright's command runs `apt-get update` before `apt-get install`.
-  update();
+  const updated = update();
+  if (updated !== 0) return updated;
   log("install-deps");
   const fail = worldFile("fail");
   if (fail !== undefined) {
@@ -112,6 +162,19 @@ function installDeps(): number {
   mkdirSync(archives, { recursive: true });
   for (const entry of readdirSync(archives).toSorted()) log(`archive ${entry}`);
   const needed = readFileSync(join(world, "needed"), "utf8").split("\n").filter(Boolean);
+  // apt fetches everything the archive lacks before it installs anything.
+  const absent = needed.filter((file) => !existsSync(join(archives, file)));
+  if (absent.length > 0 && worldFile("unresolvable") !== undefined) {
+    for (const file of absent) {
+      process.stderr.write(
+        `Err:1 http://azure.archive.ubuntu.com/ubuntu resolute/universe all ${file}\n  Temporary failure resolving 'azure.archive.ubuntu.com'\n`,
+      );
+    }
+    process.stderr.write(
+      "E: Unable to fetch some archives, maybe run apt update or try with --fix-missing?\n",
+    );
+    return 100;
+  }
   for (const file of needed) {
     const inArchive = join(archives, file);
     let from = "archive";
@@ -160,8 +223,7 @@ function main(): number {
           process.stdout.write(unreachable);
           return 100;
         }
-        update();
-        return 0;
+        return update();
       }
       break;
     case "apt-cache":
