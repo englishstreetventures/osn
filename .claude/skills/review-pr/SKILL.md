@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Use when asked to review and fix an open pull request this session did not write — one another tool such as Codex opened, or another session left — and bring it to merge-ready on its own branch. Covers finding and reusing the branch's existing worktree, reading what the branch would run before running it, rebasing it and regenerating bun.lock with evidence instead of merging it, running prep-pr's review lenses on someone else's work, telling a red check main caused from one the branch caused, fixing every finding on the branch, and rewriting the body with write-pr.
+description: Use when asked to review and fix an open pull request this session did not write — one another tool such as Codex opened, or another session left — and bring it to merge-ready on its own branch. Covers finding and reusing the branch's existing worktree, reading what the branch would run before running it, rebasing it, only on the owner's word, and regenerating bun.lock with evidence instead of merging it, running prep-pr's review lenses on someone else's work, telling a red check main caused from one the branch caused, fixing every finding on the branch, and rewriting the body with write-pr.
 ---
 
 Review and fix pull request `$ARGUMENTS`. If it is empty, ask for the number.
@@ -13,9 +13,10 @@ reviewed, so nothing of it runs on this machine until this run has read it.
 
 ## What this run must produce
 
-1. **The branch, merge-ready, on its own branch** — rebased when it is behind or
-   conflicts, every gate re-run by this run, every finding fixed on the branch
-   or filed. In the branch's existing worktree; never a second one.
+1. **The branch, merge-ready, on its own branch** — rebased only when it
+   conflicts and the owner has said to (Step 3), every gate re-run by this run,
+   every finding fixed on the branch or filed. In the branch's existing
+   worktree; never a second one.
 2. **The body rewritten with `write-pr`**: every sentence true of the head
    commit, every test-plan row from a command this run ran.
 3. **The report** — `prep-pr`'s report file (`PREP-PR-REPORT.md` unless the task
@@ -170,9 +171,17 @@ says what follows, and accepting one is the owner's decision.
 
 ## Step 3 — Rebase, and regenerate `bun.lock`
 
-Rebase onto `origin/main` when `mergeable_state` is `dirty` or `behind`. GitHub
-answers `unknown` while it is still working that out: read it again after ten
-seconds rather than taking `unknown` as clean. Otherwise go to Step 4.
+**Only on the owner's word.** `behind` alone needs no rebase: the merge queue
+tests the pull request on top of `main`. On `dirty`, list the conflicting files
+(`git merge-tree --write-tree refs/remotes/origin/main HEAD`) and ask the owner
+first, as `AGENTS.md` §How work runs says: the branch is not this run's, and a
+rebase rewrites what its author pushed. A request to review and fix the pull
+request is not that answer unless it says to rebase. Without it, report the
+conflict and go to Step 4. GitHub answers `unknown` while it is still working
+the state out: read it again after ten seconds rather than taking `unknown` as
+clean.
+
+With the owner's go-ahead, rebase once.
 
 Record both commits in the report before rebasing — the evidence below needs
 them, by value, after the rebase has moved `HEAD`:
@@ -376,6 +385,7 @@ from here would watch the same checks twice.
 | `git worktree add` for the pull request's branch | `git worktree list \| grep -F "[<branch>]"` first; git refuses a second worktree for a branch anyway |
 | Stashing or resetting a dirty worktree to start clean | Stop and report: it is someone else's work |
 | `bun install` or a test run before reading the branch's scripts and hooks | Step 2 first; the branch's code runs with this machine's credentials |
+| Rebasing a conflicting branch because the task said "fix" | Step 3: name the conflicting files and ask the owner; a rebase waits for their word |
 | Taking one side of `bun.lock`, or letting git merge it | Main's lockfile plus `bun add` for each of the branch's changes, then the evidence script |
 | A bare `bun install` to "fix" the lockfile | It drops other platforms' entries; `bun install --frozen-lockfile` only proves the file |
 | `$MB` or `$ORIG` set in one Bash call and read in the next | Record both in the report and pass them by value; the evidence script refuses an empty one |

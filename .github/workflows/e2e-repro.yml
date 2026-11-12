@@ -1,0 +1,70 @@
+name: E2E determinism
+
+# Runs the end-to-end suite twice and fails unless both runs wrote the same
+# results.json, byte for byte (`bun run test:e2e:repro`, tools/e2e/src/repro.ts).
+# A flow that records a random or time-shaped value fails here. CI's E2E job
+# runs the suite once, so this is the only place that compares two runs.
+#
+# A flow most often starts recording such a value through a change under
+# tools/e2e, so a pull request or a push to main runs this only when it
+# changes something there, this workflow, or the setup this shares with the
+# E2E job. A change elsewhere (a page that starts a fetch on a timer) can do
+# it too, and the daily run finds that within a day. It is not a required
+# check, and it never runs on a merge-queue group.
+on:
+  pull_request:
+    paths:
+      - "tools/e2e/**"
+      - ".github/workflows/e2e-repro.yml"
+      - ".github/actions/e2e-setup/**"
+  push:
+    branches: [main]
+    paths:
+      - "tools/e2e/**"
+      - ".github/workflows/e2e-repro.yml"
+      - ".github/actions/e2e-setup/**"
+  schedule:
+    # 05:17 UTC daily, off the hour that every scheduled workflow asks for.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Reads the checkout and uploads an artifact; nothing else.
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: E2E determinism
+    # A newer push to a pull request cancels the run it supersedes; a run on
+    # main, on the schedule or by hand is never cancelled.
+    concurrency:
+      group: ${{ format('e2e-repro-{0}', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    # Each job has a runner of its own, so this and CI's E2E job both take the
+    # suite's fixed ports without meeting.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/e2e-setup
+
+      # Two runs take about 11 minutes (main, 2026-11-11). No retry: a second
+      # chance would hide the difference this job exists to find.
+      - name: E2E flows, twice, results.json compared byte for byte
+        timeout-minutes: 20
+        run: bun run test:e2e:repro
+
+      # Traces, screenshots, results.json and server logs from the second
+      # run, on failure too. repro.ts prints the first line that differs.
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-repro-artifacts
+          path: e2e-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

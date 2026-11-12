@@ -12,26 +12,21 @@ name: Production release
 #                                          (approval 2, together)
 #
 # `build` and `sites` run side by side; `alchemy-plan` and every deploy job
-# need both. A release dispatched with `attach` naming a site runs the plan
-# job and attach-pages-domain alone, behind one approval: the site's domain
-# goes back on its Pages project, the rollback of a site's Worker
-# (wiki/shared/production-deploy.md §5.7).
+# need both.
 #
 # `sites` builds each production site a shipping stack deploys, once, with
 # the values its build bakes in, and passes them on as the `production-sites`
 # artifact. A job that holds a credential downloads it outside its checkout
 # and lets in only the site builds (scripts/production-sites-artifact.ts).
-# `alchemy-plan` (the `production` Environment's first review) checks before
-# any install that no worker site's domain is on a Pages project, then plans
-# each shipping stack and runs the plan guard, keeping only the guard's
-# record (names, kinds, actions, and each site's custom-domain change, read
-# from the live Workers). Every other job needs all four, so they reach the
-# gate together and one second review releases them. When no stack ships,
+# `alchemy-plan` (the `production` Environment's first review) plans each
+# shipping stack and runs the plan guard, keeping only the guard's record
+# (names, kinds, actions, and each site's custom-domain change, read from the
+# live Workers). Every other job needs all four, so they reach the gate
+# together and one second review releases them. When no stack ships,
 # `alchemy-plan` is skipped and that is the only review. Any job that fails
-# stops every deploy job: a guard refusal, a site build, a state store that
-# needs bootstrapping after an Alchemy bump, or a worker site's domain on
-# Pages all hold the release until fixed, or until a dispatch whose
-# `surfaces` leave the stacks out.
+# stops every deploy job: a guard refusal, a site build, or a state store
+# that needs bootstrapping after an Alchemy bump holds the release until
+# fixed, or until a dispatch whose `surfaces` leave the stacks out.
 #
 # Each stack job re-plans, refuses a plan the guard refuses or that differs
 # from the one approved at `alchemy-plan`, deploys, and smoke-checks each
@@ -82,12 +77,10 @@ name: Production release
 # Environment also allows `main` alone; the plan job refuses any other ref
 # before the build starts. In the Alchemy jobs it reaches only the steps that
 # check the token, read the state store, snapshot or compare deployments,
-# read the Workers' custom domains, plan, deploy and smoke-check;
-# CLOUDFLARE_PAGES_DNS_TOKEN, which may move a Pages domain, reaches only the
-# pages-domain steps: alchemy-plan's precheck, before any install, and the
-# attach job, which installs nothing. The jobs that install a narrower tree
-# than `sites` and hold a credential (alchemy-plan and the stack jobs) restore
-# no dependency cache, which jobs holding no secret also write. Every checkout
+# read the Workers' custom domains, plan, deploy and smoke-check. The jobs
+# that install a narrower tree than `sites` and hold a credential
+# (alchemy-plan and the stack jobs) restore no dependency cache, which jobs
+# holding no secret also write. Every checkout
 # sets `persist-credentials: false`: no step fetches or pushes, so the job
 # token never sits in .git/config while dependency code runs.
 # shared/infra/tests/workflow-secrets.test.ts holds this.
@@ -110,11 +103,6 @@ on:
         type: boolean
         required: false
         default: false
-      attach:
-        description: "A site whose domain goes back on its Pages project once it is off its Worker: the rollback of a site's Worker. The release runs that alone: leave every other input empty. Empty for none."
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -160,10 +148,7 @@ jobs:
       zap_api: ${{ steps.plan.outputs.zap_api }}
       stack_musubi: ${{ steps.plan.outputs.stack_musubi }}
       stack_cire: ${{ steps.plan.outputs.stack_cire }}
-      any_site: ${{ steps.plan.outputs.any_site }}
       any_stack: ${{ steps.plan.outputs.any_stack }}
-      stacks: ${{ steps.plan.outputs.stacks }}
-      attach: ${{ steps.plan.outputs.attach }}
     steps:
       - name: Refuse any ref but main
         if: github.ref != 'refs/heads/main'
@@ -189,7 +174,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SURFACES: ${{ inputs.surfaces }}
           FORCE: ${{ inputs.force }}
-          ATTACH: ${{ inputs.attach }}
         run: bun run scripts/release-plan.ts
 
   # ── Gate ─────────────────────────────────────────────────────────────────
@@ -265,7 +249,7 @@ jobs:
   sites:
     name: Build the production sites
     needs: [plan]
-    if: needs.plan.outputs.any_site == 'true'
+    if: needs.plan.outputs.any_stack == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -315,7 +299,7 @@ jobs:
       # The organiser portal. Its PUBLIC_* vars bake in at build time; sign-in
       # is a redirect through cire-api, so no issuer var.
       - name: Build cire/host
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_host == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: bun run build --filter=@cire/host
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
@@ -338,7 +322,7 @@ jobs:
 
       # The vendor self-service portal.
       - name: Build cire/vendor
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_vendor == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: bun run build --filter=@cire/vendor
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
@@ -357,7 +341,7 @@ jobs:
       #     prints its first seven characters as the version, so a report
       #     from a phone says which build it was.
       - name: Build cire/landing
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_landing == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: bun run build --filter=@cire/landing
         env:
           PUBLIC_ORGANISER_URL: https://host.cireweddings.com
@@ -374,7 +358,7 @@ jobs:
       # Same repo Variable as the cire builds (one widget, one sitekey);
       # musubi.social must be in the widget's Domains list.
       - name: Require the Turnstile sitekey
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.osn_social == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: |
           if [ -z "${VITE_TURNSTILE_SITEKEY}" ]; then
             echo "::error::Repo Variable PUBLIC_TURNSTILE_SITEKEY is empty or unset."
@@ -390,7 +374,7 @@ jobs:
       # without it the bundle falls back to http://localhost:4000 and every
       # call from the deployed app dials the user's own machine.
       - name: Build musubi/social
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.osn_social == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: bun run build --filter=@musubi/social
         env:
           VITE_OSN_ISSUER_URL: https://id.musubi.social
@@ -399,7 +383,7 @@ jobs:
       # musubi's marketing site on www.musubi.social; its sign-in and
       # get-started links go to the app.
       - name: Build musubi/landing
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.musubi_landing == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: bun run build --filter=@musubi/landing
         env:
           SITE: https://www.musubi.social
@@ -411,19 +395,19 @@ jobs:
       # skips the chained call; this checks what uploads either way
       # (wiki/conventions/bundle-size-guards.md).
       - name: Check cire/host bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_host == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: ./scripts/guard-bundle-size.sh cire/host
 
       - name: Check cire/vendor bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_vendor == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: ./scripts/guard-bundle-size.sh cire/vendor
 
       - name: Check cire/landing bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_landing == 'true'
+        if: needs.plan.outputs.stack_cire == 'true'
         run: ./scripts/guard-bundle-size.sh cire/landing
 
       - name: Check musubi/landing bundle size and refuse public source maps
-        if: needs.plan.outputs.stack_musubi == 'true' || needs.plan.outputs.musubi_landing == 'true'
+        if: needs.plan.outputs.stack_musubi == 'true'
         run: ./scripts/guard-bundle-size.sh musubi/landing
 
       # A file at the root, so the artifact's paths start at the repository
@@ -455,12 +439,9 @@ jobs:
 
   # ── Approval 1: the Alchemy plan ─────────────────────────────────────────
   # Runs only when a stack ships, in the `production` Environment, so its
-  # review is the first of two. Before any install it checks that the domain
-  # of every worker site of a shipping stack is on no Pages project
-  # (scripts/pages-domain.ts), so no release runs while a site is rolled back
-  # to Pages. Then it plans each shipping stack, the log kept in a file
-  # because raw Alchemy output can carry account values, and runs the plan
-  # guard, keeping only its record: resource names, kinds, actions and
+  # review is the first of two. It plans each shipping stack, the log kept in
+  # a file because raw Alchemy output can carry account values, and runs the
+  # plan guard, keeping only its record: resource names, kinds, actions and
   # counts. The guard holds no credential.
   alchemy-plan:
     name: Plan the Alchemy stacks
@@ -477,17 +458,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-
-      # Before any install: the narrow Pages and DNS token reaches no
-      # dependency's code. The script imports only the repository's
-      # import-free files.
-      - name: Check each worker site's domain
-        id: domains
-        run: bun run scripts/pages-domain.ts precheck
-        env:
-          STACKS: ${{ needs.plan.outputs.stacks }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}
 
       # The two production stacks' trees, no other workspace's, and no
       # cache: the cache is shared with jobs that hold no secret.
@@ -616,13 +586,19 @@ jobs:
         id: guard_cire
         if: needs.plan.outputs.stack_cire == 'true'
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       - name: Guard the musubi plan
         id: guard_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       - name: Keep the approved plans
         uses: actions/upload-artifact@v4
@@ -953,7 +929,11 @@ jobs:
           # RESEND_API_URL points mail at a local Resend emulator; osn-api
           # refuses to boot with it in a non-local tier (lib/email-layer.ts),
           # so deploying with it set would 503 every route.
-          forbidden="DEV_LOGIN_SECRET RESEND_API_URL"
+          # OSN_EMAIL_VERIFICATION_EMULATOR_URL points the sign-up token
+          # verifier at a stand-in that answers DNS and holds the keys, which
+          # would let any address verify; osn-api refuses to boot with it
+          # outside OSN_ENV=local (build-deps.ts).
+          forbidden="DEV_LOGIN_SECRET RESEND_API_URL OSN_EMAIL_VERIFICATION_EMULATOR_URL"
           present=""
           for name in $forbidden; do
             if printf '%s\n' "$set_names" | grep -qx "$name"; then
@@ -1040,8 +1020,9 @@ jobs:
 
   # ═══ cire stack, production: the cire sites ═══════════════════════════════
   # Declares the organiser portal, the vendor portal and the marketing site,
-  # each at its mode in shared/infra/src/production-sites.ts; cire-api and the
-  # guest site stay with their Wrangler jobs until their own steps of P3.
+  # each at its mode and hold in shared/infra/src/production-sites.ts;
+  # cire-api and the guest site stay with their Wrangler jobs until their own
+  # steps of P3.
   stack-cire-production:
     name: Alchemy cire stack — production
     needs: [plan, build, sites, alchemy-plan]
@@ -1092,7 +1073,7 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # The host each site's Worker serves at its mode, which its smoke check asks.
+      # Each site's production host, which its smoke check asks.
       - name: Production site hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
@@ -1160,7 +1141,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1197,28 +1181,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # A site the approved plan gives a host other than a production host
-      # waits up to four minutes for that host's first certificate; every
-      # other site, a minute. Never blocks the deploy or fails the job: when
-      # it fails, each check reads no budget and asks for a minute.
-      - name: Smoke check budgets
-        id: budgets
-        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
-        continue-on-error: true
-        run: bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/cire.json"
-
-      # Seven minutes: the longest budget, a rollback and its re-check, with
-      # every request at its timeout, take 366 s (scripts/smoke-check.ts).
+      # Five minutes: a check, its rollback and the re-check, with every
+      # request at its timeout, take 186 s. A site PRODUCTION_HOST_HOLDS
+      # holds off probes nothing: its check reads that the held host is off
+      # its Worker (scripts/smoke-check.ts).
       - name: Smoke check cire/host, rolling back on failure
         id: smoke_cire_host
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts cire_host production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_host_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_host_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_host_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1226,12 +1201,11 @@ jobs:
         id: smoke_cire_vendor
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts cire_vendor production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_vendor_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_vendor_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_vendor_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1239,12 +1213,11 @@ jobs:
         id: smoke_cire_landing
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts cire_landing production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_landing_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_landing_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1293,9 +1266,9 @@ jobs:
         run: echo "cire-landing deployed and passed its smoke check in this run's cire stack job."
 
   # ═══ musubi stack, production: musubi social and musubi landing ═══════════
-  # Declares the account app and the marketing site, each at its mode in
-  # shared/infra/src/production-sites.ts; osn-api stays with its Wrangler job
-  # until its own step of P3.
+  # Declares the account app and the marketing site, each at its mode and
+  # hold in shared/infra/src/production-sites.ts; osn-api stays with its
+  # Wrangler job until its own step of P3.
   stack-musubi-production:
     name: Alchemy musubi stack — production
     needs: [plan, build, sites, alchemy-plan]
@@ -1345,7 +1318,7 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # The host each site's Worker serves at its mode, which its smoke check asks.
+      # Each site's production host, which its smoke check asks.
       - name: Production site hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
@@ -1413,7 +1386,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a site Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1450,28 +1426,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # A site the approved plan gives a host other than a production host
-      # waits up to four minutes for that host's first certificate; every
-      # other site, a minute. Never blocks the deploy or fails the job: when
-      # it fails, each check reads no budget and asks for a minute.
-      - name: Smoke check budgets
-        id: budgets
-        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
-        continue-on-error: true
-        run: bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/musubi.json"
-
-      # Seven minutes: the longest budget, a rollback and its re-check, with
-      # every request at its timeout, take 366 s (scripts/smoke-check.ts).
+      # Five minutes: a check, its rollback and the re-check, with every
+      # request at its timeout, take 186 s. A site PRODUCTION_HOST_HOLDS
+      # holds off probes nothing: its check reads that the held host is off
+      # its Worker (scripts/smoke-check.ts).
       - name: Smoke check musubi/social, rolling back on failure
         id: smoke_osn_social
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts osn_social production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_social_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_social_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.osn_social_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1479,12 +1446,11 @@ jobs:
         id: smoke_musubi_landing
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: bun run scripts/smoke-check.ts musubi_landing production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.musubi_landing_deployment }}
-          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.musubi_landing_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1520,37 +1486,3 @@ jobs:
     steps:
       - name: Record the production deploy
         run: echo "musubi-landing deployed and passed its smoke check in this run's musubi stack job."
-
-  # ── A site's domain back on its Pages project ────────────────────────────
-  # The rollback of a site's Worker, dispatched with `attach` naming the site
-  # once its host is off the Worker (wiki/shared/production-deploy.md §5.7).
-  # A fresh runner with nothing installed, so the narrow Pages and DNS token
-  # reaches no dependency's code; it never leaves GitHub. `pages-domain.ts
-  # attach` checks the token's reach, then makes only what is missing, and
-  # refuses while the Worker or anything else still holds the host. Its own
-  # approval.
-  attach-pages-domain:
-    name: Put a site's domain back on its Pages project
-    needs: [plan]
-    if: needs.plan.outputs.attach != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      # No install: pages-domain.ts imports only the repository's import-free
-      # files.
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Put the site's domain and CNAME back on its Pages project
-        id: attach
-        run: bun run scripts/pages-domain.ts attach "$ATTACH"
-        env:
-          ATTACH: ${{ needs.plan.outputs.attach }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}

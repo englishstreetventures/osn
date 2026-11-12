@@ -4,6 +4,7 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Origin-Trial: AqTqmLMcrKr8+PFVA23imFcvHCFMBd6YMZ/iBXRhxn58k+6P4bZux3kvpdoF//5ocQVlda6/bSRSYTOqAZrU9QcAAABgeyJvcmlnaW4iOiJodHRwczovL211c3ViaS5zb2NpYWw6NDQzIiwiZmVhdHVyZSI6IkVtYWlsVmVyaWZpY2F0aW9uUHJvdG9jb2wiLCJleHBpcnkiOjE4MDM5NDU2MDB9
 
 # Framing is the one thing a consent screen must never allow, so it is covered
 # twice (frame-ancestors + X-Frame-Options). object-src/base-uri/form-action are
@@ -18,6 +19,14 @@
 # (VITE_OSN_ISSUER_URL). The issuer differs per tier and the hashes follow the
 # HTML, so neither is written here, and the build fails if this line already
 # sets either directive.
+#
+# Origin-Trial enrols https://musubi.social (that exact origin: no subdomain, no
+# dev host) in Chrome's Email Verification Protocol trial, so Chrome fills the
+# sign-up form's email-verification-token field. The token expires on
+# 2027-03-02; the trial may end sooner, with the rollout of the Chrome release
+# after 160. Its renewal or removal is recorded in
+# wiki/osn/email-verification-api.md, and tests/origin-trial.test.ts fails once
+# the token has expired.
 
 # Apple requires the App Site Association file to be served as JSON, and the
 # file has no extension, so the static-asset layer would otherwise guess and

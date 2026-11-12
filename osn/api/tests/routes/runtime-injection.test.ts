@@ -3,8 +3,8 @@ import { Layer, ManagedRuntime } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createTestLayer } from "../helpers/db";
+import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
@@ -12,7 +12,7 @@ import { createAuthRoutes } from "../helpers/routes";
  * `ManagedRuntime` (built once in `index.ts`) passed as the trailing factory
  * arg — not the per-request fallback the rest of the route tests exercise.
  * This test drives a real, DB- and EmailService-backed flow (handle check →
- * register/begin → register/complete → handle check) through an injected
+ * register/begin → link confirm → register status → handle check) through an injected
  * runtime, asserting the production `makeAppRunner(injectedRuntime, …)` branch
  * actually executes service effects. It also locks the requirement-channel
  * contract behaviourally: the auth flow needs `Db | EmailService`, and a
@@ -45,43 +45,19 @@ describe("createAuthRoutes — injected shared runtime", () => {
       runtime,
     );
 
-    const latestCode = () => {
-      const all = rec.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    };
-
     // 1. Handle is free (checkHandle effect runs through the injected runtime).
     const free = await app.handle(new Request("http://localhost/handle/runtimeuser"));
     expect(((await free.json()) as { available: boolean }).available).toBe(true);
 
-    // 2. register/begin sends an OTP via the injected runtime's EmailService.
-    const begin = await settledHandle(
+    // 2. begin mails a link through the injected runtime's EmailService, the
+    //    link's confirm and 3. the status poll write the account and profile
+    //    to Db through the runtime.
+    const complete = await registeredResponse(
       app,
-      new Request("http://localhost/register/begin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: "runtime-user@example.com",
-          handle: "runtimeuser",
-          birthdate: "1990-01-01",
-          displayName: "Runtime User",
-        }),
-      }),
-    );
-    expect(begin.status).toBe(200);
-    expect(latestCode()).toMatch(/^\d{6}$/);
-
-    // 3. register/complete writes the account+profile to Db via the runtime.
-    const complete = await app.handle(
-      new Request("http://localhost/register/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "runtime-user@example.com", code: latestCode()! }),
-      }),
+      () => rec.recorded(),
+      "runtime-user@example.com",
+      "runtimeuser",
+      { displayName: "Runtime User" },
     );
     expect(complete.status).toBe(201);
     const body = (await complete.json()) as { profileId: string; handle: string };

@@ -23,13 +23,29 @@ import { oidcErrorResponse, ownedClientSummary } from "./response-schemas";
 export function createOidcClientRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
 
-  /** Bearer → owning account, or null. Same resolution as the settings routes. */
-  const resolveOwner = async (authHeader: string | undefined): Promise<string | null> => {
+  /**
+   * Bearer → the owning account, with the token's profile and `osn_sid`
+   * binding for the live-session gate, or null. Same resolution as the
+   * settings routes.
+   */
+  const resolveCaller = async (
+    authHeader: string | undefined,
+  ): Promise<{ accountId: string; profileId: string; sessionBinding: string | null } | null> => {
     const claims = await resolveAccessTokenPrincipal(auth, authHeader);
     if (!claims) return null;
     const profile = await run(auth.findProfileById(claims.profileId));
-    return profile?.accountId ?? null;
+    return profile
+      ? {
+          accountId: profile.accountId,
+          profileId: claims.profileId,
+          sessionBinding: claims.sessionBinding,
+        }
+      : null;
   };
+
+  /** Bearer → owning account, or null. */
+  const resolveOwner = async (authHeader: string | undefined): Promise<string | null> =>
+    (await resolveCaller(authHeader))?.accountId ?? null;
 
   return (
     new Elysia()
@@ -57,10 +73,23 @@ export function createOidcClientRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
           try {
-            const accountId = await resolveOwner(headers.authorization);
-            if (accountId === null) {
+            const caller = await resolveCaller(headers.authorization);
+            if (caller === null) {
               set.status = 401;
               return { error: "unauthorized" };
+            }
+            const { accountId } = caller;
+            // Before anything is written: registering mints a client secret
+            // and spends the account's client caps.
+            const staleErr = await ctx.liveSessionGate(
+              "oidc_client_create",
+              accountId,
+              caller,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
             }
 
             const validated = validateClientRegistration({
@@ -126,6 +155,8 @@ export function createOidcClientRoutes(ctx: AuthRouteContext) {
             // and `handleError` emit `message`.
             400: oidcErrorResponse,
             401: oidcErrorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: oidcErrorResponse,
             429: oidcErrorResponse,
             500: oidcErrorResponse,
           },

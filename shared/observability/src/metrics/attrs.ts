@@ -63,7 +63,7 @@ export type AuthMethod =
   | "refresh";
 
 /** Registration funnel steps. */
-export type RegisterStep = "begin" | "otp_verify" | "passkey_enroll" | "complete";
+export type RegisterStep = "begin" | "resend" | "passkey_enroll" | "complete";
 
 /** ARC token verification outcomes — used for S2S security dashboards. */
 export type ArcVerifyResult =
@@ -107,7 +107,7 @@ export type SecurityInvalidationTrigger =
   | "email_change"
   | "recovery_code_generate"
   | "recovery_code_consume"
-  // Email-OTP or TOTP recovery completed: every session on the account is
+  // Email-link or TOTP recovery completed: every session on the account is
   // wiped and a restricted recovery session replaces them.
   | "account_recovered"
   // A `POST /recovery/disown` was accepted: the recovery-enrolled credentials
@@ -116,7 +116,11 @@ export type SecurityInvalidationTrigger =
   | "session_revoke"
   | "session_revoke_all";
 
-/** Step-up (sudo mode) factor presented by the caller. */
+/**
+ * Step-up (sudo mode) factor presented by the caller. `otp` is the emailed
+ * factor — a link to the account's address since codes went — and keeps its
+ * name because passkey rows store it as their provenance.
+ */
 export type StepUpFactor = "passkey" | "otp" | "totp" | "recovery_code";
 
 /**
@@ -160,8 +164,8 @@ export type TotpVerifyResult =
  */
 export type TotpRekeyResult = "ok" | "failed";
 
-/** Step-up ceremony steps, for attempt funnel counters. */
-export type StepUpStep = "begin" | "complete";
+/** Step-up ceremony steps, for attempt funnel counters and span names. */
+export type StepUpStep = "begin" | "resend" | "complete";
 
 /**
  * Purpose claim embedded in step-up tokens. Lets one token mint serve
@@ -204,17 +208,19 @@ export type StepUpVerifyResult =
 export type SessionAction = "list" | "revoke" | "revoke_all";
 
 /** Email-change ceremony steps, for funnel counters. */
-export type EmailChangeStep = "begin" | "complete";
+export type EmailChangeStep = "begin" | "resend" | "complete";
 
 /**
  * Account-recovery operation steps. The first two are the recovery-code
- * ceremony (Copenhagen Book M2); the other three are the email-OTP and TOTP
- * factors that mint a restricted recovery session.
+ * ceremony (Copenhagen Book M2); the email steps are the emailed link (begin,
+ * a Resend, and the claim that mints the restricted recovery session), and
+ * `totp_complete` the authenticator code that mints the same session.
  */
 export type RecoveryCodeStep =
   | "generate"
   | "consume"
   | "email_begin"
+  | "email_resend"
   | "email_complete"
   | "totp_complete"
   // `POST /recovery/disown` — the "this wasn't me" lever in the recovery notice.
@@ -297,14 +303,17 @@ export type SecurityEventKind =
   // Emitted when an account crosses the recovery-code failed-attempt
   // lockout threshold (per-account, keyed on the resolved accountId).
   | "recovery_code_lockout"
-  // A recovery factor (email OTP or TOTP) was accepted and a restricted
+  // A recovery factor (an emailed link or TOTP) was accepted and a restricted
   // recovery session issued. Written in the same batch as the session wipe, so
   // the banner shows it even when the notice email is never read.
   | "account_recovered"
-  // Emitted when an account crosses the failed-attempt threshold on the
-  // email-OTP recovery path. Keyed on the resolved accountId, like its
-  // recovery-code sibling.
+  // Emitted when an account crosses the failed-attempt threshold on email
+  // recovery: wrong numbers typed on its recovery links. Keyed on the resolved
+  // accountId, like its recovery-code sibling.
   | "recovery_otp_lockout"
+  // The holder of a recovery link said they did not ask for it ("I didn't ask
+  // for this"): the request ended, and the owner's other devices show it.
+  | "recovery_link_declined"
   | "passkey_register"
   | "passkey_delete"
   // A credential was deleted to pay for one a recovery session enrolled at the
@@ -369,6 +378,53 @@ export type OriginGuardRejectionReason = "missing" | "mismatch";
 /** Cross-device login protocol steps. */
 export type CrossDeviceStep = "begin" | "poll" | "approve" | "reject";
 
+/** The flows that prove an address with an emailed link. */
+export type EmailLinkFlow = "registration" | "recovery" | "step_up" | "email_change";
+
+/**
+ * What a confirm of an emailed link did: approved the request, answered an
+ * accepted confirm or decline sent again (`repeat`), refused it, refused it
+ * and wiped the request (the wrong secret that reached the cap), or ended the
+ * request because the pick was not the waiting screen's number (`wrong_pick`)
+ * or the reader said they did not ask for it (`declined`). Never the number
+ * itself.
+ */
+export type EmailLinkConfirmOutcome =
+  | "confirmed"
+  | "repeat"
+  | "refused"
+  | "wiped"
+  | "wrong_pick"
+  | "declined";
+
+/**
+ * What became of one emailed link: sent, held back by a per-address limit
+ * (`capped`), not sent because an account has the address or the handle by
+ * the time it would go (`taken`), or failed.
+ */
+export type EmailLinkSendResult = "sent" | "capped" | "taken" | "failed";
+
+/**
+ * What became of a browser Email Verification API token sent with a sign-up:
+ * accepted (`verified`), or refused because it did not parse or lacked a claim
+ * (`malformed`), its issuer could not be found or fetched safely (`issuer`),
+ * no issuer key verified it (`signature`), its key binding failed — audience,
+ * nonce, hash or holder key (`binding`), it named another address (`email`),
+ * it was too old or not yet valid (`expired`), its nonce was already used
+ * (`replayed`), or the lookup timed out or a store did not answer
+ * (`unavailable`). Never the token, the address or the issuer.
+ */
+export type EmailVerificationTokenOutcome =
+  | "verified"
+  | "malformed"
+  | "issuer"
+  | "signature"
+  | "binding"
+  | "email"
+  | "expired"
+  | "replayed"
+  | "unavailable";
+
 /**
  * Outcome of a call to the OIDC authorization endpoint. Mirrors the OAuth
  * error codes we are allowed to emit, plus the two success shapes: straight
@@ -393,7 +449,10 @@ export type OidcClientKind = "first_party" | "third_party";
 /** Auth endpoints subject to IP-based rate limiting. */
 export type AuthRateLimitedEndpoint =
   | "register_begin"
-  | "register_complete"
+  | "register_status"
+  | "register_resend"
+  | "email_link_confirm"
+  | "email_link_candidates"
   | "handle_check"
   | "passkey_login_begin"
   | "passkey_login_complete"
@@ -408,13 +467,15 @@ export type AuthRateLimitedEndpoint =
   | "recovery_status"
   | "recovery_complete"
   | "recovery_email_begin"
-  | "recovery_email_complete"
+  | "recovery_email_status"
+  | "recovery_email_resend"
   | "recovery_totp_complete"
   | "recovery_disown"
   | "step_up_passkey_begin"
   | "step_up_passkey_complete"
-  | "step_up_otp_begin"
-  | "step_up_otp_complete"
+  | "step_up_email_begin"
+  | "step_up_email_status"
+  | "step_up_email_resend"
   | "step_up_totp_complete"
   | "totp_enroll_begin"
   | "totp_enroll_complete"
@@ -423,6 +484,8 @@ export type AuthRateLimitedEndpoint =
   | "session_list"
   | "session_revoke"
   | "email_change_begin"
+  | "email_change_status"
+  | "email_change_resend"
   | "email_change_complete"
   | "security_event_list"
   | "security_event_ack"

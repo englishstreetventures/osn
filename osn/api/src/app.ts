@@ -98,6 +98,8 @@ export interface AppDeps {
   stepUpJtiStore: CoordinationStores["stepUpJtiStore"];
   /** Single-use claims on discoverable passkey challenges. */
   passkeyChallengeClaims: CoordinationStores["passkeyChallengeClaims"];
+  /** Single-use claims on Email Verification API nonces. */
+  emailVerificationNonceClaims: CoordinationStores["emailVerificationNonceClaims"];
   /**
    * The ceremony / pending-state stores, the three lockout counters and the
    * three per-account caps, from the coordination bundle. Spread into the
@@ -107,9 +109,16 @@ export interface AppDeps {
   recoveryLockoutStore: CoordinationStores["recoveryLockoutStore"];
   recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
   totpLockoutStore: CoordinationStores["totpLockoutStore"];
+  registrationLinkLockoutStore: CoordinationStores["registrationLinkLockoutStore"];
+  stepUpLinkLockoutStore: CoordinationStores["stepUpLinkLockoutStore"];
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
-  recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
+  recoveryLinkAddressCap: CoordinationStores["recoveryLinkAddressCap"];
+  recoveryResendCap: CoordinationStores["recoveryResendCap"];
+  recoveryLinkCeiling: CoordinationStores["recoveryLinkCeiling"];
+  registrationSendCap: CoordinationStores["registrationSendCap"];
+  stepUpLinkCeiling: CoordinationStores["stepUpLinkCeiling"];
+  linkResendCap: CoordinationStores["linkResendCap"];
   /** The coordination round trip `GET /health/coordination` runs. */
   healthProbe: CoordinationStores["healthProbe"];
   /** Per-IP limiter in front of it: native where the Worker has the binding. */
@@ -185,13 +194,21 @@ export function createApp(deps: AppDeps) {
     accountErasureRateLimiters,
     stepUpJtiStore,
     passkeyChallengeClaims,
+    emailVerificationNonceClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
+    stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
+    registrationSendCap,
+    stepUpLinkCeiling,
+    linkResendCap,
     healthProbe,
     healthProbeLimiter,
     clientIpConfig,
@@ -208,7 +225,10 @@ export function createApp(deps: AppDeps) {
   // AOT on (default). Mirrors cire's Workers app. The flag propagates to the
   // route plugins composed via `.use()` below.
   const base = new Elysia({ aot })
-    .use(cors({ origin: corsOrigins, credentials: true }))
+    // `maxAge` is in seconds. A waiting sign-up tab polls the same URL every few
+    // seconds; a cached preflight halves its requests. A narrowed allow-list
+    // reaches a browser within ten minutes.
+    .use(cors({ origin: corsOrigins, credentials: true, maxAge: 600 }))
     .onBeforeHandle(originGuard);
 
   // The per-request observability plugin is gated behind a deps flag: the Bun
@@ -270,13 +290,21 @@ export function createApp(deps: AppDeps) {
     ...authConfig,
     stepUpJtiStore,
     passkeyChallengeClaims,
+    emailVerificationNonceClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
+    stepUpLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
+    registrationSendCap,
+    stepUpLinkCeiling,
+    linkResendCap,
   };
 
   return withDocs

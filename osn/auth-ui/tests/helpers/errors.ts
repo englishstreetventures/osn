@@ -19,6 +19,8 @@ export function ceremonyError(name: string, planted: string): Error {
 
 /** The map's sentence for a 400 or 422 with no context. */
 export const INPUT = "That didn't work. Try again.";
+/** The map's sentence for a call that got no answer (status 0). */
+export const CONNECTION = "We couldn't connect. Check your connection and try again.";
 /** The map's sentence for a 429. */
 export const WAIT = "Too many attempts. Wait a while, then try again.";
 /** The map's sentence for a refused code. */

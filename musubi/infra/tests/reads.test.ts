@@ -27,6 +27,10 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   OSN_ARC_KEY_TTL_HOURS: "defaults to 24 hours (lib/outbound-arc.ts); production sets none either",
   OSN_DELETION_SWEEPER_INTERVAL_MS:
     "read only by src/local.ts; the Worker sweeps on its cron instead",
+  OSN_EMAIL_VERIFICATION_API:
+    "sign-up's browser Email Verification API path, off when unset (emailVerificationConfig in build-deps.ts); no deployed tier turns it on until a pull request sets it in the tier's vars",
+  OSN_EMAIL_VERIFICATION_EMULATOR_URL:
+    "the local E2E issuer stand-in's origin; osn-api refuses to boot with it unless OSN_ENV is local (build-deps.ts), and the inventory forbids it on dev",
   OSN_REFRESH_TOKEN_TTL: "defaults to 30 days (build-deps.ts); production sets none either",
   OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS:
     "dev is on Workers Free: unset, the sweep keeps its default of 10 chunks (services/auth/tokens.ts), inside the 50 D1 queries one cron run may make",

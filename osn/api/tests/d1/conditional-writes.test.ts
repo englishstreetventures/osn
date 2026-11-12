@@ -30,6 +30,7 @@ import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { holdQueries } from "../helpers/held-query";
+import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
 
 /**
  * The writes that name the row as their request read it, on real D1. D1 takes
@@ -61,15 +62,9 @@ const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
 const outcomeOf = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
   Effect.runPromise(eff.pipe(Effect.result, Effect.provide(layer)));
 
-/** The newest six-digit code mailed. */
-const latestCode = (): string => {
-  const all = mail.recorded();
-  for (let i = all.length - 1; i >= 0; i--) {
-    const match = all[i]!.text.match(/code is: (\d{6})/);
-    if (match) return match[1]!;
-  }
-  throw new Error("no code mailed");
-};
+/** An email change to `newEmail`, its link confirmed, ready to complete. */
+const confirmed = (accountId: string, newEmail: string) =>
+  run(confirmedEmailChange(auth, accountId, newEmail, () => mail.recorded()));
 
 beforeAll(async () => {
   mf = new Miniflare({
@@ -107,15 +102,32 @@ describe("email change on D1", () => {
     const tokenA = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
     const tokenB = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
 
-    await run(auth.beginEmailChange(profile.accountId, "ec-d1-a@example.com"));
-    const codeA = latestCode();
+    const requestA = await confirmed(profile.accountId, "ec-d1-a@example.com");
     // A's commit batch waits, after its claim and preflight have read one change.
     const commitA = hold(/^update "accounts" set "email"/);
-    const a = outcomeOf(auth.completeEmailChange(profile.accountId, codeA, tokenA, null));
+    const a = outcomeOf(
+      auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        requestA.requestId,
+        requestA.claimSecret,
+        tokenA,
+        NO_LIVE_SESSION,
+      ),
+    );
     await commitA.reached;
 
-    await run(auth.beginEmailChange(profile.accountId, "ec-d1-b@example.com"));
-    const b = await run(auth.completeEmailChange(profile.accountId, latestCode(), tokenB, null));
+    const requestB = await confirmed(profile.accountId, "ec-d1-b@example.com");
+    const b = await run(
+      auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        requestB.requestId,
+        requestB.claimSecret,
+        tokenB,
+        NO_LIVE_SESSION,
+      ),
+    );
     expect(b.email).toBe("ec-d1-b@example.com");
 
     commitA.release();
@@ -159,15 +171,34 @@ describe("email change on D1", () => {
     const tokenA = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
     const tokenB = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
 
-    await run(auth.beginEmailChange(profile.accountId, "ec-d1-stale-a@example.com"));
-    const codeA = latestCode();
+    const requestA = await confirmed(profile.accountId, "ec-d1-stale-a@example.com");
     const commitA = hold(/^update "accounts" set "email"/);
-    const a = outcomeOf(settle(auth.completeEmailChange(profile.accountId, codeA, tokenA, null)));
+    const a = outcomeOf(
+      settle(
+        auth.completeEmailChange(
+          profile.accountId,
+          profile.id,
+          requestA.requestId,
+          requestA.claimSecret,
+          tokenA,
+          NO_LIVE_SESSION,
+        ),
+      ),
+    );
     await commitA.reached;
 
-    await run(auth.beginEmailChange(profile.accountId, "ec-d1-stale-b@example.com"));
+    const requestB = await confirmed(profile.accountId, "ec-d1-stale-b@example.com");
     const b = await run(
-      settle(auth.completeEmailChange(profile.accountId, latestCode(), tokenB, null)),
+      settle(
+        auth.completeEmailChange(
+          profile.accountId,
+          profile.id,
+          requestB.requestId,
+          requestB.claimSecret,
+          tokenB,
+          NO_LIVE_SESSION,
+        ),
+      ),
     );
     expect(b.email).toBe("ec-d1-stale-b@example.com");
 
@@ -199,15 +230,23 @@ describe("email change on D1", () => {
   it("rolls the change back with its security event, and mails no notice", async () => {
     const profile = await run(auth.registerProfile("ec-d1-roll@example.com", "ecd1roll"));
     const token = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
-    await run(auth.beginEmailChange(profile.accountId, "ec-d1-roll-new@example.com"));
-    const code = latestCode();
+    const request = await confirmed(profile.accountId, "ec-d1-roll-new@example.com");
     await db.run(
       sql.raw(`CREATE TRIGGER ec_d1_event_fault BEFORE INSERT ON security_events
         BEGIN SELECT RAISE(ABORT, 'simulated failure inside the commit'); END;`),
     );
     try {
       const outcome = await outcomeOf(
-        settle(auth.completeEmailChange(profile.accountId, code, token, null)),
+        settle(
+          auth.completeEmailChange(
+            profile.accountId,
+            profile.id,
+            request.requestId,
+            request.claimSecret,
+            token,
+            NO_LIVE_SESSION,
+          ),
+        ),
       );
       expect(outcome._tag).toBe("Failure");
       if (outcome._tag === "Failure") expect(outcome.failure._tag).toBe("DatabaseError");
@@ -252,9 +291,19 @@ describe("security-event acknowledgements on D1", () => {
     );
     expect(repeat.acknowledged).toBe(false);
 
+    // An `email_changed` row inside its 7-day hold, which ack-all leaves.
+    await db.insert(securityEvents).values({
+      id: "sev_d1d1d1d1d1d1",
+      accountId: profile.accountId,
+      kind: "email_changed",
+      createdAt: Math.floor(Date.now() / 1000) - 60,
+      acknowledgedAt: null,
+    });
     const rest = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
     const all = await run(auth.acknowledgeAllSecurityEvents(profile.accountId, rest));
     expect(all.acknowledged).toBe(1);
+    const left = await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
+    expect(left.events.map((e) => e.id)).toEqual(["sev_d1d1d1d1d1d1"]);
   });
 });
 

@@ -1,7 +1,7 @@
 /**
- * Account-level client helpers — currently just the step-up-gated email
- * change ceremony. Kept in its own module so the settings UI can import
- * only what it needs without dragging in the full Effect service.
+ * Account-level client helpers: the step-up-gated email change, and account
+ * deletion. Kept in its own module so the settings UI can import only what it
+ * needs without dragging in the full Effect service.
  */
 
 import { OsnApiError } from "./api-error";
@@ -22,20 +22,55 @@ export class AccountError extends OsnApiError {
   }
 }
 
+/** An email change this tab began: what it keeps, and the number it shows. */
+export interface EmailChangeRequest {
+  readonly requestId: string;
+  /** Kept by this tab alone, in memory; it completes the change. */
+  readonly claimSecret: string;
+  /** Shown while waiting: the link's page asks the reader to pick it. Never stored or logged. */
+  readonly pairingCode: string;
+  /** Unix seconds. */
+  readonly expiresAt: number;
+}
+
+/** What an email change's status poll learned. `confirmed`: step up, then complete. */
+export type EmailChangeStatus =
+  | { readonly status: "pending"; readonly pairingCode?: string }
+  | { readonly status: "confirmed" }
+  | { readonly status: "expired" };
+
 /**
  * A rejection of `authFetch` about the session, or the caller's abort,
  * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is
  * an `AccountError`.
  */
 export interface AccountClient {
-  /** Sends an OTP to the NEW email address. Does not mutate the account yet. */
-  changeEmailBegin(input: { newEmail: string }): Promise<{ sent: true }>;
   /**
-   * Swaps the account's email after verifying both the OTP (sent to the
-   * new address by `changeEmailBegin`) and a fresh step-up token. Revokes
-   * every other session atomically with the email update.
+   * Mails a link to the NEW address. Does not change the account. Answers the
+   * same whether or not another account holds the address.
    */
-  changeEmailComplete(input: { code: string; stepUpToken: string }): Promise<{ email: string }>;
+  changeEmailBegin(input: { newEmail: string }): Promise<EmailChangeRequest>;
+  /**
+   * Polls the request. `confirmed` once the link is confirmed at the new
+   * address. A refusal answers `expired`; a rate limit, a server error or no
+   * answer throws, and the caller polls again.
+   */
+  changeEmailStatus(input: { requestId: string; claimSecret: string }): Promise<EmailChangeStatus>;
+  /** Another link for the same request. `limit` once it has sent all it may. */
+  changeEmailResend(input: {
+    requestId: string;
+    claimSecret: string;
+  }): Promise<{ status: "sent" | "limit" | "expired" }>;
+  /**
+   * Moves the account to the new address of a confirmed request, with a fresh
+   * step-up token for `email_change`. Revokes every other session atomically
+   * with the email update.
+   */
+  changeEmailComplete(input: {
+    requestId: string;
+    claimSecret: string;
+    stepUpToken: string;
+  }): Promise<{ email: string }>;
 
   /**
    * GDPR Art. 17 — Right of erasure (Flow A — full OSN account deletion).
@@ -86,6 +121,40 @@ async function postJson<T>(authFetch: AuthFetch, url: string, body: unknown): Pr
   return readJson<T>(AccountError, res);
 }
 
+/** The fields the link routes answer with; anything else in the body is ignored. */
+interface LinkAnswer {
+  readonly status?: unknown;
+  readonly pairingCode?: unknown;
+}
+
+/**
+ * POSTs an email-change link call. Null for a refusal of the request (a 4xx
+ * other than a rate limit); throws on a rate limit, a server error or no
+ * answer, which a poll retries.
+ */
+async function postLinkCall(
+  authFetch: AuthFetch,
+  url: string,
+  body: unknown,
+): Promise<LinkAnswer | null> {
+  const res = await reach(
+    AccountError,
+    url,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    authFetch,
+  );
+  if (res.status === 429 || res.status >= 500) {
+    throw new AccountError(`Request failed: ${res.status}`, res.status);
+  }
+  if (!res.ok) return null;
+  return readJson<LinkAnswer>(AccountError, res);
+}
+
 async function deleteJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
   const res = await reach(
     AccountError,
@@ -111,15 +180,56 @@ export function createAccountClient(config: AccountClientConfig): AccountClient 
   const { authFetch } = config;
 
   return {
-    changeEmailBegin: (input) =>
-      postJson<{ sent: true }>(authFetch, `${base}/account/email/begin`, {
-        new_email: input.newEmail,
-      }),
+    changeEmailBegin: async (input) => {
+      const raw = await postJson<Partial<EmailChangeRequest>>(
+        authFetch,
+        `${base}/account/email/begin`,
+        { new_email: input.newEmail },
+      );
+      if (
+        typeof raw.requestId !== "string" ||
+        typeof raw.claimSecret !== "string" ||
+        typeof raw.pairingCode !== "string" ||
+        typeof raw.expiresAt !== "number"
+      ) {
+        throw new AccountError("Unexpected email change answer", 200);
+      }
+      return {
+        requestId: raw.requestId,
+        claimSecret: raw.claimSecret,
+        pairingCode: raw.pairingCode,
+        expiresAt: raw.expiresAt,
+      };
+    },
+    changeEmailStatus: async (input) => {
+      const raw = await postLinkCall(
+        authFetch,
+        `${base}/account/email/${encodeURIComponent(input.requestId)}/status`,
+        { claimSecret: input.claimSecret },
+      );
+      if (raw?.status === "confirmed") return { status: "confirmed" };
+      if (raw?.status === "pending") {
+        return typeof raw.pairingCode === "string"
+          ? { status: "pending", pairingCode: raw.pairingCode }
+          : { status: "pending" };
+      }
+      return { status: "expired" };
+    },
+    changeEmailResend: async (input) => {
+      const raw = await postLinkCall(
+        authFetch,
+        `${base}/account/email/${encodeURIComponent(input.requestId)}/resend`,
+        { claimSecret: input.claimSecret },
+      );
+      const status = raw?.status;
+      return status === "sent" || status === "limit" ? { status } : { status: "expired" };
+    },
     changeEmailComplete: (input) =>
-      postJson<{ email: string }>(authFetch, `${base}/account/email/complete`, {
-        code: input.code,
-        step_up_token: input.stepUpToken,
-      }),
+      postJson<{ email: string }>(
+        authFetch,
+        `${base}/account/email/${encodeURIComponent(input.requestId)}/complete`,
+        { claimSecret: input.claimSecret, step_up_token: input.stepUpToken },
+      ),
     deleteAccount: (input) =>
       deleteJson<{ scheduled_for: number; already_pending: boolean }>(
         authFetch,

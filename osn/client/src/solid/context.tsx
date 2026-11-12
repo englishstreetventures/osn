@@ -64,7 +64,9 @@ interface AuthContextValue {
   /**
    * The runtime's `authFetch`: sends the active profile's access token and
    * renews it. Build authenticated clients with it. When it rejects with
-   * `AuthExpiredError` this provider has already gone to the signed-out state.
+   * `AuthExpiredError` the session the request was made for is gone: this
+   * provider has already gone to the signed-out state, or holds the session
+   * that replaced it.
    */
   authFetch: AuthFetch;
 }

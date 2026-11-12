@@ -223,19 +223,35 @@
    * `--text-title` 14 / `--text-display` 24) and that is deliberate — see
    * DESIGN.md. The contract has seven, because shared components need a
    * display range musubi's own surfaces never reach. So the four are mapped
-   * where they belong and the gaps are filled by continuing musubi's own
-   * progression, not by importing the contract's defaults: a shared component
-   * rendering here must look like musubi, not like the fallback greyscale.
+   * where they belong and the gaps above the title step are filled by
+   * continuing musubi's own progression, not by importing the contract's
+   * defaults: a shared component rendering here must look like musubi, not
+   * like the fallback greyscale.
+   *
+   * `md` sits on the title step with `base`: it is the size `DialogTitle` and
+   * `CardTitle` set their titles in, and a title is `text-title` (DESIGN.md
+   * §Typography). `OtpInput`'s digits read it too, so they are 14px from
+   * 768px, as `Input` is; the mobile input rule below keeps 16px under it.
    *
    * `px` and not `rem` because that is what the rest of this file uses; the
    * contract asks for one unit per scale, not for a particular one. */
   --ui-text-xs: var(--text-meta);
   --ui-text-sm: var(--text-body);
   --ui-text-base: var(--text-title);
-  --ui-text-md: 16px;
+  --ui-text-md: var(--text-title);
   --ui-text-lg: 20px;
   --ui-text-xl: var(--text-display);
   --ui-text-2xl: 32px;
+
+  /* A shared title (`DialogTitle`, `CardTitle`) at 500: musubi sets type at
+     400 and 500 only (DESIGN.md §Typography). */
+  --ui-weight-title: 500;
+
+  /* Overlays fade and do not scale: the app adds no spatial motion
+     (DESIGN.md §Motion). At 1 the shared `zoom-in` and `zoom-out` scale
+     nothing, so every Kobalte overlay changes its opacity alone. */
+  --ui-scale-enter: 1;
+  --ui-scale-exit: 1;
 
   /* musubi tracks everything at -0.15px, which is a house rule rather than a
    * scale — so the contract's steps all resolve to it except the two the

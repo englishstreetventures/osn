@@ -11,6 +11,7 @@ import {
   flattenMigrations,
   hostsFor,
   planPrebuiltStage,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
   productionSiteKinds,
   refuseDotEnvFiles,
@@ -21,6 +22,7 @@ import {
   stackOptions,
   tierOf,
   writePrebuiltStage,
+  type HostHold,
   type SiteMode,
   type SiteSurface,
 } from "@shared/infra";
@@ -96,18 +98,20 @@ function writeSeed(path: string, sql: string): void {
 
 /**
  * The cire stack on production: each site `modes` does not turn off, built
- * for production and checked to be, under today's name. It reads no secret,
- * writes no file, and declares no API Worker, database or bucket; anything
- * else declared fails the scope check before the plan.
+ * for production and checked to be, under today's name, with no custom
+ * domain while `holds` holds its host. It reads no secret, writes no file,
+ * and declares no API Worker, database or bucket; anything else declared
+ * fails the scope check before the plan.
  */
 const cireProductionStack = (input: {
   readonly stage: string;
   readonly workingDir: string;
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
     const hosts = hostsFor(input.stage, {});
-    const declared = cireProductionSites({ modes: input.modes, hosts });
+    const declared = cireProductionSites({ modes: input.modes, holds: input.holds, hosts });
     for (const site of declared.prebuilt) {
       assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
     }
@@ -136,13 +140,15 @@ const cireProductionStack = (input: {
  * working directory, `cire/infra`. `workingDir` names that directory to the
  * checks: the `.env` files Bun would load from it are refused, and the site
  * paths resolve from it. On production it declares the sites alone, at
- * `modes` (PRODUCTION_SITE_MODES unless a test passes its own).
+ * `modes` and `holds` (PRODUCTION_SITE_MODES and PRODUCTION_HOST_HOLDS
+ * unless a test passes its own).
  */
 export const cireStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
   readonly workingDir: string;
   readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds?: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
@@ -153,6 +159,7 @@ export const cireStack = (input: {
         stage,
         workingDir: input.workingDir,
         modes: input.modes ?? PRODUCTION_SITE_MODES,
+        holds: input.holds ?? PRODUCTION_HOST_HOLDS,
       });
     }
     const hosts = hostsFor(stage, env);

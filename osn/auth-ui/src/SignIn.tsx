@@ -11,7 +11,7 @@ import { createSignal, createUniqueId, Show, onMount } from "solid-js";
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { InlineAction } from "./InlineAction";
 import { describePasskeyError } from "./passkey-errors";
-import { RecoveryLoginForm } from "./RecoveryLoginForm";
+import { hasPendingRecovery, RecoveryLoginForm } from "./RecoveryLoginForm";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
@@ -28,13 +28,16 @@ import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
 type View = "passkey" | "recovery";
 
+// Musubi imports views by subpath, so the recovery wait's probe comes from here.
+export { hasPendingRecovery };
+
 export interface SignInProps {
   client: LoginClient;
   /** Needed for the "Lost your passkey?" escape hatch. */
   recoveryClient: RecoveryClient;
   /**
    * Enables the two recovery factors that end in passkey enrolment (an emailed
-   * code, an authenticator code). Both mint a restricted session whose only
+   * link, an authenticator code). Both mint a restricted session whose only
    * permitted action is enrolling a passkey, so both need a registration
    * client and a ceremony runner to finish. Omit either and only the
    * recovery-code path is offered.
@@ -66,7 +69,9 @@ export function SignIn(props: SignInProps) {
   const [webauthnSupported, setWebauthnSupported] = createSignal(false);
   onMount(() => setWebauthnSupported(browserSupportsWebAuthn()));
 
-  const [view, setView] = createSignal<View>("passkey");
+  // A tab waiting on an emailed recovery link opens on the recovery view, which
+  // resumes the wait.
+  const [view, setView] = createSignal<View>(hasPendingRecovery() ? "recovery" : "passkey");
   const [identifier, setIdentifier] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   // The line under the identifier field, and whether it came from the passkey
@@ -211,6 +216,7 @@ export function SignIn(props: SignInProps) {
                   type="text"
                   required
                   autocomplete="username webauthn"
+                  autocapitalize="none"
                   spellcheck={false}
                   value={identifier()}
                   onInput={(e) => setIdentifier(e.currentTarget.value)}

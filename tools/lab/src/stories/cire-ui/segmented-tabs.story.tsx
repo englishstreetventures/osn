@@ -14,18 +14,18 @@ const themesFor = (choice: ThemeChoice): CireTheme[] =>
 
 /**
  * The portal tokens the glass reads beyond the contract, as the host portal
- * sets them: its spring (the `cubic-bezier` it declares before its `linear()`
+ * sets them: its glide (the `cubic-bezier` it declares before its `linear()`
  * one), its inner lip and first lift, and the glass's light edge.
  */
 const PORTAL = {
   dark: {
-    "--ease-spring": "cubic-bezier(0.34, 1.32, 0.64, 1)",
+    "--ease-glide": "cubic-bezier(0.36, 1.3, 0.3, 1)",
     "--inner-lip": "inset 0 1px 0 oklch(100% 0 0 / 0.045)",
     "--elev-1": "0 1px 2px oklch(0% 0 0 / 0.32)",
     "--glass-edge": "oklch(100% 0 0 / 0.1)",
   },
   light: {
-    "--ease-spring": "cubic-bezier(0.34, 1.32, 0.64, 1)",
+    "--ease-glide": "cubic-bezier(0.36, 1.3, 0.3, 1)",
     "--inner-lip": "inset 0 1px 0 oklch(100% 0 0 / 0.6)",
     "--elev-1": "0 1px 2px oklch(30% 0.02 340 / 0.12)",
     "--glass-edge": "oklch(100% 0 0 / 0.7)",

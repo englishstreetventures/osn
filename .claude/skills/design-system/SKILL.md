@@ -14,7 +14,7 @@ design skill, because a skill left to itself picks its own fonts and colours.
 |---|---|
 | `cire/host` | `cire/host/DESIGN.md`, `wiki/cire/cire-host-portal-layout.md` |
 | `cire/vendor` | `cire/vendor/DESIGN.md`, which records only the deltas — then `cire/host/DESIGN.md` |
-| `cire/invites`, `cire/invite-designs`, `cire/theme` | `wiki/cire/cire-invite-designs.md`; in `wiki/cire/cire-invite-builder.md` only §Theme, §Guest rendering (SSR) and §Organiser UI — the rest of that page is storage, API and compliance |
+| `cire/invites`, `cire/invite-designs`, `cire/theme` | `cire/invites/DESIGN.md`, then `wiki/cire/cire-invite-designs.md`; in `wiki/cire/cire-invite-builder.md` only §Theme, §Guest rendering (SSR) and §Organiser UI — the rest of that page is storage, API and compliance |
 | `cire/landing` | `wiki/cire/cire-landing.md` |
 | `pulse/web` | `pulse/DESIGN.md` |
 | `pulse/landing` | `pulse/DESIGN.md`, `wiki/pulse/pulse-landing.md` |
@@ -175,9 +175,12 @@ and the wiki pages above, which hold everything a skill would be checked against
 
 A design that only type-checks has not been looked at. Before you report done:
 
-- **A new or changed UI-package component is its own pull request**, under the
-  feature that uses it (`wiki/conventions/stacked-prs.md` §Frontend: one
-  component per pull request). Work only on the component your brief names.
+- **A UI-package component only one feature uses ships in that feature's pull
+  request**, with its lab stories; a change to one other apps use, or a new one
+  several features will use, is its own pull request under the feature
+  (`wiki/conventions/stacked-prs.md` §Frontend: when a component gets its own
+  pull request). On a component's own pull request, work only on the component
+  your brief names.
 
 - **Look at it rendered** at a phone width and a desktop width, and in light and
   dark on a surface that themes. With the Chrome browser tools

@@ -19,7 +19,7 @@
  * On lockout the caller returns the SAME generic error as any other failure,
  * preserving the no-enumeration-oracle property.
  *
- * The same store shape guards the email-OTP recovery path and TOTP, each with
+ * The same store shape guards the emailed-link recovery path and TOTP, each with
  * its own counter.
  *
  * # A counter that cannot be reached

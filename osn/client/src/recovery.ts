@@ -16,12 +16,13 @@ import { parseTokenResponse, type Session } from "./tokens";
  *  3. `loginWithRecoveryCode({ identifier, code })` — unauthenticated. Burns
  *     the supplied code and establishes a full session + profile. All other
  *     existing sessions for the account are revoked server-side.
- *  4. `emailRecoveryBegin` / `emailRecoveryComplete` / `totpRecoveryComplete` —
- *     unauthenticated account recovery by a factor that is neither a passkey
- *     nor a recovery code. Unlike (3) these establish a RESTRICTED session that
- *     can only enrol a passkey and expires in 15 minutes; a UI must send the
- *     user straight into passkey enrolment. See
- *     `wiki/osn/account-recovery-factors.md`.
+ *  4. `emailRecoveryBegin` / `emailRecoveryStatus` / `emailRecoveryResend`
+ *     and `totpRecoveryComplete` — unauthenticated account recovery by a
+ *     factor that is neither a passkey nor a recovery code: an emailed link,
+ *     confirmed on any device, or an authenticator code. Unlike (3) these
+ *     establish a RESTRICTED session that can only enrol a passkey and expires
+ *     in 15 minutes; a UI must send the user straight into passkey enrolment.
+ *     See `wiki/osn/account-recovery-factors.md` and `wiki/osn/email-links.md`.
  *
  * Kept in its own module so UI surfaces (settings panel, sign-in recovery
  * modal) can import the exact shape they need without pulling in the full
@@ -56,6 +57,31 @@ export interface RecoveryLoginResult {
   profile: RecoveryProfile;
 }
 
+/** An email recovery the tab began: what it keeps, and the number it shows. */
+export interface EmailRecoveryRequest {
+  readonly requestId: string;
+  /** Kept by this tab alone; whoever holds it receives the restricted session. */
+  readonly claimSecret: string;
+  /** Shown while waiting: the link's confirm step asks for it. */
+  readonly pairingCode: string;
+  /** Unix seconds. */
+  readonly expiresAt: number;
+}
+
+/**
+ * What an email-recovery status poll learned: still waiting, gone (every
+ * refusal, including a request someone else's poll finished), or the
+ * restricted session.
+ */
+export type EmailRecoveryStatus =
+  | {
+      readonly status: "pending";
+      /** The number the waiting screen shows, for a tab that lost it. Never stored or logged. */
+      readonly pairingCode?: string;
+    }
+  | { readonly status: "expired" }
+  | ({ readonly status: "complete" } & RecoveryLoginResult);
+
 export interface RecoveryCodesStatus {
   /** Codes in the current set that have not been used yet. */
   active: number;
@@ -87,26 +113,38 @@ export interface RecoveryClient {
    */
   loginWithRecoveryCode(input: { identifier: string; code: string }): Promise<RecoveryLoginResult>;
   /**
-   * Ask for an account-recovery code by email. Unauthenticated.
+   * Ask for an account-recovery link by email. Unauthenticated.
    *
    * `identifier` must be the **email address** on the account — a handle is
    * refused, because this call puts mail in somebody's inbox and a handle is
-   * public. Always resolves when the request was accepted; it deliberately does
-   * NOT say whether the address matched an account, whether a code was sent, or
-   * whether the account has hit its cap, so a caller cannot use it to test
-   * whether somebody has an OSN account.
+   * public. Resolves with the request this tab holds, the same whether or not
+   * the address matched an account, a link was sent, or the account has hit a
+   * cap, so a caller cannot use it to test whether somebody has an OSN account.
    *
    * Pass `turnstileToken` wherever the sign-in surface renders a widget: once a
    * Turnstile secret is configured the server requires one and fails closed.
    */
-  emailRecoveryBegin(input: { identifier: string; turnstileToken?: string }): Promise<void>;
+  emailRecoveryBegin(input: {
+    identifier: string;
+    turnstileToken?: string;
+  }): Promise<EmailRecoveryRequest>;
   /**
-   * Exchange the emailed code for a **restricted recovery session**. The
-   * returned session can do exactly one thing — enrol a passkey — and expires
-   * 15 minutes after it is issued. Every other session on the account is
-   * revoked.
+   * Polls the recovery with the claim secret. Once the link is confirmed (on
+   * any device) it answers `complete` with a **restricted recovery session**:
+   * it can do exactly one thing — enrol a passkey — and expires 15 minutes
+   * after it is issued; every other session on the account is revoked. A
+   * refusal answers `expired`; a rate limit, a server error or no answer
+   * throws, and the caller polls again later.
    */
-  emailRecoveryComplete(input: { identifier: string; code: string }): Promise<RecoveryLoginResult>;
+  emailRecoveryStatus(input: {
+    requestId: string;
+    claimSecret: string;
+  }): Promise<EmailRecoveryStatus>;
+  /** Another link for the same request. `limit` once it has sent all it may. */
+  emailRecoveryResend(input: {
+    requestId: string;
+    claimSecret: string;
+  }): Promise<{ status: "sent" | "limit" | "expired" }>;
   /**
    * The same restricted session, from an authenticator-app code instead. This
    * is the path for somebody who has lost the device AND cannot reach the
@@ -184,7 +222,10 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     };
   };
 
-  const emailRecoveryBegin = async (input: { identifier: string; turnstileToken?: string }) => {
+  const emailRecoveryBegin = async (input: {
+    identifier: string;
+    turnstileToken?: string;
+  }): Promise<EmailRecoveryRequest> => {
     const res = await reach(RecoveryError, `${base}/login/recovery/email/begin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -194,16 +235,94 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     // 202 on every outcome the server is willing to describe. Anything else is
     // a refusal it owes the caller a reason for — a malformed identifier, a
     // rate limit, a failed bot check.
-    if (!res.ok) throw responseError(RecoveryError, res, await safeJson(res));
+    const json = await readJson<Partial<EmailRecoveryRequest>>(RecoveryError, res);
+    if (
+      typeof json.requestId !== "string" ||
+      typeof json.claimSecret !== "string" ||
+      typeof json.pairingCode !== "string" ||
+      typeof json.expiresAt !== "number"
+    ) {
+      throw responseError(RecoveryError, res, json);
+    }
+    return {
+      requestId: json.requestId,
+      claimSecret: json.claimSecret,
+      pairingCode: json.pairingCode,
+      expiresAt: json.expiresAt,
+    };
   };
 
-  /** Shared by the two factor completers — both return the same envelope. */
-  const completeFactorLogin = async (path: string, input: { identifier: string; code: string }) => {
-    // `sessionFetch`: these routes set the refresh cookie. See
+  const emailRecoveryStatus = async (input: {
+    requestId: string;
+    claimSecret: string;
+  }): Promise<EmailRecoveryStatus> => {
+    // `sessionFetch` + `credentials: "include"`: the completing answer sets the
+    // restricted session's refresh cookie, which passkey enrolment then reads.
+    // See `./session-fetch.ts`.
+    const res = await reach(
+      RecoveryError,
+      `${base}/login/recovery/email/${encodeURIComponent(input.requestId)}/status`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ claimSecret: input.claimSecret }),
+      },
+      sessionFetch,
+    );
+    if (res.status === 429 || res.status >= 500) {
+      throw responseError(RecoveryError, res, await safeJson(res));
+    }
+    if (!res.ok) return { status: "expired" };
+    const raw = await readJson<{
+      status?: unknown;
+      pairingCode?: unknown;
+      session?: unknown;
+      profile?: RecoveryProfile;
+    }>(RecoveryError, res);
+    if (raw.status === "pending") {
+      return typeof raw.pairingCode === "string"
+        ? { status: "pending", pairingCode: raw.pairingCode }
+        : { status: "pending" };
+    }
+    if (raw.status === "expired") return { status: "expired" };
+    if (raw.status !== "complete" || !raw.session || !raw.profile) {
+      throw responseError(RecoveryError, res, raw);
+    }
+    return {
+      status: "complete",
+      session: parseTokenResponse(raw.session),
+      profile: raw.profile,
+    };
+  };
+
+  const emailRecoveryResend = async (input: {
+    requestId: string;
+    claimSecret: string;
+  }): Promise<{ status: "sent" | "limit" | "expired" }> => {
+    const res = await reach(
+      RecoveryError,
+      `${base}/login/recovery/email/${encodeURIComponent(input.requestId)}/resend`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ claimSecret: input.claimSecret }),
+      },
+    );
+    const json = await readJson<{ status?: unknown }>(RecoveryError, res);
+    if (json.status !== "sent" && json.status !== "limit" && json.status !== "expired") {
+      throw responseError(RecoveryError, res, json);
+    }
+    return { status: json.status };
+  };
+
+  const totpRecoveryComplete = async (input: { identifier: string; code: string }) => {
+    // `sessionFetch`: this route sets the refresh cookie. See
     // `./session-fetch.ts`.
     const res = await reach(
       RecoveryError,
-      `${base}${path}`,
+      `${base}/login/recovery/totp/complete`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -219,12 +338,6 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     if (!json.session || !json.profile) throw responseError(RecoveryError, res, json);
     return { session: parseTokenResponse(json.session), profile: json.profile };
   };
-
-  const emailRecoveryComplete = (input: { identifier: string; code: string }) =>
-    completeFactorLogin("/login/recovery/email/complete", input);
-
-  const totpRecoveryComplete = (input: { identifier: string; code: string }) =>
-    completeFactorLogin("/login/recovery/totp/complete", input);
 
   const disown = async (input: { token: string }) => {
     // No `credentials: "include"`: this route sets no cookie and reads none.
@@ -242,7 +355,8 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     getRecoveryCodesStatus,
     loginWithRecoveryCode,
     emailRecoveryBegin,
-    emailRecoveryComplete,
+    emailRecoveryStatus,
+    emailRecoveryResend,
     totpRecoveryComplete,
     disown,
   };

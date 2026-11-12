@@ -181,8 +181,8 @@ Served at the apex **`https://musubi.social`**. The `sites` job in
 `.github/workflows/production-release.yml` builds it, and the musubi stack deploys that
 build to the **`osn-social`** Worker, which is `worker` in
 `shared/infra/src/production-sites.ts` and serves the apex since release 42817386650
-(2026-11-10). No job deploys the `osn-social` Pages project; it keeps its last build,
-serving no host, for a rollback ([[production-deploy]] §5.7). `record-osn-social` records each production
+(2026-11-10); the `osn-social` Pages project it moved from is deleted
+([[production-deploy]] §5.7). `record-osn-social` records each production
 deploy whose smoke check passed. On dev the musubi stack serves it as the
 `osn-social-dev` Worker, with static assets, on `musubi.<DEV_DOMAIN>`: `deploy.yml`'s
 musubi stack job builds and deploys it on every merge to `main` that touches it,
@@ -191,12 +191,10 @@ Worker serves deep links through its single-page not-found handling, not the
 `_redirects` file Pages reads ([[infrastructure-as-code#Sites]]). See
 [[production-deploy]] and [[dev-environment]].
 
-Staged on a spare host (`next.musubi.social`, [[infrastructure-as-code#Production sites]]),
-the Worker could not sign anyone in, by design: the session cookie is host-only on
-`id.musubi.social`, osn-api's CORS and WebAuthn accept only `https://musubi.social`, so
-only the `osn_has_session` marker reaches a spare host and its `/token` call is refused.
-On the apex none of that changes: osn-api names `https://musubi.social` as an origin, not
-the server behind it. Its smoke check asks static paths alone:
+The Worker signs people in only on the apex: the session cookie is host-only on
+`id.musubi.social`, and osn-api's CORS and WebAuthn accept only `https://musubi.social`,
+an origin, not the server behind it ([[infrastructure-as-code#Production sites]]). Its
+smoke check asks static paths alone:
 `/`, a deep link, and `/.well-known/apple-app-site-association`, which must come back
 as `application/json`. That file sits in a dot-directory, so the release's build
 artifact keeps hidden files; without it iOS stops offering the app's passkeys on the
@@ -226,7 +224,7 @@ future `*.musubi.social` surface with a single credential.
   routes deep-link on Pages (the Worker serves them through its single-page fallback); `public/_headers` ships the framing denial, and the build
   adds the script and connection rules to it ([[#Response headers]]).
 - The musubi stack attached the apex to the Worker on deploy, once the owner had taken
-  it off the Pages project — see [[production-deploy]] §5.4 and §5.7.
+  it off the Pages project — see [[production-deploy]] §5.4.
 - **No feature-branch preview.** `deploy-osn-social-preview.yml` (project
   `osn-social-preview`) was removed on 2026-07-27. A `*.pages.dev` preview could
   never sign anyone in — the RP ID is `musubi.social` and the `__Host-` session
@@ -288,7 +286,7 @@ the build:
 
 | Directive | Sources |
 |---|---|
-| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the `pages.dev` redirect and the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
+| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
 | `connect-src` | `'self'` and the issuer origin from `VITE_OSN_ISSUER_URL` (`http://localhost:4000` when unset, as `src/lib/auth.ts` reads it) |
 
 No `'unsafe-inline'`, no `'unsafe-eval'` and no `default-src`, so styles, images,
@@ -351,3 +349,21 @@ disabled, with focus kept (`busyButtonHeld`), each Connect 40px tall at 390px.
 request. The rules they hold are in
 [DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
 fields.
+
+Both flows also read what Musubi's contract block maps onto the shared
+overlays and titles (§Typography, §Borders and §Motion there).
+`musubi-passkey` opens the account menu from the rail at 1440 px and from the
+top bar at 390 px and reads its separator as a 1px `--ui-hairline` fill with
+no border, in both schemes; it holds the first frame of that menu, of the
+profile switcher (a sheet at 390 px) and of the create-account dialog's email
+popover, and the half-way frame of each closing, and finds no transform. It
+reads the switcher's title and the add-a-profile card's `CardTitle` against a
+`text-title font-medium` probe, and the authenticator setup's first code box
+("Code from the app Digit 1") at the probe's size at the flow's own width and
+at 768 px, and at 16px at 390 px.
+`musubi-org-detail` holds the create-organisation dialog's first frame and
+reads the create and edit dialogs' titles the same way. Shots go to
+`e2e-artifacts/screenshots/musubi-surfaces/` as `account-menu`,
+`profile-switcher` and `profile-onboarding`, in both schemes. Pulse's menus,
+which keep the contract's scale, are held by `pulse-event-rsvp`
+(`pulse/DESIGN.md` §Motion).

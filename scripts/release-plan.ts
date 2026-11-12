@@ -49,13 +49,9 @@
  * and shared/infra/) changed since the commit its stack job last deployed —
  * the newest successful record of that job in `production` — and dev has
  * run its stack job at the same paths; and only when none of its sites, nor
- * that change, is held back or newer on production. Otherwise its `stack`
- * sites wait with it, while a staged site's own Pages job still ships. Only
- * a stack one of whose sites the request names is asked about. Asking for
- * one of a stack's sites asks for all of them.
- *
- * An attach release (ATTACH) ships nothing: its one job puts the site's
- * domain back on its Pages project.
+ * that change, is held back or newer on production. Otherwise its sites
+ * wait with it. Only a stack one of whose sites the request names is asked
+ * about. Asking for one of a stack's sites asks for all of them.
  *
  * Inputs, from the environment:
  *   GITHUB_TOKEN        read access to deployments and Actions runs and jobs
@@ -67,11 +63,8 @@
  *   FORCE               "true" ships the requested surfaces whatever the
  *                       diff and dev say — for a change no path rule sees
  *                       (a repo Variable, a hand-run wrangler deploy)
- *   ATTACH              a site whose domain this release puts back on its
- *                       Pages project, with every other input empty
  * Writes `<key>=true|false` per surface, `stack_<stack>=true|false` per
- * production stack, `any`, `any_site` (a site build is needed), `any_stack`,
- * `stacks` (the shipping stacks, space separated) and `attach` to
+ * production stack, `any` and `any_stack` (a site build is needed) to
  * $GITHUB_OUTPUT (stdout when unset), and a table of what ships and why to
  * $GITHUB_STEP_SUMMARY and stdout.
  *
@@ -86,11 +79,6 @@
 
 import { appendFileSync } from "node:fs";
 
-import {
-  PAGES_PROJECTS,
-  SITE_SURFACES,
-  type SiteSurface,
-} from "../shared/infra/src/production-sites";
 import {
   changedFiles,
   changesContent,
@@ -576,8 +564,6 @@ export async function lastDeployed(
 export interface ReleaseRequest {
   readonly surfaces: readonly SurfaceKey[];
   readonly force: boolean;
-  /** The site whose domain this release puts back on its Pages project, and does nothing else. */
-  readonly attach?: SiteSurface;
 }
 
 /** The sites a production stack deploys, `job` and `stack` kind both, in map order. */
@@ -591,47 +577,16 @@ export function requestedStacks(surfaces: readonly SurfaceKey[]): StackKey[] {
   ).map((s) => s.key);
 }
 
-const isSite = (name: string): name is SiteSurface =>
-  PRODUCTION_SURFACES.some((s) => s.key === name && stackDeployed(s));
-
-/** The attach a release asks for, alone. Throws on a bad value or any other input. */
-function parseAttach(
-  attach: string,
-  others: { readonly names: readonly string[]; readonly force: boolean },
-): SiteSurface {
-  if (!isSite(attach) || PAGES_PROJECTS[attach] === undefined) {
-    const sites = SITE_SURFACES.filter((site) => PAGES_PROJECTS[site] !== undefined);
-    throw new Error(
-      `ATTACH names ${attach}, which is not a site with a Pages project. Use one of: ${sites.join(", ")}`,
-    );
-  }
-  if (others.names.length > 0 || others.force) {
-    throw new Error(
-      "An attach release puts one site's domain back on its Pages project and does nothing else: leave SURFACES and FORCE empty.",
-    );
-  }
-  return attach;
-}
-
 /**
  * The dispatch inputs, as the workflow passes them. Throws on a bad value.
  * Naming a site a production stack deploys asks for every site that stack
- * deploys, since the stack deploys them together; an attach release asks for
- * nothing.
+ * deploys, since the stack deploys them together.
  */
 export function parseRequest(
   surfaces: string | undefined,
   force: string | undefined,
-  attach = "",
 ): ReleaseRequest {
   const names = (surfaces ?? "").split(/[\s,]+/).filter((name) => name !== "");
-  if (attach !== "") {
-    return {
-      surfaces: [],
-      force: false,
-      attach: parseAttach(attach, { names, force: force === "true" }),
-    };
-  }
   const keys = PRODUCTION_SURFACES.map((s) => s.key);
   const unknown = names.filter((name) => !keys.some((key) => key === name));
   if (unknown.length > 0) {
@@ -793,10 +748,8 @@ export interface StackChange {
 /**
  * Whether each requested stack's own paths (its `infra/` directory and
  * shared/infra/) differ from the commit its stack job last deployed. A
- * staged site's Pages job no longer ships for them: the stack, not the
- * site, is what they change. A stack none of whose sites the request names
- * is not asked about, so a release whose surfaces leave a stack out never
- * ships it.
+ * stack none of whose sites the request names is not asked about, so a
+ * release whose surfaces leave a stack out never ships it.
  */
 export function changedStacks(input: {
   readonly head: string;
@@ -902,19 +855,18 @@ export interface StackPlan {
   readonly production?: string;
 }
 
-/** What a release does: each surface's decision, each production stack's, and any attach. */
+/** What a release does: each surface's decision and each production stack's. */
 export interface ReleaseDecisions {
   readonly decisions: readonly PlanDecision[];
   readonly stacks: readonly StackPlan[];
-  readonly attach?: SiteSurface | undefined;
 }
 
 /**
  * Which production stacks ship. A stack deploys every site it declares, so
  * it ships when one of them ships, or when its own paths changed
  * (`changes`), and none of its sites, nor its own change, is held back or
- * newer on production (unless forced). A stack that waits holds its `stack`
- * sites back with it; a staged site's own Pages job ships regardless.
+ * newer on production (unless forced). A stack that waits holds its sites
+ * back with it.
  */
 export function stackPlans(
   decisions: readonly PlanDecision[],
@@ -985,24 +937,17 @@ export function stackPlans(
 
 /**
  * `<key>=true|false` per surface, `stack_<stack>=true|false` per production
- * stack, then `any`, `any_site`, `any_stack`, `stacks` and `attach`, as
- * $GITHUB_OUTPUT takes them. `any_site` says a site build is
- * needed: a stack ships, or a staged site's own Pages job does.
+ * stack, then `any` and `any_stack`, as $GITHUB_OUTPUT takes them.
+ * `any_stack` also says a site build is needed: only a stack deploys a site.
  */
 export function outputLines(release: ReleaseDecisions): string {
   const ships = new Set(release.decisions.filter((d) => d.ship).map((d) => d.key));
   const stacks = release.stacks.filter((s) => s.ship).map((s) => s.key);
-  const pagesSite = PRODUCTION_SURFACES.some(
-    (s) => ships.has(s.key) && stackDeployed(s) && s.production.kind === "job",
-  );
   return [
     ...PRODUCTION_SURFACES.map((s) => `${s.key}=${ships.has(s.key)}`),
     ...PRODUCTION_STACKS.map((s) => `stack_${s.key}=${stacks.includes(s.key)}`),
     `any=${ships.size > 0 || stacks.length > 0}`,
-    `any_site=${stacks.length > 0 || pagesSite}`,
     `any_stack=${stacks.length > 0}`,
-    `stacks=${stacks.join(" ")}`,
-    `attach=${release.attach ?? ""}`,
     "",
   ].join("\n");
 }
@@ -1042,14 +987,6 @@ export function renderSummary(
         : `[\`${short(s.production)}\`](${repo}/commit/${s.production}) ([diff](${repo}/compare/${s.production}...${context.head}))`;
     return `| ${s.key} stack | ${production} | ${s.ship ? "ships" : "waits"} | ${s.reason} |`;
   });
-  const attach =
-    release.attach === undefined
-      ? []
-      : [
-          `> [!IMPORTANT]`,
-          `> Attach release: \`${release.attach}\`'s domain goes back on its Pages project, and nothing else ships. One approval: the attach job.`,
-          "",
-        ];
   const approvals =
     stacks.length === 0
       ? "Wait until every one of those jobs shows Waiting, then one approval releases them all."
@@ -1066,12 +1003,9 @@ export function renderSummary(
     `### Production release of [\`${short(context.head)}\`](${repo}/commit/${context.head})`,
     "",
     shipping.length === 0 && stacks.length === 0
-      ? release.attach === undefined
-        ? "Nothing to ship: production already runs everything this commit would deploy."
-        : "Ships nothing."
+      ? "Nothing to ship: production already runs everything this commit would deploy."
       : `Ships ${[...shipping, ...stacks].join(", ")}. ${approvals}`,
     "",
-    ...attach,
     ...warning,
     "| Surface | Production runs | This release | Why |",
     "|---|---|---|---|",
@@ -1119,7 +1053,7 @@ export async function runReleasePlan(options: {
   const head = env.GITHUB_SHA || revParse(options.cwd);
   if (!/^[0-9a-f]{40}$/.test(head))
     throw new Error(`the release commit must be a full SHA, not '${head}'`);
-  const request = parseRequest(env.SURFACES, env.FORCE, env.ATTACH);
+  const request = parseRequest(env.SURFACES, env.FORCE);
   const reader = restReader({
     fetch: options.fetch,
     token,
@@ -1168,7 +1102,7 @@ export async function runReleasePlan(options: {
   const gated = applyDevGate({ decisions: changed, dev, diff, force: request.force });
   const gatedStacks = applyStackDevGate({ changes: stackChanges, dev, force: request.force });
   const planned = stackPlans(gated, request.force, gatedStacks);
-  const release: ReleaseDecisions = { ...planned, attach: request.attach };
+  const release: ReleaseDecisions = planned;
 
   return {
     ...release,

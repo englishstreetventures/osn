@@ -10,8 +10,8 @@ import "../../src/App.css";
  * The step-up's code row in Settings → Security, in a real browser.
  *
  * `StepUpDialog` mounts inline in the Security card, below the passkey list,
- * and its emailed-code step is a row of six `OtpInput` boxes that share their
- * column. On a phone the dialog drops its side padding, so the row takes the
+ * and its authenticator-code step is a row of six `OtpInput` boxes that share
+ * their column. On a phone the dialog drops its side padding, so the row takes the
  * card's whole column rather than the column less 32px (§Responsive layout,
  * Code boxes, in `DESIGN.md`). Widths take a real layout.
  *
@@ -42,8 +42,9 @@ vi.mock("../../src/lib/authClients", () => ({
         ],
       }),
   },
-  stepUpClient: { otpBegin: () => Promise.resolve({ sent: true }) },
-  totpClient: { status: () => Promise.resolve({ enrolled: false }) },
+  stepUpClient: {},
+  // Enrolled, so the step-up offers the authenticator, whose step is the code row.
+  totpClient: { status: () => Promise.resolve({ enrolled: true }) },
   recoveryClient: { getRecoveryCodesStatus: () => Promise.resolve({ active: 10, total: 10 }) },
 }));
 vi.mock("../../src/lib/webauthn-ceremony", () => ({ runPasskeyCeremony: () => {} }));
@@ -75,7 +76,7 @@ function authValue() {
   };
 }
 
-/** Settings → Security with the step-up's emailed-code step open; its row of boxes. */
+/** Settings → Security with the step-up's authenticator-code step open; its row of boxes. */
 async function openCodeStep() {
   const history = createMemoryHistory();
   history.set({ value: "/settings#security" });
@@ -89,9 +90,9 @@ async function openCodeStep() {
   ));
   await userEvent.click(await waitFor(() => screen.getByRole("button", { name: "Add passkey" })));
   await userEvent.click(
-    await waitFor(() => screen.getByRole("button", { name: /Email me a code/ })),
+    await waitFor(() => screen.getByRole("button", { name: "Use your authenticator app" })),
   );
-  return waitFor(() => screen.getByRole("group", { name: "Code" }));
+  return waitFor(() => screen.getByRole("group", { name: "Code from your authenticator app" }));
 }
 
 /** The width of `card`'s content box: its own width less its padding and edge. */

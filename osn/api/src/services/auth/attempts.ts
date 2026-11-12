@@ -1,6 +1,6 @@
 /**
- * The guess count every code-checking ceremony keeps: step-up OTP, the
- * emailed recovery code, TOTP enrolment, email change and registration.
+ * The guess count every secret-checking ceremony keeps: TOTP enrolment and
+ * the emailed link's secret (sign-up, recovery, step-up and email change).
  *
  * The count lives on the pending entry itself, and one store call both reads
  * the entry and counts the guess against it (`CeremonyStore.guess`). The life

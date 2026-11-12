@@ -3,8 +3,9 @@
  *
  * Step-up is a short-lived high-assurance ceremony required by sensitive
  * endpoints (recovery-code generation, email change). The client fetches
- * a step-up token via a passkey or OTP flow and attaches it — typically
- * as `step_up_token` in the request body — to the gated call.
+ * a step-up token via a passkey, a link emailed to the account's own address,
+ * or an authenticator code, and attaches it — typically as `step_up_token` in
+ * the request body — to the gated call.
  *
  * The WebAuthn browser ceremony (`startAuthentication`) is intentionally
  * left to the caller so `@osn/client` stays free of
@@ -60,6 +61,27 @@ export type StepUpPurpose =
   | "pulse_app_delete"
   | "zap_app_delete";
 
+/** A step-up by emailed link this tab began: what it keeps, and the number it shows. */
+export interface StepUpEmailRequest {
+  readonly requestId: string;
+  /** Kept by this tab alone, in memory; whoever holds it receives the token. */
+  readonly claimSecret: string;
+  /** Shown while waiting: the link's page asks the reader to type it. Never stored or logged. */
+  readonly pairingCode: string;
+  /** Unix seconds. */
+  readonly expiresAt: number;
+}
+
+/** What a step-up link's status poll learned: still waiting, gone, or the token. */
+export type StepUpEmailStatus =
+  | {
+      readonly status: "pending";
+      /** The number the waiting screen shows, for a tab that lost it. */
+      readonly pairingCode?: string;
+    }
+  | { readonly status: "expired" }
+  | { readonly status: "complete"; readonly token: StepUpToken };
+
 /**
  * A rejection of `authFetch` about the session, or the caller's abort,
  * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is
@@ -84,9 +106,23 @@ export interface StepUpClient {
     /** Binds the minted token to one ceremony. Omit only for legacy gates. */
     purpose?: StepUpPurpose;
   }): Promise<StepUpToken>;
-  /** Sends an OTP to the authenticated account's verified email. */
-  otpBegin(): Promise<{ sent: true }>;
-  otpComplete(input: { code: string; purpose?: StepUpPurpose }): Promise<StepUpToken>;
+  /**
+   * Mails a link to the account's own address for one `purpose`, which the
+   * token it yields will name. The reader types the number this tab shows on
+   * the link's page; the token comes to this tab's {@link emailStatus} poll.
+   */
+  emailBegin(input: { purpose: StepUpPurpose }): Promise<StepUpEmailRequest>;
+  /**
+   * Polls the request with its claim secret. `complete` carries the step-up
+   * token, once. A refusal answers `expired`; a rate limit, a server error or
+   * no answer throws, and the caller polls again.
+   */
+  emailStatus(input: { requestId: string; claimSecret: string }): Promise<StepUpEmailStatus>;
+  /** Another link for the same request. `limit` once it has sent all it may. */
+  emailResend(input: {
+    requestId: string;
+    claimSecret: string;
+  }): Promise<{ status: "sent" | "limit" | "expired" }>;
   /**
    * Exchange a code from the account's authenticator app for a step-up token.
    *
@@ -110,6 +146,42 @@ async function postJson<T>(authFetch: AuthFetch, url: string, body: unknown): Pr
     authFetch,
   );
   return readJson<T>(StepUpError, res);
+}
+
+/** The fields the link routes answer with; anything else in the body is ignored. */
+interface LinkAnswer {
+  readonly status?: unknown;
+  readonly pairingCode?: unknown;
+  readonly step_up_token?: unknown;
+  readonly expires_in?: unknown;
+}
+
+/**
+ * POSTs a step-up link call. Null for a refusal of the request (a 4xx other
+ * than a rate limit); throws on a rate limit, a server error or no answer,
+ * which a poll retries.
+ */
+async function postLinkCall(
+  authFetch: AuthFetch,
+  url: string,
+  body: unknown,
+): Promise<LinkAnswer | null> {
+  const res = await reach(
+    StepUpError,
+    url,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    },
+    authFetch,
+  );
+  if (res.status === 429 || res.status >= 500) {
+    throw new StepUpError(`Request failed: ${res.status}`, res.status);
+  }
+  if (!res.ok) return null;
+  return readJson<LinkAnswer>(StepUpError, res);
 }
 
 function toToken(raw: { step_up_token: string; expires_in: number }): StepUpToken {
@@ -140,15 +212,60 @@ export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
           { assertion: input.assertion, purpose: input.purpose },
         ),
       ),
-    otpBegin: () => postJson<{ sent: true }>(authFetch, `${base}/step-up/otp/begin`, {}),
-    otpComplete: async (input) =>
-      toToken(
-        await postJson<{ step_up_token: string; expires_in: number }>(
-          authFetch,
-          `${base}/step-up/otp/complete`,
-          { code: input.code, purpose: input.purpose },
-        ),
-      ),
+    emailBegin: async (input) => {
+      const raw = await postJson<Partial<StepUpEmailRequest>>(
+        authFetch,
+        `${base}/step-up/email/begin`,
+        { purpose: input.purpose },
+      );
+      if (
+        typeof raw.requestId !== "string" ||
+        typeof raw.claimSecret !== "string" ||
+        typeof raw.pairingCode !== "string" ||
+        typeof raw.expiresAt !== "number"
+      ) {
+        throw new StepUpError("Unexpected step-up answer", 200);
+      }
+      return {
+        requestId: raw.requestId,
+        claimSecret: raw.claimSecret,
+        pairingCode: raw.pairingCode,
+        expiresAt: raw.expiresAt,
+      };
+    },
+    emailStatus: async (input) => {
+      const raw = await postLinkCall(
+        authFetch,
+        `${base}/step-up/email/${encodeURIComponent(input.requestId)}/status`,
+        { claimSecret: input.claimSecret },
+      );
+      if (raw === null || raw.status === "expired") return { status: "expired" };
+      if (raw.status === "pending") {
+        return typeof raw.pairingCode === "string"
+          ? { status: "pending", pairingCode: raw.pairingCode }
+          : { status: "pending" };
+      }
+      if (
+        raw.status !== "complete" ||
+        typeof raw.step_up_token !== "string" ||
+        typeof raw.expires_in !== "number"
+      ) {
+        throw new StepUpError("Unexpected step-up status", 200);
+      }
+      return {
+        status: "complete",
+        token: { token: raw.step_up_token, expiresIn: raw.expires_in },
+      };
+    },
+    emailResend: async (input) => {
+      const raw = await postLinkCall(
+        authFetch,
+        `${base}/step-up/email/${encodeURIComponent(input.requestId)}/resend`,
+        { claimSecret: input.claimSecret },
+      );
+      const status = raw?.status;
+      return status === "sent" || status === "limit" ? { status } : { status: "expired" };
+    },
     totpComplete: async (input) =>
       toToken(
         await postJson<{ step_up_token: string; expires_in: number }>(

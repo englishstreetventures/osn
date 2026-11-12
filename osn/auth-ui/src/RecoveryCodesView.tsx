@@ -58,9 +58,9 @@ export interface RecoveryCodesViewProps {
   runPasskeyCeremony?: RunPasskeyCeremony;
   /**
    * Force the step-up ceremony to use the passkey factor only, suppressing
-   * the OTP ("email me a code") option. Set this for accounts whose host has
-   * no deliverable transactional email, so the user is never offered a code
-   * that won't arrive.
+   * the emailed-link ("Use email instead") option. Set this for accounts whose
+   * host has no deliverable transactional email, so the user is never offered
+   * a link that won't arrive.
    */
   /**
    * TOTP client. Supplied, the step-up dialog offers the authenticator-app

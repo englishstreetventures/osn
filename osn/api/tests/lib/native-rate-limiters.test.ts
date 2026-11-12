@@ -29,7 +29,10 @@ function fallbackBundle(): AuthRateLimiters {
     (
       [
         "registerBegin",
-        "registerComplete",
+        "registerStatus",
+        "registerResend",
+        "emailLinkConfirm",
+        "emailLinkCandidates",
         "handleCheck",
         "passkeyLoginBegin",
         "passkeyLoginComplete",
@@ -41,13 +44,15 @@ function fallbackBundle(): AuthRateLimiters {
         "recoveryStatus",
         "recoveryComplete",
         "recoveryEmailBegin",
-        "recoveryEmailComplete",
+        "recoveryEmailStatus",
+        "recoveryEmailResend",
         "recoveryTotpComplete",
         "recoveryDisown",
         "stepUpPasskeyBegin",
         "stepUpPasskeyComplete",
-        "stepUpOtpBegin",
-        "stepUpOtpComplete",
+        "stepUpEmailBegin",
+        "stepUpEmailStatus",
+        "stepUpEmailResend",
         "stepUpTotpComplete",
         "totpDisable",
         "totpEnrollBegin",
@@ -56,6 +61,8 @@ function fallbackBundle(): AuthRateLimiters {
         "sessionList",
         "sessionRevoke",
         "emailChangeBegin",
+        "emailChangeStatus",
+        "emailChangeResend",
         "emailChangeComplete",
         "securityEventList",
         "securityEventAck",
@@ -209,9 +216,9 @@ describe("selectAuthRateLimiters — limiter routing", () => {
       RL_AUTH_IP_60_60: recordingBinding().binding,
     };
     const selected = selectAuthRateLimiters(bindings, fallbackBundle());
-    await selected.registerComplete.check("9.9.9.9");
+    await selected.emailLinkConfirm.check("9.9.9.9");
     await selected.passkeyRegisterBegin.check("9.9.9.9");
-    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.registerComplete.ns}:9.9.9.9`);
+    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.emailLinkConfirm.ns}:9.9.9.9`);
     expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.passkeyRegisterBegin.ns}:9.9.9.9`);
     expect(rec.keys[0]).not.toBe(rec.keys[1]);
   });

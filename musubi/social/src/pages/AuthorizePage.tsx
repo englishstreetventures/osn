@@ -1,3 +1,4 @@
+import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -168,8 +169,10 @@ export function AuthorizePage() {
   const [signedInHere, setSignedInHere] = createSignal(false);
   // Which half of the sign-in panel leads; its loading placeholder takes the
   // same shape, so nothing jumps when the panel's code lands.
+  // A sign-up this tab was waiting on before a reload leads too, so its
+  // waiting view resumes and a link confirmed meanwhile finishes here.
   const panelMode = (): "register" | "signIn" =>
-    reason() === "create" && !signedInHere() ? "register" : "signIn";
+    (reason() === "create" || hasPendingSignUp()) && !signedInHere() ? "register" : "signIn";
   // `reason=select_account`: the app wants the person at the keyboard to say
   // which account this is, because the browser may be shared. The account
   // screen leads until they press Continue — or until they sign in on this
@@ -248,6 +251,26 @@ export function AuthorizePage() {
     if (showPicker()) return "picker";
     return "consent";
   });
+
+  // Set by the error card's Try again. A failed load keeps `context.error`
+  // until the next try settles, so the card stays up through a retry. Its
+  // alert speaks the first failure as it appears; each later one is said
+  // through the live region, because the alert's text does not change.
+  const [retried, setRetried] = createSignal(false);
+
+  const announcement = () => {
+    const now = screen();
+    if (now !== "error") return SCREEN_ANNOUNCEMENT[now];
+    if (context.loading) return SCREEN_ANNOUNCEMENT.loading;
+    return retried() ? loadError() : null;
+  };
+
+  // Try again is busy while the load runs: it keeps focus and refuses a press.
+  function retryLoad() {
+    if (context.loading) return;
+    setRetried(true);
+    void refetch();
+  }
 
   /** A retryable failure — the request survives, the page does not restart. */
   function softFail(message: string) {
@@ -350,7 +373,7 @@ export function AuthorizePage() {
           `aria-live="polite"`), which is the semantic element for a value the
           page computes rather than one the user typed. */}
       <output class="sr-only" aria-live="polite">
-        {SCREEN_ANNOUNCEMENT[screen()]}
+        {announcement()}
       </output>
       <Switch>
         <Match when={screen() === "loading"}>
@@ -358,9 +381,9 @@ export function AuthorizePage() {
         </Match>
 
         <Match when={screen() === "dead"}>
-          <Card padding="lg" class="text-center">
+          <Card padding="lg" class="flex flex-col gap-2">
             <h1 class="text-foreground text-title font-medium">{deadMessage()}</h1>
-            <p class="text-muted-foreground text-body mt-2">
+            <p class="text-muted-foreground text-body">
               <Show when={clientName()} fallback="Go back to the app you came from and try again.">
                 {(name) => <>Go back to {name()} and start again.</>}
               </Show>
@@ -369,13 +392,15 @@ export function AuthorizePage() {
         </Match>
 
         <Match when={screen() === "error"}>
-          <Card padding="lg" class="text-center">
-            <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
-            <p class="text-muted-foreground text-body mt-2" role="alert">
-              {loadError()}
-            </p>
-            <Button class="mt-4" onClick={() => void refetch()}>
-              Try again
+          <Card padding="lg" class="flex flex-col gap-6">
+            <div class="flex flex-col gap-2">
+              <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
+              <Notice tone="danger" size="inline" alert>
+                {loadError()}
+              </Notice>
+            </div>
+            <Button size="lg" class="w-full max-md:h-11" busy={context.loading} onClick={retryLoad}>
+              {context.loading ? "Checking…" : "Try again"}
             </Button>
           </Card>
         </Match>

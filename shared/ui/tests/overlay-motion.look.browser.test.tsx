@@ -19,8 +19,10 @@ import "./test-support/tailwind.css";
 
 /**
  * Pictures of each overlay opening and closing, for a person comparing motion
- * before and after a change: `Dialog`, `DropdownMenu` in both looks, `Popover`,
- * `Tooltip` and `Modal`, at 390 and 1440px. Each run is held still through the
+ * before and after a change: `Dialog` as a card and as a sheet, the sheet again
+ * with both scale tokens at 1 (the fade with no scale an app opts into),
+ * `DropdownMenu` in both looks, `Popover`, `Tooltip` and `Modal`, at 390 and
+ * 1440px. Each run is held still through the
  * Web Animations API at 0, 25, 50, 75 and 100% of its longest animation and
  * drawn into `__screenshots__/` beside this file (gitignored), one PNG per
  * frame, named `<overlay>-<width>-<open|close>-<percent>.png`. A close with no
@@ -38,6 +40,9 @@ const STOPS = [0, 25, 50, 75, 100] as const;
 
 afterEach(() => {
   for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
+  for (const subject of SUBJECTS)
+    for (const name of Object.keys(subject.tokens ?? {}))
+      document.documentElement.style.removeProperty(name);
   cleanup();
 });
 
@@ -115,6 +120,8 @@ interface Subject {
   closeStarts?: number;
   /** How long an open may take to start: a tooltip waits out its open delay. */
   openStarts?: number;
+  /** Contract tokens set on the root for this subject alone, as an app would map them. */
+  tokens?: Record<string, string>;
 }
 
 const byName = (name: string) => () => screen.getByRole("button", { name });
@@ -155,6 +162,21 @@ function ModalStage() {
   );
 }
 
+/** `Dialog` as a bottom sheet below `md`, the shape most of musubi's dialogs and pulse's share dialog take. */
+function SheetDialog() {
+  return (
+    <Dialog>
+      <DialogTrigger>Open sheet</DialogTrigger>
+      <DialogContent presentation="sheet">
+        <div style={{ padding: "24px" }}>
+          <DialogTitle>Share event</DialogTitle>
+          <p>A link anyone can open.</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const SUBJECTS: Subject[] = [
   {
     name: "dialog",
@@ -171,6 +193,20 @@ const SUBJECTS: Subject[] = [
     )),
     open: () => userEvent.click(byName("Open dialog")()),
     close: () => userEvent.keyboard("{Escape}"),
+  },
+  {
+    name: "dialog-sheet",
+    view: stage(() => <SheetDialog />),
+    open: () => userEvent.click(byName("Open sheet")()),
+    close: () => userEvent.keyboard("{Escape}"),
+  },
+  {
+    // The opt-in fade with no scale: both scale tokens at 1.
+    name: "dialog-sheet-fade",
+    view: stage(() => <SheetDialog />),
+    open: () => userEvent.click(byName("Open sheet")()),
+    close: () => userEvent.keyboard("{Escape}"),
+    tokens: { "--ui-scale-enter": "1", "--ui-scale-exit": "1" },
   },
   {
     name: "menu-default",
@@ -242,6 +278,8 @@ describe.runIf(import.meta.env.VITE_OVERLAY_MOTION_CAPTURE === "1")("overlay mot
     for (const subject of SUBJECTS) {
       it(`${subject.name} at ${width}`, async () => {
         await page.viewport(width, 800);
+        for (const [name, value] of Object.entries(subject.tokens ?? {}))
+          document.documentElement.style.setProperty(name, value);
         render(subject.view);
         await document.fonts.ready;
         await vi.waitFor(() => {

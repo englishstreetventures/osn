@@ -1,5 +1,59 @@
 # @osn/pulse
 
+## 0.24.76
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+
+## 0.24.75
+
+### Patch Changes
+
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @shared/ui@0.15.0
+
+## 0.24.74
+
+### Patch Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+
+## 0.24.73
+
+### Patch Changes
+
+- @pulse/api@0.28.19
+
+## 0.24.72
+
+### Patch Changes
+
+- @pulse/api@0.28.18
+
+## 0.24.71
+
+### Patch Changes
+
+- @pulse/api@0.28.17
+
+## 0.24.70
+
+### Patch Changes
+
+- 3c0e6f5: An explore event card that is not featured shows its time, title, venue, host and footer whole on a phone. Below 768px its media column is 112px instead of 180px, and the live tag inside it reads "Live"; from 768px up the media column and the live tag are as before. At every width the time, venue and host lines wrap instead of running past the card, the time keeps its AM or PM on the same line, the venue and neighbourhood read as one line of text with a `·` between them in place of the drawn dot, each `·` stays with the word before it so no line starts with one, the clock, pin and avatar sit on their line's first line, and the footer wraps with the status kept flush right. The title still stops at two lines with an ellipsis.
+
 ## 0.24.69
 
 ### Patch Changes

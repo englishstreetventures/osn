@@ -14,7 +14,10 @@ import { makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
+import { createIssuerNetwork } from "../../src/services/auth/email-verification-network";
 import { settle } from "../helpers/background";
+import { createFakeIssuer } from "../helpers/email-verification";
+import { linksTo } from "../helpers/registration";
 
 // Registration's verifier is stubbed so an account can hold a passkey: a unit
 // test cannot produce a real attestation.
@@ -51,11 +54,52 @@ beforeAll(async () => {
   base = await makeTestAuthConfig();
 });
 
+/** The per-address limits a sign-up link's send reads, after the answer. */
+const SEND_LIMIT_STORES = ["auth.registration_send_cap", "registration_link_lockout"];
+
+/**
+ * `ns` with every call to a send-limit store waiting until `release()`, so
+ * the ops a begin or a Resend makes before it answers can be told apart from
+ * the ones its forked send makes after.
+ */
+function holdingSendLimits(ns: CoordinationNamespace) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const wrapped: CoordinationNamespace = {
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      if (!SEND_LIMIT_STORES.some((store) => name.startsWith(`${store}:`))) return stub;
+      const later =
+        <A extends unknown[], R>(run: (...args: A) => Promise<R>) =>
+        (...args: A) =>
+          gate.then(() => run(...args));
+      return {
+        ...stub,
+        increment: later(stub.increment.bind(stub)),
+        count: later(stub.count.bind(stub)),
+        read: later(stub.read.bind(stub)),
+        write: later(stub.write.bind(stub)),
+        remove: later(stub.remove.bind(stub)),
+      };
+    },
+  };
+  return { ns: wrapped, release };
+}
+
 function harness() {
   const fake = createFakeNamespace();
-  const bundle = createDurableCoordination(fake.ns, () => {});
-  const auth = createAuthService({ ...base, ceremonyStores: bundle.ceremonyStores });
-  const layer = Layer.merge(createTestLayer(), makeLogEmailLive().layer);
+  const limits = holdingSendLimits(fake.ns);
+  const bundle = createDurableCoordination(limits.ns, () => {});
+  const auth = createAuthService({
+    ...base,
+    ceremonyStores: bundle.ceremonyStores,
+    registrationSendCap: bundle.registrationSendCap,
+    registrationLinkLockoutStore: bundle.registrationLinkLockoutStore,
+  });
+  const email = makeLogEmailLive();
+  const layer = Layer.merge(createTestLayer(), email.layer);
   /** The calls `run` makes, and how it ended. */
   const record = <A, E extends { readonly _tag: string }, R>(run: Effect.Effect<A, E, R>) =>
     Effect.gen(function* () {
@@ -66,7 +110,17 @@ function harness() {
         outcome: result._tag === "Success" ? "ok" : result.failure._tag,
       };
     });
-  return { fake, auth, layer, record };
+  /** Lets the held send-limit calls go, and waits for `count` of them to land. */
+  const sendLimitCalls = (count: number) =>
+    Effect.gen(function* () {
+      limits.release();
+      const landed = () =>
+        fake.calls.filter((call) => SEND_LIMIT_STORES.includes(call.store)).length;
+      for (let i = 0; i < 200 && landed() < count; i++) yield* Effect.sleep("5 millis");
+      yield* Effect.sleep("20 millis");
+      return landed();
+    });
+  return { fake, auth, layer, record, recorded: () => email.recorded(), sendLimitCalls };
 }
 
 const fakeAttestation = () =>
@@ -188,26 +242,35 @@ describe("POST /login/passkey/complete with an identifier", () => {
 });
 
 describe("POST /register/begin", () => {
-  it.live("makes the same calls whether the address is free, taken, or already pending", () => {
-    const h = harness();
-    return Effect.gen(function* () {
-      yield* h.auth.registerProfile("seq-taken@example.com", "seqtaken");
+  it.live(
+    "makes the same calls whether the address is free, taken, or already pending, and reads the send limits only after answering a free one",
+    () => {
+      const h = harness();
+      return Effect.gen(function* () {
+        yield* h.auth.registerProfile("seq-taken@example.com", "seqtaken");
 
-      const free = yield* h.record(
-        h.auth.beginRegistration("seq-free@example.com", "seqfree", "1990-01-01"),
-      );
-      const pending = yield* h.record(
-        h.auth.beginRegistration("seq-free@example.com", "seqfree", "1990-01-01"),
-      );
-      const taken = yield* h.record(
-        h.auth.beginRegistration("seq-taken@example.com", "seqother", "1990-01-01"),
-      );
+        const free = yield* h.record(
+          h.auth.beginRegistration("seq-free@example.com", "seqfree", "1990-01-01"),
+        );
+        const pending = yield* h.record(
+          h.auth.beginRegistration("seq-free@example.com", "seqfree", "1990-01-01"),
+        );
+        const taken = yield* h.record(
+          h.auth.beginRegistration("seq-taken@example.com", "seqother", "1990-01-01"),
+        );
 
-      expect(free).toEqual({ ops: ["pending_registration.swap"], outcome: "ok" });
-      expect(pending).toEqual(free);
-      expect(taken).toEqual(free);
-    }).pipe(Effect.provide(h.layer));
-  });
+        expect(free).toEqual({
+          ops: ["email_link.write", "pending_registration.swap"],
+          outcome: "ok",
+        });
+        expect(pending).toEqual(free);
+        expect(taken).toEqual(free);
+        // Only the free address's send reads a limit: the lockout. A begin's
+        // first link does not count against the Resend cap.
+        expect(yield* h.sendLimitCalls(1)).toBe(1);
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
 
   it.live("fails on every branch alike while every store call fails", () => {
     const h = harness();
@@ -222,14 +285,141 @@ describe("POST /register/begin", () => {
         h.auth.beginRegistration("seq-taken2@example.com", "seqother2", "1990-01-01"),
       );
 
-      expect(free).toEqual({ ops: ["pending_registration.swap"], outcome: "CoordinationError" });
+      expect(free).toEqual({ ops: ["email_link.write"], outcome: "CoordinationError" });
       expect(taken).toEqual(free);
     }).pipe(Effect.provide(h.layer));
   });
 });
 
+describe("a send-limit store that cannot answer", () => {
+  it.live("mails nothing for a begin when the lockout store fails", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      h.fake.failWhen((call) => call.store === "registration_link_lockout");
+      yield* h.auth.beginRegistration("seq-lockdown@example.com", "seqlockdown", "1990-01-01");
+
+      expect(yield* h.sendLimitCalls(1)).toBe(1);
+      expect(linksTo(h.recorded(), "seq-lockdown@example.com")).toHaveLength(0);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("mails nothing for a Resend when the send cap fails, though the first link went", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      const begun = yield* h.auth.beginRegistration(
+        "seq-capdown@example.com",
+        "seqcapdown",
+        "1990-01-01",
+      );
+      yield* h.sendLimitCalls(1);
+      expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
+
+      h.fake.failWhen((call) => call.store === "auth.registration_send_cap");
+      yield* h.auth.resendRegistration(begun.requestId, begun.claimSecret);
+      // The Resend reads the lockout, then the cap, which fails.
+      expect(yield* h.sendLimitCalls(3)).toBe(3);
+      expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+describe("POST /register/:requestId/resend", () => {
+  it.live(
+    "makes the same calls for a free address's request, a taken one's, and one whose address another sign-up holds or held",
+    () => {
+      const h = harness();
+      return Effect.gen(function* () {
+        yield* h.auth.registerProfile("seq-rtaken@example.com", "seqrtaken");
+        const free = yield* h.auth.beginRegistration(
+          "seq-rfree@example.com",
+          "seqrfree",
+          "1990-01-01",
+        );
+        const taken = yield* h.auth.beginRegistration(
+          "seq-rtaken@example.com",
+          "seqrother",
+          "1990-01-01",
+        );
+        const holder = yield* h.auth.beginRegistration(
+          "seq-rheld@example.com",
+          "seqrholder",
+          "1990-01-01",
+        );
+        const held = yield* h.auth.beginRegistration(
+          "seq-rheld@example.com",
+          "seqrheld",
+          "1990-01-01",
+        );
+
+        const freeResend = yield* h.record(
+          h.auth.resendRegistration(free.requestId, free.claimSecret),
+        );
+        const takenResend = yield* h.record(
+          h.auth.resendRegistration(taken.requestId, taken.claimSecret),
+        );
+        const heldResend = yield* h.record(
+          h.auth.resendRegistration(held.requestId, held.claimSecret),
+        );
+        // The holder ends; the held request's next Resend parks its sign-up.
+        yield* h.auth.beginRegistration(
+          "seq-rheld-2@example.com",
+          "seqrholder",
+          "1990-01-01",
+          undefined,
+          { requestId: holder.requestId, claimSecret: holder.claimSecret },
+        );
+        const parkingResend = yield* h.record(
+          h.auth.resendRegistration(held.requestId, held.claimSecret),
+        );
+
+        expect(freeResend).toEqual({
+          ops: [
+            "email_link.read",
+            "email_link.swap",
+            "pending_registration.swap",
+            "pending_registration.read",
+          ],
+          outcome: "ok",
+        });
+        expect(takenResend).toEqual(freeResend);
+        expect(heldResend).toEqual(freeResend);
+        expect(parkingResend).toEqual(freeResend);
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+});
+
+describe("a wrong pick whose delete the store fails", () => {
+  it.live("still answers expired and counts the strike", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      const begun = yield* h.auth.beginRegistration(
+        "seq-wrongpick@example.com",
+        "seqwrongpick",
+        "1990-01-01",
+      );
+      // The send waits on the held send-limit store; let it go and land.
+      yield* h.sendLimitCalls(1);
+      const link = linksTo(h.recorded(), "seq-wrongpick@example.com")[0]!;
+      h.fake.failWhen((call) => call.store === "email_link" && call.op === "remove");
+
+      const wrong = String(Number(begun.pairingCode) === 99 ? 10 : Number(begun.pairingCode) + 1);
+      const answer = yield* h.auth.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: wrong,
+      });
+      expect(answer).toBe("expired");
+      const strikes = h.fake.calls.filter(
+        (call) => call.store === "registration_link_lockout" && call.op === "increment",
+      );
+      expect(strikes).toHaveLength(1);
+      expect(begun.requestId).toBe(link.requestId);
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
 /**
- * Two begins for one address at once: the first parks its code, the second
+ * Two begins for one address at once: the first parks its sign-up, the second
  * finds it live and sends nothing, however the two calls interleave. Every
  * `read` answers a few milliseconds late here, as a round trip does, so a
  * begin that read and then wrote would let both through.
@@ -252,7 +442,7 @@ describe("POST /register/begin, twice at once for one address", () => {
     },
   });
 
-  it.live("sends one code", () => {
+  it.live("sends one link", () => {
     const fake = createFakeNamespace();
     const bundle = createDurableCoordination(slowReads(fake.ns), () => {});
     const auth = createAuthService({ ...base, ceremonyStores: bundle.ceremonyStores });
@@ -267,8 +457,72 @@ describe("POST /register/begin, twice at once for one address", () => {
           { concurrency: "unbounded" },
         ),
       );
-      expect(both).toEqual([{ sent: true }, { sent: true }]);
+      expect(both.map((answer) => answer.requestId)).toHaveLength(2);
       expect(email.recorded()).toHaveLength(1);
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+  });
+});
+
+/**
+ * A begin whose browser token verified makes one more write on its request
+ * whatever the address: it confirms a free address's request, and writes a
+ * taken or held one's back unchanged. So a verified begin costs the same for
+ * all three, and mails nothing for any of them.
+ */
+describe("POST /register/begin with a browser token that verifies", () => {
+  it.live("makes the same calls whether the address is free, taken, or already pending", () => {
+    const fake = createFakeNamespace();
+    const bundle = createDurableCoordination(fake.ns, () => {});
+    const email = makeLogEmailLive();
+    return Effect.gen(function* () {
+      const issuer = yield* Effect.promise(() => createFakeIssuer());
+      const auth = createAuthService({
+        ...base,
+        // `frontendOrigin` reads the first WebAuthn origin: the token's audience.
+        origin: "http://localhost:5173",
+        ceremonyStores: bundle.ceremonyStores,
+        registrationSendCap: bundle.registrationSendCap,
+        registrationLinkLockoutStore: bundle.registrationLinkLockoutStore,
+        emailVerificationNonceClaims: bundle.emailVerificationNonceClaims,
+        emailVerification: { network: createIssuerNetwork(issuer.fetch) },
+      });
+      const tokenFor = (address: string) =>
+        Effect.promise(async () => {
+          const minted = auth.emailVerificationNonce();
+          if (!minted) throw new Error("no nonce");
+          const token = await issuer.mint({
+            email: address,
+            nonce: minted.nonce,
+            aud: "http://localhost:5173",
+          });
+          return { emailVerificationToken: token, nonceSecret: minted.nonceSecret };
+        });
+      const begin = (address: string, handle: string) =>
+        Effect.gen(function* () {
+          const input = yield* tokenFor(address);
+          const from = fake.calls.length;
+          yield* auth.beginRegistration(address, handle, "1990-01-01", undefined, undefined, input);
+          return fake.calls.slice(from).map((call) => `${call.store}.${call.op}`);
+        });
+
+      const takenAddress = `seq-vtaken@${issuer.domain}`;
+      yield* auth.registerProfile(takenAddress, "seqvtaken");
+      const freeAddress = `seq-vfree@${issuer.domain}`;
+
+      const free = yield* begin(freeAddress, "seqvfree");
+      const pending = yield* begin(freeAddress, "seqvfree");
+      const taken = yield* begin(takenAddress, "seqvother");
+
+      expect(free).toEqual([
+        "email_verification_nonce.claim",
+        "email_link.write",
+        "pending_registration.swap",
+        "email_link.swap",
+      ]);
+      expect(pending).toEqual(free);
+      expect(taken).toEqual(free);
+      yield* Effect.sleep("20 millis");
+      expect(email.recorded()).toHaveLength(0);
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
   });
 });

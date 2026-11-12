@@ -1,21 +1,33 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
+import { EmailChangeHeldError } from "../../services/auth/errors";
 import type { AuthRouteContext } from "./context";
 import { errorResponse, securityEventSummary } from "./response-schemas";
+
+/**
+ * An `email_changed` event acknowledged inside its hold. `holdEndsAt` is unix
+ * seconds, when the event can be acknowledged.
+ */
+const emailChangeHeldResponse = t.Object({
+  error: t.Literal("email_change_held"),
+  holdEndsAt: t.Number(),
+});
 
 export function createSecurityEventRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
   return (
     new Elysia()
       // -------------------------------------------------------------------------
-      // Security events (M-PK1b)
+      // Security events
       //
       // `GET /account/security-events` lists the caller's still-unacknowledged
       // security events so the Settings banner can surface "was this you?"
       // prompts without relying on the confirmation email reaching the inbox.
       // `POST /account/security-events/:id/ack` dismisses the banner for a
-      // single event and is idempotent on missing / already-acked IDs.
+      // single event and is idempotent on missing / already-acked IDs; an
+      // `email_changed` event inside its 7-day hold is refused with 403
+      // `email_change_held`, and `ack-all` leaves such an event in place.
       // -------------------------------------------------------------------------
       .get(
         "/account/security-events",
@@ -103,6 +115,10 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
             );
             return { acknowledged: result.acknowledged };
           } catch (e) {
+            if (e instanceof EmailChangeHeldError) {
+              set.status = 403;
+              return { error: "email_change_held" as const, holdEndsAt: e.holdEndsAt };
+            }
             const { status, body: errBody } = handleError(e);
             set.status = status;
             return errBody;
@@ -119,9 +135,10 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
             200: t.Object({ acknowledged: t.Boolean() }),
             400: errorResponse,
             401: errorResponse,
-            // No step-up token presented at all. A presented-but-invalid one
-            // fails inside the service as an `AuthError` → 400.
-            403: errorResponse,
+            // No step-up token presented at all, or an `email_changed` event
+            // inside its hold. A presented-but-invalid token fails inside the
+            // service as an `AuthError` → 400.
+            403: t.Union([emailChangeHeldResponse, errorResponse]),
             429: errorResponse,
             500: errorResponse,
           },

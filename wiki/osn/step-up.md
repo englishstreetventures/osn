@@ -7,6 +7,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
+  - "[[email-links]]"
 last-reviewed: 2026-11-11
 ---
 
@@ -32,7 +33,12 @@ than by knob for exactly that reason.
 | `POST /totp/enroll/begin` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `DELETE /totp` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
 | `DELETE /passkeys/:id` and `PATCH /passkeys/:id` (rename) | `passkeyDeleteAllowedAmr` | yes | **no** | **no** |
-| `POST /account/email/complete` | `emailChangeAllowedAmr` (`context.ts`) — the one set with no `AuthConfig` field | yes | yes | **no** |
+| `POST /account/email/:requestId/complete` | `emailChangeAllowedAmr` (`context.ts`) — the one set with no `AuthConfig` field | yes | yes | **no** |
+
+The `otp` column is the emailed factor: a link to the account's own address
+([[email-links#Step-up]]). The AMR value keeps the name `otp` because
+`passkeys.provenance_amr` rows store it (see Credential provenance below);
+renaming it would need a data migration for no change in meaning.
 
 Two rows are deliberately narrower than the rest, and both would be easy to
 widen by accident:
@@ -56,10 +62,11 @@ widen by accident:
 >
 > At `passkey_delete` the rest of the account's passkeys then go; the
 > last-passkey guard needs only one survivor and the new credential is one. At
-> `email_change` the second factor is an OTP to the **new** address, which the
-> caller chose — `POST /account/email/begin` is gated on the access token alone
-> — so the mailbox proof the narrow list was written for is not proof of the
-> *current* mailbox once the AMR arrived this way.
+> `email_change` the second factor is a link to the **new** address, which the
+> caller chose — `POST /account/email/begin` asks for no step-up, only an
+> access token and a live session — so the mailbox proof the narrow list was
+> written for is not proof of the *current* mailbox once the AMR arrived this
+> way.
 >
 > This is open to `otp` as much as to `totp`, and predates both TOTP and this
 > table. Closing it needs credential provenance — the AMR a passkey was
@@ -67,23 +74,44 @@ widen by accident:
 > one enrolled under a weaker factor. That is `englishstreetventures/osn#952`; the
 > walk-through is in [[totp#Threat model]].
 
-Everywhere else, `totp` is admitted precisely where an emailed OTP already is.
+Everywhere else, `totp` is admitted precisely where the emailed link already is.
 
 The caller presents the token either as an `X-Step-Up-Token` header or a `step_up_token` body field (email change uses body-only).
 
 ## Ceremony
 
-Three factors — a passkey, an emailed code and an authenticator app — each authenticated via the caller's existing Bearer access token:
+Three factors — a passkey, a link emailed to the account's own address and an authenticator app — each authenticated via the caller's existing Bearer access token:
 
 | Route | Purpose |
 |---|---|
 | `POST /step-up/passkey/begin` | WebAuthn assertion options, scoped to the caller's account |
 | `POST /step-up/passkey/complete` | Verifies signed assertion, returns `{ step_up_token, expires_in }` |
-| `POST /step-up/otp/begin` | Sends a 6-digit OTP to the account's verified email |
-| `POST /step-up/otp/complete` | Verifies code, returns `{ step_up_token, expires_in }` |
+| `POST /step-up/email/begin` | `{ purpose }`: mails a link to the account's own address for that purpose; answers `{ requestId, claimSecret, pairingCode, expiresAt }` |
+| `POST /step-up/email/:requestId/status` | `{ claimSecret }`: `pending`, `expired`, or, once the link is confirmed with the typed number, `complete` with `{ step_up_token, expires_in }` — once |
+| `POST /step-up/email/:requestId/resend` | Another link for the same request |
 | `POST /step-up/totp/complete` | Verifies a code from the account's authenticator app, returns `{ step_up_token, expires_in }` |
 
-Step-up OTPs are keyed separately from login OTPs — a login code cannot authorise a sensitive action, and a step-up code cannot complete a login.
+**Every ceremony route needs a live session.** Each route in the table
+refuses a caller whose session has ended with `409 { error: "session_stale" }`
+before it writes a challenge, opens, reads or resends a link request, checks a
+code or mints a token. The caller's session cookie, or its access token's
+`osn_sid` binding, must name an unrestricted, unexpired session of the account
+([[sessions#Access-token session binding (`osn_sid`)]]). An access token
+outlives its session by up to five minutes; in that window it can mint no
+step-up token, overwrite no parked passkey challenge, mail the owner nothing
+and spend none of the account's daily step-up links. `POST /recovery/generate`,
+email change's complete, `POST /totp/enroll/begin` and passkey registration's
+begin check the session again when they spend a step-up token, and
+`DELETE /passkeys/:id` checks it through `classifyCallerSession`. The other
+gates, `PATCH /passkeys/:id` among them, rely on the check at the mint, so a
+token minted while the session was live works there for its own five minutes.
+
+The emailed link signs nobody in: the page it opens confirms the request, and
+only the tab that began, signed in as the same account and holding the claim
+secret, receives the token. The link's reader types the number that tab shows,
+so a blind guess is right one time in a hundred; a wrong one ends the request
+and counts toward a per-account lockout. The whole contract is in
+[[email-links#Step-up]].
 
 TOTP has **no `begin`**: it is challenge-free, so there is nothing to mint, park
 or send. Whether the factor is available is what `GET /totp/status` answers. A
@@ -92,7 +120,7 @@ against the credential — see [[totp]].
 
 ## Purpose binding
 
-An amr-only check says *how* the user proved themselves, not *what for*. Without more, a token minted to confirm an email change can be replayed against any other gate on the same allow-list — a confused deputy. So `/step-up/{passkey,otp}/complete` accept an optional `purpose`, stamped into the token as a `purpose` claim, and a gate that names a purpose refuses every token minted for a different one (`result="wrong_purpose"`).
+An amr-only check says *how* the user proved themselves, not *what for*. Without more, a token minted to confirm an email change can be replayed against any other gate on the same allow-list — a confused deputy. So `/step-up/{passkey,totp}/complete` accept an optional `purpose`, and `/step-up/email/begin` requires one, fixed when the link is sent; it is stamped into the token as a `purpose` claim, and a gate that names a purpose refuses every token minted for a different one (`result="wrong_purpose"`).
 
 | Value | Gate |
 |---|---|
@@ -102,7 +130,7 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 | `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` |
 | `passkey_register` | `POST /passkey/register/{begin,complete}` past the first credential |
 | `passkey_delete` | `DELETE /passkeys/:id` **and** `PATCH /passkeys/:id` — rename shares the claim |
-| `email_change` | `POST /account/email/complete` |
+| `email_change` | `POST /account/email/:requestId/complete` |
 | `security_event_ack` | both acknowledge paths |
 | `totp_enroll` | `POST /totp/enroll/begin` |
 | `totp_disable` | `DELETE /totp` |
@@ -146,7 +174,7 @@ verifies, whatever the verifying isolate's clock or the store's says.
 
 `amr: ["webauthn"]` says a WebAuthn ceremony happened. It does not say whether
 the credential behind it was one the user has held for a year or one registered
-a minute ago under an emailed code — and for two gates that difference is the
+a minute ago under an emailed link — and for two gates that difference is the
 whole question, because a caller who can register a credential can assert it.
 
 So `passkeys.provenance_amr` records the **effective** strength of the ceremony
@@ -173,10 +201,10 @@ closes nothing.
 own 72-hour window it may perform these deletions itself, so a child it
 authorises cannot be made safer by restricting it. Raw inheritance would
 restrict every device in a lineage for the life of the account — and the common
-reason a user adds a device by OTP is that the first one is hard to reach.
+reason a user adds a device by email is that the first one is hard to reach.
 
-**Bootstrap is `webauthn`.** The account's first passkey follows an email-OTP
-registration, so a literal reading would stamp it `otp` — and through
+**Bootstrap is `webauthn`.** The account's first passkey follows a sign-up
+proved by an emailed link, so a literal reading would stamp it `otp` — and through
 inheritance that would restrict every credential the account ever derived from
 it. It is the account's root of trust.
 
@@ -288,7 +316,8 @@ Each outcome increments `osn.auth.step_up.verified{result}` with a distinct boun
 
 - `osn.auth.step_up.issued{factor}` — one per successful `/complete`; `factor` includes `totp`
 - `osn.auth.step_up.verified{result}` — one per gated-endpoint check
-- Spans: `auth.step_up.begin`, `auth.step_up.complete`
+- Spans: `auth.step_up.begin`, `auth.step_up.resend`, `auth.step_up.complete`, `auth.step_up.email_status`, `auth.step_up.link_send`
+- `osn.auth.email_link.sends{flow="step_up", result}` — step-up links sent, held back or failed
 - Redaction: `stepUpToken` / `step_up_token` are in the logger deny-list
 
 ## Threat model
@@ -323,8 +352,12 @@ the asymmetry itself.
 **A completed email change mails the address it replaced.** The commit writes an
 `email_changed` security event in the same batch as the change, and the notice
 (`email-changed`, [[email]]) goes to the previous address once the change is on
-record. The `email_changed` row is acknowledged through the same gate as every
-other kind (`recoveryGenerateAllowedAmr`), so after an email change the signal
-to rely on is the notice to the replaced address, not the banner. The notice is
-sent once, best effort: a send that fails is counted
-(`osn.auth.security_event.notified`, `result: failed`) and not retried.
+record. No step-up factor can acknowledge the `email_changed` row for 7 days
+after the change (`EMAIL_CHANGE_ACK_HOLD_SECONDS`, the change cap's window): an
+emailed link now goes to the new address, so for that week the row stays on the
+banner whoever holds it. Acknowledging it alone answers 403
+`email_change_held` with `holdEndsAt`; `ack-all` acknowledges every other row and
+leaves it. After the week it is acknowledged through the same gate as every other
+kind (`recoveryGenerateAllowedAmr`). The notice is sent once, best effort: a send
+that fails is counted (`osn.auth.security_event.notified`, `result: failed`) and
+not retried.

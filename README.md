@@ -161,7 +161,7 @@ cire/             # @cire/* — wedding-invite stack
   invite-designs/   # The invite design catalogue
   envelope/         # The envelope catalogue: what guests open before the invite
   dietary/          # The dietary-requirement vocabulary (API and UI)
-  build-tools/      # Build-only Astro integration: each build's CSP names its own API
+  build-tools/      # Build code for the Astro apps: each build's CSP names its own API; the Chrome origin-trial tokens
 
 shared/           # @shared/* — cross-cutting utilities
   coordination/      # CoordinationStore Durable Object: counters, single-use claims, short-lived values

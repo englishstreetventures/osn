@@ -1,5 +1,7 @@
 /**
- * Musubi: create an account with a passkey (a wrong code first), sign out,
+ * Musubi: create an account through the emailed link — confirmed in a second
+ * browser, picking the number the first shows (a wrong pick on a first link
+ * before it) — then a passkey; sign out,
  * sign back in with the passkey (a rate-limited try first), keep the session
  * across a reload, keep the shell when the profile list or a page fails to
  * load, add and remove an authenticator app behind passkey step-ups, keep the
@@ -18,7 +20,7 @@
  * and its standalone "Lost your passkey?" link, Continue busy while
  * `/login/passkey/begin` is held, `/authorize`'s "Create one" link inside
  * its sentence, and Discover's "Search for someone" inside its empty note. It
- * holds the register send, verify and enrol calls, the step-up's begin, the
+ * holds the register send and enrol calls, the step-up's begin, the
  * authenticator's confirm and Pulse's revoke long enough to read each busy
  * button and see the ways out beside it disabled, and reads the authenticator
  * setup's two span labels.
@@ -34,6 +36,11 @@
  * Access tokens live only in the page's memory; the flow checks that storage
  * never holds one.
  *
+ * The first sign-up link is spent the wrong way: a `GET` on its routes
+ * approves nothing, and a number that is not the one shown ends the request,
+ * which the waiting tab learns on its own. A new link from the details, with
+ * a new number, is the one confirmed, after its page's first read fails once.
+ *
  * The session cookie is set by osn-api (`localhost:4000`) on responses to
  * Musubi's (`localhost:1422`) cross-origin fetches, so it only lands — and only
  * rides on later calls — when those fetches pass `credentials: "include"`.
@@ -46,11 +53,15 @@ import {
   addVirtualAuthenticator,
   cookieNamed,
   expect,
+  confirmLinkOnPage,
   holdMethod,
+  linkFor,
   mailFor,
-  otpFor,
+  offeredNumbers,
+  pickWrongNumberOnPage,
   test,
   totpCode,
+  waitingScreenNumber,
 } from "../support/fixtures";
 import {
   authorizeSignInSurfaces,
@@ -62,6 +73,7 @@ import {
   musubiNotice,
   musubiSurfaces,
   onPhone,
+  otpDigitSurfaces,
   phoneTall,
   registerFieldSurfaces,
   securityLoadingSurfaces,
@@ -91,15 +103,15 @@ const ACCESS_TOKEN_TTL_MS = 300_000;
 /**
  * The policy the build writes (`contentSecurityPolicy` in
  * `musubi/social/vite.config.ts`), with each inline-script hash written as
- * `'sha256-…'`: scripts from Musubi itself, its two inline scripts and
- * Turnstile; connections to Musubi itself and osn-api.
+ * `'sha256-…'`: scripts from Musubi itself, its one inline script (the theme
+ * script in `musubi/social/index.html`, as C7 in
+ * `musubi/social/tests/csp.test.ts` counts) and Turnstile; connections to
+ * Musubi itself and osn-api.
  */
-const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'sha256-…' 'sha256-…' ${TURNSTILE_ORIGIN}; connect-src 'self' ${ORIGINS.osnApi}`;
+const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'sha256-…' ${TURNSTILE_ORIGIN}; connect-src 'self' ${ORIGINS.osnApi}`;
 
 /** `describeAuthError`'s sentences the flow reads (`osn/client/src/error-copy.ts`). */
 const WAIT = "Too many attempts. Wait a while, then try again.";
-const WRONG_CODE =
-  "That code didn't work. Check it or get a new one, then try again. If it keeps failing, wait a while first.";
 
 /**
  * A route handler that answers an osn-api request with `status` and the
@@ -130,7 +142,7 @@ function refuse(method: string, status: number, code: string) {
 // Musubi's forms load Turnstile, which the fixtures stand in for.
 test.use({ turnstile: true });
 
-test("musubi-passkey", async ({ page, context, flow }) => {
+test("musubi-passkey", async ({ page, context, browser, flow }) => {
   const authenticator = await addVirtualAuthenticator(page);
   // The shell's Sign in, in the rail or the top bar: a signed-out page draws
   // its own in its note as well.
@@ -198,7 +210,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
       await page.getByLabel("Handle").fill(ada.handle);
       await page.getByLabel("Date of birth").fill("1990-01-01");
       await page.getByLabel("Display name (optional)").fill(ada.name);
-      await page.getByRole("button", { name: "Send verification code" }).click();
+      await page.getByRole("button", { name: "Send verification link" }).click();
       await expect(registerDialog.getByRole("button", { name: "Sending…" })).toBeVisible();
     });
     await busyButtonHeld(
@@ -213,102 +225,197 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.unroute(registerBegin, sendHeld.handler);
   }
 
+  await flow.step("register: the link is sent", async () => {
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  });
   const dialogAlert = page.getByRole("dialog").getByRole("alert");
-  const registerComplete = `${ORIGINS.osnApi}/register/complete`;
-  const verifyEmail = registerDialog.getByRole("button", { name: "Verify email" });
-  const firstBox = page.getByLabel("Digit 1");
-  // A refusal that says nothing about the code, answered in the page: focus
-  // stays where the code was sent from. A click keeps it on the busy button;
-  // Enter in a box sends it from boxes that disable for the check, so box 1
-  // gets it back. The line's tie and the boxes' unmarked state are the
-  // package tests' (`Register.test.tsx`).
-  const sentFrom = () =>
-    page.evaluate(() => {
-      const active = document.activeElement;
-      return active?.getAttribute("aria-label") ?? active?.textContent?.trim() ?? "";
-    });
-  let focusAfterClick = "";
-  let focusAfterEnter = "";
-  await flow.step("register: a rate-limited code keeps focus where it was sent from", async () => {
-    const handler = refuse("POST", 429, "rate_limited");
-    await page.route(registerComplete, handler);
-    try {
-      await firstBox.pressSequentially("000000");
-      let answered = page.waitForResponse(
-        (r) => r.url() === registerComplete && r.request().method() === "POST",
-      );
-      await verifyEmail.click();
-      await answered;
-      await expect(dialogAlert).toContainText(WAIT);
-      await expect(verifyEmail).toBeFocused();
-      focusAfterClick = await sentFrom();
 
-      answered = page.waitForResponse(
-        (r) => r.url() === registerComplete && r.request().method() === "POST",
-      );
-      await page.getByLabel("Digit 6").press("Enter");
-      await answered;
-      await expect(dialogAlert).toContainText(WAIT);
-      await expect(firstBox).toBeFocused();
-      focusAfterEnter = await sentFrom();
-    } finally {
-      await page.unroute(registerComplete, handler);
-    }
-  });
-  flow.check(
-    "a rate-limited code sent by a click keeps focus on Verify email",
-    "Verify email",
-    focusAfterClick,
+  // The number the waiting screen shows, which the link's page asks for.
+  const pairingCode = await flow.step("register: read the number on the waiting screen", () =>
+    waitingScreenNumber(page),
   );
-  flow.check("a rate-limited code sent with Enter puts focus in box 1", "Digit 1", focusAfterEnter);
+  flow.check("the waiting screen shows a two-digit number", true, /^\d{2}$/.test(pairingCode));
 
-  // A real refusal from osn-api: the code differs from the emailed one in
-  // every digit. It spends no sign-up begin (`flows.test.ts` counts those).
-  let wrongCodeLine = "";
-  await flow.step("register: a wrong code is refused in words", async () => {
-    const code = await otpFor(ada.email);
-    const wrong = [...code].map((digit) => String((Number(digit) + 1) % 10)).join("");
-    await page.getByLabel("Digit 1").pressSequentially(wrong);
-    await page.getByRole("button", { name: "Verify email" }).click();
-    await expect(dialogAlert).toContainText(WRONG_CODE);
-    wrongCodeLine = (await dialogAlert.textContent()) ?? "";
-  });
-  flow.check("a wrong code reads the code sentence", `Error: ${WRONG_CODE}`, wrongCodeLine);
-  flow.check(
-    "osn-api refused the wrong code",
-    true,
-    flow.saw("POST osn-api /register/complete 400"),
-  );
-
-  const verifyHeld = holdMethod("POST");
-  await page.route(registerComplete, verifyHeld.handler);
-  try {
-    await flow.step("register: verify email", async () => {
-      const code = await otpFor(ada.email);
-      for (const [i, digit] of [...code].entries()) {
-        await page.getByLabel(`Digit ${i + 1}`).fill(digit);
-      }
-      await page.getByRole("button", { name: "Verify email" }).click();
-      await expect(registerDialog.getByRole("button", { name: "Verifying…" })).toBeVisible();
-    });
-    await busyButtonHeld(
-      flow,
-      registerDialog.getByRole("button", { name: "Verifying…" }),
-      "Verifying…",
-      "register verify busy",
-    );
-    flow.check("register verify busy: Cancel waits", true, await registerCancel.isDisabled());
-    flow.check(
-      "register verify busy: Use a different email waits",
-      true,
-      await registerDialog.getByRole("button", { name: "← Use a different email" }).isDisabled(),
-    );
-  } finally {
-    verifyHeld.release();
-    await page.unroute(registerComplete, verifyHeld.handler);
-  }
+  const link = await linkFor(ada.email);
   const [verification] = await mailFor(ada.email);
-  flow.check("registration email subject", "Verify your Musubi email", verification?.subject ?? "");
+  flow.check(
+    "registration email subject",
+    "Confirm your Musubi email",
+    verification?.subject ?? "",
+  );
+  flow.check(
+    "the email names the handle",
+    true,
+    verification?.text.includes(`@${ada.handle}`) ?? false,
+  );
+  flow.check(
+    "the link opens Musubi",
+    true,
+    link.url.startsWith(`${ORIGINS.musubi}/verify/signup_`),
+  );
+  flow.check("the secret rides in the fragment", false, link.url.includes("?"));
+
+  // A second browser: the device the email is opened on.
+  const phoneContext = await browser.newContext();
+  const phone = await flow.newPage(phoneContext);
+  const confirms = () => flow.count("POST osn-api /email-link/:id/confirm");
+
+  await flow.step(
+    "phone: a link cut short and an unknown link are dead, and confirm nothing",
+    async () => {
+      await phone.goto(link.url.slice(0, link.url.indexOf("#")));
+      await expect(phone.getByRole("heading", { name: "This link no longer works" })).toBeVisible();
+      await phone.goto(`${ORIGINS.musubi}/verify/nothing_here`);
+      await expect(phone.getByRole("heading", { name: "This link no longer works" })).toBeVisible();
+    },
+  );
+  flow.check("no confirm sent for a dead link", 0, confirms());
+
+  await flow.step("phone: open the link", async () => {
+    await phone.goto(link.url);
+    await expect(phone.getByRole("heading", { name: "Confirm this email" })).toBeVisible();
+  });
+  flow.check("the secret left the address bar", false, phone.url().includes("#"));
+  flow.check("opening the link confirmed nothing", 0, confirms());
+  flow.check(
+    "the page offers the waiting screen's number",
+    1,
+    await phone.getByRole("button", { name: pairingCode, exact: true }).count(),
+  );
+
+  // A mail scanner fetches what it finds; no route of the link's answers a GET.
+  const getStatuses = await flow.step("phone: a GET on the link's routes", async () => {
+    const statuses: number[] = [];
+    for (const route of ["confirm", "candidates"]) {
+      const url = `${ORIGINS.osnApi}/email-link/${link.requestId}/${route}`;
+      // oxlint-disable-next-line no-await-in-loop -- one request after the other
+      const response = await phone.request.get(url);
+      flow.recordRequest("GET", url, response.status());
+      statuses.push(response.status());
+    }
+    return statuses;
+  });
+  flow.check("a GET on the confirm route is not found", 404, getStatuses[0] ?? 0);
+  flow.check("a GET on the candidates route is not found", 404, getStatuses[1] ?? 0);
+  flow.check("the GETs confirmed nothing", 0, confirms());
+  flow.check(
+    "the first browser still waits",
+    true,
+    await page.getByRole("heading", { name: "Check your email" }).isVisible(),
+  );
+
+  const wrong = await flow.step("phone: pick a number that is not the one shown", async () => {
+    const picked = await pickWrongNumberOnPage(phone, pairingCode);
+    await expect(phone.getByRole("heading", { name: "This link no longer works" })).toBeVisible();
+    return picked;
+  });
+  flow.check("the number picked was not the one shown", true, wrong !== pairingCode);
+  flow.check(
+    "the wrong pick was answered",
+    true,
+    flow.saw("POST osn-api /email-link/:id/confirm 200"),
+  );
+
+  await flow.step("register: the first browser learns the link is gone", async () => {
+    await expect(page.getByRole("heading", { name: "Your link has expired" })).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+  flow.check(
+    "a wrong pick made no account",
+    false,
+    flow.saw("POST osn-api /register/:id/status 201"),
+  );
+
+  await flow.step("register: a new link from the details", async () => {
+    await page.getByRole("button", { name: "Send a new link" }).click();
+    await expect(page.getByLabel("Email")).toHaveValue(ada.email);
+    await expect(page.getByRole("button", { name: "Send verification link" })).toBeEnabled();
+    await page.getByRole("button", { name: "Send verification link" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  });
+  const secondCode = await flow.step("register: read the new number", () =>
+    waitingScreenNumber(page),
+  );
+  flow.check("the new waiting screen shows a two-digit number", true, /^\d{2}$/.test(secondCode));
+
+  // A reload loses the tab's page state; the stored wait brings it back, with
+  // the number the poll gives again.
+  await flow.step("register: a reload returns to the same wait", async () => {
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  });
+  // The number is drawn at random per request, so the record holds whether
+  // the two match, never the number: a rerun must write the same results.
+  flow.check(
+    "the reloaded waiting screen shows the same number",
+    true,
+    (await waitingScreenNumber(page)) === secondCode,
+  );
+  const secondLink = await linkFor(ada.email, 1);
+  flow.check("the new link is a new request", true, secondLink.requestId !== link.requestId);
+
+  // The first candidates read fails with a 503; the page says so, and Try
+  // again reads once more. The route stays installed (it passes every later
+  // request on), and only the first read is refused.
+  let refusedReads = 0;
+  await phone.route("**/email-link/*/candidates", async (route) => {
+    if (route.request().method() !== "POST" || refusedReads > 0) return route.fallback();
+    refusedReads += 1;
+    return route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+  });
+  await flow.step("phone: open the new link, and read again after a failed read", async () => {
+    await phone.goto(secondLink.url);
+    await expect(
+      phone.getByRole("heading", { name: "We couldn't open this link just now" }),
+    ).toBeVisible();
+    await phone.getByRole("button", { name: "Try again" }).click();
+    await expect(phone.getByRole("heading", { name: "Confirm this email" })).toBeVisible();
+  });
+  flow.check("the failed read was refused once", 1, refusedReads);
+
+  await flow.step("phone: pick the number and confirm", async () => {
+    await confirmLinkOnPage(phone, secondCode);
+    await expect(phone.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  });
+
+  // The same link again, after the request is confirmed: a fresh page load
+  // (the address differs from the open page's only by its fragment, which
+  // would not reload it), one candidates read and no pick offered.
+  await flow.step("phone: the same link again says Confirmed and offers no number", async () => {
+    await phone.goto("about:blank");
+    await phone.goto(secondLink.url);
+    await expect(phone.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  });
+  flow.check("a confirmed link offers no number", 0, await offeredNumbers(phone).count());
+  flow.check(
+    "the phone is offered no Continue",
+    0,
+    await phone.getByRole("button", { name: "Continue" }).count(),
+  );
+  flow.check(
+    "the phone holds no session",
+    false,
+    (await cookieNamed(phoneContext, ORIGINS.osnApi, "osn_session")) !== undefined,
+  );
+
+  await flow.step("register: the first browser finishes on its own", async () => {
+    await expect(page.getByRole("button", { name: "Enroll credential" })).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+  flow.check(
+    "account created by the waiting tab",
+    true,
+    flow.saw("POST osn-api /register/:id/status 201"),
+  );
+  flow.check("sign-up begun twice", 2, flow.count("POST osn-api /register/begin "));
+  flow.check(
+    "the first browser holds the session cookie",
+    true,
+    (await cookieNamed(context, ORIGINS.osnApi, "osn_session")) !== undefined,
+  );
+  await phoneContext.close();
 
   const passkeyRegisterBegin = `${ORIGINS.osnApi}/passkey/register/begin`;
   const enrollHeld = holdMethod("POST");
@@ -614,6 +721,11 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
   });
   await totpSetupSurfaces(flow, page);
+  await otpDigitSurfaces(
+    flow,
+    page,
+    page.getByRole("textbox", { name: "Code from the app Digit 1" }),
+  );
   const totpConfirm = `${ORIGINS.osnApi}/totp/enroll/complete`;
   const confirmHeld = holdMethod("POST");
   await page.route(totpConfirm, confirmHeld.handler);
@@ -990,7 +1102,8 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   );
   // osn-api allows 10 profile lists a minute per client address
   // (`profileList`, osn/api/src/routes/auth/limiters.ts), in memory and shared
-  // by the whole run. Two short of it leaves room for musubi-org-detail's one.
+  // by the whole run. Two short of it leaves room for musubi-org-detail's one
+  // and musubi-recovery's one; musubi-step-up-email lists none.
   flow.check(
     "the flow lists profiles no more than eight times",
     true,

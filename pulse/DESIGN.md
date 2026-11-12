@@ -209,11 +209,56 @@ and the search as an icon, which hides the field.
 
 ### Event Cards
 
-Horizontal card: 180px media thumbnail + body. Featured cards go full-width with taller media.
+Horizontal card: a media column beside the body, 180px wide from 768px up and
+112px below. Featured cards stack at every width: 220px of media above the body.
 
 **Media area**: Category-derived gradient placeholder (or image), date stamp (month/day/weekday), status tag (live/filling fast).
 
 **Body area**: Time meta-line (mono), title (600 weight), venue + neighborhood, host row with avatar, dashed footer with category and status.
+
+**Below 768px a card keeps its media beside the body**, in the 112px column.
+At 320px that leaves the body 142px of text, and 212px at 390px. A card is
+215–235px tall at 320px, 256px when its venue and footer both wrap, so a
+568px-tall screen shows more than two, and the featured card stays the one
+large card. The live tag reads "Live" there: "Happening now" is 106px wide and
+sits 10px in, which needs 116px. From 768px up it reads "Happening now".
+
+*Measured 2026-11-11 — element boxes on the page `ExploreCard.phone.browser.test.tsx` renders, `bunx --bun vitest run --project browser` in `pulse/web`, headless Chromium, macOS*
+
+**The text shows whole at every width:**
+
+- The time, venue and host lines wrap rather than clip, and a word too long for
+  its line breaks (`overflow-wrap: anywhere`).
+- The time never splits from its AM or PM.
+- The venue and neighbourhood run as one line of text with a `·` between them,
+  in `--foreground` at 20%, a word space either side. The time line's day and
+  time have the same `·`, in the line's own colour.
+- A separator `·` is tied to the word before it by a no-break space, so a
+  wrapped line ends in the dot and never starts with one. The owner chose this
+  on 2026-11-11 (#2161), over a 3px drawn dot, which no text rule can tie to a
+  word.
+- The clock and pin icons keep their size and sit centred on their text's first
+  line; the host's avatar starts level with its first line.
+- The footer's category and status wrap to two lines when one does not fit, and
+  the status stays flush right on either line.
+- The title is the one line that may be cut: it stops at two lines and ends in
+  an ellipsis (`line-clamp-2`).
+
+The owner chose this arrangement (#2161, 2026-11-11). Rejected: stacking the
+media above the body below 768px, as the featured card does, which makes a card
+302–323px tall at 320px, under two to a 568px screen, and leaves the featured
+card looking like the rest.
+
+*Measured 2026-11-11 — the same page and command, with the non-featured card at `grid-cols-1 md:grid-cols-[180px_1fr]` and its media at `h-[140px] md:h-full md:min-h-[140px]`*
+
+`pulse/web/tests/explore/ExploreCard.phone.browser.test.tsx` holds, on the
+explore page with five events at 320 and 390px, the 112px column, the "Live"
+tag, and the list's rules for wrapping, the time, the separator dots, the icons
+and avatar, the footer and the title. For the dots it also narrows a line until
+the dot no longer fits after its word, and checks the word moves down with it. One event is built to break them: a venue that is one
+unbroken word and a status too long to sit beside its category. At 1440px it
+holds the 180px column and "Happening now". It shoots the page at all three
+widths in light and dark.
 
 **Placeholder system**: 8 gradient classes (`ph-1` through `ph-8`) with overlay pattern and category glyph — used when events lack an image.
 
@@ -285,7 +330,8 @@ These rules govern `pulse/web`. The landing site's motion is in
   a press or a small panel arriving; `--ui-dur-base` (200ms) for a panel swap,
   such as the onboarding step; `--ui-dur-slow` (320ms) for something crossing
   the screen; `--ui-dur-exit` for an overlay closing. `--ui-ease-out` is for an
-  arrival, `--ui-ease-in-out` for a move between two places. A literal duration,
+  arrival, `--ui-ease-in-out` for a move between two places, `--ui-ease-exit`
+  for an overlay closing. A literal duration,
   delay or curve fails `house/no-literal-motion` unless it carries a
   `motion-literal:` comment giving its reason. Loops and choreographed
   illustrations, such as the onboarding rings and the pin drop, are the cases
@@ -305,6 +351,11 @@ These rules govern `pulse/web`. The landing site's motion is in
   state, and it stops under `prefers-reduced-motion: reduce`, holding a still
   frame (`onboarding.css` and `explore/explore.css` hold the rule).
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
+- **Overlays grow and shrink.** Pulse maps no scale token, so `@shared/ui`'s
+  Dialog, Popover and menus open from the contract's 0.96 and close to 0.98
+  (`wiki/shared/design-tokens.md` §Motion), and under reduced motion show and
+  hide at once. The menus are the shared default look: a menu's separator is a
+  1px `--ui-hairline` fill with no border.
 
 Where the app does not follow this yet: these controls fade their focus mark
 with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
@@ -313,6 +364,9 @@ with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
 `tools/e2e/tests/support/pulse-explore.ts` holds the explore header to these
 rules: what its tab and search box fade, and its two loops stopping under
 reduced motion.
+`tools/e2e/tests/support/pulse-menus.ts` holds both avatar menus' separators
+at 390 and 1440px in both schemes, and holds those menus and "More filters"
+opening from 0.96.
 
 ## Future
 

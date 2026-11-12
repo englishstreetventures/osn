@@ -292,6 +292,8 @@ stryker-setup-*.js
 
 # End-to-end suite output (`bun run test:e2e`): traces, screenshots, results.json, logs, state
 e2e-artifacts/
+# A failed run's, set aside before the next run by scripts/e2e-with-retry.sh
+e2e-artifacts-attempt-*/
 
 # What the script tests that run real tools leave for a reviewer (`bun run test:scripts:wrangler`)
 test-artifacts/
