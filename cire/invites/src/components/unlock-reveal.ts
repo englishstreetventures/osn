@@ -19,6 +19,8 @@
  * reveal by at most a second past its own end, and never hide the invite.
  */
 
+import { motionScale } from "../lib/motion-scale";
+
 /** A design pack's reveal. */
 export interface RevealPack {
   /** Picks the pack's timing in `styles/global.css` (`[data-unlock-pack]`). */
@@ -108,17 +110,6 @@ function isRevealAnimation(animation: Animation): boolean {
     typeof animation.animationName === "string" &&
     animation.animationName.startsWith("unlock-")
   );
-}
-
-/**
- * `--motion-scale` on the root, which every time in `global.css` is multiplied
- * by; 1 when it is unset or unreadable.
- */
-function motionScale(): number {
-  const scale = Number.parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue("--motion-scale"),
-  );
-  return Number.isFinite(scale) ? scale : 1;
 }
 
 /** When an animation ends, delay included, in ms from its start. */

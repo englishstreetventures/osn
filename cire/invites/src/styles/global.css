@@ -531,16 +531,20 @@
   /* The tick that confirms a recorded RSVP, drawing itself in behind the bloom
      sweep that fills the events section's Respond button (`components/EventCard`
      — see `components/rsvp-responded.ts` for the timing contract these two
-     numbers are half of; the other half is the `duration-500` on that button's
+     numbers are half of; the other half is the 500ms sweep on that button's
      fill layer). It lived on the RSVP sheet's Save button until #388, which is
      a button the sheet closes over before a guest can register it.
+
+     Choreography longer than `--dur-slow`, so its own times, each scaled like
+     every cire duration. A tick arriving, so `--ease-out`.
 
      `both` so the path holds its undrawn state through the delay and its drawn
      state afterwards; without it the tick would flash in whole, then draw.
 
      Reduced motion needs no special case here: the global block below clamps
      animation-duration and -delay, so the path simply starts drawn. */
-  --animate-tick-draw: tick-draw 340ms ease-out 180ms both;
+  --animate-tick-draw: tick-draw calc(340ms * var(--motion-scale)) var(--ease-out)
+    calc(180ms * var(--motion-scale)) both;
 
   /* The hero's scroll cue (`components/HeroScrollCue`): it fades in a beat
      after the title has landed, drifts down and back twice, then rests. The
@@ -553,11 +557,18 @@
      seconds needs a control to stop it (WCAG 2.2.2), so a longer or endless
      drift is not an option.
 
+     The hero's choreography, longer than `--dur-slow`, so its own times, each
+     scaled like every cire duration. The fade is the glyph arriving, so
+     `--ease-out`; the drift moves it between two places, so `--ease-in-out`.
+
      Reduced motion needs no special case: the global clamp plays the entry out
      at once, leaving the glyph at its own full opacity, and runs the drift out
      in 0.01ms, back to rest — so the cue is there and still. */
   --animate-scroll-cue:
-    scroll-cue-in 600ms ease-out 1s backwards, scroll-cue-drift 2s ease-in-out 1.6s 2;
+    scroll-cue-in calc(600ms * var(--motion-scale)) var(--ease-out)
+      calc(1s * var(--motion-scale)) backwards,
+    scroll-cue-drift calc(2s * var(--motion-scale)) var(--ease-in-out)
+      calc(1.6s * var(--motion-scale)) 2;
 
   /* An event sheet's panel arriving (`components/EventSheet`): it fades in
      while sliding the last 1.5rem from the side it lives on — the details from

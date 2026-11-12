@@ -183,9 +183,9 @@ The portals' ladder, value for value, in `global.css`:
 
 | What                                                                                | Time                                                       | Easing                                      | Scaled |
 | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------- | ------ |
-| The bloom fill sweeping across Respond once every member has replied (`SWEEP_DURATION_MS`) † | 500ms                                             | `--ease-out`                                | no     |
-| The tick drawing in behind it (`--animate-tick-draw`) †                             | 340ms, after 180ms                                         | CSS `ease-out`                              | no     |
-| The hero scroll cue: a fade, then a 6px drift down and back twice (`--animate-scroll-cue`) † | 600ms fade after 1s, then two 2s drifts: 4.6s of motion | CSS `ease-out`, then CSS `ease-in-out`    | no     |
+| The bloom fill sweeping across Respond once every member has replied (`SWEEP_DURATION_MS`) | 500ms                                              | `--ease-out`                                | yes    |
+| The tick drawing in behind it (`--animate-tick-draw`; the hold that ends its draw, `TOTAL_DURATION_MS`, scales with it) | 340ms, after 180ms                  | `--ease-out`                                | yes    |
+| The hero scroll cue: a fade, then a 6px drift down and back twice (`--animate-scroll-cue`) | 600ms fade after 1s, then two 2s drifts: 4.6s of motion | `--ease-out`, then `--ease-in-out`           | yes    |
 | The scroll cue leaving on the first scroll                                           | 500ms                                                      | `--ease-out`, the default curve             | yes    |
 | The hero photo fading in once it loads                                               | 700ms                                                      | `--ease-out`, the default curve             | yes    |
 | The closing band settling into or out of its cap, on a live resize across 1536px     | 500ms                                                      | `--ease-out`                                | yes    |
@@ -239,13 +239,6 @@ These moves ship, and each breaks the rule named beside it. They are the rows
 marked † above. None is a pattern to copy, and each entry goes when its fix
 lands.
 
-- **The bloom sweep, the tick and the scroll cue's entry and drift are not
-  scaled by `--motion-scale`**, which `cire/host/DESIGN.md` §4 asks of every
-  cire duration, and the tick and the cue run CSS's `ease-out` and
-  `ease-in-out` where every easing must be a token
-  (`src/components/EventCard.tsx`; `--animate-tick-draw` and
-  `--animate-scroll-cue` in `src/styles/global.css`).
-  englishstreetventures/osn#2197 puts each on a token and the scale.
 - **The swipe's settle spring runs on the `motion` library**, where motion is
   CSS only (`SETTLE_SPRING` in `src/components/sheet-swipe.ts`, started in
   `src/components/EventSheet.tsx`). It starts at the finger's speed, which a

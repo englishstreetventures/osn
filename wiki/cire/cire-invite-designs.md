@@ -13,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Cire invite design selector
 
@@ -263,8 +263,9 @@ the guest the page carries on. A pack renders it as the last child of its hero
 - **A hint, not a control.** `aria-hidden` and `pointer-events-none`; a tap
   goes to the hero beneath it.
 - **Motion is CSS, and it stops.** `animate-scroll-cue` (`styles/global.css`)
-  fades the glyph in 1s after load, drifts it 6px down and back twice, and
-  leaves it at rest. Fade and drift take 4.6s together: motion that starts by
+  fades the glyph in 1s after load on `--ease-out`, drifts it 6px down and
+  back twice on `--ease-in-out`, and leaves it at rest, every time scaled by
+  `--motion-scale`. Fade and drift take 4.6s together: motion that starts by
   itself and runs past five seconds needs a control to stop it (WCAG 2.2.2),
   so a longer or endless drift is not an option. Both play from the server's
   HTML, before the island hydrates.
@@ -952,10 +953,14 @@ following the bloom fill run on `--dur-base`. An FAQ answer grows open on
 has no `interpolate-size` the box opens at once and the answer still fades in;
 for a guest who asked for less motion it opens at once with no fade
 (`cire/host/DESIGN.md` §4, A disclosure grows open and closes at once).
-Choreography longer than `--dur-slow` keeps its own timing:
+Choreography longer than `--dur-slow` keeps its own timing, each time scaled
+by `--motion-scale`:
 
-- the bloom fill, 500ms (`SWEEP_DURATION_MS` in `rsvp-responded.ts`);
-- the tick, 340ms after 180ms (`TICK_DURATION_MS`, `TICK_DELAY_MS`);
+- the bloom fill, 500ms on `--ease-out` (`SWEEP_DURATION_MS` in
+  `rsvp-responded.ts`);
+- the tick, 340ms after 180ms on `--ease-out` (`TICK_DURATION_MS`,
+  `TICK_DELAY_MS`), and the hold that ends its draw (`TOTAL_DURATION_MS`,
+  which `EventCard` multiplies by the scale);
 - the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
   scroll;
 - the hero backdrop's 700ms fade-in and the closing band's 500ms width;
