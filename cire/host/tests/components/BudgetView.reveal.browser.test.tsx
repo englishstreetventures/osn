@@ -162,10 +162,17 @@ interface Frame {
   height: number;
   belowMoved: number;
   panelHasFocus: boolean;
+  /**
+   * Chrome has yet to start the panel's transition. On a slow machine it can
+   * start it a frame or more after the click, and until then the panel holds
+   * its closed height.
+   */
+  pending: boolean;
 }
 
 /** Clicks `toggle` and records, each frame until the transition is over, the
- *  height the panel takes, how far the next line has moved, and where focus is. */
+ *  height the panel takes, how far the next line has moved, where focus is, and
+ *  whether the transition has started. */
 async function sampleOpening(
   toggle: HTMLElement,
   reveal: HTMLElement,
@@ -184,9 +191,22 @@ async function sampleOpening(
       height: takenHeight(reveal),
       belowMoved: below.getBoundingClientRect().top - belowTop,
       panelHasFocus: reveal.contains(document.activeElement),
+      pending: reveal.getAnimations().some((a) => a.pending),
     });
-  } while (performance.now() - start < runMs + 120);
+    // Past the transition's own length, and past its end: a start Chrome put
+    // off would otherwise cut the run short.
+  } while (performance.now() - start < runMs + 120 || reveal.getAnimations().length > 0);
   return frames;
+}
+
+/** Waits for every panel of `li` that is opening to finish: under reduced
+ *  motion that is the first frame Chrome starts the transition on, which a slow
+ *  machine can put off past the two frames of {@link settle}. */
+async function opened(li: HTMLElement) {
+  await settle();
+  await vi.waitFor(() => {
+    for (const reveal of reveals(li)) expect(reveal.getAnimations(), "a panel opening").toEqual([]);
+  });
 }
 
 async function mount() {
@@ -218,8 +238,8 @@ async function openBothPanels() {
   await mountPerHead();
   screen.getAllByRole("button", { name: "per head" })[0]!.click();
   screen.getAllByRole("button", { name: "payments (2)" })[0]!.click();
-  await settle();
   const li = line("Reception venue");
+  await opened(li);
   const [perHead, payments] = reveals(li);
   return { li, perHead: perHead!, payments: payments! };
 }
@@ -465,9 +485,15 @@ describe("BudgetView line panels, as they open", () => {
     }
   });
 
+  // "The first frame" is the first one Chrome has started the opening on. Each
+  // frame before it, while the start is put off, must show the panel shut and
+  // never part-way: the reader sees it shut, then open.
   it("opens at full height on the first frame when reduced motion is asked for", async () => {
     await commands.emulateMedia({ reducedMotion: "reduce" });
     await mount();
+    expect(matchMedia("(prefers-reduced-motion: reduce)").matches, "reduced motion asked for").toBe(
+      true,
+    );
     const hall = line("Reception venue");
     const below = line("Ceremony venue");
     const reveal = reveals(hall)[1]!;
@@ -476,8 +502,19 @@ describe("BudgetView line panels, as they open", () => {
       reveal,
       below,
     );
-    expect(frames[0]!.height).toBeGreaterThan(40);
-    expect(frames[0]!.height).toBeCloseTo(frames.at(-1)!.height, 1);
+    const heights = frames
+      .map((f) => `${f.height.toFixed(1)}${f.pending ? " (not started)" : ""}`)
+      .join(", ");
+    const first = frames.findIndex((f) => !f.pending);
+    expect(first, `a frame with the opening started, of ${heights}`).toBeGreaterThanOrEqual(0);
+    for (const f of frames.slice(0, first)) {
+      expect(f.height, `a frame before the start, of ${heights}`).toBe(0);
+    }
+    expect(frames[first]!.height, `first frame of ${heights}`).toBeGreaterThan(40);
+    expect(frames[first]!.height, `first frame of ${heights}`).toBeCloseTo(
+      frames.at(-1)!.height,
+      1,
+    );
   });
 });
 
@@ -493,7 +530,7 @@ describe("BudgetView line panels, as drawn", () => {
         await mount();
         screen.getAllByRole("button", { name: "per head" })[0]!.click();
         screen.getAllByRole("button", { name: "payments (1)" })[0]!.click();
-        await settle();
+        await opened(line("Reception venue"));
         expect(screen.getByTestId("per-head-panel").checkVisibility()).toBe(true);
         expect(screen.getByLabelText("Payment label").checkVisibility()).toBe(true);
         await page.screenshot({

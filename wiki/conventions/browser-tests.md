@@ -336,6 +336,40 @@ chmod +x "$TMPDIR/chromium-classic.sh"
 VITEST_BROWSER_EXECUTABLE_PATH="$TMPDIR/chromium-classic.sh" bun run --cwd cire/invites test:browser
 ```
 
+### A slow runner's frames
+
+CI's Linux runner draws frames far more slowly than a Mac, and two waits that
+hold on a Mac fail there:
+
+- **A transition can start a frame or more after the change that made it.**
+  Until Chrome starts it, `animation.pending` is `true`, its `currentTime` is 0
+  and the element shows its starting value. Reduced motion does not help: the
+  0.01ms the house rule leaves still waits for its start, so the first
+  `requestAnimationFrame` after a click can read a panel shut. A test of what
+  the first frame shows records `getAnimations().some((a) => a.pending)` with
+  each frame, holds its claim at the first frame not pending, and requires
+  every frame before that one to show the starting value. A test that waits for
+  an opening to end waits for `getAnimations()` to empty, never for a count of
+  frames. `sampleOpening` and `opened` in
+  [`BudgetView.reveal.browser.test.tsx`](../../cire/host/tests/components/BudgetView.reveal.browser.test.tsx)
+  are the worked example.
+- **Kobalte's menu can leave `<body>` hidden into the next test.** As a
+  `DropdownMenu` opens, and again as an open one unmounts, Kobalte sets
+  `aria-hidden="true"` on `<body>` and clears it in a second
+  `setTimeout`-then-`requestAnimationFrame` callback. When the two land on
+  different frames, a test that follows one that left a menu open renders into
+  a hidden `<body>`, and a `getByRole` straight after `render` finds nothing.
+  Find the first element after `render` with `findByRole`, as `openMenu` in
+  [`ProfileMenu.crossfade.browser.test.tsx`](../../cire/host/tests/components/ProfileMenu.crossfade.browser.test.tsx)
+  does.
+
+To slow a Mac's Chromium to the runner's pace, a throwaway browser command can
+send `Emulation.setCPUThrottlingRate` through
+`ctx.page.context().newCDPSession(ctx.page)`. At a rate of 10, both failures
+came back in every run of their files.
+
+*Measured 2026-11-12 — CI run 43164178747 (`ubuntu-latest`) failed `BudgetView.reveal.browser.test.tsx:479` ("expected 0 to be greater than 40") on attempt 1 and `ProfileMenu.crossfade.browser.test.tsx:50` on attempt 2; `main`'s runs 43163940734 and 43163863603 failed the same `BudgetView` line. On macOS on Apple silicon, `chromium_headless_shell-1248`, `bun run --cwd cire/host test:browser <file>` passed each file 15 of 15 times plain and 15 of 15 with ten `yes` processes on ten cores. With the CPU throttled tenfold, each file failed in 5 of 5 runs, the first frame after the click reading 0px with both of the panel's transitions pending; with the waits above, 5 of 5 runs of both files passed.*
+
 ### Chrome's accessibility tree
 
 Testing Library and the `page` locators compute accessible names in JavaScript,

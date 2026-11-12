@@ -45,9 +45,17 @@ function transitionAnimations() {
     .filter((a) => (a.effect as KeyframeEffect | null)?.pseudoElement?.startsWith("::view-"));
 }
 
+/**
+ * Kobalte's menu sets `aria-hidden` on `<body>` as it opens, and again as an
+ * open one unmounts, and clears it in a second timer-then-frame callback. A
+ * slow machine can draw the two on different frames, so the menu the last test
+ * left open can still be hiding `<body>` when this one renders: the trigger is
+ * waited for, not read at once.
+ */
 async function openMenu() {
   render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
-  fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+  const trigger = await screen.findByRole("button", { name: /account menu/i });
+  fireEvent.pointerDown(trigger, { button: 0 });
   const menu = await waitFor(() => screen.getByRole("menu"));
   await Promise.all(menu.getAnimations().map((a) => a.finished));
   return menu;
