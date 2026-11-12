@@ -1691,7 +1691,7 @@ describe("PW2: alchemy-plan, the first approval, plans each shipping stack and g
       expect(snapshot?.env).toEqual(PRODUCTION_CREDENTIALS);
       expect(plan?.["working-directory"]).toBe(`${s.key}/infra`);
       expect(plan?.env).toEqual({
-        FORCE: `\${{ steps.snapshot_${s.key}.outputs.force == 'true' && 'yes' || '' }}`,
+        FORCE: `\${{ (inputs.force == true || steps.snapshot_${s.key}.outputs.force == 'true') && 'yes' || '' }}`,
         DO_NOT_TRACK: "1",
         OSN_DEPLOY_TIER: "production",
         ...PRODUCTION_CREDENTIALS,
@@ -1868,7 +1868,8 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(live?.env).toEqual(PRODUCTION_CREDENTIALS);
       expect(deploy?.["working-directory"]).toBe(`${key}/infra`);
       expect(deploy?.env).toEqual({
-        FORCE: "${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}",
+        FORCE:
+          "${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}",
         DO_NOT_TRACK: "1",
         OSN_DEPLOY_TIER: "production",
         ...PRODUCTION_CREDENTIALS,

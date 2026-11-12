@@ -555,7 +555,8 @@ jobs:
 
       # Alchemy plans against its own state; a Worker a smoke check rolled
       # back still matches it, so --force re-uploads what the commit declares,
-      # here and in the stack job alike.
+      # here and in the stack job alike. A dispatch with `force` passes it too,
+      # for a rollback made by hand, which the snapshot cannot tell apart.
       - name: Record the musubi Workers' newest deployments
         id: snapshot_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
@@ -595,7 +596,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/plan"
           bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/musubi.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot_musubi.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot_musubi.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -621,7 +622,8 @@ jobs:
 
       # Alchemy plans against its own state; a Worker a smoke check rolled
       # back still matches it, so --force re-uploads what the commit declares,
-      # here and in the stack job alike.
+      # here and in the stack job alike. A dispatch with `force` passes it too,
+      # for a rollback made by hand, which the snapshot cannot tell apart.
       - name: Record the cire Workers' newest deployments
         id: snapshot_cire
         if: needs.plan.outputs.stack_cire == 'true'
@@ -661,7 +663,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/plan"
           bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/cire.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot_cire.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot_cire.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -687,7 +689,8 @@ jobs:
 
       # Alchemy plans against its own state; a Worker a smoke check rolled
       # back still matches it, so --force re-uploads what the commit declares,
-      # here and in the stack job alike.
+      # here and in the stack job alike. A dispatch with `force` passes it too,
+      # for a rollback made by hand, which the snapshot cannot tell apart.
       - name: Record the zap Workers' newest deployments
         id: snapshot_zap
         if: needs.plan.outputs.stack_zap == 'true'
@@ -727,7 +730,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/plan"
           bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/zap.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot_zap.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot_zap.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -884,7 +887,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/plan"
           bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/musubi.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -925,7 +928,7 @@ jobs:
         working-directory: musubi/infra
         run: bun run deploy:production ${FORCE:+--force} > "$RUNNER_TEMP/alchemy.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1170,7 +1173,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/plan"
           bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/cire.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1211,7 +1214,7 @@ jobs:
         working-directory: cire/infra
         run: bun run deploy:production ${FORCE:+--force} > "$RUNNER_TEMP/alchemy.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1484,7 +1487,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/plan"
           bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/zap.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1526,7 +1529,7 @@ jobs:
         working-directory: zap/infra
         run: bun run deploy:production ${FORCE:+--force} > "$RUNNER_TEMP/alchemy.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
