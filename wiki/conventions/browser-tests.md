@@ -12,7 +12,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Browser Tests
@@ -454,9 +454,37 @@ any other file with a warning, and apt downloads that package instead. The cache
 the Playwright version, with no `restore-keys`, so a run restores the set
 saved for its own image and version or none.
 [`install-chromium-system-libraries.cli.test.ts`](../../scripts/tests/install-chromium-system-libraries.cli.test.ts)
-holds the check, a tampered package among its cases, and
+holds the check, a tampered package among its cases, and the cases below, and
 [`deploy-workflows.test.ts`](../../scripts/tests/deploy-workflows.test.ts)
 holds the key.
+
+When every attempt fails, the step passes without apt in one case only: no
+`apt-get update` finished; apt's output names a network fault (a host it could
+not resolve or connect to, a connection that timed out) and no signature or
+hash failure; and `playwright install-deps --dry-run chromium`, which
+simulates the install with `apt-get install -s`, says "All system dependencies
+are installed.". The script then installs nothing, leaves the cache as it
+found it, and prints one warning starting
+`::warning::install-chromium-system-libraries: skipped apt:`. The browser tests
+then run on the libraries the image already holds, and `retry.sh`'s
+`::error::` for the failed attempts still shows on the step. `apt-get update`
+exits 0 on a network failure when it finishes in time, keeping its old index,
+so a run in which one finished fails as before. Any other failure ends the
+step with the last attempt's status, after a line starting
+`install-chromium-system-libraries: not skipped:` that says why:
+
+| The line ends | What it means |
+|---|---|
+| `apt-get update finished, so apt held an index` | An update finished, so the cache was checked or an install began; the failure came after |
+| `apt reported a signature or hash failure` | An index or package failed its check. Never an outage, never skipped |
+| `apt reported no network failure` | apt failed in some other way, or printed nothing before the attempt was cut |
+| `playwright install-deps --dry-run chromium does not report every dependency installed` | Something is missing: the dry run's list is just above the line |
+
+On the Ubuntu 26.04 image the dry run lists the nine font packages above, so
+during a mirror outage the step still fails. It passes without apt only on an
+image that already holds them.
+
+*Measured 2026-11-12 — the outage: `gh run view 43054765174 --log-failed`, every attempt cut at 150 s inside `apt-get update` after "Temporary failure resolving 'azure.archive.ubuntu.com'"; the fonts: `gh run view 43020427575 --job 130522151955 --log`, image `ubuntu26-20261101.186.1`, nine packages under "The following NEW packages will be installed"*
 
 The browser download is cached on the lockfile. Both installs run from
 `cire/host`, because at the repo root `bunx` fetches npm's latest Playwright
