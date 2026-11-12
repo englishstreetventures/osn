@@ -77,8 +77,22 @@ export function dismiss(id?: string) {
   );
 }
 
-/** (Re)start the auto-dismiss clock for a toast. `Infinity` pins it. */
+/**
+ * A leaving toast's one timer is its removal, so its clock can be neither
+ * paused nor restarted. The row `dismiss` replaces can still hold focus, and
+ * its `focusout` runs inside `dismiss`'s own write; the store's state is the
+ * only thing that knows by then that the toast is leaving.
+ */
+function leaving(id: string): boolean {
+  return toasts().some((t) => t.id === id && t.dismissing);
+}
+
+/**
+ * (Re)start the auto-dismiss clock for a toast. `Infinity` pins it. Does
+ * nothing for a toast that is leaving — see `leaving`.
+ */
 export function scheduleDismiss(id: string, duration: number) {
+  if (leaving(id)) return;
   clearTimer(id);
   if (!Number.isFinite(duration)) return;
   timers.set(
@@ -87,8 +101,12 @@ export function scheduleDismiss(id: string, duration: number) {
   );
 }
 
-/** Stop a toast's clock — hover/focus pauses it, so a toast can be read. */
+/**
+ * Stop a toast's clock — hover/focus pauses it, so a toast can be read. Does
+ * nothing for a toast that is leaving, whose removal must still run.
+ */
 export function pause(id: string) {
+  if (leaving(id)) return;
   clearTimer(id);
 }
 

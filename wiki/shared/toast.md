@@ -13,7 +13,7 @@ related:
   - "[[cire-upgrades]]"
   - "[[cire-checklist-tasks]]"
   - "[[cire-budget]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-13
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
 
@@ -99,7 +99,7 @@ Where the stack grows from the bottom edge (`column-reverse`), the oldest toast
 sits nearest it. See [[cire-checklist-tasks]] for what holds the task reads
 back meanwhile.
 
-Three behaviours worth knowing, all of them bugs first:
+Four behaviours worth knowing, all of them bugs first:
 
 - An upsert **replaces** the toast's options rather than merging over them. A
   merge lets the previous state leak: `toast.promise` turning a `loading` (pinned
@@ -107,6 +107,12 @@ Three behaviours worth knowing, all of them bugs first:
   result on screen for ever.
 - Re-raising an id mid-exit **cancels the pending removal**. Without that, the
   revived toast dies a moment later when the stale timer fires.
+- **Hover and focus cannot touch a leaving toast's clock**: once `dismiss` has
+  marked it, `pause` and `scheduleDismiss` do nothing, so its removal always
+  runs. The row `dismiss` replaces can still hold focus, and Chromium fires its
+  `focusout` inside the store's write. Without the guard, that starts a dwell
+  which outlives the toast and ends the next toast raised under the same id —
+  in tests, where `resetToasts()` restarts ids at `t1`, the next test's toast.
 - **The store owns the auto-dismiss clock**, and there is no per-`Toaster`
   default duration. `upsert` schedules; a mounted item only pauses on
   hover/focus and resumes what it stopped.
