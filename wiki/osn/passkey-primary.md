@@ -14,7 +14,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Passkey-Primary Login
@@ -383,8 +383,8 @@ identifier parameter, nothing to enumerate.
 It exists only where both gates pass, and both fail closed: the tier is `local`
 or `dev`, and `DEV_LOGIN_SECRET` is set. Otherwise the routes are never mounted
 and the path is a 404. `staging` and `production` can never mount it whatever
-their secrets hold, and the production deploy job now **fails** while
-`DEV_LOGIN_SECRET` is set on `osn-api-production`, so the secret cannot sit there
+their secrets hold, and the production release's plan guard **refuses** to deploy
+osn-api while `DEV_LOGIN_SECRET` is set on `osn-api-production`, so the secret cannot sit there
 one edit away from a bypass. Both principal handles — `dev_bootstrap` and the
 organisation's `dev_bootstrap_org` — are in `RESERVED_HANDLES`, which
 organisation creation now consults as well, so no real registration can occupy

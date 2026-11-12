@@ -44,10 +44,16 @@ const declared = (
     declare.pipe(Effect.map(({ LogicalId, RemovalPolicy }) => ({ LogicalId, RemovalPolicy }))),
   );
 
-const api = (stage: string) =>
+/** The adopt policy a registered resource carries: undefined unless it was declared under one. */
+const adoptOf = (
+  stage: string,
+  declare: Effect.Effect<{ readonly Adopt?: boolean }, never, unknown>,
+) => onBareStack(stage, declare.pipe(Effect.map(({ Adopt }) => Adopt)));
+
+const api = (stage: string, name = `cire-api-${stage}`) =>
   apiWorker("CireApi", {
     worker: "cire-api",
-    name: `cire-api-${stage}`,
+    name,
     stage,
     main: "../../cire/api/src/index.ts",
     bundle: true,
@@ -59,13 +65,18 @@ const api = (stage: string) =>
     previewUrls: false,
     vars: {},
     bindings: {},
-    secrets: Object.fromEntries(
-      tierSecrets("cire-api", tierOf(stage)).secrets.map((name) => [
-        name,
-        Redacted.make("not-a-real-secret"),
-      ]),
-    ),
+    // Production's secrets stay on the Worker: the stack passes none there.
+    secrets:
+      tierOf(stage) === "production"
+        ? {}
+        : Object.fromEntries(
+            tierSecrets("cire-api", tierOf(stage)).secrets.map((secret) => [
+              secret,
+              Redacted.make("not-a-real-secret"),
+            ]),
+          ),
     observability: {
+      logs: true,
       headSamplingRate: 1,
       redactQueryString: true,
       traces: { enabled: false },
@@ -121,9 +132,27 @@ describe("declared resources", () => {
     expect((await declared("dev", site("dev"))).RemovalPolicy).toBe("retain");
   });
 
-  test("a site Worker on production is retained, and an API Worker there is refused until a step adopts it", async () => {
+  test("a site Worker on production is retained, and an API Worker there is refused unless PRODUCTION_ADOPTIONS names it", async () => {
     expect((await declared("production", site("production"))).RemovalPolicy).toBe("retain");
-    expect(() => api("production")).toThrow(ProductionNotAdoptedError);
+    expect((await declared("production", api("production"))).RemovalPolicy).toBe("retain");
+    expect(() => api("production", "cire-api-elsewhere")).toThrow(ProductionNotAdoptedError);
+  });
+
+  test("AD1: a production API Worker is declared to be adopted; nothing else is, on any stage", async () => {
+    expect(await adoptOf("production", api("production"))).toBe(true);
+    expect(await adoptOf("production", site("production"))).toBeUndefined();
+    const productionDb = retainedD1("CireDb", {
+      name: "cire-db",
+      stage: "production",
+      readReplication: "auto",
+      jurisdiction: "default",
+      locationHint: null,
+      migrations: null,
+      importFiles: [],
+    });
+    expect(await adoptOf("production", productionDb)).toBeUndefined();
+    expect(await adoptOf("dev", api("dev"))).toBeUndefined();
+    expect(await adoptOf("pr-7", api("pr-7"))).toBeUndefined();
   });
 
   test("Workers on an investigation stage are destroyed with it", async () => {

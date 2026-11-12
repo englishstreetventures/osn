@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Zap
@@ -97,7 +97,7 @@ This split is by design: c2b body content is server-visible, user-attributed dat
 
 ### CI pipeline
 
-`deploy-zap-api` in `.github/workflows/production-release.yml` is **live**: it applies the migrations to `zap-db-prod`, the `[[env.production.d1_databases]]` binding in `zap/api/wrangler.toml`, then deploys the Worker and smoke-checks it. A placeholder `database_id` there would fail the migrate step. Only `[env.dev]` (local `wrangler dev` only) and staging hold `placeholder-replace-after-d1-create`. It runs in a production release that finds `zap/` changed since zap-api last deployed, and waits on that release's one approval of the `production` GitHub Environment — see [[production-deploy]] §5.5. On dev, the zap stack (`zap/infra`) deploys `zap-api-dev` and its database `zap-db-dev` in the dev account on every merge that touches zap; the release ships zap-api only once a dev deploy of the same content passed its smoke check, as it does every surface ([[dev-environment]]). `[env.dev]` in `zap/api/wrangler.toml` is the local `wrangler dev` posture and deploys nothing.
+The zap stack job, `stack-zap-production` in `.github/workflows/production-release.yml`, deploys production: `zapProductionApis()` in `zap/infra/src/declaration.ts` adopts `zap-api-production` and `zap-db-prod` under those names, with the vars, binding, custom domain and compatibility that `[env.production]` in `zap/api/wrangler.toml` mirrors (`zap/infra/tests/parity.test.ts` holds them equal), and uploads no secret: `INTERNAL_SERVICE_SECRET` stays on the Worker, and the release refuses zap-api while it is missing ([[production-deploy#5.9 Setting a production secret 🔑]]). Before the deploy the job applies the migrations to `zap-db-prod` with `wrangler d1 migrations apply`, which reads the `[[env.production.d1_databases]]` binding there; a placeholder `database_id` would fail that step. Only `[env.dev]` (local `wrangler dev` only) and staging hold `placeholder-replace-after-d1-create`. After the deploy it smoke-checks the Worker, and `Record zap/api — production` records it. It runs in a production release that finds `zap/` or the zap stack's paths changed since zap-api last deployed, after that release's two approvals of the `production` GitHub Environment — see [[production-deploy]] §5.5. zap-api ships before osn-api and cire-api on the first releases on the stacks ([[production-deploy]] §5.10). On dev, the zap stack (`zap/infra`) deploys `zap-api-dev` and its database `zap-db-dev` in the dev account on every merge that touches zap; the release ships zap-api only once a dev deploy of the same content passed its smoke check, as it does every surface ([[dev-environment]]). `[env.dev]` in `zap/api/wrangler.toml` is the local `wrangler dev` posture and deploys nothing.
 
 ## Authentication & authorization
 

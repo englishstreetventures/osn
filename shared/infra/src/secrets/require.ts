@@ -28,8 +28,9 @@ interface ValueRule {
  * takes only a test-mode key, so no dev deploy can move real money; and the
  * dev sign-in secret and the organiser-session revoke secret, each of which
  * alone stands between a public route and someone else's session, are long
- * enough that guessing them is hopeless. The revoke secret holds that rule on
- * production too; osn-api and cire-api each treat a shorter one as unset.
+ * enough that guessing them is hopeless. Production reads no value (its
+ * secrets stay on the Workers), so it sets no rule; osn-api and cire-api each
+ * treat a revoke secret under 32 characters as unset.
  */
 const AT_LEAST_32: ValueRule = {
   rule: "at least 32 characters",
@@ -48,7 +49,7 @@ const TIER_VALUE_RULES = {
     ["DEV_LOGIN_SECRET", AT_LEAST_32],
     ["CIRE_INTERNAL_REVOKE_SECRET", AT_LEAST_32],
   ]),
-  production: new Map<string, ValueRule>([["CIRE_INTERNAL_REVOKE_SECRET", AT_LEAST_32]]),
+  production: new Map<string, ValueRule>(),
 } satisfies Record<Tier, ReadonlyMap<string, ValueRule>>;
 
 /**
@@ -62,6 +63,10 @@ const TIER_VALUE_RULES = {
  * secret from the Worker. A value is never trimmed: a pasted trailing newline
  * would otherwise reach the Worker as a different key. The error names each
  * secret and the rule it breaks, never a value.
+ *
+ * On a tier whose secrets stay on the Worker (`source: "worker"`) it reads
+ * nothing and returns none, whatever `env` holds: the stack uploads no
+ * secret there, and the upload keeps every secret the Worker holds.
  */
 export function requireSecrets(input: {
   readonly worker: WorkerKey;
@@ -70,6 +75,7 @@ export function requireSecrets(input: {
 }): Readonly<Record<string, Redacted.Redacted<string>>> {
   const tier = tierOf(input.stage);
   const row = tierSecrets(input.worker, tier);
+  if (row.source === "worker") return {};
   const rules = TIER_VALUE_RULES[tier];
   const missing: string[] = [];
   const malformed: string[] = [];

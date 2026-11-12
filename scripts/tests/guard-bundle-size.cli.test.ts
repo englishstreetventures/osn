@@ -11,8 +11,7 @@
 // file (`BUNDLE_SIZE_BUDGETS_FILE`) and a fixture resolution root
 // (`BUNDLE_SIZE_BUDGETS_ROOT`, which only `--all` uses) — the same
 // env-var-override idiom `ASTRO_TEST_ROUTE_APPS` uses for
-// check-astro-test-routes.ts, and `WRANGLER_TOML` for check-d1-database-id.ts
-// — so a future re-baseline of the REAL budgets file cannot break these.
+// check-astro-test-routes.ts — so a future re-baseline of the REAL budgets file cannot break these.
 //
 // Covers, one case per independent decision point:
 //

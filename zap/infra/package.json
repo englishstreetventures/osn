@@ -1,6 +1,6 @@
 {
   "name": "@zap/infra",
-  "version": "0.1.24",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -14,7 +14,11 @@
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "plan:dev": "CI=true DO_NOT_TRACK=1 bun alchemy plan --stage dev",
-    "deploy:dev": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes"
+    "deploy:dev": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes",
+    "plan:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
+    "deploy:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes",
+    "plan:guard": "bun run scripts/plan-guard.ts",
+    "read:live": "bun run scripts/read-live.ts"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.85",

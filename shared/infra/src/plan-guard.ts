@@ -1,11 +1,13 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { judgeLive, type AdoptedResources, type LiveState } from "./production-live";
 import {
+  API_SURFACES,
+  type ApiSurface,
   heldHost,
   HOST_HOLDS_FILE,
   type HostHold,
-  PRODUCTION_ADOPTIONS,
   PRODUCTION_HOST_HOLDS,
   SITE_SURFACES,
   type SiteMode,
@@ -13,19 +15,33 @@ import {
 } from "./production-sites";
 
 /**
- * What a production plan's resource is, as far as the guard cares. A Worker
- * that holds a custom domain is `custom-domain`: replacing or deleting it
- * takes the domain down with it.
+ * What a production plan's resource is, as far as the guard cares. A site
+ * Worker holding a custom domain is `custom-domain`: replacing or deleting it
+ * takes the domain down with it. An API Worker (`api-worker`), a D1 database
+ * and an R2 bucket existed before Alchemy deployed them, so production adopts
+ * each under its name and never creates one.
  */
-export type ResourceKind = "worker" | "custom-domain" | "d1" | "r2" | "route";
+export type ResourceKind = "worker" | "custom-domain" | "api-worker" | "d1" | "r2" | "route";
+
+/** Every resource a stack declares on production, by logical id, with its kind. */
+export type ResourceKinds = Readonly<Record<string, ResourceKind>>;
 
 /** Kinds whose replacement, deletion or orphaning loses data or a live domain. */
 export const PROTECTED_KINDS: ReadonlySet<ResourceKind> = new Set([
   "custom-domain",
+  "api-worker",
   "d1",
   "r2",
   "route",
 ]);
+
+/** Kinds production adopts: the only ones a plan may show `adopted`. */
+export const ADOPTED_KINDS: ReadonlySet<ResourceKind> = new Set(["api-worker", "d1", "r2"]);
+
+/** Every Worker a production stack can declare: a site, or an API Worker. */
+export type ProductionSurface = SiteSurface | ApiSurface;
+
+const PRODUCTION_SURFACES: readonly ProductionSurface[] = [...SITE_SURFACES, ...API_SURFACES];
 
 /** Resource actions Alchemy prints (alchemy src/Plan.ts `CRUD`). */
 export type ResourceAction =
@@ -181,7 +197,13 @@ export interface GuardInput {
   readonly plan: ParsedPlan;
   /** Every logical id the stack may declare on production, with its kind. */
   readonly kinds: Readonly<Record<string, ResourceKind>>;
-  readonly adoptions?: readonly string[];
+  /**
+   * The logical ids of the stack's adopted resources that exist live, as the
+   * live read found them. An API Worker that binds storage with no state row
+   * plans `create` and is adopted when the deploy reaches it; the guard lets
+   * that through only for one that exists.
+   */
+  readonly existing?: ReadonlySet<string>;
 }
 
 /**
@@ -212,9 +234,12 @@ export function planTextFaults(plan: ParsedPlan): string[] {
 /**
  * Every reason to refuse `plan`, empty when it may be applied: no Plan line,
  * plan text the guard cannot read or whose lines disagree with its counts,
- * a resource the stack does not declare on production, an adoption while
- * PRODUCTION_ADOPTIONS is empty, and a protected kind replaced, deleted or
- * orphaned.
+ * a resource the stack does not declare on production, an adoption of a kind
+ * production does not adopt, a database or bucket created, an API Worker
+ * created that does not exist live, and a protected kind replaced, deleted
+ * or orphaned. A Durable Object class is part of its Worker's upload, which
+ * the plan does not break down, so the live read judges it (judgeLive in
+ * production-live.ts).
  */
 export function guardPlan(input: GuardInput): string[] {
   const { plan, kinds } = input;
@@ -222,15 +247,27 @@ export function guardPlan(input: GuardInput): string[] {
   const refusals = planTextFaults(plan);
   if ((plan.counts.tasks ?? 0) > 0)
     refusals.push("the plan runs tasks; a production plan runs none");
-  const adoptions = input.adoptions ?? PRODUCTION_ADOPTIONS;
+  const existing = input.existing ?? new Set<string>();
   for (const resource of plan.resources) {
     const kind = kinds[resource.fqn];
     if (kind === undefined) {
       refusals.push(`${resource.fqn} is not a resource this stack declares on production`);
       continue;
     }
-    if (resource.action === "adopted" && adoptions.length === 0) {
-      refusals.push(`${resource.fqn} would be adopted, and PRODUCTION_ADOPTIONS is empty`);
+    if (resource.action === "adopted" && !ADOPTED_KINDS.has(kind)) {
+      refusals.push(
+        `${resource.fqn} (${kind}) would be adopted; production adopts none of its kind`,
+      );
+    }
+    if (resource.action === "create" && (kind === "d1" || kind === "r2")) {
+      refusals.push(
+        `${resource.fqn} (${kind}) would be created: production adopts its storage, and no live ${kind === "d1" ? "database" : "bucket"} has its name`,
+      );
+    }
+    if (resource.action === "create" && kind === "api-worker" && !existing.has(resource.fqn)) {
+      refusals.push(
+        `${resource.fqn} (api-worker) would be created: production adopts its API Workers, and the live read found none of its name`,
+      );
     }
     if (ESCALATING.has(resource.action) && PROTECTED_KINDS.has(kind)) {
       refusals.push(
@@ -242,65 +279,70 @@ export function guardPlan(input: GuardInput): string[] {
 }
 
 /**
- * One site's custom-domain change: the hosts its Worker gains and loses when
- * the plan applies. A plan line reads `update` whatever an update changes, so
- * the guard reads the domains apart from the plan, as the Worker holds them
- * now against the host the stack's declaration gives it.
+ * One Worker's custom-domain change, by its surface: the hosts it gains and
+ * loses when the plan applies. A plan line reads `update` whatever an update
+ * changes, so the guard reads the domains apart from the plan, as the Worker
+ * holds them now against the host the stack's declaration gives it.
  */
 export interface DomainChange {
-  readonly site: SiteSurface;
+  readonly surface: ProductionSurface;
   readonly added: readonly string[];
   readonly removed: readonly string[];
 }
 
 /**
- * The host each site a stack declares gives its Worker, null for none. A
- * site the stack does not declare is absent.
+ * The host each Worker a stack declares on production (a site or an API
+ * Worker) is given, null for none, by surface. A surface the stack does not
+ * declare is absent.
  */
-export type DeclaredDomains = Readonly<Partial<Record<SiteSurface, string | null>>>;
+export type DeclaredDomains = Readonly<Partial<Record<ProductionSurface, string | null>>>;
 
 /**
- * Each declared site's host, from a production declaration's sites by logical
- * id (`ids`, the product's SITE_LOGICAL_IDS). The guard reads these, the
- * values the stack hands Alchemy, rather than working them out again, so its
- * hold check does not lean on the declaration having applied the holds.
+ * Each declared Worker's host, from a production declaration's Workers by
+ * logical id (`ids`, the product's site and API logical ids by surface). The
+ * guard reads these, the values the stack hands Alchemy, rather than working
+ * them out again, so its hold check does not lean on the declaration having
+ * applied the holds.
  */
 export function declaredDomains(
-  ids: Readonly<Partial<Record<SiteSurface, string>>>,
-  sites: Readonly<Record<string, { readonly domain: string | null }>>,
+  ids: Readonly<Partial<Record<ProductionSurface, string>>>,
+  workers: Readonly<Record<string, { readonly domain: string | null }>>,
 ): DeclaredDomains {
   return Object.fromEntries(
-    SITE_SURFACES.flatMap((site): [SiteSurface, string | null][] => {
-      const id = ids[site];
-      const declared = id === undefined ? undefined : sites[id];
-      return declared === undefined ? [] : [[site, declared.domain]];
+    PRODUCTION_SURFACES.flatMap((surface): [ProductionSurface, string | null][] => {
+      const id = ids[surface];
+      const declared = id === undefined ? undefined : workers[id];
+      return declared === undefined ? [] : [[surface, declared.domain]];
     }),
   );
 }
 
-const declaredSites = (declared: DeclaredDomains): SiteSurface[] =>
-  SITE_SURFACES.filter((site) => Object.hasOwn(declared, site)).toSorted();
+const isSite = (surface: ProductionSurface): surface is SiteSurface =>
+  SITE_SURFACES.some((site) => site === surface);
 
-/** What `domainChanges` found: each site's change, and each site it could not read. */
+const declaredSurfaces = (declared: DeclaredDomains): ProductionSurface[] =>
+  PRODUCTION_SURFACES.filter((surface) => Object.hasOwn(declared, surface)).toSorted();
+
+/** What `domainChanges` found: each Worker's change, and each Worker it could not read. */
 export interface DomainReading {
   readonly changes: readonly DomainChange[];
   readonly problems: readonly string[];
 }
 
-/** The hosts `live` lists for `site`, or undefined unless it lists them as strings. */
-function heldBy(live: unknown, site: SiteSurface): readonly string[] | undefined {
+/** The hosts `live` lists for `surface`, or undefined unless it lists them as strings. */
+function heldBy(live: unknown, surface: ProductionSurface): readonly string[] | undefined {
   if (typeof live !== "object" || live === null || Array.isArray(live)) return undefined;
-  const held = Object.entries(live).find(([key]) => key === site)?.[1];
+  const held = Object.entries(live).find(([key]) => key === surface)?.[1];
   if (!Array.isArray(held)) return undefined;
   const hosts = held.filter((host): host is string => typeof host === "string");
   return hosts.length === held.length ? hosts : undefined;
 }
 
 /**
- * Each declared site's change, from the hosts its Worker holds now (`live`,
- * as `worker-deployments.ts domains` read them) and the one the declaration
- * gives it; only sites with a change, by site. `problems` names a site whose
- * live hosts were not read.
+ * Each declared Worker's change, from the hosts it holds now (`live`, as
+ * `worker-deployments.ts domains` read them) and the one the declaration
+ * gives it; only Workers with a change, by surface. `problems` names a Worker
+ * whose live hosts were not read.
  */
 export function domainChanges(input: {
   readonly declared: DeclaredDomains;
@@ -308,17 +350,17 @@ export function domainChanges(input: {
 }): DomainReading {
   const changes: DomainChange[] = [];
   const problems: string[] = [];
-  for (const site of declaredSites(input.declared)) {
-    const held = heldBy(input.live, site);
+  for (const surface of declaredSurfaces(input.declared)) {
+    const held = heldBy(input.live, surface);
     if (held === undefined) {
-      problems.push(`the hosts ${site}'s Worker holds now were not read`);
+      problems.push(`the hosts ${surface}'s Worker holds now were not read`);
       continue;
     }
-    const declared = input.declared[site] ?? null;
+    const declared = input.declared[surface] ?? null;
     const wanted = declared === null ? [] : [declared];
     const added = wanted.filter((host) => !held.includes(host));
     const removed = [...new Set(held)].filter((host) => !wanted.includes(host)).toSorted();
-    if (added.length > 0 || removed.length > 0) changes.push({ site, added, removed });
+    if (added.length > 0 || removed.length > 0) changes.push({ surface, added, removed });
   }
   return { changes, problems };
 }
@@ -337,10 +379,10 @@ export function domainRefusals(
   changes: readonly DomainChange[],
   holds: readonly HostHold[] = PRODUCTION_HOST_HOLDS,
 ): string[] {
-  return changes.flatMap(({ site, removed }) =>
+  return changes.flatMap(({ surface, removed }) =>
     removed.map(
       (host) =>
-        `${site}'s Worker would give up ${host}${holdOn(host, holds) === undefined ? "" : `, which PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE} holds off`}; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first`,
+        `${surface}'s Worker would give up ${host}${holdOn(host, holds) === undefined ? "" : `, which PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE} holds off`}; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first`,
     ),
   );
 }
@@ -354,27 +396,27 @@ export function holdRefusals(
   declared: DeclaredDomains,
   holds: readonly HostHold[] = PRODUCTION_HOST_HOLDS,
 ): string[] {
-  return declaredSites(declared).flatMap((site) => {
-    const host = declared[site] ?? null;
+  return declaredSurfaces(declared).flatMap((surface) => {
+    const host = declared[surface] ?? null;
     const hold = host === null ? undefined : holdOn(host, holds);
     return hold === undefined
       ? []
       : [
-          `${site}'s Worker would serve ${hold.host}, which PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE} holds off every Worker (${hold.reason}); a release serves it again only once a pull request removes its entry`,
+          `${surface}'s Worker would serve ${hold.host}, which PRODUCTION_HOST_HOLDS in ${HOST_HOLDS_FILE} holds off every Worker (${hold.reason}); a release serves it again only once a pull request removes its entry`,
         ];
   });
 }
 
 /**
- * A scheduled release adds no host to a site Worker: each host a Worker
- * would gain is refused, so a host comes back, or is first attached, only in
- * a release someone dispatched by hand.
+ * A scheduled release adds no host to a Worker: each host a Worker would gain
+ * is refused, so a host comes back, or is first attached, only in a release
+ * someone dispatched by hand.
  */
 export function addedHostRefusals(changes: readonly DomainChange[]): string[] {
-  return changes.flatMap(({ site, added }) =>
+  return changes.flatMap(({ surface, added }) =>
     added.map(
       (host) =>
-        `${site}'s Worker would gain ${host}, and a scheduled release adds no host: dispatch Production release by hand to add it`,
+        `${surface}'s Worker would gain ${host}, and a scheduled release adds no host: dispatch Production release by hand to add it`,
     ),
   );
 }
@@ -421,7 +463,11 @@ export function planRecord(input: {
       fqn: binding.fqn,
       action: binding.action,
     })),
-    domains: (input.domains ?? []).map(({ site, added, removed }) => ({ site, added, removed })),
+    domains: (input.domains ?? []).map(({ surface, added, removed }) => ({
+      surface,
+      added,
+      removed,
+    })),
   };
   return `${JSON.stringify(record, null, 2)}\n`;
 }
@@ -438,6 +484,8 @@ export function renderGuardSummary(input: {
   readonly refusals: readonly string[];
   readonly domains?: readonly DomainChange[];
   readonly held?: readonly HostHold[];
+  /** What the live read found that the guard lists without refusing. */
+  readonly notices?: readonly string[];
 }): string {
   const { plan } = input;
   const counts = Object.entries(plan.counts)
@@ -457,14 +505,14 @@ export function renderGuardSummary(input: {
   const domains = input.domains ?? [];
   const domainTable =
     domains.length === 0
-      ? ["", "No site's custom domains change."]
+      ? ["", "No Worker's custom domains change."]
       : [
           "",
-          "| Site | Domains added | Domains removed |",
+          "| Worker | Domains added | Domains removed |",
           "|---|---|---|",
           ...domains.map(
             (change) =>
-              `| \`${change.site}\` | ${listed(change.added)} | ${listed(change.removed)} |`,
+              `| \`${change.surface}\` | ${listed(change.added)} | ${listed(change.removed)} |`,
           ),
         ];
   const held = input.held ?? [];
@@ -476,11 +524,16 @@ export function renderGuardSummary(input: {
           `Held off their Workers by \`PRODUCTION_HOST_HOLDS\` (\`${HOST_HOLDS_FILE}\`):`,
           ...held.map((hold) => `- \`${hold.host}\` (\`${hold.site}\`): ${hold.reason}`),
         ];
+  const notices = input.notices ?? [];
+  const noticeLines =
+    notices.length === 0 ? [] : ["", "**Live, listed:**", ...notices.map((line) => `- ${line}`)];
   const refused =
     input.refusals.length === 0
       ? ["", "The guard allows this plan."]
       : ["", "**Refused:**", ...input.refusals.map((reason) => `- ${reason}`)];
-  return [heading, ...table, ...domainTable, ...holdLines, ...refused, ""].join("\n");
+  return [heading, ...table, ...domainTable, ...holdLines, ...noticeLines, ...refused, ""].join(
+    "\n",
+  );
 }
 
 const escapeData = (text: string) =>
@@ -491,29 +544,67 @@ export interface PlanGuardCliInput {
   readonly stack: string;
   readonly kinds: Readonly<Record<string, ResourceKind>>;
   /**
-   * The host the product's production declaration gives each site's Worker
-   * (its PRODUCTION_SITE_DOMAINS): the sites whose live custom domains
+   * The host the product's production declaration gives each Worker, site or
+   * API (its PRODUCTION_DOMAINS): the Workers whose live custom domains
    * `--domains` must hold.
    */
   readonly declared: DeclaredDomains;
+  /** The stack's adopted resources as its production declaration states them (its PRODUCTION_ADOPTED). */
+  readonly adopted: AdoptedResources;
   readonly argv: readonly string[];
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly out: (text: string) => void;
-  readonly adoptions?: readonly string[];
   /** The host holds, PRODUCTION_HOST_HOLDS unless a test passes its own. */
   readonly holds?: readonly HostHold[];
 }
 
+/** The logical ids the plan adopts: `adopted` lines, and an API Worker's `create`, which the deploy adopts. */
+export function adoptingIds(
+  plan: ParsedPlan,
+  kinds: Readonly<Record<string, ResourceKind>>,
+): ReadonlySet<string> {
+  return new Set(
+    plan.resources
+      .filter(
+        (resource) =>
+          resource.action === "adopted" ||
+          (resource.action === "create" && kinds[resource.fqn] === "api-worker"),
+      )
+      .map((resource) => resource.fqn),
+  );
+}
+
+/** The live state `read:live` wrote, or undefined when the file is missing or not one. */
+function readLive(file: string): LiveState | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "workers" in parsed &&
+      "databases" in parsed &&
+      "buckets" in parsed
+    ) {
+      return parsed as LiveState;
+    }
+  } catch {
+    // A missing or malformed file is refused below.
+  }
+  return undefined;
+}
+
 /**
  * The plan guard as a product's `plan:guard` script runs it: `--log <alchemy
- * log> --out <record.json> --domains <live domains.json> [--approved
- * <record.json>] [--scheduled]`. `--domains` is what
- * `worker-deployments.ts domains` read for the stack's sites; `--scheduled`,
- * which a release started by its schedule passes, refuses every host a Worker
- * would gain. Writes the record to `--out` and a summary to
- * $GITHUB_STEP_SUMMARY (the output when unset). Exits 1 when the guard
- * refuses the plan, its domain changes or a held host, or when `--approved`
- * names a record this one differs from; 2 on bad arguments.
+ * log> --out <record.json> --domains <live domains.json> --live <live.json>
+ * [--approved <record.json>] [--scheduled]`. `--domains` is what
+ * `worker-deployments.ts domains` read for the stack's Workers, `--live` what
+ * the product's `read:live` read of its adopted resources
+ * (production-live.ts); `--scheduled`, which a release started by its
+ * schedule passes, refuses every host a Worker would gain. Writes the record
+ * to `--out` and a summary to $GITHUB_STEP_SUMMARY (the output when unset).
+ * Exits 1 when the guard refuses the plan, its domain changes, a held host or
+ * the live state, or when `--approved` names a record this one differs from;
+ * 2 on bad arguments.
  */
 export function runPlanGuardCli(input: PlanGuardCliInput): number {
   const args = input.argv.filter((arg) => arg !== "--");
@@ -528,15 +619,17 @@ export function runPlanGuardCli(input: PlanGuardCliInput): number {
   const log = value("log");
   const outFile = value("out");
   const domainsFile = value("domains");
+  const liveFile = value("live");
   if (
     log === undefined ||
     outFile === undefined ||
     domainsFile === undefined ||
-    log.startsWith("--") ||
-    outFile.startsWith("--") ||
-    domainsFile.startsWith("--")
+    liveFile === undefined ||
+    [log, outFile, domainsFile, liveFile].some((arg) => arg.startsWith("--"))
   ) {
-    return usage("pass --log <alchemy log>, --out <record file> and --domains <live domains file>");
+    return usage(
+      "pass --log <alchemy log>, --out <record file>, --domains <live domains file> and --live <live state file>",
+    );
   }
   let text = "";
   try {
@@ -553,12 +646,22 @@ export function runPlanGuardCli(input: PlanGuardCliInput): number {
   const holds = input.holds ?? PRODUCTION_HOST_HOLDS;
   const domains = domainChanges({ declared: input.declared, live });
   const plan = parsePlan(text);
+  const liveState = readLive(liveFile);
+  const adopting = adoptingIds(plan, input.kinds);
+  const judged =
+    liveState === undefined
+      ? { refusals: ["the live state of the adopted resources was not read"], notices: [] }
+      : judgeLive({ adopted: input.adopted, live: liveState, adopting });
+  const existing = new Set(
+    Object.entries(liveState?.workers ?? {}).flatMap(([id, worker]) => (worker.exists ? [id] : [])),
+  );
   const refusals = [
-    ...guardPlan({ plan, kinds: input.kinds, adoptions: input.adoptions }),
+    ...guardPlan({ plan, kinds: input.kinds, existing }),
     ...domains.problems,
     ...domainRefusals(domains.changes, holds),
     ...holdRefusals(input.declared, holds),
     ...(args.includes("--scheduled") ? addedHostRefusals(domains.changes) : []),
+    ...judged.refusals,
   ];
   const record = planRecord({
     stack: input.stack,
@@ -574,7 +677,10 @@ export function runPlanGuardCli(input: PlanGuardCliInput): number {
     kinds: input.kinds,
     refusals,
     domains: domains.changes,
-    held: declaredSites(input.declared).flatMap((site) => heldHost(site, holds) ?? []),
+    held: declaredSurfaces(input.declared).flatMap((surface) =>
+      isSite(surface) ? (heldHost(surface, holds) ?? []) : [],
+    ),
+    notices: judged.notices,
   });
   const summaryFile = input.env.GITHUB_STEP_SUMMARY ?? "";
   if (summaryFile === "") input.out(summary);

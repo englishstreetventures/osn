@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Guards with a threshold
@@ -57,12 +57,18 @@ and deployed. The fix was to re-measure against the build as it is now and set
 the headroom to ~11.7 KB, roughly half the mistake.
 
 *Unverified — the method is on record, the date is not: `motion`'s own client
-chunk, gzipped from a clean build, written into this page 2026-09-07. The
-client build has no such chunk to gzip today, since the library ships inside
-the event sheet's. Bundling `animate` alone, minified, gives a close figure:
-20362 bytes.*
+chunk, gzipped from a clean build, written into this page 2026-09-07. No app
+depends on `motion` now. Bundling `animate` alone, minified, gave a close
+figure: 20362 bytes.*
 
 *Measured 2026-11-11 in cire/invites — `echo 'export { animate } from "motion";' | bunx --bun esbuild --bundle --minify --format=esm --platform=browser | gzip -nc | wc -c`*
+
+Dropping it from the guest site took **17910 bytes gzip** off the event
+sheet's client chunk (37593 to 19683), the code that samples the spring for
+CSS included. The Worker the guard measures moved from 192575 to 192801
+bytes: the SSR build had stubbed the library out already.
+
+*Measured 2026-11-12 in cire/invites — `bun run build` on a7b0cff35 and on the branch that dropped `motion`, then `gzip -nc dist/client/_astro/EventSheet.*.js | wc -c`; the Worker figure is the guard's own `dist/server gzip total` line*
 
 The corollary is a check, not a rule: **you have not verified a guard until you
 have seen it fire.** Break the input and watch what it does: the non-zero exit,
@@ -194,11 +200,11 @@ touching a threshold. In short:
 ### Where it runs, and why twice
 
 Every app's own `build` script chains the guard on with `&&` (`astro build &&
-… guard-bundle-size.sh .`) — that is what runs it on a local build and the
-by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
-`build-test` job (one `--all` step covering every app), in `production-release.yml`
-in the `deploy-cire-invites` job and in the `sites` job (one step per site it builds:
-`cire/host`, `cire/vendor`, `cire/landing` and `musubi/landing`), and in the
+… guard-bundle-size.sh .`) — that is what runs it on a local build. It ALSO
+runs as its own step in `ci.yml`'s `build-test` job (one `--all` step covering
+every app), in `production-release.yml`'s `sites` job (one step per guarded app
+it builds: `cire/invites`, `cire/host`, `cire/vendor`, `cire/landing` and
+`musubi/landing`), and in the
 stack jobs in `deploy.yml`, with one step per guarded app each builds: the cire
 stack job for `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`, the
 musubi stack job for `musubi/landing`, and the pulse stack job for
@@ -209,8 +215,9 @@ without executing the script, so the chained invocation never runs on a cache
 hit — the explicit workflow step is what still checks the artifact that IS on
 disk in that case. Both invocations matter; neither one alone covers both paths.
 
-No workflow deploys `musubi/landing` or `pulse/landing` to production; on dev,
-the musubi and pulse stack jobs build and guard them as above.
+No workflow deploys `pulse/landing` to production; on dev, the pulse stack job
+builds and guards it as above. `musubi/landing` ships to production through the
+musubi stack, from the `sites` job's guarded build.
 
 ### Per-app thresholds — mirrors `scripts/bundle-size-budgets.txt`
 

@@ -23,8 +23,11 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 # top-level block is the local `wrangler dev` posture (OSN_ENV=local: ephemeral
 # JWT keys, in-memory rate limiters, non-Secure cookies), so a bare
 # `wrangler deploy` would expose a public identity API in dev posture. With no
-# top-level routes a bare deploy now fails loudly. Real deploys use
-# `--env production` (custom_domain route below).
+# top-level routes a bare deploy now fails loudly. Production deploys through
+# the musubi Alchemy stack (musubi/infra/src/declaration.ts), never Wrangler:
+# every [env.production] block below mirrors that declaration, and
+# musubi/infra/tests/parity.test.ts holds the two equal. Wrangler still reads
+# them for `d1 migrations apply`, `secret put` and `types`.
 workers_dev = false
 
 # osn-api now runs on Cloudflare Workers via `export default { fetch, scheduled }`
@@ -328,8 +331,8 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 # auto-provisions DNS + edge cert because the musubi.social zone is in this
 # Cloudflare account. The zone has a proxied wildcard record; a wildcard only
 # answers names with no specific record, so provisioning an explicit `id` record
-# takes precedence rather than colliding. Named envs do NOT inherit top-level
-# routes, so this applies only to `wrangler deploy --env production`.
+# takes precedence rather than colliding. The musubi stack declares the same
+# domain.
 [[env.production.routes]]
 pattern = "id.musubi.social"
 custom_domain = true
@@ -345,8 +348,7 @@ database_id = "767a9ac1-129b-4efa-9fcf-f68ed7a48c38"
 migrations_dir = "../db/drizzle"
 
 # Native rate-limit bindings mirrored into production (named envs don't inherit).
-# osn-api MUST be redeployed (`wrangler deploy --env production`) for these to
-# take effect; the namespace_ids are new.
+# A change to one takes effect with the musubi stack's next production release.
 [[env.production.ratelimits]]
 name = "RL_AUTH_IP_5_60"
 namespace_id = "2001"

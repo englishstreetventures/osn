@@ -4,7 +4,14 @@ import { fileURLToPath } from "node:url";
 import { tierSecrets } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { evaluateZap, removeEvaluations, resourcesOf, stackEnv, type Evaluation } from "./evaluate";
+import {
+  evaluateZap,
+  productionEnv,
+  removeEvaluations,
+  resourcesOf,
+  stackEnv,
+  type Evaluation,
+} from "./evaluate";
 
 interface WranglerTier {
   readonly vars: Readonly<Record<string, string>>;
@@ -74,3 +81,58 @@ describe("zap-api on dev against Wrangler's production config", () => {
     expect(props?.crons).toEqual(wrangler.env.production.triggers?.crons ?? []);
   });
 });
+
+describe("PA: zap-api on production against Wrangler's production config", () => {
+  let production: Evaluation;
+
+  beforeAll(async () => {
+    production = await evaluateZap({ stage: "production", env: productionEnv() });
+  });
+
+  test("PA1: zap-api's vars equal [env.production]'s exactly, it binds its database by name, and it uploads no secret", () => {
+    const resources = resourcesOf(production);
+    const env = resources.ZapApi?.Props.env ?? {};
+    const vars = Object.fromEntries(
+      Object.entries(env).filter(([, value]) => typeof value === "string"),
+    );
+    expect(vars).toEqual(wrangler.env.production.vars);
+    expect(env.DB).toBe(resources.ZapDb);
+    expect(resources.ZapDb?.Props.name).toBe(productionDatabase.database_name);
+    expect(Object.keys(env).toSorted()).toEqual(
+      [...Object.keys(wrangler.env.production.vars), productionDatabase.binding].toSorted(),
+    );
+  });
+
+  test("PA3: zap-api's domain, crons and compatibility are [env.production]'s, plus legacy_module_registry; its Workers Logs stay off, as the file sets no observability.enabled", () => {
+    const props = resourcesOf(production).ZapApi?.Props;
+    expect(productionConfig.routes).toEqual([{ pattern: props?.domain, custom_domain: true }]);
+    expect(props?.crons).toEqual(wrangler.env.production.triggers?.crons ?? []);
+    expect(props?.compatibility).toEqual({
+      date: wrangler.compatibility_date,
+      flags: [...wrangler.compatibility_flags, "legacy_module_registry"],
+    });
+    expect(productionConfig.observability.enabled).toBeUndefined();
+    expect(props?.observability).toMatchObject({
+      enabled: false,
+      redactQueryString: productionConfig.observability.redact_query_string,
+      logs: { enabled: false, invocationLogs: false },
+      traces: { enabled: productionConfig.observability.traces.enabled },
+    });
+  });
+});
+
+/** `[env.production]` with the fields the production tests read. */
+const productionConfig = wrangler.env.production as unknown as {
+  readonly routes: readonly { readonly pattern: string; readonly custom_domain: boolean }[];
+  readonly observability: {
+    readonly enabled?: boolean;
+    readonly redact_query_string: boolean;
+    readonly traces: { readonly enabled: boolean };
+  };
+};
+const productionDatabase = (
+  wrangler.env.production.d1_databases as unknown as readonly {
+    readonly binding: string;
+    readonly database_name: string;
+  }[]
+)[0]!;

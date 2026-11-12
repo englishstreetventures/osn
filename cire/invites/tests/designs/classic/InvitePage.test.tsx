@@ -9,10 +9,6 @@ import InvitePage from "../../../src/designs/classic/InvitePage";
 import type { RevealHooks } from "../../../src/designs/classic/UnlockReveal.motion";
 import { noSession, withSession } from "../../test-support/claim-fetch";
 
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
-
 vi.mock("../../../src/designs/classic/UnlockReveal.motion", () => ({
   unlockRevealSequence: vi.fn(() => Promise.resolve()),
 }));

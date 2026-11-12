@@ -165,7 +165,10 @@ describe("production storage", () => {
       migrations: null,
       importFiles: [],
     } as const;
-    expect(() => retainedD1Props(cireDb)).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedD1Props(cireDb, [])).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedD1Props({ ...cireDb, name: "cire-db-new" })).toThrow(
+      ProductionNotAdoptedError,
+    );
     expect(() => retainedD1Props(cireDb, ["cire-db-dev"])).toThrow(ProductionNotAdoptedError);
     expect(retainedD1Props(cireDb, ["cire-db"]).name).toBe("cire-db");
     expect(retainedD1Props({ ...cireDb, name: "cire-db-dev", stage: "dev" }).name).toBe(
@@ -185,7 +188,10 @@ describe("production storage", () => {
       cors: [],
       domains: [],
     };
-    expect(() => retainedBucketProps(cireAssets)).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedBucketProps(cireAssets, [])).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedBucketProps({ ...cireAssets, name: "cire-assets-new" })).toThrow(
+      ProductionNotAdoptedError,
+    );
     expect(retainedBucketProps(cireAssets, ["cire-assets"]).name).toBe("cire-assets");
   });
 });

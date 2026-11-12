@@ -11,10 +11,6 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/componen
 import { description } from "../test-support/described";
 import { mockViewport } from "../test-support/viewport";
 
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
-
 vi.mock("@shared/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const event: EventSummary = {

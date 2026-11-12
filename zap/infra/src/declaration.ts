@@ -1,10 +1,17 @@
 import { join } from "node:path";
 
 import {
+  adoptedWorkerOf,
+  declaredDomains,
   origin,
   physicalName,
+  PRODUCTION_STAGE_HOSTS,
   refuseProductionTier,
+  type AdoptedResources,
+  type ApiSurface,
   type ApiWorkerInput,
+  type DeclaredDomains,
+  type ResourceKinds,
   type RetainedD1Input,
   type StageHosts,
 } from "@shared/infra";
@@ -30,7 +37,7 @@ interface ZapDeclaration {
 /**
  * Every name, var, binding, domain and setting the zap stack declares at
  * `stage`: zap-api and its database. Pure; every host comes from `hosts`.
- * The production tier is refused until its stack is declared.
+ * The production tier is refused: `zapProductionApis` declares it.
  */
 export function zapDeclaration(input: {
   readonly stage: string;
@@ -79,6 +86,7 @@ export function zapDeclaration(input: {
       bindings: { DB: { kind: "d1" } },
       // Invocation logs on, as zap-api's Wrangler config leaves them when unset.
       observability: {
+        logs: true,
         headSamplingRate: 1,
         redactQueryString: false,
         traces: { enabled: true, headSamplingRate: 1 },
@@ -97,3 +105,92 @@ export function zapDeclaration(input: {
     },
   };
 }
+
+/** zap-api's logical id, the dev one, which keys its state row on every stage. */
+export const API_LOGICAL_IDS = { zap_api: "ZapApi" } as const satisfies Readonly<
+  Partial<Record<ApiSurface, string>>
+>;
+
+/** Every resource the zap stack declares on production, by logical id, with its kind for the plan guard. */
+export const PRODUCTION_RESOURCE_KINDS: ResourceKinds = {
+  ZapApi: "api-worker",
+  ZapDb: "d1",
+};
+
+/** zap-api and its database on production. */
+interface ZapProductionApis {
+  readonly zapApi: ZapApiDeclaration;
+  readonly zapDb: RetainedD1Input;
+}
+
+/**
+ * What the zap stack declares on production: zap-api and its database, each
+ * under today's name and adopted in place. Every var, binding, domain and
+ * setting is `[env.production]`'s in `zap/api/wrangler.toml`
+ * (tests/parity.test.ts holds them equal), plus `legacy_module_registry` for
+ * the bundled Worker. Its Wrangler config sets no `observability.enabled`,
+ * so Workers Logs stay off, as Wrangler uploads it. No secret: production's
+ * stay on the Worker. The database names no migrations: Wrangler migrates it,
+ * in the stack job, before the deploy. Pure; every host comes from `hosts`.
+ */
+export function zapProductionApis(input: { readonly hosts: StageHosts }): ZapProductionApis {
+  const issuer = origin(input.hosts.osnApi);
+  return {
+    zapApi: {
+      worker: "zap-api",
+      name: "zap-api-production",
+      stage: "production",
+      main: "../api/src/index.ts",
+      bundle: true,
+      assets: null,
+      compatibility: {
+        date: "2025-03-01",
+        flags: ["nodejs_compat", "nodejs_compat_populate_process_env", "legacy_module_registry"],
+      },
+      domain: input.hosts.zapApi,
+      crons: [],
+      workersDev: false,
+      previewUrls: false,
+      vars: {
+        OSN_JWKS_URL: `${issuer}/.well-known/jwks.json`,
+        OSN_ISSUER_URL: issuer,
+        OSN_API_URL: issuer,
+      },
+      bindings: { DB: { kind: "d1" } },
+      observability: {
+        logs: false,
+        headSamplingRate: 1,
+        redactQueryString: true,
+        traces: { enabled: false },
+        invocationLogs: false,
+        issues: false,
+      },
+    },
+    zapDb: {
+      name: "zap-db-prod",
+      stage: "production",
+      readReplication: "disabled",
+      jurisdiction: "default",
+      locationHint: null,
+      migrations: null,
+      importFiles: [],
+    },
+  };
+}
+
+/** The zap stack's adopted resources on production, by logical id, as the live read and the plan guard compare them. */
+export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
+  const apis = zapProductionApis({ hosts: PRODUCTION_STAGE_HOSTS });
+  return {
+    workers: { [API_LOGICAL_IDS.zap_api]: adoptedWorkerOf(apis.zapApi) },
+    databases: {
+      ZapDb: { name: apis.zapDb.name, readReplication: apis.zapDb.readReplication },
+    },
+    buckets: {},
+  };
+})();
+
+/** The host zap-api is declared with on production, which the plan guard reads. */
+export const PRODUCTION_DOMAINS: DeclaredDomains = declaredDomains(API_LOGICAL_IDS, {
+  [API_LOGICAL_IDS.zap_api]: zapProductionApis({ hosts: PRODUCTION_STAGE_HOSTS }).zapApi,
+});

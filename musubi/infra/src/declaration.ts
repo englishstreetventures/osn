@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import {
+  adoptedWorkerOf,
   declaredDomains,
   origin,
   physicalName,
@@ -10,11 +11,13 @@ import {
   productionSiteKinds,
   refuseProductionTier,
   siteDomain,
+  type AdoptedResources,
+  type ApiSurface,
   type ApiWorkerInput,
   type DeclaredDomains,
   type HostHold,
   type PrebuiltSite,
-  type ResourceKind,
+  type ResourceKinds,
   type RetainedD1Input,
   type SiteMode,
   type SiteSurface,
@@ -168,9 +171,114 @@ const SITES = {
   },
 } satisfies Readonly<Record<MusubiSite, MusubiSiteSpec>>;
 
+/** osn-api's logical id, the dev one, which keys its state row on every stage. */
+export const API_LOGICAL_IDS = { osn_api: "OsnApi" } as const satisfies Readonly<
+  Partial<Record<ApiSurface, string>>
+>;
+
+/** Every resource the musubi stack declares on production at `modes`, by logical id, with its kind for the plan guard. */
+export const productionResourceKinds = (
+  modes: Readonly<Record<SiteSurface, SiteMode>>,
+): ResourceKinds => ({
+  OsnApi: "api-worker",
+  OsnDb: "d1",
+  ...productionSiteKinds(SITE_LOGICAL_IDS, modes),
+});
+
 /** Every resource the musubi stack declares on production, by logical id, with its kind for the plan guard. */
-export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
-  productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
+export const PRODUCTION_RESOURCE_KINDS: ResourceKinds =
+  productionResourceKinds(PRODUCTION_SITE_MODES);
+
+/** osn-api's production limiters: the namespace ids `[env.production]` in `osn/api/wrangler.toml` declares. */
+const PRODUCTION_RATE_LIMITS: typeof RATE_LIMITS = RATE_LIMITS.map((limit) => ({
+  ...limit,
+  namespaceId: limit.namespaceId - 100,
+}));
+
+/** osn-api and its database on production. */
+interface MusubiProductionApis {
+  readonly osnApi: OsnApiDeclaration;
+  readonly osnDb: RetainedD1Input;
+}
+
+/**
+ * What the musubi stack declares on production beside its sites: osn-api and
+ * its database, each under today's name and adopted in place. Every var,
+ * binding, domain, cron and setting is `[env.production]`'s in
+ * `osn/api/wrangler.toml` (tests/parity.test.ts holds them equal), plus
+ * `legacy_module_registry` for the bundled Worker. No secret: production's
+ * stay on the Worker. The database names no migrations and imports nothing:
+ * Wrangler migrates it, in the stack job, before the deploy. Pure; every
+ * host comes from `hosts`.
+ */
+export function musubiProductionApis(input: { readonly hosts: StageHosts }): MusubiProductionApis {
+  const { hosts } = input;
+  const app = origin(hosts.musubiSocial);
+  return {
+    osnApi: {
+      worker: "osn-api",
+      name: "osn-api-production",
+      stage: "production",
+      main: "../../osn/api/src/entry.ts",
+      bundle: true,
+      assets: null,
+      compatibility: {
+        date: "2025-03-01",
+        flags: ["nodejs_compat", "nodejs_compat_populate_process_env", "legacy_module_registry"],
+      },
+      domain: hosts.osnApi,
+      crons: ["0 */6 * * *"],
+      workersDev: false,
+      previewUrls: false,
+      vars: {
+        OSN_ENV: "production",
+        OSN_RP_ID: hosts.musubiSocial,
+        OSN_RP_NAME: "Musubi",
+        OSN_ORIGIN: app,
+        OSN_ISSUER_URL: origin(hosts.osnApi),
+        OSN_CORS_ORIGIN: app,
+        OSN_COOKIE_DOMAIN: hosts.musubiSocial,
+        OSN_EMAIL_FROM: "hello@cireweddings.com", // not a host: the sender
+        OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
+        OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "100",
+        CIRE_INTERNAL_REVOKE_URL: origin(hosts.cireApi),
+        CIRE_OIDC_CLIENT_ID: "cid_cire",
+      },
+      bindings: {
+        DB: { kind: "d1" },
+        // The class Wrangler made under migration tag v1; the first Alchemy
+        // upload reuses it because the binding keeps its name.
+        COORDINATION: { kind: "durable-object", className: "CoordinationStore" },
+        ...Object.fromEntries(
+          PRODUCTION_RATE_LIMITS.map((limit): [string, BindingDescription] => [
+            limit.name,
+            { kind: "ratelimit", namespaceId: limit.namespaceId, limit: limit.limit, period: 60 },
+          ]),
+        ),
+      },
+      // `[env.production.observability]`: logs on, every request sampled,
+      // query strings redacted, native traces off; it sets no invocation
+      // logs, which Cloudflare then keeps on.
+      observability: {
+        logs: true,
+        headSamplingRate: 1,
+        redactQueryString: true,
+        traces: { enabled: false },
+        invocationLogs: true,
+        issues: true,
+      },
+    },
+    osnDb: {
+      name: "osn-db-prod",
+      stage: "production",
+      readReplication: "disabled",
+      jurisdiction: "default",
+      locationHint: null,
+      migrations: null,
+      importFiles: [],
+    },
+  };
+}
 
 /** The musubi stack on production: its sites, by logical id, and the build each uploads. */
 interface MusubiProductionSites {
@@ -182,8 +290,8 @@ interface MusubiProductionSites {
  * What the musubi stack declares on production: each site `modes` does not
  * turn off, under today's production name, serving its production host,
  * or no host while `holds` holds it. Every build is the production build
- * and bakes in `hosts`, today's production hosts, held or not. No osn-api
- * or database: those join the stack in a later step of phase P3. Pure.
+ * and bakes in `hosts`, today's production hosts, held or not. osn-api and
+ * its database are `musubiProductionApis`. Pure.
  */
 export function musubiProductionSites(input: {
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
@@ -202,15 +310,30 @@ export function musubiProductionSites(input: {
   };
 }
 
-/** The host each musubi site's Worker is declared with on production, which the plan guard reads. */
-export const PRODUCTION_SITE_DOMAINS: DeclaredDomains = declaredDomains(
-  SITE_LOGICAL_IDS,
-  musubiProductionSites({
-    modes: PRODUCTION_SITE_MODES,
-    holds: PRODUCTION_HOST_HOLDS,
-    hosts: PRODUCTION_STAGE_HOSTS,
-  }).sites,
+/** The host each musubi Worker, site or API, is declared with on production, which the plan guard reads. */
+export const PRODUCTION_DOMAINS: DeclaredDomains = declaredDomains(
+  { ...SITE_LOGICAL_IDS, ...API_LOGICAL_IDS },
+  {
+    ...musubiProductionSites({
+      modes: PRODUCTION_SITE_MODES,
+      holds: PRODUCTION_HOST_HOLDS,
+      hosts: PRODUCTION_STAGE_HOSTS,
+    }).sites,
+    [API_LOGICAL_IDS.osn_api]: musubiProductionApis({ hosts: PRODUCTION_STAGE_HOSTS }).osnApi,
+  },
 );
+
+/** The musubi stack's adopted resources on production, by logical id, as the live read and the plan guard compare them. */
+export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
+  const apis = musubiProductionApis({ hosts: PRODUCTION_STAGE_HOSTS });
+  return {
+    workers: { [API_LOGICAL_IDS.osn_api]: adoptedWorkerOf(apis.osnApi) },
+    databases: {
+      OsnDb: { name: apis.osnDb.name, readReplication: apis.osnDb.readReplication },
+    },
+    buckets: {},
+  };
+})();
 
 /**
  * Every name, var, binding, domain and setting the musubi stack declares at
@@ -300,6 +423,7 @@ export function musubiDeclaration(input: {
       // Invocation logs on, as osn-api's Wrangler config leaves them when
       // unset. Query strings are redacted: dev sign-in takes its secret in one.
       observability: {
+        logs: true,
         headSamplingRate: 1,
         redactQueryString: true,
         traces: { enabled: true, headSamplingRate: 1 },
