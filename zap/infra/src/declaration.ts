@@ -11,6 +11,7 @@ import {
   type ApiSurface,
   type ApiWorkerInput,
   type DeclaredDomains,
+  type MigrationSources,
   type ResourceKinds,
   type RetainedD1Input,
   type StageHosts,
@@ -24,14 +25,18 @@ interface ZapApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets">
   readonly bindings: Readonly<Record<string, BindingDescription>>;
 }
 
-/** zap-api's database, migrated by Alchemy from the flattened chain. */
-interface ZapDbDeclaration extends RetainedD1Input {
-  readonly migrations: string;
-}
+/** zap/db's migrations on every stage but production: the chain alone. */
+export const ZAP_DB_MIGRATIONS: MigrationSources = { source: "../db/drizzle" };
+
+/** zap/db's migrations on production: the chain, and the freeze that stops Wrangler writing the ledger Alchemy took over. */
+export const ZAP_DB_PRODUCTION_MIGRATIONS: MigrationSources = {
+  source: "../db/drizzle",
+  freeze: true,
+};
 
 interface ZapDeclaration {
   readonly zapApi: ZapApiDeclaration;
-  readonly zapDb: ZapDbDeclaration;
+  readonly zapDb: RetainedD1Input;
 }
 
 /**
@@ -130,10 +135,14 @@ interface ZapProductionApis {
  * (tests/parity.test.ts holds them equal), plus `legacy_module_registry` for
  * the bundled Worker. Its Wrangler config sets no `observability.enabled`,
  * so Workers Logs stay off, as Wrangler uploads it. No secret: production's
- * stay on the Worker. The database names no migrations: Wrangler migrates it,
- * in the stack job, before the deploy. Pure; every host comes from `hosts`.
+ * stay on the Worker. Alchemy migrates the database from
+ * `ZAP_DB_PRODUCTION_MIGRATIONS`, flattened into `generatedDir`, in the stack
+ * job's migrate step before the deploy. Pure; every host comes from `hosts`.
  */
-export function zapProductionApis(input: { readonly hosts: StageHosts }): ZapProductionApis {
+export function zapProductionApis(input: {
+  readonly hosts: StageHosts;
+  readonly generatedDir: string;
+}): ZapProductionApis {
   const issuer = origin(input.hosts.osnApi);
   return {
     zapApi: {
@@ -172,7 +181,7 @@ export function zapProductionApis(input: { readonly hosts: StageHosts }): ZapPro
       readReplication: "disabled",
       jurisdiction: "default",
       locationHint: null,
-      migrations: null,
+      migrations: join(input.generatedDir, "migrations", "zap-db"),
       importFiles: [],
     },
   };
@@ -180,11 +189,15 @@ export function zapProductionApis(input: { readonly hosts: StageHosts }): ZapPro
 
 /** The zap stack's adopted resources on production, by logical id, as the live read and the plan guard compare them. */
 export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
-  const apis = zapProductionApis({ hosts: PRODUCTION_STAGE_HOSTS });
+  const apis = zapProductionApis({ hosts: PRODUCTION_STAGE_HOSTS, generatedDir: ".generated" });
   return {
     workers: { [API_LOGICAL_IDS.zap_api]: adoptedWorkerOf(apis.zapApi) },
     databases: {
-      ZapDb: { name: apis.zapDb.name, readReplication: apis.zapDb.readReplication },
+      ZapDb: {
+        name: apis.zapDb.name,
+        readReplication: apis.zapDb.readReplication,
+        migrations: ZAP_DB_PRODUCTION_MIGRATIONS,
+      },
     },
     buckets: {},
   };
@@ -192,5 +205,8 @@ export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
 
 /** The host zap-api is declared with on production, which the plan guard reads. */
 export const PRODUCTION_DOMAINS: DeclaredDomains = declaredDomains(API_LOGICAL_IDS, {
-  [API_LOGICAL_IDS.zap_api]: zapProductionApis({ hosts: PRODUCTION_STAGE_HOSTS }).zapApi,
+  [API_LOGICAL_IDS.zap_api]: zapProductionApis({
+    hosts: PRODUCTION_STAGE_HOSTS,
+    generatedDir: ".generated",
+  }).zapApi,
 });

@@ -1,8 +1,8 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { tierSecrets } from "@shared/infra";
+import { FREEZE_MIGRATION, migrationFiles, tierSecrets } from "@shared/infra";
 import { Redacted } from "effect";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -10,7 +10,12 @@ import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
 import { devTarget, productionTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
-import { API_LOGICAL_IDS, PRODUCTION_ADOPTED, PRODUCTION_RESOURCE_KINDS } from "../src/declaration";
+import {
+  API_LOGICAL_IDS,
+  PRODUCTION_ADOPTED,
+  PRODUCTION_RESOURCE_KINDS,
+  ZAP_DB_PRODUCTION_MIGRATIONS,
+} from "../src/declaration";
 import {
   DEV_DOMAIN,
   evaluateZap,
@@ -23,6 +28,7 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const packageDir = fileURLToPath(new URL("../", import.meta.url));
 
 /**
  * Each dev surface of the zap stack and the logical id of the Worker it
@@ -142,7 +148,7 @@ describe("the zap stack, evaluated offline", () => {
     expect(props?.importFiles).toBeUndefined();
 
     const migrations = join(dev.generatedDir, "migrations", "zap-db");
-    expect(props?.migrations).toBe(migrations);
+    expect(props?.migrations).toEqual({ dir: migrations, table: "__alchemy_migrations" });
     const chain = listMigrations(join(repoRoot, "zap/db/drizzle")).toSorted();
     expect(chain.length).toBeGreaterThan(0);
     expect(readdirSync(migrations).toSorted()).toEqual(chain);
@@ -174,19 +180,31 @@ describe("the zap stack on production", () => {
     expect(API_LOGICAL_IDS).toEqual({ zap_api: "ZapApi" });
   });
 
-  test("KP2: zap-api serves zap.cireweddings.com, with no workers.dev or preview URL; zap-db-prod has no migrations or imports", () => {
+  test("KP2: zap-api serves zap.cireweddings.com, with no workers.dev or preview URL; zap-db-prod imports nothing and is migrated by Alchemy from zap/db's chain and the freeze", () => {
     const resources = resourcesOf(production);
     expect(resources.ZapApi?.Props.domain).toBe("zap.cireweddings.com");
     expect(resources.ZapApi?.Props.workersDev).toEqual({ enabled: false, previewsEnabled: false });
+    const migrations = join(production.generatedDir, "migrations", "zap-db");
     expect(resources.ZapDb?.Props).toEqual({
       name: "zap-db-prod",
       readReplication: { mode: "disabled" },
       jurisdiction: "default",
+      migrations: { dir: migrations, table: "__alchemy_migrations" },
     });
+    const chain = listMigrations(join(repoRoot, "zap/db/drizzle"));
+    expect(readdirSync(migrations).toSorted()).toEqual(
+      [...chain, FREEZE_MIGRATION.name].toSorted(),
+    );
+    for (const name of chain) {
+      expect(readFileSync(join(migrations, name), "utf8")).toBe(
+        readFileSync(join(repoRoot, "zap/db/drizzle", name), "utf8"),
+      );
+    }
   });
 
-  test("KP3: reads no zap secret or DEV_DOMAIN, uploads no secret, and writes nothing", async () => {
-    expect(existsSync(production.generatedDir)).toBe(false);
+  test("KP3: reads no zap secret or DEV_DOMAIN, uploads no secret, and writes only zap-db-prod's migrations", async () => {
+    expect(readdirSync(production.generatedDir)).toEqual(["migrations"]);
+    expect(readdirSync(join(production.generatedDir, "migrations"))).toEqual(["zap-db"]);
     const names = (["dev", "production"] as const).flatMap((tier) => {
       const row = tierSecrets("zap-api", tier);
       return row.secrets.concat(row.optional, row.forbidden);
@@ -201,7 +219,7 @@ describe("the zap stack on production", () => {
     });
     const env = resourcesOf(withSecrets).ZapApi?.Props.env ?? {};
     expect(Object.values(env).some((value) => Redacted.isRedacted(value))).toBe(false);
-    expect(existsSync(withSecrets.generatedDir)).toBe(false);
+    expect(readdirSync(withSecrets.generatedDir)).toEqual(["migrations"]);
   });
 
   test("KP6: zap-api's production smoke target names the Worker the stack deploys", () => {
@@ -225,7 +243,27 @@ describe("the zap stack on production", () => {
     ).toEqual([]);
     expect(adopted?.envNames).toContain("ALCHEMY_STAGE");
     expect(PRODUCTION_ADOPTED.databases).toEqual({
-      ZapDb: { name: "zap-db-prod", readReplication: "disabled" },
+      ZapDb: {
+        name: "zap-db-prod",
+        readReplication: "disabled",
+        migrations: ZAP_DB_PRODUCTION_MIGRATIONS,
+      },
     });
+    // The live read counts the ledger against the files the stack hands Alchemy.
+    expect(
+      migrationFiles(ZAP_DB_PRODUCTION_MIGRATIONS)
+        .map((file) => file.name)
+        .toSorted(),
+    ).toEqual(readdirSync(join(production.generatedDir, "migrations", "zap-db")).toSorted());
+    // The stack job's migrate step deploys this database alone.
+    expect(
+      (
+        JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as {
+          readonly scripts: Readonly<Record<string, string>>;
+        }
+      ).scripts["migrate:production"],
+    ).toBe(
+      "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes --force --include ZapDb",
+    );
   });
 });
