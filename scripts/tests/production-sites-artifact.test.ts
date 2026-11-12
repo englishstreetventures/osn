@@ -72,8 +72,9 @@ describe("production-sites-artifact.ts", () => {
     );
   });
 
-  test("AF1: the builds it allows are the five the sites job uploads", () => {
+  test("AF1: the builds it allows are the six the sites job uploads: the guest site's, then the sites'", () => {
     expect(SITE_DIRECTORIES).toEqual([
+      "cire/invites/dist",
       "cire/host/dist",
       "cire/vendor/dist",
       "cire/landing/dist",

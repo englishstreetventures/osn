@@ -17,12 +17,11 @@
  * surface the job deployed, but its status links the job, and the job's name
  * does. So this reads the records newest first, keeps those with a `success`
  * status, and maps each job name back to a surface through the map. A
- * surface with its own job (`job`) is read from the `production` Environment;
- * a site its stack deploys (`stack`) from `production-records`, where the
- * record job after the stack job leaves it. The newest such record is what
- * production runs: every production job of one surface, and every run of one
- * stack, takes the same concurrency group without cancelling, so they run in
- * the order they were created, and a re-run makes a new record.
+ * surface's record is read from `production-records`, where the record job
+ * after its stack's job leaves it, and a stack's own from the `production`
+ * Environment. The newest such record is what production runs: every run of
+ * one stack takes the same concurrency group without cancelling, so they run
+ * in the order they were created, and a re-run makes a new record.
  *
  * A record is only a claim: anyone who can write Deployments can create one
  * and point its status at any job. So a record counts only when the job it
@@ -44,14 +43,15 @@
  * that contains the release commit — an older release re-run in full — the
  * surface is left alone unless the release is forced.
  *
- * A production stack deploys every site it declares at once, so it ships
- * when one of its sites ships, or when its own paths (its `infra/` directory
- * and shared/infra/) changed since the commit its stack job last deployed —
- * the newest successful record of that job in `production` — and dev has
- * run its stack job at the same paths; and only when none of its sites, nor
- * that change, is held back or newer on production. Otherwise its sites
- * wait with it. Only a stack one of whose sites the request names is asked
- * about. Asking for one of a stack's sites asks for all of them.
+ * A production stack deploys every surface it declares at once, its API
+ * Workers and its sites, so it ships when one of its surfaces ships, or when
+ * its own paths (its `infra/` directory and shared/infra/) changed since the
+ * commit its stack job last deployed — the newest successful record of that
+ * job in `production` — and dev has run its stack job at the same paths; and
+ * only when none of its surfaces, nor that change, is held back or newer on
+ * production. Otherwise its surfaces wait with it. Only a stack one of whose
+ * surfaces the request names is asked about. Asking for one of a stack's
+ * surfaces asks for all of them.
  *
  * Inputs, from the environment:
  *   GITHUB_TOKEN        read access to deployments and Actions runs and jobs
@@ -101,7 +101,7 @@ import {
 
 /**
  * Where Deployment records are read: each tier's Environment, and
- * `production-records`, which holds the records of the sites a production
+ * `production-records`, which holds the records of the surfaces a production
  * stack deploys. It has no reviewer, so its record jobs run unapproved.
  */
 export type Environment = Tier | "production-records";
@@ -160,14 +160,12 @@ export interface DeploymentReader {
 }
 
 /**
- * The workflow files whose runs deploy each environment. Production's list
- * includes deploy.yml because its runs carried the production jobs before
- * production-release.yml did: one of their records is still what production
- * runs for a surface no release has shipped since. Only production-release.yml
- * has ever written `production-records`.
+ * The workflow files whose runs deploy each environment. On production only
+ * production-release.yml's do: `production` holds its stack jobs' records and
+ * `production-records` its record jobs'.
  */
 export const DEPLOYING_WORKFLOWS = {
-  production: [WORKFLOW_FILE.production, WORKFLOW_FILE.dev],
+  production: [WORKFLOW_FILE.production],
   "production-records": [WORKFLOW_FILE.production],
   dev: [WORKFLOW_FILE.dev],
 } as const satisfies Record<Environment, readonly string[]>;
@@ -372,19 +370,23 @@ export interface DeployedCommits {
   readonly accepted: ReadonlyMap<RecordKey, string>;
 }
 
-/** The job whose Deployment records in `environment` say what `s` runs there. */
+/**
+ * The job whose Deployment records in `environment` say what `s` runs there:
+ * its dev record job in `dev`, its production record job in
+ * `production-records`, and none in `production`, which holds the stacks'
+ * own records alone.
+ */
 function recordJob(s: Surface, environment: Environment): Job | undefined {
   if (environment === "dev") return s.dev;
-  const kind = environment === "production" ? "job" : "stack";
-  return s.production?.kind === kind ? s.production : undefined;
+  return environment === "production-records" ? s.production : undefined;
 }
 
 /**
  * Each job whose records in `environment` the planner reads, by name: every
- * surface's own, and each stack's job — in `production` its production job,
- * whose success means the stack deployed and every site it serves passed
- * its check, and in `dev` its dev job, which passes the same way once its
- * deploy step ran (`ranItsDeploy`).
+ * surface's record job, and each stack's job — in `production` its
+ * production job, whose success means the stack deployed and every surface
+ * it serves passed its check, and in `dev` its dev job, which passes the same
+ * way once its deploy step ran (`ranItsDeploy`).
  */
 function recordJobs(environment: Environment): ReadonlyMap<string, RecordKey> {
   const byName = new Map<string, RecordKey>();
@@ -534,11 +536,10 @@ export async function findDeployed(
 
 /**
  * The commit each wanted key last deployed successfully on `tier`: its
- * newest successful record. On production a `job` surface's record, and a
- * stack's own, are in the `production` Environment, and a `stack` surface's
- * in `production-records`; the two Environments are walked at once. A key
- * missing from the answer has no such record among the newest `maxRecords`
- * of its Environment.
+ * newest successful record. On production a stack's own record is in the
+ * `production` Environment and a surface's in `production-records`; the two
+ * Environments are walked at once. A key missing from the answer has no such
+ * record among the newest `maxRecords` of its Environment.
  */
 export async function lastDeployed(
   reader: DeploymentReader,
@@ -547,16 +548,16 @@ export async function lastDeployed(
   options: { readonly maxRecords?: number; readonly batch?: number } = {},
 ): Promise<Map<RecordKey, string>> {
   if (tier === "dev") return new Map((await findDeployed(reader, "dev", wanted, options)).accepted);
-  const recordedByStack = (key: RecordKey) =>
-    !isStackRecordKey(key) && surface(key).production?.kind === "stack";
-  const inProduction = wanted.filter(
-    (key) => isStackRecordKey(key) || surface(key).production?.kind === "job",
-  );
-  const [own, stacked] = await Promise.all([
-    findDeployed(reader, "production", inProduction, options),
-    findDeployed(reader, "production-records", wanted.filter(recordedByStack), options),
+  const [own, recorded] = await Promise.all([
+    findDeployed(reader, "production", wanted.filter(isStackRecordKey), options),
+    findDeployed(
+      reader,
+      "production-records",
+      wanted.filter((key) => !isStackRecordKey(key)),
+      options,
+    ),
   ]);
-  return new Map([...own.accepted, ...stacked.accepted]);
+  return new Map([...own.accepted, ...recorded.accepted]);
 }
 
 // ── deciding ────────────────────────────────────────────────────────────────
@@ -566,7 +567,7 @@ export interface ReleaseRequest {
   readonly force: boolean;
 }
 
-/** The sites a production stack deploys, `job` and `stack` kind both, in map order. */
+/** The surfaces a production stack deploys, API Workers and sites, in map order. */
 const stackSites = (key: StackKey): readonly SurfaceKey[] =>
   PRODUCTION_SURFACES.filter((s) => s.stack === key && stackDeployed(s)).map((s) => s.key);
 
@@ -915,7 +916,7 @@ export function stackPlans(
     }
     const why = blocking.join(", ");
     for (const d of shipping) {
-      if (surface(d.key).production?.kind === "stack") held.set(d.key, why);
+      if (surface(d.key).production !== undefined) held.set(d.key, why);
     }
     return plan(false, `it deploys every site at once, and ${why}`);
   });
@@ -953,15 +954,52 @@ export function outputLines(release: ReleaseDecisions): string {
 }
 
 /**
- * Whether cire-api ships while the organiser portal is also behind. When a
- * change alters the contract between them, the portal has to go first
- * (wiki/shared/production-deploy.md §5.6), and one approval cannot order two
- * jobs — so the approver is told to check.
+ * Surfaces that ship only once another has a production record, each mapped
+ * to the surface it waits for. osn-api and cire-api hold secrets that have no
+ * copy outside Cloudflare, and the stacks upload none: every upload keeps the
+ * secrets it does not name. zap-api's stack job proves that on production
+ * first, since zap-api holds a secret its stack does not upload, and its
+ * record exists only once the job's check after the deploy found every
+ * secret still live.
+ */
+export const SHIPS_AFTER: ReadonlyMap<SurfaceKey, SurfaceKey> = new Map([
+  ["osn_api", "zap_api"],
+  ["cire_api", "zap_api"],
+]);
+
+/**
+ * Holds back each shipping surface whose SHIPS_AFTER surface has no
+ * production record, which holds its stack with it. A forced release skips
+ * this, as it skips the dev gate.
+ */
+export function applyShipsAfter(input: {
+  readonly decisions: readonly PlanDecision[];
+  readonly production: ReadonlyMap<RecordKey, string>;
+  readonly force: boolean;
+}): PlanDecision[] {
+  return input.decisions.map((d): PlanDecision => {
+    const first = SHIPS_AFTER.get(d.key);
+    if (input.force || !d.ship || first === undefined || input.production.has(first)) return d;
+    return {
+      ...d,
+      ship: false,
+      status: "held back",
+      reason: `${d.reason}; it ships once ${first} has a production record, which proves on production that a deploy keeps the secrets it does not upload`,
+    };
+  });
+}
+
+/**
+ * Whether cire-api and the organiser portal both change in this release.
+ * The cire stack deploys them in one Alchemy run in no set order, so when a
+ * change alters the contract between them the portal side has to ship in a
+ * release of its own first (wiki/shared/production-deploy.md §5.6), and the
+ * approver is told to check.
  */
 export function apiAheadOfHost(decisions: readonly PlanDecision[]): boolean {
   const api = decisions.find((d) => d.key === "cire_api");
   const host = decisions.find((d) => d.key === "cire_host");
-  return api?.ship === true && (host?.status === "ships" || host?.status === "held back");
+  return api?.ship === true && host?.ship === true;
 }
 
 /** The table the approver reads on the run page before approving. */
@@ -994,8 +1032,8 @@ export function renderSummary(
   const warning = apiAheadOfHost(decisions)
     ? [
         "> [!WARNING]",
-        "> `cire_api` ships while `cire_host` is also behind. If this release changes the contract between",
-        "> them (the plan tiers), reject it and release `cire_host` first: runbook §5.6.",
+        "> `cire_api` and `cire_host` both change, and the cire stack deploys them together in no set order.",
+        "> If this release changes the contract between them (the plan tiers), reject it and ship the portal side first: runbook §5.6.",
         "",
       ]
     : [];
@@ -1072,8 +1110,12 @@ export async function runReleasePlan(options: {
     return newer.get(commit) === true;
   };
 
+  const firsts = request.surfaces.flatMap((key) => {
+    const first = SHIPS_AFTER.get(key);
+    return first === undefined || request.surfaces.includes(first) ? [] : [first];
+  });
   const production = await lastDeployed(reader, "production", [
-    ...request.surfaces,
+    ...new Set([...request.surfaces, ...firsts]),
     ...requestedStacks(request.surfaces).map(stackRecordKey),
   ]);
   const changed = changedSurfaces({ head, request, production, diff, productionIsNewer });
@@ -1099,7 +1141,11 @@ export async function runReleasePlan(options: {
           : sameContent(surface(key), diff(commit)),
     },
   );
-  const gated = applyDevGate({ decisions: changed, dev, diff, force: request.force });
+  const gated = applyShipsAfter({
+    decisions: applyDevGate({ decisions: changed, dev, diff, force: request.force }),
+    production,
+    force: request.force,
+  });
   const gatedStacks = applyStackDevGate({ changes: stackChanges, dev, force: request.force });
   const planned = stackPlans(gated, request.force, gatedStacks);
   const release: ReleaseDecisions = planned;

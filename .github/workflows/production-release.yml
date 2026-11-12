@@ -1,71 +1,75 @@
 name: Production release
 
 # Ships main to production. Dev deploys per push in deploy.yml; production
-# deploys only from here. A release that ships no Alchemy stack takes one
-# approval; one that ships a stack takes two: the stack's plan, then the
+# deploys only from here, every Worker through its product's Alchemy stack
+# (musubi, cire, zap), behind two approvals: the stacks' plan, then the
 # deploy.
 #
 # Shape of a run:
 #
-#   plan ──> build ──┬──> alchemy-plan ──> deploy-<surface>  (the Wrangler APIs)
-#        └─> sites ──┘    (approval 1)     stack-<stack>-production ──> record-<site>
-#                                          (approval 2, together)
+#   plan ──> build ──┬──> alchemy-plan ──> stack-<stack>-production ──> record-<surface>
+#        └─> sites ──┘    (approval 1)     (approval 2, together)
 #
-# `build` and `sites` run side by side; `alchemy-plan` and every deploy job
+# `build` and `sites` run side by side; `alchemy-plan` and every stack job
 # need both.
 #
-# `sites` builds each production site a shipping stack deploys, once, with
-# the values its build bakes in, and passes them on as the `production-sites`
-# artifact. A job that holds a credential downloads it outside its checkout
-# and lets in only the site builds (scripts/production-sites-artifact.ts).
-# `alchemy-plan` (the `production` Environment's first review) plans each
-# shipping stack and runs the plan guard, keeping only the guard's record
-# (names, kinds, actions, and each site's custom-domain change, read from the
-# live Workers). Every other job needs all four, so they reach the gate
-# together and one second review releases them. When no stack ships,
-# `alchemy-plan` is skipped and that is the only review. Any job that fails
-# stops every deploy job: a guard refusal, a site build, or a state store
-# that needs bootstrapping after an Alchemy bump holds the release until
-# fixed, or until a dispatch whose `surfaces` leave the stacks out.
+# `sites` builds each production site a shipping stack deploys, and the
+# guest site's Worker, once, with the values each build bakes in, and passes
+# them on as the `production-sites` artifact. A job that holds a credential
+# downloads it outside its checkout and lets in only those builds
+# (scripts/production-sites-artifact.ts).
+# `alchemy-plan` (the `production` Environment's first review) reads, per
+# shipping stack, what its adopted API Workers, databases and buckets hold
+# live (names and settings, never a secret's value), plans the stack and runs
+# the plan guard over the plan, the Workers' custom domains and that live
+# read, keeping only the guard's record (names, kinds, actions, and each
+# Worker's custom-domain change). Every stack job needs all four, so they
+# reach the gate together and one second review releases them. Any job that
+# fails stops every deploy job: a guard refusal, a site build, or a state
+# store that needs bootstrapping after an Alchemy bump holds the release
+# until fixed, or until a dispatch whose `surfaces` leave that stack out.
 #
-# Each stack job re-plans, refuses a plan the guard refuses or that differs
-# from the one approved at `alchemy-plan`, deploys, and smoke-checks each
-# site, rolling back what it deployed when a check fails. A record job per
-# site its Worker serves then leaves the site's Deployment record in the
-# `production-records` Environment, which has no reviewer.
+# Each stack job reads the live state again, re-plans, refuses a plan the
+# guard refuses or that differs from the one approved at `alchemy-plan`,
+# applies its API's D1 migrations with Wrangler when that API ships (one
+# migrator per database; the migration runs before the Worker version that
+# needs it), deploys, checks every secret live before the deploy is live
+# after it, and smoke-checks each surface, rolling back what it deployed
+# when a check fails. A record job per surface then leaves the surface's
+# Deployment record in the `production-records` Environment, which has no
+# reviewer. Production secrets stay on the Workers: no stack uploads one,
+# and every upload keeps the ones it does not name.
 #
 # `plan` runs scripts/release-plan.ts. For each surface it finds the commit
-# production last deployed (the GitHub Deployment records the jobs below
+# production last deployed (the GitHub Deployment records the record jobs
 # leave, tied to a surface by job name and checked against the run that made
-# them), diffs it against this run's commit,
-# and outputs one boolean per surface. Because the baseline is what production
-# runs rather than what a push changed, a release that was skipped, cancelled
-# or rejected strands nothing: the next one finds the same gap. A changed
-# surface with a dev tier ships only if dev already deployed the same content.
-# When nothing differs, every deploy job is skipped and nobody is asked to
-# approve anything.
+# them), diffs it against this run's commit, and outputs one boolean per
+# surface and per stack. Because the baseline is what production runs rather
+# than what a push changed, a release that was skipped, cancelled or rejected
+# strands nothing: the next one finds the same gap. A changed surface with a
+# dev tier ships only if dev already deployed the same content. When nothing
+# differs, every deploy job is skipped and nobody is asked to approve
+# anything.
 #
 # `build` re-runs the install + build + test CI does, so nothing ships from a
 # broken tree, and it runs before the gate so the approver is never asked to
 # release a commit that fails its tests.
 #
-# One approval per gate: every deploy job needs [plan, build, sites,
+# One approval per gate: every stack job needs [plan, build, sites,
 # alchemy-plan], so they all reach the gate at the same moment, and one review
 # releases every job waiting on an Environment. A job reaching the gate later
 # would need a review of its own — scripts/tests/deploy-workflows.test.ts
 # holds the `needs:` lists.
 #
-# After each Worker deploy (cire-api, cire-invites, osn-api, zap-api),
-# scripts/smoke-check.ts asks the Worker's own hosts, for up to a minute,
-# whether the new version serves. One that answers wrongly is rolled back to
-# the version before it, through the Cloudflare API with the job's own token,
-# and its job fails, so GitHub marks the job's Deployment record `failure`: the
-# planner keeps counting the previous release as what production runs, and the
-# next release offers the surface again. A rollback restores the Worker's code
-# only — the D1 migrations the job applied stay — and never crosses a secret
-# change: Cloudflare refuses that, and the script leaves it to a person. Each
-# deploy step writes the version it deployed to WRANGLER_OUTPUT_FILE_PATH, and
-# the check rolls back only while that version is the newest deployment.
+# After each deploy, scripts/smoke-check.ts asks each surface's own host, for
+# up to a minute, whether the new version serves. One that answers wrongly is
+# rolled back to the version before it, through the Cloudflare API with the
+# job's own token, while the deployment this run made is still the newest,
+# and its surface records nothing: the planner keeps counting the previous
+# release as what production runs, and the next release offers the surface
+# again. A rollback restores the Worker's code only — the D1 migrations the
+# job applied stay — and never crosses a secret change: Cloudflare refuses
+# that, and the script leaves it to a person.
 #
 # The job names are load-bearing: the planner maps a Deployment record to a
 # surface by the name of the job that made it (scripts/deploy-surfaces.ts).
@@ -77,12 +81,12 @@ name: Production release
 # Environment also allows `main` alone; the plan job refuses any other ref
 # before the build starts. In the Alchemy jobs it reaches only the steps that
 # check the token, read the state store, snapshot or compare deployments,
-# read the Workers' custom domains, plan, deploy and smoke-check. The jobs
-# that install a narrower tree than `sites` and hold a credential
-# (alchemy-plan and the stack jobs) restore no dependency cache, which jobs
-# holding no secret also write. Every checkout
-# sets `persist-credentials: false`: no step fetches or pushes, so the job
-# token never sits in .git/config while dependency code runs.
+# read the Workers' custom domains and the adopted resources' live state,
+# plan, migrate, deploy and smoke-check. The jobs that install a narrower
+# tree than `sites` and hold a credential restore no dependency cache, which
+# jobs holding no secret also write. Every checkout sets
+# `persist-credentials: false`: no step fetches or pushes, so the job token
+# never sits in .git/config while dependency code runs.
 # shared/infra/tests/workflow-secrets.test.ts holds this.
 on:
   # 20:17 UTC — 07:17 in Sydney in summer time, 06:17 in winter, so the
@@ -99,7 +103,7 @@ on:
         required: false
         default: ""
       force:
-        description: "Ship those surfaces even if production already runs this commit's content, and skip the dev check. For changes no path shows: a repo Variable, a hand-run wrangler deploy or rollback."
+        description: "Ship those surfaces even if production already runs this commit's content, and skip the dev check. For changes no path shows: a repo Variable, or a rollback made by hand."
         type: boolean
         required: false
         default: false
@@ -148,6 +152,7 @@ jobs:
       zap_api: ${{ steps.plan.outputs.zap_api }}
       stack_musubi: ${{ steps.plan.outputs.stack_musubi }}
       stack_cire: ${{ steps.plan.outputs.stack_cire }}
+      stack_zap: ${{ steps.plan.outputs.stack_zap }}
       any_stack: ${{ steps.plan.outputs.any_stack }}
     steps:
       - name: Refuse any ref but main
@@ -243,9 +248,9 @@ jobs:
         run: bun run test:d1
 
   # ── The production sites, built once ─────────────────────────────────────
-  # Each site a shipping stack deploys, built with the production values its
-  # build bakes in. No Environment and no secret: the build values are
-  # public, and nothing here can deploy.
+  # Each site a shipping stack deploys, and the guest site's Worker, built
+  # with the production values each build bakes in. No Environment and no
+  # secret: the build values are public, and nothing here can deploy.
   sites:
     name: Build the production sites
     needs: [plan]
@@ -295,6 +300,46 @@ jobs:
 
       - name: Install dependencies except the infra packages
         run: bun install --frozen-lockfile --filter '!@*/infra'
+
+      # The guest site: Astro SSR on a Worker with static assets (the
+      # @astrojs/cloudflare adapter writes `dist/server` and `dist/client`),
+      # which the cire stack uploads as a prebuilt Worker. PUBLIC_API_URL and
+      # PUBLIC_SITE_URL bake in at build time, which is why dev has its own
+      # build in deploy.yml and cannot re-point this one.
+      #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
+      #   key. PUBLIC_TURNSTILE_SITEKEY is the optional Cloudflare Turnstile
+      #   sitekey (public, bot protection); the build omits the widget cleanly
+      #   when it is absent.
+      - name: Build cire/invites
+        if: needs.plan.outputs.stack_cire == 'true'
+        run: bun run build --filter=@cire/invites
+        env:
+          PUBLIC_API_URL: https://api.cireweddings.com
+          # The guest site lives on the `invite.` subdomain; the apex serves
+          # the marketing landing site.
+          PUBLIC_SITE_URL: https://invite.cireweddings.com
+          # Where the guest bare domain (`/`) sends visitors: the apex
+          # marketing landing. Matches the in-code default; set explicitly so
+          # the destination is visible in the deploy config.
+          PUBLIC_MARKETING_URL: https://cireweddings.com
+          # No OSN issuer var: the guest site never talks to the issuer. "Link
+          # my Pulse account" navigates to cire-api's /api/auth/oidc/start,
+          # and cire-api runs the exchange.
+          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          # Google Maps Embed API key (public, referrer-restricted to
+          # *.cireweddings.com). Present ⇒ real Embed iframe; absent ⇒ CSS-card
+          # fallback.
+          PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
+          # The commit this release is built from. The footer prints its first
+          # seven characters as the version, so a report from a phone says
+          # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
+          # a new commit never replays an older `dist/`.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
+          # Marks a production deploy build: the CSP integration then fails
+          # the build unless the cire-api URL is https://api.cireweddings.com.
+          # turbo hashes it, so this build never replays the `build` job's
+          # tier-less one. A literal, so the tier is always `production` here.
+          OSN_DEPLOY_TIER: production
 
       # The organiser portal. Its PUBLIC_* vars bake in at build time; sign-in
       # is a redirect through cire-api, so no issuer var.
@@ -394,6 +439,10 @@ jobs:
       # Each `build` script chains this guard too, but a turbo cache replay
       # skips the chained call; this checks what uploads either way
       # (wiki/conventions/bundle-size-guards.md).
+      - name: Check cire/invites SSR bundle size and refuse public source maps
+        if: needs.plan.outputs.stack_cire == 'true'
+        run: ./scripts/guard-bundle-size.sh cire/invites
+
       - name: Check cire/host bundle size and refuse public source maps
         if: needs.plan.outputs.stack_cire == 'true'
         run: ./scripts/guard-bundle-size.sh cire/host
@@ -414,7 +463,7 @@ jobs:
       # root however many sites were built, and a reader can see which.
       - name: List the built sites
         run: |
-          for dir in cire/host/dist cire/vendor/dist cire/landing/dist musubi/social/dist musubi/landing/dist; do
+          for dir in cire/invites/dist cire/host/dist cire/vendor/dist cire/landing/dist musubi/social/dist musubi/landing/dist; do
             if [ -d "$dir" ]; then echo "$dir"; fi
           done > production-sites.txt
           cat production-sites.txt
@@ -428,6 +477,7 @@ jobs:
           name: production-sites
           path: |
             production-sites.txt
+            cire/invites/dist
             cire/host/dist
             cire/vendor/dist
             cire/landing/dist
@@ -439,9 +489,10 @@ jobs:
 
   # ── Approval 1: the Alchemy plan ─────────────────────────────────────────
   # Runs only when a stack ships, in the `production` Environment, so its
-  # review is the first of two. It plans each shipping stack, the log kept in
-  # a file because raw Alchemy output can carry account values, and runs the
-  # plan guard, keeping only its record: resource names, kinds, actions and
+  # review is the first of two. For each shipping stack it reads what the
+  # adopted resources hold live, plans the stack, the log kept in a file
+  # because raw Alchemy output can carry account values, and runs the plan
+  # guard, keeping only its record: resource names, kinds, actions and
   # counts. The guard holds no credential.
   alchemy-plan:
     name: Plan the Alchemy stacks
@@ -459,10 +510,11 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # The two production stacks' trees, no other workspace's, and no
-      # cache: the cache is shared with jobs that hold no secret.
+      # The production stacks' trees and the API Workers they bundle, no
+      # other workspace's, and no cache: the cache is shared with jobs that
+      # hold no secret.
       - name: Install the production stacks' dependencies
-        run: bun install --frozen-lockfile --filter @cire/infra --filter @musubi/infra
+        run: bun install --frozen-lockfile --filter @cire/infra --filter @cire/api --filter @musubi/infra --filter @osn/api --filter @osn/db --filter @zap/infra --filter @zap/api
 
       # The stacks check each site's build for the production origins it
       # bakes in before they declare it.
@@ -504,37 +556,99 @@ jobs:
       # Alchemy plans against its own state; a Worker a smoke check rolled
       # back still matches it, so --force re-uploads what the commit declares,
       # here and in the stack job alike.
-      - name: Record the cire site Workers' newest deployments
-        id: snapshot_cire
-        if: needs.plan.outputs.stack_cire == 'true'
-        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments-cire.json" --tier production cire_host cire_vendor cire_landing
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      - name: Record the musubi site Workers' newest deployments
+      - name: Record the musubi Workers' newest deployments
         id: snapshot_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
-        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments-musubi.json" --tier production osn_social musubi_landing
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments-musubi.json" --tier production osn_api osn_social musubi_landing
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # The custom domains each shipping stack's site Workers hold now: the
-      # guard shows and judges the change each plan makes to them, which
-      # its text does not.
-      - name: Read the cire site Workers' custom domains
-        id: worker_domains_cire
-        if: needs.plan.outputs.stack_cire == 'true'
-        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-cire.json" --tier production cire_host cire_vendor cire_landing
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      - name: Read the musubi site Workers' custom domains
+      # The custom domains each of the stack's Workers holds now: the guard
+      # shows and judges the change the plan makes to them, which its text
+      # does not.
+      - name: Read the musubi Workers' custom domains
         id: worker_domains_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
-        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-musubi.json" --tier production osn_social musubi_landing
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-musubi.json" --tier production osn_api osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # What the stack's adopted API Workers, databases and buckets hold
+      # live: secret names, crons, Durable Object classes, storage settings.
+      # Names and settings only; no secret's value is read.
+      - name: Read the musubi stack's adopted resources live
+        id: live_musubi
+        if: needs.plan.outputs.stack_musubi == 'true'
+        working-directory: musubi/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live-musubi.json"
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Plan the musubi stack
+        id: plan_musubi
+        if: needs.plan.outputs.stack_musubi == 'true'
+        working-directory: musubi/infra
+        run: |
+          mkdir -p "$RUNNER_TEMP/plan"
+          bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/musubi.log" 2>&1
+        env:
+          FORCE: ${{ steps.snapshot_musubi.outputs.force == 'true' && 'yes' || '' }}
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: production
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the musubi plan log, as the step failed
+        if: ${{ failure() && steps.plan_musubi.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/plan/musubi.log"
+
+      # Names, kinds, actions and counts to the run summary; fails on a plan,
+      # a domain change or a live state the guard refuses. Its record is what
+      # the stack job's re-plan must equal.
+      - name: Guard the musubi plan
+        id: guard_musubi
+        if: needs.plan.outputs.stack_musubi == 'true'
+        working-directory: musubi/infra
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json" --live "$RUNNER_TEMP/live-musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
+
+      # Alchemy plans against its own state; a Worker a smoke check rolled
+      # back still matches it, so --force re-uploads what the commit declares,
+      # here and in the stack job alike.
+      - name: Record the cire Workers' newest deployments
+        id: snapshot_cire
+        if: needs.plan.outputs.stack_cire == 'true'
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments-cire.json" --tier production cire_api cire_invites cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The custom domains each of the stack's Workers holds now: the guard
+      # shows and judges the change the plan makes to them, which its text
+      # does not.
+      - name: Read the cire Workers' custom domains
+        id: worker_domains_cire
+        if: needs.plan.outputs.stack_cire == 'true'
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-cire.json" --tier production cire_api cire_invites cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # What the stack's adopted API Workers, databases and buckets hold
+      # live: secret names, crons, Durable Object classes, storage settings.
+      # Names and settings only; no secret's value is read.
+      - name: Read the cire stack's adopted resources live
+        id: live_cire
+        if: needs.plan.outputs.stack_cire == 'true'
+        working-directory: cire/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live-cire.json"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -559,15 +673,61 @@ jobs:
         if: ${{ failure() && steps.plan_cire.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/plan/cire.log"
 
-      - name: Plan the musubi stack
-        id: plan_musubi
-        if: needs.plan.outputs.stack_musubi == 'true'
-        working-directory: musubi/infra
+      # Names, kinds, actions and counts to the run summary; fails on a plan,
+      # a domain change or a live state the guard refuses. Its record is what
+      # the stack job's re-plan must equal.
+      - name: Guard the cire plan
+        id: guard_cire
+        if: needs.plan.outputs.stack_cire == 'true'
+        working-directory: cire/infra
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json" --live "$RUNNER_TEMP/live-cire.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
+
+      # Alchemy plans against its own state; a Worker a smoke check rolled
+      # back still matches it, so --force re-uploads what the commit declares,
+      # here and in the stack job alike.
+      - name: Record the zap Workers' newest deployments
+        id: snapshot_zap
+        if: needs.plan.outputs.stack_zap == 'true'
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments-zap.json" --tier production zap_api
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The custom domains each of the stack's Workers holds now: the guard
+      # shows and judges the change the plan makes to them, which its text
+      # does not.
+      - name: Read the zap Workers' custom domains
+        id: worker_domains_zap
+        if: needs.plan.outputs.stack_zap == 'true'
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-zap.json" --tier production zap_api
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # What the stack's adopted API Workers, databases and buckets hold
+      # live: secret names, crons, Durable Object classes, storage settings.
+      # Names and settings only; no secret's value is read.
+      - name: Read the zap stack's adopted resources live
+        id: live_zap
+        if: needs.plan.outputs.stack_zap == 'true'
+        working-directory: zap/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live-zap.json"
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Plan the zap stack
+        id: plan_zap
+        if: needs.plan.outputs.stack_zap == 'true'
+        working-directory: zap/infra
         run: |
           mkdir -p "$RUNNER_TEMP/plan"
-          bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/musubi.log" 2>&1
+          bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/zap.log" 2>&1
         env:
-          FORCE: ${{ steps.snapshot_musubi.outputs.force == 'true' && 'yes' || '' }}
+          FORCE: ${{ steps.snapshot_zap.outputs.force == 'true' && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -575,29 +735,20 @@ jobs:
 
       # Raw Alchemy output stays out of the public run log unless the step
       # failed; GitHub masks every secret the job holds in what it prints.
-      - name: Show the musubi plan log, as the step failed
-        if: ${{ failure() && steps.plan_musubi.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/plan/musubi.log"
+      - name: Show the zap plan log, as the step failed
+        if: ${{ failure() && steps.plan_zap.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/plan/zap.log"
 
-      # Names, kinds, actions and counts to the run summary; fails on a plan
-      # the guard refuses. Its record is what the stack job's re-plan must
-      # equal.
-      - name: Guard the cire plan
-        id: guard_cire
-        if: needs.plan.outputs.stack_cire == 'true'
-        working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json" ${SCHEDULED:+--scheduled}
+      # Names, kinds, actions and counts to the run summary; fails on a plan,
+      # a domain change or a live state the guard refuses. Its record is what
+      # the stack job's re-plan must equal.
+      - name: Guard the zap plan
+        id: guard_zap
+        if: needs.plan.outputs.stack_zap == 'true'
+        working-directory: zap/infra
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/zap.log" --out "$RUNNER_TEMP/alchemy-plan/zap.json" --domains "$RUNNER_TEMP/domains-zap.json" --live "$RUNNER_TEMP/live-zap.json" ${SCHEDULED:+--scheduled}
         env:
-          # A release started by its schedule adds no host to a site Worker.
-          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
-
-      - name: Guard the musubi plan
-        id: guard_musubi
-        if: needs.plan.outputs.stack_musubi == 'true'
-        working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json" ${SCHEDULED:+--scheduled}
-        env:
-          # A release started by its schedule adds no host to a site Worker.
+          # A release started by its schedule adds no host to a Worker.
           SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
       - name: Keep the approved plans
@@ -608,438 +759,36 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # ═══ The deploy jobs ════════════════════════════════════════════════════
+  # ═══ The stack jobs ═════════════════════════════════════════════════════
   #
-  # One job per surface a Wrangler deploy ships, and one per
-  # production stack, so a failure in one leaves the others to finish, and
-  # each `if:` reads its own output. Every job:
-  #   - needs [plan, build, sites, alchemy-plan] — the gate rule above;
-  #     `!cancelled()` lets it run when `sites` or `alchemy-plan` was skipped
-  #     because nothing needed it, and never when either failed;
-  #   - takes the group `deploy-production-<surface>` (a stack job
-  #     `deploy-production-<stack>`) without cancelling, so two production
-  #     deploys of one surface never overlap,
-  #     and they run in the order they were created, which is what lets the
-  #     planner read the newest successful record as what production runs.
-  #     No other workflow takes these groups.
+  # One job per production stack, so a failure in one leaves the others to
+  # finish, and each `if:` reads its own output. Every stack job:
+  #   - needs [plan, build, sites, alchemy-plan] — the gate rule above —
+  #     and runs only when all four succeeded;
+  #   - takes the group `deploy-production-<stack>` without cancelling, so two
+  #     production deploys of one stack never overlap, and they run in the
+  #     order they were created, which is what lets the planner read the
+  #     newest successful record as what production runs.
 
-  # ── cire API + D1 ────────────────────────────────────────────────────────
-  # Migrations are applied to the REMOTE prod DB FIRST, then the Worker is
-  # deployed — both in one job so the order is guaranteed and the migration
-  # runs once. `--env production` selects the prod D1 binding explicitly; the
-  # top-level block carries the same id today, but naming the env means a
-  # future split of the two cannot silently retarget this step.
-  deploy-cire-api:
-    name: Deploy cire/api — production
+  # ═══ musubi stack, production: osn-api with its database, musubi social and musubi landing ═══
+  stack-musubi-production:
+    name: Alchemy musubi stack — production
     needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.cire_api == 'true' && needs.build.result == 'success' && (needs.sites.result == 'success' || needs.sites.result == 'skipped') && (needs.alchemy-plan.result == 'success' || needs.alchemy-plan.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    concurrency:
-      group: deploy-production-cire-api
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      # The Alchemy tree (@shared/infra and the @<product>/infra stacks) is
-      # about 100 packages and over 1 GB unpacked, and only a job that builds,
-      # tests or type-checks those packages loads it; every other job installs
-      # without them.
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
-
-      # Fail the deploy if cire/api/wrangler.toml carries a placeholder (or
-      # empty) D1 database_id: deploying against a non-existent DB would
-      # silently break every D1 read/write in prod. Needs no credential.
-      - name: Guard against placeholder D1 database_id
-        run: bun run scripts/check-d1-database-id.ts
-
-      # Secrets that must NOT exist on the production Worker. RESEND_API_URL
-      # points mail at a local Resend emulator; a deployed cire-api refuses it
-      # and sends no mail at all, so refuse the deploy until it is deleted.
-      # Read-only (`wrangler secret list`); never prints values. A committed
-      # var is caught earlier, by cire/api/tests/lib/resend-email.test.ts.
-      - name: Preflight — no forbidden prod secrets are set
-        run: |
-          set -euo pipefail
-          set_names="$(bunx wrangler secret list --env production | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
-          forbidden="RESEND_API_URL"
-          present=""
-          for name in $forbidden; do
-            if printf '%s\n' "$set_names" | grep -qx "$name"; then
-              present="$present $name"
-            fi
-          done
-          if [ -n "$present" ]; then
-            echo "::error::cire-api has forbidden prod secret(s) set:$present — delete with 'wrangler secret delete <NAME> --env production'. These exist only for local emulation."
-            exit 1
-          fi
-          echo "No forbidden cire-api prod secrets are set."
-        working-directory: cire/api
-
-      # Idempotent: wrangler skips already-applied migrations, so re-running the
-      # job is safe. Production is never reset and never seeded.
-      - name: Apply cire D1 migrations (remote prod)
-        run: bun run --cwd cire/db db:migrate:prod
-
-      - name: Deploy cire/api Worker
-        run: bunx wrangler deploy --env production
-        working-directory: cire/api
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-      # `wrangler deploy` succeeds when the upload does, not when the Worker
-      # serves. Asks api.cireweddings.com for up to a minute, and rolls the
-      # Worker back if it answers wrongly (scripts/smoke-check.ts).
-      - name: Smoke check, rolling back on failure
-        run: bun run scripts/smoke-check.ts cire_api production
-        timeout-minutes: 5
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-  # ── cire invites (Astro SSR → Cloudflare Worker) ─────────────────────────
-  # The guest site is Astro SSR on Cloudflare (output: "server", the
-  # @astrojs/cloudflare adapter). It resolves which wedding to render from the
-  # path or the redacted query per request. The adapter emits a Worker with
-  # Static Assets: `dist/server/entry.mjs`, `dist/client/`, and a generated
-  # `dist/server/wrangler.json` that extends the committed
-  # cire/invites/wrangler.jsonc (worker name + custom-domain route).
-  # PUBLIC_API_URL / PUBLIC_SITE_URL bake in at build time, which is why dev
-  # has its own build in deploy.yml and cannot re-point this one.
-  deploy-cire-invites:
-    name: Deploy cire/invites — production
-    needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.cire_invites == 'true' && needs.build.result == 'success' && (needs.sites.result == 'success' || needs.sites.result == 'skipped') && (needs.alchemy-plan.result == 'success' || needs.alchemy-plan.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    concurrency:
-      group: deploy-production-cire-invites
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-turbo-build-
-
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
-
-      #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
-      #   key. PUBLIC_TURNSTILE_SITEKEY is the optional Cloudflare Turnstile
-      #   sitekey (public, bot protection); the build omits the widget cleanly
-      #   when it is absent. The matching TURNSTILE_SECRET_KEY is a
-      #   `wrangler secret` on the cire-api Worker (see production-deploy.md).
-      - name: Build cire/invites
-        run: bun run build --filter=@cire/invites
-        env:
-          PUBLIC_API_URL: https://api.cireweddings.com
-          # The guest site lives on the `invite.` subdomain; the apex serves
-          # the marketing landing site.
-          PUBLIC_SITE_URL: https://invite.cireweddings.com
-          # Where the guest bare domain (`/`) sends visitors. A multi-tenant
-          # guest site has no single wedding to show at its root, so it hands
-          # off to the apex marketing landing. Matches the in-code default; set
-          # explicitly so the destination is visible in the deploy config.
-          PUBLIC_MARKETING_URL: https://cireweddings.com
-          # No OSN issuer var: the guest site never talks to the issuer. "Link
-          # my Pulse account" navigates to cire-api's /api/auth/oidc/start,
-          # and cire-api runs the exchange.
-          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
-          # Google Maps Embed API key (public, referrer-restricted to
-          # *.cireweddings.com). Present ⇒ real Embed iframe; absent ⇒ CSS-card
-          # fallback.
-          PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
-          # The commit this release is built from. The footer prints its first
-          # seven characters as the version, so a report from a phone says
-          # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
-          # a new commit never replays an older `dist/`.
-          PUBLIC_BUILD_SHA: ${{ github.sha }}
-          # Marks a production deploy build: the CSP integration then fails
-          # the build unless the cire-api URL is https://api.cireweddings.com.
-          # turbo hashes it, so this build never replays the `build` job's
-          # tier-less one. A literal, so the tier is always `production` here.
-          OSN_DEPLOY_TIER: production
-
-      # Warns (the step stays green) when the SSR bundle is over its budget
-      # in scripts/bundle-size-budgets.txt; `ci.yml` annotates the same on
-      # the pull request before it merges. Fails, and stops the release, on a
-      # source map under `dist/client`, which is served publicly as Static
-      # Assets, or a missing or empty `dist`.
-      - name: Check cire/invites SSR bundle size and refuse public source maps
-        run: ./scripts/guard-bundle-size.sh cire/invites
-
-      # `@astrojs/cloudflare` writes a top-level `"legacy_env": true` into the
-      # generated `dist/server/wrangler.json`. Wrangler 4.111+ hard-errors on
-      # that field ("legacy_env field is no longer supported"). Removing it is
-      # a no-op for behaviour — `legacy_env: true` was the default — and
-      # harmless if a future adapter stops emitting it.
-      - name: Strip unsupported legacy_env from generated config
-        run: node -e "const fs=require('fs'),f='dist/server/wrangler.json',c=JSON.parse(fs.readFileSync(f,'utf8'));delete c.legacy_env;fs.writeFileSync(f,JSON.stringify(c))"
-        working-directory: cire/invites
-
-      # Production traces every guest request. What keeps `?slug=`, `?code=` and
-      # the Stripe `&gift=` out of those traces is `redact_query_string` in the
-      # committed wrangler.jsonc, which the adapter copies into this generated
-      # file. Check the file that deploys, not the one committed: an adapter
-      # that drops the key fails here.
-      - name: Check the generated config redacts query strings
-        run: bun run ../../scripts/check-trace-redaction.ts --generated dist/server/wrangler.json
-        working-directory: cire/invites
-
-      # The adapter's generated config carries `main`, the ASSETS binding
-      # (→ dist/client), the worker name, and the invite.cireweddings.com
-      # custom-domain route.
-      - name: Deploy cire/invites (Worker)
-        run: bunx wrangler deploy --config dist/server/wrangler.json
-        working-directory: cire/invites
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-      # Rolls back cire-invites, the Worker the generated config names.
-      - name: Smoke check, rolling back on failure
-        run: bun run scripts/smoke-check.ts cire_invites production
-        timeout-minutes: 5
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-  # ── osn/api (Worker + D1) ────────────────────────────────────────────────
-  # osn-api (identity/auth) is a Cloudflare Worker with a custom-domain route
-  # per env. Secrets are set out-of-band per tier (`wrangler secret put …
-  # --env <tier>` or the set-osn-api-secret workflow); this job only migrates
-  # and deploys.
-  deploy-osn-api:
-    name: Deploy osn/api — production
-    needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.osn_api == 'true' && needs.build.result == 'success' && (needs.sites.result == 'success' || needs.sites.result == 'skipped') && (needs.alchemy-plan.result == 'success' || needs.alchemy-plan.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    concurrency:
-      group: deploy-production-osn-api
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
-
-      # Apply pending migrations to the remote prod osn D1 (`osn-db-prod`, the
-      # `[env.production].d1_databases` binding) BEFORE the new Worker serves.
-      # `--env production` selects that binding; idempotent — wrangler skips
-      # already-applied migrations.
-      - name: Apply osn D1 migrations (remote prod)
-        run: bun run --cwd osn/db db:migrate:prod
-
-      # Secret preflight: osn-api fails CLOSED at boot or request time when a
-      # required secret is missing, so a `wrangler deploy` can report success
-      # while every route answers 503. Assert the required secrets are set on
-      # the prod Worker BEFORE promoting the new code. Read-only
-      # (`wrangler secret list`); never prints values. Add a name here
-      # whenever a new fail-closed secret gate lands.
-      - name: Preflight — required prod secrets are set
-        run: |
-          set -euo pipefail
-          required="OSN_PAIRWISE_SALT"
-          set_names="$(bunx wrangler secret list --env production | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
-          missing=""
-          for name in $required; do
-            if ! printf '%s\n' "$set_names" | grep -qx "$name"; then
-              missing="$missing $name"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::osn-api is missing required prod secret(s):$missing — set them with 'wrangler secret put <NAME> --env production' before deploying. osn-api fails closed on these, so deploying now would 503 every route."
-            exit 1
-          fi
-          # Secrets that must NOT exist here. DEV_LOGIN_SECRET is the
-          # passkey-less sign-in; the tier gate in build-deps.ts already keeps
-          # the route unmounted on production, but a secret sitting on the
-          # production Worker is one edit away from a credential bypass on
-          # live weddings, so refuse the deploy until it is deleted.
-          # RESEND_API_URL points mail at a local Resend emulator; osn-api
-          # refuses to boot with it in a non-local tier (lib/email-layer.ts),
-          # so deploying with it set would 503 every route.
-          # OSN_EMAIL_VERIFICATION_EMULATOR_URL points the sign-up token
-          # verifier at a stand-in that answers DNS and holds the keys, which
-          # would let any address verify; osn-api refuses to boot with it
-          # outside OSN_ENV=local (build-deps.ts).
-          forbidden="DEV_LOGIN_SECRET RESEND_API_URL OSN_EMAIL_VERIFICATION_EMULATOR_URL"
-          present=""
-          for name in $forbidden; do
-            if printf '%s\n' "$set_names" | grep -qx "$name"; then
-              present="$present $name"
-            fi
-          done
-          if [ -n "$present" ]; then
-            echo "::error::osn-api has forbidden prod secret(s) set:$present — delete with 'wrangler secret delete <NAME> --env production'. These exist only for the local/dev tiers."
-            exit 1
-          fi
-          echo "All required osn-api prod secrets are set, and no forbidden ones."
-        working-directory: osn/api
-
-      - name: Deploy osn/api Worker
-        run: bunx wrangler deploy --env production
-        working-directory: osn/api
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-      # /health, /.well-known/jwks.json and /health/coordination. A fail-closed
-      # secret the preflight above does not list answers 503 here, and the
-      # Worker is rolled back. The coordination probe answers only the
-      # INTERNAL_SERVICE_SECRET bearer; this Environment holds the value the
-      # Worker holds, and a mismatch fails the check without a rollback.
-      - name: Smoke check, rolling back on failure
-        run: bun run scripts/smoke-check.ts osn_api production
-        timeout-minutes: 5
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
-
-  # ── zap/api (Worker + D1) ────────────────────────────────────────────────
-  # Migrations to the remote prod D1 first, then the Worker, as cire-api.
-  deploy-zap-api:
-    name: Deploy zap/api — production
-    needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.zap_api == 'true' && needs.build.result == 'success' && (needs.sites.result == 'success' || needs.sites.result == 'skipped') && (needs.alchemy-plan.result == 'success' || needs.alchemy-plan.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    concurrency:
-      group: deploy-production-zap-api
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
-
-      - name: Apply zap D1 migrations (remote prod)
-        run: bunx wrangler d1 migrations apply zap-db-prod --env production --remote
-        working-directory: zap/api
-
-      - name: Deploy zap/api Worker
-        run: bunx wrangler deploy --env production
-        working-directory: zap/api
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-      - name: Smoke check, rolling back on failure
-        run: bun run scripts/smoke-check.ts zap_api production
-        timeout-minutes: 5
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-  # ═══ cire stack, production: the cire sites ═══════════════════════════════
-  # Declares the organiser portal, the vendor portal and the marketing site,
-  # each at its mode and hold in shared/infra/src/production-sites.ts;
-  # cire-api and the guest site stay with their Wrangler jobs until their own
-  # steps of P3.
-  stack-cire-production:
-    name: Alchemy cire stack — production
-    needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.stack_cire == 'true' && needs.build.result == 'success' && needs.sites.result == 'success' && needs.alchemy-plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.outputs.stack_musubi == 'true' && needs.build.result == 'success' && needs.sites.result == 'success' && needs.alchemy-plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production
     concurrency:
-      group: deploy-production-cire
+      group: deploy-production-musubi
       cancel-in-progress: false
     outputs:
-      # False when the deploy or the compare failed: a Worker whose new
-      # version may not have uploaded must not record success.
-      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' }}
-      cire_host_healthy: ${{ steps.smoke_cire_host.outcome == 'success' }}
-      cire_vendor_healthy: ${{ steps.smoke_cire_vendor.outcome == 'success' }}
-      cire_landing_healthy: ${{ steps.smoke_cire_landing.outcome == 'success' }}
+      # False when the deploy, the compare or the secret check after it
+      # failed: a Worker whose new version may not have uploaded, or that
+      # lost a secret, must not record success.
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' && steps.kept.outcome == 'success' }}
+      osn_api_healthy: ${{ steps.smoke_osn_api.outcome == 'success' }}
+      osn_social_healthy: ${{ steps.smoke_osn_social.outcome == 'success' }}
+      musubi_landing_healthy: ${{ steps.smoke_musubi_landing.outcome == 'success' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1049,10 +798,10 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # The cire stack's tree alone, and no cache: the cache is shared
-      # with jobs that hold no secret.
-      - name: Install the cire stack's dependencies
-        run: bun install --frozen-lockfile --filter @cire/infra
+      # The musubi stack's tree and the API Worker it bundles and migrates,
+      # and no cache: the cache is shared with jobs that hold no secret.
+      - name: Install the musubi stack's dependencies
+        run: bun install --frozen-lockfile --filter @musubi/infra --filter @osn/api --filter @osn/db
 
       - name: Fetch the built sites
         uses: actions/download-artifact@v4
@@ -1073,8 +822,8 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # Each site's production host, which its smoke check asks.
-      - name: Production site hosts
+      # Each surface's production host, which its smoke check asks.
+      - name: Production hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
 
@@ -1101,16 +850,312 @@ jobs:
 
       - name: Record each Worker's newest deployment
         id: snapshot
-        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production cire_host cire_vendor cire_landing
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production osn_api osn_social musubi_landing
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # The custom domains the site Workers hold now: the guard holds the
-      # domain change to the one approved, as it holds the plan.
-      - name: Read the cire site Workers' custom domains
+      # The custom domains the Workers hold now: the guard holds the domain
+      # change to the one approved, as it holds the plan.
+      - name: Read the musubi Workers' custom domains
         id: worker_domains
-        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production cire_host cire_vendor cire_landing
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production osn_api osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The adopted resources as they are now; the check after the deploy
+      # compares the secret names live then with these.
+      - name: Read the musubi stack's adopted resources live
+        id: live
+        working-directory: musubi/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live.json"
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The plan approved at alchemy-plan may be hours old. Plan again, with
+      # the force the deploy uses, and deploy only what the guard allows and
+      # what equals the approved plan.
+      - name: Plan the musubi stack again
+        id: plan
+        working-directory: musubi/infra
+        run: |
+          mkdir -p "$RUNNER_TEMP/plan"
+          bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/musubi.log" 2>&1
+        env:
+          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: production
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the musubi plan log, as the step failed
+        if: ${{ failure() && steps.plan.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/plan/musubi.log"
+
+      # A refusal fails the job here, before anything writes.
+      - name: Guard the plan, and hold it to the approved one
+        id: guard
+        working-directory: musubi/infra
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --live "$RUNNER_TEMP/live.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${SCHEDULED:+--scheduled}
+        env:
+          # A release started by its schedule adds no host to a Worker.
+          SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
+
+      # Wrangler is the database's one migrator, and applies what is pending
+      # before the Worker version that needs it uploads. A migration file is
+      # in osn_api's own paths, so a release that does not ship it has nothing
+      # to apply. Idempotent; production is never reset and never seeded.
+      - name: Apply osn D1 migrations (remote prod)
+        id: migrate
+        if: needs.plan.outputs.osn_api == 'true'
+        run: bun run --cwd osn/db db:migrate:prod
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
+      # credentials are set, and each build was made for production. It
+      # uploads no secret: production's stay on the Workers.
+      - name: Deploy the musubi stack
+        id: deploy
+        working-directory: musubi/infra
+        run: bun run deploy:production ${FORCE:+--force} > "$RUNNER_TEMP/alchemy.log" 2>&1
+        env:
+          FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: production
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the musubi deploy log, as the step failed
+        if: ${{ failure() && steps.deploy.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/alchemy.log"
+
+      # Change counts alone to the run summary, never a line of the log.
+      - name: Summarise the plan
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        run: bun run --cwd shared/infra plan-summary -- --stack musubi "$RUNNER_TEMP/alchemy.log"
+
+      # Runs after a deploy that failed part-way too, so a Worker it managed
+      # to upload is still checked, and rolled back if it fails.
+      - name: Find what the deploy changed
+        id: deployments
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" --tier production osn_api osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Every secret name live before the deploy must be live after it: the
+      # upload keeps the secrets it does not name. Cloudflare returns no
+      # value, so a lost secret cannot be put back from here; this names it
+      # at once and stops every record.
+      - name: Check every secret live before the deploy is live after it
+        id: kept
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        working-directory: musubi/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live-after.json" --kept "$RUNNER_TEMP/live.json"
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Five minutes: a check, its rollback and the re-check, with every
+      # request at its timeout, take 186 s. A site PRODUCTION_HOST_HOLDS
+      # holds off probes nothing: its check reads that the held host is off
+      # its Worker (scripts/smoke-check.ts).
+      - name: Smoke check osn/api, rolling back on failure
+        id: smoke_osn_api
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts osn_api production
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_api_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_api_deployment }}
+          # The coordination probe answers only the bearer the Worker holds.
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Smoke check musubi/social, rolling back on failure
+        id: smoke_osn_social
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts osn_social production
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_social_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_social_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Smoke check musubi/landing, rolling back on failure
+        id: smoke_musubi_landing
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts musubi_landing production
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_landing_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.musubi_landing_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Fail when any check failed
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.kept.outcome == 'failure' || steps.smoke_osn_api.outcome == 'failure' || steps.smoke_osn_social.outcome == 'failure' || steps.smoke_musubi_landing.outcome == 'failure') }}
+        run: |
+          echo "::error::A smoke check or the secret check failed, or the deployments could not be read; see the steps above."
+          exit 1
+
+  # ── musubi stack's record jobs ──────────────────────────────────────────────
+  # One per surface. Each runs when the stack job deployed, kept every
+  # secret, and its surface's check passed, and leaves that surface's
+  # Deployment record in `production-records`, named for the surface:
+  # scripts/release-plan.ts reads records by job name.
+  record-osn-api:
+    name: Record osn/api — production
+    needs: [stack-musubi-production]
+    if: ${{ !cancelled() && needs.stack-musubi-production.outputs.deployed == 'true' && needs.stack-musubi-production.outputs.osn_api_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "osn-api deployed and passed its smoke check in this run's musubi stack job."
+
+  record-osn-social:
+    name: Record musubi/social — production
+    needs: [stack-musubi-production]
+    if: ${{ !cancelled() && needs.stack-musubi-production.outputs.deployed == 'true' && needs.stack-musubi-production.outputs.osn_social_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "osn-social deployed and passed its smoke check in this run's musubi stack job."
+
+  record-musubi-landing:
+    name: Record musubi/landing — production
+    needs: [stack-musubi-production]
+    if: ${{ !cancelled() && needs.stack-musubi-production.outputs.deployed == 'true' && needs.stack-musubi-production.outputs.musubi_landing_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "musubi-landing deployed and passed its smoke check in this run's musubi stack job."
+
+
+  # ═══ cire stack, production: cire-api with its database and buckets, the guest site, and the organiser portal, the vendor portal and the marketing site ═══
+  stack-cire-production:
+    name: Alchemy cire stack — production
+    needs: [plan, build, sites, alchemy-plan]
+    if: ${{ !cancelled() && needs.plan.outputs.stack_cire == 'true' && needs.build.result == 'success' && needs.sites.result == 'success' && needs.alchemy-plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    concurrency:
+      group: deploy-production-cire
+      cancel-in-progress: false
+    outputs:
+      # False when the deploy, the compare or the secret check after it
+      # failed: a Worker whose new version may not have uploaded, or that
+      # lost a secret, must not record success.
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' && steps.kept.outcome == 'success' }}
+      cire_api_healthy: ${{ steps.smoke_cire_api.outcome == 'success' }}
+      cire_invites_healthy: ${{ steps.smoke_cire_invites.outcome == 'success' }}
+      cire_host_healthy: ${{ steps.smoke_cire_host.outcome == 'success' }}
+      cire_vendor_healthy: ${{ steps.smoke_cire_vendor.outcome == 'success' }}
+      cire_landing_healthy: ${{ steps.smoke_cire_landing.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # The cire stack's tree and the API Worker it bundles and migrates,
+      # and no cache: the cache is shared with jobs that hold no secret.
+      - name: Install the cire stack's dependencies
+        run: bun install --frozen-lockfile --filter @cire/infra --filter @cire/api
+
+      - name: Fetch the built sites
+        uses: actions/download-artifact@v4
+        with:
+          name: production-sites
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
+
+      - name: Fetch the approved plans
+        uses: actions/download-artifact@v4
+        with:
+          name: alchemy-plan
+          path: ${{ runner.temp }}/approved
+
+      # Each surface's production host, which its smoke check asks.
+      - name: Production hosts
+        id: hosts
+        run: bun run --cwd shared/infra production-hosts
+
+      - name: Check the token reaches only the production account
+        id: token
+        run: bun run --cwd shared/infra token:check -- --tier production
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # `deploy --yes` upgrades or bootstraps the state store without asking;
+      # this refuses one that is not as this Alchemy expects before the plan
+      # reads it. The plan itself runs without --yes, so it upgrades nothing.
+      - name: Check the production state store
+        id: state
+        run: |
+          bun run --cwd shared/infra state:check || {
+            echo "::error::The production Alchemy state store does not answer as this Alchemy expects. Run the Alchemy state store workflow, tier production, bootstrap, then check."
+            exit 1
+          }
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Record each Worker's newest deployment
+        id: snapshot
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production cire_api cire_invites cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The custom domains the Workers hold now: the guard holds the domain
+      # change to the one approved, as it holds the plan.
+      - name: Read the cire Workers' custom domains
+        id: worker_domains
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production cire_api cire_invites cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The adopted resources as they are now; the check after the deploy
+      # compares the secret names live then with these.
+      - name: Read the cire stack's adopted resources live
+        id: live
+        working-directory: cire/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live.json"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1137,17 +1182,30 @@ jobs:
         if: ${{ failure() && steps.plan.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/plan/cire.log"
 
-      # The last step before the deploy: a refusal fails the job here.
+      # A refusal fails the job here, before anything writes.
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json" ${SCHEDULED:+--scheduled}
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --live "$RUNNER_TEMP/live.json" --approved "$RUNNER_TEMP/approved/cire.json" ${SCHEDULED:+--scheduled}
         env:
-          # A release started by its schedule adds no host to a site Worker.
+          # A release started by its schedule adds no host to a Worker.
           SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
+      # Wrangler is the database's one migrator, and applies what is pending
+      # before the Worker version that needs it uploads. A migration file is
+      # in cire_api's own paths, so a release that does not ship it has nothing
+      # to apply. Idempotent; production is never reset and never seeded.
+      - name: Apply cire D1 migrations (remote prod)
+        id: migrate
+        if: needs.plan.outputs.cire_api == 'true'
+        run: bun run --cwd cire/db db:migrate:prod
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
-      # credentials are set, and each site was built for production.
+      # credentials are set, and each build was made for production. It
+      # uploads no secret: production's stay on the Workers.
       - name: Deploy the cire stack
         id: deploy
         working-directory: cire/infra
@@ -1176,7 +1234,21 @@ jobs:
         id: deployments
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" --tier production cire_host cire_vendor cire_landing
+        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" --tier production cire_api cire_invites cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Every secret name live before the deploy must be live after it: the
+      # upload keeps the secrets it does not name. Cloudflare returns no
+      # value, so a lost secret cannot be put back from here; this names it
+      # at once and stops every record.
+      - name: Check every secret live before the deploy is live after it
+        id: kept
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        working-directory: cire/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live-after.json" --kept "$RUNNER_TEMP/live.json"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1185,6 +1257,31 @@ jobs:
       # request at its timeout, take 186 s. A site PRODUCTION_HOST_HOLDS
       # holds off probes nothing: its check reads that the held host is off
       # its Worker (scripts/smoke-check.ts).
+      - name: Smoke check cire/api, rolling back on failure
+        id: smoke_cire_api
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts cire_api production
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_api_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_api_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Smoke check cire/invites, rolling back on failure
+        id: smoke_cire_invites
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts cire_invites production
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_invites_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_invites_deployment }}
+          SMOKE_MARKETING_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Smoke check cire/host, rolling back on failure
         id: smoke_cire_host
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
@@ -1222,16 +1319,38 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Fail when any check failed
-        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_cire_host.outcome == 'failure' || steps.smoke_cire_vendor.outcome == 'failure' || steps.smoke_cire_landing.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.kept.outcome == 'failure' || steps.smoke_cire_api.outcome == 'failure' || steps.smoke_cire_invites.outcome == 'failure' || steps.smoke_cire_host.outcome == 'failure' || steps.smoke_cire_vendor.outcome == 'failure' || steps.smoke_cire_landing.outcome == 'failure') }}
         run: |
-          echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
+          echo "::error::A smoke check or the secret check failed, or the deployments could not be read; see the steps above."
           exit 1
 
-  # ── cire stack's record jobs ───────────────────────────────────────────────
-  # One per site whose Worker serves its production host. Each runs when the
-  # stack job deployed and its site's check passed, and leaves that site's
-  # Deployment record in `production-records`, named for the site:
+  # ── cire stack's record jobs ──────────────────────────────────────────────
+  # One per surface. Each runs when the stack job deployed, kept every
+  # secret, and its surface's check passed, and leaves that surface's
+  # Deployment record in `production-records`, named for the surface:
   # scripts/release-plan.ts reads records by job name.
+  record-cire-api:
+    name: Record cire/api — production
+    needs: [stack-cire-production]
+    if: ${{ !cancelled() && needs.stack-cire-production.outputs.deployed == 'true' && needs.stack-cire-production.outputs.cire_api_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "cire-api deployed and passed its smoke check in this run's cire stack job."
+
+  record-cire-invites:
+    name: Record cire/invites — production
+    needs: [stack-cire-production]
+    if: ${{ !cancelled() && needs.stack-cire-production.outputs.deployed == 'true' && needs.stack-cire-production.outputs.cire_invites_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "cire-invites deployed and passed its smoke check in this run's cire stack job."
+
   record-cire-host:
     name: Record cire/host — production
     needs: [stack-cire-production]
@@ -1265,26 +1384,24 @@ jobs:
       - name: Record the production deploy
         run: echo "cire-landing deployed and passed its smoke check in this run's cire stack job."
 
-  # ═══ musubi stack, production: musubi social and musubi landing ═══════════
-  # Declares the account app and the marketing site, each at its mode and
-  # hold in shared/infra/src/production-sites.ts; osn-api stays with its
-  # Wrangler job until its own step of P3.
-  stack-musubi-production:
-    name: Alchemy musubi stack — production
+
+  # ═══ zap stack, production: zap-api with its database ═══
+  stack-zap-production:
+    name: Alchemy zap stack — production
     needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.stack_musubi == 'true' && needs.build.result == 'success' && needs.sites.result == 'success' && needs.alchemy-plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.outputs.stack_zap == 'true' && needs.build.result == 'success' && needs.sites.result == 'success' && needs.alchemy-plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production
     concurrency:
-      group: deploy-production-musubi
+      group: deploy-production-zap
       cancel-in-progress: false
     outputs:
-      # False when the deploy or the compare failed: a Worker whose new
-      # version may not have uploaded must not record success.
-      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' }}
-      osn_social_healthy: ${{ steps.smoke_osn_social.outcome == 'success' }}
-      musubi_landing_healthy: ${{ steps.smoke_musubi_landing.outcome == 'success' }}
+      # False when the deploy, the compare or the secret check after it
+      # failed: a Worker whose new version may not have uploaded, or that
+      # lost a secret, must not record success.
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' && steps.kept.outcome == 'success' }}
+      zap_api_healthy: ${{ steps.smoke_zap_api.outcome == 'success' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1294,23 +1411,10 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # The musubi stack's tree alone, and no cache: the cache is shared
-      # with jobs that hold no secret.
-      - name: Install the musubi stack's dependencies
-        run: bun install --frozen-lockfile --filter @musubi/infra
-
-      - name: Fetch the built sites
-        uses: actions/download-artifact@v4
-        with:
-          name: production-sites
-          path: ${{ runner.temp }}/production-sites
-
-      # Outside the checkout, and checked before any build reaches it: the
-      # sites job ran third-party build code with no secret, so only the
-      # site builds come in, never a file a later step runs.
-      - name: Check the built sites, then put them in place
-        id: place_sites
-        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
+      # The zap stack's tree and the API Worker it bundles and migrates,
+      # and no cache: the cache is shared with jobs that hold no secret.
+      - name: Install the zap stack's dependencies
+        run: bun install --frozen-lockfile --filter @zap/infra --filter @zap/api
 
       - name: Fetch the approved plans
         uses: actions/download-artifact@v4
@@ -1318,8 +1422,8 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # Each site's production host, which its smoke check asks.
-      - name: Production site hosts
+      # Each surface's production host, which its smoke check asks.
+      - name: Production hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
 
@@ -1346,16 +1450,26 @@ jobs:
 
       - name: Record each Worker's newest deployment
         id: snapshot
-        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production osn_social musubi_landing
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production zap_api
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # The custom domains the site Workers hold now: the guard holds the
-      # domain change to the one approved, as it holds the plan.
-      - name: Read the musubi site Workers' custom domains
+      # The custom domains the Workers hold now: the guard holds the domain
+      # change to the one approved, as it holds the plan.
+      - name: Read the zap Workers' custom domains
         id: worker_domains
-        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production osn_social musubi_landing
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production zap_api
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The adopted resources as they are now; the check after the deploy
+      # compares the secret names live then with these.
+      - name: Read the zap stack's adopted resources live
+        id: live
+        working-directory: zap/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live.json"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1363,12 +1477,12 @@ jobs:
       # The plan approved at alchemy-plan may be hours old. Plan again, with
       # the force the deploy uses, and deploy only what the guard allows and
       # what equals the approved plan.
-      - name: Plan the musubi stack again
+      - name: Plan the zap stack again
         id: plan
-        working-directory: musubi/infra
+        working-directory: zap/infra
         run: |
           mkdir -p "$RUNNER_TEMP/plan"
-          bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/musubi.log" 2>&1
+          bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/zap.log" 2>&1
         env:
           FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
           DO_NOT_TRACK: "1"
@@ -1378,24 +1492,38 @@ jobs:
 
       # Raw Alchemy output stays out of the public run log unless the step
       # failed; GitHub masks every secret the job holds in what it prints.
-      - name: Show the musubi plan log, as the step failed
+      - name: Show the zap plan log, as the step failed
         if: ${{ failure() && steps.plan.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/plan/musubi.log"
+        run: cat "$RUNNER_TEMP/plan/zap.log"
 
-      # The last step before the deploy: a refusal fails the job here.
+      # A refusal fails the job here, before anything writes.
       - name: Guard the plan, and hold it to the approved one
         id: guard
-        working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${SCHEDULED:+--scheduled}
+        working-directory: zap/infra
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/zap.log" --out "$RUNNER_TEMP/plan-guard/zap.json" --domains "$RUNNER_TEMP/domains.json" --live "$RUNNER_TEMP/live.json" --approved "$RUNNER_TEMP/approved/zap.json" ${SCHEDULED:+--scheduled}
         env:
-          # A release started by its schedule adds no host to a site Worker.
+          # A release started by its schedule adds no host to a Worker.
           SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
+      # Wrangler is the database's one migrator, and applies what is pending
+      # before the Worker version that needs it uploads. A migration file is
+      # in zap_api's own paths, so a release that does not ship it has nothing
+      # to apply. Idempotent; production is never reset and never seeded.
+      - name: Apply zap D1 migrations (remote prod)
+        id: migrate
+        if: needs.plan.outputs.zap_api == 'true'
+        working-directory: zap/api
+        run: bunx wrangler d1 migrations apply zap-db-prod --env production --remote
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
-      # credentials are set, and each site was built for production.
-      - name: Deploy the musubi stack
+      # credentials are set, and each build was made for production. It
+      # uploads no secret: production's stay on the Workers.
+      - name: Deploy the zap stack
         id: deploy
-        working-directory: musubi/infra
+        working-directory: zap/infra
         run: bun run deploy:production ${FORCE:+--force} > "$RUNNER_TEMP/alchemy.log" 2>&1
         env:
           FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
@@ -1406,14 +1534,14 @@ jobs:
 
       # Raw Alchemy output stays out of the public run log unless the step
       # failed; GitHub masks every secret the job holds in what it prints.
-      - name: Show the musubi deploy log, as the step failed
+      - name: Show the zap deploy log, as the step failed
         if: ${{ failure() && steps.deploy.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/alchemy.log"
 
       # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
-        run: bun run --cwd shared/infra plan-summary -- --stack musubi "$RUNNER_TEMP/alchemy.log"
+        run: bun run --cwd shared/infra plan-summary -- --stack zap "$RUNNER_TEMP/alchemy.log"
 
       # Runs after a deploy that failed part-way too, so a Worker it managed
       # to upload is still checked, and rolled back if it fails.
@@ -1421,7 +1549,21 @@ jobs:
         id: deployments
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" --tier production osn_social musubi_landing
+        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" --tier production zap_api
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Every secret name live before the deploy must be live after it: the
+      # upload keeps the secrets it does not name. Cloudflare returns no
+      # value, so a lost secret cannot be put back from here; this names it
+      # at once and stops every record.
+      - name: Check every secret live before the deploy is live after it
+        id: kept
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        working-directory: zap/infra
+        run: bun run read:live -- --out "$RUNNER_TEMP/live-after.json" --kept "$RUNNER_TEMP/live.json"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1430,59 +1572,36 @@ jobs:
       # request at its timeout, take 186 s. A site PRODUCTION_HOST_HOLDS
       # holds off probes nothing: its check reads that the held host is off
       # its Worker (scripts/smoke-check.ts).
-      - name: Smoke check musubi/social, rolling back on failure
-        id: smoke_osn_social
+      - name: Smoke check zap/api, rolling back on failure
+        id: smoke_zap_api
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
         timeout-minutes: 5
-        run: bun run scripts/smoke-check.ts osn_social production
+        run: bun run scripts/smoke-check.ts zap_api production
         env:
-          SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_social_origin }}
-          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_social_deployment }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
-      - name: Smoke check musubi/landing, rolling back on failure
-        id: smoke_musubi_landing
-        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
-        continue-on-error: true
-        timeout-minutes: 5
-        run: bun run scripts/smoke-check.ts musubi_landing production
-        env:
-          SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_landing_origin }}
-          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.musubi_landing_deployment }}
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.zap_api_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.zap_api_deployment }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Fail when any check failed
-        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_osn_social.outcome == 'failure' || steps.smoke_musubi_landing.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.kept.outcome == 'failure' || steps.smoke_zap_api.outcome == 'failure') }}
         run: |
-          echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
+          echo "::error::A smoke check or the secret check failed, or the deployments could not be read; see the steps above."
           exit 1
 
-  # ── musubi stack's record jobs ─────────────────────────────────────────────
-  # One per site whose Worker serves its production host. Each runs when the
-  # stack job deployed and its site's check passed, and leaves that site's
-  # Deployment record in `production-records`, named for the site:
+  # ── zap stack's record jobs ──────────────────────────────────────────────
+  # One per surface. Each runs when the stack job deployed, kept every
+  # secret, and its surface's check passed, and leaves that surface's
+  # Deployment record in `production-records`, named for the surface:
   # scripts/release-plan.ts reads records by job name.
-  record-osn-social:
-    name: Record musubi/social — production
-    needs: [stack-musubi-production]
-    if: ${{ !cancelled() && needs.stack-musubi-production.outputs.deployed == 'true' && needs.stack-musubi-production.outputs.osn_social_healthy == 'true' }}
+  record-zap-api:
+    name: Record zap/api — production
+    needs: [stack-zap-production]
+    if: ${{ !cancelled() && needs.stack-zap-production.outputs.deployed == 'true' && needs.stack-zap-production.outputs.zap_api_healthy == 'true' }}
     runs-on: ubuntu-latest
     environment: production-records
     timeout-minutes: 2
     steps:
       - name: Record the production deploy
-        run: echo "osn-social deployed and passed its smoke check in this run's musubi stack job."
-
-  record-musubi-landing:
-    name: Record musubi/landing — production
-    needs: [stack-musubi-production]
-    if: ${{ !cancelled() && needs.stack-musubi-production.outputs.deployed == 'true' && needs.stack-musubi-production.outputs.musubi_landing_healthy == 'true' }}
-    runs-on: ubuntu-latest
-    environment: production-records
-    timeout-minutes: 2
-    steps:
-      - name: Record the production deploy
-        run: echo "musubi-landing deployed and passed its smoke check in this run's musubi stack job."
+        run: echo "zap-api deployed and passed its smoke check in this run's zap stack job."
