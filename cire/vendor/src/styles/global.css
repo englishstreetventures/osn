@@ -247,6 +247,21 @@
   }
 }
 
+/* ── A theme change: one cross-fade ─────────────────────────────────────────
+ * `cire/host`'s, rule for rule: `@cire/ui/lib/theme` applies a theme chosen in
+ * the account menu inside a view transition, and this times its fade (host
+ * DESIGN.md §4, "A theme change cross-fades"). `tests/styles/tokens.test.ts`
+ * fails if the two copies differ.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--dur-base);
+    animation-timing-function: var(--ease-in-out);
+  }
+}
+
 /* ── Toast ──────────────────────────────────────────────────────────────────
  * `@shared/toast` styles itself from these names, so the toast is the portal's
  * own surface rather than a foreign white pill. Aliases onto the ramp like

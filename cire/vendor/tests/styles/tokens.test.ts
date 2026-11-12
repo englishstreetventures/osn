@@ -367,6 +367,49 @@ describe("one shape and one pace across cire", () => {
     expect(layers).toEqual({ host: base, vendor: base, invites: base, landing: base });
   });
 
+  /**
+   * The rules that time a theme change's cross-fade (host DESIGN.md §4), each
+   * with the at-rules it sits inside, comments dropped and whitespace
+   * collapsed.
+   */
+  function crossfadeRules(css: string): string[] {
+    const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const out: string[] = [];
+    const open: { prelude: string; body: number }[] = [];
+    let start = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "{") {
+        open.push({ prelude: text.slice(start, i).trim().replace(/\s+/g, " "), body: i + 1 });
+        start = i + 1;
+      } else if (text[i] === "}") {
+        const rule = open.pop()!;
+        if (rule.prelude.includes("::view-transition")) {
+          const body = text.slice(rule.body, i).replace(/\s+/g, " ").trim();
+          out.push([...open.map((o) => o.prelude), `${rule.prelude} { ${body} }`].join(" "));
+        }
+        start = i + 1;
+      } else if (text[i] === ";") {
+        start = i + 1;
+      }
+    }
+    return out;
+  }
+
+  // Both portals share `@cire/ui/lib/theme`, which starts the transition, so a
+  // portal without the rules would fade on the browser's own 0.25s.
+  it("both portals, and no other site, time a theme change's cross-fade, only without reduced motion", () => {
+    const rules = mapSurfaces(crossfadeRules);
+    // A parse that found nothing would make the two copies agree.
+    expect(rules.host).toHaveLength(1);
+    expect(rules.host[0]).toMatch(/^@media \(prefers-reduced-motion: no-preference\) ::view-/);
+    expect(rules.vendor).toEqual(rules.host);
+    // The guest and marketing sites start no theme cross-fade. The portals'
+    // root timing copied there would time any view transition they start.
+    const root = (found: string[]) => found.filter((rule) => rule.includes("(root)"));
+    expect(root(rules.invites)).toEqual([]);
+    expect(root(rules.landing)).toEqual([]);
+  });
+
   function mapSurfaces<R>(read: (css: string) => R): Record<keyof typeof SURFACES, R> {
     return {
       host: read(SURFACES.host),

@@ -242,6 +242,26 @@
   }
 }
 
+/* ── A theme change: one cross-fade ─────────────────────────────────────────
+ * A theme chosen in the account menu is applied inside
+ * `document.startViewTransition` (`@cire/ui/lib/theme`), so the whole page
+ * fades from one ramp to the other on the base step. Nothing moves: the page,
+ * the open menu included, is one snapshot of the viewport. The group is timed
+ * with the two snapshots so the transition, and the pointer's wait under it,
+ * ends with the fade rather than on the browser's own 0.25s.
+ *
+ * Inside `no-preference`: the reduced-motion switch selects `*` and reaches no
+ * pseudo-element. The script skips the transition under `reduce` as well.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--dur-base);
+    animation-timing-function: var(--ease-in-out);
+  }
+}
+
 /* ── The stuck stack ────────────────────────────────────────────────────────
  * What holds at the top of the window as a long view scrolls, from the top
  * down: the top bar, the module's view bar, a view's column heads or card

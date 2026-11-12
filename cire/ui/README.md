@@ -28,7 +28,10 @@ change under `src/` redeploys all four cire frontends.
 `createPreferences` and `themeBootScript` (the theme and haptics switch, and
 the inline script that sets the theme before first paint, under each portal's
 own storage keys), and `createHaptics` (touch feedback by event name). The
-guest and marketing sites import none of them.
+guest and marketing sites import none of them. `setThemePreference(next,
+{ fade: true })` cross-fades the page through a view transition, which each
+portal's stylesheet times (`cire/host/DESIGN.md` §4); without `fade` the theme
+changes at once.
 
 Four names here are also `@shared/ui` parts. `Button` and `Card` are the house
 style above.
