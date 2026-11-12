@@ -12,7 +12,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Browser Tests
@@ -416,6 +416,17 @@ A `getByRole` straight after `render` then fails every run, and a `findByRole`
 passes.
 
 *Measured 2026-11-12 — a throwaway config adding a setup file to the browser project of `cire/host` and `cire/vendor`, `bunx --bun vitest run --config <scratch config> <file>`, macOS on Apple silicon, `chromium_headless_shell-1248`. A CPU probe took 5.1 ms plain and 49.3 ms at a rate of 10 set through `cdp()`. At that rate the crossfade file without its wait failed 5 of 5 runs, and each package's `ProfileMenu.browser.test.tsx` without its wait passed 5 of 5. With the setup above, those two failed at every trigger read in 5 of 5 runs at a rate of 10 and 3 of 3 unthrottled; with `findByRole` they passed every run.*
+
+Nor does the throttle bring back every late transition start, so a passing
+throttled run does not clear a one-frame read. To fail one on any machine,
+hold the starting value inline from the change until two frames after the
+event the test then waits one frame on, in a throwaway setup file. The
+reduced-motion case of
+[`ReorderControls.settle.browser.test.tsx`](../../cire/host/tests/components/ReorderControls.settle.browser.test.tsx)
+is the worked example: it waits with `vi.waitFor` until the row has no
+`box-shadow` transition and its shadow computes to `none`.
+
+*Measured 2026-11-13 — the same scratch-config method, macOS on Apple silicon, `chromium_headless_shell-1248`, CPU probe 10.1× to 11.3× at a rate of 10. The reduced-motion case reading the shadow one frame after the release failed 1 of 6 runs at that rate. With a setup file holding the lifted shadow inline from the drop until two frames after the real mouse release, it failed 5 of 5 with the runner's error (`expected 'rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb…' to be 'none'`); with the wait, 5 of 5 passed under that setup and 5 of 5 under the throttle alone.*
 
 ### A test run twice in one page
 
