@@ -39,6 +39,7 @@ import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from ".
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { sameButOrder } from "../lib/sortable-rows";
 import { haptic } from "../lib/touch-feedback";
+import { deleteWithUndo, isPendingDelete, isReturning, returned } from "../lib/undo-delete";
 import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
 import ReorderControls from "./ReorderControls";
 
@@ -74,6 +75,9 @@ const NO_ITEMS: BudgetItemRow[] = [];
 const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
   a.length === b.length && a.every((row, k) => row === b[k]);
 
+/** A budget line's name in `undo-delete`. */
+const budgetKey = (itemId: string) => `budget:${itemId}`;
+
 export default function BudgetView(props: BudgetViewProps) {
   const { authFetch } = useAuth();
   const snapshot = budgetAccessor(props.weddingId);
@@ -102,7 +106,13 @@ export default function BudgetView(props: BudgetViewProps) {
       return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
     }
     if (!res.ok) throw new Error(`Failed to load budget (${res.status})`);
-    return (await res.json()) as BudgetSnapshot;
+    const snap = (await res.json()) as BudgetSnapshot;
+    // A line waiting on its undo toast is still on the server; it stays off screen.
+    return {
+      ...snap,
+      items: snap.items.filter((it) => !isPendingDelete(budgetKey(it.id))),
+      payments: snap.payments.filter((p) => !isPendingDelete(budgetKey(p.budgetItemId))),
+    };
   };
 
   onMount(() => {
@@ -295,27 +305,63 @@ export default function BudgetView(props: BudgetViewProps) {
       "Couldn't switch that line to a fixed amount.",
     );
 
-  const deleteItem = async (item: BudgetItemRow) => {
-    patchSnap((s) => ({
-      ...s,
-      items: s.items.filter((it) => it.id !== item.id),
-      payments: s.payments.filter((p) => p.budgetItemId !== item.id),
-    }));
-    haptic("commit");
-    try {
-      const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}`)),
-        {
-          method: "DELETE",
+  /**
+   * Undo puts back the line and its payments as the budget holds them now,
+   * since the row's own object can lag a move; the `DELETE` goes only once the
+   * toast has gone (`deleteWithUndo`). Until then `load` leaves the line out of
+   * any read, so a reload meanwhile does not bring it back. A session that has
+   * expired by then sends the organiser to sign in, the line still on the
+   * server.
+   */
+  const deleteItem = (item: BudgetItemRow, click: MouseEvent) => {
+    const cur = peekCachedBudget(props.weddingId);
+    const kept = cur?.items.find((it) => it.id === item.id) ?? item;
+    const keptPayments = cur?.payments.filter((p) => p.budgetItemId === item.id) ?? [];
+    const drop = () =>
+      patchSnap((s) => ({
+        ...s,
+        items: s.items.filter((it) => it.id !== item.id),
+        payments: s.payments.filter((p) => p.budgetItemId !== item.id),
+      }));
+    deleteWithUndo(
+      {
+        key: budgetKey(item.id),
+        message: `Deleted “${item.name}”`,
+        undoName: `Undo deleting “${item.name}”`,
+        restored: `Restored “${item.name}”`,
+        hide: drop,
+        restore: () =>
+          patchSnap((s) =>
+            s.items.some((it) => it.id === item.id)
+              ? s
+              : {
+                  ...s,
+                  items: [...s.items, kept],
+                  payments: [
+                    ...s.payments,
+                    ...keptPayments.filter((p) => !s.payments.some((q) => q.id === p.id)),
+                  ],
+                },
+          ),
+        commit: async ({ keepalive }) => {
+          try {
+            const res = await authFetch(
+              apiUrl(weddingPath(props.weddingId, `/budget/items/${encodeURIComponent(item.id)}`)),
+              { method: "DELETE", keepalive },
+            );
+            if (!res.ok) throw new Error(`delete ${res.status}`);
+            // A read that does not filter (the Overview's) may have carried it back.
+            drop();
+          } catch (err) {
+            if (isAuthExpired(err)) return redirectToLogin();
+            haptic("reject");
+            setError("Couldn't delete that item.");
+            void reload();
+          }
         },
-      );
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`delete ${res.status}`);
-    } catch {
-      haptic("reject");
-      setError("Couldn't delete that item.");
-      void reload();
-    }
+      },
+      click,
+    );
   };
 
   /**
@@ -716,6 +762,11 @@ export default function BudgetView(props: BudgetViewProps) {
                                             sortable.isActiveDraggable(),
                                           "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                             dndState.dragging() && !sortable.isActiveDraggable(),
+                                          "row-return": isReturning(budgetKey(item.id)),
+                                        }}
+                                        onAnimationEnd={(e) => {
+                                          if (e.target === e.currentTarget)
+                                            returned(budgetKey(item.id));
                                         }}
                                       >
                                         {/* Each part of the line carries 4px above,
@@ -800,7 +851,8 @@ export default function BudgetView(props: BudgetViewProps) {
                                               variant="bareDanger"
                                               type="button"
                                               aria-label="Delete item"
-                                              onClick={() => deleteItem(item)}
+                                              data-undo-key={budgetKey(item.id)}
+                                              onClick={(e) => deleteItem(item, e)}
                                             >
                                               ✕
                                             </Button>

@@ -288,6 +288,42 @@
   --toast-accent-error: var(--error);
   --toast-accent-warn: var(--warn);
   --toast-accent-info: var(--text-muted);
+  /* A toast's action is a portal button: its label as written, at the `xs`
+   * step and medium weight of a small `Button`, on a pill (DESIGN.md §4
+   * corners, §7 Labels). */
+  --toast-action-case: none;
+  --toast-action-tracking: var(--ui-tracking-normal);
+  --toast-action-radius: var(--ui-radius-control);
+  --toast-action-size: var(--ui-text-xs);
+  --toast-action-weight: 500;
+}
+
+/* ── Undo after a one-click delete (`lib/undo-delete.ts`) ───────────────────
+ * The undo toast arrives on the base rung and the portal's ease-out, so the
+ * move can be felt (DESIGN.md §4); every other toast keeps the package's
+ * arrival. It holds a live Undo, so it leaves at once: a fade would keep a
+ * button that can still be pressed in a box that is going away. A row Undo
+ * puts back fades in where it stood, on opacity alone, since a transform would
+ * move the box a drag measures. Under reduced motion the base layer's switch
+ * runs the fade and the toast's arrival at once.
+ */
+.undo-toast {
+  --toast-enter-duration: var(--dur-base);
+  --toast-enter-easing: var(--ease-out);
+}
+
+.undo-toast.ui-toast--leaving {
+  display: none;
+}
+
+@keyframes row-return {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility row-return {
+  animation: row-return var(--dur-slow) var(--ease-out);
 }
 
 /* Every design token is an *alias* onto the ramp above, never a literal value.

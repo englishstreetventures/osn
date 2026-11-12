@@ -900,6 +900,35 @@ the row at once. A drag that catches a settling row picks it up where it is.
 ([drag-and-drop](../../wiki/shared/drag-and-drop.md) §A dropped row settles
 into its slot).
 
+**A one-click delete can be taken back.** A task's, a budget line's or a
+gift's ✕ takes the row off at once, since it holds live controls, and raises a
+`@shared/toast` toast that offers Undo for five seconds (`lib/undo-delete.ts`,
+the owner's choice of a toast over an in-place strip, englishstreetventures/osn#2164).
+The toast's own clock is the window, so it pauses while the pointer or focus
+is on the toast. A ✕ pressed from the keyboard or by a screen reader moves
+focus to its Undo, so the window waits for as long as focus stays there, and
+Undo hands focus back to the restored row's ✕. Each Undo is named after its
+row for a screen reader ("Undo deleting “Book the venue”"), and is drawn like
+every portal action: its label as written, on a pill (§7 Labels). Nothing is
+sent until the toast has gone, so Undo puts back the very row, where it stood
+unless the list was reordered while the toast was up (then it can land one
+place later, after the row it ties with), and a second toast says so in its
+own live region. Several deletes stack, oldest at the bottom edge, and each
+Undo restores its own row. The undo toast arrives on `--dur-base` and
+`--ease-out` (`.undo-toast` maps `--toast-enter-duration` and
+`--toast-enter-easing`): 150ms at a desk and 200ms on touch, against the
+package's 160ms. That makes it faster than the default at a desk and slower
+on touch. The owner chose `--dur-base` over `--dur-slow` after watching both
+rendered. Every other
+portal toast keeps the package's 160ms arrival, as the vendor portal's do. An
+undo toast leaves at once (`.undo-toast.ui-toast--leaving`), because it holds
+Undo. The row Undo puts back fades in where it stood (`row-return`: opacity
+alone, so the box a drag measures does not move, on `--dur-slow` and
+`--ease-out`), and only on that return. Under reduced motion the global switch
+makes all of it immediate. `tests/lib/undo-delete.browser.test.tsx` and the
+three `*.undo.browser.test.tsx` files hold it, and picture the stack at 390
+and 1280px in both ramps in `e2e-artifacts/cire-host/undo-delete/`.
+
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
 sets no `border-radius`: the outline already follows whatever radius the element
