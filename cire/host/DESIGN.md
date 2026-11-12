@@ -581,6 +581,14 @@ corner. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
 matches the shared one beside it. A pill stays flat but for the glass's own
 lift. Nothing else writes Tailwind's other shadow steps.
 
+Behind a `Modal` the page sits under the contract's scrim, `--ui-scrim`, which
+each cire stylesheet's contract block maps to the deep ground at 72%,
+`color-mix(in srgb, var(--ui-ground-deep) 72%, transparent)`: a black veil
+would read as a hole in the light theme and vanish in the dark one. Unmapped,
+the contract paints black at 50%. `tests/styles/modal-scrim.browser.test.tsx`
+holds it in both themes, and `cire/vendor`'s `tests/styles/tokens.test.ts`
+holds the four stylesheets to the one line.
+
 **Motion.** Three durations and four easings, and **no animation library in
 this package by design**.
 

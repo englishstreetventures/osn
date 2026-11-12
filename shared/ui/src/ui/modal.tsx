@@ -206,12 +206,16 @@ const MODAL_PADDING = {
  * `display` utility. `[open]` stays on through the deferred exit below, so the
  * exit is still drawn.
  *
- * ## The backdrop mixes the app's ground rather than using black
+ * ## The backdrop is the contract's scrim role
  *
- * `color-mix` against `--ui-ground-deep`: on a light theme a black scrim reads
- * as a hole punched in the page, and on a dark one it is nearly invisible.
- * Mixing the app's own ground keeps the scrim in the same family as whatever it
- * is dimming.
+ * `--ui-scrim`, the role `Dialog`'s overlay reads too, so an app has one
+ * backdrop for one kind of interruption. Unmapped, it is black at 50%. cire
+ * maps it onto its deep ground at 72%, `color-mix(in srgb,
+ * var(--ui-ground-deep) 72%, transparent)`: on its light theme a black scrim
+ * reads as a hole punched in the page, and on its dark one it is nearly
+ * invisible, while its own ground keeps the scrim in the family of what it
+ * dims. `::backdrop` inherits from the dialog, so a mapping on `:root`
+ * reaches it.
  *
  * ## Entry is pure CSS. Exit cannot be.
  *
@@ -264,7 +268,7 @@ const MODAL_STYLE = `
 }
 
 .ui-modal::backdrop {
-  background-color: color-mix(in srgb, var(--ui-ground-deep, #18181b) 72%, transparent);
+  background-color: var(--ui-scrim, rgb(0 0 0 / 0.5));
   opacity: 0;
   /* motion-literal: exit curve */
   transition: opacity var(--ui-modal-exit, 150ms) ease-in;

@@ -73,6 +73,14 @@
   --color-ui-ground: var(--ui-ground, #ffffff);
   --color-ui-ground-deep: var(--ui-ground-deep, #f4f4f5);
 
+  /* ── Scrim ────────────────────────────────────────────────────────────────
+   * The veil a modal lays over the page: `Dialog`'s overlay and `Modal`'s
+   * `::backdrop` both read it, so an app has one backdrop for one kind of
+   * interruption. A translucent colour, measured against nothing, so it carries
+   * no contrast floor. The fallback is black at 50%; cire maps it onto its deep
+   * ground at 72%. */
+  --color-ui-scrim: var(--ui-scrim, rgb(0 0 0 / 0.5));
+
   /* ── Surfaces ─────────────────────────────────────────────────────────────
    * Three, and three is the minimum: `musubi/social` and `pulse/web` both
    * collapse shadcn's `secondary`/`muted`/`accent` onto one value and

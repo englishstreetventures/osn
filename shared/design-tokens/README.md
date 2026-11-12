@@ -71,6 +71,7 @@ token or identifier takes.
 | Group     | Tokens                                                        | Obligation                                      |
 | --------- | ------------------------------------------------------------- | ----------------------------------------------- |
 | Grounds   | `--ui-ground`, `--ui-ground-deep`                           | what other tokens are measured _against_        |
+| Scrim     | `--ui-scrim`                                                 | **no floor** — a veil, defaults to black at 50% |
 | Surfaces  | `--ui-surface`, `--ui-surface-raised`, `--ui-surface-sunk` | also grounds, for contrast                      |
 | Edges     | `--ui-hairline`                                              | decoration, **no floor**                        |
 |           | `--ui-hairline-strong`                                       | 3:1                                             |

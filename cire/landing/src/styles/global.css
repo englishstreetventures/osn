@@ -458,6 +458,9 @@
 :root {
   --ui-ground: var(--color-bg);
   --ui-ground-deep: var(--color-bg);
+  /* The veil behind `Modal`: the deep ground at 72%, so the backdrop stays in
+     the family of the page it dims. Unmapped, the contract paints black at 50%. */
+  --ui-scrim: color-mix(in srgb, var(--ui-ground-deep) 72%, transparent);
   --ui-surface: var(--color-surface);
   --ui-surface-raised: var(--color-surface-raised);
   --ui-surface-sunk: var(--color-bg);

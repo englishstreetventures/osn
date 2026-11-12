@@ -215,6 +215,24 @@ describe("Modal", () => {
     expect(backdrop).not.toBe("rgba(0, 0, 0, 0)");
   });
 
+  it("paints the backdrop with `--ui-scrim` where an app maps it", () => {
+    // `::backdrop` inherits from its dialog, so a mapping on `<html>` reaches it.
+    document.documentElement.style.setProperty("--ui-scrim", "rgb(1 2 3 / 0.25)");
+    try {
+      const { dialog } = mount();
+      expect(getComputedStyle(dialog(), "::backdrop").backgroundColor).toBe("rgba(1, 2, 3, 0.25)");
+    } finally {
+      document.documentElement.style.removeProperty("--ui-scrim");
+    }
+  });
+
+  it("paints the backdrop black at 50% where no app maps the scrim", () => {
+    // The test palette maps `--ui-ground-deep` and not `--ui-scrim`, so a
+    // backdrop that still mixed the ground would show here.
+    const { dialog } = mount();
+    expect(getComputedStyle(dialog(), "::backdrop").backgroundColor).toBe("rgba(0, 0, 0, 0.5)");
+  });
+
   it("carries an accessible name", () => {
     const { dialog } = mount();
     expect(dialog().getAttribute("aria-label")).toBe("Test dialog");
