@@ -299,6 +299,23 @@ describe("one shape and one pace across cire", () => {
     });
   });
 
+  it("every cire surface maps the contract's arriving curve onto --ease-out, and no exit", () => {
+    // `Modal`'s rise and every `animate-in` entry read `--ui-ease-out`, so an
+    // app that leaves it unmapped runs the contract's curve beside its own.
+    // An exit reads `--ui-ease-exit`; an app that mapped it too would move
+    // every overlay's exit.
+    // `@cire/ui`'s test stylesheet stands in for an app, so it maps the same.
+    const curves = (css: string) =>
+      declarations(css)
+        .filter((d) => d.name.startsWith("--ui-ease-"))
+        .map((d) => `${d.path.join(" ")} { ${d.name}: ${d.value} }`);
+    const one = [":root { --ui-ease-out: var(--ease-out) }"];
+    expect({
+      ...mapSurfaces(curves),
+      ui: curves(readCire("ui/tests/test-support/tailwind.css")),
+    }).toEqual({ host: one, vendor: one, invites: one, landing: one, ui: one });
+  });
+
   it("@cire/ui's test stylesheet carries the host's desk ladder and easings", () => {
     // `@cire/ui`'s browser tier has no app, so its stylesheet copies the host's
     // motion at a desk, Chromium's pointer being fine. A copy that drifts would

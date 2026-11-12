@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -229,8 +229,9 @@ scales too.
 **An exit has its own curve.** `--ui-ease-exit` carries the same curve as
 `--ui-ease-out`, so a Kobalte overlay leaves on the curve it arrives on. They
 are two tokens so that an app can map `--ui-ease-out` onto its own arriving
-curve without moving its overlays' exits, which `animate-out` times. No app
-sets either. `overlay-motion.browser.test.tsx` holds each overlay that exits
+curve without moving its overlays' exits, which `animate-out` times. Cire
+maps `--ui-ease-out` (below); no app sets `--ui-ease-exit`.
+`overlay-motion.browser.test.tsx` holds each overlay that exits
 on `--ui-ease-exit`, unmoved by `--ui-ease-out`, and
 `dialog-default.browser.test.tsx` holds an unmapped `Dialog`'s entry and exit
 on the one curve ([[browser-tests]]).
@@ -241,11 +242,16 @@ for something arriving ([`cire/host/DESIGN.md`](../../cire/host/DESIGN.md) §4).
 The shared parts that read `var(--ease-out, var(--ui-ease-out))` follow it
 there, and so does every transition that names no easing: each cire stylesheet
 sets Tailwind's `--default-transition-timing-function` to `var(--ease-out)`,
-which outside cire stays Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`. No cire
-stylesheet maps `--ui-ease-out`, because `animate-out` reads it for a Kobalte
-overlay's exit and mapping it would move `Popover`'s exit too. So in cire
-`Modal`'s rise and the `animate-in` entries (`Tooltip`, `Popover`) keep the
-value above, at most 1.1% of the distance from cire's curve.
+which outside cire stays Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`. Each cire
+stylesheet's contract mapping also sets `--ui-ease-out: var(--ease-out)` (the
+owner's choice of 2026-11-12), so `Modal`'s rise and every `animate-in` entry
+(`Tooltip`, `Popover`, the default `DropdownMenu`) arrive on cire's curve too.
+The exits stay where they were: `animate-out` reads `--ui-ease-exit`, which no
+cire stylesheet maps, and `Modal` leaves on `ease-in`.
+`cire/vendor/tests/styles/tokens.test.ts` fails if one cire app drops the
+mapping or maps an exit, and cire host's
+`tests/styles/overlay-curves.browser.test.tsx` reads a `Popover`'s and a
+`Modal`'s curves back as they run.
 
 `Dialog`'s `sheet` presentation scales like its centred card, from its
 centre. Below `md` the sheet is pinned to the bottom edge at full width, so

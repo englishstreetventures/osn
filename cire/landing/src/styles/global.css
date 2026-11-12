@@ -485,6 +485,12 @@
 
   --ui-focus: var(--color-gold);
 
+  /* Something arriving, on cire's one arriving curve (cire/host/DESIGN.md §4):
+     `Modal`'s rise and every entry `animate-in` runs — `Tooltip`, `Popover`,
+     the default menu. An overlay leaving reads `--ui-ease-exit`, which stays
+     the contract's, so this moves no exit. */
+  --ui-ease-out: var(--ease-out);
+
   /* The corner each role paints, the same in every cire app: buttons are
      pills; text fields, selects and the `tile`, `field` and `swatch` buttons
      14px; cards and centred modals 16px. `field` and `lg` are written here

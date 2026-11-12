@@ -609,20 +609,23 @@ shared part that reads `var(--ease-out, var(--ui-ease-out))`: the fields, the
 native checkbox and radio classes, the accent `DropdownMenu`'s pop and its
 rows, `SegmentedTabs`.
 
-Three arrivals run the shared contract's `--ui-ease-out`,
-`cubic-bezier(0.22, 1, 0.36, 1)`, instead: `Modal`'s rise, and `Tooltip` and
-`Popover` opening, which run on `@shared/design-tokens`' `animate-in`. No cire
-stylesheet maps `--ui-ease-out`, because `animate-out` reads the same token for
-`Popover`'s exit (the guests editor's popover, the dietary presets'), and
-mapping it would move that exit too; an exit token of its own is a change to
-the shared contract. The two curves differ by at most 1.1% of the distance.
-`@shared/toast` arrives on CSS's own `ease-out`, a keyword in its own
-stylesheet.
+The shared overlays arrive on it too. Each cire stylesheet's contract mapping
+sets `--ui-ease-out: var(--ease-out)` (the owner's choice of 2026-11-12, once
+the contract gave exits a token of their own, englishstreetventures/osn#2228),
+so `Modal`'s rise and every entry run by `@shared/design-tokens`' `animate-in`
+— `Tooltip` and `Popover` opening, the default `DropdownMenu`'s pop — follow
+cire's curve rather than the contract's `cubic-bezier(0.22, 1, 0.36, 1)`.
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if one app drops the
+mapping or maps an exit; `tests/styles/overlay-curves.browser.test.tsx` reads a
+`Popover`'s and a `Modal`'s curves back as they run. `@shared/toast` alone
+arrives on CSS's own `ease-out`, a keyword in its own stylesheet.
 
-Exits keep their own curves: `Modal`'s and the toast's run `ease-in`, the nav
-sheet's and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s
-fill move between two places, which would take `--ease-in-out`, but they name
-no easing, so they run `--ease-out`; naming one is a change to `@shared/ui`.
+Exits keep their own curves. `Popover`'s exit, like every `animate-out`, runs
+the contract's `--ui-ease-exit`, `cubic-bezier(0.22, 1, 0.36, 1)`, which no
+cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the nav sheet's
+and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s fill move
+between two places, which would take `--ease-in-out`, but they name no easing,
+so they run `--ease-out`; naming one is a change to `@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor

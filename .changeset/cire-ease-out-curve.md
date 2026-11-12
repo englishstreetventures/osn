@@ -22,8 +22,11 @@ of the way through, where Tailwind's curve had gone 13% — and end at the same
 moment; the change shows most on the hero photo's 700ms fade and the scroll
 cue's 500ms exit.
 
-`Modal`'s rise and the tooltips' and popovers' entries keep the shared
-contract's `--ui-ease-out`, at most 1.1% from cire's curve: the same token
-times a popover's exit, and mapping it would move that exit too. `@cire/ui`'s
-test stylesheet carries the same lines, and the vendor portal's token test
-holds every copy to the host's.
+Each app also maps the shared contract's `--ui-ease-out` onto `--ease-out`,
+so `Modal`'s rise and the tooltips', popovers' and default menus' entries now
+arrive on cire's curve too, a touch further along from about an eighth of the
+way in. Their exits do not move: a popover or menu still leaves on the
+contract's `--ui-ease-exit`, and `Modal` and the toast on `ease-in`.
+`@cire/ui`'s test stylesheet carries the same lines, and the vendor portal's
+token test holds every copy to the host's and fails if one app drops the
+mapping or maps an exit.

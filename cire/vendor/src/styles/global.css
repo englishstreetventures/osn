@@ -439,6 +439,13 @@
 
   --ui-focus: var(--focus);
 
+  /* Something arriving, on cire's one arriving curve (cire/host/DESIGN.md §4):
+   * every entry `animate-in` runs — `Tooltip`, `Popover`, the default menu —
+   * and `Modal`'s rise, though this portal renders no `Modal`. An overlay
+   * leaving reads `--ui-ease-exit`, which stays the contract's, so this moves
+   * no exit. */
+  --ui-ease-out: var(--ease-out);
+
   /* The portals' pill, which `@cire/ui`'s `Button` reads (DESIGN.md §4, One
    * pill language): every non-primary pill sits on the glass track's ground,
    * the surface at 30%, and a small pill stands at the tracks' and filters'

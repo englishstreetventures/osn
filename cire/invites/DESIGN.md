@@ -148,12 +148,13 @@ The portals' ladder, value for value, in `global.css`:
   `--ui-modal-exit` to `--dur-base`.
 - **`--ease-out` is the owner's choice of 2026-11-11** for all four cire apps,
   and their one curve for something arriving (`cire/host/DESIGN.md` §4).
-  `Modal`'s rise reads the contract's `--ui-ease-out` instead,
-  `cubic-bezier(0.22, 1, 0.36, 1)`, which no cire stylesheet maps: the same
-  token times `Popover`'s exit, and mapping it would move that exit too. The
-  two curves differ by at most 1.1% of the distance.
-- **No spring token.** `--ease-spring` is the portals' alone; the vendor
-  portal's token test fails if this stylesheet gains one.
+  The contract mapping sets `--ui-ease-out: var(--ease-out)` (the owner's
+  choice of 2026-11-12), so `Modal`'s rise and every shared `animate-in`
+  entry run it too. An overlay's exit keeps its own curve: `animate-out`
+  reads the contract's `--ui-ease-exit`, which no cire stylesheet maps, and
+  `Modal` leaves on CSS's `ease-in`.
+- **No spring token.** `--ease-spring` and `--ease-glide` are the portals'
+  alone; the vendor portal's token test fails if this stylesheet gains one.
 - **Tailwind's `ease-out` and `ease-in-out` classes read the house curves**,
   because `global.css`'s `@theme` sets `--ease-out` and `--ease-in-out`. It
   also sets Tailwind's `--default-transition-timing-function` to
@@ -175,7 +176,7 @@ The portals' ladder, value for value, in `global.css`:
 | A block opening under a control (`Reveal` with `pace="slow"`): the dietary section and its "Anything else", the gift page's own amount, a gift's reserve form, the chosen member's email and musubi boxes | `--dur-slow`                                | `--ease-out`              |
 | The calendar and maps menus opening (`LinkMenu`, `menu-pop`): scaled up from 0.96 and faded in from the corner at their trigger | `--dur-base`                                | `--ease-out`              |
 | A FAQ answer opening (`Disclosure`): its box grows as the answer fades in and drops 0.25rem; its `+` turning | `--dur-slow`; the `+` `--dur-fast`          | `--ease-out`              |
-| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`) †    | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ui-ease-out` in, CSS `ease-in` out |
+| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`) †    | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ease-out` in (through `--ui-ease-out`), CSS `ease-in` out |
 | A toast (`@shared/toast`)                                                      | 160ms in and out                            | CSS `ease-out` in, CSS `ease-in` out |
 
 **Choreography longer than `--dur-slow` keeps its own time:**
