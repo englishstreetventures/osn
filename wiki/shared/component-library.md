@@ -737,6 +737,15 @@ row, label and separator inside it, so one menu cannot mix two looks:
   then falls to `<body>` instead of going back to the trigger. The colour fade
   names its properties, so the ring never fades in.
 
+`DropdownMenuSeparator` draws its line as the 1px `--ui-hairline` fill in both
+looks, across the whole panel in the default one and inset in the accent one,
+with `border-0`. It renders as an `<hr>`, which keeps preflight's 1px top
+border in the panel's ink, and without `border-0` that border covers the fill
+in an app whose base styles leave border colour alone, as pulse's do
+([[frontend-patterns]] §An `<hr>` keeps preflight's border). A contrast theme
+replaces the fill with the page colour, so both separators draw their top
+border there instead, for the theme to paint.
+
 The rows:
 
 - `DropdownMenuItem` — one choice. With `as="a"` it is a real anchor taking
@@ -802,7 +811,8 @@ unstyled.
 
 `shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
 pointer, the link rules, the modal mount, the accent look's focus ring,
-motion and its contrast on cire's two ramps, the touch row and the handle.
+motion and its contrast on cire's two ramps, its separator with and without a
+contrast theme, the touch row and the handle.
 
 ### Table and its pinned cells
 
@@ -1121,7 +1131,7 @@ import { buttonVariants } from "@shared/ui/ui/button";
 Every size, the link inside a sentence, the `busy` wait and keyboard focus
 are in [[#Button — a link inside a sentence, and a wait]].
 
-**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse and the lab draw (Musubi draws no `Badge`) ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
+**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse draws; Musubi maps 500 and draws no `Badge`, and the lab draws Musubi's 500 except in `BadgeWeights`' unmapped column, which lends `initial` ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
@@ -1154,6 +1164,22 @@ Key behaviours you get by default:
 - **Tooltip** — hover only, panel hidden from assistive technology; §`Tooltip` above says why
 - **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
 
+**`DialogTitle`'s weight is the contract's title weight.** It reads
+`--ui-weight-title` through `font-ui-title`, which falls back to 600, so an app
+that maps nothing draws a semibold title, and an app whose
+house style stops at 500 maps the token once ([[design-tokens#The tokens]]).
+No call site sets it with a class: `shadcn/no-restyle` refuses typography on
+`DialogTitle` ([[#What a call site may set, and what it may not]]).
+`shared/ui/tests/dialog-default.browser.test.tsx` holds what pulse draws today —
+the unmapped title's whole computed style as a snapshot written before the title
+read the token, and the panel entering from 0.96 over 120ms and leaving to 0.98
+over 80ms — so a `-u` that rewrites it changes pulse and needs the owner's
+approval. `dialog.browser.test.tsx` checks the title follows the token set on an
+ancestor. Musubi maps the token to 500 and `--ui-text-md` to its 14px title
+step, so its dialog titles draw 14px at 500. Overlays that fade without
+scaling are an app's choice too, made with the two scale tokens rather than a
+prop; Musubi makes it ([[design-tokens#Motion]]).
+
 ### Checkbox and RadioGroup — native, in two boxes
 
 `Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
@@ -1176,7 +1202,7 @@ The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then 
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 
-Thin wrappers that apply consistent base styling and accept a `class` prop for overrides. `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts`, so a date and a currency line up in a column:
+Thin wrappers that apply consistent base styling and accept a `class` prop for placement: layout, and `gap-*` on `Card`, `CardHeader`, `CardContent` and `CardFooter`. `shadcn/no-restyle` refuses the rest, so a card's room comes from its `padding` prop, not a `p-*` class ([[#What a call site may set, and what it may not]]). `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts`, so a date and a currency line up in a column:
 
 | Prop | Values | What it does |
 |---|---|---|
@@ -1203,12 +1229,28 @@ import { Card } from "@shared/ui/ui/card";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 
-<Card class="p-4">
+<Card padding="sm">
   <Field labelTreatment="plain" label="Email" errors={emailErrors()}>
     {(field) => <Input {...field} type="email" />}
   </Field>
 </Card>;
 ```
+
+**`CardTitle`'s weight is the contract's title weight**, as `DialogTitle`'s is.
+It reads `--ui-weight-title` through `font-ui-title`, which falls back to 600,
+so an app that maps nothing draws a semibold title, and an app
+whose house style stops at 500 maps the token once
+([[design-tokens#The tokens]]). No call site sets it with a class:
+`shadcn/no-restyle` refuses typography on `CardTitle`
+([[#What a call site may set, and what it may not]]). Musubi maps the token to
+500 and `--ui-text-md` to 14px, so `@osn/auth-ui`'s profile onboarding card in
+Musubi's settings draws its title at 14px and 500, and the metrics dashboard
+and the lab, through Musubi's stylesheet, draw 500. Pulse imports `Card` but
+draws no `CardTitle`. `shared/ui/tests/card-default.browser.test.tsx` holds the unmapped
+title's whole computed style as a snapshot written before the title read the
+token, so a `-u` that rewrites it changes every app that draws a card title and
+needs the owner's approval. `card.browser.test.tsx` checks the title draws 600
+with no token and follows the token set on an ancestor.
 
 ### `OtpInput` — six boxes, one value with no gaps
 
@@ -1245,8 +1287,13 @@ narrow boxes as short as they are wide.
 
 *Measured 2026-11-09 — `bun run --cwd shared/ui test:browser -- tests/otp-input.browser.test.tsx`, OtpInput geometry*
 
-The digit is `text-ui-md` (1.05rem unless the app maps `--ui-text-md`; musubi
-maps 16px). Keep it at 16px or more: below that, iOS zooms a field on focus.
+The digit is `text-ui-md` (1.05rem unless the app maps `--ui-text-md`). iOS
+zooms a focused field set under 16px, so an app that maps `md` below 16px
+raises its form controls to 16px on a phone. Musubi maps 14px, its title step,
+and its mobile input rule sets every `input`, `select` and `textarea` to 16px
+below 768px, as it does for `Input`
+([DESIGN.md](../../musubi/social/DESIGN.md) §Typography, Mobile input
+exception).
 
 The corner is the contract's `field` radius, the one `Input`, `Textarea` and
 `Select` take, so the boxes round like the text fields beside them. An empty
@@ -1728,8 +1775,10 @@ width, so a choice moving shifts nothing, and each choice names itself with
 55% under the accent at 14% (composited into one colour, so a test can read
 what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
 app token; white at 10% when unset), a hairline ring, the first lift and a
-12px frosted backdrop. The glass slides on the house spring
-(`--ease-spring`, falling back to the app's ease-out) at `--dur-base`, inside
+12px frosted backdrop. The glass glides at `--dur-slow`: its place on
+`--ease-glide`, a spring that goes 3% past (falling back to the app's
+ease-out, never to the bouncier `--ease-spring`), its size on `--ease-out`, so
+it never grows past the choice (host `DESIGN.md` §4). It moves inside
 its own layer clipped to the track's shape, so an overshoot is cut by the
 track and no focus ring is. Under the pointer an unchosen choice goes halfway:
 half the tint, an ink between the two. A hover's colours come and go on
@@ -1776,7 +1825,11 @@ the vendor portal's two views (`current`). Host `DESIGN.md` §7 has the look and
 §A tab strip inside a view, §The invite builder's two tiers the layouts.
 
 `createSlidingPill` (`cire/ui/src/lib/sliding-pill.ts`) is the highlight under
-it, and the module rail's marker: `ease: "out"` (the default) or `"spring"`.
+it, and the module rail's marker: `ease: "out"` (the default; place and size
+on `--dur-base` and `--ease-out`) or `"spring"` (the glide above).
+`cire/ui/tests/lib/sliding-pill.browser.test.tsx` samples the glide frame by frame: under
+4% past, a size that never passes the choice's, a second tap that starts
+from where the glass is, and no move for a reader who turned motion down.
 `cire/ui/tests/segmented-tabs.test.tsx` holds the roles and keys,
 `segmented-tabs.browser.test.tsx` where the glass lands, the 28px and 22px
 heights, each label's 4.5:1 on both ramps, the ring and the scrolling strip.
@@ -2476,8 +2529,10 @@ obvious which of the three, [[osn-and-musubi]] decides it. Either gets lab
 stories under `tools/lab/src/stories/osn-auth-ui/` or `cire-ui/`, never beside
 the component ([[component-lab#Stories for auth and cire components]]).
 
-A new or changed component in any of the three ships in a pull request of its
-own, under the feature that uses it: [[stacked-prs#Frontend: one component per pull request]].
+A new component in any of the three that one feature uses ships inside that
+feature's pull request; a change to one another app already uses, or a new one
+several features will use, ships in a pull request of its own under them:
+[[stacked-prs#Frontend: when a component gets its own pull request]].
 
 ## Testing considerations
 

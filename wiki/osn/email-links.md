@@ -9,6 +9,7 @@ related:
   - "[[email]]"
   - "[[component-library]]"
   - "[[account-recovery-factors]]"
+  - "[[step-up]]"
   - "[[email-verification-api]]"
 last-reviewed: 2026-11-11
 ---
@@ -17,12 +18,13 @@ last-reviewed: 2026-11-11
 
 An emailed link proves that someone holds a mailbox. It never signs anyone in:
 the link's page confirms the address, and the tab that began the flow gets
-the result. Sign-up and account recovery use one today; step-up and email
-change join them as their flows move off emailed codes.
+the result. Sign-up, account recovery, step-up and email change each use one;
+no flow emails a code.
 
 The shared challenge is [`email-link.ts`](../../osn/api/src/services/auth/email-link.ts).
 A flow may keep its own pending state beside it (sign-up's is
-`pendingRegistrations`, keyed by address); recovery keeps none.
+`pendingRegistrations`, keyed by address; email change's is
+`pendingEmailChanges`, keyed by account); recovery and step-up keep none.
 
 ## What one request holds
 
@@ -30,23 +32,26 @@ A flow may keep its own pending state beside it (sign-up's is
 
 | Value | Where it lives | What it is for |
 |---|---|---|
-| Request id | The link's path, the tab, both routes' paths | `signup_` or `recovery_` + 12 hex. The prefix tells the link's page which flow it is, without a read |
+| Request id | The link's path, the tab, both routes' paths | `signup_`, `recovery_`, `stepup_` or `emailchange_` + 12 hex. The prefix tells the link's page which flow it is, without a read |
 | Link secret | The email only, in the link's **fragment** | 256 random bits. A fragment is never sent to a server, so it reaches no log and no referrer |
-| Claim secret | The tab that began | 256 random bits. Whoever holds it gets the flow's result (sign-up: the account's session) |
+| Claim secret | The tab that began, in memory or this tab's `sessionStorage`, never a cookie | 256 random bits. Whoever holds it gets the flow's result (sign-up: the account's session; step-up: a step-up token) |
 | Pairing number | The tab that began shows it | Two digits. The confirm step requires the number shown on the waiting screen (see Pairing below) |
 
 The store entry (`email_link` ceremony store, keyed by request id) holds only
 SHA-256 hashes of the secrets, a keyed digest of the pairing number
 (`serverMac.pairingDigest`), the flow, its subject (sign-up's pending-entry
-key; recovery's account id), `pending`, `confirmed`, `claimed` or `declined`,
-the expiry and, where the flow sets one, `bound` — a keyed digest the flow's
-claim checks again (recovery: the address the link went to). A claimed
-request also holds its claim: the account and profile ids its finish writes
-(for recovery, also the id of the audit row it writes), and how long the poll
-finishing it holds it ([[#Rules every flow keeps]]). A sign-up request also
-holds the sign-up it parks (address, handle, display name; see [[#Sign-up]]).
-The entry carries `v: 1`; any other shape, a status no write gives, or a
-claimed entry without its claim, is refused.
+key; recovery's account id; step-up's and email change's account id, which
+every later call must be signed in as), `pending`, `confirmed`, `claimed` or
+`declined`, the expiry and, where the flow sets one, `bound` — a keyed digest
+of the address the link went to, which the flow's claim checks again — and,
+for step-up, `purpose`, the purpose the token will name. A claimed request
+also holds its claim: the account and profile ids its finish writes (for
+recovery, also the id of the audit row it writes; for email change, the id
+its change is recorded under), and how long the poll finishing it holds it
+([[#Rules every flow keeps]]). A sign-up request also holds the sign-up it
+parks (address, handle, display name; see [[#Sign-up]]). The entry carries
+`v: 1`; any other shape, a status no write gives, or a claimed entry without
+its claim, is refused.
 
 ## Pairing: pick or type
 
@@ -54,8 +59,13 @@ Each flow has a pairing mode (`EMAIL_LINK_PAIRING_MODE`):
 
 | Mode | Flows | The number | The confirm page | A blind guess is right |
 |---|---|---|---|---|
-| `pick` | sign-up | `10`–`99`, one of five candidates derived from the request id (`serverMac.pairingCandidates`), drawn at random | reads the candidates with the link secret; the reader picks one | 1 time in 5 |
-| `type` | recovery | `00`–`99`, derived from the request id (`serverMac.typedPairing`) | reads nothing; the reader types the number | 1 time in 100 |
+| `pick` | sign-up, email change | `10`–`99`, one of five candidates derived from the request id (`serverMac.pairingCandidates`), drawn at random | reads the candidates with the link secret; the reader picks one | 1 time in 5 |
+| `type` | recovery, step-up | `00`–`99`, derived from the request id (`serverMac.typedPairing`) | reads nothing; the reader types the number | 1 time in 100 |
+
+Recovery and step-up type: their links go to an account's own address at the
+asking of someone who may not be the owner (a stranger who knows the address,
+or a stolen session), so a blind guess must be rare. Sign-up's and email
+change's links go to an address the asker typed.
 
 A `pick` request's candidates come sorted ascending, and `begin` draws the
 number uniformly from them, so it is equally likely to sit at any place in the
@@ -82,7 +92,8 @@ it in memory only, so a reload loses it (the email's link still works). For a
 `pick` flow the page reads the candidates with it, then shows
 `ConfirmLinkPage` with them; a read that answers `confirmed` or `expired`
 opens the page on that answer (`initialOutcome`) with nothing to pick. For a
-`type` flow it reads nothing and shows `ConfirmLinkPage` with `typeNumber`.
+`type` flow (recovery, step-up) it reads nothing and shows `ConfirmLinkPage`
+with `typeNumber`.
 The page sends the number tapped or typed, or `null` for "I didn't ask for
 this", which the client posts as `pairingPick: "none"`. It offers no Continue:
 the tab that began finishes, on this device or another.
@@ -99,14 +110,28 @@ the tab that began finishes, on this device or another.
 | `POST /login/recovery/email/begin` | `{ identifier, turnstileToken? }` | 202 `{ requestId, claimSecret, pairingCode, expiresAt }` |
 | `POST /login/recovery/email/:requestId/status` | `{ claimSecret }` | `pending` with the `pairingCode`, `expired`, or 201 with the restricted recovery session (cookie + access token) |
 | `POST /login/recovery/email/:requestId/resend` | `{ claimSecret }` | `sent`, `limit` or `expired` |
+| `POST /step-up/email/begin` (Bearer) | `{ purpose }` | `{ requestId, claimSecret, pairingCode, expiresAt }` |
+| `POST /step-up/email/:requestId/status` (Bearer) | `{ claimSecret }` | `pending` with the `pairingCode`, `expired`, or `complete` with `step_up_token` and `expires_in` — never a session |
+| `POST /step-up/email/:requestId/resend` (Bearer) | `{ claimSecret }` | `sent`, `limit` or `expired` |
+| `POST /account/email/begin` (Bearer) | `{ new_email }` | `{ requestId, claimSecret, pairingCode, expiresAt }` |
+| `POST /account/email/:requestId/status` (Bearer) | `{ claimSecret }` | `pending` with the `pairingCode`, `confirmed` (claims nothing), or `expired` |
+| `POST /account/email/:requestId/resend` (Bearer) | `{ claimSecret }` | `sent`, `limit` or `expired` |
+| `POST /account/email/:requestId/complete` (Bearer) | `{ claimSecret, step_up_token }` | `{ email }`; 400 for every refusal of the request or the step-up token |
 
 There is no `GET` on any of them: mail scanners open links before people do.
+
+Every Bearer route above but `POST /account/email/:requestId/status` also
+answers `409 { error: "session_stale" }` to a caller whose session has ended,
+before it mails, reads, replaces or spends anything
+([[sessions#Access-token session binding (`osn_sid`)]]).
 
 ## Rules every flow keeps
 
 - **Every refusal reads the same.** An unknown request, a wrong secret, a spent
   or expired request, a wrong pick and another flow's request all answer
-  `expired`. A poll with a wrong claim secret answers `expired` too.
+  `expired`. A poll with a wrong claim secret answers `expired` too. The one
+  answer apart is the `409 session_stale` above, which says nothing about the
+  request: it is refused before the request is read.
 - **Wrong secrets are counted** on the request against `MAX_OTP_ATTEMPTS` (5),
   by the store's `guess`, on the candidates read and the confirm alike. The
   fifth wipes the request and frees the flow's pending entry. A right secret's
@@ -285,6 +310,78 @@ There is no `GET` on any of them: mail scanners open links before people do.
   (`osn.recovery.pending`); `SignIn` opens on its recovery view and Musubi's
   dialogs reopen sign-in. Resend unlocks after two minutes.
 
+## Step-up
+
+- **One purpose, fixed at begin.** The tab names the `StepUpPurpose`; the
+  request stores it; the token the claim mints names it, and the poll cannot
+  ask for another. A token minted this way carries `amr: ["otp"]`, so it
+  passes exactly the gates whose allow-list admits the emailed factor
+  ([[step-up#When step-up is required]]): never `passkey_delete`, and
+  `email_change` only outside a recovery's 72-hour window.
+- **The link goes to the account's own address**, and names what confirming
+  allows ("asked to download a copy of the account's data"). The claim checks
+  the account still has that address (`bound`).
+- **Only the account that began** can poll, resend or claim, and only while
+  the caller's session is live: every call is Bearer-authenticated, a
+  restricted recovery session is refused, a session that has ended gets
+  `409 session_stale`, and another account's request reads as `expired`. The token goes to the poll, once;
+  the device that confirms gets `{ status }` and nothing else.
+- **Lockout.** A wrong typed number counts on `step_up_link_lockout`, per
+  account, on recovery's numbers: five in 15 minutes, and for the rest of the
+  window no step-up link is mailed and a right number is refused. A counter
+  that cannot be read fails closed with a 503. A decline counts nothing and
+  writes no security event.
+- **Limits**: at most 10 step-up links a day per account
+  (`stepUpLinkCeiling`, first links and Resends) — a first link is counted in
+  begin, which past the ceiling answers 400 (`invalid_request`), so the tab
+  says no link could go rather than waiting; a Resend is counted in the send — and 3
+  Resends a day per mailbox (`linkResendCap`, counted apart from email
+  change's, so neither flow's Resends spend the other's). Begin: 5 a minute
+  per client address.
+- **The UI** is `StepUpDialog`: "Use email instead", under the passkey,
+  swaps the factors for `CheckEmailView` in the panel; the panel polls and
+  hands the token to `onToken`, unless Cancel was pressed or the panel has
+  gone, in which case a token that arrives is dropped. The claim secret and
+  number live in memory only, and without a `purpose` the dialog does not
+  offer the factor.
+
+## Email change
+
+- **The link goes to the new address** and proves the new inbox; the
+  account's address does not change until the tab completes.
+- **Begin answers every address alike.** Past the checks that depend only on
+  the caller (address syntax, three begins a day per account, the account's
+  own address, two changes a week), a taken address and a free one make the
+  same calls — one collision probe, one request opened, the pending change
+  replaced — and only a free one is mailed. The taken one's link secret goes
+  nowhere, so it can never be confirmed; its poll stays `pending` until it
+  expires.
+- **Status answers `confirmed` without claiming.** The tab then steps up for
+  `email_change` (a passkey, or a step-up link to the CURRENT address; never
+  TOTP) and completes. Complete checks the request is this account's,
+  confirmed, and still its pending change before it verifies the step-up
+  token, so a stale request spends no token; then claims the request beside
+  the preflight and commits the move, its record and the revocation of every
+  other session in one batch. The pending entry is removed after the answer,
+  only while it still names this request.
+- **One live change per account**: a new begin replaces the pending change,
+  and the older request can no longer complete.
+- **Lockout.** A wrong pick counts against the new address on the same
+  per-address counter as sign-up's links (`registration_link_lockout`, three in
+  24 hours), so a mailbox that turns down links stops getting them. Resends:
+  3 a day per mailbox (`linkResendCap`, counted apart from step-up's).
+- **The UI** is `ChangeEmailForm`: the new address, `CheckEmailView` with
+  "Use a different email", then `StepUpDialog` for `email_change`. A failed
+  complete goes back to the wait, whose poll says whether the request can be
+  completed again (step up again) or is spent (send a new link).
+
+## Mailbox keys
+
+Strikes and lockouts key on the exact lowercased address (or the account).
+Only the Resend caps — sign-up's, and the step-up and email-change cap
+`linkResendCap` — fold an address to its mailbox (`mailboxKey`, described
+under [[#Sign-up]]).
+
 ## Adding a flow
 
 1. Add it to `EmailLinkFlow` (`stores.ts` and `@shared/observability`), to
@@ -292,31 +389,40 @@ There is no `GET` on any of them: mail scanners open links before people do.
    `emailLinkPurpose` in `@osn/client`.
 2. Give its pending entry a `requestId` and add its store to `pendingStoreOf`
    (or answer `null` there for none), and its strike counter to `strikesOf` in
-   `email-link.ts`; `admits` is where a flow refuses a right number.
+   `email-link.ts` (it takes the entry, so it can key on `bound`); `admits` is
+   where a flow refuses a right number, and `declined` is what a first decline
+   writes.
 3. Give it its own begin, status and resend routes; the candidates and confirm
    routes and the `/verify` page are shared. `poll` checks the entry's flow, so
-   one flow's status route cannot finish another's request.
+   one flow's status route cannot finish another's request; a signed-in flow
+   passes the caller's account as `subject`, so another account's poll reads
+   `expired`.
 
 ## Observability
 
 - Spans: `auth.email_link.confirm`, `auth.email_link.candidates`,
   `auth.register.{begin,resend,complete}`, `auth.register.status`,
   `auth.recovery.{email_begin,email_resend,email_complete}`,
-  `auth.recovery.email_status`, `auth.recovery.link_send` (no counter on
-  either status: polls would bury the funnel).
+  `auth.recovery.email_status`, `auth.recovery.link_send`,
+  `auth.step_up.{begin,resend,complete}`, `auth.step_up.email_status`,
+  `auth.step_up.link_send`, `auth.account.email_change.{begin,resend,complete}`,
+  `auth.account.email_change.status`, `auth.account.email_change.link_send`
+  (no counter on any status: polls would bury the funnel).
 - `osn.auth.email_link.confirmations{outcome}` — `confirmed`, `repeat` (an
   accepted confirm or decline sent again), `refused`, `wiped`, `wrong_pick`,
   `declined`.
-- `osn.auth.email_link.sends{flow, result}` — `sent`, `capped` (a lockout or a
-  limit held it back), `taken` (an account has the address or the handle by
+- `osn.auth.email_link.sends{flow, result}` — flow `registration`,
+  `recovery`, `step_up`, `email_change`; result `sent`, `capped` (a lockout or
+  a limit held it back), `taken` (an account has the address or the handle by
   the time the sign-up link would go), `failed` (the transport, or the send's
   account probe).
 - `osn.auth.recovery.email_begin{result}` — `resolved`, `unknown_identifier`;
   `osn.auth.recovery.lockout{result}` — `recorded`, `locked`, `unavailable`.
 - `linkSecret`, `claimSecret`, `pairingCode`, `pairingCandidates` and
-  `pairingPick` are on the log redaction list. The local-only debug line
-  `[dev-link] registration <url>` (or `recovery`) prints the link when
-  `OSN_ENV` is unset or `local`.
+  `pairingPick` are on the log redaction list, and so is `step_up_token`. The
+  local-only debug line `[dev-link] registration <url>` (or `recovery`,
+  `step-up`, `email-change`) prints the link when `OSN_ENV` is unset or
+  `local`.
 
 ## Debugging
 

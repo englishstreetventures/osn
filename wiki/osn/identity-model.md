@@ -181,8 +181,8 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `restricted_amr` | `text` nullable | The RFC 8176 factor that minted a restricted recovery session (`otp` / `totp` / `webauthn`). What the passkey-enrolment bypass is checked against, so the step-up it skips is priced at the ceremony actually performed. NULL on every ordinary session |
 
 Two profile management endpoints:
-- `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
-- `POST /profiles/list` — present the session token in the request body; receive all profiles for the account. Session tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
+- `POST /profiles/switch` — Bearer access token, target `profile_id` in the body; receive a new access token for that profile, bound to the caller's session. That session must be live, named by the session cookie or the token's `osn_sid`, or the answer is `409 session_stale` ([[sessions#Access-token session binding (`osn_sid`)]]). Per-account rate limited (20 switches/hr).
+- `GET /profiles/list` — Bearer access token; receive all profiles for the account. The session token itself travels only in the HttpOnly cookie, never in an `Authorization` header, so it is not confused with an access token.
 
 ## Client Storage Model
 

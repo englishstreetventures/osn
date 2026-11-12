@@ -1,0 +1,90 @@
+name: Set up the end-to-end suite
+description: >-
+  Node and Bun, the dependencies except the infra packages, and the Chromium
+  build tools/e2e's pinned @playwright/test wants, with its system libraries.
+  Shared by the E2E job in ci.yml and the E2E determinism job in
+  e2e-repro.yml, so the two install alike. Runs after actions/checkout.
+
+# A composite step takes no `timeout-minutes`, so the two installs that can
+# stall are bounded by `timeout` instead: each fails at ten minutes, as the
+# browser legs' two install steps do, rather than holding the job to its own
+# limit.
+runs:
+  using: composite
+  steps:
+    # Playwright's runner runs under Node; the launcher and the APIs under Bun.
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version-file: .bun-version
+
+    # Its own key: this job installs without the infra packages, so the
+    # key a full install restores is never one this job saved.
+    - name: Cache bun dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-bun-noinfra-
+
+    - name: Install dependencies except the infra packages
+      shell: bash
+      run: bun install --frozen-lockfile --filter '!@*/infra'
+
+    # The same cache and the same two bounded halves as the `browser` job in
+    # ci.yml, for the same reasons (see the comments there). Run from
+    # `tools/e2e`, whose pinned `@playwright/test` decides which Chromium
+    # revision gets installed. The jobs share one cache key, so that pin
+    # and every workspace's `playwright` stay on one version, or one job
+    # downloads its own revision on every run.
+    - name: Cache Chromium
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-playwright-
+
+    # This saves the system packages the browser legs restore, under the
+    # same key, built the same way. It saves them in a step of its own,
+    # straight after the install, so a run whose flows fail still fills the
+    # cache. Neither job that uses this runs on a merge-queue group, and the
+    # save says so again, so a push to main writes main's cache, which every
+    # branch and queue group can read.
+    - name: Key Chromium's system packages
+      id: chromium-apt-key
+      shell: bash
+      working-directory: tools/e2e
+      run: |
+        version=$(bunx --no-install playwright --version | sed -n 's/^Version \([0-9][0-9A-Za-z.-]*\)$/\1/p')
+        test -n "$version" || { echo "::error::playwright --version printed no 'Version <n>' line"; exit 1; }
+        key="$RUNNER_OS-chromium-apt-${ImageOS:-unknown}-${ImageVersion:-unknown}-playwright-$version"
+        echo "key=$(printf '%s' "$key" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Chromium's system packages
+      id: chromium-apt
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/chromium-apt
+        key: ${{ steps.chromium-apt-key.outputs.key }}
+
+    - name: Install Chromium's system libraries
+      shell: bash
+      working-directory: tools/e2e
+      run: timeout 10m bash "$GITHUB_WORKSPACE/scripts/install-chromium-system-libraries.sh" "$HOME/.cache/chromium-apt"
+
+    - name: Save Chromium's system packages
+      if: github.event_name != 'merge_group' && steps.chromium-apt.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/chromium-apt
+        key: ${{ steps.chromium-apt.outputs.cache-primary-key }}
+
+    - name: Install Chromium
+      shell: bash
+      working-directory: tools/e2e
+      run: timeout 10m bunx --no-install playwright install chromium

@@ -131,12 +131,6 @@ function makeApp(overrides: Partial<AuthConfig> = {}, wrapDb: (db: TestDb) => Te
 const post = (app: { handle: (r: Request) => Promise<Response> }, path: string, body: unknown) =>
   app.handle(json(path, { method: "POST", body: JSON.stringify(body) }));
 
-const codeOf = (text: string): string => {
-  const match = /\b(\d{6})\b/.exec(text);
-  if (!match) throw new Error("no 6-digit code in the recorded email");
-  return match[1]!;
-};
-
 /** Wait for the detached notice, then pull the disown token out of its link. */
 async function disownTokenFrom(recorded: () => readonly RecordedEmail[]): Promise<string> {
   for (let i = 0; i < 100; i++) {
@@ -922,16 +916,19 @@ describe("the provenance gate through the routes", () => {
     expect(permitted.status).toBe(200);
   });
 
-  it("POST /account/email/complete refuses an otp step-up inside the window", async () => {
+  it("POST /account/email/:requestId/complete refuses an otp step-up inside the window", async () => {
     // The recovery window's other arm, through the route that matters most:
     // an email change is the pivot to a takeover the mailbox no longer bounds.
     // Goes red on the route calling a verifier that skips the cooldown.
     const h = makeApp();
     const acct = await recoveredAccount(h, "rt-ec@example.com", "rtec");
+    const { settledHandle } = await import("../helpers/background");
+    const { linkForRequest } = await import("../helpers/step-up-link");
 
-    const emailChangeCode = async (): Promise<string> => {
-      const before = h.recorded().filter((r) => r.template === "otp-email-change").length;
-      const begun = await h.app.handle(
+    /** An email change to the new address, its link confirmed. */
+    const confirmedChange = async () => {
+      const begun = await settledHandle(
+        h.app,
         json("/account/email/begin", {
           method: "POST",
           headers: { authorization: `Bearer ${acct.accessToken}` },
@@ -939,18 +936,29 @@ describe("the provenance gate through the routes", () => {
         }),
       );
       expect(begun.status).toBe(200);
-      const sent = h.recorded().filter((r) => r.template === "otp-email-change");
-      expect(sent).toHaveLength(before + 1);
-      return codeOf(sent.at(-1)!.text);
+      const request = (await begun.json()) as {
+        requestId: string;
+        claimSecret: string;
+        pairingCode: string;
+      };
+      const link = linkForRequest(h.recorded(), request.requestId)!;
+      const confirmed = await h.app.handle(
+        json(`/email-link/${request.requestId}/confirm`, {
+          method: "POST",
+          body: JSON.stringify({ linkSecret: link.linkSecret, pairingPick: request.pairingCode }),
+        }),
+      );
+      expect(await confirmed.json()).toEqual({ status: "confirmed" });
+      return request;
     };
 
-    const complete = async (code: string) =>
+    const complete = async (request: { requestId: string; claimSecret: string }) =>
       h.app.handle(
-        json("/account/email/complete", {
+        json(`/account/email/${request.requestId}/complete`, {
           method: "POST",
           headers: { authorization: `Bearer ${acct.accessToken}` },
           body: JSON.stringify({
-            code,
+            claimSecret: request.claimSecret,
             step_up_token: await h.svc(
               h.auth.issueStepUpToken(acct.profile.accountId, "otp", "email_change"),
             ),
@@ -958,12 +966,12 @@ describe("the provenance gate through the routes", () => {
         }),
       );
 
-    const refused = await complete(await emailChangeCode());
+    const refused = await complete(await confirmedChange());
     expect(refused.status).toBe(400);
     expect(await refused.json()).toEqual({ error: "invalid_request" });
 
     // Age the recovery out and repeat: the same request now goes through, so
-    // the 400 above was the window and not a bad code.
+    // the 400 above was the window and not a bad link.
     await h.svc(
       Effect.promise(() =>
         h.db
@@ -972,7 +980,7 @@ describe("the provenance gate through the routes", () => {
           .where(eq(accounts.id, acct.profile.accountId)),
       ),
     );
-    const permitted = await complete(await emailChangeCode());
+    const permitted = await complete(await confirmedChange());
     expect(permitted.status).toBe(200);
     expect(await permitted.json()).toEqual({ email: "rt-ec-new@example.com" });
   });

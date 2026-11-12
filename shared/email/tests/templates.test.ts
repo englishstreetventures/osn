@@ -53,15 +53,36 @@ describe("renderTemplate", () => {
     expect(out.text).not.toMatch(/\b\d{6}\b/);
   });
 
-  it("renders email-change OTP with somebody-asked framing", () => {
-    const out = renderTemplate("otp-email-change", {
-      code: "987654",
+  it("renders the email-change link with somebody-asked framing and no code", () => {
+    const url = "https://musubi.social/verify/emailchange_0123456789ab#" + "a".repeat(64);
+    const out = renderTemplate("link-email-change", {
+      url,
       ttlMinutes: 10,
       instanceName: "Musubi",
     });
     expect(out.subject).toBe("Confirm your new Musubi email");
     // The "not-you" framing is load-bearing for phishing resistance.
     expect(out.text).toContain("If that wasn't you");
+    expect(out.text).toContain(url);
+    expect(out.html).toContain(`href="${url}"`);
+    expect(out.text).not.toMatch(/\b\d{6}\b/);
+  });
+
+  it("names the action a step-up link confirms, and escapes it", () => {
+    const url = 'https://x.test/verify/stepup_0123456789ab#"><script>';
+    const out = renderTemplate("link-step-up", {
+      url,
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+      action: "download a copy of the account's <data>",
+      device: null,
+    });
+    expect(out.subject).toBe("Confirm it's you on Musubi");
+    expect(out.text).toContain("asked to download a copy of the account's <data>");
+    expect(out.text).toContain("type the number");
+    expect(out.html).not.toContain("<script>");
+    expect(out.html).not.toContain("<data>");
+    expect(out.text).not.toMatch(/\b\d{6}\b/);
   });
 
   it("recovery templates never include codes", () => {
@@ -134,18 +155,6 @@ describe("renderTemplate", () => {
     expect(out.text).toContain("\u{1F600}•••@example.com");
   });
 
-  it("HTML-escapes template data (defence in depth)", () => {
-    // OTP templates happen to accept digits-only in practice, but the
-    // escape path should hold if template data ever carries markup.
-    const out = renderTemplate("otp-step-up", {
-      code: "<script>",
-      ttlMinutes: 10,
-      instanceName: "Musubi",
-    });
-    expect(out.html).not.toContain("<script>");
-    expect(out.html).toContain("&lt;script&gt;");
-  });
-
   /**
    * One fixture per template, checked against the template-to-data map. The
    * `satisfies` is the point: adding a template to `EmailTemplate` without
@@ -178,8 +187,18 @@ describe("renderTemplate", () => {
       instanceName: "Musubi",
       handle: "ada",
     },
-    "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
-    "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+    "link-step-up": {
+      url: "https://example.test/verify/stepup_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+      action: "add a passkey",
+      device: null,
+    },
+    "link-email-change": {
+      url: "https://example.test/verify/emailchange_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+    },
     "recovery-generated": { instanceName: "Musubi" },
     "recovery-consumed": { instanceName: "Musubi" },
     "link-recovery": {
@@ -273,8 +292,18 @@ describe("account emails name the instance passed in", () => {
       instanceName,
       handle: "ada",
     },
-    "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName },
-    "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName },
+    "link-step-up": {
+      url: "https://example.test/verify/stepup_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName,
+      action: "add a passkey",
+      device: "Chrome on macOS",
+    },
+    "link-email-change": {
+      url: "https://example.test/verify/emailchange_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName,
+    },
     "link-recovery": {
       url: "https://example.test/verify/recovery_0123456789ab#secret",
       ttlMinutes: 10,

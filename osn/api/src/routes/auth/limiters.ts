@@ -3,6 +3,8 @@ import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
 import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  LINK_RESENDS_PER_MAILBOX_MAX,
+  LINK_RESENDS_PER_MAILBOX_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
   RECOVERY_RESENDS_PER_ACCOUNT_MAX,
@@ -13,6 +15,8 @@ import {
   RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
   REGISTRATION_SENDS_PER_ADDRESS_MAX,
   REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+  STEP_UP_LINKS_PER_ACCOUNT_CEILING,
+  STEP_UP_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
 } from "../../services/auth/constants";
 
 /**
@@ -80,10 +84,12 @@ export type AuthRateLimiters = Readonly<{
   stepUpPasskeyBegin: RateLimiterBackend;
   /** Step-up passkey complete (authenticated, consumes assertion). */
   stepUpPasskeyComplete: RateLimiterBackend;
-  /** Step-up OTP begin (authenticated, sends email). */
-  stepUpOtpBegin: RateLimiterBackend;
-  /** Step-up OTP complete (authenticated, verifies code). */
-  stepUpOtpComplete: RateLimiterBackend;
+  /** Step-up email begin (authenticated, mails a link to the account's address). */
+  stepUpEmailBegin: RateLimiterBackend;
+  /** Step-up email status (authenticated, polled by the tab that began). */
+  stepUpEmailStatus: RateLimiterBackend;
+  /** Step-up email Resend (authenticated, mails another link). */
+  stepUpEmailResend: RateLimiterBackend;
   /**
    * Step-up TOTP complete (authenticated, verifies a code). There is no
    * `begin` — TOTP is challenge-free, so the ceremony is one call.
@@ -101,9 +107,13 @@ export type AuthRateLimiters = Readonly<{
   sessionList: RateLimiterBackend;
   /** Session revoke (authenticated, per-user). */
   sessionRevoke: RateLimiterBackend;
-  /** Email change begin (authenticated, sends OTP to new email). */
+  /** Email change begin (authenticated, mails a link to the new address). */
   emailChangeBegin: RateLimiterBackend;
-  /** Email change complete (authenticated, verifies OTP + step-up). */
+  /** Email change status (authenticated, polled by the tab that began). */
+  emailChangeStatus: RateLimiterBackend;
+  /** Email change Resend (authenticated, mails another link). */
+  emailChangeResend: RateLimiterBackend;
+  /** Email change complete (authenticated, confirmed link + step-up). */
   emailChangeComplete: RateLimiterBackend;
   /** Security event list (authenticated, per-user). */
   securityEventList: RateLimiterBackend;
@@ -242,9 +252,12 @@ export const AUTH_RATE_LIMITS = {
   // faster than a human.
   stepUpPasskeyBegin: { ns: "step_up_passkey_begin", maxRequests: 10, windowMs: MINUTE_MS },
   stepUpPasskeyComplete: { ns: "step_up_passkey_complete", maxRequests: 10, windowMs: MINUTE_MS },
-  stepUpOtpBegin: { ns: "step_up_otp_begin", maxRequests: 5, windowMs: MINUTE_MS },
-  stepUpOtpComplete: { ns: "step_up_otp_complete", maxRequests: 10, windowMs: MINUTE_MS },
-  // TOTP. The per-IP budgets mirror the step-up OTP pair; the real brake on
+  // Step-up by emailed link: begin mails the account's own address; the tab
+  // that began polls every few seconds; Resend mails again.
+  stepUpEmailBegin: { ns: "step_up_email_begin", maxRequests: 5, windowMs: MINUTE_MS },
+  stepUpEmailStatus: { ns: "step_up_email_status", maxRequests: 60, windowMs: MINUTE_MS },
+  stepUpEmailResend: { ns: "step_up_email_resend", maxRequests: 5, windowMs: MINUTE_MS },
+  // TOTP. The per-IP budgets mirror the other step-up factors'; the real brake on
   // guessing a six-digit code is the per-account lockout, which no rotating
   // fleet can spread across (`lib/recovery-lockout-store.ts`).
   stepUpTotpComplete: { ns: "step_up_totp_complete", maxRequests: 10, windowMs: MINUTE_MS },
@@ -258,6 +271,8 @@ export const AUTH_RATE_LIMITS = {
   // user-controlled address — uncapped it would be an open relay for an
   // authenticated attacker.
   emailChangeBegin: { ns: "email_change_begin", maxRequests: 3, windowMs: HOUR_MS },
+  emailChangeStatus: { ns: "email_change_status", maxRequests: 60, windowMs: MINUTE_MS },
+  emailChangeResend: { ns: "email_change_resend", maxRequests: 5, windowMs: MINUTE_MS },
   emailChangeComplete: { ns: "email_change_complete", maxRequests: 10, windowMs: MINUTE_MS },
   // Security events: cheap reads and idempotent acks. Mirror the sessionList
   // budget for the listing surface; ack is a single-row update and only
@@ -376,6 +391,20 @@ export const OSN_RATE_LIMITS = {
     store: "auth.registration_send_cap",
     maxRequests: REGISTRATION_SENDS_PER_ADDRESS_MAX,
     windowMs: REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+  },
+  // Every step-up link to one account, keyed on the account id. See
+  // `STEP_UP_LINKS_PER_ACCOUNT_CEILING`.
+  stepUpLinkCeiling: {
+    store: "auth.step_up_link_ceiling",
+    maxRequests: STEP_UP_LINKS_PER_ACCOUNT_CEILING,
+    windowMs: STEP_UP_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+  },
+  // Resent step-up and email-change links, keyed on the probe key of the
+  // mailbox (`mailboxKey`). See `LINK_RESENDS_PER_MAILBOX_MAX`.
+  linkResendCap: {
+    store: "auth.link_resend_cap",
+    maxRequests: LINK_RESENDS_PER_MAILBOX_MAX,
+    windowMs: LINK_RESENDS_PER_MAILBOX_WINDOW_MS,
   },
 } as const satisfies Readonly<Record<string, NamedRateLimitBudget>>;
 

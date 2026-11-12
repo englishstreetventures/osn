@@ -73,8 +73,8 @@ export const CONTRACT_SCALAR_TOKENS = {
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
   // A role, not a step: the weight a shared part sets a short title or a tag
-  // in — `Badge`'s label — one step over body text. It falls back to 600,
-  // Tailwind's `font-semibold`.
+  // in — `Badge`'s label, `DialogTitle` — one step over body text. It falls
+  // back to 600, Tailwind's `font-semibold`.
   fontWeight: ["--ui-weight-title"],
   focus: ["--ui-focus-width", "--ui-focus-offset"],
   motion: [
@@ -84,6 +84,7 @@ export const CONTRACT_SCALAR_TOKENS = {
     "--ui-dur-exit",
     "--ui-ease-out",
     "--ui-ease-in-out",
+    "--ui-ease-exit",
     "--ui-scale-enter",
     "--ui-scale-exit",
     "--ui-distance-enter",

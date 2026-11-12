@@ -29,11 +29,13 @@ const FAILED_HEADING = "We couldn't open this link just now";
  * the list, in the ascending order osn-api sends, and the confirm call; the
  * person picks the number among them. A
  * read that finds the request already confirmed, or refuses it, opens the
- * page on that answer instead, with nothing to pick. For recovery there is no
- * list: the person types the number (`typeNumber`), and the confirm call's
- * answer is the page's only read. Either way they may say they did not ask.
- * A link whose id names no flow, or that has no secret, opens on
- * `ConfirmLinkPage`'s expired card: every dead link is that card.
+ * page on that answer instead, with nothing to pick. For recovery and
+ * step-up — links to an account's own address that someone else may have
+ * asked for — there is no list: the person types the number (`typeNumber`),
+ * and the confirm call's answer is the page's only read. Either way they may
+ * say they did not ask. A link whose id names no flow, or that has no
+ * secret, opens on `ConfirmLinkPage`'s expired card: every dead link is that
+ * card.
  *
  * Confirming never signs this browser in: the tab that began holds the claim
  * secret and finishes there, on this device or another. So the page offers no
@@ -50,7 +52,7 @@ export function VerifyEmailLinkPage() {
   const requestId = () => params.requestId ?? "";
   const purpose = () => emailLinkPurpose(requestId());
   // Where the number is typed, there is nothing to read before the confirm.
-  const typed = () => purpose() === "recovery";
+  const typed = () => purpose() === "recovery" || purpose() === "step-up";
 
   // One read, after the page mounts; never a confirm. A link with no secret
   // (opened again after a reload, or cut short) is a dead link here.
@@ -107,11 +109,13 @@ export function VerifyEmailLinkPage() {
         <Match when={!purpose()}>
           <ConfirmLinkPage purpose="sign-up" initialOutcome="expired" onConfirm={confirm} />
         </Match>
-        <Match when={typed() && !emailLinkSecret(requestId())}>
-          <ConfirmLinkPage purpose="recovery" initialOutcome="expired" onConfirm={confirm} />
+        <Match when={typed() && !emailLinkSecret(requestId()) && purpose()}>
+          {(flow) => (
+            <ConfirmLinkPage purpose={flow()} initialOutcome="expired" onConfirm={confirm} />
+          )}
         </Match>
-        <Match when={typed()}>
-          <ConfirmLinkPage purpose="recovery" typeNumber onConfirm={confirm} />
+        <Match when={typed() && purpose()}>
+          {(flow) => <ConfirmLinkPage purpose={flow()} typeNumber onConfirm={confirm} />}
         </Match>
         <Match when={read.error}>
           <Card padding="lg" class="flex flex-col gap-6">

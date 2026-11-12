@@ -117,11 +117,12 @@ await client.claim(jti, ttlMs); // calls the object named "step_up_jti:<jti>"
 
 osn-api's namespaces form a closed union, `CoordinationStoreName`, in
 [`osn/api/src/lib/coordination/names.ts`](../../osn/api/src/lib/coordination/names.ts):
-eleven ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
-`step_up_challenge`, `step_up_otp`, `pending_email_change`, `cross_device`,
+ten ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
+`step_up_challenge`, `pending_email_change`, `cross_device`,
 `pending_totp_enroll`, `recovery_disown`, `oidc_authorize_request`,
-`email_link`); the four lockouts (`recovery_lockout`,
-`recovery_otp_lockout`, `totp_lockout`, `registration_link_lockout`); `step_up_jti`;
+`email_link`); the five lockouts (`recovery_lockout`,
+`recovery_otp_lockout`, `totp_lockout`, `registration_link_lockout`,
+`step_up_link_lockout`); `step_up_jti`;
 `passkey_challenge_claim`; `health_probe`; and one per limiter, named in the budget table
 in `osn/api/src/routes/auth/limiters.ts` (`auth.<endpoint>` for the auth
 limiters, `account.export`, `auth.profile_switch_cap` and the like for the rest).
@@ -282,8 +283,11 @@ for (counted from the code, 2026-10-28):
 
 | Route | Calls |
 |---|---|
-| Code `begin` (step-up OTP, TOTP enrolment, email change, recovery email) | 1 `write`, after any cap or limiter |
-| Code `complete`, success | 1 `guess`, then the claim (email change: beside its D1 preflight, before the commit) |
+| TOTP enrolment `begin` | 1 `write`, after any cap or limiter |
+| Recovery, step-up and email-change link `begin` | 1 `write` (email change: 2, the request then the pending change), after D1 reads; the send and its caps run after the answer |
+| TOTP enrolment `complete`, success | 1 `guess`, then the claim |
+| Step-up link status, completing | 3 (the request's `get`, the claim's `swap`, then, once the token is minted, the request's `consume`); a poll whose finish fails adds a `swap` that lets go of the claim |
+| Email change `complete`, success | 4 (the request's `get`, the pending change's `get`, the claim's `swap`, then, after the D1 commit, the request's `consume`); the pending change's delete runs after the answer |
 | Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure; it takes back only those failures |
 | TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success, and takes back only this attempt's count. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
 | Sign-up link `begin` | 2 (the request's `set`, then the pending entry's `swap`), after a D1 collision probe; 6 when `previous` retires an earlier request first (a `get`, a `consume`, then the pending entry's `get` and `delete`). The send's lockout lookup and, for a resend, its cap check run after the answer |
@@ -298,7 +302,6 @@ for (counted from the code, 2026-10-28):
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |
 | Cross-device: `begin` / poll / `approve` or `reject` | 1 (`write`) / 1 `read`, then a `take` once the request is approved / 2 (`read`, then `swap`) |
-| Recovery email `complete`, any refusal | 3 calls in 2 hops (the lockout lookup and the guess side by side, then the failure record) |
 | Recovery code sign-in, any refusal | 2 (the lockout lookup; then the failure record, beside the D1 read that classifies the refusal) |
 
 *Counted from the code on 2026-10-28, and the sign-up link rows on 2026-11-07 (`shared/coordination/src/store.ts`, `client.ts`, and the services under `osn/api/src/services/auth/`) against the pricing page's billing rules, not measured. The pricing page does not say how `deleteAlarm()` or `deleteAll()` are billed beyond "deletes are counted as rows written".*

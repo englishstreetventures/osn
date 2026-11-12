@@ -31,8 +31,9 @@ interface TotpStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
   totpComplete: ReturnType<typeof vi.fn>;
 }
 
@@ -99,8 +100,9 @@ beforeEach(() => {
   su = {
     passkeyBegin: vi.fn().mockResolvedValue({ options: { challenge: "abc" } }),
     passkeyComplete: vi.fn().mockResolvedValue({ token: "stpup_x", expiresIn: 300 }),
-    otpBegin: vi.fn(),
-    otpComplete: vi.fn(),
+    emailBegin: vi.fn(),
+    emailStatus: vi.fn(),
+    emailResend: vi.fn(),
     totpComplete: vi.fn(),
   };
   window.confirm = () => true;

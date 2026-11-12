@@ -36,12 +36,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import {
-  PAGES_PROJECTS,
-  productionHost,
-  SITE_BUILDS,
-  type SiteSurface,
-} from "../../shared/infra/src/production-sites";
+import { SITE_BUILDS, type SiteSurface } from "../../shared/infra/src/production-sites";
 import {
   PRODUCTION_STACKS,
   PRODUCTION_SURFACES,
@@ -92,6 +87,7 @@ interface Job {
   };
   readonly permissions?: Record<string, string>;
   readonly outputs?: Record<string, string>;
+  readonly "timeout-minutes"?: number;
   readonly strategy?: {
     readonly "fail-fast"?: boolean;
     readonly matrix?: { readonly include?: readonly Record<string, string | number>[] };
@@ -115,7 +111,27 @@ const load = (path: string) => Bun.YAML.parse(readFileSync(join(root, path), "ut
 const dev = load(WORKFLOW_FILE.dev);
 const production = load(WORKFLOW_FILE.production);
 
-const stepsOf = (job: Job | undefined) => job?.steps ?? [];
+interface CompositeAction {
+  readonly runs: { readonly using: string; readonly steps?: readonly Step[] };
+}
+
+/**
+ * A job's steps, each step that uses a local composite action
+ * (`uses: ./.github/actions/<name>`) replaced by that action's own steps, so a
+ * check on a job's caches, installs or saves also reads what the job runs
+ * through the action.
+ */
+const stepsOf = (job: Job | undefined): readonly Step[] =>
+  (job?.steps ?? []).flatMap((step) => {
+    if (!step.uses?.startsWith("./")) return [step];
+    const action = Bun.YAML.parse(
+      readFileSync(join(root, step.uses, "action.yml"), "utf8"),
+    ) as CompositeAction;
+    if (action.runs.using !== "composite") {
+      throw new Error(`${step.uses} is not a composite action`);
+    }
+    return action.runs.steps ?? [];
+  });
 const checkoutsOf = (job: Job | undefined) =>
   stepsOf(job).filter((step) => step.uses?.startsWith("actions/checkout@") === true);
 
@@ -1018,6 +1034,243 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
   });
 });
 
+describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and only those", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const SKIP = "needs.changes.outputs.docs-only != 'true'";
+  const SKIPPABLE = [
+    "browser",
+    "build-test",
+    "cire-api-tests",
+    "d1",
+    "e2e",
+    "migration-flow",
+    "openapi-freshness",
+    "typecheck",
+  ];
+
+  // A job that waits on the detection and is not in the list can be skipped
+  // with nothing here saying so; one in the list that does not wait runs
+  // anyway. The lint, script and secret checks read prose too, so they never
+  // wait.
+  test("each build, test and E2E job runs unless the detection says prose only; lint, scripts and the secret scan always run", () => {
+    const waiting = Object.entries(ci.jobs)
+      .filter(([, job]) => needsOf(job).includes("changes"))
+      .map(([id]) => id);
+    expect(waiting.toSorted()).toEqual([...SKIPPABLE, "ci"].toSorted());
+    for (const id of SKIPPABLE) {
+      expect({ id, if: ci.jobs[id]?.if }).toEqual({
+        id,
+        if: id === "e2e" ? `github.event_name != 'merge_group' && ${SKIP}` : SKIP,
+      });
+    }
+    for (const id of ["lint", "script-tests", "secrets", "changes"]) {
+      expect({ id, if: ci.jobs[id]?.if, needs: ci.jobs[id]?.needs }).toEqual({
+        id,
+        if: undefined,
+        needs: undefined,
+      });
+    }
+  });
+
+  // The classify step, run as GitHub runs it, in a throwaway repository whose
+  // commits stand for the change and, for a queue group, the entries ahead of
+  // it.
+  const classifyStep = stepsOf(ci.jobs.changes).find((step) => step.id === "classify");
+  const docsOnly = readFileSync(join(root, "scripts/docs-only.sh"), "utf8");
+
+  /** A file written with its commit's number, a file written as given, or a `git mv`. */
+  type Change =
+    | string
+    | { readonly write: string; readonly content: string }
+    | { readonly move: string; readonly to: string };
+
+  function classify(
+    commits: readonly (readonly Change[])[],
+    event: (shas: readonly string[]) => Record<string, string>,
+    { classifierOnBase = true } = {},
+  ): { readonly exitCode: number; readonly output: string; readonly verdict: string } {
+    const dir = mkdtempSync(join(tmpdir(), "ci-changes-"));
+    const git = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd: dir,
+      });
+      if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+      return result.stdout.toString().trim();
+    };
+    const write = (path: string, content: string) => {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), content);
+    };
+    git("init", "-q", "-b", "main");
+    write("osn/api/src/base.ts", "export const base = 1;\n");
+    if (classifierOnBase) write("scripts/docs-only.sh", docsOnly);
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const shas = [git("rev-parse", "HEAD")];
+    for (const changes of commits) {
+      for (const change of changes) {
+        if (typeof change === "string") write(change, `${shas.length}\n`);
+        else if ("write" in change) write(change.write, change.content);
+        else {
+          mkdirSync(dirname(join(dir, change.to)), { recursive: true });
+          git("mv", change.move, change.to);
+        }
+      }
+      git("add", ".");
+      git("commit", "-qm", `commit ${shas.length}`);
+      shas.push(git("rev-parse", "HEAD"));
+    }
+    const outputFile = join(dir, "github-output");
+    const runnerTemp = mkdtempSync(join(tmpdir(), "ci-changes-runner-"));
+    const result = Bun.spawnSync(
+      ["bash", "--noprofile", "--norc", "-e", "-c", classifyStep?.run ?? "exit 9"],
+      {
+        cwd: dir,
+        env: {
+          PATH: process.env.PATH ?? "",
+          GITHUB_OUTPUT: outputFile,
+          RUNNER_TEMP: runnerTemp,
+          ...event(shas),
+        },
+      },
+    );
+    const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
+    return {
+      exitCode: result.exitCode,
+      output: result.stdout.toString() + result.stderr.toString(),
+      verdict: /^docs-only=(.*)$/m.exec(written)?.[1] ?? "<none>",
+    };
+  }
+
+  const pullRequest = () => ({ EVENT: "pull_request" });
+  const queue = (shas: readonly string[]) => ({ EVENT: "merge_group", QUEUE_BASE: shas[0] ?? "" });
+
+  test.each([
+    ["a pull request of prose", "true", [["wiki/a.md", "README.md"]], pullRequest],
+    [
+      "a pull request with one source file",
+      "false",
+      [["wiki/a.md", "osn/api/src/a.ts"]],
+      pullRequest,
+    ],
+    // The queue tests a group's last entry on top of the ones ahead of it, so
+    // its diff starts at the queue's base, not at the entry before it.
+    [
+      "a queue group whose prose entry follows one with code",
+      "false",
+      [["osn/api/src/a.ts"], ["wiki/a.md"]],
+      queue,
+    ],
+    ["a queue group of prose entries", "true", [["wiki/a.md"], ["README.md"]], queue],
+    [
+      "a push of prose",
+      "true",
+      [["wiki/a.md"]],
+      (shas: readonly string[]) => ({ EVENT: "push", BEFORE: shas[0] ?? "" }),
+    ],
+    // A branch's first push, or a force-push: no commit to diff against.
+    [
+      "a push whose previous commit is not there",
+      "false",
+      [["wiki/a.md"]],
+      () => ({ EVENT: "push", BEFORE: "0000000000000000000000000000000000000000" }),
+    ],
+    // `git diff --name-only` names only a rename's new path unless told not
+    // to, so code moved under wiki/ would read as a wiki page.
+    [
+      "a pull request that moves code under wiki/",
+      "false",
+      [[{ move: "osn/api/src/base.ts", to: "wiki/base.ts" }]],
+      pullRequest,
+    ],
+    // The change's own classifier would answer for it.
+    [
+      "a pull request whose edited classifier says prose",
+      "false",
+      [[{ write: "scripts/docs-only.sh", content: "echo true\n" }, "osn/api/src/a.ts"]],
+      pullRequest,
+    ],
+  ] as const)("%s: prose only is %s", (_, expected, commits, event) => {
+    const { exitCode, output, verdict } = classify(commits, event);
+    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: expected });
+  });
+
+  test("a base with no classifier yet runs every job", () => {
+    const { exitCode, output, verdict } = classify([["wiki/a.md"]], pullRequest, {
+      classifierOnBase: false,
+    });
+    expect({ exitCode, verdict }, output).toEqual({ exitCode: 0, verdict: "false" });
+  });
+});
+
+describe("CI's E2E job runs the suite once and retries the whole run; the determinism check runs where a flow can change", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const repro = load(".github/workflows/e2e-repro.yml");
+  const e2e = ci.jobs.e2e;
+  const SETUP = "./.github/actions/e2e-setup";
+
+  // The step's limit must hold every run at its own limit plus retry.sh's
+  // grace and clean-up, or the step cuts the last run instead of retry.sh; and
+  // a run's directory that no step uploads is lost with the runner.
+  test("the `E2E` step retries test:e2e as a whole run, has room for every run, and uploads each failed run's artifacts beside the last run's", () => {
+    expect(e2e?.name).toBe("E2E");
+    const steps = e2e?.steps ?? [];
+    expect(steps.filter((step) => step.run?.includes("test:e2e:repro"))).toEqual([]);
+    const step = steps.find((one) => one.run?.includes("e2e-with-retry.sh"));
+    const match = /^bash scripts\/e2e-with-retry\.sh (\d+) (\d+) bun run test:e2e$/.exec(
+      step?.run ?? "",
+    );
+    expect(match, step?.run).not.toBeNull();
+    const [attempts, seconds] = [Number(match?.[1]), Number(match?.[2])];
+    expect(attempts).toBeGreaterThan(1);
+    const stepMinutes = step?.["timeout-minutes"] ?? 0;
+    expect(stepMinutes * 60).toBeGreaterThan(attempts * (seconds + 30 + 10));
+    expect(e2e?.["timeout-minutes"] ?? 0).toBeGreaterThan(stepMinutes);
+    const uploads = steps
+      .filter((one) => one.uses === "actions/upload-artifact@v4")
+      .map((one) => ({ if: one.if, name: one.with?.name, path: one.with?.path }));
+    expect(uploads).toEqual([
+      ...Array.from({ length: attempts - 1 }, (_, i) => ({
+        if: "always()",
+        name: `e2e-artifacts-attempt-${i + 1}`,
+        path: `e2e-artifacts-attempt-${i + 1}/`,
+      })),
+      { if: "always()", name: "e2e-artifacts", path: "e2e-artifacts/" },
+    ]);
+  });
+
+  // Without the paths, every pull request pays for two more runs of the suite;
+  // with a path that names nothing, the check never runs.
+  test("the determinism job runs test:e2e:repro daily, by hand, and on a push to main or a pull request that changes tools/e2e, and never in the merge queue", () => {
+    expect(Object.keys(repro.on).toSorted()).toEqual([
+      "pull_request",
+      "push",
+      "schedule",
+      "workflow_dispatch",
+    ]);
+    const paths = ["tools/e2e/**", ".github/workflows/e2e-repro.yml", `${SETUP.slice(2)}/**`];
+    expect(repro.on.pull_request).toEqual({ paths });
+    expect(repro.on.push).toEqual({ branches: ["main"], paths });
+    for (const path of paths)
+      expect(existsSync(join(root, path.replace(/\/\*\*$/, "")))).toBe(true);
+    expect(repro.permissions).toEqual({ contents: "read" });
+    const jobs = Object.values(repro.jobs);
+    expect(jobs.map((job) => job.name)).toEqual(["E2E determinism"]);
+    expect(
+      (jobs[0]?.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run])),
+    ).toEqual(["bun run test:e2e:repro"]);
+  });
+
+  test("both jobs set up through the one shared action, straight after the checkout", () => {
+    for (const job of [e2e, repro.jobs.repro]) {
+      expect((job?.steps ?? []).slice(0, 2).map((step) => step.uses)).toEqual([
+        "actions/checkout@v4",
+        SETUP,
+      ]);
+    }
+  });
+});
+
 describe("ci.yml's browser legs run every package with a `test:browser` script, once", () => {
   const legs = load(".github/workflows/ci.yml").jobs.browser?.strategy?.matrix?.include ?? [];
   const named = (leg: Record<string, string | number>) =>
@@ -1182,7 +1435,6 @@ describe("production-release.yml", () => {
         ...PRODUCTION_SURFACES.map((s) => s.key),
         ...PRODUCTION_STACKS.map((s) => `stack_${s.key}`),
         "any",
-        "any_site",
         "any_stack",
       ].toSorted(),
     );
@@ -1329,13 +1581,15 @@ const PRODUCTION_CREDENTIALS = {
   CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}",
 } as const;
 const ON_DEPLOY = "${{ !cancelled() && steps.deploy.outcome != 'skipped' }}";
+/** What each guard step reads to know a scheduled run: `yes` on one, empty otherwise. */
+const SCHEDULED_RUN = "${{ github.event_name == 'schedule' && 'yes' || '' }}";
 const sitesJob = production.jobs.sites!;
 const planJob = production.jobs["alchemy-plan"]!;
 
 /**
  * The production build of each site, with exactly the values it bakes in:
- * the same hosts each Pages job built with before, and musubi landing's on
- * www.musubi.social with the app on musubi.social.
+ * today's production hosts, and musubi landing's on www.musubi.social with
+ * the app on musubi.social.
  */
 const PRODUCTION_BUILDS: Readonly<Partial<Record<SiteSurface, Record<string, string>>>> = {
   cire_host: {
@@ -1371,21 +1625,19 @@ describe("PW4: the sites job builds each production site once", () => {
   test("needs the plan alone, so it runs beside build, runs when a site build is needed, restores no turbo cache, and holds no Environment or secret", () => {
     expect(needsOf(sitesJob)).toEqual(["plan"]);
     expect(stepsOf(sitesJob).filter((step) => step.with?.path === ".turbo")).toEqual([]);
-    expect(sitesJob.if).toBe("needs.plan.outputs.any_site == 'true'");
+    expect(sitesJob.if).toBe("needs.plan.outputs.any_stack == 'true'");
     expect(environmentOf(sitesJob)).toBeUndefined();
     expect(JSON.stringify(sitesJob)).not.toContain("secrets.");
   });
 
   test.each(sites.map((site) => [site] as const))(
-    "%s: one build with its production values, when its stack or its own Pages job ships",
+    "%s: one build with its production values, when its stack ships",
     (site) => {
       const pkg = SITE_BUILDS[site].package;
       const builds = buildsOf(sitesJob).filter((step) => BUILD.exec(step.run ?? "")?.[1] === pkg);
       expect(builds).toHaveLength(1);
       expect(builds[0]?.env).toEqual(PRODUCTION_BUILDS[site]);
-      expect(builds[0]?.if).toBe(
-        `needs.plan.outputs.stack_${surface(site).stack} == 'true' || needs.plan.outputs.${site} == 'true'`,
-      );
+      expect(builds[0]?.if).toBe(`needs.plan.outputs.stack_${surface(site).stack} == 'true'`);
     },
   );
 
@@ -1415,54 +1667,6 @@ describe("PW4: the sites job builds each production site once", () => {
     expect(require).toBeLessThan(social);
     expect(runStep(steps[require]!, { VITE_TURNSTILE_SITEKEY: "" }).exitCode).not.toBe(0);
     expect(runStep(steps[require]!, { VITE_TURNSTILE_SITEKEY: "0x4AAA" }).exitCode).toBe(0);
-  });
-});
-
-describe("PW5: a staged site's Pages job deploys the sites job's build", () => {
-  const pagesSurfaces = ownJobSurfaces.filter(stackDeployed);
-
-  test.each(pagesSurfaces.map((s) => [s.key, s] as const))(
-    "%s: fetches the build, builds nothing, and deploys it to its own Pages project with the pinned Wrangler",
-    (key, s) => {
-      const job = production.jobs[s.production.id]!;
-      const steps = stepsOf(job);
-      expect(buildsOf(job)).toEqual([]);
-      const fetchAt = steps.findIndex((step) => step.uses === "actions/download-artifact@v4");
-      expect(steps[fetchAt]?.with).toEqual({
-        name: "production-sites",
-        path: "${{ runner.temp }}/production-sites",
-      });
-      const install = steps.findIndex((step) => /\bbun install\b/.test(step.run ?? ""));
-      // The root's tree, which pins Wrangler, and nothing else.
-      expect(steps[install]?.run).toBe("bun install --frozen-lockfile --filter osn");
-      const deploys = steps.filter((step) => /\bwrangler pages deploy\b/.test(step.run ?? ""));
-      expect(deploys).toHaveLength(1);
-      expect(deploys[0]?.run).toStartWith(
-        `bunx wrangler pages deploy dist --project-name ${PAGES_PROJECTS[key as SiteSurface]}`,
-      );
-      expect(deploys[0]?.["working-directory"]).toBe(
-        SITE_BUILDS[key as SiteSurface].directory.replace(/\/dist$/, ""),
-      );
-      expect(steps.indexOf(deploys[0]!)).toBeGreaterThan(Math.max(fetchAt, install));
-    },
-  );
-
-  test("PW12: no Pages job deploys a site whose Worker serves its host", () => {
-    const projects = Object.values(production.jobs)
-      .flatMap((job) => stepsOf(job))
-      .flatMap((step) => {
-        const match = /wrangler pages deploy \S+ --project-name (\S+)/.exec(step.run ?? "");
-        return match === null ? [] : [match[1] ?? ""];
-      });
-    expect(projects.toSorted()).toEqual(
-      pagesSurfaces.map((s) => PAGES_PROJECTS[s.key as SiteSurface] ?? "").toSorted(),
-    );
-    for (const s of recordSurfaces) {
-      const project = PAGES_PROJECTS[s.key as SiteSurface];
-      expect({ key: s.key, deployed: project !== undefined && projects.includes(project) }).toEqual(
-        { key: s.key, deployed: false },
-      );
-    }
   });
 });
 
@@ -1509,13 +1713,14 @@ describe("PW2: alchemy-plan, the first approval, plans each shipping stack and g
       expect(plan?.run).toContain(`> "$RUNNER_TEMP/plan/${s.key}.log" 2>&1`);
       expect(plan?.run).not.toContain("tee");
       expect(guard?.["working-directory"]).toBe(`${s.key}/infra`);
-      expect(guard?.env).toBeUndefined();
-      const guarded = runStep(guard!, {}).bunCalls;
+      expect(guard?.env).toEqual({ SCHEDULED: SCHEDULED_RUN });
+      const guardedArgs = `^run plan:guard -- --log \\S+/plan/${s.key}\\.log --out \\S+/alchemy-plan/${s.key}\\.json --domains \\S+/domains-${s.key}\\.json`;
+      const guarded = runStep(guard!, { SCHEDULED: "" }).bunCalls;
       expect(guarded).toHaveLength(1);
-      expect(guarded[0]).toMatch(
-        new RegExp(
-          `^run plan:guard -- --log \\S+/plan/${s.key}\\.log --out \\S+/alchemy-plan/${s.key}\\.json --domains \\S+/domains-${s.key}\\.json$`,
-        ),
+      expect(guarded[0]).toMatch(new RegExp(`${guardedArgs}$`));
+      // GS5: a scheduled run tells the guard so, which refuses any added host.
+      expect(runStep(guard!, { SCHEDULED: "yes" }).bunCalls[0]).toMatch(
+        new RegExp(`${guardedArgs} --scheduled$`),
       );
       // The live custom domains the guard judges, read with the production pair.
       const domains = stepById(planJob, `worker_domains_${s.key}`);
@@ -1600,11 +1805,15 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(runStep(plan!, { FORCE: "yes" }).bunCalls).toEqual(["run plan:production --force"]);
       expect(runStep(plan!, { FORCE: "" }, 3).exitCode).not.toBe(0);
       expect(guard?.["working-directory"]).toBe(`${key}/infra`);
-      expect(guard?.env).toBeUndefined();
+      expect(guard?.env).toEqual({ SCHEDULED: SCHEDULED_RUN });
       const guarded = `^run plan:guard -- --log \\S+/plan/${key}\\.log --out \\S+/plan-guard/${key}\\.json --domains \\S+/domains\\.json --approved \\S+/approved/${key}\\.json`;
-      const plain = runStep(guard!, {}).bunCalls;
+      const plain = runStep(guard!, { SCHEDULED: "" }).bunCalls;
       expect(plain).toHaveLength(1);
       expect(plain[0]).toMatch(new RegExp(`${guarded}$`));
+      // GS5: a scheduled run tells the guard so, which refuses any added host.
+      expect(runStep(guard!, { SCHEDULED: "yes" }).bunCalls[0]).toMatch(
+        new RegExp(`${guarded} --scheduled$`),
+      );
       const domains = stepById(job, "worker_domains");
       expect(domains?.run).toBe(
         `bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production ${sites.join(" ")}`,
@@ -1643,7 +1852,6 @@ describe("PW1: one production job per stack with a production deploy", () => {
         "guard",
         "deploy",
         "deployments",
-        "budgets",
         ...sites.map((site) => `smoke_${site}`),
       ].map((id) => stepIndex(job, id));
       expect(order.every((index) => index > -1)).toBe(true);
@@ -1664,13 +1872,12 @@ describe("PW1: one production job per stack with a production deploy", () => {
         expect(smoke?.run).toBe(`bun run scripts/smoke-check.ts ${site} production`);
         expect(smoke?.if).toBe(ON_DEPLOY);
         expect(smoke?.["continue-on-error"]).toBe(true);
-        // Room for the longest budget, the rollback and its re-check
+        // Room for the check, the rollback and its re-check
         // (scripts/tests/smoke-check.test.ts, SB4).
-        expect(smoke?.["timeout-minutes"]).toBe(7);
+        expect(smoke?.["timeout-minutes"]).toBe(5);
         expect(smoke?.env).toEqual({
           SMOKE_ORIGIN: `\${{ steps.hosts.outputs.${site}_origin }}`,
           SMOKE_DEPLOYMENT: `\${{ steps.deployments.outputs.${site}_deployment }}`,
-          SMOKE_BUDGET_MS: `\${{ steps.budgets.outputs.${site}_budget_ms }}`,
           ...PRODUCTION_CREDENTIALS,
         });
         expect(productionSiteTarget(site)).toBeDefined();
@@ -1694,124 +1901,6 @@ describe("PW1: one production job per stack with a production deploy", () => {
       });
     },
   );
-});
-
-describe("PW13: a site's smoke check waits longer only when the approved plan gives it a host that is not a production host", () => {
-  /**
-   * Runs a stack job's budgets step as written, with real bun from the
-   * repository root, over `domains` as the approved plan's domain changes;
-   * returns what each site's smoke step passes as SMOKE_BUDGET_MS once
-   * GitHub expands it ("" for an output nobody wrote).
-   */
-  const budgetsFor = (key: StackKey, domains: readonly unknown[]): Record<string, string> => {
-    const job = productionStackJob(key);
-    const dir = mkdtempSync(join(tmpdir(), "smoke-budgets-step-"));
-    mkdirSync(join(dir, "approved"));
-    const record = { stack: key, plan: "changes", counts: { update: 1 }, resources: [] };
-    writeFileSync(
-      join(dir, "approved", `${key}.json`),
-      JSON.stringify({ ...record, bindings: [], domains }, null, 2),
-    );
-    const output = join(dir, "github-output");
-    writeFileSync(output, "");
-    const result = Bun.spawnSync(
-      ["bash", "--noprofile", "--norc", "-e", "-c", stepById(job, "budgets")?.run ?? "exit 9"],
-      {
-        cwd: root,
-        env: {
-          PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
-          RUNNER_TEMP: dir,
-          GITHUB_OUTPUT: output,
-        },
-      },
-    );
-    expect(result.stderr.toString()).toBe("");
-    expect(result.exitCode).toBe(0);
-    const written = new Map(
-      readFileSync(output, "utf8")
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
-    );
-    return Object.fromEntries(
-      productionSitesOf(key).map((site) => {
-        const read = stepById(job, `smoke_${site}`)?.env?.SMOKE_BUDGET_MS ?? "";
-        const name = /^\$\{\{ steps\.budgets\.outputs\.([a-z_]+) \}\}$/.exec(read)?.[1];
-        return [site, name === undefined ? `unreadable: ${read}` : (written.get(name) ?? "")];
-      }),
-    );
-  };
-  const newHost = (site: SiteSurface) => `next-${site.replace("_", "-")}.example.test`;
-  const each = (key: StackKey, value: (site: SiteSurface) => string) =>
-    Object.fromEntries(productionSitesOf(key).map((site) => [site, value(site)]));
-
-  test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
-    "%s: the step reads its own stack's approved plan after the deploy, and never fails the job or blocks the deploy",
-    (key) => {
-      const job = productionStackJob(key);
-      const step = stepById(job, "budgets");
-      expect(step?.run).toBe(
-        `bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/${key}.json"`,
-      );
-      expect(step?.if).toBe(ON_DEPLOY);
-      expect(step?.["continue-on-error"]).toBe(true);
-      expect(step?.env).toBeUndefined();
-      expect(step?.["working-directory"]).toBeUndefined();
-      expect(stepIndex(job, "budgets")).toBeGreaterThan(stepIndex(job, "deploy"));
-      expect(stepIndex(job, "budgets")).toBeLessThan(
-        Math.min(...productionSitesOf(key).map((site) => stepIndex(job, `smoke_${site}`))),
-      );
-    },
-  );
-
-  test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
-    "%s: 240 s for the one site given a new spare host, whichever it is; none for a host given up, a production host, or no change",
-    (key) => {
-      const sites = productionSitesOf(key);
-      expect(sites.length).toBeGreaterThan(1);
-      for (const site of sites) {
-        const domains = sites.map((other) =>
-          other === site
-            ? { site, added: [newHost(site)], removed: [`old.${newHost(site)}`] }
-            : { site: other, added: [], removed: [newHost(other)] },
-        );
-        expect(budgetsFor(key, domains)).toEqual(
-          each(key, (other) => (other === site ? "240000" : "")),
-        );
-      }
-      // A production host is covered by the zone's own certificate: its
-      // check keeps the minute.
-      const attached = sites.map((site) => ({
-        site,
-        added: [productionHost(site)],
-        removed: [newHost(site)],
-      }));
-      expect(budgetsFor(key, attached)).toEqual(each(key, () => ""));
-      expect(budgetsFor(key, [])).toEqual(each(key, () => ""));
-    },
-  );
-
-  test("no other smoke check, in any workflow, is given a budget", () => {
-    const directory = join(root, ".github", "workflows");
-    const named: string[] = [];
-    for (const file of readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))) {
-      const workflow = load(join(".github", "workflows", file));
-      if (workflow.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file}`);
-      for (const [id, job] of Object.entries(workflow.jobs ?? {})) {
-        if (job.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file} ${id}`);
-        for (const step of stepsOf(job)) {
-          if (step.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file} ${id} ${step.id}`);
-        }
-      }
-    }
-    expect(named.toSorted()).toEqual(
-      PRODUCTION_STACKS.flatMap((s) =>
-        productionSitesOf(s.key).map(
-          (site) => `production-release.yml ${s.production.id} smoke_${site}`,
-        ),
-      ).toSorted(),
-    );
-  });
 });
 
 describe("PW6: one record job per site its Worker serves", () => {
@@ -1842,13 +1931,9 @@ describe("PW-A: a job that holds a credential lets in only the site builds of th
     ),
   );
 
-  test("every job that fetches the builds: alchemy-plan, the stack jobs and any Pages job", () => {
+  test("every job that fetches the builds: alchemy-plan and the stack jobs", () => {
     expect(downloads.map(({ id }) => id).toSorted()).toEqual(
-      [
-        "alchemy-plan",
-        ...PRODUCTION_STACKS.map((s) => s.production.id),
-        ...ownJobSurfaces.filter(stackDeployed).map((s) => s.production.id),
-      ].toSorted(),
+      ["alchemy-plan", ...PRODUCTION_STACKS.map((s) => s.production.id)].toSorted(),
     );
   });
 
@@ -1871,33 +1956,12 @@ describe("PW-A: a job that holds a credential lets in only the site builds of th
 describe("PW-D: a job that holds a credential and installs a narrower tree than the sites job restores no dependency cache", () => {
   // Jobs holding no secret write the shared cache; a narrower tree would
   // take from it packages its own install never fetched.
-  const narrow = [
-    "alchemy-plan",
-    ...PRODUCTION_STACKS.map((s) => s.production.id),
-    ...ownJobSurfaces.filter(stackDeployed).map((s) => s.production.id),
-  ];
+  const narrow = ["alchemy-plan", ...PRODUCTION_STACKS.map((s) => s.production.id)];
 
   test.each(narrow.map((id) => [id] as const))("%s", (id) => {
     const job = production.jobs[id]!;
     expect(stepsOf(job).filter((step) => step.with?.path === "~/.bun/install/cache")).toEqual([]);
   });
-});
-
-describe("PW-F: a Pages job's credentials reach its deploy alone", () => {
-  test.each(ownJobSurfaces.filter(stackDeployed).map((s) => [s.key, s] as const))(
-    "%s: no job-level env; only the deploy step holds the pair",
-    (_, s) => {
-      const job = production.jobs[s.production.id]!;
-      expect(job.env).toBeUndefined();
-      const holding = stepsOf(job).filter((step) => JSON.stringify(step).includes("secrets."));
-      expect(
-        holding.map((step) =>
-          step.run?.startsWith("bunx wrangler pages deploy ") === true ? "deploy" : step.run,
-        ),
-      ).toEqual(["deploy"]);
-      for (const step of holding) expect(step.env).toEqual(PRODUCTION_CREDENTIALS);
-    },
-  );
 });
 
 interface Manifest {
@@ -2089,15 +2153,11 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
   });
 });
 
-/**
- * The narrower installs only production-release.yml runs: an Alchemy job's
- * own stack trees, and a Pages job's root tree, which pins Wrangler.
- */
+/** The narrower installs only production-release.yml runs: an Alchemy job's own stack trees. */
 const PRODUCTION_ONLY_INSTALLS = [
   "bun install --frozen-lockfile --filter @cire/infra --filter @musubi/infra",
   "bun install --frozen-lockfile --filter @cire/infra",
   "bun install --frozen-lockfile --filter @musubi/infra",
-  "bun install --frozen-lockfile --filter osn",
 ];
 
 describe("installs", () => {

@@ -46,3 +46,8 @@ The decisions are yours, so record them. Every choice the design system did not
 already make — a new token, a layout, a component's states — goes into the
 surface's `DESIGN.md` in the same pull request, or into your report with the
 reason it does not belong there.
+
+**Return once.** Before your final message, finish or stop every background
+task you started: gates, waits, reviewers. Unless your brief asks, do not wait
+on CI after a push; the session that dispatched you does. Each extra report
+costs that session a turn to read, so send one, with everything in it.

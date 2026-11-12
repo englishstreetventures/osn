@@ -14,6 +14,7 @@ import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 import { latestLinkTo, registerThroughService } from "../helpers/registration";
+import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
 
 /**
  * Every code-checking ceremony counts its guesses in the store, one atomic
@@ -76,34 +77,14 @@ const bundles = {
   }),
 } as const;
 
-/** A database, a mail recorder and the latest six-digit code it captured. */
+/** A database and a mail recorder. */
 function capture() {
   const email = makeLogEmailLive();
   const db = createTestLayerWithSqlite();
-  const codes = () =>
-    email.recorded().flatMap((sent) => sent.text.match(/code is: (\d{6})/)?.[1] ?? []);
   return {
     layer: Layer.merge(db.layer, email.layer),
     sqlite: db.sqlite,
     recorded: () => email.recorded(),
-    latest: (): string => {
-      const all = codes();
-      if (all.length === 0) throw new Error("no code captured");
-      return all.at(-1)!;
-    },
-    /**
-     * The code mailed after `seen` codes had been. A code goes out in the
-     * background, so it may land a moment after `begin` answers.
-     */
-    nth: (seen: number): Effect.Effect<string> =>
-      Effect.gen(function* () {
-        for (let i = 0; i < 100; i++) {
-          const all = codes();
-          if (all.length > seen) return all[seen]!;
-          yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 5)));
-        }
-        throw new Error("no code captured");
-      }),
   };
 }
 
@@ -115,46 +96,6 @@ const codeFor = (secret: string) =>
   Effect.promise(() => deriveTotpCode(base32Decode(secret), Math.floor(Date.now() / 1000 / 30)));
 
 describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_name, bundle) => {
-  it.live("step-up OTP: a burst of wrong guesses spends the code; a new one works", () => {
-    const mail = capture();
-    const auth = createAuthService({ ...base, ...bundle() });
-    return Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("att-su@example.com", "attsu");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const right = mail.latest();
-
-      const guesses = yield* Effect.all(
-        Array.from({ length: MAX_OTP_ATTEMPTS + BURST }, () =>
-          Effect.flip(auth.completeStepUpOtp(profile.accountId, wrongFor(right))),
-        ),
-        { concurrency: "unbounded" },
-      );
-      expect(guesses.every((e) => e._tag === "AuthError")).toBe(true);
-
-      const late = yield* Effect.flip(auth.completeStepUpOtp(profile.accountId, right));
-      expect(late._tag).toBe("AuthError");
-
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const fresh = yield* auth.completeStepUpOtp(profile.accountId, mail.latest());
-      expect(fresh.stepUpToken).toMatch(/^eyJ/);
-    }).pipe(Effect.provide(mail.layer));
-  });
-
-  it.live("step-up OTP: of two right codes sent at once, exactly one mints a token", () => {
-    const mail = capture();
-    const auth = createAuthService({ ...base, ...bundle() });
-    return Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("att-su2@example.com", "attsu2");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const right = mail.latest();
-      const results = yield* Effect.all(
-        [0, 1].map(() => Effect.result(auth.completeStepUpOtp(profile.accountId, right))),
-        { concurrency: "unbounded" },
-      );
-      expect(results.filter((r) => r._tag === "Success")).toHaveLength(1);
-    }).pipe(Effect.provide(mail.layer));
-  });
-
   it.live(
     "emailed recovery link: of two polls of a confirmed request at once, exactly one gets the session",
     () => {
@@ -202,8 +143,10 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         { concurrency: "unbounded" },
       );
 
-      const late = yield* Effect.flip(auth.completeTotpEnrollment(profile.accountId, right, null));
-      expect(late._tag).toBe("AuthError");
+      const afterCap = yield* Effect.flip(
+        auth.completeTotpEnrollment(profile.accountId, right, null),
+      );
+      expect(afterCap._tag).toBe("AuthError");
 
       const second = yield* auth.beginTotpEnrollment(profile.accountId, yield* token());
       const done = yield* auth.completeTotpEnrollment(
@@ -240,47 +183,8 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     }).pipe(Effect.provide(mail.layer));
   });
 
-  it.live("email change: a burst of wrong codes spends the code; a new one works", () => {
-    const mail = capture();
-    const auth = createAuthService({ ...base, ...bundle() });
-    return Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("att-ec@example.com", "attec");
-      // One step-up token per guess: each completion spends its own.
-      const tokens = yield* Effect.all(
-        Array.from({ length: MAX_OTP_ATTEMPTS + BURST + 2 }, () =>
-          auth.issueStepUpToken(profile.accountId, "otp", "email_change"),
-        ),
-      );
-      yield* auth.beginEmailChange(profile.accountId, "att-ec-new@example.com");
-      const right = mail.latest();
-
-      yield* Effect.all(
-        tokens
-          .slice(0, MAX_OTP_ATTEMPTS + BURST)
-          .map((t) =>
-            Effect.flip(auth.completeEmailChange(profile.accountId, wrongFor(right), t, null)),
-          ),
-        { concurrency: "unbounded" },
-      );
-
-      const late = yield* Effect.flip(
-        auth.completeEmailChange(profile.accountId, right, tokens.at(-2)!, null),
-      );
-      expect(late._tag).toBe("AuthError");
-
-      yield* auth.beginEmailChange(profile.accountId, "att-ec-new@example.com");
-      const done = yield* auth.completeEmailChange(
-        profile.accountId,
-        mail.latest(),
-        tokens.at(-1)!,
-        null,
-      );
-      expect(done.email).toBe("att-ec-new@example.com");
-    }).pipe(Effect.provide(mail.layer));
-  });
-
   it.live(
-    "email change: of two right codes sent at once, each with its own token, exactly one commits",
+    "email change: of two completes of one confirmed request at once, each with its own token, exactly one commits",
     () => {
       const mail = capture();
       const auth = createAuthService({ ...base, ...bundle() });
@@ -289,11 +193,24 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         const tokens = yield* Effect.all(
           [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
         );
-        yield* auth.beginEmailChange(profile.accountId, "att-ec2-new@example.com");
-        const right = mail.latest();
+        const begun = yield* confirmedEmailChange(
+          auth,
+          profile.accountId,
+          "att-ec2-new@example.com",
+          mail.recorded,
+        );
         const results = yield* Effect.all(
           tokens.map((token) =>
-            Effect.result(auth.completeEmailChange(profile.accountId, right, token, null)),
+            Effect.result(
+              auth.completeEmailChange(
+                profile.accountId,
+                profile.id,
+                begun.requestId,
+                begun.claimSecret,
+                token,
+                NO_LIVE_SESSION,
+              ),
+            ),
           ),
           { concurrency: "unbounded" },
         );
@@ -301,7 +218,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         expect(committed.map((r) => r.success)).toEqual([{ email: "att-ec2-new@example.com" }]);
         const refused = results.filter((r) => r._tag === "Failure");
         expect(refused.map((r) => r.failure._tag)).toEqual(["AuthError"]);
-        expect(refused[0]!.failure.message).toMatch(/invalid or expired code/i);
+        expect(refused[0]!.failure.message).toMatch(/invalid or expired link/i);
         const rows = mail.sqlite
           .query("SELECT COUNT(*) AS n FROM email_changes WHERE account_id = ?")
           .get(profile.accountId) as { n: number };
@@ -326,11 +243,11 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         { concurrency: "unbounded" },
       );
 
-      const late = yield* auth.confirmEmailLink(link.requestId, {
+      const afterCap = yield* auth.confirmEmailLink(link.requestId, {
         linkSecret: link.linkSecret,
         pairingPick: begun.pairingCode,
       });
-      expect(late).toBe("expired");
+      expect(afterCap).toBe("expired");
 
       const done = yield* registerThroughService(auth, mail.recorded, address, "attreg");
       expect(done.handle).toBe("attreg");

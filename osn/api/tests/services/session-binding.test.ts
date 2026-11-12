@@ -127,10 +127,11 @@ describe("session binding (osn_sid)", () => {
       );
 
       const claims = yield* auth.verifyAccessToken(tokens.accessToken);
-      const switched = yield* auth.switchProfile(profile.accountId, secondId, {
-        profileId: profile.id,
-        sessionBinding: claims.sessionBinding,
-      });
+      const switched = yield* auth.switchProfile(
+        profile.accountId,
+        secondId,
+        auth.hashSessionToken(tokens.refreshToken),
+      );
       const switchedClaims = yield* auth.verifyAccessToken(switched.accessToken);
 
       // Same underlying session, different value on the wire (P6)...
@@ -142,15 +143,6 @@ describe("session binding (osn_sid)", () => {
         switchedClaims.sessionBinding!,
       );
       expect(resolved).toBe(auth.hashSessionToken(tokens.refreshToken));
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("switchProfile leaves the binding unset when the caller has none", () =>
-    Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("sid-unbound@example.com", "sidunbound");
-      const switched = yield* auth.switchProfile(profile.accountId, profile.id);
-      const claims = yield* auth.verifyAccessToken(switched.accessToken);
-      expect(claims.sessionBinding).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
   );
 

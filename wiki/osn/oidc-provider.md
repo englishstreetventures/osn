@@ -170,7 +170,7 @@ Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (60/mi
 
 | Route | Auth | What it does |
 |---|---|---|
-| `POST /oidc/clients` | Bearer access token | Registers a client. Returns the summary plus `client_secret` **exactly once** (null for public clients); only the SHA-256 is stored |
+| `POST /oidc/clients` | Bearer access token, live session (`409 session_stale` otherwise) | Registers a client. Returns the summary plus `client_secret` **exactly once** (null for public clients); only the SHA-256 is stored |
 | `GET /oidc/clients` | Bearer access token | The caller's clients, never the secret in any form |
 | `DELETE /oidc/clients/:clientId` | Bearer access token | Disables an owned client — it reads as absent everywhere at once, so new `/authorize` flows refuse and in-flight codes die at the exchange's client lookup. 404 covers "not yours" and "not found" alike |
 
@@ -205,4 +205,4 @@ The issuer string is an identifier, not branding. The provider moved to `id.musu
 - **`offline_access`** — third parties get no refresh token, so a long-lived integration must send the user through `/authorize` again.
 - **The apex well-knowns** — `/.well-known/webauthn`, `apple-app-site-association` and `assetlinks.json`. The identity domain now exists (`musubi.social`), so this is unblocked; it needs `@musubi/social` to serve those paths, or a Worker in front of the apex. That is layers 2 and 3; layer 0 works without it.
 
-The consent screen is built (2026-07-26): `/authorize` in `@musubi/social` — see [[authorize-ui]]. `@musubi/social` is served from the apex `https://musubi.social`, the same registrable domain as the provider, so `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`, served by the `osn-social` Worker ([[social#Deployment]]). The provider names the apex as an origin, so the move changes none of its settings. A spare host such as `next.musubi.social` is in neither `OSN_ORIGIN` nor `OSN_CORS_ORIGIN`, so no consent or ceremony runs there. The apex is also the WebAuthn RP ID, so it is the one surface that can run a ceremony — see [[musubi-identity-migration]].
+The consent screen is built (2026-07-26): `/authorize` in `@musubi/social` — see [[authorize-ui]]. `@musubi/social` is served from the apex `https://musubi.social`, the same registrable domain as the provider, so `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`, served by the `osn-social` Worker ([[social#Deployment]]). The provider names the apex as an origin, so the move changes none of its settings. No other host of the app is in `OSN_ORIGIN` or `OSN_CORS_ORIGIN`, so no consent or ceremony runs anywhere else. The apex is also the WebAuthn RP ID, so it is the one surface that can run a ceremony — see [[musubi-identity-migration]].

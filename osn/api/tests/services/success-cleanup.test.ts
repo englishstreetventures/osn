@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { accounts, emailChanges, totpCredentials } from "@osn/db/schema";
+import { totpCredentials } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { CoordinationNamespace, CoordinationOp } from "@shared/coordination";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
@@ -16,6 +16,11 @@ import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 import { latestLinkTo } from "../helpers/registration";
+import {
+  changeEmailThroughService,
+  confirmedEmailChange,
+  NO_LIVE_SESSION,
+} from "../helpers/step-up-link";
 
 /**
  * A success answers once the work that matters has committed. The store call
@@ -100,15 +105,6 @@ function harness(
   const layer = Layer.merge(createTestLayer(), mail ?? email.layer);
   const ops = (from = 0) => fake.calls.slice(from).map((call) => `${call.store}.${call.op}`);
   const recorded = () => email.recorded();
-  /** The newest six-digit code mailed. */
-  const code = () => {
-    const all = email.recorded();
-    for (let i = all.length - 1; i >= 0; i--) {
-      const match = all[i]!.text.match(/code is: (\d{6})/);
-      if (match) return match[1]!;
-    }
-    throw new Error("no code mailed");
-  };
   /** Waits until `op`, or one of several, has reached the store since call `from`. */
   const landed = (op: string | readonly string[], from = 0) =>
     Effect.gen(function* () {
@@ -139,7 +135,6 @@ function harness(
     bundle,
     layer,
     ops,
-    code,
     recorded,
     landed,
     holdingAtLeast,
@@ -268,58 +263,41 @@ describe("a lockout with no failures on record", () => {
  */
 describe("a cleanup leaves what another request wrote", () => {
   it.live("email change: a begin after the answer keeps its entry", () => {
-    // Every remove but the first — the completing change's own claim — is held,
-    // so any delete the completed change made after its answer would still be
-    // in flight when the next change begins.
-    let removes = 0;
-    const h = harness(
-      (store, op) => store === "pending_email_change" && op === "remove" && ++removes > 1,
-    );
+    // Every pending-change remove is held, so the completed change's cleanup
+    // is still in flight when the next change begins.
+    const h = harness((store, op) => store === "pending_email_change" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("keep-ec@example.com", "keepec");
       const first = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      yield* h.auth.beginEmailChange(profile.accountId, "keep-ec-1@example.com");
-      yield* h.auth.completeEmailChange(profile.accountId, h.code(), first, null);
+      yield* changeEmailThroughService(
+        h.auth,
+        profile.accountId,
+        "keep-ec-1@example.com",
+        first,
+        h.recorded,
+      );
+      yield* h.holdingAtLeast(1);
 
-      yield* h.auth.beginEmailChange(profile.accountId, "keep-ec-2@example.com");
-      const code = h.code();
+      const begun = yield* confirmedEmailChange(
+        h.auth,
+        profile.accountId,
+        "keep-ec-2@example.com",
+        h.recorded,
+      );
       h.release();
 
       const second = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      const done = yield* h.auth.completeEmailChange(profile.accountId, code, second, null);
+      const done = yield* h.auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        begun.requestId,
+        begun.claimSecret,
+        second,
+        NO_LIVE_SESSION,
+      );
       expect(done.email).toBe("keep-ec-2@example.com");
     }).pipe(Effect.provide(h.layer));
   });
-
-  it.live(
-    "email change: a begin while the capped guess's delete is in flight keeps its entry",
-    () => {
-      const h = harness((store, op) => store === "pending_email_change" && op === "remove");
-      return Effect.gen(function* () {
-        const profile = yield* h.auth.registerProfile("keep-ecl@example.com", "keepecl");
-        yield* h.auth.beginEmailChange(profile.accountId, "keep-ecl-1@example.com");
-        const wrong = wrongFor(h.code());
-        for (let i = 1; i < MAX_OTP_ATTEMPTS; i++) {
-          const token = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-          yield* Effect.flip(h.auth.completeEmailChange(profile.accountId, wrong, token, null));
-        }
-        const last = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-        const capped = yield* Effect.forkChild(
-          Effect.flip(h.auth.completeEmailChange(profile.accountId, wrong, last, null)),
-        );
-        yield* h.holdingAtLeast(1);
-
-        yield* h.auth.beginEmailChange(profile.accountId, "keep-ecl-2@example.com");
-        const code = h.code();
-        h.release();
-        expect((yield* Fiber.join(capped))._tag).toBe("AuthError");
-
-        const token = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-        const done = yield* h.auth.completeEmailChange(profile.accountId, code, token, null);
-        expect(done.email).toBe("keep-ecl-2@example.com");
-      }).pipe(Effect.provide(h.layer));
-    },
-  );
 
   it.live("recovery-code sign-in: a wrong code after the answer keeps its failure", () => {
     const h = harness((store, op) => store === "recovery_lockout" && op === "remove");
@@ -370,50 +348,6 @@ const outcome = (result: {
  * the fresh code works.
  */
 describe("a claim or a capped guess's delete takes only the entry the guess read", () => {
-  it.live("step-up OTP: a begin while the right code's claim is in flight", () => {
-    const h = harness((store, op) => store === "step_up_otp" && op === "remove");
-    return Effect.gen(function* () {
-      const profile = yield* h.auth.registerProfile("claim-su@example.com", "claimsu");
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const old = yield* Effect.forkChild(
-        Effect.result(h.auth.completeStepUpOtp(profile.accountId, h.code())),
-      );
-      yield* h.holdingAtLeast(1);
-
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const code = h.code();
-      h.release();
-      expect(outcome(yield* Fiber.join(old))).toBe("AuthError");
-
-      const done = yield* h.auth.completeStepUpOtp(profile.accountId, code);
-      expect(done.stepUpToken).toBeTruthy();
-    }).pipe(Effect.provide(h.layer));
-  });
-
-  it.live("step-up OTP: a begin while the capped guess's delete is in flight", () => {
-    const h = harness((store, op) => store === "step_up_otp" && op === "remove");
-    return Effect.gen(function* () {
-      const profile = yield* h.auth.registerProfile("cap-su@example.com", "capsu");
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const wrong = wrongFor(h.code());
-      for (let i = 1; i < MAX_OTP_ATTEMPTS; i++) {
-        yield* Effect.flip(h.auth.completeStepUpOtp(profile.accountId, wrong));
-      }
-      const capped = yield* Effect.forkChild(
-        Effect.flip(h.auth.completeStepUpOtp(profile.accountId, wrong)),
-      );
-      yield* h.holdingAtLeast(1);
-
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const code = h.code();
-      h.release();
-      expect((yield* Fiber.join(capped))._tag).toBe("AuthError");
-
-      const done = yield* h.auth.completeStepUpOtp(profile.accountId, code);
-      expect(done.stepUpToken).toBeTruthy();
-    }).pipe(Effect.provide(h.layer));
-  });
-
   it.live("TOTP enrolment: a begin while the right code's claim is in flight", () => {
     const h = harness((store, op) => store === "pending_totp_enroll" && op === "remove");
     return Effect.gen(function* () {
@@ -477,33 +411,51 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
     }).pipe(Effect.provide(h.layer));
   });
 
-  it.live("email change: a begin while the right code's claim is in flight", () => {
-    const h = harness((store, op) => store === "pending_email_change" && op === "remove");
+  it.live("email change: a begin while the request's claim is in flight keeps its entry", () => {
+    // The claim is the request's own entry, which a new begin does not touch,
+    // so the change already authorised goes through; the cleanup after it
+    // removes the account's pending change only while it names that request,
+    // so the new begin's change can still complete.
+    const h = harness((store, op) => store === "email_link" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("claim-ec@example.com", "claimec");
       const first = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      yield* h.auth.beginEmailChange(profile.accountId, "claim-ec-1@example.com");
-      const old = yield* Effect.forkChild(
-        Effect.result(h.auth.completeEmailChange(profile.accountId, h.code(), first, null)),
+      const old = yield* confirmedEmailChange(
+        h.auth,
+        profile.accountId,
+        "claim-ec-1@example.com",
+        h.recorded,
+      );
+      const finishing = yield* Effect.forkChild(
+        h.auth.completeEmailChange(
+          profile.accountId,
+          profile.id,
+          old.requestId,
+          old.claimSecret,
+          first,
+          NO_LIVE_SESSION,
+        ),
       );
       yield* h.holdingAtLeast(1);
 
-      yield* h.auth.beginEmailChange(profile.accountId, "claim-ec-2@example.com");
-      const code = h.code();
+      const begun = yield* confirmedEmailChange(
+        h.auth,
+        profile.accountId,
+        "claim-ec-2@example.com",
+        h.recorded,
+      );
       h.release();
-      expect(outcome(yield* Fiber.join(old))).toBe("AuthError");
-      const { db } = yield* Db;
-      const changes = yield* Effect.promise(() =>
-        db.select().from(emailChanges).where(eq(emailChanges.accountId, profile.accountId)),
-      );
-      expect(changes).toHaveLength(0);
-      const [account] = yield* Effect.promise(() =>
-        db.select().from(accounts).where(eq(accounts.id, profile.accountId)),
-      );
-      expect(account?.email).toBe("claim-ec@example.com");
+      expect((yield* Fiber.join(finishing)).email).toBe("claim-ec-1@example.com");
 
       const second = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      const done = yield* h.auth.completeEmailChange(profile.accountId, code, second, null);
+      const done = yield* h.auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        begun.requestId,
+        begun.claimSecret,
+        second,
+        NO_LIVE_SESSION,
+      );
       expect(done.email).toBe("claim-ec-2@example.com");
     }).pipe(Effect.provide(h.layer));
   });

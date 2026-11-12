@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
+import Reveal from "@cire/ui/reveal";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -87,6 +88,8 @@ export default function BudgetView(props: BudgetViewProps) {
   const [newPerHead, setNewPerHead] = createSignal(false);
   const [expanded, setExpanded] = createSignal<string | null>(null);
   const [perHeadOpen, setPerHeadOpen] = createSignal<string | null>(null);
+  /** The view's own element: where `closePerHead` finds a line's toggle. */
+  let root!: HTMLDivElement;
 
   const budgetUrl = () => apiUrl(weddingPath(props.weddingId, "/budget"));
   const currency = () => snapshot()?.currency ?? "AUD";
@@ -270,13 +273,25 @@ export default function BudgetView(props: BudgetViewProps) {
         ...s,
         items: s.items.map((it) => (it.id === updated.id ? updated : it)),
       }));
-      setPerHeadOpen(null);
+      closePerHead(item.id);
       haptic("commit");
     } catch {
       haptic("reject");
       setError(failure);
       void reload();
     }
+  };
+
+  /** Closes a line's per-head panel. When that takes the focused control out of
+   *  the document (Cancel, Save, "Use a fixed amount", or a save rebuilding the
+   *  line), the browser drops focus to the page; it goes back to the line's
+   *  toggle instead. A save rebuilds the line, toggle and all, so the toggle is
+   *  found by item id. Focus the organiser moved elsewhere while a save was out
+   *  stays put. */
+  const closePerHead = (itemId: string) => {
+    setPerHeadOpen(null);
+    if (document.activeElement !== document.body) return;
+    root.querySelector<HTMLElement>(`[data-per-head-toggle="${CSS.escape(itemId)}"]`)?.focus();
   };
 
   const savePerHead = (item: BudgetItemRow, perHead: PerHeadChange) =>
@@ -534,7 +549,7 @@ export default function BudgetView(props: BudgetViewProps) {
   };
 
   return (
-    <div class="flex flex-col gap-6">
+    <div ref={root} class="flex flex-col gap-6">
       <Show when={error()}>
         <Notice tone="danger" alert>
           {error()}
@@ -741,7 +756,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                       <li
                                         ref={sortable.ref}
                                         style={maybeTransformStyle(sortable.transform())}
-                                        class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
+                                        class="border-border bg-surface/10 relative flex flex-col rounded-sm border py-1 pr-2 pl-3"
                                         classList={{
                                           "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                             sortable.isActiveDraggable(),
@@ -754,7 +769,21 @@ export default function BudgetView(props: BudgetViewProps) {
                                             returned(budgetKey(item.id));
                                         }}
                                       >
-                                        <div class="flex flex-wrap items-center gap-3">
+                                        {/* Each part of the line carries 4px above,
+                                            below and to its right, and the line's own
+                                            padding is 4px less, so a line reads 8px in
+                                            from its top and bottom and 12px from its
+                                            sides, with 8px between its parts, as the
+                                            `px-3 py-2` row it replaced did, and a
+                                            payment's ✕ stays under the line's ✕.
+                                            The room sits inside each part because a
+                                            `Reveal` clips: there it holds the focus
+                                            ring (2px wide, 2px out) of a control at the
+                                            panel's edge. A closed `Reveal` stays in
+                                            the line at no height and adds nothing,
+                                            since the line has no gap; an opening
+                                            panel's own room grows with it. */}
+                                        <div class="flex flex-wrap items-center gap-3 py-1 pr-1">
                                           <Show when={props.canEdit}>
                                             <ReorderControls
                                               sortable={sortable}
@@ -795,6 +824,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                           <Button
                                             variant="bare"
                                             type="button"
+                                            aria-expanded={expanded() === item.id}
                                             onClick={() =>
                                               setExpanded(expanded() === item.id ? null : item.id)
                                             }
@@ -803,6 +833,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                           </Button>
                                           <Show when={props.canEdit && perHeadSupported()}>
                                             <Button
+                                              data-per-head-toggle={item.id}
                                               variant="bare"
                                               type="button"
                                               aria-expanded={perHeadOpen() === item.id}
@@ -828,34 +859,40 @@ export default function BudgetView(props: BudgetViewProps) {
                                           </Show>
                                         </div>
                                         <Show when={item.unitPriceMinor != null}>
-                                          <PerHeadSummary
-                                            item={item}
-                                            events={weddingEvents()}
-                                            currency={currency()}
-                                            rsvpsClosed={rsvpsClosed()}
-                                          />
+                                          <div class="py-1 pr-1">
+                                            <PerHeadSummary
+                                              item={item}
+                                              events={weddingEvents()}
+                                              currency={currency()}
+                                              rsvpsClosed={rsvpsClosed()}
+                                            />
+                                          </div>
                                         </Show>
-                                        <Show when={perHeadOpen() === item.id}>
-                                          <PerHeadPanel
-                                            item={item}
-                                            events={weddingEvents()}
-                                            currency={currency()}
-                                            onSave={(change) => void savePerHead(item, change)}
-                                            onUseFixed={() => void useFixedAmount(item)}
-                                            onCancel={() => setPerHeadOpen(null)}
-                                          />
-                                        </Show>
-                                        <Show when={expanded() === item.id}>
-                                          <PaymentPanel
-                                            item={item}
-                                            payments={paymentsFor(item.id)}
-                                            currency={currency()}
-                                            canEdit={props.canEdit}
-                                            onAdd={addPayment}
-                                            onTogglePaid={togglePaid}
-                                            onDelete={deletePayment}
-                                          />
-                                        </Show>
+                                        <Reveal when={perHeadOpen() === item.id}>
+                                          <div class="py-1 pr-1">
+                                            <PerHeadPanel
+                                              item={item}
+                                              events={weddingEvents()}
+                                              currency={currency()}
+                                              onSave={(change) => void savePerHead(item, change)}
+                                              onUseFixed={() => void useFixedAmount(item)}
+                                              onCancel={() => closePerHead(item.id)}
+                                            />
+                                          </div>
+                                        </Reveal>
+                                        <Reveal when={expanded() === item.id}>
+                                          <div class="py-1 pr-1">
+                                            <PaymentPanel
+                                              item={item}
+                                              payments={paymentsFor(item.id)}
+                                              currency={currency()}
+                                              canEdit={props.canEdit}
+                                              onAdd={addPayment}
+                                              onTogglePaid={togglePaid}
+                                              onDelete={deletePayment}
+                                            />
+                                          </div>
+                                        </Reveal>
                                       </li>
                                     );
                                   }}
@@ -930,6 +967,7 @@ function PaymentPanel(props: {
   const [label, setLabel] = createSignal("");
   const [amount, setAmount] = createSignal("");
   const [due, setDue] = createSignal("");
+  let labelField: HTMLInputElement | undefined;
   const submit = (e: Event) => {
     e.preventDefault();
     if (!props.onAdd(props.item, label(), amount(), due())) return;
@@ -937,11 +975,25 @@ function PaymentPanel(props: {
     setAmount("");
     setDue("");
   };
+  /** Deleting a payment removes the row its ✕ sits in. If focus is in that
+   *  row, it moves first to what follows: the next payment's box, or the label
+   *  field once no payment follows. */
+  const remove = (p: PaymentRow, cross: HTMLElement) => {
+    const row = cross.closest("[data-payment]");
+    if (row?.contains(document.activeElement)) {
+      const next = row.nextElementSibling;
+      const box = next?.hasAttribute("data-payment")
+        ? next.querySelector<HTMLInputElement>('input[type="checkbox"]')
+        : null;
+      (box ?? labelField)?.focus();
+    }
+    props.onDelete(props.item, p);
+  };
   return (
     <div class="border-border/60 ml-2 flex flex-col gap-2 border-l pl-3">
       <For each={props.payments}>
         {(p) => (
-          <div class="text-ui-sm flex flex-wrap items-center gap-2">
+          <div data-payment class="text-ui-sm flex flex-wrap items-center gap-2">
             <Checkbox
               box="native"
               size="sm"
@@ -950,7 +1002,9 @@ function PaymentPanel(props: {
               disabled={!props.canEdit}
               onChange={() => props.canEdit && props.onTogglePaid(props.item, p)}
             />
-            <span class="text-text flex-1">
+            {/* `wrap-anywhere`: a label may be one 80-character word, such as a
+                pasted link, and the panel clips what runs past its edge. */}
+            <span class="text-text min-w-0 flex-1 wrap-anywhere">
               {p.label} · {fmtMinor(p.amountMinor, props.currency)}
               <Show when={p.dueAt}>
                 <span class="text-text-muted"> · due {p.dueAt}</span>
@@ -964,7 +1018,7 @@ function PaymentPanel(props: {
                 variant="bareDanger"
                 type="button"
                 aria-label="Delete payment"
-                onClick={() => props.onDelete(props.item, p)}
+                onClick={(e) => remove(p, e.currentTarget)}
               >
                 ✕
               </Button>
@@ -978,6 +1032,7 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
+                ref={labelField}
                 size="form-compact"
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}

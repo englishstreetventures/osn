@@ -19,7 +19,7 @@ related:
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
 dev-host: https://id.musubi.localhost
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-11
 ---
 
 # OSN Core
@@ -51,8 +51,7 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 | WebAuthn passkey or security key | Primary login (`POST /login/passkey/*`), required at register |
 | Recovery code | Lost-device fallback (`POST /login/recovery/complete`) |
 | Step-up passkey ceremony | Sudo gate for sensitive endpoints — see [[step-up]] |
-| Step-up OTP (to verified email) | Step-up fallback factor — see [[step-up]] |
-| Emailed link (to the address being signed up, or on the account) | Proves the address at sign-up, and the mailbox in email recovery; confirms it and signs nobody in — the tab that began gets the result — see [[email-links]] |
+| Emailed link (to the address being signed up, on the account, or a new one) | Proves the address at sign-up, the mailbox in email recovery and step-up, and the new inbox in an email change; confirms it and signs nobody in — the tab that began gets the result — see [[email-links]] |
 | Authenticator code (TOTP) | Step-up factor, and a recovery factor — see [[totp]] |
 
 ### Public route surface

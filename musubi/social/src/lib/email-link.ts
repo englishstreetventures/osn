@@ -3,12 +3,10 @@
  * (`/verify/<request id>#<secret>`), taken off the address bar before the app
  * renders or makes any request.
  *
- * `captureEmailLinkSecret` runs once, from `index.tsx`, before the app renders
- * and after the canonical-host check has decided not to redirect (that
- * redirect carries the fragment to the real origin, so it must still be
- * there). It removes the fragment with `history.replaceState`, so the secret
- * is not left in the address bar, in history, or for anything on the route
- * that reads `location` later.
+ * `captureEmailLinkSecret` runs once, as the first call in `index.tsx`. It
+ * removes the fragment with `history.replaceState`, so the secret is not left
+ * in the address bar, in history, or for anything on the route that reads
+ * `location` later.
  *
  * The secret is a one-use credential, held in this module's memory only —
  * never in `sessionStorage`, `localStorage` or a cookie. A reload therefore

@@ -1,8 +1,7 @@
 /**
  * Emailed-link templates: a message that carries one link which, opened and
- * confirmed, proves the reader holds this mailbox. Sign-up and account
- * recovery send one today; step-up and email change send their own with the
- * same data shape.
+ * confirmed, proves the reader holds this mailbox. Sign-up, account recovery,
+ * step-up and email change each send their own.
  *
  * The link's secret rides in its fragment, which no browser sends to a server,
  * so the message is the only place it exists in clear. Opening the link does
@@ -39,6 +38,17 @@ export interface RecoveryLinkData extends LinkData {
    * it gave none. Named so a reader can tell their own request from one
    * someone else began: whoever began it, not the reader, gets back in.
    */
+  readonly device: string | null;
+}
+
+export interface StepUpLinkData extends LinkData {
+  /**
+   * What confirming lets the device that asked do, as a phrase that follows
+   * "asked to" — e.g. "download a copy of the account's data". Named so a
+   * reader who did not ask knows what they would be allowing.
+   */
+  readonly action: string;
+  /** The device that asked, as a coarse label, or null when it gave none. */
   readonly device: string | null;
 }
 
@@ -82,4 +92,41 @@ export function renderRecoveryLink(data: RecoveryLinkData): RenderedEmail {
     `<h2>Recover your ${esc(name)} account</h2><p>Someone asked${esc(asked)} to get back into the ${esc(name)} account for this email address. If that was you, open this link and type the number your screen shows:</p><p><a href="${esc(data.url)}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600">Get back in</a></p><p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked gets back in, not the one you open the link on. It can only add a passkey, and every other device is signed out.</p><p style="color:#666">If you didn't ask, open the link and choose &ldquo;I didn't ask for this&rdquo;, or ignore this email. Nothing changes on the account.</p>`,
   );
   return { subject: `Recover your ${name} account`, text, html };
+}
+
+/**
+ * The link that confirms a sensitive action on an account, from
+ * `POST /step-up/email/begin`, to the account's own address.
+ *
+ * Whoever began it was signed in to the account, which a stolen session can
+ * be, so the message says what the action is and how to refuse it. The
+ * reader types the number the asking device shows: a guess is right one time
+ * in a hundred.
+ */
+export function renderStepUpLink(data: StepUpLinkData): RenderedEmail {
+  const name = data.instanceName;
+  const minutes = String(data.ttlMinutes);
+  const asked = data.device ? ` on ${data.device}` : "";
+  const text = `Someone signed in to your ${name} account${asked} asked to ${data.action}. If that was you, open this link and type the number your screen shows:\n\n${data.url}\n\nThe link works for ${minutes} minutes. The device that asked goes ahead, not the one you open the link on.\n\nIf you didn't ask, open the link and choose "I didn't ask for this", then check the devices signed in to your account. Nothing happens unless the number is confirmed.`;
+  const html = wrap(
+    `<h2>Confirm it's you</h2><p>Someone signed in to your ${esc(name)} account${esc(asked)} asked to ${esc(data.action)}. If that was you, open this link and type the number your screen shows:</p><p><a href="${esc(data.url)}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600">Confirm it's you</a></p><p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked goes ahead, not the one you open the link on.</p><p style="color:#666">If you didn't ask, open the link and choose &ldquo;I didn't ask for this&rdquo;, then check the devices signed in to your account. Nothing happens unless the number is confirmed.</p>`,
+  );
+  return { subject: `Confirm it's you on ${name}`, text, html };
+}
+
+/**
+ * The link that proves a new address before an account moves to it, from
+ * `POST /account/email/begin`, to the NEW address.
+ *
+ * Framed as "someone asked to use this address": whoever began typed it, so
+ * a misdirected message must read as safe to ignore.
+ */
+export function renderEmailChangeLink(data: LinkData): RenderedEmail {
+  const name = data.instanceName;
+  const minutes = String(data.ttlMinutes);
+  const text = `Someone asked to use this email address for their ${name} account. If that was you, open this link and pick the number your screen shows:\n\n${data.url}\n\nThe link works for ${minutes} minutes. The device that asked finishes the change, not the one you open the link on.\n\nIf that wasn't you, open the link and choose "I didn't ask for this", or ignore this email. Nothing changes.`;
+  const html = wrap(
+    `<h2>Confirm your new ${esc(name)} email</h2><p>Someone asked to use this email address for their ${esc(name)} account. If that was you, open this link and pick the number your screen shows:</p><p><a href="${esc(data.url)}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600">Confirm this email</a></p><p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked finishes the change, not the one you open the link on.</p><p style="color:#666">If that wasn't you, open the link and choose &ldquo;I didn't ask for this&rdquo;, or ignore this email. Nothing changes.</p>`,
+  );
+  return { subject: `Confirm your new ${name} email`, text, html };
 }
