@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Guards with a threshold
@@ -194,11 +194,11 @@ touching a threshold. In short:
 ### Where it runs, and why twice
 
 Every app's own `build` script chains the guard on with `&&` (`astro build &&
-… guard-bundle-size.sh .`) — that is what runs it on a local build and the
-by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
-`build-test` job (one `--all` step covering every app), in `production-release.yml`
-in the `deploy-cire-invites` job and in the `sites` job (one step per site it builds:
-`cire/host`, `cire/vendor`, `cire/landing` and `musubi/landing`), and in the
+… guard-bundle-size.sh .`) — that is what runs it on a local build. It ALSO
+runs as its own step in `ci.yml`'s `build-test` job (one `--all` step covering
+every app), in `production-release.yml`'s `sites` job (one step per guarded app
+it builds: `cire/invites`, `cire/host`, `cire/vendor`, `cire/landing` and
+`musubi/landing`), and in the
 stack jobs in `deploy.yml`, with one step per guarded app each builds: the cire
 stack job for `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`, the
 musubi stack job for `musubi/landing`, and the pulse stack job for
@@ -209,8 +209,9 @@ without executing the script, so the chained invocation never runs on a cache
 hit — the explicit workflow step is what still checks the artifact that IS on
 disk in that case. Both invocations matter; neither one alone covers both paths.
 
-No workflow deploys `musubi/landing` or `pulse/landing` to production; on dev,
-the musubi and pulse stack jobs build and guard them as above.
+No workflow deploys `pulse/landing` to production; on dev, the pulse stack job
+builds and guards it as above. `musubi/landing` ships to production through the
+musubi stack, from the `sites` job's guarded build.
 
 ### Per-app thresholds — mirrors `scripts/bundle-size-budgets.txt`
 

@@ -17,7 +17,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-upgrades]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Cire Landing
@@ -465,10 +465,11 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
    `cire-host` Pages project is deleted ([[production-deploy]] §5.7).
 2. The apex `cireweddings.com` is on the `cire-landing` Worker (since 2026-11-10). The
    `cire-landing` Pages project is deleted ([[production-deploy]] §5.7).
-3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
-   (custom_domain on deploy).
-4. ~~Redeploy osn-api manually~~ — osn-api is CI-deployed (`deploy-osn-api`
-   in `production-release.yml`); `OSN_ORIGIN` picks up with the next release.
+3. Confirm `invite.cireweddings.com` is on the `cire-invites` Worker: the cire
+   stack declares it as that Worker's custom domain.
+4. ~~Redeploy osn-api manually~~ — osn-api deploys through the musubi stack job
+   (`stack-musubi-production` in `production-release.yml`); `OSN_ORIGIN` ships
+   with the next release that ships osn-api.
 5. Cleanup PR — **DONE 2026-07-16**: pruned the transitional apex + `app.` from
    cire-api `WEB_ORIGIN` and `app.` from osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN`
    (`cire/invites`'s Worker route was already `invite.`-only, no apex route to drop).
