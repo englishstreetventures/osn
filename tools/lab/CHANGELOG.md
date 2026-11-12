@@ -1,5 +1,11 @@
 # @tools/lab
 
+## 0.3.54
+
+### Patch Changes
+
+- @osn/auth-ui@4.5.4
+
 ## 0.3.53
 
 ### Patch Changes
