@@ -4,7 +4,6 @@ import { devPort } from "@shared/dev-urls";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 
-import { stubMotionForSsr } from "./src/lib/stub-motion-for-ssr.ts";
 import tierHeaders from "./src/lib/tier-headers.ts";
 
 /**
@@ -62,9 +61,8 @@ function minifySsrBuild() {
 }
 
 /**
- * `zod` is NOT stubbed like `motion` (`src/lib/stub-motion-for-ssr.ts`), and
- * stays in `dist/server` on purpose — this bundle traced it, unlike `motion`,
- * to a module that genuinely runs on every request.
+ * `zod` stays in `dist/server` on purpose: this bundle traced it to a module
+ * that genuinely runs on every request.
  *
  * `src/actions` doesn't exist in this app, but Astro's own request pipeline
  * doesn't gate on that: `core/routing/handler.js`'s `actionsAndPages()` calls
@@ -133,7 +131,7 @@ export default defineConfig({
   // CSP report collector) — see `src/lib/tier-headers.ts`.
   integrations: [solidJs(), minifySsrBuild(), tierHeaders()],
   vite: {
-    plugins: [tailwindcss(), stubMotionForSsr()],
+    plugins: [tailwindcss()],
     // Pre-bundled for the dev server's SSR runner. Discovered on the first
     // request instead, each one triggers a re-optimise and a reload in which
     // the runner imports a chunk the optimiser has just deleted, and `astro dev`

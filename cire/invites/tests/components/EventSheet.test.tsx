@@ -15,10 +15,6 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { EventSheet, type EventPanel } from "../../src/components/EventSheet";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
-
 vi.mock("@shared/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const event: EventSummary = {

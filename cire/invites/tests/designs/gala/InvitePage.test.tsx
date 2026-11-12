@@ -8,10 +8,6 @@ import InvitePage from "../../../src/designs/gala/InvitePage";
 import type { RevealHooks } from "../../../src/designs/gala/UnlockReveal.motion";
 import { noSession, withSession } from "../../test-support/claim-fetch";
 
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
-
 vi.mock("../../../src/designs/gala/UnlockReveal.motion", () => ({
   unlockRevealSequence: vi.fn(() => Promise.resolve()),
 }));

@@ -9,6 +9,7 @@ const EVENT_DEFAULT_ASPECT = 4 / 3;
 import Button from "@cire/ui/button";
 import { Chip } from "@shared/ui/ui/chip";
 
+import { motionScale } from "../lib/motion-scale";
 import { formatEventDay, venueLine, venueName } from "./event-details";
 import { TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
@@ -170,11 +171,13 @@ export function EventCard(props: EventCardProps) {
       setConfirmed(true);
       setDrawing(true);
     });
+    // Stretched as the stylesheet stretches the tick, so a slowed draw is never
+    // swapped for the still path before it ends.
     endTimer = setTimeout(() => {
       endTimer = undefined;
       setDrawing(false);
       props.onCelebrated?.();
-    }, TOTAL_DURATION_MS);
+    }, TOTAL_DURATION_MS * motionScale());
   }
 
   // Only a real false→true transition celebrates. `on`'s `prev` is
@@ -348,8 +351,10 @@ export function EventCard(props: EventCardProps) {
                   `EventCard.browser.test.tsx` measures the real thing. */}
                 <span
                   aria-hidden="true"
-                  // oxlint-disable-next-line house/no-literal-motion -- the fill's sweep is SWEEP_DURATION_MS in rsvp-responded.ts, timed with the tick; longer than --dur-slow
-                  class="bg-bloom absolute inset-0 origin-left transition-transform duration-500 ease-out"
+                  // The sweep is `SWEEP_DURATION_MS` in rsvp-responded.ts, timed
+                  // with the tick: choreography longer than `--dur-slow`, so its
+                  // own time, scaled like every cire duration.
+                  class="bg-bloom absolute inset-0 origin-left transition-transform duration-[calc(500ms*var(--motion-scale))] ease-out"
                   classList={{ "scale-x-100": confirmed(), "scale-x-0": !confirmed() }}
                 />
                 <span class="relative flex items-center justify-center gap-2">

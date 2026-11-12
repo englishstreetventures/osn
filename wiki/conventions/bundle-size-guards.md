@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Guards with a threshold
@@ -57,12 +57,18 @@ and deployed. The fix was to re-measure against the build as it is now and set
 the headroom to ~11.7 KB, roughly half the mistake.
 
 *Unverified — the method is on record, the date is not: `motion`'s own client
-chunk, gzipped from a clean build, written into this page 2026-09-07. The
-client build has no such chunk to gzip today, since the library ships inside
-the event sheet's. Bundling `animate` alone, minified, gives a close figure:
-20362 bytes.*
+chunk, gzipped from a clean build, written into this page 2026-09-07. No app
+depends on `motion` now. Bundling `animate` alone, minified, gave a close
+figure: 20362 bytes.*
 
 *Measured 2026-11-11 in cire/invites — `echo 'export { animate } from "motion";' | bunx --bun esbuild --bundle --minify --format=esm --platform=browser | gzip -nc | wc -c`*
+
+Dropping it from the guest site took **17910 bytes gzip** off the event
+sheet's client chunk (37593 to 19683), the code that samples the spring for
+CSS included. The Worker the guard measures moved from 192575 to 192801
+bytes: the SSR build had stubbed the library out already.
+
+*Measured 2026-11-12 in cire/invites — `bun run build` on a7b0cff35 and on the branch that dropped `motion`, then `gzip -nc dist/client/_astro/EventSheet.*.js | wc -c`; the Worker figure is the guard's own `dist/server gzip total` line*
 
 The corollary is a check, not a rule: **you have not verified a guard until you
 have seen it fire.** Break the input and watch what it does: the non-zero exit,
