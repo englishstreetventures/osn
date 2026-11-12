@@ -1,5 +1,16 @@
 # @tools/lab
 
+## 0.3.52
+
+### Patch Changes
+
+- 2035748: The design system's `Motion` story names `ease-exit`, the curve an overlay leaves on, in its introduction; its grid shows the new token beside the other easings.
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+  - @osn/auth-ui@4.5.3
+
 ## 0.3.51
 
 ### Patch Changes
