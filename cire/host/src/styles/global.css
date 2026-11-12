@@ -1132,6 +1132,36 @@
   }
 }
 
+/* ── A view arriving in the module panel: view-arrive ───────────────────────
+ * The other half of the design law (DESIGN.md §1): `createAutoSize` moves the
+ * panel's height, and the view that arrives fades in over the held frame. On
+ * `ModuleShell`'s measured box, which gains `data-swapped` at the first change
+ * of module or sub-tab, so the panel the page opens on never fades.
+ *
+ * A transition from `@starting-style`, not keyframes: a starting style applies
+ * only to an element's first style, so a child that is new — a view a change
+ * mounts, or one taking over from its `Suspense` fallback — fades, and a child
+ * that stays mounted across the change (the invite builder across its four
+ * views) does not, even on the change that first sets `data-swapped`. Opacity
+ * only: a translate would fight the height moving around it. The old view goes
+ * at once, controls and all.
+ *
+ * Declared only under `no-preference`: the reduced-motion clamp above shortens
+ * a transition to 0.01ms rather than removing it, and a starting style would
+ * still paint its first frame at opacity 0.
+ */
+@utility view-arrive {
+  @media (prefers-reduced-motion: no-preference) {
+    &[data-swapped] > * {
+      transition: opacity var(--dur-base) var(--ease-out);
+
+      @starting-style {
+        opacity: 0;
+      }
+    }
+  }
+}
+
 /* ── The unsaved-changes bar rising: bar-rise ───────────────────────────────
  * The events and guests editors' bar, fixed to the window's foot, rises from
  * that edge by its own height when the first edit of a run mounts it, on
