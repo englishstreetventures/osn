@@ -76,8 +76,8 @@ describe("the built policy", () => {
       });
       const hashes = inlineScriptHashes(await readFile(resolve(ROOT, "index.html"), "utf8"));
 
-      // The theme script and the pages.dev redirect.
-      expect(hashes).toHaveLength(2);
+      // The theme script.
+      expect(hashes).toHaveLength(1);
       expect(policyOf(headers)).toBe(
         `${COMMITTED}; script-src 'self' ${hashes.join(" ")} ${TURNSTILE_ORIGIN}; connect-src 'self' https://id.musubi.social`,
       );

@@ -14,7 +14,7 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Gift registry
@@ -704,6 +704,8 @@ The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the 
 **`lib/registry-store.ts`** is the vendors snapshot cache in the same shape: one `GET /registry` per wedding, an inflight map so two mounts share a request, and `invalidateRegistry` on any write. Writes mutate the cached snapshot rather than refetching, which is what makes the reorder and the thank-you toggle feel instant. "Load more gifts" appends a `GET /registry/gifts?offset=<rows held>` page (`GiftLogPage`) onto the same snapshot, so the gift log and the item list still come from one cache entry.
 
 **Reorder is drag and keyboard.** Each row has a grip to drag or to move with the arrow keys, and move-up and move-down buttons for screen readers, from `@shared/sortable` through `ReorderControls.tsx` (see [[drag-and-drop]]). A move is optimistic, then `PATCH .../items/reorder` with the full `orderedIds`; focus stays on the moved row's grip, the new position is announced, and a failed save withdraws the announcement before reloading. Rows are keyed by id and an order-only change keeps the row (`sameButOrder`, see [[drag-and-drop]]), so a move after a delete's gap in the stored order moves up to 500 rows instead of rebuilding them, and an open inline editor keeps its caret.
+
+**Removing a gift waits on its undo toast.** The ✕ hides the gift at once and sends `DELETE /registry/items/:itemId`, which also reaps a picture no other gift uses, only once its undo toast has gone without Undo: about five seconds later, longer while the toast is hovered or focused, or as the page is left (`keepalive`). Until then the gift is still on the server, so co-hosts and guests still see it, and the list's own load leaves it out of any read; a successful `DELETE` hides it again in case a read that does not filter, `RegistrySettingsView`'s, carried it back. Undo puts back the same gift, claims and picture with no request. See [[toast]] and `cire/host/src/lib/undo-delete.ts`.
 
 **Money in the UI.** Prices are authored in `weddings.currency` and parsed by `parseMinor` (`lib/money.ts`), which rounds half-way amounts up to the currency's own exponent and refuses a positive price that rounds to zero (the field names the smallest unit, "Amounts between 0 and ¥1 are not allowed."), while a typed 0 stays allowed; `minorToInput` is its inverse for seeding the edit form. Both price inputs use `step="any"` deliberately — `step="0.01"` makes a valid three-decimal KWD price a constraint violation the browser refuses before any handler runs. A gift in another currency renders **as given**; a primary-currency line would sit underneath only for a row carrying one, and none does (see [Money](#money)). `contributionsPrimaryMinor` is exact, and the gifts it leaves out are counted beside it.
 

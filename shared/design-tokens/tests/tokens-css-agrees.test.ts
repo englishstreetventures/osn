@@ -104,6 +104,24 @@ describe("tokens.css agrees with the exported token list", () => {
     }
   });
 
+  it("lists every scalar token the root block declares", () => {
+    // The other direction from the case above. A token given a value in
+    // `@layer base` and left out of the list is one the lab's motion grid,
+    // which reads the list, never shows.
+    const open = CSS.indexOf("@layer base");
+    expect(open).toBeGreaterThan(-1);
+    // From the layer's brace to the first close, which ends the `:root` rule.
+    const block = CSS.slice(CSS.indexOf("{", open), CSS.indexOf("}", open));
+    const declared = [...block.matchAll(/(--ui-[\w-]+)\s*:/g)].map((m) => m[1]);
+    const listed = new Set<string>([
+      ...CONTRACT_SCALAR_TOKENS.focus,
+      ...CONTRACT_SCALAR_TOKENS.motion,
+      ...CONTRACT_SCALAR_TOKENS.elevation,
+    ]);
+    expect(declared.length).toBeGreaterThan(0);
+    expect(declared.filter((t) => !listed.has(t))).toEqual([]);
+  });
+
   it("ships the two directives consumers would otherwise each declare", () => {
     // Proven to propagate through a bare package specifier in englishstreetventures/osn#1041.
     expect(CSS).toMatch(/@custom-variant base \(:where\(&\)\);/);

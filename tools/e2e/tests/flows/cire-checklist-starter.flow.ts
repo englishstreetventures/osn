@@ -24,6 +24,15 @@
  * presses its Upgrade to find nothing for sale on this stack, which has no
  * platform webhook to grant a tier, expands the rail again and scrolls to
  * check it sticks below the top bar.
+ *
+ * Last, the owner deletes three of the starter's tasks with their ✕, each of
+ * which offers Undo on a toast and sends nothing until that toast has gone.
+ * The first is taken back with Undo, and its row never leaves cire-api. The
+ * second's toast runs out, and its `DELETE` removes the row. The third is
+ * deleted as the owner leaves the page, and its `DELETE`, sent across origins
+ * on `pagehide`, still removes the row. That the request carries `keepalive`
+ * is held by the three lists' browser tests: on this local stack a request
+ * already sent as the page goes lands with or without it.
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
@@ -42,6 +51,16 @@ import {
 import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
 
 const { weddingId, firstItem } = CIRE_ORGANISER.checklist;
+
+/** How long a deleted row's toast offers Undo: `UNDO_MS` in cire/host's `lib/undo-delete.ts`. */
+const UNDO_WINDOW_MS = 5_000;
+
+/** The starter items the flow deletes at its end, by their template keys. */
+const DELETED = {
+  takenBack: "draft-guest-list",
+  runOut: "book-venues",
+  leftWith: "book-key-suppliers",
+} as const;
 
 /** Where the marketing site's claim link sends a couple who typed "Amara & Sam". */
 const CLAIM_ARRIVAL = "/?name=Amara%20%26%20Sam";
@@ -384,7 +403,7 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     shown.after.listReads - hidden.after.listReads,
   );
 
-  // The module rail. Nothing below is timed by the page clock.
+  // The module rail. None of its steps is timed by the page clock.
   const nav = page.getByRole("navigation", { name: "Wedding modules" });
   const railWidth = async (): Promise<number> => Math.round((await nav.boundingBox())?.width ?? -1);
   const panelHeading = page.getByRole("heading", { level: 2, name: "Checklist", exact: true });
@@ -565,4 +584,96 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   });
   flow.check("rail: the page scrolled past the rail's own place", true, stuck.far);
   flow.check("rail: sticks below the top bar", true, stuck.below);
+
+  // Deletes that wait on their undo toast. Each task is found by its template
+  // key, and its row on the page by the checkbox its title names, so a toast
+  // that quotes the title is not taken for the row.
+  const task = (key: string): { id: string; title: string } => {
+    const found = queryOne<{ id: string; title: string }>(
+      DB_FILES.cire,
+      "SELECT id, title FROM tasks WHERE wedding_id = ? AND template_id = 'starter' AND template_item = ?",
+      weddingId,
+      key,
+    );
+    if (!found) throw new Error(`no starter task ${key}`);
+    return found;
+  };
+  const taskRows = (id: string): number =>
+    queryOne<{ n: number }>(DB_FILES.cire, "SELECT count(*) AS n FROM tasks WHERE id = ?", id)?.n ??
+    -1;
+  const rowOf = (title: string) =>
+    page
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("checkbox", { name: title, exact: true }) });
+  const taskUrl = (id: string): string =>
+    `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/tasks/${encodeURIComponent(id)}`;
+  const deletesSent: string[] = [];
+  const watchDeletes = (request: Request): void => {
+    if (request.method() === "DELETE") deletesSent.push(request.url());
+  };
+  page.on("request", watchDeletes);
+  const takenBack = task(DELETED.takenBack);
+  const runOut = task(DELETED.runOut);
+  const leftWith = task(DELETED.leftWith);
+
+  const undone = await flow.step("delete a task and take it back with Undo", async () => {
+    await rowOf(takenBack.title).getByRole("button", { name: "Delete task", exact: true }).click();
+    await expect(rowOf(takenBack.title)).toHaveCount(0);
+    await page.getByRole("button", { name: `Undo deleting “${takenBack.title}”` }).click();
+    await expect(page.getByText(`Restored “${takenBack.title}”`)).toBeVisible();
+    await expect(rowOf(takenBack.title)).toHaveCount(1);
+    // Off the toasts, so no toast below waits on a pointer resting over it.
+    await page.mouse.move(0, 0);
+    return { onPage: await rowOf(takenBack.title).count() };
+  });
+  flow.check("undo: the task is back on the checklist", 1, undone.onPage);
+
+  const ranOut = await flow.step("delete a task and let its toast run out", async () => {
+    await rowOf(runOut.title).getByRole("button", { name: "Delete task", exact: true }).click();
+    await expect(page.getByText(`Deleted “${runOut.title}”`)).toBeVisible();
+    // The row is still on cire-api while the toast offers Undo.
+    const during = taskRows(runOut.id);
+    const answered = page.waitForResponse(
+      (res) => res.request().method() === "DELETE" && res.url() === taskUrl(runOut.id),
+    );
+    await page.clock.runFor(UNDO_WINDOW_MS + 1_000);
+    const status = (await answered).status();
+    await expect(rowOf(runOut.title)).toHaveCount(0);
+    return { during, status };
+  });
+  flow.check("toast up: the task's row is still in cire-api", 1, ranOut.during);
+  flow.check("toast gone: cire-api answered the DELETE", 200, ranOut.status);
+  flow.check("toast gone: the task's row has left cire-api", 0, taskRows(runOut.id));
+
+  const left = await flow.step("delete a task and leave the page at once", async () => {
+    await rowOf(leftWith.title).getByRole("button", { name: "Delete task", exact: true }).click();
+    await expect(page.getByText(`Deleted “${leftWith.title}”`)).toBeVisible();
+    const during = taskRows(leftWith.id);
+    await page.goto("about:blank");
+    // The page is gone; the request it sent as it went outlives it.
+    await expect.poll(() => taskRows(leftWith.id)).toBe(0);
+    return { during };
+  });
+  flow.check("leaving: the task's row was in cire-api until the page went", 1, left.during);
+  flow.check("leaving: the DELETE sent on pagehide reached cire-api", 0, taskRows(leftWith.id));
+
+  const back = await flow.step("come back to the checklist", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/checklist`);
+    await expect(rowOf(takenBack.title)).toHaveCount(1);
+    return {
+      runOut: await rowOf(runOut.title).count(),
+      leftWith: await rowOf(leftWith.title).count(),
+    };
+  });
+  page.off("request", watchDeletes);
+  flow.check("back: the task whose toast ran out stays gone", 0, back.runOut);
+  flow.check("back: the task deleted on the way out stays gone", 0, back.leftWith);
+  // Past a whole window and a page exit, either of which sends a delete still
+  // pending: Undo settled it for good.
+  flow.check(
+    "undo: no DELETE ever sent for the task taken back",
+    0,
+    deletesSent.filter((url) => url === taskUrl(takenBack.id)).length,
+  );
+  flow.check("undo: the task's row never left cire-api", 1, taskRows(takenBack.id));
 });

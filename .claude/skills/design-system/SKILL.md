@@ -175,9 +175,12 @@ and the wiki pages above, which hold everything a skill would be checked against
 
 A design that only type-checks has not been looked at. Before you report done:
 
-- **A new or changed UI-package component is its own pull request**, under the
-  feature that uses it (`wiki/conventions/stacked-prs.md` §Frontend: one
-  component per pull request). Work only on the component your brief names.
+- **A UI-package component only one feature uses ships in that feature's pull
+  request**, with its lab stories; a change to one other apps use, or a new one
+  several features will use, is its own pull request under the feature
+  (`wiki/conventions/stacked-prs.md` §Frontend: when a component gets its own
+  pull request). On a component's own pull request, work only on the component
+  your brief names.
 
 - **Look at it rendered** at a phone width and a desktop width, and in light and
   dark on a surface that themes. With the Chrome browser tools

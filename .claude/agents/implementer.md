@@ -31,3 +31,8 @@ Read `AGENTS.md` before you touch a file. Run the gates it names before you clai
 to be done, and report their real output — a gate you did not run is `NOT RUN`,
 which is a true and useful thing to say. A stated verification that did not
 happen is the one failure that cannot be recovered downstream.
+
+**Return once.** Before your final message, finish or stop every background
+task you started: gates, waits, reviewers. Unless your brief asks, do not wait
+on CI after a push; the session that dispatched you does. Each extra report
+costs that session a turn to read, so send one, with everything in it.

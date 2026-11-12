@@ -124,7 +124,26 @@ const CIRE_LEADING = {
   "--ui-leading-relaxed": "1.75",
 } as const satisfies Record<`--ui-leading-${LeadingStep}`, string>;
 
+/**
+ * The contract tokens cire leaves unmapped, each lent `initial`, the
+ * guaranteed-invalid value, so it takes its fallback (a 600 title, overlays in
+ * from 96% and out to 98%) as in cire's apps. Without them a cire subtree
+ * would inherit what the lab's own stylesheet maps on `:root`: Musubi's.
+ */
+const CIRE_UNMAPPED = {
+  "--ui-weight-title": "initial",
+  "--ui-scale-enter": "initial",
+  "--ui-scale-exit": "initial",
+} as const;
+
 /** Every `--ui-*` token cire maps, for one theme, ready for a `style` prop. */
 export function cireStyle(which: CireTheme): JSX.CSSProperties {
-  return { ...CIRE_COLOR[which], ...CIRE_RADIUS, ...CIRE_TEXT, ...CIRE_TRACKING, ...CIRE_LEADING };
+  return {
+    ...CIRE_COLOR[which],
+    ...CIRE_RADIUS,
+    ...CIRE_TEXT,
+    ...CIRE_TRACKING,
+    ...CIRE_LEADING,
+    ...CIRE_UNMAPPED,
+  };
 }

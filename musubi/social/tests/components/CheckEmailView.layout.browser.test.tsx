@@ -60,8 +60,8 @@ function nextFrame() {
 
 /**
  * The view in an open sheet, with "Use a different email" drawn, once the
- * sheet's entry has finished and the faces have loaded: a box read mid-zoom or
- * against fallback metrics is a different number.
+ * sheet's entry has finished and the faces have loaded, so no box is read
+ * mid-animation or against fallback metrics.
  */
 async function mountInSheet(email: string, pairingCode?: string) {
   render(() => (

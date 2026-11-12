@@ -79,8 +79,7 @@ const SITES: Site[] = [
   ),
   site("stepUp.passkeyBegin", StepUpError, () => stepUp.passkeyBegin()),
   site("stepUp.passkeyComplete", StepUpError, () => stepUp.passkeyComplete({ assertion: {} })),
-  site("stepUp.otpBegin", StepUpError, () => stepUp.otpBegin()),
-  site("stepUp.otpComplete", StepUpError, () => stepUp.otpComplete({ code: "123456" })),
+  site("stepUp.emailBegin", StepUpError, () => stepUp.emailBegin({ purpose: "account_export" })),
   site("stepUp.totpComplete", StepUpError, () => stepUp.totpComplete({ code: "123456" })),
   site("passkeys.list", PasskeysError, () => passkeys.list()),
   site("passkeys.rename", PasskeysError, () =>
@@ -97,7 +96,11 @@ const SITES: Site[] = [
     account.changeEmailBegin({ newEmail: "b@example.com" }),
   ),
   site("account.changeEmailComplete", AccountError, () =>
-    account.changeEmailComplete({ code: "123456", stepUpToken: "su" }),
+    account.changeEmailComplete({
+      requestId: "emailchange_0123456789ab",
+      claimSecret: "c",
+      stepUpToken: "su",
+    }),
   ),
   site("account.deleteAccount", AccountError, () =>
     account.deleteAccount({ confirmHandle: "alice", stepUpToken: "su" }),
@@ -414,9 +417,32 @@ const SENDS_WITHOUT_AUTH_FETCH = new Set([
   "recovery.totpRecoveryComplete",
   "recovery.disown",
 ]);
-const AUTH_FETCH_SITES = SITES.filter(
-  (s) => !/^(login|register)\./.test(s.name) && !SENDS_WITHOUT_AUTH_FETCH.has(s.name),
-);
+/**
+ * The emailed-link polls and Resends of step-up and email change. They answer
+ * a refusal as `expired` rather than throwing it, so they are not in `SITES`;
+ * they go through `authFetch` all the same.
+ */
+const LINK_POLL_SITES: Site[] = [
+  site("stepUp.emailStatus", StepUpError, () =>
+    stepUp.emailStatus({ requestId: "stepup_0123456789ab", claimSecret: "c" }),
+  ),
+  site("stepUp.emailResend", StepUpError, () =>
+    stepUp.emailResend({ requestId: "stepup_0123456789ab", claimSecret: "c" }),
+  ),
+  site("account.changeEmailStatus", AccountError, () =>
+    account.changeEmailStatus({ requestId: "emailchange_0123456789ab", claimSecret: "c" }),
+  ),
+  site("account.changeEmailResend", AccountError, () =>
+    account.changeEmailResend({ requestId: "emailchange_0123456789ab", claimSecret: "c" }),
+  ),
+];
+
+const AUTH_FETCH_SITES = [
+  ...SITES.filter(
+    (s) => !/^(login|register)\./.test(s.name) && !SENDS_WITHOUT_AUTH_FETCH.has(s.name),
+  ),
+  ...LINK_POLL_SITES,
+];
 
 /**
  * What `authFetch` rejects with when the session, not the network, is the
@@ -432,7 +458,7 @@ const SESSION_REJECTIONS = [
 
 describe("a session rejection from authFetch", () => {
   it("P9: covers every authenticated client method", () => {
-    expect(AUTH_FETCH_SITES).toHaveLength(36);
+    expect(AUTH_FETCH_SITES).toHaveLength(39);
   });
 
   it.each(

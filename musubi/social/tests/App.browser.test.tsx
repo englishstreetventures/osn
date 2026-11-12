@@ -108,7 +108,7 @@ const main = () => document.querySelector("main")!.getBoundingClientRect();
 const wordmark = () =>
   screen.getAllByText("Musubi", { selector: "span" })[0]!.getBoundingClientRect();
 const dialogs = () => screen.queryAllByRole("dialog", { hidden: true });
-/** Layout width: the opening zoom scales the painted box for a moment. */
+/** Layout width, the box's own size, not a painted size any transform could change. */
 const dialogWidth = () => dialogs()[0]!.offsetWidth;
 const railSignIn = () =>
   screen

@@ -49,10 +49,9 @@
  * and shared/infra/) changed since the commit its stack job last deployed —
  * the newest successful record of that job in `production` — and dev has
  * run its stack job at the same paths; and only when none of its sites, nor
- * that change, is held back or newer on production. Otherwise its `stack`
- * sites wait with it, while a staged site's own Pages job still ships. Only
- * a stack one of whose sites the request names is asked about. Asking for
- * one of a stack's sites asks for all of them.
+ * that change, is held back or newer on production. Otherwise its sites
+ * wait with it. Only a stack one of whose sites the request names is asked
+ * about. Asking for one of a stack's sites asks for all of them.
  *
  * Inputs, from the environment:
  *   GITHUB_TOKEN        read access to deployments and Actions runs and jobs
@@ -65,9 +64,9 @@
  *                       diff and dev say — for a change no path rule sees
  *                       (a repo Variable, a hand-run wrangler deploy)
  * Writes `<key>=true|false` per surface, `stack_<stack>=true|false` per
- * production stack, `any`, `any_site` (a site build is needed) and
- * `any_stack` to $GITHUB_OUTPUT (stdout when unset), and a table of what
- * ships and why to $GITHUB_STEP_SUMMARY and stdout.
+ * production stack, `any` and `any_stack` (a site build is needed) to
+ * $GITHUB_OUTPUT (stdout when unset), and a table of what ships and why to
+ * $GITHUB_STEP_SUMMARY and stdout.
  *
  * Read-only against GitHub. Any API error fails the run: a planner that
  * shipped everything whenever it could not read the records would hide the
@@ -749,10 +748,8 @@ export interface StackChange {
 /**
  * Whether each requested stack's own paths (its `infra/` directory and
  * shared/infra/) differ from the commit its stack job last deployed. A
- * staged site's Pages job no longer ships for them: the stack, not the
- * site, is what they change. A stack none of whose sites the request names
- * is not asked about, so a release whose surfaces leave a stack out never
- * ships it.
+ * stack none of whose sites the request names is not asked about, so a
+ * release whose surfaces leave a stack out never ships it.
  */
 export function changedStacks(input: {
   readonly head: string;
@@ -868,8 +865,8 @@ export interface ReleaseDecisions {
  * Which production stacks ship. A stack deploys every site it declares, so
  * it ships when one of them ships, or when its own paths changed
  * (`changes`), and none of its sites, nor its own change, is held back or
- * newer on production (unless forced). A stack that waits holds its `stack`
- * sites back with it; a staged site's own Pages job ships regardless.
+ * newer on production (unless forced). A stack that waits holds its sites
+ * back with it.
  */
 export function stackPlans(
   decisions: readonly PlanDecision[],
@@ -940,21 +937,16 @@ export function stackPlans(
 
 /**
  * `<key>=true|false` per surface, `stack_<stack>=true|false` per production
- * stack, then `any`, `any_site` and `any_stack`, as $GITHUB_OUTPUT takes
- * them. `any_site` says a site build is
- * needed: a stack ships, or a staged site's own Pages job does.
+ * stack, then `any` and `any_stack`, as $GITHUB_OUTPUT takes them.
+ * `any_stack` also says a site build is needed: only a stack deploys a site.
  */
 export function outputLines(release: ReleaseDecisions): string {
   const ships = new Set(release.decisions.filter((d) => d.ship).map((d) => d.key));
   const stacks = release.stacks.filter((s) => s.ship).map((s) => s.key);
-  const pagesSite = PRODUCTION_SURFACES.some(
-    (s) => ships.has(s.key) && stackDeployed(s) && s.production.kind === "job",
-  );
   return [
     ...PRODUCTION_SURFACES.map((s) => `${s.key}=${ships.has(s.key)}`),
     ...PRODUCTION_STACKS.map((s) => `stack_${s.key}=${stacks.includes(s.key)}`),
     `any=${ships.size > 0 || stacks.length > 0}`,
-    `any_site=${stacks.length > 0 || pagesSite}`,
     `any_stack=${stacks.length > 0}`,
     "",
   ].join("\n");

@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-11
 ---
 
 # Logging
@@ -140,9 +140,9 @@ there by hand.
 
 Redaction matches keys, so it cannot clean a value that is already inside an error's message — and many services log `reason: String(e)`. `drizzle-orm`'s `DrizzleQueryError` puts every bound parameter in its message, which on a failed write means guest names or answers. The repository patches it (`patches/drizzle-orm@1.0.0-rc.5.patch`, applied by `bun install`): the message is `Failed query: <sql>` only, and `params` stays on the error as a non-enumerable field, so no log line, `String(e)`, JSON form or span exception carries it. `cire/api/tests/db/query-error.test.ts` fails if the patch stops applying. A drizzle upgrade must carry the patch forward. See [[tracing]].
 
-## Dev-mode OTP logging
+## Dev-mode link logging
 
-Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"`. The guard excludes both staging and production. It gives defence in depth alongside the log-level minimum. The log interpolates the OTP code into the message string, not into annotations, so the redacting logger does not scrub it — the dev log exists to show the value to the developer. In production these branches never run because `config.sendEmail` is wired up.
+`logDevLink` (`osn/api/src/services/auth/helpers.ts`) writes an emailed link, secret included, with `Effect.logDebug`, gated on the runtime tier being `local` (`OSN_ENV` unset or `"local"`; on Workers, the stamped binding). The guard excludes dev, staging and production. It gives defence in depth alongside the log-level minimum. The link sits in the message string, not in annotations, so the redacting logger does not scrub it — the line exists to show it to the developer on a stack with no inbox.
 
 ## Route-level logger wiring
 

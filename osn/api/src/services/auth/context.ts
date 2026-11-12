@@ -11,6 +11,8 @@ import type { AuthConfig } from "./config";
 import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  LINK_RESENDS_PER_MAILBOX_MAX,
+  LINK_RESENDS_PER_MAILBOX_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
   RECOVERY_RESENDS_PER_ACCOUNT_MAX,
@@ -23,6 +25,8 @@ import {
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
   REGISTRATION_SENDS_PER_ADDRESS_MAX,
   REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+  STEP_UP_LINKS_PER_ACCOUNT_CEILING,
+  STEP_UP_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "./constants";
@@ -50,7 +54,7 @@ export function createAuthContext(config: AuthConfig) {
   const passkeyRegisterAllowedAmr = new Set<string>(
     config.passkeyRegisterAllowedAmr ?? ["webauthn", "otp", "totp"],
   );
-  // `/account/email/complete`. The one allow-list with no `AuthConfig` field:
+  // `/account/email/:requestId/complete`. The one allow-list with no `AuthConfig` field:
   // its `otp` arm proves control of the CURRENT mailbox, which a TOTP seed does
   // not, and email change is the pivot to permanent takeover — so it is not a
   // deployment's choice to widen. Fixed here rather than inline at the verifier
@@ -115,6 +119,19 @@ export function createAuthContext(config: AuthConfig) {
       threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD,
       lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
     });
+  const stepUpLinkCeiling =
+    config.stepUpLinkCeiling ??
+    createInMemoryAccountCap(
+      STEP_UP_LINKS_PER_ACCOUNT_CEILING,
+      STEP_UP_LINKS_PER_ACCOUNT_CEILING_WINDOW_MS,
+    );
+  const linkResendCap =
+    config.linkResendCap ??
+    createInMemoryAccountCap(LINK_RESENDS_PER_MAILBOX_MAX, LINK_RESENDS_PER_MAILBOX_WINDOW_MS);
+  // Per-account lockout for step-up links: wrong typed numbers, on recovery's
+  // numbers. Its own counter, so a step-up never locks out a recovery factor.
+  const stepUpLinkLockoutStore =
+    config.stepUpLinkLockoutStore ?? createInMemoryRecoveryLockoutStore();
   // Per-account TOTP lockout. The in-memory default cannot fail; only a shared
   // store answers `"unknown"`, which every caller refuses.
   const totpLockoutStore =
@@ -156,9 +173,12 @@ export function createAuthContext(config: AuthConfig) {
     recoveryResendCap,
     recoveryLinkCeiling,
     registrationSendCap,
+    stepUpLinkCeiling,
+    linkResendCap,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     registrationLinkLockoutStore,
+    stepUpLinkLockoutStore,
     totpLockoutStore,
     hashIp,
     serverMac,

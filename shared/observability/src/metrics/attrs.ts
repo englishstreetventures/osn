@@ -116,7 +116,11 @@ export type SecurityInvalidationTrigger =
   | "session_revoke"
   | "session_revoke_all";
 
-/** Step-up (sudo mode) factor presented by the caller. */
+/**
+ * Step-up (sudo mode) factor presented by the caller. `otp` is the emailed
+ * factor — a link to the account's address since codes went — and keeps its
+ * name because passkey rows store it as their provenance.
+ */
 export type StepUpFactor = "passkey" | "otp" | "totp" | "recovery_code";
 
 /**
@@ -160,8 +164,8 @@ export type TotpVerifyResult =
  */
 export type TotpRekeyResult = "ok" | "failed";
 
-/** Step-up ceremony steps, for attempt funnel counters. */
-export type StepUpStep = "begin" | "complete";
+/** Step-up ceremony steps, for attempt funnel counters and span names. */
+export type StepUpStep = "begin" | "resend" | "complete";
 
 /**
  * Purpose claim embedded in step-up tokens. Lets one token mint serve
@@ -204,7 +208,7 @@ export type StepUpVerifyResult =
 export type SessionAction = "list" | "revoke" | "revoke_all";
 
 /** Email-change ceremony steps, for funnel counters. */
-export type EmailChangeStep = "begin" | "complete";
+export type EmailChangeStep = "begin" | "resend" | "complete";
 
 /**
  * Account-recovery operation steps. The first two are the recovery-code
@@ -375,7 +379,7 @@ export type OriginGuardRejectionReason = "missing" | "mismatch";
 export type CrossDeviceStep = "begin" | "poll" | "approve" | "reject";
 
 /** The flows that prove an address with an emailed link. */
-export type EmailLinkFlow = "registration" | "recovery";
+export type EmailLinkFlow = "registration" | "recovery" | "step_up" | "email_change";
 
 /**
  * What a confirm of an emailed link did: approved the request, answered an
@@ -469,8 +473,9 @@ export type AuthRateLimitedEndpoint =
   | "recovery_disown"
   | "step_up_passkey_begin"
   | "step_up_passkey_complete"
-  | "step_up_otp_begin"
-  | "step_up_otp_complete"
+  | "step_up_email_begin"
+  | "step_up_email_status"
+  | "step_up_email_resend"
   | "step_up_totp_complete"
   | "totp_enroll_begin"
   | "totp_enroll_complete"
@@ -479,6 +484,8 @@ export type AuthRateLimitedEndpoint =
   | "session_list"
   | "session_revoke"
   | "email_change_begin"
+  | "email_change_status"
+  | "email_change_resend"
   | "email_change_complete"
   | "security_event_list"
   | "security_event_ack"

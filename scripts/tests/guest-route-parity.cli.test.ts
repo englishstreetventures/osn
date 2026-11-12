@@ -292,6 +292,10 @@ function tree(
   ]) {
     copyFileSync(join(SCRIPTS, file), join(dir, "scripts", file));
   }
+  // smoke-check.ts reads the production host holds from here.
+  const sites = join("shared", "infra", "src", "production-sites.ts");
+  mkdirSync(join(dir, dirname(sites)), { recursive: true });
+  copyFileSync(join(SCRIPTS, "..", sites), join(dir, sites));
   // As the repository's root package.json does: Node loads the child as an ES module.
   writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
   const invites = join(dir, "cire", "invites");

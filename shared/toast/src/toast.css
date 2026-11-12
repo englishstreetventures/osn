@@ -115,7 +115,12 @@
   align-items: flex-end;
 }
 
-/* Newest nearest the edge the stack grows from. */
+/*
+ * The stack grows away from the edge it sits on: the oldest toast stays
+ * nearest that edge, and each newer one lands beyond it. `column-reverse`
+ * does this for the bottom positions, since it lays the first child — the
+ * oldest — at the bottom.
+ */
 .ui-toaster--bottom-left,
 .ui-toaster--bottom-center,
 .ui-toaster--bottom-right {
@@ -138,8 +143,8 @@
   font-family: var(--toast-font, inherit);
   font-size: var(--toast-font-size, 0.85rem);
   line-height: 1.45;
-  /* motion-literal: the toast's arrival curve; toasts keep their own --toast-* vocabulary, which names no curve */
-  animation: ui-toast-in var(--toast-enter-duration, 160ms) ease-out both;
+  /* motion-literal: the toast's default arrival, for an app that maps no --toast-enter-* */
+  animation: ui-toast-in var(--toast-enter-duration, 160ms) var(--toast-enter-easing, ease-out) both;
 }
 
 .ui-toast--leaving {
@@ -196,16 +201,23 @@
   font: inherit;
 }
 
+/*
+ * The action's label and corner are the app's to set, since apps disagree on
+ * how a button's label is drawn: the defaults draw it in small capitals on a
+ * corner just inside the toast's, and an app whose buttons are sentence-case
+ * pills maps the five names below onto its own.
+ */
 .ui-toast__action {
   align-self: center;
   margin-left: 0.25rem;
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--toast-border, rgb(0 0 0 / 0.12));
-  border-radius: calc(var(--toast-radius, 0.375rem) - 0.125rem);
+  border-radius: var(--toast-action-radius, calc(var(--toast-radius, 0.375rem) - 0.125rem));
   color: var(--toast-accent, inherit);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: var(--toast-action-size, 0.78rem);
+  font-weight: var(--toast-action-weight, inherit);
+  text-transform: var(--toast-action-case, uppercase);
+  letter-spacing: var(--toast-action-tracking, 0.08em);
 }
 
 /*

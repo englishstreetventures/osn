@@ -1,5 +1,42 @@
 # @osn/ui
 
+## 4.5.3
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+  - @shared/ui@0.15.1
+
+## 4.5.2
+
+### Patch Changes
+
+- e275448: Musubi's dialog and card titles draw at 14px and weight 500, its title step, and its overlays fade with no scale. The contract block in `App.css` maps `--ui-text-md` to `--text-title`, `--ui-weight-title` to 500, and `--ui-scale-enter` and `--ui-scale-exit` to 1, so `DialogTitle`, `CardTitle` and every Kobalte overlay (dialog as card and as sheet, popover, menus) follow with no class at a call site. `OtpInput`'s digits read `--ui-text-md` too: 14px from 768px, as `Input` is, and still 16px below through the mobile input rule. The account menu's separator is the shared hairline fill, and the account menu, the rail's account trigger and Settings' profile card hold an ellipsis character while the handle loads, never three dots, a bare `@` or `@undefined`; `@osn/auth-ui`'s `ProfileSwitcher` trigger holds the same character. `DESIGN.md` records the titles and their leading, the separator and the fade under §Typography, §Borders, §Chips, §Motion and §Token contract, and gives a reason for never drawing `Badge` that holds for each of its variants; `@osn/auth-ui`'s `DESIGN.md` says its dialogs and its sign-up form's popover fade in Musubi and what size its code boxes take there.
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @shared/ui@0.15.0
+
+## 4.5.1
+
+### Patch Changes
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/ui@0.14.0
+
+## 4.5.0
+
+### Minor Changes
+
+- f052448: Step-up and email change confirm by an emailed link in place of the six-digit code. `POST /step-up/email/begin` (Bearer, `{ purpose }`) mails a link to the account's own address for that one purpose and answers a request id, a claim secret and a number; whoever opens the link types the number, and the tab that began, signed in as the same account, polls `POST /step-up/email/:requestId/status` and gets a step-up token for that purpose, once (`amr: ["otp"]`, the emailed factor, so never accepted at `passkey_delete`). `POST /account/email/begin` mails a link to the new address and answers the same shape whether or not another account holds it; its status answers `confirmed` once the link is picked, and `POST /account/email/:requestId/complete` with a step-up token for `email_change` moves the account and revokes its other sessions. `/step-up/otp/*` and `/account/email/complete` are gone, with the code store, templates and dev log line.
+
+  `@osn/api` counts wrong typed step-up numbers on a per-account lockout (five in 15 minutes: no step-up link mailed, a right number refused), counts wrong email-change picks on the per-address link lockout sign-up uses, caps step-up links at 10 a day per account and Resends of both at 3 a day per mailbox (`+tag` and Gmail dots folded). `@osn/client` replaces `otpBegin`/`otpComplete` with `emailBegin`, `emailStatus` and `emailResend`, and gives the account client `changeEmailStatus`, `changeEmailResend` and a request-based `changeEmailComplete`; `emailLinkPurpose` knows step-up and email-change links. `@osn/auth-ui`'s `StepUpDialog` offers "Use email instead" under the passkey and waits on the link with `CheckEmailView` (no purpose, no email factor); `ChangeEmailForm` waits on the new address's link, then steps up and completes. `@musubi/social` asks for the number typed on a step-up link's page. `@shared/email` replaces `otp-step-up` and `otp-email-change` with `link-step-up` and `link-email-change`. `@shared/observability` adds the two flows, their routes and the `resend` steps. `@osn/db` updates a schema comment.
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @osn/client@3.4.0
+
 ## 4.4.0
 
 ### Minor Changes

@@ -554,6 +554,40 @@ measured and no JavaScript runs; `interpolate-size: allow-keywords` with
 `height: auto` says the same thing more directly but is not yet in every engine
 these apps are opened in.
 
+Two things about the box that clips:
+
+- **The wrapper clips, not the row.** Partway through, Chromium sizes the row
+  against the wrapper's own height, which has already grown by the same
+  fraction, so the row is the square of it: at 40% of the way the wrapper is
+  137px of a 340px block and the row 55px. A clip on the row shows the content
+  lagging the box, over an empty band.
+- **It keeps 4px of room.** The wrapper carries `p-1` inside a matching `-m-1`,
+  so a focus outline 2px wide and 2px out at the content's edge is not cut and
+  nothing moves. The row's box takes `min-w-0` as well as `min-h-0`, or a
+  scrolling track inside widens the column instead of scrolling. The room
+  overlaps 4px of each neighbour, and while the wrapper is shut or fading in it
+  paints above them, so the wrapper never takes pointer events and the row
+  takes them back (`pointer-events-auto`): a tap on the bottom of the control
+  above lands on that control.
+
+*Measured 2026-11-11 — Chromium, `cire/invites`' RSVP sheet at 1280px, the
+dietary section's transitions paused at a tenth of their duration*
+
+The room reaches 4px past the content sideways as well, shut or open. A
+`Reveal` flush with the inline end of a scroll box that has no inline padding
+makes that box scroll 4px sideways: a "me" message's "Sent" line in a
+`MessageThread` placed straight in such a box does. Put at least 4px of inline
+padding between them. Every thread today has more: the portal's `page-frame`
+gives 20px or more, and the vendor's `Card` 20px.
+
+*Measured 2026-11-11 — Chromium, a `MessageThread` of two messages in a 360px
+`overflow-y: auto` box with no padding: `scrollWidth` 364 against `clientWidth`
+360, the "me" row's shut `Reveal` wrapper ending at 364. Open, the wrapper
+keeps the same `-m-1 p-1`, so its edges do not move*
+
+`Reveal` opens on the app's `--dur-base` unless the caller passes
+`pace="slow"`, which the guest site does ([[cire-invite-designs#Corners, labels and motion]]).
+
 ### A computed timing function is a list, and `cubic-bezier()` has commas of its own
 
 Reading an animation's timing back from `getComputedStyle` — to run a Web
@@ -572,6 +606,26 @@ script animation with no CSS twin — a spring — has nothing to read back: che
 
 The fast tier cannot see either: jsdom computes no animation, so the value is
 empty and no tween runs.
+
+### An `<hr>` keeps preflight's border, which paints over its fill
+
+Tailwind's preflight gives every `<hr>` `height: 0`, `color: inherit` and
+`border-top-width: 1px`, and its `*` rule sets `border: 0 solid`, so the
+border's colour is `currentColor`. With `box-sizing: border-box`, an `<hr>`
+drawn as a 1px fill (`h-px` and a background) is all border. In an app whose
+base styles leave `border-color` alone, as pulse's do, the line paints in its
+parent's full ink, not the fill's colour. An app whose base layer sets
+`border-color` on `*`, as Musubi's `App.css` does, hides the fault, because the
+border then paints the hairline too.
+
+Put `border-0` on any `<hr>` drawn as a fill. A contrast theme (forced
+colours) replaces a fill with the page colour, so a fill-only line does not
+show there; add `forced-colors:border-t` where the line must stay, as both
+of the menu's separators do ([[component-library]] §`DropdownMenu`).
+
+The fast tier cannot see it: read `getComputedStyle(hr).borderTopWidth` in the
+browser tier, with and without `emulateMedia({ forcedColors: "active" })`
+(`shared/ui/tests/dropdown-menu-default.browser.test.tsx`).
 
 ## Motion follows the input
 

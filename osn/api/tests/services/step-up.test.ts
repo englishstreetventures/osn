@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
+import { makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
@@ -9,6 +9,7 @@ import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
+import { stepUpThroughService } from "../helpers/step-up-link";
 
 /**
  * Step-up tokens must:
@@ -28,19 +29,12 @@ beforeAll(async () => {
   auth = createAuthService(config);
 });
 
-/** Fresh email recorder + merged test layer. Replaces the old sendEmail callback. */
+/** Fresh email recorder + merged test layer. */
 function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
     layer: Layer.merge(createTestLayer(), email.layer),
-    latest: (): string | undefined => {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/step-up code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => email.recorded(),
   };
 }
 
@@ -50,18 +44,16 @@ const registered = (email: string, handle: string) =>
     return profile;
   });
 
-describe("step-up OTP ceremony", () => {
+describe("step-up by emailed link", () => {
   it.effect("begin + complete mints a token that /recovery/generate accepts", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-otp@example.com", "suotp");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      expect(cap.latest()).toMatch(/^\d{6}$/);
-
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
       expect(stepUpToken).toMatch(/^eyJ/);
 
@@ -76,11 +68,11 @@ describe("step-up OTP ceremony", () => {
       const alice = yield* registered("su-cross-a@example.com", "sucrossa");
       const bob = yield* registered("su-cross-b@example.com", "sucrossb");
 
-      yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         alice.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
 
       // Alice's token must NOT pass when Bob is the caller.
@@ -95,11 +87,11 @@ describe("step-up OTP ceremony", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-replay@example.com", "sureplay");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
 
       // First verification succeeds.
@@ -126,11 +118,11 @@ describe("step-up OTP ceremony", () => {
       const verified = vi.spyOn(metrics, "metricStepUpVerified");
       return Effect.gen(function* () {
         const profile = yield* guarded.registerProfile("su-jti-down@example.com", "sujtidown");
-        yield* guarded.beginStepUpOtp(profile.accountId);
-        const { stepUpToken } = yield* guarded.completeStepUpOtp(
+        const stepUpToken = yield* stepUpThroughService(
+          guarded,
           profile.accountId,
-          cap.latest()!,
           "recovery_generate",
+          cap.recorded,
         );
 
         const err = yield* Effect.flip(
@@ -147,15 +139,6 @@ describe("step-up OTP ceremony", () => {
     },
   );
 
-  it.effect("expired / wrong code is rejected with a generic error", () =>
-    Effect.gen(function* () {
-      const profile = yield* registered("su-expire@example.com", "suexpire");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const err = yield* Effect.flip(auth.completeStepUpOtp(profile.accountId, "000000"));
-      expect(err._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("amr-not-allowed is enforced by the verifier", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -166,11 +149,11 @@ describe("step-up OTP ceremony", () => {
         ...config,
         recoveryGenerateAllowedAmr: ["webauthn"],
       });
-      yield* strictAuth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* strictAuth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        strictAuth,
         profile.accountId,
-        cap.latest()!,
         "recovery_generate",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
         strictAuth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
@@ -210,23 +193,6 @@ describe("step-up OTP ceremony", () => {
       );
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect(
-    "T-M2: begin fails with AuthError (not EmailError) when email transport rejects",
-    () => {
-      const failingEmailLayer = Layer.succeed(EmailService, {
-        send: () =>
-          Effect.fail(new EmailError({ reason: "dispatch_failed", cause: "simulated failure" })),
-      });
-      const layer = Layer.merge(createTestLayer(), failingEmailLayer);
-      return Effect.gen(function* () {
-        const profile = yield* registered("su-fail-email@example.com", "sufailmail");
-        const err = yield* Effect.flip(auth.beginStepUpOtp(profile.accountId));
-        expect(err._tag).toBe("AuthError");
-        expect(err.message).toContain("dispatch_failed");
-      }).pipe(Effect.provide(layer));
-    },
   );
 });
 
@@ -285,8 +251,7 @@ describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-rec-nop@example.com", "surecnop");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const stepUpToken = yield* auth.issueStepUpToken(profile.accountId, "otp");
       const err = yield* Effect.flip(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
       );
@@ -298,11 +263,11 @@ describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-rec-cross@example.com", "sureccross");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "email_change",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
@@ -317,11 +282,11 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-del@example.com", "sudel");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "account_delete",
+        cap.recorded,
       );
       // Accepting the token must also CONSUME its jti, so a replay fails.
       // Asserting the replay proves both halves at once — a bare success
@@ -339,10 +304,9 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-del-noplan@example.com", "sudelnop");
-      yield* auth.beginStepUpOtp(profile.accountId);
       // Minted without a purpose — still valid for the legacy passkey gates,
       // but the account-delete verifier must refuse it.
-      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const stepUpToken = yield* auth.issueStepUpToken(profile.accountId, "otp");
       const err = yield* Effect.flip(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
       );
@@ -354,11 +318,11 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-del-cross@example.com", "sudelcross");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "pulse_app_delete",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
@@ -376,11 +340,11 @@ describe("verifyStepUpForExternalPurpose", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-ext@example.com", "suext");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "pulse_app_delete",
+        cap.recorded,
       );
       const result = yield* auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete");
       expect(result.accountId).toBe(profile.accountId);
@@ -391,11 +355,11 @@ describe("verifyStepUpForExternalPurpose", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-ext-x@example.com", "suextx");
-      yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(
+      const stepUpToken = yield* stepUpThroughService(
+        auth,
         profile.accountId,
-        cap.latest()!,
         "account_delete",
+        cap.recorded,
       );
       const err = yield* Effect.flip(
         auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete"),

@@ -55,10 +55,10 @@ export interface PasskeysViewProps {
   runPasskeyRegistration?: RunPasskeyRegistration;
   /**
    * Force the step-up ceremony to use the passkey factor only, suppressing
-   * the OTP ("email me a code") option. Set this in hosts where transactional
-   * email is degraded (the cire organiser portal runs the OSN API with
-   * `OSN_EMAIL_OPTIONAL=true`) so the user is never offered a code that won't
-   * be delivered. The delete/rename/add gates all accept a passkey step-up,
+   * the emailed-link ("Use email instead") option. Set this in hosts where
+   * transactional email is degraded (the cire organiser portal runs the OSN
+   * API with `OSN_EMAIL_OPTIONAL=true`) so the user is never offered a link
+   * that won't be delivered. The delete/rename/add gates all accept a passkey step-up,
    * so this stays fully functional.
    */
   /**

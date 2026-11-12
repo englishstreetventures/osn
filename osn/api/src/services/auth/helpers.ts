@@ -1,5 +1,5 @@
 /**
- * Pure helpers shared across the auth modules: id / token / OTP generation,
+ * Pure helpers shared across the auth modules: id / token generation,
  * JWT sign + verify primitives, boundary schemas, identifier normalisation.
  * Nothing in here touches the DB or holds state.
  */
@@ -282,36 +282,14 @@ export async function verifyJwt(
 }
 
 /**
- * Generates a uniformly distributed 6-digit OTP via rejection sampling.
- * `crypto.getRandomValues` returns a 32-bit value; naive `% 900_000` is biased
- * because 2^32 is not a multiple of 900_000. We discard draws that fall in the
- * tail and resample.
+ * Whether this process runs on a local machine (`OSN_ENV` unset or "local"),
+ * the only place {@link logDevLink} writes a link with its secret.
  */
-export function genOtpCode(): string {
-  const buf = new Uint32Array(1);
-  // 2^32 = 4_294_967_296. Largest multiple of 900_000 not exceeding it.
-  const ceil = Math.floor(0x1_0000_0000 / 900_000) * 900_000;
-  do {
-    crypto.getRandomValues(buf);
-  } while (buf[0]! >= ceil);
-  return (100_000 + (buf[0]! % 900_000)).toString();
-}
-
-/**
- * Local-dev convenience: surface a freshly minted OTP in the server log so an
- * operator can complete an email-OTP flow (registration, step-up, email change)
- * without a real inbox — `LogEmailLive` records the body in-memory but never
- * logs the code. Gated strictly on a local environment (`OSN_ENV` unset or
- * "local") so a code is NEVER logged in staging/production. Emitted at debug:
- * local dev defaults to the debug log level (so it shows), non-local defaults to
- * info (a second guard on top of the env check).
- */
-// P-I1: resolved once and cached — `process.env` is a backed getter, not a
-// plain property read, so re-reading it per OTP issuance is wasted work.
-// S-L2: resolution is LAZY (first `logDevOtp` call, i.e. mid-request) rather
-// than at module evaluation, so a runtime that populates `process.env` after
-// module load can never freeze an unset `OSN_ENV` into "local" — and with it
-// OTP logging — for the process lifetime. "Unset ⇒ local" itself matches the
+// Resolved once and cached — `process.env` is a backed getter, not a plain
+// property read. The resolution is LAZY (first `logDevLink` call, i.e.
+// mid-request) rather than at module evaluation, so a runtime that populates
+// `process.env` after module load can never freeze an unset `OSN_ENV` into
+// "local" — and with it link logging — for the process lifetime. "Unset ⇒ local" itself matches the
 // codebase-wide convention (`isNonLocal` in index.ts).
 let isLocalEnvCached: boolean | undefined;
 
@@ -322,7 +300,7 @@ let isLocalEnvCached: boolean | undefined;
 // `nodejs_compat_populate_process_env` is on, and only on first access. Drop
 // that flag, bump the compat date past a rename, deploy a Worker that never
 // touches `process` first — and `OSN_ENV` reads empty, "unset ⇒ local" holds,
-// and live OTP codes go to the log sink. So the deployed path stamps the real
+// and live link secrets go to the log sink. So the deployed path stamps the real
 // tier here from the binding and `process.env` is only the fallback for the Bun
 // entry (`local.ts`), where it is native and always populated.
 // An absent binding normalises to "unknown", NOT to undefined: undefined would
@@ -339,22 +317,12 @@ const isLocalEnv = (): boolean => {
   return (isLocalEnvCached ??= !process.env.OSN_ENV || process.env.OSN_ENV === "local");
 };
 
-// S-L4: the recipient address used to be interpolated into this line. A
-// free-text message is not annotation-shaped, so the key-based redaction
-// deny-list in `@shared/observability` never sees it — the env gate was the
-// only thing standing between an OTP recipient and the log sink. The address
-// is dropped rather than annotated: an operator reading a local dev log
-// already knows which address they just typed, so it bought nothing that a
-// second line of defence had to be trusted to protect.
-export function logDevOtp(purpose: string, code: string): Effect.Effect<void> {
-  if (!isLocalEnv()) return Effect.void;
-  return Effect.logDebug(`[dev-otp] ${purpose} code=${code}`);
-}
-
 /**
  * The emailed link, secret included, as a local-only debug line — so a local
- * stack with no mail provider can still be signed up through. Gated exactly as
- * {@link logDevOtp}.
+ * stack with no mail provider can still be signed up through. Gated strictly
+ * on a local environment, so a secret is never logged in staging or
+ * production, and emitted at debug, the level only local dev shows by
+ * default. It names no recipient: the operator knows which address they typed.
  */
 export function logDevLink(purpose: string, url: string): Effect.Effect<void> {
   if (!isLocalEnv()) return Effect.void;
@@ -548,7 +516,8 @@ const ONE_MAILBOX_PROVIDERS = new Map([
 ]);
 
 /**
- * `address` as the sign-up Resend cap's key, and for nothing else:
+ * `address` as the Resend caps' key (sign-up, step-up, email change), and for
+ * nothing else:
  * lowercased, the local part cut at its first `+` (when one follows the first
  * character) on every domain, and at a provider in
  * {@link ONE_MAILBOX_PROVIDERS} its dots dropped and the domain read as that
