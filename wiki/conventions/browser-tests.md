@@ -253,6 +253,19 @@ calls `cleanup()`, undo the route in a `finally`, so a throw from `cleanup()`
 cannot leave it standing. A test moved between the two packages changes its
 argument and its undo.
 
+To check that nothing arrives after the failure, wait for an import to
+settle, not for a length of time. Once the component's fetch shows in
+`performance`, import the module from the test and expect it to reject. That
+fetch starts after the component's ended, or joins one still in flight, so it
+settles after the component's import has, as the first test in
+`button-busy-failed.browser.test.tsx` does:
+
+```ts
+await expect(import("@shared/ui/ui/orb")).rejects.toThrow(
+  "Failed to fetch dynamically imported module",
+);
+```
+
 ### Width
 
 Unlike the media preferences above, width is **not** a property of the browser
@@ -403,6 +416,56 @@ A `getByRole` straight after `render` then fails every run, and a `findByRole`
 passes.
 
 *Measured 2026-11-12 — a throwaway config adding a setup file to the browser project of `cire/host` and `cire/vendor`, `bunx --bun vitest run --config <scratch config> <file>`, macOS on Apple silicon, `chromium_headless_shell-1248`. A CPU probe took 5.1 ms plain and 49.3 ms at a rate of 10 set through `cdp()`. At that rate the crossfade file without its wait failed 5 of 5 runs, and each package's `ProfileMenu.browser.test.tsx` without its wait passed 5 of 5. With the setup above, those two failed at every trigger read in 5 of 5 runs at a rate of 10 and 3 of 3 unthrottled; with `findByRole` they passed every run.*
+
+### A test run twice in one page
+
+`--repeats=2` runs each test twice more, straight after itself, in the same
+page: `beforeEach` and `afterEach` run around every run, `beforeAll` and
+`afterAll` once. Pass it to the package script with no `--` in front:
+
+```bash
+bun run --cwd shared/ui test:browser --repeats=2
+```
+
+With `-- --repeats=2`, `bun run` hands the `--` on to Vitest, which ignores
+everything after it: each test runs once and the run passes. The verbose
+reporter (`--reporter=verbose`) prints `(repeat x2)` beside a repeated test.
+
+Each run starts on the page the last one left, so a test puts back what it
+changed. Emulation and request routes follow [[#Media emulation]] and
+[[#A failed fetch]]. Beyond those:
+
+- **The DOM.** Call `cleanup()` in an `afterEach`. Without it each run's tables
+  stay, the next renders below them, out of the window, and `elementFromPoint`
+  finds nothing there.
+- **A count.** A count of `performance` entries either starts from the run's
+  own first reading, as `button-busy-failed` does, or is an absolute number
+  chosen by run, as `button-busy-load` does; never an absolute number that only
+  the first run can meet. A resource entry is written when its fetch ends, so
+  to show a fetch did not start before some moment, take `performance.now()`
+  then and compare each entry's `startTime` with it, as `button-busy-load`
+  does.
+- **Idle-time work.** To wait until a component's `requestIdleCallback` has
+  run, queue one of your own with a later `timeout` than the component's. Idle
+  callbacks run in the order they were queued, and the later deadline keeps
+  yours behind it when the page is never idle. Never queue one with no
+  `timeout`: a full run of the tier can starve it past the test's own timeout.
+- **A module cannot be put back.** Once a fetch of it succeeds, the page keeps
+  it, and nothing a test can reach unloads it; a failed one is not kept
+  ([[#A failed fetch]]). A test of what shows before a lazy module arrives
+  checks that on its first run only, and expects the loaded result after it,
+  as `button-busy-load.browser.test.tsx` and
+  `button-busy-failed.browser.test.tsx` in `@shared/ui` do. It reads the run
+  from Vitest, `const first = !task.result?.repeatCount` with `task` from the
+  test's context, never from a counter in the file: a retry keeps its run's
+  index, so a retry of a failed first run makes the first run's checks again
+  rather than the later runs' looser ones. Choose the expected value by run,
+  `toBe(first ? "SPAN" : "CANVAS")`: lint refuses an `expect` inside an `if`
+  (`vitest/no-conditional-expect`). On a later run such a file's fetch counts
+  hold because the page keeps the module, so they check the page, not the
+  component.
+
+*Measured 2026-11-12 — macOS on Apple silicon, `chromium_headless_shell-1248`: on `main`, `bun run --cwd shared/ui test:browser <file> --repeats=2` failed four tests across `data`, `button-busy-load` and `button-busy-failed`, and the same command with `-- --repeats=2` passed every test, each run once. With the fixes, the whole `@shared/ui` tier passed with `--repeats=2` (516 passed, 16 skipped, 72s against 25s plain). With an idle callback of no `timeout` in `button-busy-failed`, 3 of 6 plain runs of the tier timed that test out at 15s, and a probe logged the callback firing 15.0s after the failed fetch it waited behind; with a 2.5s `timeout`, 8 runs in a row passed. A probe run with `--retry=1 --repeats=1` that failed every other attempt read `repeatCount` 0, 0, 1, 1 and `retryCount` 0, 1, 1, 2 across its four attempts.*
 
 ### Chrome's accessibility tree
 
