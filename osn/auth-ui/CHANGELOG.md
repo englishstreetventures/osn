@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 4.5.6
+
+### Patch Changes
+
+- Updated dependencies [d60b6ce]
+  - @shared/toast@0.3.15
+
 ## 4.5.5
 
 ### Patch Changes
