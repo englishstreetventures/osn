@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Apply cire D1 migrations to one database, after checking its ledger.
+ * Apply cire D1 migrations to one local database, after checking its ledger.
  *
  * `cire/db/migrations/0001_initial.sql` is a baseline that builds what every
  * file in `cire/db/migrations-archive/` builds. It keeps the name
@@ -14,22 +14,22 @@
  * So this reads the target's schema and `d1_migrations` ledger first and
  * refuses that case (`checkLedger`, then `checkBaselineSchema` for a ledger
  * holding only the baseline's name), then runs `wrangler d1 migrations apply`
- * with the same arguments. cire/db's `db:push` and `db:migrate:*` scripts call
- * it, and through `db:migrate:prod`, production-release.yml. The dev tier's
- * database is migrated by the cire stack (cire/infra), not by this script.
+ * with the same arguments. cire/db's `db:push` and `db:migrate:local` scripts
+ * call it. It refuses `--remote`: Wrangler migrates no deployed cire database.
+ * The cire stack (cire/infra) is the one migrator of the dev database and of
+ * production's, through Alchemy, and the release refuses a production ledger
+ * this check would refuse before its migrate step runs
+ * (wiki/shared/production-deploy.md §4).
  *
  * Usage, as cire/db's package scripts call it:
  *   cire-db-migrate.ts cire-db --local
- *   cire-db-migrate.ts cire-db --env production --remote
  * Everything after the database name goes to wrangler unchanged, for the ledger
  * read and the apply alike, so the two can never target different databases.
  *
- * Wrangler is the binary cire/api installs from the lockfile — the version that
- * deploys the Worker — run with cire/api as its working directory, so a
- * relative `--persist-to` resolves from there. When cire/api has no wrangler of
- * its own this stops rather than fetch one from the registry. The ledger read
- * is not interactive, so a person running a remote script needs a wrangler
- * login that names one account, or CLOUDFLARE_ACCOUNT_ID set.
+ * Wrangler is the binary cire/api installs from the lockfile, run with
+ * cire/api as its working directory, so a relative `--persist-to` resolves from
+ * there. When cire/api has no wrangler of its own this stops rather than fetch
+ * one from the registry.
  *
  * Everything but the `import.meta.main` block is pure; that block is the only
  * part that spawns wrangler or sets the exit code.
@@ -70,15 +70,8 @@ export const CHAIN_STARTS: readonly string[] = [
 /** A ledger read that takes longer than this has stalled; it fails, and nothing is applied. */
 const QUERY_TIMEOUT_MS = 120_000;
 
-/**
- * How to bring a refused database level without breaking what serves it. A
- * missing archived migration can change schema an older Worker still reads, so
- * it is never applied by hand to a database that Worker is serving.
- */
-const RECOVERY =
-  "Production: approve the deploy run of a commit from before the archive took " +
-  "these files, let it finish — it applies them and deploys the code that matches — " +
-  "then re-run this one. Local: `bun run --cwd cire/db db:reset`.";
+/** How to bring a refused local database level: build it again from the live chain. */
+const RECOVERY = "Rebuild it: `bun run --cwd cire/db db:reset`.";
 
 /** The archived chain, in the name order wrangler applied it. */
 export function archivedMigrations(dir: string = ARCHIVE_DIR): readonly string[] {
@@ -290,18 +283,20 @@ export function namesOf(rows: readonly D1Row[]): readonly string[] {
 
 export type Args = { readonly database: string; readonly flags: readonly string[] };
 
-/** The database name, then wrangler's own flags, which must pick a target. */
+/** The database name, then wrangler's own flags, which must name a local target. */
 export function parseArgs(argv: readonly string[]): Args | { readonly error: string } {
   const [database, ...flags] = argv;
   if (database === undefined || database.startsWith("-")) {
     return { error: "the first argument must be the database name, e.g. cire-db" };
   }
-  const local = flags.includes("--local");
-  const remote = flags.includes("--remote");
-  if (local === remote) {
+  if (flags.some((flag) => flag === "--remote" || flag.startsWith("--remote="))) {
     return {
-      error: "pass exactly one of --local or --remote, so the target is never wrangler's default",
+      error:
+        "--remote is refused: Wrangler migrates no deployed cire database. The cire stack migrates dev's and production's with Alchemy (wiki/shared/production-deploy.md §4)",
     };
+  }
+  if (!flags.includes("--local")) {
+    return { error: "pass --local, so the target is never wrangler's default" };
   }
   return { database, flags };
 }

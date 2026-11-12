@@ -341,11 +341,13 @@ custom_domain = true
 name = "COORDINATION"
 class_name = "CoordinationStore"
 
+# No migrations_dir: the musubi stack is osn-db-prod's one migrator (Alchemy),
+# so `wrangler d1 migrations apply|list --env production` stops at "No
+# migrations present" before it reads the database.
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "osn-db-prod"
 database_id = "767a9ac1-129b-4efa-9fcf-f68ed7a48c38"
-migrations_dir = "../db/drizzle"
 
 # Native rate-limit bindings mirrored into production (named envs don't inherit).
 # A change to one takes effect with the musubi stack's next production release.

@@ -308,10 +308,14 @@ class_name = "TopicHub"
 tag = "v1"
 new_sqlite_classes = ["TopicHub"]
 
+# The local devloop's database. Its id is local only: a colon is in no D1
+# database's id or name, so a `wrangler d1 … cire-db --remote` that forgets
+# `--env production` reaches no database. The local migrate scripts apply
+# `migrations_dir` here (scripts/cire-db-migrate.ts).
 [[d1_databases]]
 binding = "DB"
 database_name = "cire-db"
-database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
+database_id = "local:cire-db"
 migrations_dir = "../db/migrations"
 
 # R2 bucket for the organiser change flow: each `imports` row's uploaded sheets
@@ -488,11 +492,13 @@ simple = { limit = 20, period = 60 }
 name = "REALTIME_HUB"
 class_name = "TopicHub"
 
+# No migrations_dir: the cire stack is cire-db's one migrator (Alchemy), so
+# `wrangler d1 migrations apply|list --env production` stops at "No
+# migrations present" before it reads the database.
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "cire-db"
 database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
-migrations_dir = "../db/migrations"
 
 [[env.production.r2_buckets]]
 binding = "SHEETS"

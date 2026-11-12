@@ -1818,50 +1818,35 @@ describe("PW1: one production job per stack with a production deploy", () => {
       );
       expect(domains?.env).toEqual(PRODUCTION_CREDENTIALS);
       expect(domains?.if).toBeUndefined();
-      // A refusal fails the guard step; only the migration stands between it and the deploy.
+      // A refusal fails the guard step; only the migration, and its log on a
+      // failure, stand between it and the deploy.
       expect(runStep(guard!, {}, 1).exitCode).not.toBe(0);
       expect(stepIndex(job, "migrate")).toBe(stepIndex(job, "guard") + 1);
-      expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "migrate") + 1);
-      // Wrangler migrates the stack's production database, and only when its
-      // API ships: a migration file is in the API's own paths.
+      expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "migrate") + 2);
+      // Alchemy migrates the stack's production database, on every release
+      // the stack ships, by deploying that database alone
+      // (`<stack>/infra`'s `migrate:production`, `--force --include <id>`):
+      // a migration that fails stops the job before anything else uploads.
       const migrate = stepById(job, "migrate");
-      const migration: unknown = {
+      expect({
         if: migrate?.if,
-        run: migrate?.run,
+        continues: migrate?.["continue-on-error"],
         cwd: migrate?.["working-directory"],
         env: migrate?.env,
-      };
-      expect(migration).toEqual(
-        new Map([
-          [
-            "cire",
-            {
-              if: "needs.plan.outputs.cire_api == 'true'",
-              run: "bun run --cwd cire/db db:migrate:prod",
-              cwd: undefined,
-              env: PRODUCTION_CREDENTIALS,
-            },
-          ],
-          [
-            "musubi",
-            {
-              if: "needs.plan.outputs.osn_api == 'true'",
-              run: "bun run --cwd osn/db db:migrate:prod",
-              cwd: undefined,
-              env: PRODUCTION_CREDENTIALS,
-            },
-          ],
-          [
-            "zap",
-            {
-              if: "needs.plan.outputs.zap_api == 'true'",
-              run: "bunx wrangler d1 migrations apply zap-db-prod --env production --remote",
-              cwd: "zap/api",
-              env: PRODUCTION_CREDENTIALS,
-            },
-          ],
-        ]).get(key),
-      );
+      }).toEqual({
+        if: undefined,
+        continues: undefined,
+        cwd: `${key}/infra`,
+        env: { DO_NOT_TRACK: "1", OSN_DEPLOY_TIER: "production", ...PRODUCTION_CREDENTIALS },
+      });
+      expect(runStep(migrate!, {}).bunCalls).toEqual(["run migrate:production"]);
+      expect(runStep(migrate!, {}, 3).exitCode).not.toBe(0);
+      const log = stepsOf(job)[stepIndex(job, "migrate") + 1];
+      expect(log?.if).toBe("${{ failure() && steps.migrate.outcome == 'failure' }}");
+      expect(log?.run).toBe('cat "$RUNNER_TEMP/migrate.log"');
+      expect(log?.env).toBeUndefined();
+      // Wrangler's migrator reaches no production database from any workflow.
+      expect(JSON.stringify(job)).not.toMatch(/db:migrate:prod|d1 migrations apply/);
       const live = stepById(job, "live");
       expect(live?.run).toBe('bun run read:live -- --out "$RUNNER_TEMP/live.json"');
       expect(live?.["working-directory"]).toBe(`${key}/infra`);

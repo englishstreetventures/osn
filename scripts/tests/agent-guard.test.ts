@@ -368,6 +368,35 @@ describe("18. production database reads", () => {
   });
 });
 
+// Alchemy is each production database's one migrator; Wrangler's migrator
+// against one would apply again every migration Alchemy applied since it
+// took the ledger over, and its `list` reads that ledger.
+describe("18b. Wrangler's migrator against a deployed database", () => {
+  const refusals = [
+    "bunx wrangler d1 migrations apply cire-db --env production --remote",
+    "bunx wrangler d1 migrations apply zap-db-prod --env production --remote",
+    "cd osn/api && bunx wrangler d1 migrations apply osn-db-prod --env=production --remote",
+    "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db-prod --env production --remote",
+    "wrangler d1 migrations apply cire-db --remote",
+    "wrangler d1 migrations list cire-db --env production --remote",
+    "wrangler d1 migrations apply cire-db-dev --env production --remote",
+    "wrangler d1 migrations apply cire-db-dev --remote --config other.toml",
+  ];
+  test.each(refusals)("refuses %s", (command) => {
+    expect(refused(bash(command))).toBe(true);
+  });
+
+  const allowed = [
+    "bunx wrangler d1 migrations apply cire-db --local",
+    "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db --local",
+    "bunx wrangler d1 migrations list zap-db-dev --remote",
+    "bunx wrangler d1 migrations create cire-db add_thing",
+  ];
+  test.each(allowed)("lets through %s", (command) => {
+    expect(refused(bash(command))).toBe(false);
+  });
+});
+
 describe("17. fail open", () => {
   test("a missing message file and an unknown repo pass", () => {
     expect(refused(bash("git commit -F missing.txt"))).toBe(false);

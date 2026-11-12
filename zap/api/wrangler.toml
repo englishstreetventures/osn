@@ -71,7 +71,10 @@ migrations_dir = "../db/drizzle"
 # cert. Production deploys through the zap Alchemy stack (zap/infra/src/declaration.ts),
 # never Wrangler: every [env.production] block mirrors that declaration, and
 # zap/infra/tests/parity.test.ts holds the two equal. Wrangler still reads them
-# for `d1 migrations apply` and `secret put`.
+# for `secret put`. The D1 block names no migrations_dir: the zap stack is
+# zap-db-prod's one migrator (Alchemy), so `wrangler d1 migrations apply|list
+# --env production` stops at "No migrations present" before it reads the
+# database.
 # zap-api is internal S2S (ARC-gated) + user routes (osnAuth) — auth-gated, so a
 # public subdomain is fine. cire-api reaches it via ZAP_API_URL = this origin.
 [[env.production.routes]]
@@ -82,7 +85,6 @@ custom_domain = true
 binding = "DB"
 database_name = "zap-db-prod"
 database_id = "9b75f81a-7439-412a-9aad-cf47836bca07"
-migrations_dir = "../db/drizzle"
 
 # Production vars: OSN identity issuer for access-token verification.
 # Two vars, both read in src/index.ts (and defaulted in src/lib/jwks.ts):

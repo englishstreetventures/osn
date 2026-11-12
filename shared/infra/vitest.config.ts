@@ -27,8 +27,16 @@ export const READS_REPO = [
 export const RUNS_ALCHEMY = ["tests/state-cli.test.ts"];
 
 /**
+ * The Miniflare D1 tier: files that run Wrangler and workerd against local
+ * D1 databases. They run as the `d1` project (`test:d1`, which sets
+ * INFRA_D1_TIER; each file skips itself without it, so `test:run` does not
+ * start them), cached on the inputs `turbo.json` names for `test:d1`.
+ */
+export const D1_TIER = ["tests/d1/ledger-conversion.test.ts"];
+
+/**
  * Every other file runs as the `package` project (`test`), cached on the
- * package's own files. A file is in exactly one of the three.
+ * package's own files. A file is in exactly one of the four.
  */
 export default defineConfig({
   test: {
@@ -43,11 +51,13 @@ export default defineConfig({
         test: {
           name: "package",
           include: ["tests/**/*.test.ts"],
-          exclude: [...READS_REPO, ...RUNS_ALCHEMY],
+          exclude: [...READS_REPO, ...RUNS_ALCHEMY, ...D1_TIER],
         },
       },
       { extends: true, test: { name: "repo", include: READS_REPO } },
       { extends: true, test: { name: "alchemy", include: RUNS_ALCHEMY } },
+      // Each case builds a production-shaped D1 with Wrangler first.
+      { extends: true, test: { name: "d1", include: D1_TIER, testTimeout: 300_000 } },
     ],
   },
 });

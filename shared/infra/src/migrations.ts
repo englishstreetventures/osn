@@ -190,13 +190,17 @@ export function migrationFiles(
  * production ledger holds all match a file. Emptying the target first means a
  * file an earlier run wrote never reaches the next plan. A target that
  * overlaps a source is refused, because emptying it would delete migrations.
- * Every directory is checked before the target is touched.
+ * Every directory is checked before the target is touched. Relative paths are
+ * taken from `from`, the working directory unless given.
  */
-export function flattenMigrations(input: MigrationSources & { readonly target: string }): string {
-  const target = resolve(input.target);
+export function flattenMigrations(
+  input: MigrationSources & { readonly target: string },
+  from: string = process.cwd(),
+): string {
+  const target = resolve(from, input.target);
   for (const dir of [input.source, input.archive]) {
     if (dir === undefined) continue;
-    const source = resolve(dir);
+    const source = resolve(from, dir);
     if (within(source, target) || within(target, source)) {
       throw new MigrationsSourceError({
         source: dir,
@@ -204,12 +208,12 @@ export function flattenMigrations(input: MigrationSources & { readonly target: s
       });
     }
   }
-  const files = migrationFiles(input);
+  const files = migrationFiles(input, from);
   rmSync(target, { recursive: true, force: true });
   mkdirSync(target, { recursive: true });
   for (const file of files) {
     if (file.kind === "live")
-      copyFileSync(join(resolve(input.source), file.name), join(target, file.name));
+      copyFileSync(join(resolve(from, input.source), file.name), join(target, file.name));
     else writeFileSync(join(target, file.name), file.sql);
   }
   return input.target;

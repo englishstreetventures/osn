@@ -20,7 +20,8 @@ name: Production release
 # (scripts/production-sites-artifact.ts).
 # `alchemy-plan` (the `production` Environment's first review) reads, per
 # shipping stack, what its adopted API Workers, databases and buckets hold
-# live (names and settings, never a secret's value), plans the stack and runs
+# live (names and settings, never a secret's value; for a database, its
+# migration ledger as counts, never a row), plans the stack and runs
 # the plan guard over the plan, the Workers' custom domains and that live
 # read, keeping only the guard's record (names, kinds, actions, and each
 # Worker's custom-domain change). Every stack job needs all four, so they
@@ -29,13 +30,14 @@ name: Production release
 # store that needs bootstrapping after an Alchemy bump holds the release
 # until fixed, or until a dispatch whose `surfaces` leave that stack out.
 #
-# Each stack job reads the live state again, re-plans, refuses a plan the
-# guard refuses or that differs from the one approved at `alchemy-plan`,
-# applies its API's D1 migrations with Wrangler when that API ships (one
-# migrator per database; the migration runs before the Worker version that
-# needs it), deploys, checks every secret live before the deploy is live
-# after it, and smoke-checks each surface, rolling back what it deployed
-# when a check fails. A record job per surface then leaves the surface's
+# Each stack job reads the live state again (its database's migration ledger
+# among it, as counts), re-plans, refuses a plan the guard refuses or that
+# differs from the one approved at `alchemy-plan`, applies its database's
+# migrations with Alchemy, the database's one migrator, by deploying that
+# database alone (so a migration runs before any Worker version that needs it,
+# and one that fails stops the job before the deploy), deploys, checks every
+# secret live before the deploy is live after it, and smoke-checks each
+# surface, rolling back what it deployed when a check fails. A record job per surface then leaves the surface's
 # Deployment record in the `production-records` Environment, which has no
 # reviewer. Production secrets stay on the Workers: no stack uploads one,
 # and every upload keeps the ones it does not name.
@@ -908,17 +910,29 @@ jobs:
           # A release started by its schedule adds no host to a Worker.
           SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
-      # Wrangler is the database's one migrator, and applies what is pending
-      # before the Worker version that needs it uploads. A migration file is
-      # in osn_api's own paths, so a release that does not ship it has nothing
-      # to apply. Idempotent; production is never reset and never seeded.
-      - name: Apply osn D1 migrations (remote prod)
+      # Alchemy is osn-db-prod's one migrator. This deploys the database alone
+      # (`--include OsnDb`, forced), so every release reads the database's own
+      # ledger and applies what it lacks before any Worker or site of the stack
+      # uploads, and a migration that fails stops the job here, before the
+      # deploy. The guard has already refused a ledger Alchemy could not
+      # convert or would replay from (the live read's counts). It runs whenever
+      # the stack ships; with nothing to apply it changes nothing. Production
+      # is never reset and never seeded.
+      - name: Apply osn-db-prod's migrations with Alchemy
         id: migrate
-        if: needs.plan.outputs.osn_api == 'true'
-        run: bun run --cwd osn/db db:migrate:prod
+        working-directory: musubi/infra
+        run: bun run migrate:production > "$RUNNER_TEMP/migrate.log" 2>&1
         env:
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the musubi migrate log, as the step failed
+        if: ${{ failure() && steps.migrate.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/migrate.log"
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each build was made for production. It
@@ -1194,17 +1208,29 @@ jobs:
           # A release started by its schedule adds no host to a Worker.
           SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
-      # Wrangler is the database's one migrator, and applies what is pending
-      # before the Worker version that needs it uploads. A migration file is
-      # in cire_api's own paths, so a release that does not ship it has nothing
-      # to apply. Idempotent; production is never reset and never seeded.
-      - name: Apply cire D1 migrations (remote prod)
+      # Alchemy is cire-db's one migrator. This deploys the database alone
+      # (`--include CireDb`, forced), so every release reads the database's own
+      # ledger and applies what it lacks before any Worker or site of the stack
+      # uploads, and a migration that fails stops the job here, before the
+      # deploy. The guard has already refused a ledger Alchemy could not
+      # convert or would replay from (the live read's counts). It runs whenever
+      # the stack ships; with nothing to apply it changes nothing. Production
+      # is never reset and never seeded.
+      - name: Apply cire-db's migrations with Alchemy
         id: migrate
-        if: needs.plan.outputs.cire_api == 'true'
-        run: bun run --cwd cire/db db:migrate:prod
+        working-directory: cire/infra
+        run: bun run migrate:production > "$RUNNER_TEMP/migrate.log" 2>&1
         env:
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the cire migrate log, as the step failed
+        if: ${{ failure() && steps.migrate.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/migrate.log"
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each build was made for production. It
@@ -1508,18 +1534,29 @@ jobs:
           # A release started by its schedule adds no host to a Worker.
           SCHEDULED: ${{ github.event_name == 'schedule' && 'yes' || '' }}
 
-      # Wrangler is the database's one migrator, and applies what is pending
-      # before the Worker version that needs it uploads. A migration file is
-      # in zap_api's own paths, so a release that does not ship it has nothing
-      # to apply. Idempotent; production is never reset and never seeded.
-      - name: Apply zap D1 migrations (remote prod)
+      # Alchemy is zap-db-prod's one migrator. This deploys the database alone
+      # (`--include ZapDb`, forced), so every release reads the database's own
+      # ledger and applies what it lacks before any Worker of the stack
+      # uploads, and a migration that fails stops the job here, before the
+      # deploy. The guard has already refused a ledger Alchemy could not
+      # convert or would replay from (the live read's counts). It runs whenever
+      # the stack ships; with nothing to apply it changes nothing. Production
+      # is never reset and never seeded.
+      - name: Apply zap-db-prod's migrations with Alchemy
         id: migrate
-        if: needs.plan.outputs.zap_api == 'true'
-        working-directory: zap/api
-        run: bunx wrangler d1 migrations apply zap-db-prod --env production --remote
+        working-directory: zap/infra
+        run: bun run migrate:production > "$RUNNER_TEMP/migrate.log" 2>&1
         env:
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the zap migrate log, as the step failed
+        if: ${{ failure() && steps.migrate.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/migrate.log"
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each build was made for production. It
