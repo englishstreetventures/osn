@@ -13,7 +13,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
-import { latestLinkTo, registerThroughService } from "../helpers/registration";
+import { latestLinkTo } from "../helpers/registration";
 import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
 
 /**
@@ -227,7 +227,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     },
   );
 
-  it.live("registration: a burst of wrong link secrets spends the link; a new one works", () => {
+  it.live("registration: a burst of wrong link secrets spends the link; a restart works", () => {
     const mail = capture();
     const auth = createAuthService({ ...base, ...bundle() });
     const address = "att-reg@example.com";
@@ -249,8 +249,21 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
       });
       expect(afterCap).toBe("expired");
 
-      const done = yield* registerThroughService(auth, mail.recorded, address, "attreg");
-      expect(done.handle).toBe("attreg");
+      // The spent request keeps its address until the tab starts again.
+      const again = yield* settle(
+        auth.beginRegistration(address, "attreg", "1990-01-01", undefined, {
+          requestId: begun.requestId,
+          claimSecret: begun.claimSecret,
+        }),
+      );
+      const next = latestLinkTo(mail.recorded(), address)!;
+      expect(next.requestId).toBe(again.requestId);
+      yield* auth.confirmEmailLink(next.requestId, {
+        linkSecret: next.linkSecret,
+        pairingPick: again.pairingCode,
+      });
+      const done = yield* settle(auth.registrationStatus(again.requestId, again.claimSecret));
+      expect(done.status === "complete" && done.handle).toBe("attreg");
     }).pipe(Effect.provide(mail.layer));
   });
 });

@@ -598,12 +598,12 @@ describe("Register component", () => {
       }
     });
 
-    it("stops waiting on 'Use a different email' and retires that request on the next begin", async () => {
+    it("stops waiting on 'Start again' and retires that request on the next begin", async () => {
       stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
       renderRegister();
       await submitDetailsAs();
-      fireEvent.click(screen.getByRole("button", { name: /Use a different email/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       await vi.advanceTimersByTimeAsync(20_000);
       expect(stub.registrationStatus).not.toHaveBeenCalled();
@@ -669,7 +669,7 @@ describe("Register component", () => {
       await vi.advanceTimersByTimeAsync(2_000);
       expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
 
-      fireEvent.click(screen.getByRole("button", { name: /Use a different email/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       late.resolve(completed());
       await waitFor(() => screen.getByRole("button", { name: /Enroll credential/i }));
@@ -709,7 +709,7 @@ describe("Register component", () => {
       renderRegister();
       await submitDetailsAs();
       await vi.advanceTimersByTimeAsync(2_000);
-      fireEvent.click(screen.getByRole("button", { name: /Use a different email/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       fillEmail("alice@example.org");
       await vi.advanceTimersByTimeAsync(350);

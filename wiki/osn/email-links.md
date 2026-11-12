@@ -11,7 +11,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[step-up]]"
   - "[[email-verification-api]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Emailed links
@@ -133,8 +133,13 @@ before it mails, reads, replaces or spends anything
   answer apart is the `409 session_stale` above, which says nothing about the
   request: it is refused before the request is read.
 - **Wrong secrets are counted** on the request against `MAX_OTP_ATTEMPTS` (5),
-  by the store's `guess`, on the candidates read and the confirm alike. The
-  fifth wipes the request and frees the flow's pending entry. A right secret's
+  by the store's `guess`, on the candidates read and the confirm alike. Every
+  guess past the fifth is refused without the secret being compared, the
+  right one included. In step-up the fifth also wipes the request. In a quiet
+  flow (below) it ends nothing: the reader's own confirm counts as a guess
+  and its write restarts the count, so the point where a wipe fell would show
+  the tab that began whether the reader acted. Each wrong secret there costs
+  the one `guess` call, and the request lives to its expiry. A right secret's
   read counts nothing, so a reload, or a scanner that runs the page's script,
   spends nothing. Confirm and Resend rewrite the entry, which restarts the
   count: the cap is per link sent. A wrong secret counts nowhere else:
@@ -142,8 +147,10 @@ before it mails, reads, replaces or spends anything
   count.
 - **A wrong number ends the request at once**, confirmed or not, and counts a
   strike against the flow's subject — only the holder of a link can make one.
-  Only the number whose delete ended the request counts (or one whose delete
-  the store did not answer): of two wrong numbers at once one counts, and one
+  The entry stays, marked `ended`, until it expires; nothing confirms, claims
+  or resends it after, and the flow's pending entry is freed at once. Only
+  the number whose write ended the request counts (or one whose write and
+  delete the store did not answer): of two wrong numbers at once one counts, and one
   that finds the tab's claim took the request counts none. Sign-up counts a
   wrong pick (`registration_link_lockout`) under the probe key of the address
   exactly as typed, lowercased: three in 24 hours and no more sign-up links go
@@ -154,8 +161,29 @@ before it mails, reads, replaces or spends anything
   confirmed or not, counts nothing against the reader, and answers
   `declined`. The entry stays, marked `declined`, until it expires, so the same
   decline sent again answers `declined` again; nothing else gets anything from
-  it — a number, a poll, a Resend and a read all answer `expired` — and the
-  flow's pending entry is freed at once.
+  it — a number and a read answer `expired` — and the flow's pending entry is
+  freed at once. A right number the account's lockout refuses (recovery,
+  step-up) ends the request as `ended` too.
+- **Quiet flows answer the tab that began alike, whatever the reader does.**
+  Sign-up, recovery and email change (`EMAIL_LINK_QUIET`) can mail an address
+  the tab has not proven: one with no account, or another person's. So for an
+  ended or declined request their poll answers `pending` with the number, and
+  their Resend answers `sent` (or `limit` after three sends) and mails
+  nothing, until the request expires, exactly as for a request that was never
+  mailed; each makes the store calls and statements that one makes. A person
+  who mis-picks or declines on their own phone sees the link's page say it no
+  longer works, or "Cancelled", which sends them back to the waiting screen's
+  "Start again"; the waiting screen keeps reading "Check your email".
+  Step-up's link goes to the signed-in account's own address, so its poll
+  answers `expired` at once.
+- **An ending never leaves a request confirmable.** A close tries its write up
+  to four times (the tab's two Resends and the reader's confirm are the only
+  writes that can beat it), and a store fault on it is tried once more. When
+  no mark lands, the request is deleted instead, so a quiet flow's tab may
+  then read `expired` early: the price of a store fault, never of a guess.
+  When the delete is not answered either, the process that took the pick
+  refuses the request at every later confirm and claim until it expires, and
+  answers the pick (or the decline) as a refusal.
 - **A right secret and pick on a confirmed request answers `confirmed` again**,
   so a confirm whose answer was lost does not read as a failure.
 - **Single delivery.** The poll that finds the request confirmed claims it: a
@@ -190,12 +218,14 @@ before it mails, reads, replaces or spends anything
   `confirmed`; a Resend answers `sent` and mails nothing. The finish does not
   need the flow's pending entry once the request is claimed. A claimed
   request still ends at its own expiry.
-- **Begin, the poll and Resend answer a taken address and a free one alike
-  while nobody acts on the free one's link.** Begin writes the request and
-  swaps the pending entry in every branch (same calls, same answer shape, a
+- **Begin, the poll and Resend answer a taken address and a free one alike,
+  whatever the free one's reader does.** Begin writes the request and swaps
+  the pending entry in every branch (same calls, same answer shape, a
   plausible pairing number) and mails after the answer. A taken address's
   request is never mailed, and its poll stays `pending` until it expires, as a
-  free one's does while its link goes unanswered.
+  free one's does whether its link goes unanswered, declined or mis-picked.
+  A free one's dead request parks its Resend's swap at the probe key of its
+  address, never at the address, so it never holds a free address again.
 
 ## Sign-up
 
@@ -243,9 +273,23 @@ before it mails, reads, replaces or spends anything
 - **A begin's first link** does not count against that cap, so the newest
   sign-up always gets its first link. It is bounded by begin's own limits —
   Turnstile, and five begins a minute per IP — and by one live sign-up per
-  address, which the tab that began can end at once with `previous`. No
-  per-mailbox count applies to it; the strike lockout stops it as it stops a
-  Resend.
+  address. The strike lockout stops it as it stops a Resend.
+- **Restarts count against a window of their own.** Two things free an
+  address at once: `previous` on the next begin, and the reader's decline. So
+  a first link counts against `registrationRestartStore`, ten an hour per
+  mailbox key (`REGISTRATION_RESTART_LINKS_MAX`, the same probe key as the
+  Resend cap's, in the `registration_restart` store), when its begin carried
+  `previous`, or when a sign-up to the mailbox was declined in the hour before
+  (a decline writes a mark that lasts an hour from the latest one). Past ten,
+  the restart's link is not sent; begin answers as ever. A begin with neither
+  is never counted, so a person's first begin always mails, and a fresh window
+  admits the first restart. The window bounds restarts, not distinct `+tag`
+  or Gmail forms, each of which has its own pending entry. A stranger can
+  spend a mailbox's restarts for an hour with ten Turnstile-gated begins; the
+  owner's plain begin still mails, unless a sign-up to the mailbox was declined
+  in that hour, when it is a restart too and waits for the window. A decline
+  with the link's secret goes through even once whoever began the request has
+  spent its five guesses, so the reader can always free the address.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
   address and handle (no birthdate) in this tab's `sessionStorage`, and the
   auth dialogs and `/authorize` reopen it. The pairing number is never stored:
@@ -288,19 +332,21 @@ before it mails, reads, replaces or spends anything
   link is sent to it and a right number is refused (the request ends). A
   counter that cannot be read fails closed with a 503 and keeps the request.
   The fifth writes a `recovery_otp_lockout` security event. A decline counts
-  nothing, and writes a `recovery_link_declined` event once.
+  nothing, and writes a `recovery_link_declined` event once. Neither shows on
+  the tab that began: its poll stays `pending` ([[#Rules every flow keeps]]).
 - **Limits on recovery mail**, all checked in the send after the answer, so
   begin answers the same whatever they say:
 
   | Limit | Counts | Key |
   |---|---|---|
-  | 3 a day per account and client address (`recoveryLinkAddressCap`) | every link | `serverMac.recoverySendKey(accountId, ip)` |
+  | 3 a day per account and client network (`recoveryLinkAddressCap`) | every link | `serverMac.recoverySendKey(accountId, ip)`: an IPv4 address as it is, an IPv6 address by its /64 (`clientNetwork` in `@shared/rate-limit`) |
   | 3 Resends a day per account (`recoveryResendCap`) | Resend links only | account id |
   | 20 a day per account (`recoveryLinkCeiling`) | every link | `serverMac.probeKey(accountId)` |
   | 5 begins an hour per client address (`recoveryEmailBegin`), Turnstile | begins | client address |
 
   A begin's first link never spends the account's Resends, and each client
-  address has its own allowance; the ceiling bounds what one mailbox can be
+  network has its own allowance (an IPv6 client rotating through its /64
+  earns none); the ceiling bounds what one mailbox can be
   sent, 20 links a day, however many addresses ask.
 - **The odds.** A blind typed number is right 1 time in 100 per request; a
   wrong one ends the request; five wrong numbers in 15 minutes lock email
@@ -329,8 +375,11 @@ before it mails, reads, replaces or spends anything
 - **Lockout.** A wrong typed number counts on `step_up_link_lockout`, per
   account, on recovery's numbers: five in 15 minutes, and for the rest of the
   window no step-up link is mailed and a right number is refused. A counter
-  that cannot be read fails closed with a 503. A decline counts nothing and
-  writes no security event.
+  that cannot be read fails closed with a 503. The fifth writes a
+  `step_up_link_lockout` security event, after the answer, and each count
+  moves `osn.auth.step_up.lockout{result}`. A decline counts nothing and
+  writes a `step_up_link_declined` event once, after the answer, which the
+  owner's security banner shows; no notice is mailed.
 - **Limits**: at most 10 step-up links a day per account
   (`stepUpLinkCeiling`, first links and Resends) — a first link is counted in
   begin, which past the ceiling answers 400 (`invalid_request`), so the tab
@@ -355,7 +404,9 @@ before it mails, reads, replaces or spends anything
   same calls — one collision probe, one request opened, the pending change
   replaced — and only a free one is mailed. The taken one's link secret goes
   nowhere, so it can never be confirmed; its poll stays `pending` until it
-  expires.
+  expires, and so does a free one's after its reader declines or picks a
+  wrong number ([[#Rules every flow keeps]]): the signed-in caller learns
+  nothing about who owns the new address.
 - **Status answers `confirmed` without claiming.** The tab then steps up for
   `email_change` (a passkey, or a step-up link to the CURRENT address; never
   TOTP) and completes. Complete checks the request is this account's,

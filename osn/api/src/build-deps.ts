@@ -570,6 +570,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     recoveryOtpLockoutStore: stores.recoveryOtpLockoutStore,
     totpLockoutStore: stores.totpLockoutStore,
     registrationLinkLockoutStore: stores.registrationLinkLockoutStore,
+    registrationRestartStore: stores.registrationRestartStore,
     stepUpLinkLockoutStore: stores.stepUpLinkLockoutStore,
     profileSwitchCap: stores.profileSwitchCap,
     emailChangeBeginCap: stores.emailChangeBeginCap,

@@ -6,11 +6,11 @@ import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
 import { type EmailService, makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
-import { beforeAll, vi } from "vitest";
+import { beforeAll } from "vitest";
 
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
-import { MAX_OTP_ATTEMPTS, TOTP_MAX_ENROLL_ATTEMPTS } from "../../src/services/auth/constants";
+import { TOTP_MAX_ENROLL_ATTEMPTS } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
@@ -459,49 +459,4 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
       expect(done.email).toBe("claim-ec-2@example.com");
     }).pipe(Effect.provide(h.layer));
   });
-
-  // A registration `begin` writes only where nothing is live, so it can land
-  // between the capped guess and the release of its pending entry only once
-  // that entry's life has run out. The clock is moved past it while the
-  // release's delete is held.
-  it.live(
-    "registration: a begin after the entry expired while the capped guess's release is in flight",
-    () => {
-      const h = harness((store, op) => store === "pending_registration" && op === "remove");
-      const address = "cap-reg@example.com";
-      const wrong = "0".repeat(64);
-      let clock: { mockRestore(): void } | undefined;
-      return Effect.gen(function* () {
-        const begun = yield* settle(h.auth.beginRegistration(address, "capreg", "1990-01-01"));
-        const link = latestLinkTo(h.recorded(), address)!;
-        for (let i = 1; i < MAX_OTP_ATTEMPTS; i++) {
-          yield* h.auth.confirmEmailLink(link.requestId, {
-            linkSecret: wrong,
-            pairingPick: begun.pairingCode,
-          });
-        }
-        const capped = yield* Effect.forkChild(
-          h.auth.confirmEmailLink(link.requestId, {
-            linkSecret: wrong,
-            pairingPick: begun.pairingCode,
-          }),
-        );
-        yield* h.holdingAtLeast(1);
-
-        const later = Date.now() + (base.otpTtl ?? 600) * 1000 + 1_000;
-        clock = vi.spyOn(Date, "now").mockReturnValue(later);
-        const again = yield* settle(h.auth.beginRegistration(address, "capreg", "1990-01-01"));
-        const next = latestLinkTo(h.recorded(), address)!;
-        h.release();
-        expect(yield* Fiber.join(capped)).toBe("expired");
-
-        yield* h.auth.confirmEmailLink(next.requestId, {
-          linkSecret: next.linkSecret,
-          pairingPick: again.pairingCode,
-        });
-        const done = yield* settle(h.auth.registrationStatus(again.requestId, again.claimSecret));
-        expect(done.status === "complete" && done.handle).toBe("capreg");
-      }).pipe(Effect.ensuring(Effect.sync(() => clock?.mockRestore())), Effect.provide(h.layer));
-    },
-  );
 });

@@ -20,6 +20,8 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { clientNetwork } from "@shared/rate-limit";
+
 /** Each use's label. A new use takes a new label. */
 const PROBE_KEY_LABEL = "osn-api probe key\0";
 const CHALLENGE_LABEL = "osn-api discoverable passkey challenge\0";
@@ -99,9 +101,11 @@ export interface ServerMac {
   pairingDigest(requestId: string, value: string): string;
   /**
    * The key a recovery link's per-address cap counts under: `rsk_` and 16 hex
-   * digits of a digest of the account and the client address that asked.
-   * Keyed, so the store's object names hold neither the account nor the
-   * address in a form anyone can read back.
+   * digits of a digest of the account and the network of the client address
+   * that asked (`clientNetwork`: an IPv4 address as it is, an IPv6 address by
+   * its /64), so rotating through one subscriber's IPv6 block earns no new
+   * allowance. Keyed, so the store's object names hold neither the account nor
+   * the address in a form anyone can read back.
    */
   recoverySendKey(accountId: string, clientIp: string): string;
   /**
@@ -198,7 +202,8 @@ export function createServerMac(secret: string | undefined): ServerMac {
       }
     },
     recoverySendKey(accountId, clientIp) {
-      return `rsk_${mac(RECOVERY_SEND_KEY_LABEL).update(`${accountId}\0${clientIp}`).digest("hex").slice(0, 16)}`;
+      const network = clientNetwork(clientIp);
+      return `rsk_${mac(RECOVERY_SEND_KEY_LABEL).update(`${accountId}\0${network}`).digest("hex").slice(0, 16)}`;
     },
     openChallenge(challenge, now = Date.now()) {
       return open(challengeMac, challenge, now);

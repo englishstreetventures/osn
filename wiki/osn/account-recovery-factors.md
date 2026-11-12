@@ -8,7 +8,7 @@ related:
   - "[[sessions]]"
   - "[[identity-model]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -446,7 +446,8 @@ account's own address, so an unthrottled endpoint floods the victim's inbox.
   address has its own allowance per account, a begin's first link never counts
   against the account's Resends, and together the caps bound what one mailbox
   is sent: 3 links a day per
-  account and client address, 3 Resends a day per account (a begin's first
+  account and client network (an IPv6 client counts by its /64, so rotating
+  through its block earns no new allowance), 3 Resends a day per account (a begin's first
   link never counts), and 20 links a day per account in all. Per-IP limits
   alone are defeated by a rotating fleet, which this issuer already sees.
   [[email-links]] §Recovery has the table.
@@ -481,7 +482,11 @@ the same difference upside down.
   `recovery_codes` statements, on every refusal.
 
 An audit row only a real account can cause — a lockout crossing, a declined
-recovery link — is written after the answer, so no answer waits on it.
+recovery link — is written after the answer, so no answer waits on it. The
+tab that began never sees the reader act either: a request its reader
+declined or typed a wrong number on reads `pending` to its poll and `sent`
+to its Resend, nothing mailed, until it expires, as an unknown address's
+request does ([[email-links#Rules every flow keeps]]).
 
 Two rules the padding follows:
 

@@ -59,7 +59,7 @@ function nextFrame() {
 }
 
 /**
- * The view in an open sheet, with "Use a different email" drawn, once the
+ * The view in an open sheet, with "Start again" drawn, once the
  * sheet's entry has finished and the faces have loaded, so no box is read
  * mid-animation or against fallback metrics.
  */
@@ -88,7 +88,7 @@ async function mountInSheet(email: string, pairingCode?: string) {
   const sheet = screen.getByRole("dialog");
   const view = screen.getByRole("heading", { level: 3 }).parentElement as HTMLElement;
   const resend = screen.getByRole("button", { name: /^Resend in/ });
-  const changeEmail = screen.getByRole("button", { name: "Use a different email" });
+  const changeEmail = screen.getByRole("button", { name: "Start again" });
   return { sheet, view, resend, changeEmail };
 }
 

@@ -13,7 +13,7 @@
  *
  * First a control on the same osn-api: a sign-up whose field stays empty gets
  * the emailed link as ever, which also shows the mail stand-in hears this
- * osn-api. Then "Use a different email", and the token sign-up.
+ * osn-api. Then "Start again", and the token sign-up.
  */
 
 import { DB_FILES, ORIGINS, PEOPLE } from "../../src/config";
@@ -67,7 +67,7 @@ test("musubi-email-verification", async ({ page, context, browser, flow }) => {
   );
 
   await flow.step("register: details again, with the browser's token", async () => {
-    await page.getByRole("button", { name: "Use a different email" }).click();
+    await page.getByRole("button", { name: "Start again" }).click();
     await page.getByLabel("Email").fill(hedy.email);
     await page.getByLabel("Handle").fill(hedy.handle);
     await page.getByLabel("Display name (optional)").fill(hedy.name);

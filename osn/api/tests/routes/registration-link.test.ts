@@ -19,6 +19,7 @@ import {
   EMAIL_LINK_PAIRING_CANDIDATES,
   MAX_OTP_ATTEMPTS,
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  REGISTRATION_RESTART_LINKS_MAX,
 } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
@@ -98,9 +99,10 @@ describe("a GET never approves", () => {
 });
 
 describe("wrong secrets", () => {
-  it(`wipes the request at the ${MAX_OTP_ATTEMPTS}th; the next, even right, answers as unknown`, async () => {
+  it(`refuse everything past the ${MAX_OTP_ATTEMPTS}th, even the right one, and the tab still reads pending`, async () => {
     const h = harness();
-    const s = await begun(h, "wipe@example.com", "wipe");
+    const email = "wipe@example.com";
+    const s = await begun(h, email, "wipe");
 
     for (let n = 0; n < MAX_OTP_ATTEMPTS; n++) {
       const res = await confirmThroughRoutes(h.app, s.requestId, WRONG_SECRET, s.pairingCode);
@@ -110,23 +112,64 @@ describe("wrong secrets", () => {
     const sixth = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, s.pairingCode);
     expect(await sixth.json()).toEqual({ status: "expired" });
 
+    // Nothing ends the request: it reads as one nobody acted on, and keeps
+    // its address until it expires or the tab starts again.
     const poll = await statusThroughRoutes(h.app, s.requestId, s.claimSecret);
-    expect(await poll.json()).toEqual({ status: "expired" });
+    expect(await poll.json()).toEqual({ status: "pending", pairingCode: s.pairingCode });
+    await beginThroughRoutes(h.app, { email, handle: "wipe" }, { "x-forwarded-for": "10.0.6.1" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
 
-    // The wipe freed the address: a new begin mails a new link that works.
-    const again = await begun(h, "wipe@example.com", "wipe");
-    expect(again.link.requestId).not.toBe(s.requestId);
+    const again = await beginThroughRoutes(
+      h.app,
+      { email, handle: "wipe", previous: { requestId: s.requestId, claimSecret: s.claimSecret } },
+      { "x-forwarded-for": "10.0.6.2" },
+    );
+    const link = latestLinkTo(h.recorded(), email)!;
+    expect(link.requestId).toBe(again.body.requestId);
+    await confirmThroughRoutes(h.app, link.requestId, link.linkSecret, again.body.pairingCode);
     expect(
-      await (
-        await confirmThroughRoutes(
-          h.app,
-          again.link.requestId,
-          again.link.linkSecret,
-          again.pairingCode,
-        )
-      ).json(),
-    ).toEqual({ status: "confirmed" });
-    expect((await statusThroughRoutes(h.app, again.requestId, again.claimSecret)).status).toBe(201);
+      (await statusThroughRoutes(h.app, again.body.requestId, again.body.claimSecret)).status,
+    ).toBe(201);
+  });
+
+  it("leave the reader's decline open, which frees the address", async () => {
+    const h = harness();
+    const email = "spent-decline@example.com";
+    const s = await begun(h, email, "spentdecline");
+    for (let n = 0; n < MAX_OTP_ATTEMPTS + 1; n++) {
+      await confirmThroughRoutes(h.app, s.requestId, WRONG_SECRET, "none");
+    }
+    // A wrong secret's decline is refused like any guess past the count; the
+    // link's own decline goes through.
+    const declined = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
+    expect(await declined.json()).toEqual({ status: "declined" });
+    const again = await begun(h, email, "spentdecline");
+    expect(again.requestId).not.toBe(s.requestId);
+  });
+
+  it("answer alike on a taken address's request and on one whose reader declined", async () => {
+    const h = harness();
+    await registerThroughRoutes(h.app, h.recorded, "wipe-taken@example.com", "wipetaken");
+    const declined = await begun(h, "wipe-declined@example.com", "wipedeclined");
+    await confirmThroughRoutes(h.app, declined.requestId, declined.link.linkSecret, "none");
+    const taken = await beginThroughRoutes(h.app, {
+      email: "wipe-taken@example.com",
+      handle: "wipetakentwo",
+    });
+
+    for (let n = 0; n < MAX_OTP_ATTEMPTS + 2; n++) {
+      const from = { "x-forwarded-for": `10.0.7.${n}` };
+      const a = await confirmThroughRoutes(h.app, declined.requestId, WRONG_SECRET, "10", from);
+      const b = await confirmThroughRoutes(h.app, taken.body.requestId, WRONG_SECRET, "10", from);
+      expect({ status: b.status, body: await b.json() }).toEqual({
+        status: a.status,
+        body: await a.json(),
+      });
+    }
+    const a = await statusThroughRoutes(h.app, declined.requestId, declined.claimSecret);
+    const b = await statusThroughRoutes(h.app, taken.body.requestId, taken.body.claimSecret);
+    expect(pollShape(await b.json())).toEqual(pollShape(await a.json()));
+    expect(b.status).toBe(a.status);
   });
 });
 
@@ -754,8 +797,10 @@ describe("the number on the waiting screen", () => {
     expect(await res.json()).toEqual({ status: "expired" });
     const right = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, s.pairingCode);
     expect(await right.json()).toEqual({ status: "expired" });
+    // The tab that began reads it as a request nobody acted on.
     expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
-      status: "expired",
+      status: "pending",
+      pairingCode: s.pairingCode,
     });
 
     // The address is free again at once.
@@ -778,11 +823,14 @@ describe("the number on the waiting screen", () => {
 
     const right = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, s.pairingCode);
     expect(await right.json()).toEqual({ status: "expired" });
+    // The tab that began reads it as a request nobody acted on, and its
+    // Resend mails nothing.
     expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
-      status: "expired",
+      status: "pending",
+      pairingCode: s.pairingCode,
     });
     expect(await (await resendThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
-      status: "expired",
+      status: "sent",
     });
     expect(
       await (await candidatesThroughRoutes(h.app, s.requestId, s.link.linkSecret)).json(),
@@ -803,7 +851,8 @@ describe("the number on the waiting screen", () => {
     const res = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
     expect(await res.json()).toEqual({ status: "declined" });
     expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
-      status: "expired",
+      status: "pending",
+      pairingCode: s.pairingCode,
     });
     const handle = await h.app.handle(new Request("http://localhost/handle/latedecline"));
     expect(await handle.json()).toEqual({ available: true });
@@ -830,7 +879,8 @@ describe("the number on the waiting screen", () => {
     const res = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, wrong);
     expect(await res.json()).toEqual({ status: "expired" });
     expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
-      status: "expired",
+      status: "pending",
+      pairingCode: s.pairingCode,
     });
     const handle = await h.app.handle(new Request("http://localhost/handle/latewrong"));
     expect(await handle.json()).toEqual({ available: true });
@@ -846,8 +896,11 @@ describe("the number on the waiting screen", () => {
       confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, wrong),
     ]);
     expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
-      status: "expired",
+      status: "pending",
+      pairingCode: s.pairingCode,
     });
+    const handle = await h.app.handle(new Request("http://localhost/handle/pickrace"));
+    expect(await handle.json()).toEqual({ available: true });
   });
 
   it("is required: a confirm without a pick is refused before it touches the request", async () => {
@@ -927,14 +980,15 @@ describe("the number on the waiting screen", () => {
 });
 
 describe("the candidates read", () => {
-  it("answers as unknown without the link's secret, and five wrong secrets wipe the request", async () => {
+  it("answers as unknown without the link's secret, and five wrong secrets spend the request", async () => {
     const h = harness();
     const s = await begun(h, "read-wrong@example.com", "readwrong");
     for (let n = 0; n < MAX_OTP_ATTEMPTS; n++) {
       const res = await candidatesThroughRoutes(h.app, s.requestId, WRONG_SECRET);
       expect(await res.json()).toEqual({ status: "expired" });
     }
-    const right = await candidatesThroughRoutes(h.app, s.requestId, s.link.linkSecret);
+    // Past the count no confirm is compared, the right one included.
+    const right = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, s.pairingCode);
     expect(await right.json()).toEqual({ status: "expired" });
   });
 
@@ -964,5 +1018,174 @@ describe("the candidates read", () => {
       new Request(`http://localhost/email-link/${s.requestId}/candidates`),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * The tab that began is answered alike whatever the link's reader does: a
+ * request its reader declined or mis-picked reads as a taken address's,
+ * which is never mailed, until both expire.
+ */
+describe("a request its reader ended", () => {
+  const scenario = async (act: "decline" | "wrong pick") => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const h = harness();
+    const tag = act === "decline" ? "d" : "w";
+    await registerThroughRoutes(
+      h.app,
+      h.recorded,
+      `ended-taken-${tag}@example.com`,
+      `endtaken${tag}`,
+    );
+    const free = await begun(h, `ended-free-${tag}@example.com`, `endfree${tag}`);
+    const taken = await beginThroughRoutes(h.app, {
+      email: `ended-taken-${tag}@example.com`,
+      handle: `endtakentwo${tag}`,
+    });
+    const pick = act === "decline" ? "none" : await wrongPickFor(h, free);
+    await confirmThroughRoutes(h.app, free.requestId, free.link.linkSecret, pick);
+    const mailed = h.recorded().length;
+
+    const answers = async () => {
+      const from = { "x-forwarded-for": `10.0.8.${Math.floor(Date.now() / MINUTE) % 200}` };
+      const a = await statusThroughRoutes(h.app, free.requestId, free.claimSecret, from);
+      const b = await statusThroughRoutes(
+        h.app,
+        taken.body.requestId,
+        taken.body.claimSecret,
+        from,
+      );
+      const c = await resendThroughRoutes(h.app, free.requestId, free.claimSecret, from);
+      const d = await resendThroughRoutes(
+        h.app,
+        taken.body.requestId,
+        taken.body.claimSecret,
+        from,
+      );
+      return {
+        free: {
+          poll: { status: a.status, body: pollShape(await a.json()) },
+          resend: { status: c.status, body: await c.json() },
+        },
+        taken: {
+          poll: { status: b.status, body: pollShape(await b.json()) },
+          resend: { status: d.status, body: await d.json() },
+        },
+      };
+    };
+
+    vi.setSystemTime(Date.now() + MINUTE);
+    const soon = await answers();
+    vi.setSystemTime(Date.now() + 10 * MINUTE);
+    const after = await answers();
+
+    expect(soon.free).toEqual(soon.taken);
+    expect(after.free).toEqual(after.taken);
+    expect(soon.free.poll.body).toEqual({ status: "pending", pairingCode: "two digits" });
+    expect(soon.free.resend.body).toEqual({ status: "sent" });
+    expect(after.free.poll.body).toEqual({ status: "expired" });
+    expect(after.free.resend.body).toEqual({ status: "expired" });
+    // Nothing went out after the reader acted.
+    expect(h.recorded().length).toBe(mailed);
+  };
+
+  it("after a decline, answers poll and Resend as for a taken address's request", async () => {
+    await expect(scenario("decline")).resolves.toBeUndefined();
+  });
+
+  it("after a wrong pick, answers poll and Resend as for a taken address's request", async () => {
+    await expect(scenario("wrong pick")).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * First links mailed by restarts count against the mailbox's window: a begin
+ * that carried `previous`, and a begin after a decline of a sign-up to the
+ * mailbox. A begin with neither is not counted.
+ */
+describe("the restart window", () => {
+  const ip = (n: number) => ({ "x-forwarded-for": `10.1.${Math.floor(n / 200)}.${n % 200}` });
+
+  it(`mails at most ${REGISTRATION_RESTART_LINKS_MAX} links an hour to a loop of begin and decline`, async () => {
+    const h = harness();
+    const email = "loop-decline@example.com";
+    for (let n = 0; n < REGISTRATION_RESTART_LINKS_MAX + 3; n++) {
+      const { body } = await beginThroughRoutes(h.app, { email, handle: "loopdecline" }, ip(n));
+      const link = latestLinkTo(h.recorded(), email);
+      if (link?.requestId === body.requestId) {
+        await confirmThroughRoutes(h.app, link.requestId, link.linkSecret, "none", ip(n));
+      }
+    }
+    // The first begin, then the window's allowance.
+    expect(linksTo(h.recorded(), email)).toHaveLength(1 + REGISTRATION_RESTART_LINKS_MAX);
+  });
+
+  it(`mails at most ${REGISTRATION_RESTART_LINKS_MAX} links an hour to a loop of begins that retire the last`, async () => {
+    const h = harness();
+    // Every form of one mailbox shares the window.
+    const forms = ["loop.prev@gmail.com", "loopprev+a@gmail.com", "loopprev@googlemail.com"];
+    let current = await beginThroughRoutes(h.app, { email: forms[0]!, handle: "loopprev" }, ip(0));
+    for (let n = 1; n <= REGISTRATION_RESTART_LINKS_MAX + 2; n++) {
+      current = await beginThroughRoutes(
+        h.app,
+        {
+          email: forms[n % forms.length]!,
+          handle: "loopprev",
+          previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
+        },
+        ip(n),
+      );
+    }
+    const mailed = forms.reduce((sum, form) => sum + linksTo(h.recorded(), form).length, 0);
+    expect(mailed).toBe(1 + REGISTRATION_RESTART_LINKS_MAX);
+  });
+
+  it("always mails a begin that is no restart, and a restart once a fresh hour begins", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const h = harness();
+    const email = "fresh-window@example.com";
+    let current = await beginThroughRoutes(h.app, { email, handle: "freshwindow" }, ip(0));
+    for (let n = 1; n <= REGISTRATION_RESTART_LINKS_MAX + 1; n++) {
+      current = await beginThroughRoutes(
+        h.app,
+        {
+          email,
+          handle: "freshwindow",
+          previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
+        },
+        ip(n),
+      );
+    }
+    const spent = linksTo(h.recorded(), email).length;
+    expect(spent).toBe(1 + REGISTRATION_RESTART_LINKS_MAX);
+
+    // The last request expires; a begin with no `previous` and no decline
+    // behind it is not counted, so it mails though the window is spent.
+    vi.setSystemTime(Date.now() + 11 * MINUTE);
+    const plain = await beginThroughRoutes(h.app, { email, handle: "freshwindow" }, ip(50));
+    expect(linksTo(h.recorded(), email)).toHaveLength(spent + 1);
+
+    // A restart in the same hour is held back; in a fresh hour it mails.
+    const held = await beginThroughRoutes(
+      h.app,
+      {
+        email,
+        handle: "freshwindow",
+        previous: { requestId: plain.body.requestId, claimSecret: plain.body.claimSecret },
+      },
+      ip(51),
+    );
+    expect(linksTo(h.recorded(), email)).toHaveLength(spent + 1);
+    vi.setSystemTime(Date.now() + 60 * MINUTE);
+    await beginThroughRoutes(
+      h.app,
+      {
+        email,
+        handle: "freshwindow",
+        previous: { requestId: held.body.requestId, claimSecret: held.body.claimSecret },
+      },
+      ip(52),
+    );
+    expect(linksTo(h.recorded(), email)).toHaveLength(spent + 2);
   });
 });

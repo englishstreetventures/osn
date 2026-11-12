@@ -266,7 +266,9 @@ export function createEmailChangeModule(
    * `POST /account/email/:requestId/status` — polled by the tab that began,
    * signed in as the account that began. `pending` (with the number) until
    * the new address's link is confirmed, then `confirmed`, which claims
-   * nothing: the tab steps up and completes. `expired` for every refusal.
+   * nothing: the tab steps up and completes. A request the link's reader
+   * ended stays `pending` until it expires, as a taken address's does.
+   * `expired` for every refusal.
    */
   const emailChangeStatus = (
     accountId: string,
@@ -287,7 +289,7 @@ export function createEmailChangeModule(
    * request. Answers as begin does whether the address is taken or free: the
    * pending change and the collision probe are read on every branch, and a
    * link goes only to a free address the account's pending change still
-   * names for this request.
+   * names for this request, while its link's reader has not ended it.
    */
   const resendEmailChange = (
     accountId: string,
@@ -308,7 +310,7 @@ export function createEmailChangeModule(
       );
       const address = pending?.requestId === requestId ? pending.newEmail : null;
       const taken = yield* addressTaken(address ?? "");
-      if (address !== null && !taken && resent.bound === addressDigest(address)) {
+      if (!resent.ended && address !== null && !taken && resent.bound === addressDigest(address)) {
         const minutesLeft = Math.max(1, Math.ceil((resent.expiresAt - Date.now()) / 60_000));
         yield* logDevLink("email-change", resent.url);
         yield* forkBackground(sendEmailChangeLink(address, resent.url, minutesLeft, "resend"));
