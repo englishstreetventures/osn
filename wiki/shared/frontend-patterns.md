@@ -687,6 +687,16 @@ stylesheet's reduced-motion clamp reaches it with no `matchMedia` check, and a
 catch reads the moving thing's place off its computed `transform`. `linear()`
 needs Chrome 113, Firefox 112 or Safari 17.2; below that, a `cubic-bezier()`
 whose first handle has the same slope (`y1 / x1`) leaves at the same speed.
+A release moving away from the target makes that slope negative, and the
+fitted handle can then dip further the wrong way than the spring does; shorten
+`x1` until the curve's lowest point is the spring's.
+
+Check each stretch between two stops at more than its midpoint. A stretch
+over a dip, or over the bend where the spring stops speeding up, can sit on
+its chord at the midpoint while straying tens of pixels elsewhere, and a
+check that only halves on a miss must also stop at some shortest gap: near
+the start of a very fast release the tangent stop alone strays past the
+tolerance, and halving forever overflows the stack.
 
 ### A toggled box can fade out of `display: none` in CSS alone — outside the top layer
 

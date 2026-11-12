@@ -123,8 +123,23 @@ const REST_PX = 1;
 const REST_SPEED = 30;
 /** The longest a settle may run, in seconds; a critically damped spring is long at rest by then. */
 const MAX_SETTLE_S = 2;
-/** How far, in px, the sampled curve may stray from the spring between two stops. */
+/**
+ * How far, in px, the sampled curve may stray from the spring at each place
+ * between two stops that {@link PROBES} names.
+ */
 const SAMPLE_TOLERANCE_PX = 0.35;
+/**
+ * Where between two stops the curve is checked against the spring, as shares
+ * of the gap. The midpoint alone is not enough: a stretch over a dip, or over
+ * the bend from speeding up to slowing down, can sit on its chord there.
+ */
+const PROBES = [0.25, 0.5, 0.75];
+/**
+ * The shortest gap between two stops, in seconds: far under a frame, so the
+ * sampler stops halving there even where the spring bends faster than the
+ * tolerance allows, as it does in the first millisecond of a very fast release.
+ */
+const MIN_GAP_S = 0.0005;
 /** The most stops a curve carries, its first and last included. */
 const MAX_STOPS = 64;
 /** The first stop's time, in seconds: up to here the curve is the spring's tangent at release. */
@@ -140,8 +155,9 @@ export interface SettleCurve {
   /** The spring, sampled into a CSS `linear()` easing. */
   easing: string;
   /**
-   * For an engine without `linear()` (Safari before 17.2): one
-   * `cubic-bezier()` that leaves at the same speed and never passes the rest.
+   * For an engine without `linear()` (Chrome before 113, Safari before
+   * 17.2): one `cubic-bezier()` that leaves at the same speed, never passes
+   * the rest, and runs no further the wrong way than the spring.
    */
   fallback: string;
 }
@@ -152,20 +168,37 @@ function short(n: number, places: number): string {
 }
 
 /**
+ * The lowest `y1` a `cubic-bezier(x1, y1, x2, 1)` may take without its
+ * progress dipping below `floor` (a value under 0). Its progress at parameter
+ * `s` is `y1·3s(1 − s)² + s²(3 − 2s)`, which falls as `y1` does, so the
+ * lowest `y1` is the largest value `(floor − s²(3 − 2s)) / 3s(1 − s)²` takes.
+ */
+function lowestY1(floor: number): number {
+  let y1 = -Infinity;
+  for (let i = 1; i < 1000; i++) {
+    const s = i / 1000;
+    y1 = Math.max(y1, (floor - s * s * (3 - 2 * s)) / (3 * s * (1 - s) ** 2));
+  }
+  return y1;
+}
+
+/**
  * The settle of panels released at `from` px, bound for `to`, moving at
  * `velocity` px per ms — or null when they are already there.
  *
  * A critically damped spring with a 0.3s response, started at the finger's
  * speed, which a fixed-length ease cannot: a flick carries on rather than
  * braking, and a slow release does not jump. It is sampled into `linear()`
- * stops no more than about a third of a pixel off the spring, and its first
- * stop is the spring's tangent a millisecond in, so the first frame after
- * release moves at the speed the finger had. It ends at rest, within a pixel
- * of its target and under 30px/s. A full panel's width from rest settles in
- * about 0.4s, 95% of the way by about 0.23s. A flick faster than the spring
- * can bring to rest would pass its target and come back; the curve ends where
- * it reaches the target instead, so no empty rail shows beyond the panel's
- * rest.
+ * stops that keep it under 0.4px off the spring from any release a finger
+ * makes (up to 10px/ms), and its first stop is the spring's tangent a
+ * millisecond in, so the first frame after release moves at the speed the
+ * finger had. A release far faster strays further, since that tangent alone
+ * does, and so does a curve that would need more than 64 stops, which is
+ * sampled again more loosely. It ends at rest, within a pixel of its target
+ * and under 30px/s. A full panel's width from rest settles in about 0.4s,
+ * 95% of the way by about 0.23s. A flick faster than the spring can bring to
+ * rest would pass its target and come back; the curve ends where it reaches
+ * the target instead, so no empty rail shows beyond the panel's rest.
  */
 export function settleCurve(from: number, to: number, velocity: number): SettleCurve | null {
   const distance = to - from;
@@ -196,16 +229,20 @@ export function settleCurve(from: number, to: number, velocity: number): SettleC
   }
 
   // Up to the first stop, the release speed exactly; from there, the spring,
-  // halved wherever a straight line would stray past the tolerance. A curve
-  // that would need more stops than the cap is sampled again more loosely.
+  // halved wherever a straight line would stray past the tolerance at any
+  // probe, down to the shortest gap. A curve that would need more stops than
+  // the cap is sampled again more loosely.
   const first = Math.min(TANGENT_S, end / 2);
   const sample = (tolerancePx: number): [number, number][] => {
     const stops: [number, number][] = [[first, (v0 / distance) * first]];
     const tolerance = tolerancePx / Math.abs(distance);
     const refine = (a: number, pa: number, z: number, pz: number) => {
-      const m = (a + z) / 2;
-      const pm = progress(m);
-      if (Math.abs(pm - (pa + pz) / 2) > tolerance) {
+      const strays = PROBES.some(
+        (u) => Math.abs(progress(a + (z - a) * u) - (pa + (pz - pa) * u)) > tolerance,
+      );
+      if (strays && z - a > MIN_GAP_S) {
+        const m = (a + z) / 2;
+        const pm = progress(m);
         refine(a, pa, m, pm);
         refine(m, pm, z, pz);
       } else {
@@ -227,8 +264,13 @@ export function settleCurve(from: number, to: number, velocity: number): SettleC
     .join(", ")}, 1)`;
 
   // The same first slope, held under 1 so the curve never passes the rest.
+  // Released moving away from the rest, the slope is negative and the curve
+  // runs the wrong way first; there the handle shortens, where it must, so
+  // the curve goes no further that way than the spring does, at its turn
+  // (t = 1/ω − d0/b, where its speed is 0).
   const slope = (v0 * end) / distance;
-  const x1 = slope > 1 / FALLBACK_X1 ? 1 / slope : FALLBACK_X1;
+  let x1 = slope > 1 / FALLBACK_X1 ? 1 / slope : FALLBACK_X1;
+  if (slope < 0) x1 = Math.min(x1, lowestY1(progress(1 / w - d0 / b)) / slope);
   const fallback = `cubic-bezier(${short(x1, 4)}, ${short(slope * x1, 4)}, ${FALLBACK_X2}, 1)`;
 
   return { duration: end * 1000, easing, fallback };

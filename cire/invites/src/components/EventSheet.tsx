@@ -147,7 +147,7 @@ interface Settle {
   paint: Paint;
 }
 
-/** Whether this engine reads a `linear()` easing; Safari before 17.2 does not. */
+/** Whether this engine reads a `linear()` easing; Chrome before 113 and Safari before 17.2 do not. */
 function readsLinearEasing(): boolean {
   return (
     typeof CSS !== "undefined" &&

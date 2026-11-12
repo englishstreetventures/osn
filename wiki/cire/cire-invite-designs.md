@@ -494,8 +494,10 @@ event and the panel to open on.
   and ending where a fast flick would pass the rest, and the sheet writes
   that easing and its time, stretched by `--motion-scale`, as
   `--swipe-settle-ease` and `--swipe-settle-time` on the rail and the badge
-  while `data-settling` marks them. An engine without `linear()` gets a
-  `cubic-bezier()` with the same first slope that never passes the rest.
+  while `data-settling` marks them. An engine without `linear()` (Chrome
+  before 113, Safari before 17.2) gets a `cubic-bezier()` with the same first
+  slope that never passes the rest and, released moving away from it, runs
+  no further the wrong way than the spring.
   Under reduced motion the global clamp lands the panels at once. Past
   either end — back past where the drag began, or beyond the form's rest —
   the panels follow the finger on iOS's rubber band, `c·x·d / (d + c·x)`

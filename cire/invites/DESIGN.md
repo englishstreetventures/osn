@@ -195,14 +195,21 @@ The portals' ladder, value for value, in `global.css`:
 | A swipe between the sheet's panels settling (`settleCurve`, `[data-settling]`)       | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel from rest settles in about 0.4s | the spring sampled into a `linear()` at release; a `cubic-bezier()` with the same first slope where the engine has none | yes    |
 | The envelope opening (`@cire/envelope`)                                              | its own timeline: `wiki/cire/cire-envelope.md` §Taps, timeline and breaks | —                    | —      |
 
-The swipe's settle is the one easing that is no token: its curve starts at the
-finger's speed, which differs with every release, so the sheet samples the
+The swipe's settle is the one easing written at run time: its curve starts at
+the finger's speed, which differs with every release, so the sheet samples the
 spring into a CSS `linear()` easing at release and runs it as a transition
 (the owner's choice, 2026-11-12, englishstreetventures/osn#2197). Its first
 stretch moves at the release speed exactly, the curve stops where a fast flick
-would pass the panel's rest, and an engine without `linear()` (Safari before
-17.2) gets one `cubic-bezier()` that leaves at the same speed and never passes
-the rest.
+would pass the panel's rest, and an engine without `linear()` (Chrome before
+113 and Safari before 17.2, both inside the browser floor) gets one
+`cubic-bezier()` that leaves at the same speed, never passes the rest, and
+runs no further the wrong way than the spring.
+
+Three other easings in these tables are no token, each for a reason: `Modal`'s
+exit and the toast run curves their shared packages set (`@shared/ui`,
+`@shared/toast`), and the unlock shimmer, choreography longer than
+`--dur-slow`, is one CSS `ease-in-out` cut at its keyframes, each cut marked
+`motion-literal` in `global.css`.
 
 The unlock reveal closes the code form at once, brings the welcome in with a
 shimmer on its heading, then lifts the events section and its cards one by

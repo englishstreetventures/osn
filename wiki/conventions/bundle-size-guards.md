@@ -63,10 +63,10 @@ figure: 20362 bytes.*
 
 *Measured 2026-11-11 in cire/invites — `echo 'export { animate } from "motion";' | bunx --bun esbuild --bundle --minify --format=esm --platform=browser | gzip -nc | wc -c`*
 
-Dropping it from the guest site took **18021 bytes gzip** off the event
-sheet's client chunk (37593 to 19572). The Worker the guard measures moved
-from 192575 to 192799 bytes: the SSR build had stubbed the library out
-already.
+Dropping it from the guest site took **17910 bytes gzip** off the event
+sheet's client chunk (37593 to 19683), the code that samples the spring for
+CSS included. The Worker the guard measures moved from 192575 to 192801
+bytes: the SSR build had stubbed the library out already.
 
 *Measured 2026-11-12 in cire/invites — `bun run build` on a7b0cff35 and on the branch that dropped `motion`, then `gzip -nc dist/client/_astro/EventSheet.*.js | wc -c`; the Worker figure is the guard's own `dist/server gzip total` line*
 
