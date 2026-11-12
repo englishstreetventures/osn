@@ -28,8 +28,9 @@ export const emulateMedia = defineBrowserCommand<
 /**
  * Fails every request whose path ends with `pathSuffix`, as the network does
  * when a chunk is missing or the browser is offline: a dynamic import of that
- * module rejects in the page. `restoreRequests` lifts it; call it in an
- * `afterAll`, since routing outlives the test that set it.
+ * module rejects in the page. `restoreRequests` lifts it; call it in the
+ * `afterEach` or `afterAll` that pairs with the hook that set it, since
+ * routing outlives the test that set it.
  */
 export const failRequests = defineBrowserCommand<[pathSuffix: string]>(async (ctx, pathSuffix) => {
   await ctx.page.route(

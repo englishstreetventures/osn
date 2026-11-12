@@ -235,10 +235,22 @@ different argument, undo and reach:
 | `@musubi/social` | a path suffix (`url.pathname.endsWith`) | `restoreRequests()`, which lifts every route on the page | the whole page | `tests/App.load-failure.browser.test.tsx` (the sidebar's chunk) |
 
 Both abort the request as a dropped network does, so a dynamic import of that
-module rejects the way a missing chunk does. Either way, set it in a
-`beforeAll`, undo it in an `afterAll`, and keep the file to the one failure:
-routing outlives the test that set it, and the page keeps the failed module for
-the rest of the file. A test moved between the two packages changes its
+module rejects the way a missing chunk does. Either way, keep the file to the
+one failure: routing outlives the test that set it, and while the route stands
+every import of the module in the file fails. Chromium does not keep a failed
+module; it fetches it again on the next import, so a later test that lifts the
+route can load it (`button-busy-failed.browser.test.tsx`). Once a load
+succeeds, the page keeps the module, so a test that loads it before the
+failure leaves nothing to fail.
+
+Set the route in a `beforeAll` and undo it in an `afterAll` when no test that
+checks the failure lifts the route itself. A test that checks the failure and
+then lifts the route, as `App.dialogs-load-failure.browser.test.tsx` does,
+sets it in a `beforeEach` and undoes it in an `afterEach` instead. Under
+`--repeats` a test's runs follow one another with `beforeAll` run once, so a
+route the first run lifts is gone for the rest. In an `afterEach` that also
+calls `cleanup()`, undo the route in a `finally`, so a throw from `cleanup()`
+cannot leave it standing. A test moved between the two packages changes its
 argument and its undo.
 
 ### Width
@@ -632,7 +644,7 @@ Locally, `bun run test:browser` still runs every package, one after another.
 | `@musubi/social` | `tests/App.browser.test.tsx` | `Layout`, signed out, at 1440 and 390px: from the first frame, before the shell's lazy chunk can have landed, a frame of the rail (240px wide) or the top bar holds its place, so the page column's edge and the wordmark are where they are once the shell arrives. An open sign-in dialog, with an identifier typed, stays one dialog and keeps the text from 1440 to 390 and back to 1440; it is 384px wide on desktop and as wide as the window at 390. Escape hands focus back to the rail's Sign in, and after a switch to 390 to the top bar's; the dialog is named "Sign in". At 320px the signed-out top bar holds the theme toggle, Sign in and Create account, each at least 40px tall, with nothing overflowing and the wordmark clear of them. Verified against the bug: the first four fail on the code before the frames and the single dialog mount. Writes `sign-in-1440.png`, `sign-in-390.png` and `topbar-320.png` under the gitignored `e2e-artifacts/musubi-shell/` |
 | `@musubi/social` | `tests/App.signed-in.browser.test.tsx` | `Layout` signed in with two profiles: the account menu's Switch profile opens one dialog named "Switch profile", listing both, the active one `aria-current`, 320px wide at 1440; crossing to 390 keeps it open as a 390px sheet; Escape hands focus to the top bar's account trigger. Writes `switcher-1440.png` and `switcher-390-dark.png` |
 | `@musubi/social` | `tests/App.load-failure.browser.test.tsx` | The rail's chunk request aborted at the network, as offline or after a deploy renames it: the rail's 240px frame stays with the alert "Musubi could not finish loading. Reload and try again.", the page beside it still renders at its usual left edge, and nothing goes unhandled. Writes `rail-failed-1440.png` there too |
-| `@musubi/social` | `tests/App.dialogs-load-failure.browser.test.tsx` | The shell dialogs' chunk aborted: the rail's frame stays with the reload line and no Sign in, neither the shell's nor the page's signed-out note's, the page at its usual left edge with the note's message still read out. Then the network returns and the window crosses to 390: the phone shell loads the chunk again, draws, and its Sign in opens the dialog; the note shows one Sign in, outside its `<output>`. Verified against the bugs: the last step fails when the dialogs mount only on the first load; the first check fails when the note's Sign in is drawn before the dialogs load; the count fails when the note reads its `action` twice. Writes `dialogs-failed-1440.png` |
+| `@musubi/social` | `tests/App.dialogs-load-failure.browser.test.tsx` | The shell dialogs' chunk aborted: the rail's frame stays with the reload line and no Sign in, neither the shell's nor the page's signed-out note's, the page at its usual left edge with the note's message still read out. Then the network returns and the window crosses to 390: the phone shell loads the chunk again, draws, and its Sign in opens the dialog; the note shows one Sign in, outside its `<output>`. Verified against the bugs: the last step fails when the dialogs mount only on the first load; the check for no Sign in fails when the note's Sign in is drawn before the dialogs load; the count fails when the note reads its `action` twice; the rail's own load of its chunks settles `loaded`, not `failed`, when the rail stops waiting for the dialogs. Writes `dialogs-failed-1440.png`; a repeated run (`--repeats`), which finds the dialogs already loaded, writes `dialogs-loaded-1440.png` and checks the rail draws its Sign in at once |
 | `@musubi/social` | `tests/App.phone-load-failure.browser.test.tsx` | The phone shell's chunk aborted, at 390 and 320px: the reload line sits inside the top bar, above its hairline, and the page starts at the bar's bottom edge. Writes `topbar-failed-390.png` and `topbar-failed-320.png` |
 | `@musubi/social` | `tests/components/GlobalSearch.browser.test.tsx` | The rail's search results under a real pointer: clicking an organisation option opens its page, clicking a person option sends one connection request and leaves focus in the field, and a click outside still closes the results. happy-dom's synthetic click skips the press and the focus change, which is why its click test passed while a real click did nothing. Verified against the bug: the first two fail without the panel's `mousedown` cancel |
 | `@musubi/social` | `tests/components/ResponsiveDialogContent.browser.test.tsx` | The app's dialog, at each `width` (`sm` and `xs`): as wide as the window at 390px, and 384px or 320px at 1440. Escape hands focus back to the button that opened it, leaves it to Kobalte when that button has gone, and lets a caller that prevents the default put it elsewhere. Verified against the bug: the width cases fail on the code before the `width` prop, and the focus case without the opener return |
