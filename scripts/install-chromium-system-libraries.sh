@@ -25,20 +25,29 @@
 #   waits on a silent connection are the image's: its
 #   /etc/apt/apt.conf.d/zz-retries sorts after every NN-* file, and apt keeps
 #   the last value it reads.
+# - When an index fails its signature check and an older copy is on disk,
+#   apt warns, keeps that copy and carries on, as after a fetch failure. It
+#   also runs each command listed under APT::Update::Auth-Failure, and fails
+#   the update when one fails. The script lists `false` there, so both
+#   updates, the script's and Playwright's, fail instead: no attempt checks
+#   the cache against, or installs from, an index apt has just refused to
+#   renew, and the step fails with the signature line below.
 # - When the mirror's names do not resolve, `apt-get update` makes about ten
 #   lookups in a row before it gives up, and apt's timeouts do not cover them.
 #   Each lookup is two DNS queries, SRV and address, and glibc waits 10 s on
-#   each (5 s, twice): 200 s, so on 2026-11-11 every attempt was cut inside
-#   the update. Here apt skips the SRV query, which no Ubuntu mirror answers,
-#   and the attempt runs with RES_OPTIONS="timeout:2 attempts:1", so a lookup
-#   waits 2 s and both updates, the script's and Playwright's, finish in the
-#   attempt. apt-get update then warns, exits 0 and keeps the index already on
-#   disk, which apt checked when it fetched it; verify-cached-debs.sh checks
-#   the cache against that index, and apt installs from its archive what the
-#   index names, without the network. The step passes with one warning
-#   starting "::warning::install-chromium-system-libraries: apt-get update
-#   could not fetch every index". A resolver that answers within 2 s works as
-#   before.
+#   each (5 s, twice): about 200 s, more than an attempt's 150 s. Here apt
+#   skips the SRV query, which no Ubuntu mirror answers, and the attempt runs
+#   with RES_OPTIONS="timeout:2 attempts:1", so a lookup waits 2 s and both
+#   updates finish in the attempt. apt-get update then warns, exits 0 and
+#   keeps the index already on disk, which apt checked when it fetched it;
+#   verify-cached-debs.sh checks the cache against that index, and apt
+#   installs from its archive what the index names, without the network. The
+#   step passes with one warning starting
+#   "::warning::install-chromium-system-libraries: apt-get update could not
+#   fetch every index". A resolver that answers within 2 s works as before.
+#   One slower than that fails each lookup, so with every mirror it leads to
+#   the same index on disk: the step passes with that warning when the cache
+#   holds what the index names, and otherwise fails.
 # - After the install, the .debs in apt's archive, each checked against the
 #   index by verify-cached-debs.sh or by apt as it downloaded it, replace
 #   those in <cache dir>, for the workflow to save.
@@ -86,8 +95,9 @@ network="Temporary failure resolving '|Could not resolve '|Could not connect to 
 # apt-pkg/acquire-item.cc). Wide on purpose: a false match only fails the step.
 untrusted="NO_PUBKEY|BADSIG|EXPKEYSIG|REVKEYSIG|[Ss]ignature|[Ss]igned|[Hh]ash|not valid yet"
 # apt-get update's warning when a fetch failed on the network and it kept the
-# index on disk (apt-pkg/update.cc), and apt-get install's error when it could
-# not download a package (apt-private/private-install.cc).
+# index on disk (apt-pkg/update.cc; after a signature failure apt fails the
+# update instead, as set below), and apt-get install's error when it could not
+# download a package (apt-private/private-install.cc).
 kept_index="W: Some index files failed to download. They have been ignored, or old ones used instead."
 not_fetched="E: Unable to fetch some archives"
 
@@ -133,9 +143,13 @@ without_apt() {
 }
 
 mkdir -p "$cache"
+# The third line fails an update in which an index failed its signature check
+# (apt-pkg/acquire-item.cc runs the list, apt-pkg/contrib/fileutl.cc fails on
+# a command that does).
 printf '%s\n' \
   'APT::Keep-Downloaded-Packages "true";' \
-  'Acquire::EnableSrvRecords "false";' |
+  'Acquire::EnableSrvRecords "false";' \
+  'APT::Update::Auth-Failure { "false"; };' |
   sudo tee "$root/etc/apt/apt.conf.d/80-ci-chromium" >/dev/null
 
 shopt -s nullglob
@@ -144,8 +158,10 @@ echo "install-chromium-system-libraries: ${#cached[@]} packages in the cache"
 
 # Run as root, Playwright calls apt-get itself rather than through sudo, with
 # this environment. The output reaches the log as it comes, and a file
-# without_apt and the warning below read.
-status=0
+# without_apt and the warning below read. When tee cannot write that file the
+# step fails: read in part, it could lose that warning or a line without_apt
+# needs.
+pipe=(0 0)
 # shellcheck disable=SC2016 # $1-$4 are the inner shell's own arguments.
 sudo env "PATH=$PATH" "RES_OPTIONS=$resolver" bash "$scripts/retry.sh" 3 150 \
   sh -c 'dpkg --configure -a &&
@@ -154,7 +170,13 @@ sudo env "PATH=$PATH" "RES_OPTIONS=$resolver" bash "$scripts/retry.sh" 3 150 \
     bash "$1" "$2" "$3" &&
     bunx --no-install playwright install-deps chromium' \
   sh "$scripts/verify-cached-debs.sh" "$cache" "$archives" "$state/updated" \
-  2>&1 | tee "$state/output" || status=${PIPESTATUS[0]}
+  2>&1 | tee "$state/output" || pipe=("${PIPESTATUS[@]}")
+status=${pipe[0]}
+if [ "${pipe[1]}" -ne 0 ]; then
+  echo "::error::install-chromium-system-libraries: tee could not save the attempt's output (exit ${pipe[1]}), so the script cannot read what apt reported"
+  if [ "$status" -eq 0 ]; then status=1; fi
+  exit "$status"
+fi
 if [ "$status" -ne 0 ]; then without_apt "$status"; fi
 if grep -qxF "$kept_index" "$state/output"; then
   echo "::warning::install-chromium-system-libraries: apt-get update could not fetch every index and kept the copies on disk; its W: lines above name them"

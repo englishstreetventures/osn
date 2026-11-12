@@ -24,6 +24,9 @@
 //                                    the one install-deps runs too, prints what it holds and either
 //                                    finishes keeping the index on disk or is cut (see unresolvedUpdate),
 //                                    and a download fails
+//   update-untrusted                 when present, the mirror's index fails its signature check: every
+//                                    `apt-get update` prints what it holds and keeps the index on disk,
+//                                    and fails if apt's configuration makes an auth failure fatal
 //
 // install-deps behaves as the worst apt could: it installs whatever file of
 // the right name it finds in the archive, unchecked, and downloads from the
@@ -59,6 +62,18 @@ const sha256 = (path: string) =>
 const worldFile = (name: string) =>
   existsSync(join(world, name)) ? readFileSync(join(world, name), "utf8") : undefined;
 
+/** Every line of apt's configuration directory, as apt reads it. */
+function aptConf(): string {
+  const conf = join(world, "root", "etc", "apt", "apt.conf.d");
+  return readdirSync(conf)
+    .map((file) => readFileSync(join(conf, file), "utf8"))
+    .join("\n");
+}
+
+/** apt-get update's warning when it kept an index on disk (apt-pkg/update.cc). */
+const KEPT_INDEX =
+  "W: Some index files failed to download. They have been ignored, or old ones used instead.\n";
+
 /**
  * The longest an `apt-get update` may take when no name resolves: its share of
  * the script's 150 s attempt, which holds the script's update, Playwright's own
@@ -81,10 +96,7 @@ function unresolvedSeconds(): number {
     const set = new RegExp(`(?:^|\\s)${name}:(\\d+)`).exec(process.env.RES_OPTIONS ?? "");
     return set?.[1] === undefined ? fallback : Number(set[1]);
   };
-  const conf = join(world, "root", "etc", "apt", "apt.conf.d");
-  const srv = !readdirSync(conf).some((file) =>
-    readFileSync(join(conf, file), "utf8").includes('Acquire::EnableSrvRecords "false";'),
-  );
+  const srv = !aptConf().includes('Acquire::EnableSrvRecords "false";');
   return 10 * (srv ? 2 : 1) * option("timeout", 5) * option("attempts", 2);
 }
 
@@ -93,8 +105,24 @@ function unresolvedSeconds(): number {
  * reachable, its index becomes the one apt reads. With its names unresolvable,
  * apt warns and keeps the index already on disk (apt-pkg/update.cc) when it
  * gives up in time; otherwise retry.sh cuts the attempt first, which exits 124.
+ * With an index that fails its signature check where one is already on disk,
+ * apt warns, keeps that one, and runs the commands listed under
+ * `APT::Update::Auth-Failure`; one that fails, as `false` does, makes the
+ * update fail (apt-pkg/acquire-item.cc, apt-pkg/contrib/fileutl.cc).
  */
 function update(): number {
+  const untrusted = worldFile("update-untrusted");
+  if (untrusted !== undefined) {
+    process.stderr.write(untrusted);
+    if (aptConf().includes('APT::Update::Auth-Failure { "false"; };')) {
+      process.stderr.write(
+        "E: Problem executing scripts APT::Update::Auth-Failure 'false'\nE: Sub-process returned an error code\n",
+      );
+      return 100;
+    }
+    process.stderr.write(KEPT_INDEX);
+    return 0;
+  }
   const unresolvable = worldFile("unresolvable");
   if (unresolvable === undefined) {
     mkdirSync(lists, { recursive: true });
@@ -103,9 +131,7 @@ function update(): number {
   }
   process.stdout.write(unresolvable);
   if (unresolvedSeconds() > UPDATE_SHARE_SECONDS) return 124;
-  process.stderr.write(
-    "W: Some index files failed to download. They have been ignored, or old ones used instead.\n",
-  );
+  process.stderr.write(KEPT_INDEX);
   return 0;
 }
 

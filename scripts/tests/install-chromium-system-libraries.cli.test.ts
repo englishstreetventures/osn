@@ -236,6 +236,17 @@ const UNTRUSTED: Readonly<Record<string, string>> = {
   ].join("\n"),
 };
 
+/**
+ * What `apt-get update` warns when an index fails its signature check and apt
+ * holds an older copy: it keeps that copy (apt-pkg/acquire-item.cc).
+ */
+const UNTRUSTED_KEPT = [
+  "Err:2 http://azure.archive.ubuntu.com/ubuntu resolute InRelease",
+  "  The following signatures were invalid: BADSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key (2018) <ftpmaster@ubuntu.com>",
+  "W: An error occurred during the signature verification. The repository is not updated and the previous index files will be used. OpenPGP signature verification failed: http://azure.archive.ubuntu.com/ubuntu resolute InRelease: The following signatures were invalid: BADSIG 871920D1991BC93C Ubuntu Archive Automatic Signing Key (2018) <ftpmaster@ubuntu.com>",
+  "",
+].join("\n");
+
 /** Makes every `apt-get update` print `text` and fail without an index. */
 const unreachable = (w: World, text: string) => writeFileSync(join(w.dir, "update-fails"), text);
 
@@ -262,14 +273,19 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.output).not.toMatch(/^::warning::/m);
     // Without the first line apt deletes what it downloads and the cache saves
     // nothing. The second spares each connection a DNS query no mirror answers;
-    // when names do not resolve, that query is half the wait. Retries and
-    // timeouts are the image's own (zz-retries), which apt reads after this file.
+    // when names do not resolve, that query is half the wait. The third makes an
+    // index that fails its signature check fail the update, where apt would
+    // otherwise keep the old copy and carry on. Retries and timeouts are the
+    // image's own (zz-retries), which apt reads after this file.
     expect(
       readFileSync(join(w.dir, "root", "etc", "apt", "apt.conf.d", "80-ci-chromium"), "utf8"),
     ).toBe(
-      ['APT::Keep-Downloaded-Packages "true";', 'Acquire::EnableSrvRecords "false";', ""].join(
-        "\n",
-      ),
+      [
+        'APT::Keep-Downloaded-Packages "true";',
+        'Acquire::EnableSrvRecords "false";',
+        'APT::Update::Auth-Failure { "false"; };',
+        "",
+      ].join("\n"),
     );
   });
 
@@ -427,6 +443,54 @@ describe("install-chromium-system-libraries.sh", () => {
     expect(run.status, run.output).toBe(0);
     expect(run.archiveAtInstall).toEqual([]);
     expectGenuine(run, [[ALPHA, "network"]]);
+  });
+
+  test("an index that fails its signature check where apt holds an older copy fails every update, so no cached package is checked against that copy or installed, and the step fails saying why", () => {
+    const w = world([ALPHA]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    writeFileSync(join(w.dir, "update-untrusted"), UNTRUSTED_KEPT);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.log.filter((line) => line === "apt-get update")).toHaveLength(3);
+    expect(
+      run.log.filter((line) => line.startsWith("apt-cache show") || line === "install-deps"),
+    ).toEqual([]);
+    expect(run.installed.size).toBe(0);
+    expect(run.log).not.toContain("install-deps --dry-run");
+    expect(run.output).toContain(`${NOT_SKIPPED}apt reported a signature or hash failure`);
+    // Never read as an outage.
+    expect(run.output).not.toContain(KEPT_INDEX);
+    expect(cacheContents(w)).toEqual(before);
+  });
+
+  test("when the script cannot keep its copy of the output, the step fails, though the install passed, and leaves the cache as it found it", () => {
+    const old: Pkg = { ...ALPHA, version: "0.9-1" };
+    const w = world([ALPHA]);
+    // A cache the install would refresh: the old version out, the new one in.
+    cacheFile(w, fileOf(old), bytesOf(old));
+    // A tee that cannot write its file, as on a full disk: it still passes
+    // what it reads on to the log, and exits 1. apt's configuration it writes.
+    writeFileSync(
+      join(w.bin, "tee"),
+      [
+        "#!/usr/bin/env bash",
+        'case "${*: -1}" in */apt.conf.d/*) exec /usr/bin/tee "$@" ;; esac',
+        "cat",
+        "exit 1",
+      ].join("\n"),
+    );
+    chmodSync(join(w.bin, "tee"), 0o755);
+    const before = cacheContents(w);
+    const run = install(w);
+    expect(run.status, run.output).toBe(1);
+    expect(run.log).toContain("install-deps");
+    expect(run.output.match(/^::error::install-chromium-system-libraries: /gm), run.output).toEqual(
+      ["::error::install-chromium-system-libraries: "],
+    );
+    expect(run.output).not.toContain("kept for the cache");
+    expect(cacheContents(w)).toEqual(before);
   });
 });
 
@@ -616,5 +680,21 @@ describe("install-chromium-system-libraries.sh when the mirror's names do not re
     expect(run.log).not.toContain("install-deps --dry-run");
     expect(run.output).not.toContain(SKIPPED);
     expect(cacheContents(w)).toEqual(before);
+  });
+
+  test("with the index on disk kept, an install that fails for a reason other than a download does not blame the cache", () => {
+    const w = world([ALPHA]);
+    indexOnDisk(w);
+    cacheFile(w, fileOf(ALPHA), bytesOf(ALPHA));
+    unresolvable(w);
+    writeFileSync(join(w.dir, "fail"), "E: Sub-process /usr/bin/dpkg returned an error code (1)\n");
+    const run = install(w);
+    expect(run.status, run.output).toBe(100);
+    expect(run.output).toContain(
+      "W: Some index files failed to download. They have been ignored, or old ones used instead.",
+    );
+    expect(run.output.match(new RegExp(`^${NOT_SKIPPED}`, "gm")), run.output).toHaveLength(1);
+    expect(run.output).toContain(`${NOT_SKIPPED}apt-get update finished, so apt held an index`);
+    expect(run.output).not.toContain("could not fetch every index");
   });
 });
