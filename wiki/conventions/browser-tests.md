@@ -12,7 +12,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Browser Tests
@@ -205,7 +205,10 @@ pointer back in CI's Linux Chromium: the next test in the file finds
 `(pointer: fine)` false, though on macOS it matches again. So a file reads
 everything it needs with the fine pointer first and turns touch emulation on
 once, in its last test, as `@cire/host`'s `tests/styles/pace.browser.test.tsx`
-does.
+does. Where that test sits among many, a `beforeEach` can hold the order on
+every platform: `ChecklistView.assign.browser.test.tsx` records the touch
+test's id when it turns emulation on, and fails any other test that runs after
+it.
 
 The `@shared/ui`, `@cire/ui`, `@musubi/social` and `@pulse/web` copies also take
 `forcedColors`: `"active"` emulates a Windows contrast theme, which repaints
@@ -378,19 +381,31 @@ the script, as `bun run --cwd cire/host test:browser <file> --repeats=2`. With
 `--` before it, Bun hands the `--` on to Vitest, which ignores everything after
 it: each test runs once and the file passes.
 
-`cleanup()` empties the page, but three things outlive it into the next run:
+`cleanup()` empties the page, but these, among others, outlive it into the
+next run:
 
 - **The pointer.** Playwright's mouse stays where the last hover or click left
-  it, and whatever the next render draws there reads `:hover`. A test that
-  leaves the pointer on something it rendered ends with `userEvent.unhover`, as
-  the icon-button test in `RsvpView.events.browser.test.tsx` does.
+  it, and whatever the next render draws there reads `:hover`. A file whose
+  tests hover or click moves the pointer in its `afterEach`, which runs whether
+  the test passed or failed, as `RsvpView.events.browser.test.tsx` does with
+  `userEvent.unhover(document.body)`. A reset at the end of the test is skipped
+  when an assertion above it fails, and the next run then fails with a
+  different message. `unhover` moves the pointer to the middle of the `<body>`,
+  whatever element it is given.
 - **A loaded `lazy()` chunk.** Solid's `lazy` keeps its module for the life of
   the page, so a second run shows no `Suspense` fallback. To hold a fallback on
   screen, hold a read the view makes as it mounts, as
   `ModuleShell.view-arrive.browser.test.tsx` holds the Seating view's.
+- **State a module keeps.** A store's timers and caches live as long as the
+  page, and its reset function may not reach all of them. A test that starts a
+  timer stops it before the test ends, or leaves it nothing to act on. In
+  `undo-delete.browser.test.tsx`, Undo hands focus back to the row's ✕ before
+  the toast hides, so the toast's clock stops; a toast hidden with focus inside
+  restarts a clock `resetToasts()` cannot clear, which ends the next run's
+  toast (englishstreetventures/osn#2246).
 - **Touch emulation**, on Linux ([[#Media emulation]]).
 
-*Measured 2026-11-12 — `bun run --cwd cire/host test:browser <file> --repeats=2`, macOS on Apple silicon, `chromium_headless_shell-1248`: before the fixes above, `ModuleShell.view-arrive` and `RsvpView.events` failed their second run as CI run 43186018641 did; with `-- --repeats=2` instead, the same files ran each test once and passed.*
+*Measured 2026-11-12 — `bun run --cwd cire/host test:browser <file> --repeats=2`, macOS on Apple silicon, `chromium_headless_shell-1248`: before the fixes above, `ModuleShell.view-arrive`, `RsvpView.events` and `undo-delete` failed their second run as CI run 43186018641 did, and `ChecklistView.assign` passed, its fault being Linux-only; with `-- --repeats=2` instead, the same files ran each test once and passed.*
 
 ### Chrome's accessibility tree
 

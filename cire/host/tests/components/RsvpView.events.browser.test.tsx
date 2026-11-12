@@ -168,11 +168,17 @@ beforeAll(() => {
   document.head.append(style);
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   authFetch.mockReset();
   delete document.documentElement.dataset.theme;
   window.scrollTo(0, 0);
+  // `cleanup()` does not move the pointer. Left where a test hovered or
+  // clicked, it would lift whatever the next render draws there, the same
+  // test run again included. `unhover` moves it to the middle of the page, and
+  // here it runs whether the test passed or failed, so a failure is reported
+  // once, by the test that failed.
+  await userEvent.unhover(document.body);
 });
 
 interface AXNode {
@@ -854,9 +860,6 @@ describe("the RSVP bar's one pill language", () => {
     expect(panel.boxShadow).toMatch(/inset/);
     expect(panel.boxShadow).toMatch(/12px 32px -8px/);
     await userEvent.keyboard("{Escape}");
-    // `cleanup()` does not move the pointer. Left on the key, it would lift
-    // whatever the next render draws there: this test's own key, run again.
-    await userEvent.unhover(key);
   });
 });
 
