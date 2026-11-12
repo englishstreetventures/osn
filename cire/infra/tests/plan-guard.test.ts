@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+import { PRODUCTION_SITE_DOMAINS } from "../src/declaration";
+
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
 const DEV_LOG = fileURLToPath(
   new URL("../../../shared/infra/tests/fixtures/alchemy-dev-cire.log", import.meta.url),
@@ -30,14 +32,15 @@ const PRODUCTION_LOG = [
 
 /**
  * The hosts each site's Worker holds now, as the domains step reads them:
- * each at the host its mode declares, so no domain changes. Every cire site's
- * Worker serves its production host.
+ * each the host the declaration gives it, so no domain changes, whatever
+ * PRODUCTION_HOST_HOLDS holds.
  */
-const LIVE_DOMAINS = {
-  cire_host: ["host.cireweddings.com"],
-  cire_vendor: ["vendor.cireweddings.com"],
-  cire_landing: ["cireweddings.com"],
-};
+const LIVE_DOMAINS: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  Object.entries(PRODUCTION_SITE_DOMAINS).map(([site, host]) => [
+    site,
+    host === null || host === undefined ? [] : [host],
+  ]),
+);
 
 /**
  * Runs the entry over `log` as the workflow's guard step does, with no step
@@ -100,7 +103,7 @@ describe("plan:guard, the cire stack's production plan guard", () => {
   test("G18: refuses the landing site's Worker giving up a host it holds beside its own", () => {
     const result = guard(PRODUCTION_LOG, {
       ...LIVE_DOMAINS,
-      cire_landing: ["cireweddings.com", "old.cireweddings.com"],
+      cire_landing: [...(LIVE_DOMAINS.cire_landing ?? []), "old.cireweddings.com"],
     });
     expect(result.exitCode).toBe(1);
     expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([

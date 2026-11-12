@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+import { PRODUCTION_SITE_DOMAINS } from "../src/declaration";
+
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
 const DEV_LOG = fileURLToPath(
   new URL("../../../shared/infra/tests/fixtures/alchemy-dev-musubi.log", import.meta.url),
@@ -29,9 +31,15 @@ const PRODUCTION_LOG = [
 
 /**
  * The hosts each site's Worker holds now, as the domains step reads them:
- * each at the host its mode declares, so no domain changes.
+ * each the host the declaration gives it, so no domain changes, whatever
+ * PRODUCTION_HOST_HOLDS holds.
  */
-const LIVE_DOMAINS = { osn_social: ["musubi.social"], musubi_landing: ["www.musubi.social"] };
+const LIVE_DOMAINS: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  Object.entries(PRODUCTION_SITE_DOMAINS).map(([site, host]) => [
+    site,
+    host === null || host === undefined ? [] : [host],
+  ]),
+);
 
 /** Runs the entry over `log` as the workflow's guard step does, with no step summary file. */
 function guard(log: string) {

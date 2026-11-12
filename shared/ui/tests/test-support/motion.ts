@@ -29,6 +29,8 @@ export interface Started {
   name: string;
   /** Milliseconds. */
   duration: number;
+  /** The computed `animation-timing-function`, as the browser writes it. */
+  easing: string;
   enterScale: string;
   exitScale: string;
 }
@@ -45,6 +47,20 @@ export function ms(value: string): number {
 export const rootMs = (token: string) =>
   ms(getComputedStyle(document.documentElement).getPropertyValue(token));
 
+/**
+ * An easing token on the root, as the browser writes a computed
+ * `animation-timing-function`. Resolved through a probe rather than read as
+ * the token's text, which keeps whatever spacing the stylesheet wrote.
+ */
+export function rootEasing(token: string): string {
+  const probe = document.createElement("div");
+  probe.style.animationTimingFunction = `var(${token})`;
+  document.body.append(probe);
+  const value = getComputedStyle(probe).animationTimingFunction;
+  probe.remove();
+  return value;
+}
+
 /** Record every `ui-enter` and `ui-exit` animation that starts until `stop()`. */
 export function watchAnimations(): { started: Started[]; stop: () => void } {
   const started: Started[] = [];
@@ -56,6 +72,7 @@ export function watchAnimations(): { started: Started[]; stop: () => void } {
       target,
       name: event.animationName,
       duration: ms(style.animationDuration),
+      easing: style.animationTimingFunction,
       enterScale: style.getPropertyValue("--ui-enter-scale").trim(),
       exitScale: style.getPropertyValue("--ui-exit-scale").trim(),
     });

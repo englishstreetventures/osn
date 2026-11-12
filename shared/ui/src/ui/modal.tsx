@@ -250,11 +250,13 @@ const MODAL_PADDING = {
  *
  * ## Two curves are keywords
  *
- * The exit and the backdrop's fade out run `ease-in`: a leaving curve, and no
- * token names one. The backdrop's fade in runs `ease-out`, gentler on a fade
- * than `--ui-ease-out`. Each declaration carries a short `motion-literal:` tag
- * so `house/no-literal-motion` keeps it; the reason lives here because this
- * string ships to the page, and a comment in it costs bytes in every app.
+ * The exit and the backdrop's fade out run `ease-in`, which speeds up as the
+ * dialog goes, and no token names it: `--ui-ease-exit`, the Kobalte overlays'
+ * exit curve, slows down as they go. The backdrop's fade in runs `ease-out`,
+ * gentler on a fade than `--ui-ease-out`. Each declaration carries a short
+ * `motion-literal:` tag so `house/no-literal-motion` keeps it; the reason
+ * lives here because this string ships to the page, and a comment in it costs
+ * bytes in every app.
  */
 const MODAL_STYLE = `
 .ui-modal:not([open]) {

@@ -1,5 +1,52 @@
 # @osn/social
 
+## 0.21.5
+
+### Patch Changes
+
+- Updated dependencies [8397b84]
+  - @shared/toast@0.3.14
+  - @osn/auth-ui@4.5.4
+
+## 0.21.4
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+  - @osn/auth-ui@4.5.3
+
+## 0.21.3
+
+### Patch Changes
+
+- 630cf31: A production host can be held off its site's Worker in code. `PRODUCTION_HOST_HOLDS` in `shared/infra/src/production-sites.ts` lists each held host with its site and a one-line reason; the stacks declare a held site's Worker with no custom domain, and the plan guard refuses any plan in which a site Worker would serve a held host, whether it gains the host or holds it already. The guard now reads the host each product's declaration gives its site Workers (`PRODUCTION_SITE_DOMAINS`, passed as `declared` to `runPlanGuardCli`, which no longer takes `sites` or `modes`), refuses every host a Worker would give up, and lists the stack's held hosts in its run summary. With `--scheduled`, which the production release passes when its schedule started it, the guard refuses every host a Worker would gain (`addedHostRefusals`), so only a release dispatched by hand adds a host.
+
+  A site is `off` or `worker`: the `staged` mode goes with `PRODUCTION_STAGING_HOSTS`, `PAGES_PROJECTS`, `SiteModeError` and the spare-host allowance in `domainRefusals`. `cireProductionSites` and `musubiProductionSites` take `holds`, and `siteDomain` takes them as a third argument. `@musubi/social` drops its redirect off `osn-social.pages.dev`, which no host serving its bundle can reach, so its built CSP hashes one inline script.
+
+## 0.21.2
+
+### Patch Changes
+
+- e275448: Musubi's dialog and card titles draw at 14px and weight 500, its title step, and its overlays fade with no scale. The contract block in `App.css` maps `--ui-text-md` to `--text-title`, `--ui-weight-title` to 500, and `--ui-scale-enter` and `--ui-scale-exit` to 1, so `DialogTitle`, `CardTitle` and every Kobalte overlay (dialog as card and as sheet, popover, menus) follow with no class at a call site. `OtpInput`'s digits read `--ui-text-md` too: 14px from 768px, as `Input` is, and still 16px below through the mobile input rule. The account menu's separator is the shared hairline fill, and the account menu, the rail's account trigger and Settings' profile card hold an ellipsis character while the handle loads, never three dots, a bare `@` or `@undefined`; `@osn/auth-ui`'s `ProfileSwitcher` trigger holds the same character. `DESIGN.md` records the titles and their leading, the separator and the fade under §Typography, §Borders, §Chips, §Motion and §Token contract, and gives a reason for never drawing `Badge` that holds for each of its variants; `@osn/auth-ui`'s `DESIGN.md` says its dialogs and its sign-up form's popover fade in Musubi and what size its code boxes take there.
+- Updated dependencies [e275448]
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @osn/auth-ui@4.5.2
+  - @shared/ui@0.15.0
+
+## 0.21.1
+
+### Patch Changes
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+  - @osn/auth-ui@4.5.1
+
 ## 0.21.0
 
 ### Minor Changes

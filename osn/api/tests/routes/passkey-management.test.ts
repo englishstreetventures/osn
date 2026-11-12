@@ -355,12 +355,14 @@ describe("passkey management routes", () => {
       const { app: verifiedApp, accessToken, tokens, profile, mintOtpStepUp } = await setupStepUp();
       const pk = await seedPasskey(profile.accountId);
       await seedPasskey(profile.accountId);
+      // Stepped up while the session was live: a session that has ended can
+      // no longer step up at all.
+      const stepUp = await mintOtpStepUp();
       // The caller's session is revoked / rotated out while the 5-min access
       // token is still valid, so its `osn_sid` now names no live row.
       await Effect.runPromise(
         svc.invalidateSession(tokens.refreshToken).pipe(Effect.provide(layer)),
       );
-      const stepUp = await mintOtpStepUp();
 
       const res = await verifiedApp.handle(
         new Request(`http://localhost/passkeys/${pk}`, {

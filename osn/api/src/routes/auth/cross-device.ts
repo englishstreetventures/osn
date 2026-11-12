@@ -20,8 +20,9 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
       //   for approval. On approved, mints device B's session and returns it
       //   exactly once.
       //
-      // `POST /login/cross-device/:requestId/approve` — authenticated. Device A
-      //   approves the request; device B's next poll gets the session.
+      // `POST /login/cross-device/:requestId/approve` — authenticated, and
+      //   only for a caller holding a live session. Device A approves the
+      //   request; device B's next poll gets the session.
       //
       // `POST /login/cross-device/:requestId/reject` — authenticated. Device A
       //   explicitly rejects the request.
@@ -157,6 +158,19 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before the request is read: an approval mints a full session
+            // for another device, which a token whose session has ended must
+            // never do.
+            const staleErr = await ctx.liveSessionGate(
+              "cross_device_approve",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             await run(
               auth.approveCrossDeviceLogin(
                 params.requestId,
@@ -181,6 +195,8 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
             // `AuthError` → 400. No explicit 403 branch on this route.
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },

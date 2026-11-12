@@ -52,9 +52,12 @@ export function createSortable(id: Id): Sortable {
   const group = useContext(GroupContext);
   if (!group) throw new Error("createSortable must be used inside a <SortableProvider>");
 
-  // A selector, not a memo over `active()`: a memo per row would re-run on
-  // every slot crossed, where the selector wakes only the row whose answer flips.
-  const isActiveDraggable = () => state.isDragged(id);
+  // Over two selectors, not over `active()`: a memo of `active()` would re-run
+  // on every slot crossed, where a selector wakes only the row whose answer
+  // flips. A dropped row stays active until it lands, so its lifted look lasts
+  // as long as it moves; the memo keeps the hand-over from the drag to the
+  // settle from waking the row's effects.
+  const isActiveDraggable = createMemo(() => state.isDragged(id) || state.isSettling(id));
 
   let node: HTMLElement | undefined;
   onCleanup(() => registry.unregister(id, node));
@@ -67,7 +70,7 @@ export function createSortable(id: Id): Sortable {
     transform: createMemo(
       (): Transform | null => {
         // The dragged row tracks the pointer.
-        if (isActiveDraggable()) return state.transform();
+        if (state.isDragged(id)) return state.transform();
         // Everything between it and the drop target shifts by one row to open the
         // gap — that preview is what makes a drop legible before it happens.
         // `0` means "not displaced", and must stay `null` so the row writes no

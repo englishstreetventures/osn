@@ -230,7 +230,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 378318 B | 390018 B *(re-baselined, englishstreetventures/osn#2071 — see below)* |
+| cire/host | static | 378475 B | 390175 B *(re-baselined, englishstreetventures/osn#2176 — see below)* |
 | cire/vendor | static | 99379 B | 103718 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -464,6 +464,25 @@ is added.
 `cire/ui/src/disclosure.tsx` and `cire/ui/src/lib/auto-size.ts` taken from
 `origin/main`, which leaves every source the build reads as it is at
 `b0971b3a6`.*
+
+### `cire/host` re-baselined for the dropped row that settles
+
+`@shared/sortable` eases a dropped list row into its slot and keeps the row's
+lifted look until it lands (englishstreetventures/osn#2176). The cost is the
+provider's settle and its settling-row state. No dependency is added. The owner
+chose to raise the row with this change rather than after the other motion work
+(2026-11-11).
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **377989 B**, 89 files | 378182 B, 193 B of headroom |
+| with the settle | **378475 B**, 89 files (+486) | **390175 B** (+11700) |
+
+*Measured 2026-11-11 — `rm -rf cire/host/dist && CLAUDECODE= bun run --cwd
+cire/host build`, which ends with `../../scripts/guard-bundle-size.sh .`, on
+`feat/shared-sortable-settle` at `0af4b5734`, twice; the `main` figure is the
+same build with `shared/sortable/src` taken from `origin/main` `65aad70ad`,
+which leaves every source the build reads as it is there.*
 
 ### `cire/invites` re-baselined after the zod override
 
@@ -749,8 +768,9 @@ warm local bun cache: 879 against 879 in 15.6 s, where the plain
   to keep, the failing guard names one number: set the value line to it and
   put the branch and date in the line's trailing comment. Two raises open at
   once then conflict as text instead of merging to one number. A raise open
-  while the bot lowers the line conflicts too; after the rebase, run the guard
-  again and take the number it names.
+  while the bot lowers the line conflicts too; after the rebase the owner
+  green-lights ([[stacked-prs#Rebasing a stack]]), run the guard again and take
+  the number it names.
 - **Never down in a pull request.** Lowering by hand puts every such branch
   back on the one line that conflicts.
 

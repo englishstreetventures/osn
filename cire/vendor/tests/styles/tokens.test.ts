@@ -282,13 +282,13 @@ describe("one shape and one pace across cire", () => {
   it("every cire surface carries one motion ladder", () => {
     const ladders = mapSurfaces((css) => ladder(declarations(css)));
     // A parse that found nothing would make every copy agree with it.
-    expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 3, 2]);
+    expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 3, 4]);
     // A transition that names no easing runs cire's arriving curve, not
     // Tailwind's own; an app without the line would fall back to Tailwind's.
     expect(ladders.host.easing).toContain("--default-transition-timing-function: var(--ease-out)");
-    // The two portals slide their glass strips on the spring; nothing on the
-    // guest or marketing site animates with it, so a copy added to either
-    // without a use is caught here.
+    // The two portals glide their glass strips and grow the send button on
+    // the springs; nothing on the guest or marketing site animates with
+    // either, so a copy added to one without a use is caught here.
     const noSpring = { ...ladders.host, spring: [] };
     expect(ladders).toEqual({
       host: ladders.host,
@@ -303,8 +303,8 @@ describe("one shape and one pace across cire", () => {
     // `@cire/ui`'s browser tier has no app, so its stylesheet copies the host's
     // motion at a desk, Chromium's pointer being fine. A copy that drifts would
     // time the shared parts on a pace no app runs, with every test green. Its
-    // spring is the host's `@theme` fallback, not the `linear()` that replaces
-    // it: no test there reads the spring's shape.
+    // two springs are the host's `@theme` fallbacks, not the `linear()` that
+    // replaces each: no test there reads a spring's shape.
     const host = ladder(declarations(SURFACES.host));
     const expected = [
       ...host.touch.filter((line) => line.startsWith("--motion-scale:")),
@@ -323,7 +323,7 @@ describe("one shape and one pace across cire", () => {
     expected.sort();
     copy.sort();
     // A parse that found nothing would make the copy agree with it.
-    expect(expected).toHaveLength(8);
+    expect(expected).toHaveLength(9);
     expect(copy).toEqual(expected);
   });
 
@@ -427,6 +427,49 @@ describe("one shape and one pace across cire", () => {
     const layers = mapSurfaces(uncheckedBoxPreludes);
     const base = Array.from({ length: 4 }, () => ["@layer base"]);
     expect(layers).toEqual({ host: base, vendor: base, invites: base, landing: base });
+  });
+
+  /**
+   * The rules that time a theme change's cross-fade (host DESIGN.md §4), each
+   * with the at-rules it sits inside, comments dropped and whitespace
+   * collapsed.
+   */
+  function crossfadeRules(css: string): string[] {
+    const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const out: string[] = [];
+    const open: { prelude: string; body: number }[] = [];
+    let start = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "{") {
+        open.push({ prelude: text.slice(start, i).trim().replace(/\s+/g, " "), body: i + 1 });
+        start = i + 1;
+      } else if (text[i] === "}") {
+        const rule = open.pop()!;
+        if (rule.prelude.includes("::view-transition")) {
+          const body = text.slice(rule.body, i).replace(/\s+/g, " ").trim();
+          out.push([...open.map((o) => o.prelude), `${rule.prelude} { ${body} }`].join(" "));
+        }
+        start = i + 1;
+      } else if (text[i] === ";") {
+        start = i + 1;
+      }
+    }
+    return out;
+  }
+
+  // Both portals share `@cire/ui/lib/theme`, which starts the transition, so a
+  // portal without the rules would fade on the browser's own 0.25s.
+  it("both portals, and no other site, time a theme change's cross-fade, only without reduced motion", () => {
+    const rules = mapSurfaces(crossfadeRules);
+    // A parse that found nothing would make the two copies agree.
+    expect(rules.host).toHaveLength(1);
+    expect(rules.host[0]).toMatch(/^@media \(prefers-reduced-motion: no-preference\) ::view-/);
+    expect(rules.vendor).toEqual(rules.host);
+    // The guest and marketing sites start no theme cross-fade. The portals'
+    // root timing copied there would time any view transition they start.
+    const root = (found: string[]) => found.filter((rule) => rule.includes("(root)"));
+    expect(root(rules.invites)).toEqual([]);
+    expect(root(rules.landing)).toEqual([]);
   });
 
   function mapSurfaces<R>(read: (css: string) => R): Record<keyof typeof SURFACES, R> {
@@ -573,8 +616,8 @@ function cornerPx(scope: Map<string, string>, name: string): number | string {
  * An app's motion tokens, as `name: value` lines with the whitespace removed:
  * the touch ladder at `:root`, the desk ladder under `(pointer: fine)` and the
  * `Modal` durations set there, the two easings every app uses in `@theme` with
- * the default curve Tailwind's bare transitions read, and the spring, which
- * only the apps that read it declare. A `Modal` duration set at `:root` lands in
+ * the default curve Tailwind's bare transitions read, and the two springs,
+ * which only the apps that read them declare. A `Modal` duration set at `:root` lands in
  * `touch`, where host has none.
  */
 function ladder(decls: Declaration[]) {
@@ -596,13 +639,13 @@ function ladder(decls: Declaration[]) {
       (d) => isTopLevel(d, "@theme"),
       /^--(ease-(out|in-out)|default-transition-timing-function)$/,
     ),
-    // The portals read the spring, so they alone declare it: the `@theme`
-    // fallback and the `linear()` block that replaces it.
+    // The portals read the two springs, so they alone declare them: each
+    // one's `@theme` fallback and the `linear()` block that replaces it.
     spring: [
-      ...lines((d) => isTopLevel(d, "@theme"), /^--ease-spring$/),
+      ...lines((d) => isTopLevel(d, "@theme"), /^--ease-(spring|glide)$/),
       ...lines(
         (d) => nested(d, "@supports (animation-timing-function: linear(0, 1))"),
-        /^--ease-spring$/,
+        /^--ease-(spring|glide)$/,
       ),
     ],
   };

@@ -73,6 +73,7 @@ import {
   musubiNotice,
   musubiSurfaces,
   onPhone,
+  otpDigitSurfaces,
   phoneTall,
   registerFieldSurfaces,
   securityLoadingSurfaces,
@@ -102,10 +103,12 @@ const ACCESS_TOKEN_TTL_MS = 300_000;
 /**
  * The policy the build writes (`contentSecurityPolicy` in
  * `musubi/social/vite.config.ts`), with each inline-script hash written as
- * `'sha256-…'`: scripts from Musubi itself, its two inline scripts and
- * Turnstile; connections to Musubi itself and osn-api.
+ * `'sha256-…'`: scripts from Musubi itself, its one inline script (the theme
+ * script in `musubi/social/index.html`, as C7 in
+ * `musubi/social/tests/csp.test.ts` counts) and Turnstile; connections to
+ * Musubi itself and osn-api.
  */
-const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'sha256-…' 'sha256-…' ${TURNSTILE_ORIGIN}; connect-src 'self' ${ORIGINS.osnApi}`;
+const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'sha256-…' ${TURNSTILE_ORIGIN}; connect-src 'self' ${ORIGINS.osnApi}`;
 
 /** `describeAuthError`'s sentences the flow reads (`osn/client/src/error-copy.ts`). */
 const WAIT = "Too many attempts. Wait a while, then try again.";
@@ -718,6 +721,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
   });
   await totpSetupSurfaces(flow, page);
+  await otpDigitSurfaces(
+    flow,
+    page,
+    page.getByRole("textbox", { name: "Code from the app Digit 1" }),
+  );
   const totpConfirm = `${ORIGINS.osnApi}/totp/enroll/complete`;
   const confirmHeld = holdMethod("POST");
   await page.route(totpConfirm, confirmHeld.handler);

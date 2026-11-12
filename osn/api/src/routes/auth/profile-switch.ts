@@ -1,12 +1,11 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
-import { readSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { errorResponse, publicProfile } from "./response-schemas";
 
 export function createProfileSwitchRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, rl, cookieConfig } = ctx;
+  const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -85,17 +84,22 @@ export function createProfileSwitchRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // The new access token keeps the caller bound to the same
-            // session under the new profile. The cookie is the cheap path
-            // (membership test, no per-session derivation); the `osn_sid`
-            // binding covers cookieless callers.
-            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+            // A switch mints an access token, so the caller must hold a live,
+            // ordinary session, named by its cookie or its token's `osn_sid`
+            // binding; checked before the per-account switch cap is spent.
+            // The new token is bound to that session under the new profile.
+            const live = await ctx.liveSession(
+              "profile_switch",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              return live.refusal;
+            }
             const result = await run(
-              auth.switchProfile(profile.accountId, body.profile_id, {
-                profileId: claims.profileId,
-                sessionBinding: claims.sessionBinding,
-                cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
-              }),
+              auth.switchProfile(profile.accountId, body.profile_id, live.sessionHash),
             );
             return {
               access_token: result.accessToken,
@@ -122,6 +126,8 @@ export function createProfileSwitchRoutes(ctx: AuthRouteContext) {
             }),
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },

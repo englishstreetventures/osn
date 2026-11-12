@@ -1,5 +1,33 @@
 # @shared/ui
 
+## 0.15.1
+
+### Patch Changes
+
+- 2035748: `Modal`'s comment on its keyword curves says why its exit does not read the new `--ui-ease-exit`: its `ease-in` speeds up as the dialog goes, and the Kobalte overlays' exit curve slows down. Its stylesheet is unchanged. `overlay-motion.browser.test.tsx` holds `Dialog`, `Popover` and the default menu closing on `--ui-ease-exit`, apart from `--ui-ease-out`, and `dialog-default.browser.test.tsx` holds an unmapped `Dialog`'s entry and exit on `cubic-bezier(0.22, 1, 0.36, 1)`.
+
+## 0.15.0
+
+### Minor Changes
+
+- 9a86d64: `CardTitle` reads its weight from the design-token contract's title weight, `--ui-weight-title`, through `font-ui-title`, and falls back to 600, the `font-semibold` it carried before, as `DialogTitle` does. No app maps the token, so every card title draws exactly as before: a snapshot of the title's computed style written before the change still passes. Pulse imports `Card` but draws no `CardTitle`. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+### Patch Changes
+
+- e275448: `card-default.browser.test.tsx` says which apps draw the unmapped card title it holds: pulse and cire, which map no title weight. Musubi maps 500, and the metrics dashboard and the lab draw its 500. The test and its snapshot are unchanged.
+
+## 0.14.0
+
+### Minor Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+### Patch Changes
+
+- 5684587: `DropdownMenu`'s default separator draws only its 1px hairline. It renders as an `<hr>`, which kept preflight's 1px top border in the panel's ink, and that border covered the hairline in pulse's menus; Musubi's menus look the same as before, because its base styles already painted that border in the hairline colour. In a contrast theme, which replaces the fill with the page colour, the separator draws its top border, so the line still shows there. The accent separator cire's menus draw now does the same in a contrast theme, where it showed no line before; outside one it is unchanged.
+
 ## 0.13.0
 
 ### Minor Changes

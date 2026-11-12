@@ -14,7 +14,7 @@ import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 import { latestLinkTo, registerThroughService } from "../helpers/registration";
-import { confirmedEmailChange } from "../helpers/step-up-link";
+import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
 
 /**
  * Every code-checking ceremony counts its guesses in the store, one atomic
@@ -143,8 +143,10 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         { concurrency: "unbounded" },
       );
 
-      const late = yield* Effect.flip(auth.completeTotpEnrollment(profile.accountId, right, null));
-      expect(late._tag).toBe("AuthError");
+      const afterCap = yield* Effect.flip(
+        auth.completeTotpEnrollment(profile.accountId, right, null),
+      );
+      expect(afterCap._tag).toBe("AuthError");
 
       const second = yield* auth.beginTotpEnrollment(profile.accountId, yield* token());
       const done = yield* auth.completeTotpEnrollment(
@@ -206,7 +208,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
                 begun.requestId,
                 begun.claimSecret,
                 token,
-                null,
+                NO_LIVE_SESSION,
               ),
             ),
           ),
@@ -241,11 +243,11 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         { concurrency: "unbounded" },
       );
 
-      const late = yield* auth.confirmEmailLink(link.requestId, {
+      const afterCap = yield* auth.confirmEmailLink(link.requestId, {
         linkSecret: link.linkSecret,
         pairingPick: begun.pairingCode,
       });
-      expect(late).toBe("expired");
+      expect(afterCap).toBe("expired");
 
       const done = yield* registerThroughService(auth, mail.recorded, address, "attreg");
       expect(done.handle).toBe("attreg");

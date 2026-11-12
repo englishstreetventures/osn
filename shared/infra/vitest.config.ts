@@ -14,6 +14,7 @@ export const READS_REPO = [
   "tests/secrets/inventory.test.ts",
   "tests/workflow-hosts.test.ts",
   "tests/workflow-secrets.test.ts",
+  "tests/wrangler-routes.test.ts",
 ];
 
 /**

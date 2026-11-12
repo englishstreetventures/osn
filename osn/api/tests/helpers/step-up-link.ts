@@ -229,6 +229,13 @@ export const confirmedEmailChange = (
   });
 
 /**
+ * A session hash no session row holds. A test whose account has no session
+ * passes it where an email change wants the caller's: the change's sweep
+ * then spares nothing.
+ */
+export const NO_LIVE_SESSION = "0".repeat(64);
+
+/**
  * The whole email change over the service: begin, confirm the new address's
  * link, complete with `stepUpToken`. Answers what the complete answers.
  */
@@ -238,7 +245,7 @@ export const changeEmailThroughService = (
   newEmail: string,
   stepUpToken: string,
   recorded: () => readonly RecordedEmail[],
-  currentSessionHash: string | null = null,
+  currentSessionHash: string = NO_LIVE_SESSION,
 ) =>
   Effect.gen(function* () {
     const begun = yield* confirmedEmailChange(auth, accountId, newEmail, recorded);

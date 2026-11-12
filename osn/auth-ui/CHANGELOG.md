@@ -1,5 +1,36 @@
 # @osn/ui
 
+## 4.5.4
+
+### Patch Changes
+
+- Updated dependencies [8397b84]
+  - @shared/toast@0.3.14
+
+## 4.5.3
+
+### Patch Changes
+
+- Updated dependencies [2035748]
+  - @shared/ui@0.15.1
+
+## 4.5.2
+
+### Patch Changes
+
+- e275448: Musubi's dialog and card titles draw at 14px and weight 500, its title step, and its overlays fade with no scale. The contract block in `App.css` maps `--ui-text-md` to `--text-title`, `--ui-weight-title` to 500, and `--ui-scale-enter` and `--ui-scale-exit` to 1, so `DialogTitle`, `CardTitle` and every Kobalte overlay (dialog as card and as sheet, popover, menus) follow with no class at a call site. `OtpInput`'s digits read `--ui-text-md` too: 14px from 768px, as `Input` is, and still 16px below through the mobile input rule. The account menu's separator is the shared hairline fill, and the account menu, the rail's account trigger and Settings' profile card hold an ellipsis character while the handle loads, never three dots, a bare `@` or `@undefined`; `@osn/auth-ui`'s `ProfileSwitcher` trigger holds the same character. `DESIGN.md` records the titles and their leading, the separator and the fade under §Typography, §Borders, §Chips, §Motion and §Token contract, and gives a reason for never drawing `Badge` that holds for each of its variants; `@osn/auth-ui`'s `DESIGN.md` says its dialogs and its sign-up form's popover fade in Musubi and what size its code boxes take there.
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @shared/ui@0.15.0
+
+## 4.5.1
+
+### Patch Changes
+
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/ui@0.14.0
+
 ## 4.5.0
 
 ### Minor Changes

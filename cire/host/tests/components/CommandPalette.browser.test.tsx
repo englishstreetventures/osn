@@ -1,9 +1,10 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commands } from "vitest/browser";
+import { commands, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
+import { setThemePreference } from "../../src/lib/preferences";
 
 /**
  * The command palette's arrival, as the engine runs it (`DESIGN.md` §4, The
@@ -14,6 +15,11 @@ import "../../src/styles/global.css";
  * animation runs on it, so the palette and its scrim leave in one frame.
  * Under reduced motion it appears at once. happy-dom runs no animation, so
  * none of this is visible to the fast tier.
+ *
+ * The palette's theme row is a keyboard action, so it changes the theme at once
+ * (DESIGN.md §6): only a choice in the account menu cross-fades. Only a real
+ * engine has `document.startViewTransition` and answers `matchMedia`, which is
+ * what a fade would need, so this runs where one could start.
  */
 
 vi.mock("../../src/lib/touch-feedback", () => ({
@@ -34,19 +40,21 @@ const RUTH: WeddingSummary = {
 };
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   cleanup();
+  setThemePreference("system");
   await commands.emulateMedia({ reducedMotion: "no-preference" });
 });
 
-/** Mounts the palette open, with a setter to close it. */
-function mount() {
+/** Mounts the palette open, with its open state and a setter to close it. */
+function mount(wedding: WeddingSummary | null = RUTH) {
   const [open, setOpen] = createSignal(true);
   render(() => (
     <CommandPalette
       open={open()}
       onOpenChange={setOpen}
-      wedding={RUTH}
-      weddings={[RUTH]}
+      wedding={wedding}
+      weddings={wedding ? [wedding] : []}
       onModule={() => {}}
       onWedding={() => {}}
       onAll={() => {}}
@@ -54,7 +62,7 @@ function mount() {
       onSignOut={() => {}}
     />
   ));
-  return setOpen;
+  return { open, setOpen };
 }
 
 /** The open panel and the scrim drawn behind it. */
@@ -117,7 +125,7 @@ describe("the command palette's arrival", () => {
   });
 
   it("leaves in one frame, panel and scrim together", async () => {
-    const setOpen = mount();
+    const { setOpen } = mount();
     const { panel, scrim } = await parts();
     await Promise.all([...panel.getAnimations(), ...scrim.getAnimations()].map((a) => a.finished));
     setOpen(false);
@@ -132,7 +140,7 @@ describe("the command palette's arrival", () => {
     const root = document.documentElement.style;
     root.setProperty("--motion-scale", "10");
     try {
-      const setOpen = mount();
+      const { setOpen } = mount();
       const { panel, scrim } = await parts();
       const arrivals = [panel, scrim].map((part) => part.getAnimations());
       expect(arrivals.map((running) => running.length)).toEqual([1, 1]);
@@ -162,5 +170,21 @@ describe("the command palette's arrival", () => {
     await new Promise(requestAnimationFrame);
     expect(getComputedStyle(panel).opacity).toBe("1");
     expect(getComputedStyle(panel).transform).toBe("none");
+  });
+});
+
+describe("the command palette's theme row", () => {
+  it("switches the theme at once, with no view transition", async () => {
+    setThemePreference("dark");
+    const { open } = mount(null);
+    const start = vi.spyOn(document, "startViewTransition");
+
+    await userEvent.type(screen.getByRole("combobox", { name: /search commands/i }), "light");
+    expect(screen.getByRole("option", { name: /switch to light theme/i })).toBeTruthy();
+    await userEvent.keyboard("{Enter}");
+
+    expect(open()).toBe(false);
+    expect(start).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 });

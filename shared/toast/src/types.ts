@@ -36,8 +36,13 @@ export interface ToastOptions {
   id?: string;
   /** Show a close button. Off by default — a toast that auto-dismisses doesn't need one. */
   dismissible?: boolean;
-  /** One optional action. `onClick` runs, then the toast dismisses itself. */
-  action?: { label: string; onClick: () => void };
+  /**
+   * One optional action. `onClick` runs, then the toast dismisses itself.
+   * `ariaLabel` names the button where `label` alone would not say what it
+   * acts on — several toasts each offering "Undo" — and starts with `label`,
+   * so the name a screen reader reads holds the word on the button.
+   */
+  action?: { label: string; onClick: () => void; ariaLabel?: string };
   /** Extra classes on the toast element. Appended, so they win on ties. */
   class?: string;
   /**

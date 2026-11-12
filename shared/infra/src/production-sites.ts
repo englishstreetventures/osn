@@ -1,19 +1,18 @@
 /**
- * Which production sites the stacks deploy, and where each one serves. One
- * switch per site: `PRODUCTION_SITE_MODES`.
+ * Which production sites the stacks deploy, and which hosts they serve.
  *
- *  - `off`: the stack declares no Worker for the site.
- *  - `staged`: the stack deploys the site's production build to a Worker on
- *    the site's spare host in its production zone. No Pages project is left
- *    to serve its production host; englishstreetventures/osn#2196 removes the
- *    mode.
- *  - `worker`: the Worker serves the production host.
+ *  - `PRODUCTION_SITE_MODES`: one switch per site. `off`, the stack declares
+ *    no Worker for it; `worker`, the Worker serves its production host.
+ *  - `PRODUCTION_HOST_HOLDS`: production hosts held off their Workers. A
+ *    held site keeps its Worker and gets each release's build, but serves no
+ *    host, and the plan guard refuses any plan in which a site Worker would
+ *    serve a held host.
  *
  * This file imports nothing, so scripts that run with no install
  * (scripts/deploy-surfaces.ts) load it by relative path.
  */
 
-export type SiteMode = "off" | "staged" | "worker";
+export type SiteMode = "off" | "worker";
 
 /** Every site a production stack can deploy, by its key in scripts/deploy-surfaces.ts. */
 export type SiteSurface =
@@ -32,16 +31,6 @@ export interface PerSite<T> {
   readonly osn_social: T;
   readonly musubi_landing: T;
   readonly pulse_landing: T;
-}
-
-/** A value for some of the sites. */
-export interface SomeSites<T> {
-  readonly cire_host?: T;
-  readonly cire_vendor?: T;
-  readonly cire_landing?: T;
-  readonly osn_social?: T;
-  readonly musubi_landing?: T;
-  readonly pulse_landing?: T;
 }
 
 /** The workspace that builds a site, and the directory its build writes, from the repository root. */
@@ -73,6 +62,34 @@ export const PRODUCTION_SITE_MODES: PerSite<SiteMode> = {
   musubi_landing: "worker",
   pulse_landing: "off",
 };
+
+/** This file, from the repository root: the plan guard and the smoke check name it. */
+export const HOST_HOLDS_FILE = "shared/infra/src/production-sites.ts";
+
+/** A production host held off its site's Worker. */
+export interface HostHold {
+  readonly site: SiteSurface;
+  /** The site's production host, named so the entry and every refusal read plainly. */
+  readonly host: string;
+  /**
+   * One line stating the constraint that keeps the host off. It is public:
+   * this file, the plan guard's run summary and the smoke check's notice
+   * print it. Never an incident, a finding or an issue reference.
+   */
+  readonly reason: string;
+}
+
+/**
+ * Production hosts held off their sites' Workers, so a host taken off its
+ * Worker in the Cloudflare dashboard stays off through every release. The
+ * stack declares a held site's Worker with no custom domain, the plan guard
+ * refuses any plan in which a site Worker would serve a held host, and the
+ * site's smoke check passes once it has read that the host is off its
+ * Worker. A pull request that removes an entry brings its host back with
+ * the next release; one that adds or removes an entry takes an @shared/infra
+ * changeset. The runbook is wiki/shared/production-deploy.md §5.8.
+ */
+export const PRODUCTION_HOST_HOLDS: readonly HostHold[] = [];
 
 /**
  * Names of the production API Workers, databases and buckets a stack may
@@ -111,26 +128,6 @@ export const SITE_HOST_KEYS = {
   pulse_landing: "pulseLanding",
 } as const satisfies Readonly<Record<SiteSurface, keyof typeof PRODUCTION_HOSTS>>;
 
-/**
- * The spare host in its own production zone each site serves while
- * `staged`, so the zone's settings apply to it as they will to the
- * production host. A site with none cannot be `staged`.
- */
-export const PRODUCTION_STAGING_HOSTS: SomeSites<string> = {
-  cire_host: "next.host.cireweddings.com",
-  cire_vendor: "next.vendor.cireweddings.com",
-  cire_landing: "next.cireweddings.com",
-  osn_social: "next.musubi.social",
-};
-
-/** The Pages project a staged site's Pages job deployed; englishstreetventures/osn#2196 removes it with the mode. */
-export const PAGES_PROJECTS: SomeSites<string> = {
-  cire_host: "cire-host",
-  cire_vendor: "cire-vendor",
-  cire_landing: "cire-landing",
-  osn_social: "osn-social",
-};
-
 /** Each site's build. */
 export const SITE_BUILDS: PerSite<SiteBuild> = {
   cire_host: { package: "@cire/host", directory: "cire/host/dist" },
@@ -141,54 +138,45 @@ export const SITE_BUILDS: PerSite<SiteBuild> = {
   pulse_landing: { package: "@pulse/landing", directory: "pulse/landing/dist" },
 };
 
-/** A site mode the declaration cannot serve. Plain Error: this file imports nothing. */
-export class SiteModeError extends Error {
-  readonly _tag = "SiteModeError";
-  readonly surface: SiteSurface;
-
-  constructor(surface: SiteSurface, message: string) {
-    super(message);
-    this.name = "SiteModeError";
-    this.surface = surface;
-  }
-}
-
 /** The site's production host. */
 export function productionHost(surface: SiteSurface): string {
   return PRODUCTION_HOSTS[SITE_HOST_KEYS[surface]];
 }
 
+/** The hold on the site's host, or undefined when `holds` holds none. */
+export function heldHost(
+  surface: SiteSurface,
+  holds: readonly HostHold[] = PRODUCTION_HOST_HOLDS,
+): HostHold | undefined {
+  return holds.find((hold) => hold.site === surface);
+}
+
 /**
- * The host a site's Worker serves at `mode`: its spare host while staged,
- * its production host as a worker, none when off. Throws SiteModeError for a
- * staged site with no spare host.
+ * The host a site's Worker serves: its production host as a worker, none
+ * when off or when `holds` holds it.
  */
-export function siteDomain(surface: SiteSurface, mode: SiteMode): string | null {
-  if (mode === "off") return null;
-  if (mode === "worker") return productionHost(surface);
-  const staging = PRODUCTION_STAGING_HOSTS[surface];
-  if (staging === undefined) {
-    throw new SiteModeError(
-      surface,
-      `${surface} is staged, but it has no spare host in PRODUCTION_STAGING_HOSTS to serve from.`,
-    );
-  }
-  return staging;
+export function siteDomain(
+  surface: SiteSurface,
+  mode: SiteMode,
+  holds: readonly HostHold[] = PRODUCTION_HOST_HOLDS,
+): string | null {
+  if (mode === "off" || heldHost(surface, holds) !== undefined) return null;
+  return productionHost(surface);
 }
 
 /**
  * What the `production-hosts` command writes, one GitHub step output each:
- * `<surface>_origin`, the origin each non-off site's Worker serves at its
- * mode, which the production stack job's smoke checks probe.
+ * `<surface>_origin`, the origin of each non-off site's production host,
+ * which the production stack job's smoke checks probe. A held site's is
+ * written too; its smoke check reads the hold and probes nothing.
  */
 export function productionHostOutputs(
   modes: Readonly<Record<SiteSurface, SiteMode>> = PRODUCTION_SITE_MODES,
 ): ReadonlyMap<string, string> {
   return new Map(
-    SITE_SURFACES.flatMap((surface): [string, string][] => {
-      const host = siteDomain(surface, modes[surface]);
-      return host === null ? [] : [[`${surface}_origin`, `https://${host}`]];
-    }),
+    SITE_SURFACES.flatMap((surface): [string, string][] =>
+      modes[surface] === "off" ? [] : [[`${surface}_origin`, `https://${productionHost(surface)}`]],
+    ),
   );
 }
 
