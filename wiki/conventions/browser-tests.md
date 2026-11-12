@@ -380,10 +380,32 @@ hold on a Mac fail there:
 
 To slow a Mac's Chromium to the runner's pace, a throwaway browser command can
 send `Emulation.setCPUThrottlingRate` through
-`ctx.page.context().newCDPSession(ctx.page)`. At a rate of 10, both failures
+`ctx.page.context().newCDPSession(ctx.page)`, or a setup file can call
+`cdp().send(...)` from `vitest/browser`. At a rate of 10, both failures
 came back in every run of their files.
 
 *Measured 2026-11-12 — CI run 43164178747 (`ubuntu-latest`) failed `BudgetView.reveal.browser.test.tsx:479` ("expected 0 to be greater than 40") on attempt 1 and `ProfileMenu.crossfade.browser.test.tsx:50` on attempt 2; `main`'s runs 43163940734 and 43163863603 failed the same `BudgetView` line. On macOS on Apple silicon, `chromium_headless_shell-1248`, `bun run --cwd cire/host test:browser <file>` passed each file 15 of 15 times plain and 15 of 15 with ten `yes` processes on ten cores. With the CPU throttled tenfold, each file failed in 5 of 5 runs, the first frame after the click reading 0px with both of the panel's transitions pending; with the waits above, 5 of 5 runs of both files passed.*
+
+The throttle does not bring the menu race back in every file. At a rate of 10,
+the crossfade file without its wait failed every run, but the
+`ProfileMenu.browser.test.tsx` files in `cire/host` and `cire/vendor`, with the
+same read straight after `render`, passed every run. To make the race fail on
+any machine at any speed, hide `<body>` before each test and clear it two frames
+later, as Kobalte's second callback does, in a throwaway setup file:
+
+```ts
+beforeEach(() => {
+  document.body.setAttribute("aria-hidden", "true");
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => document.body.removeAttribute("aria-hidden")),
+  );
+});
+```
+
+A `getByRole` straight after `render` then fails every run, and a `findByRole`
+passes.
+
+*Measured 2026-11-12 — a throwaway config adding a setup file to the browser project of `cire/host` and `cire/vendor`, `bunx --bun vitest run --config <scratch config> <file>`, macOS on Apple silicon, `chromium_headless_shell-1248`. A CPU probe took 5.1 ms plain and 49.3 ms at a rate of 10 set through `cdp()`. At that rate the crossfade file without its wait failed 5 of 5 runs, and each package's `ProfileMenu.browser.test.tsx` without its wait passed 5 of 5. With the setup above, those two failed at every trigger read in 5 of 5 runs at a rate of 10 and 3 of 3 unthrottled; with `findByRole` they passed every run.*
 
 ### A test run twice in one page
 
