@@ -370,6 +370,28 @@ came back in every run of their files.
 
 *Measured 2026-11-12 — CI run 43164178747 (`ubuntu-latest`) failed `BudgetView.reveal.browser.test.tsx:479` ("expected 0 to be greater than 40") on attempt 1 and `ProfileMenu.crossfade.browser.test.tsx:50` on attempt 2; `main`'s runs 43163940734 and 43163863603 failed the same `BudgetView` line. On macOS on Apple silicon, `chromium_headless_shell-1248`, `bun run --cwd cire/host test:browser <file>` passed each file 15 of 15 times plain and 15 of 15 with ten `yes` processes on ten cores. With the CPU throttled tenfold, each file failed in 5 of 5 runs, the first frame after the click reading 0px with both of the panel's transitions pending; with the waits above, 5 of 5 runs of both files passed.*
 
+### A second run in the same page
+
+Vitest's `--repeats` runs each test again in place, hooks included, before the
+next test starts; `--repeats=2` runs it three times. Pass the flag straight to
+the script, as `bun run --cwd cire/host test:browser <file> --repeats=2`. With
+`--` before it, Bun hands the `--` on to Vitest, which ignores everything after
+it: each test runs once and the file passes.
+
+`cleanup()` empties the page, but three things outlive it into the next run:
+
+- **The pointer.** Playwright's mouse stays where the last hover or click left
+  it, and whatever the next render draws there reads `:hover`. A test that
+  leaves the pointer on something it rendered ends with `userEvent.unhover`, as
+  the icon-button test in `RsvpView.events.browser.test.tsx` does.
+- **A loaded `lazy()` chunk.** Solid's `lazy` keeps its module for the life of
+  the page, so a second run shows no `Suspense` fallback. To hold a fallback on
+  screen, hold a read the view makes as it mounts, as
+  `ModuleShell.view-arrive.browser.test.tsx` holds the Seating view's.
+- **Touch emulation**, on Linux ([[#Media emulation]]).
+
+*Measured 2026-11-12 — `bun run --cwd cire/host test:browser <file> --repeats=2`, macOS on Apple silicon, `chromium_headless_shell-1248`: before the fixes above, `ModuleShell.view-arrive` and `RsvpView.events` failed their second run as CI run 43186018641 did; with `-- --repeats=2` instead, the same files ran each test once and passed.*
+
 ### Chrome's accessibility tree
 
 Testing Library and the `page` locators compute accessible names in JavaScript,

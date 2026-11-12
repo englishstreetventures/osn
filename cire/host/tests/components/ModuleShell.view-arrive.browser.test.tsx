@@ -1,4 +1,5 @@
 import { cleanup, screen, within } from "@solidjs/testing-library";
+import { createResource } from "solid-js";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
@@ -39,10 +40,22 @@ import "../../src/styles/global.css";
 
 const { authFetch, seatingGate } = vi.hoisted(() => {
   let open: () => void = () => {};
-  const gate = new Promise<void>((resolve) => {
-    open = resolve;
-  });
-  return { authFetch: vi.fn(), seatingGate: { gate, open } };
+  let reads = 0;
+  return {
+    authFetch: vi.fn(),
+    seatingGate: {
+      /** A read held until `open`: a new one for each mount of the view. */
+      next: () => {
+        reads += 1;
+        return new Promise<true>((resolve) => {
+          open = () => resolve(true);
+        });
+      },
+      /** How many reads the view has made in this page. */
+      reads: () => reads,
+      open: () => open(),
+    },
+  };
 });
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({
@@ -73,20 +86,23 @@ vi.mock("@cire/invite-designs", () => ({
   DESIGNS: [{ id: "classic", name: "Classic", tier: "free" }],
   DEFAULT_DESIGN_ID: "classic",
 }));
-// The Seating module's chunk, held until a test lets it land, so its
-// `Suspense` fallback is on screen first. What lands is a plain view: the
-// fade belongs to the shell, not to what the view draws.
-vi.mock("../../src/components/SeatingView", async () => {
-  await seatingGate.gate;
-  return {
-    default: () => {
-      const view = document.createElement("div");
-      view.dataset.testid = "seating-view";
-      view.textContent = "Seating";
-      return view;
-    },
-  };
-});
+// The Seating view suspends on a read made as it mounts, held until a test
+// lets it land, so the module's `Suspense` fallback is on screen first. The
+// hold is the view's read rather than its chunk: `ModuleShell`'s `lazy()`
+// keeps the chunk for the page's life, so a second run of the test in the same
+// page would find it loaded and see no fallback, while a read is made afresh
+// on every mount. The shell's boundary shows its fallback, and the view takes
+// over from it, the same way whichever one suspends. What lands is a plain
+// view: the fade belongs to the shell, not to what the view draws.
+vi.mock("../../src/components/SeatingView", () => ({
+  default: () => {
+    const [landed] = createResource(seatingGate.next);
+    const view = document.createElement("div");
+    view.dataset.testid = "seating-view";
+    view.textContent = "Seating";
+    return () => (landed() ? view : null);
+  },
+}));
 
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
@@ -396,7 +412,11 @@ describe("a view arriving in the module panel", () => {
     await page.viewport(1280, 800);
     const shell = render({ module: "guests", sub: "list" });
     await loaded("list");
+    const reads = seatingGate.reads();
     shell.setModule("seating");
+    // Until the view has mounted and made its read, the fallback on screen can
+    // be the chunk's, which the view's own replaces.
+    await vi.waitFor(() => expect(seatingGate.reads()).toBe(reads + 1));
     const fallback = await vi.waitFor(() => {
       const el = arrivals().querySelector('[aria-busy="true"]');
       expect(el).not.toBeNull();

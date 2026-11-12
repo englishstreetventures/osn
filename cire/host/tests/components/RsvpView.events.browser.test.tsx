@@ -854,6 +854,9 @@ describe("the RSVP bar's one pill language", () => {
     expect(panel.boxShadow).toMatch(/inset/);
     expect(panel.boxShadow).toMatch(/12px 32px -8px/);
     await userEvent.keyboard("{Escape}");
+    // `cleanup()` does not move the pointer. Left on the key, it would lift
+    // whatever the next render draws there: this test's own key, run again.
+    await userEvent.unhover(key);
   });
 });
 
