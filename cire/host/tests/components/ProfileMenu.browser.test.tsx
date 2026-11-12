@@ -33,10 +33,19 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
+/**
+ * The menu's trigger, waited for rather than read at once. Kobalte's menu sets
+ * `aria-hidden` on `<body>` as it opens, and again as an open one unmounts, and
+ * clears it in a second timer-then-frame callback. A slow machine can draw the
+ * two on different frames, and a role query finds nothing in a hidden `<body>`
+ * (wiki/conventions/browser-tests.md, A slow runner's frames).
+ */
+const findTrigger = () => screen.findByRole("button", { name: /account menu/i });
+
 describe("the profile menu's motion", () => {
   it("pops in on open, and on Escape leaves at once with focus on its trigger", async () => {
     render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
-    const trigger = screen.getByRole("button", { name: /account menu/i });
+    const trigger = await findTrigger();
     fireEvent.pointerDown(trigger, { button: 0 });
     const open = await waitFor(() => screen.getByRole("menu"));
     expect(getComputedStyle(open).animationName).toBe("ui-enter");
@@ -60,7 +69,7 @@ describe("the profile menu's version line", () => {
     it(`reads at ${WCAG_TEXT_MIN}:1 on the menu, ${theme}`, async () => {
       document.documentElement.dataset.theme = theme;
       render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
-      fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+      fireEvent.pointerDown(await findTrigger(), { button: 0 });
       const open = await waitFor(() => screen.getByRole("menu"));
       await Promise.all(open.getAnimations().map((a) => a.finished));
       const line = screen.getByText(/^Version /);
@@ -80,7 +89,7 @@ describe("the profile menu's version line", () => {
 describe("the profile menu's depth", () => {
   it("floats raised, lit by the inner lip, on the floating shadow, at 10px", async () => {
     render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
-    fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+    fireEvent.pointerDown(await findTrigger(), { button: 0 });
     const panel = await waitFor(() => screen.getByRole("menu"));
     const style = getComputedStyle(panel);
     const raised = document.createElement("div");
