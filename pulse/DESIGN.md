@@ -330,7 +330,8 @@ These rules govern `pulse/web`. The landing site's motion is in
   a press or a small panel arriving; `--ui-dur-base` (200ms) for a panel swap,
   such as the onboarding step; `--ui-dur-slow` (320ms) for something crossing
   the screen; `--ui-dur-exit` for an overlay closing. `--ui-ease-out` is for an
-  arrival, `--ui-ease-in-out` for a move between two places. A literal duration,
+  arrival, `--ui-ease-in-out` for a move between two places, `--ui-ease-exit`
+  for an overlay closing. A literal duration,
   delay or curve fails `house/no-literal-motion` unless it carries a
   `motion-literal:` comment giving its reason. Loops and choreographed
   illustrations, such as the onboarding rings and the pin drop, are the cases

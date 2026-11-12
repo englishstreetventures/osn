@@ -258,8 +258,8 @@ export const Motion: Story<MotionArgs> = {
             <Mono>fast</Mono> for a hover or a toggle, <Mono>base</Mono> for a panel,{" "}
             <Mono>slow</Mono> for something that moves across the screen, <Mono>exit</Mono> for an
             overlay closing. <Mono>ease-out</Mono> is for things arriving; <Mono>ease-in-out</Mono>{" "}
-            for things that go somewhere and stay there. Custom properties, read inside a
-            component's own <Mono>transition</Mono>.
+            for things that go somewhere and stay there; <Mono>ease-exit</Mono> for an overlay
+            closing. Custom properties, read inside a component's own <Mono>transition</Mono>.
           </>
         }
       >

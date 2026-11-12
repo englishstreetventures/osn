@@ -2,8 +2,8 @@
  * How `Dialog` draws and moves when no app sets its title weight or its scale,
  * held exactly: every computed style `DialogTitle` carries that a plain `<h2>`
  * beside it does not, the title's weight, size and ink in the sheet pulse's
- * share dialog uses, and the scale and time the panel enters from and leaves
- * to.
+ * share dialog uses, and the scale, time and curve the panel enters from and
+ * leaves to.
  *
  * pulse draws this Dialog for its guest list, its share sheet and its
  * discovery filters, and maps neither the title weight nor the motion tokens,
@@ -109,7 +109,7 @@ describe("DialogTitle with no weight token set", () => {
 });
 
 describe("Dialog's motion with no scale token set", () => {
-  it("enters from 0.96 over 120ms and leaves to 0.98 over 80ms", async () => {
+  it("enters from 0.96 over 120ms and leaves to 0.98 over 80ms, both on one curve", async () => {
     render(() => (
       <Dialog>
         <DialogTrigger>Open dialog</DialogTrigger>
@@ -126,10 +126,18 @@ describe("Dialog's motion with no scale token set", () => {
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 2000 });
     watch.stop();
     const on = (name: string) => watch.started.find((s) => s.target === panel && s.name === name);
+    // The contract's arriving curve, which exits ran on before they had a
+    // token of their own.
+    const curve = "cubic-bezier(0.22, 1, 0.36, 1)";
     expect(on("ui-enter"), "no entry animation").toMatchObject({
       duration: 120,
+      easing: curve,
       enterScale: "0.96",
     });
-    expect(on("ui-exit"), "no exit animation").toMatchObject({ duration: 80, exitScale: "0.98" });
+    expect(on("ui-exit"), "no exit animation").toMatchObject({
+      duration: 80,
+      easing: curve,
+      exitScale: "0.98",
+    });
   });
 });
