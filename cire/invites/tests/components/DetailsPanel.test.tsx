@@ -6,10 +6,6 @@ import type { EventSummary, FamilyMember } from "../../src/components/types";
 import { resetConsentForTest, seedConsentForTest } from "../test-support/consent";
 import { pinGuestTimeZone } from "../test-support/time-zone";
 
-vi.mock("motion", () => ({
-  animate: vi.fn(() => ({ finished: Promise.resolve() })),
-}));
-
 const SITE_URL = "https://invite.example.com/abc-123";
 
 const baseEvent: EventSummary = {

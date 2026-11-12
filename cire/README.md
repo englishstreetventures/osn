@@ -40,7 +40,7 @@ OSN-facing integration docs live in the root wiki: `wiki/cire/cire.md` and `wiki
 | ---------- | ----------------------------------------------------------------------------- |
 | Runtime    | Bun + Cloudflare Workers                                                      |
 | Frontend   | Astro + SolidJS + View Transitions                                            |
-| Animations | CSS transitions and keyframes; `motion` for the event sheet's swipe spring    |
+| Animations | CSS transitions and keyframes, no animation library                           |
 | Backend    | Elysia on Cloudflare Workers + Effect (service layer)                         |
 | Database   | Cloudflare D1 + Drizzle ORM + Effect                                          |
 | Storage    | Cloudflare R2 (spreadsheet-import uploads)                                    |

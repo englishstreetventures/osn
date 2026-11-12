@@ -13,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Cire invite design selector
 
@@ -263,8 +263,9 @@ the guest the page carries on. A pack renders it as the last child of its hero
 - **A hint, not a control.** `aria-hidden` and `pointer-events-none`; a tap
   goes to the hero beneath it.
 - **Motion is CSS, and it stops.** `animate-scroll-cue` (`styles/global.css`)
-  fades the glyph in 1s after load, drifts it 6px down and back twice, and
-  leaves it at rest. Fade and drift take 4.6s together: motion that starts by
+  fades the glyph in 1s after load on `--ease-out`, drifts it 6px down and
+  back twice on `--ease-in-out`, and leaves it at rest, every time scaled by
+  `--motion-scale`. Fade and drift take 4.6s together: motion that starts by
   itself and runs past five seconds needs a control to stop it (WCAG 2.2.2),
   so a longer or endless drift is not an option. Both play from the server's
   HTML, before the island hydrates.
@@ -441,14 +442,15 @@ event and the panel to open on.
     side by side, and never over the other. The property is written only through
     `setBadgeProgress`: as the badge is built, from the panel on screen (so a
     sheet opened on the form shows its words with no fade); on every switch;
-    and by the swipe and its spring, which write the share of the panels'
-    width they have covered on every frame, held between 0 and 1 so a pull
-    past either end moves the panels and not the words. Then nothing eases
-    (`data-dragging` turns the transition off); after a press the words ease
-    on `transition-badge-settle`, the panels' own `--dur-base` and
-    `--ease-out`, as inline
-    `transform`s so one transition list covers the opacity and the slide.
-    Under reduced motion the global clamp makes it instant.
+    by the drag, which writes the share of the panels' width they have
+    covered on every move, held between 0 and 1 so a pull past either end
+    moves the panels and not the words, with nothing easing
+    (`data-dragging` turns the transition off); and at a release, which writes
+    where the settle ends and lets the words ride the settle's own curve with
+    the panels (`data-settling`). After a press the words ease on
+    `transition-badge-settle`, the panels' own `--dur-base` and `--ease-out`,
+    as inline `transform`s so one transition list covers the opacity and the
+    slide. Under reduced motion the global clamp makes it instant.
   - **Its states.** Shown on the form always, and on the details while the
     form can be reached. Disabled (40% opacity) on the form while a save is
     in flight and while the sheet closes itself on a saved reply. A tap on it
@@ -485,9 +487,18 @@ event and the panel to open on.
   the form on the end side — with the other panel drawn beside it, `inert`
   until it lands. Let go past three tenths of the width, or after a flick,
   and it carries on; otherwise it springs back. Either way the panels ride a
-  critically damped spring (`SETTLE_SPRING`, 0.3s response, through
-  `motion`) that starts at the finger's speed, so a flick carries on and a
-  slow release does not jump; under reduced motion they land at once. Past
+  critically damped spring with a 0.3s response that starts at the finger's
+  speed, so a flick carries on and a slow release does not jump. It is a CSS
+  transition: at release `settleCurve` samples the spring from that speed
+  into a `linear()` easing, its first stretch at the release speed exactly
+  and ending where a fast flick would pass the rest, and the sheet writes
+  that easing and its time, stretched by `--motion-scale`, as
+  `--swipe-settle-ease` and `--swipe-settle-time` on the rail and the badge
+  while `data-settling` marks them. An engine without `linear()` (Chrome
+  before 113, Safari before 17.2) gets a `cubic-bezier()` with the same first
+  slope that never passes the rest and, released moving away from it, runs
+  no further the wrong way than the spring.
+  Under reduced motion the global clamp lands the panels at once. Past
   either end — back past where the drag began, or beyond the form's rest —
   the panels follow the finger on iOS's rubber band, `c·x·d / (d + c·x)`
   with `c = 0.55`, giving less the further it goes. A pull toward the side
@@ -496,7 +507,8 @@ event and the panel to open on.
   stop under the finger and follow it from there, and a catch that is only a
   tap, a held finger or a scroll lets the settle go on to where it was going,
   with that tap's click swallowed so it presses nothing on the moving panel.
-  The thresholds and the band are pure functions in
+  A catch reads the panels' place off their computed transform mid-transition.
+  The thresholds, the band and the curve are pure functions in
   [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts).
   The wrapper is `touch-action: pan-y pinch-zoom`, so vertical scroll and
   zoom stay the browser's. A mouse drag, a drag that starts in a text field,
@@ -952,10 +964,14 @@ following the bloom fill run on `--dur-base`. An FAQ answer grows open on
 has no `interpolate-size` the box opens at once and the answer still fades in;
 for a guest who asked for less motion it opens at once with no fade
 (`cire/host/DESIGN.md` §4, A disclosure grows open and closes at once).
-Choreography longer than `--dur-slow` keeps its own timing:
+Choreography longer than `--dur-slow` keeps its own timing, each time scaled
+by `--motion-scale`:
 
-- the bloom fill, 500ms (`SWEEP_DURATION_MS` in `rsvp-responded.ts`);
-- the tick, 340ms after 180ms (`TICK_DURATION_MS`, `TICK_DELAY_MS`);
+- the bloom fill, 500ms on `--ease-out` (`SWEEP_DURATION_MS` in
+  `rsvp-responded.ts`);
+- the tick, 340ms after 180ms on `--ease-out` (`TICK_DURATION_MS`,
+  `TICK_DELAY_MS`), and the hold that ends its draw (`TOTAL_DURATION_MS`,
+  which `EventCard` multiplies by the scale);
 - the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
   scroll;
 - the hero backdrop's 700ms fade-in and the closing band's 500ms width;

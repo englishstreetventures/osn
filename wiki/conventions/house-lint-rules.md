@@ -10,7 +10,7 @@ related:
   - "[[backend-patterns]]"
   - "[[d1-limits]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-12
 ---
 
 # House lint rules
@@ -112,4 +112,4 @@ oxlint never parses `.css`, and `oxlintrc.json` ignores `*.astro` (oxlint would 
 | A class in Astro markup | `{/* motion-literal: <reason> */}` straight before the tag. Astro drops the comment from the page |
 | A class string in an Astro file's frontmatter or `<script>` | `// motion-literal: <reason>` (or `/* … */`) on the line directly above the line that holds the class |
 
-A marker with no reason keeps nothing. In a string that ships to the page, such as `Modal`'s injected stylesheet, keep the in-string reason to a short tag and write the full reason in a code comment beside it. The rule does not read JavaScript animation options (`motion`'s `{ duration: 0.35 }`, `element.animate()`), Tailwind's bare `transition` and `transition-colors`, which run its default 150ms, or a `style={…}` expression in Astro markup, where only a quoted `style` attribute is read — englishstreetventures/osn#2104 covers the first two.
+A marker with no reason keeps nothing. In a string that ships to the page, such as `Modal`'s injected stylesheet, keep the in-string reason to a short tag and write the full reason in a code comment beside it. The rule does not read JavaScript animation options (`element.animate()`'s `{ duration: 350 }`), Tailwind's bare `transition` and `transition-colors`, which run its default 150ms, or a `style={…}` expression in Astro markup, where only a quoted `style` attribute is read — englishstreetventures/osn#2104 covers the first two.

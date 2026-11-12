@@ -15,13 +15,14 @@
 import { contrastRatio, PALETTE_PRESET_KEYS, WCAG_TEXT_MIN, WCAG_UI_MIN } from "@cire/theme";
 import { cleanup, render, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cdp, commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import { EventCard } from "../../src/components/EventCard";
 import { EventSheet, type EventPanel } from "../../src/components/EventSheet";
 import { applyPaletteToRoot } from "../../src/components/invite-theme";
+import { velocityOf } from "../../src/components/sheet-swipe";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 /** Typed accessor for the command registered in `vitest.config.ts`. */
@@ -1362,10 +1363,11 @@ function bodyOf(panel: EventPanel): Point {
 }
 
 /**
- * Wait for the swipe's settle. It is a scripted spring, which
- * `getAnimations()` cannot see, so this waits on the rail's `data-settling`,
- * which every settle carries until it lands — after a frame first, so a
- * release CDP has sent but the page has not yet handled is not missed.
+ * Wait for the swipe's settle. It waits on the rail's `data-settling`, which
+ * every settle carries until it lands, rather than on the transitions alone,
+ * since a settle that starts none (nothing left to move) still lands once —
+ * after a frame first, so a release CDP has sent but the page has not yet
+ * handled is not missed.
  */
 async function settleSwipe() {
   await new Promise(requestAnimationFrame);
@@ -1394,7 +1396,8 @@ async function openOnWide(panel: EventPanel, members?: FamilyMember[]) {
 
 /**
  * Every frame's offset of `el` from now until its settle lands, with the
- * frame's time — what the eye sees of a spring.
+ * frame's time — what the eye sees of a spring. Read off the computed style:
+ * the settle is a transition, so the inline style already holds where it ends.
  */
 async function framesOf(el: HTMLElement): Promise<{ t: number; x: number }[]> {
   const frames: { t: number; x: number }[] = [];
@@ -1402,7 +1405,7 @@ async function framesOf(el: HTMLElement): Promise<{ t: number; x: number }[]> {
   const deadline = performance.now() + 3000;
   while (rail().hasAttribute("data-settling") && performance.now() < deadline) {
     const t = await new Promise<number>(requestAnimationFrame);
-    frames.push({ t, x: el.style.transform === "" ? 0 : shiftOf(el) });
+    frames.push({ t, x: shiftOf(el) });
   }
   return frames;
 }
@@ -1901,6 +1904,127 @@ describe("EventSheet — the swipe's physics", () => {
     const rested = await timeTo80("rest");
     // From the spring's formula: about 105ms against 143ms. At least a frame.
     expect(flicked + 16).toBeLessThanOrEqual(rested);
+  });
+
+  /** The `property` transition on `el`, once its style change has started it. */
+  async function transitionOn(el: Element, property: string): Promise<CSSTransition> {
+    const find = () =>
+      el
+        .getAnimations()
+        .find(
+          (a): a is CSSTransition =>
+            a instanceof CSSTransition && a.transitionProperty === property,
+        );
+    let found = find();
+    for (const deadline = performance.now() + 3000; !found; found = find()) {
+      if (performance.now() > deadline) throw new Error(`no ${property} transition started`);
+      await new Promise(requestAnimationFrame);
+    }
+    return found;
+  }
+
+  /**
+   * A 40ms flick from the details toward the form, then the settle it starts —
+   * the details' transform transition — held still, so it is read on its own
+   * clock rather than the runner's. Returns the sheet's width, the offset the
+   * finger let go at, and the speed the sheet read at the lift, from the same
+   * samples it takes: where the finger went down, each move, and the lift 10ms
+   * after the last.
+   */
+  async function flickAndHold() {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    const to = { x: start.x - width * 0.4, y: start.y };
+    const ms = 40;
+    const steps = 8;
+    await touchDrag(start, to, { ms, steps });
+    const released = velocityOf([
+      ...Array.from({ length: steps + 1 }, (_, i) => ({
+        x: start.x + ((to.x - start.x) * i) / steps,
+        t: (ms * i) / steps,
+      })),
+      { x: to.x, t: ms + 10 },
+    ]);
+    expect(released).toBeLessThan(-1);
+    const lead = wrapperOf("details");
+    const slide = await transitionOn(lead, "transform");
+    slide.pause();
+    return { width, offset: to.x - start.x, released, lead, slide };
+  }
+
+  /** The px per ms `lead` moves over the held settle's first 4ms, and where it starts. */
+  function firstFrameOf(lead: HTMLElement, slide: CSSTransition) {
+    slide.currentTime = 0;
+    const leftAt = shiftOf(lead);
+    slide.currentTime = 4;
+    return { leftAt, speed: (shiftOf(lead) - leftAt) / 4 };
+  }
+
+  it("leaves the finger at the speed it had: the settle's first frame moves at the release speed", async () => {
+    const { offset, released, lead, slide } = await flickAndHold();
+    expect(getComputedStyle(lead).transitionTimingFunction).toMatch(/^linear\(/);
+    const { leftAt, speed } = firstFrameOf(lead, slide);
+    // It starts where the finger let go…
+    expect(leftAt).toBeCloseTo(offset, 0);
+    // …and moves on at the finger's speed. A spring started from rest covers
+    // under a tenth of that in its first 4ms.
+    expect(Math.abs(speed - released)).toBeLessThan(Math.abs(released) * 0.1);
+
+    slide.play();
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+  });
+
+  it("carries the badge's words on the panels' own time and curve through a settle", async () => {
+    const { width, lead, slide } = await flickAndHold();
+    // The form's words, which come in as the form does. They sit in the bar,
+    // apart from the panels' rail, so only the stylesheet ties them together.
+    const words = badgeParts().rsvp;
+    const fade = await transitionOn(words, "opacity");
+    fade.pause();
+    try {
+      const panels = getComputedStyle(lead);
+      const label = getComputedStyle(words);
+      // Opacity and transform, each on the panels' duration and curve.
+      expect(label.transitionTimingFunction).toBe(
+        `${panels.transitionTimingFunction}, ${panels.transitionTimingFunction}`,
+      );
+      expect(label.transitionDuration).toBe(
+        `${panels.transitionDuration}, ${panels.transitionDuration}`,
+      );
+      // At each moment of the settle the words are as far in as the panels
+      // are across. On the badge's own 200ms ease they run well ahead.
+      for (const at of [10, 40, 80, 160]) {
+        slide.currentTime = at;
+        fade.currentTime = at;
+        expect(Math.abs(opacityOf(words) + shiftOf(lead) / width)).toBeLessThan(0.05);
+      }
+    } finally {
+      fade.play();
+      slide.play();
+    }
+    await settleSwipe();
+    expect(opacityOf(words)).toBe(1);
+  });
+
+  it("settles on a cubic-bezier at the release speed where the engine reads no linear()", async () => {
+    // As on Chrome 111–112 and Safari before 17.2, inside the browser floor.
+    const supports = vi.spyOn(CSS, "supports").mockReturnValue(false);
+    try {
+      const { offset, released, lead, slide } = await flickAndHold();
+      expect(supports).toHaveBeenCalledWith("transition-timing-function", "linear(0, 1)");
+      expect(getComputedStyle(lead).transitionTimingFunction).toMatch(/^cubic-bezier\(/);
+      const { leftAt, speed } = firstFrameOf(lead, slide);
+      expect(leftAt).toBeCloseTo(offset, 0);
+      expect(Math.abs(speed - released)).toBeLessThan(Math.abs(released) * 0.1);
+      slide.play();
+      await settleSwipe();
+      expect(wrapperOf("rsvp").hidden).toBe(false);
+      expect(wrapperOf("details").hidden).toBe(true);
+    } finally {
+      supports.mockRestore();
+    }
   });
 
   it("catches a settling panel without pressing what was under the finger", async () => {
