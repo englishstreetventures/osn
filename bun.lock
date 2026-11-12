@@ -901,6 +901,7 @@
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@osn/auth-ui": "workspace:*",
+        "@osn/client": "workspace:*",
         "@shared/color": "workspace:*",
         "@shared/design-tokens": "workspace:*",
         "@shared/ui": "workspace:*",
