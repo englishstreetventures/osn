@@ -13,7 +13,11 @@
  *    that lacks a secret the inventory requires on production or holds one it
  *    forbids; a declared var or binding, or one the provider adds to every
  *    upload, named like a live secret, which the upload would replace; a live Durable Object class no declared binding
- *    names, which the upload would delete with its storage;
+ *    names, which the upload would delete with its storage; for a database
+ *    Alchemy migrates, a read replication that differs (the migrate step
+ *    reconciles the database every release) and a migration ledger the
+ *    migrate step could not convert, or would replay a migration from
+ *    (`judgeLedger`);
  *  - for a resource the plan adopts (`adopted`, or an API Worker's `create`,
  *    which the deploy adopts): a live cron schedule that differs from the
  *    declared one, a database whose read replication differs, and a bucket
@@ -28,8 +32,11 @@
  * resource the plan names, so its check holds on every release.
  *
  * Every value read is a name or a setting: no secret's value is ever fetched,
- * and the file holds none. Each read defaults exactly as the provider does
- * when it reads the same reply (`@alchemy.run/cloudflare` 2.0.0-beta.85).
+ * and the file holds none. A database's migration ledger is read with
+ * read-only SQL through D1's `/query` and kept as counts alone (`LedgerCounts`):
+ * no row, not even a migration's name, reaches the file or the log. Each read
+ * defaults exactly as the provider does when it reads the same reply
+ * (`@alchemy.run/cloudflare` 2.0.0-beta.85).
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -699,10 +706,12 @@ async function readBucket(api: CloudflareApi, name: string): Promise<LiveBucket>
 }
 
 /**
- * Reads every adopted resource of a stack, each map in logical-id order.
- * With `secretsOnly`, the check after a deploy, it reads each Worker's
- * existence and secret names alone, and no database or bucket. Throws
- * LiveReadError, whose message names no account id.
+ * Reads every adopted resource of a stack, each map in logical-id order, and
+ * each migrated database's ledger as counts against the stack's migration
+ * files (`workingDir` is the stack's directory, which their paths are
+ * relative to). With `secretsOnly`, the check after a deploy, it reads each
+ * Worker's existence and secret names alone, and no database or bucket.
+ * Throws LiveReadError, whose message names no account id.
  */
 export async function readProductionLive(
   adopted: AdoptedResources,

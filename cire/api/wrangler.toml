@@ -22,8 +22,8 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 # (WEB_ORIGIN=localhost, no prod secrets), so a bare `wrangler deploy` would
 # otherwise create a public shadow Worker with full read/write on prod guest
 # PII. With no top-level routes, a bare deploy now fails loudly. Production
-# deploys through the cire Alchemy stack, never Wrangler; CI's
-# `d1 migrations apply` still uses this block's DB binding and is unaffected.
+# deploys through the cire Alchemy stack, never Wrangler, and the stack
+# migrates the production database.
 workers_dev = false
 
 # The one daily cron. Daily 04:00 UTC — off-peak for the AU/EU guest audience,
@@ -369,7 +369,8 @@ binding = "IMAGES"
 # after the plan and deploy approvals on the `production` GitHub Environment, never
 # through `wrangler deploy`. Every [env.production] block below mirrors that
 # declaration, and cire/infra/tests/parity.test.ts holds the two equal. Wrangler
-# still reads these blocks for `d1 migrations apply`, `secret put` and `types`.
+# still reads these blocks for `secret put`, `d1 time-travel` and `types`; the
+# cire stack, not Wrangler, migrates cire-db.
 [env.production.vars]
 # Deployment tier — see the top-level [vars] note. Named envs inherit NO vars,
 # so this must be set here or the production Worker resolves `local`: local log

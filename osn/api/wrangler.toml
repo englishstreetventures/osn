@@ -27,7 +27,8 @@ compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 # the musubi Alchemy stack (musubi/infra/src/declaration.ts), never Wrangler:
 # every [env.production] block below mirrors that declaration, and
 # musubi/infra/tests/parity.test.ts holds the two equal. Wrangler still reads
-# them for `d1 migrations apply`, `secret put` and `types`.
+# them for `secret put`, `d1 time-travel` and `types`; the musubi stack, not
+# Wrangler, migrates osn-db-prod.
 workers_dev = false
 
 # osn-api now runs on Cloudflare Workers via `export default { fetch, scheduled }`
