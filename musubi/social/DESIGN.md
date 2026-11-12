@@ -563,14 +563,14 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 - **Code boxes** = `OtpInput`'s six boxes share their column and are 40px wide
   at a 260px column, so a screen that hosts one gives the row at least 260px
   on a phone (drop an inner card's padding below `md` rather than squeeze the
-  boxes). `TotpView`'s enrolment step drops its frame below `md`, and
-  `StepUpDialog` its side padding, so in Settings → Security each code row
-  takes the card's whole column. Where the app does not follow this yet, at a
-  320px viewport:
-  - Settings → Security: that column is 246px (37.7px boxes; 260px from a
-    334px viewport), after `main`'s `px-4` and the card's `p-5` and edge, for
-    `TotpView`'s enrolment and `StepUpDialog`'s code steps alike. The step-up
-    leaves the card when it becomes a sheet (#2045).
+  boxes). `TotpView`'s enrolment step drops its frame below `md`, so in
+  Settings → Security its code row takes the card's whole column. The
+  step-up's code row is in its sheet, inside the sheet's 16px padding: 288px
+  at a 320px viewport. Where the app does not follow this yet, at a 320px
+  viewport:
+  - Settings → Security: the card's column is 246px (37.7px boxes; 260px from
+    a 334px viewport), after `main`'s `px-4` and the card's `p-5` and edge,
+    for `TotpView`'s enrolment step (#2045).
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
@@ -579,9 +579,9 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 
 Where the app does not follow this yet:
 
-- The dialogs `@osn/auth-ui`'s views open themselves use `DialogContent`
-  without `presentation="sheet"`, so they stay a centred card below `md`
-  (#2045).
+- The dialogs `@osn/auth-ui`'s views open themselves, but for the step-up
+  sheet, use `DialogContent` without `presentation="sheet"`, so they stay a
+  centred card below `md` (#2045).
 
 ## Empty states and failed loads
 
@@ -796,7 +796,7 @@ control the views draw by hand shows the base focus outline (§Borders,
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, the last under the app's own "Recovery codes" heading | `components/SecuritySection.tsx` (lazy) |
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
-| `StepUpDialog` | Inside `PasskeysView`, `TotpView`, `RecoveryCodesView` and `SecurityEventsBanner`, when an action needs it | — |
+| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner` — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as every app dialog | — |
 
 **When the session ends.** The runtime ends a session when the issuer refuses
 to renew it, and when another tab signs out or signs in to another account.

@@ -1,12 +1,17 @@
 import type { RecoveryClient, StepUpClient } from "@osn/client";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 // @vitest-environment happy-dom
-import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/testing-library";
 import { Suspense } from "solid-js";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { RecoveryCodesView, recoveryCodesFileName } from "../src/RecoveryCodesView";
 import { WAIT, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Show-once recovery-code view. Tests cover:
@@ -204,6 +209,33 @@ describe("RecoveryCodesView", () => {
 
     await waitFor(() => expect(screen.getByText(sampleCodes[0]!)).toBeTruthy());
     expect(stepUp.passkeyBegin).toHaveBeenCalled();
+  });
+
+  // The confirm dialog closes in the same tick the step-up sheet opens, so two
+  // modal layers overlap for the length of the confirm's exit.
+  it("opens the step-up sheet from the rotation dialog, and Escape leaves the set untouched", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    renderView({ passkeyOnly: false });
+
+    await clickGenerate(/Generate new codes/i);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    const sheet = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(within(sheet).getByRole("button", { name: "Use passkey" })).toBeTruthy();
+    fireEvent.keyDown(sheet, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull(),
+    );
+    const generate = screen.getByRole("button", {
+      name: /Generate new codes/i,
+    }) as HTMLButtonElement;
+    expect(generate.disabled).toBe(false);
+    expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
+    expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
   });
 
   // The generate holds focus through the wait: `busy`, not `disabled`.

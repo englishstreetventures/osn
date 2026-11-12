@@ -19,6 +19,11 @@ import {
   apiError,
   ceremonyError,
 } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Settings → Passkeys view. Covers the orchestration logic that

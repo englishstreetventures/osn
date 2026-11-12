@@ -7,13 +7,14 @@ import { page, userEvent } from "vitest/browser";
 import "../../src/App.css";
 
 /**
- * The step-up's code row in Settings → Security, in a real browser.
+ * The step-up sheet in Settings → Security, in a real browser.
  *
- * `StepUpDialog` mounts inline in the Security card, below the passkey list,
- * and its authenticator-code step is a row of six `OtpInput` boxes that share
- * their column. On a phone the dialog drops its side padding, so the row takes the
- * card's whole column rather than the column less 32px (§Responsive layout,
- * Code boxes, in `DESIGN.md`). Widths take a real layout.
+ * "Add passkey" mounts `StepUpDialog`, which is `@shared/ui`'s `Dialog` with
+ * `presentation="sheet"`: a bottom sheet as wide as the screen below `md`, a
+ * centred 384px card above. Its authenticator-code step is a row of six
+ * `OtpInput` boxes inside the sheet's 16px padding, so at 320px the row is
+ * 288px and each box at least 40px (`DESIGN.md` §Responsive layout, Code
+ * boxes). Widths, the focus hand-back and Escape take a real browser.
  *
  * The factories are written literally: the shared-factory idiom in
  * `test-support/` does not resolve in the browser project.
@@ -42,7 +43,17 @@ vi.mock("../../src/lib/authClients", () => ({
         ],
       }),
   },
-  stepUpClient: {},
+  // The emailed link's wait: the request answers, and its status never does.
+  stepUpClient: {
+    emailBegin: () =>
+      Promise.resolve({
+        requestId: "stepup_0123456789ab",
+        claimSecret: "c".repeat(64),
+        pairingCode: "47",
+        expiresAt: 1_900_000_000,
+      }),
+    emailStatus: () => new Promise(() => {}),
+  },
   // Enrolled, so the step-up offers the authenticator, whose step is the code row.
   totpClient: { status: () => Promise.resolve({ enrolled: true }) },
   recoveryClient: { getRecoveryCodesStatus: () => Promise.resolve({ active: 10, total: 10 }) },
@@ -76,8 +87,8 @@ function authValue() {
   };
 }
 
-/** Settings → Security with the step-up's authenticator-code step open; its row of boxes. */
-async function openCodeStep() {
+/** Settings → Security, then "Add passkey": the step-up sheet, and the button that opened it. */
+async function openSheet() {
   const history = createMemoryHistory();
   history.set({ value: "/settings#security" });
   render(() => (
@@ -88,23 +99,22 @@ async function openCodeStep() {
       </MemoryRouter>
     </AuthContext.Provider>
   ));
-  await userEvent.click(await waitFor(() => screen.getByRole("button", { name: "Add passkey" })));
-  await userEvent.click(
-    await waitFor(() => screen.getByRole("button", { name: "Use your authenticator app" })),
-  );
-  return waitFor(() => screen.getByRole("group", { name: "Code from your authenticator app" }));
+  const opener = await waitFor(() => screen.getByRole("button", { name: "Add passkey" }));
+  await userEvent.click(opener);
+  const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+  return { sheet, opener };
 }
 
-/** The width of `card`'s content box: its own width less its padding and edge. */
-function contentWidth(card: HTMLElement): number {
-  const style = getComputedStyle(card);
-  return (
-    card.getBoundingClientRect().width -
-    parseFloat(style.paddingLeft) -
-    parseFloat(style.paddingRight) -
-    parseFloat(style.borderLeftWidth) -
-    parseFloat(style.borderRightWidth)
+/** The sheet's authenticator-code step: its row of boxes. */
+async function openCodeStep() {
+  const { sheet } = await openSheet();
+  await userEvent.click(
+    await waitFor(() => within(sheet).getByRole("button", { name: "Use your authenticator app" })),
   );
+  const row = await waitFor(() =>
+    within(sheet).getByRole("group", { name: "Code from your authenticator app" }),
+  );
+  return { sheet, row };
 }
 
 /** The Settings card that holds `el`: the ancestor `main` holds directly. */
@@ -130,37 +140,88 @@ afterEach(() => {
 /**
  * Each shot is taken in its own render with the theme set before it, never by
  * flipping the theme on a drawn page: the buttons' colour transitions would be
- * caught half way.
+ * caught half way. Shots wait for the sheet's entry fade (`--ui-dur-fast`).
  */
-describe("the step-up's code row in Settings → Security", () => {
-  it.each(["light", "dark"])("takes the card's whole column at 320px (%s)", async (theme) => {
+const settle = () => new Promise((r) => setTimeout(r, 300));
+
+describe("the step-up sheet in Settings → Security", () => {
+  it.each(["light", "dark"])(
+    "is a bottom sheet at 390px that takes focus and gives it back on Escape (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(390, 844);
+      const { sheet, opener } = await openSheet();
+      const box = sheet.getBoundingClientRect();
+      expect(box.left).toBeCloseTo(0, 1);
+      expect(box.width).toBeCloseTo(390, 1);
+      expect(box.bottom).toBeCloseTo(window.innerHeight, 0);
+      const style = getComputedStyle(sheet);
+      expect(style.borderTopLeftRadius).toBe("16px");
+      expect(style.borderTopRightRadius).toBe("16px");
+      expect(style.borderBottomLeftRadius).toBe("0px");
+      expect(style.borderBottomRightRadius).toBe("0px");
+      // Focus moves into the sheet: the first factor.
+      await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+      expect(document.activeElement).toBe(
+        within(sheet).getByRole("button", { name: "Use passkey" }),
+      );
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/step-up-sheet-390-${theme}.png` });
+
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      // Back on "Add passkey", which the host disabled while the sheet was open.
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+    },
+  );
+
+  it("holds Resend while the emailed link's wait runs, at 390px", async () => {
+    await page.viewport(390, 844);
+    const { sheet } = await openSheet();
+    await userEvent.click(within(sheet).getByRole("button", { name: "Use email instead" }));
+    const resend = await waitFor(() =>
+      within(sheet).getByRole("button", { name: /^Resend in \d+s$/ }),
+    );
+    expect((resend as HTMLButtonElement).disabled).toBe(true);
+    expect(within(sheet).getByText("47")).toBeTruthy();
+    expect(within(sheet).getByRole("button", { name: "Use another method" })).toBeTruthy();
+    await settle();
+    await page.screenshot({ path: `${SHOTS}/step-up-sheet-email-390.png` });
+  });
+
+  it.each(["light", "dark"])("gives the code row at least 260px at 320px (%s)", async (theme) => {
     document.documentElement.classList.toggle("dark", theme === "dark");
-    // Tall enough that the page never scrolls, so no scrollbar takes a column.
-    await page.viewport(320, 2400);
-    const row = await openCodeStep();
-    const card = settingsCard(row);
+    // Tall enough that the sheet never scrolls.
+    await page.viewport(320, 900);
+    const { sheet, row } = await openCodeStep();
+    expect(sheet.getBoundingClientRect().width).toBeCloseTo(320, 1);
     const width = row.getBoundingClientRect().width;
-    expect(width).toBeCloseTo(contentWidth(card), 1);
-    // `main`'s 16px each side, the card's 20px and its 1px edge: 246px.
-    expect(width).toBeCloseTo(246, 0);
+    expect(width).toBeGreaterThanOrEqual(260);
+    // The sheet's 16px each side: 288px.
+    expect(width).toBeCloseTo(288, 0);
     const boxes = within(row).getAllByRole("textbox");
     expect(boxes).toHaveLength(6);
-    for (const box of boxes) expect(box.getBoundingClientRect().width).toBeGreaterThanOrEqual(37);
-    // Every panel's action stays inside the card, a long one under its heading.
-    const inner =
-      card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight);
-    for (const button of within(card).getAllByRole("button")) {
+    for (const box of boxes) expect(box.getBoundingClientRect().width).toBeGreaterThanOrEqual(40);
+    // Every action stays inside the sheet's 16px padding, 40px tall or more.
+    const inner = sheet.getBoundingClientRect().right - 16;
+    for (const button of within(sheet).getAllByRole("button")) {
       expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(inner + 0.5);
+      expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(40);
     }
+    await settle();
     await page.screenshot({ path: `${SHOTS}/step-up-code-320-${theme}.png` });
   });
 
-  it.each(["light", "dark"])("keeps its padding inside the card at 1440px (%s)", async (theme) => {
+  it.each(["light", "dark"])("is a centred 384px card at 1440px (%s)", async (theme) => {
     document.documentElement.classList.toggle("dark", theme === "dark");
-    await page.viewport(1440, 1600);
-    const row = await openCodeStep();
-    // The dialog's 16px each side, inside the card's column.
-    expect(row.getBoundingClientRect().width).toBeCloseTo(contentWidth(settingsCard(row)) - 32, 1);
+    await page.viewport(1440, 900);
+    const { sheet, row } = await openCodeStep();
+    const box = sheet.getBoundingClientRect();
+    expect(box.width).toBeCloseTo(384, 1);
+    expect(box.left).toBeCloseTo((1440 - 384) / 2, 0);
+    // The row inside the sheet's 16px padding and 1px edge.
+    expect(row.getBoundingClientRect().width).toBeCloseTo(384 - 2 - 32, 1);
+    await settle();
     await page.screenshot({ path: `${SHOTS}/step-up-code-1440-${theme}.png` });
   });
 });
