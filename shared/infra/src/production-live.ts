@@ -12,17 +12,21 @@
  *  - on every release: an adopted resource that does not exist live; a Worker
  *    that lacks a secret the inventory requires on production or holds one it
  *    forbids; a declared var or binding named like a live secret, which the
- *    upload would replace;
+ *    upload would replace; a live Durable Object class no declared binding
+ *    names, which the upload would delete with its storage;
  *  - for a resource the plan adopts (`adopted`, or an API Worker's `create`,
  *    which the deploy adopts): a live cron schedule that differs from the
- *    declared one, a live Durable Object class no declared binding names, a
- *    database whose read replication differs, a bucket whose lifecycle rules,
- *    CORS, r2.dev access or custom domains differ, and a custom domain whose
- *    previews flag differs from the declaration on a release that adopts
- *    nothing.
+ *    declared one, a database whose read replication differs, and a bucket
+ *    whose lifecycle rules, CORS, r2.dev access or custom domains differ;
+ *  - on a release that adopts nothing: a custom domain whose previews flag
+ *    differs from the declaration.
  *
  * Once a resource is in state, Alchemy's own plan shows a declared change as
- * an `update`, so those checks hold only while a resource is being adopted.
+ * an `update`, so the adoption checks hold only while a resource is being
+ * adopted; on any other release a cron schedule that differs is listed for
+ * the approver. A Durable Object class is part of the Worker's upload, not a
+ * resource the plan names, so its check holds on every release.
+ *
  * Every value read is a name or a setting: no secret's value is ever fetched,
  * and the file holds none. Each read defaults exactly as the provider does
  * when it reads the same reply (`@alchemy.run/cloudflare` 2.0.0-beta.85).
@@ -605,21 +609,21 @@ export function judgeLive(input: {
           `${line}; outside a release that adopts, change it in the Cloudflare dashboard first`,
         );
     }
-    if (!adopting.has(id)) continue;
-    if (!sameSet(state.crons, worker.crons)) {
-      refusals.push(
-        `${worker.name}'s live cron schedule [${state.crons.join(", ")}] differs from the declared [${worker.crons.join(", ")}], and adopting it would replace it`,
-      );
-    }
     const declaredClasses = Object.values(worker.durableObjects);
     const deleted = state.durableObjectClasses.filter(
       (className) => !declaredClasses.includes(className),
     );
     if (deleted.length > 0) {
       refusals.push(
-        `${worker.name} hosts Durable Object classes no declared binding names: ${deleted.join(", ")}; adopting it would delete each, with its storage`,
+        `${worker.name} hosts Durable Object classes no declared binding names: ${deleted.join(", ")}; the deploy would delete each, with its storage`,
       );
     }
+    if (!sameSet(state.crons, worker.crons)) {
+      const line = `${worker.name}'s live cron schedule [${state.crons.join(", ")}] differs from the declared [${worker.crons.join(", ")}]`;
+      if (adopting.has(id)) refusals.push(`${line}, and adopting it would replace it`);
+      else notices.push(`${line}; the deploy replaces it with the declared one`);
+    }
+    if (!adopting.has(id)) continue;
     const liveObservability = observabilitySummary(state.observability);
     const wanted = declaredObservability(worker.observability);
     if (liveObservability !== wanted) {
@@ -672,6 +676,17 @@ export function judgeLive(input: {
     }
   }
   return { refusals, notices };
+}
+
+/** Whether `value` holds what lostSecrets reads: each Worker's secret names. */
+function holdsSecretNames(value: unknown): value is LiveState {
+  if (!isRecord(value) || !isRecord(value.workers)) return false;
+  return Object.values(value.workers).every(
+    (worker) =>
+      isRecord(worker) &&
+      Array.isArray(worker.secrets) &&
+      worker.secrets.every((name) => typeof name === "string"),
+  );
 }
 
 /** Each Worker's secret names live before a deploy and gone after it. */
@@ -745,10 +760,13 @@ export async function runReadLiveCli(input: ReadLiveCliInput): Promise<number> {
     );
   }
   if (keptFile === undefined) return 0;
-  let before: LiveState;
+  let before: unknown;
   try {
-    before = JSON.parse(readFileSync(keptFile, "utf8")) as LiveState;
+    before = JSON.parse(readFileSync(keptFile, "utf8"));
   } catch {
+    before = undefined;
+  }
+  if (!holdsSecretNames(before)) {
     return fail(2, `--kept ${keptFile} is not a state read-live wrote`);
   }
   const lost = lostSecrets(before, live);

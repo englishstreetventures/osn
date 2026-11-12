@@ -177,6 +177,31 @@ describe("LR1: the live read reads each adopted resource as the provider would",
     expect(live.buckets.CireAssets?.exists).toBe(false);
   });
 
+  // A full page means another may follow: a class or a database listed past
+  // the first page is still found, so the adoption check sees every class.
+  test("LR5: reads every page of Durable Object namespaces and of databases the name filter lists", async () => {
+    const others = (count: number, make: (i: number) => Record<string, string>) =>
+      Array.from({ length: count }, (_, i) => make(i));
+    const paged = scripted({
+      "/workers/durable_objects/namespaces?page=1&per_page=1000": () =>
+        ok(others(1000, (i) => ({ id: `o${i}`, class: `Other${i}`, script: "elsewhere" }))),
+      "/workers/durable_objects/namespaces?page=2&per_page=1000": () =>
+        ok([
+          { id: "n1", class: "TopicHub", script: "cire-api-production" },
+          { id: "n3", class: "OldHub", script: "cire-api-production" },
+        ]),
+      "/d1/database?name=cire-db&page=1&per_page=100": () =>
+        ok(others(100, (i) => ({ uuid: `u${i}`, name: `cire-db-copy-${i}` }))),
+      "/d1/database?name=cire-db&page=2&per_page=100": () =>
+        ok([{ uuid: "u-prod", name: "cire-db" }]),
+    });
+    const live = await readProductionLive(ADOPTED, api(paged.fetch));
+    expect(live.workers.CireApi?.durableObjectClasses.toSorted()).toEqual(["OldHub", "TopicHub"]);
+    expect(live.databases.CireDb).toEqual({ exists: true, readReplication: "auto" });
+    // A short page ends the listing: no third page is asked for.
+    expect(paged.calls.filter((url) => url.includes("page=3"))).toEqual([]);
+  });
+
   test("LR3: a database with no read replication setting reads as disabled, as the provider reads it", async () => {
     const live = await readProductionLive(
       ADOPTED,
@@ -298,7 +323,7 @@ describe("LJ: the guard's judgement of the live state", () => {
     );
   });
 
-  test("LJ5: while adopting, a cron, Durable Object class, read replication or bucket difference is refused; once adopted, none is", () => {
+  test("LJ5: while adopting, a cron, Durable Object class, read replication or bucket difference is refused; once adopted, only the class is, and the cron is listed", () => {
     const live: LiveState = {
       workers: {
         CireApi: {
@@ -327,7 +352,19 @@ describe("LJ: the guard's judgement of the live state", () => {
     expect(refused).toContain(
       "cire-assets: its lifecycle rules, its CORS rules, its r2.dev access, its custom domains differ live",
     );
-    expect(judgeLive({ adopted: ADOPTED, live, adopting: new Set() }).refusals).toEqual([]);
+    // A class no declared binding names is deleted by any upload, adopting or
+    // not: a binding taken out of a declaration after the first release.
+    const adopted = judgeLive({ adopted: ADOPTED, live, adopting: new Set() });
+    expect(adopted.refusals).toEqual([
+      "cire-api-production hosts Durable Object classes no declared binding names: OldHub; the deploy would delete each, with its storage",
+    ]);
+    expect(adopted.notices.join("\n")).toContain(
+      "live cron schedule [0 4 * * *, */5 * * * *] differs from the declared [0 4 * * *]; the deploy replaces it",
+    );
+    const classesOnly = withWorker(matching(), { durableObjectClasses: ["TopicHub"] });
+    expect(
+      judgeLive({ adopted: ADOPTED, live: classesOnly, adopting: new Set() }).refusals,
+    ).toEqual([]);
   });
 
   test("LJ6: a custom domain whose previews flag differs is listed while adopting and refused otherwise", () => {
@@ -427,7 +464,18 @@ describe("LS: the check after a deploy", () => {
     expect(await runReadLiveCli({ ...base, argv: ["--out", join(dir, "a.json")], env: {} })).toBe(
       2,
     );
-    writeFileSync(join(dir, "bad.json"), "not json");
+    // A --kept file that is not a state read-live wrote, after a good read.
+    for (const kept of ["not json", "{}", '{"workers":{"CireApi":{}}}']) {
+      writeFileSync(join(dir, "bad.json"), kept);
+      expect(
+        await runReadLiveCli({
+          ...base,
+          argv: ["--out", join(dir, "a.json"), "--kept", join(dir, "bad.json")],
+          env,
+        }),
+      ).toBe(2);
+    }
+    expect(out.join("")).toContain("is not a state read-live wrote");
     const failing = scripted({ "/r2/buckets/cire-assets": () => failed(403, 10000) });
     expect(
       await runReadLiveCli({

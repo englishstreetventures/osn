@@ -55,10 +55,8 @@ const KINDS: Readonly<Record<string, ResourceKind>> = {
   CireRoute: "route",
 };
 
-const refusals = (
-  log: string,
-  extra: { existing?: ReadonlySet<string>; durableObjectBindings?: readonly string[] } = {},
-) => guardPlan({ plan: parsePlan(log), kinds: KINDS, ...extra });
+const refusals = (log: string, extra: { existing?: ReadonlySet<string> } = {}) =>
+  guardPlan({ plan: parsePlan(log), kinds: KINDS, ...extra });
 
 describe("parsePlan", () => {
   test("G10: reads the last Plan line and the tagged lines after it, through colour and Effect's prefix", () => {
@@ -494,19 +492,6 @@ describe("guardPlan refuses", () => {
     expect(refusals(log, { existing: new Set(["CireInvites"]) })).toEqual([]);
     // A site Worker may be created: a new site's first release.
     expect(refusals(pretty("Plan: 1 to create", "[CireHost] create"))).toEqual([]);
-  });
-
-  test("GA4: a Durable Object binding unbound; any other binding may be", () => {
-    const log = pretty(
-      "Plan: 1 to update, 2 binding changes",
-      "[CireApi] update",
-      "[CireApi/REALTIME_HUB] unbind",
-      "[CireApi/OSN_ENV] unbind",
-    );
-    expect(refusals(log, { durableObjectBindings: ["CireApi/REALTIME_HUB"] })).toEqual([
-      "CireApi/REALTIME_HUB would be unbound, and Cloudflare deletes a Durable Object class no binding names, with its storage",
-    ]);
-    expect(refusals(log)).toEqual([]);
   });
 
   test("G7: a task line", () => {

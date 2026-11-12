@@ -967,26 +967,50 @@ export const SHIPS_AFTER: ReadonlyMap<SurfaceKey, SurfaceKey> = new Map([
   ["cire_api", "zap_api"],
 ]);
 
+/** The surface decisions and stack changes once SHIPS_AFTER has held back what waits. */
+export interface ShipsAfterHold {
+  readonly decisions: PlanDecision[];
+  readonly changes: StackChange[];
+}
+
 /**
- * Holds back each shipping surface whose SHIPS_AFTER surface has no
- * production record, which holds its stack with it. A forced release skips
- * this, as it skips the dev gate.
+ * Holds back every shipping surface, and the own change, of each stack that
+ * deploys a SHIPS_AFTER surface whose first has no production record. A stack
+ * uploads every Worker it declares, so a change to a sibling site, or to the
+ * stack's own paths, would otherwise upload the waiting API with it. A forced
+ * release skips this, as it skips the dev gate.
  */
 export function applyShipsAfter(input: {
   readonly decisions: readonly PlanDecision[];
+  readonly changes: readonly StackChange[];
   readonly production: ReadonlyMap<RecordKey, string>;
   readonly force: boolean;
-}): PlanDecision[] {
-  return input.decisions.map((d): PlanDecision => {
-    const first = SHIPS_AFTER.get(d.key);
-    if (input.force || !d.ship || first === undefined || input.production.has(first)) return d;
-    return {
-      ...d,
-      ship: false,
-      status: "held back",
-      reason: `${d.reason}; it ships once ${first} has a production record, which proves on production that a deploy keeps the secrets it does not upload`,
-    };
-  });
+}): ShipsAfterHold {
+  const waiting = new Map<StackKey, string>();
+  if (!input.force) {
+    for (const [key, first] of SHIPS_AFTER) {
+      const owner = surface(key).stack;
+      if (input.production.has(first) || waiting.has(owner)) continue;
+      waiting.set(
+        owner,
+        `the ${owner} stack deploys ${key}, which ships once ${first} has a production record, which proves on production that a deploy keeps the secrets it does not upload`,
+      );
+    }
+  }
+  return {
+    decisions: input.decisions.map((d): PlanDecision => {
+      const why = waiting.get(surface(d.key).stack);
+      return !d.ship || why === undefined
+        ? d
+        : { ...d, ship: false, status: "held back", reason: `${d.reason}; ${why}` };
+    }),
+    changes: input.changes.map((c): StackChange => {
+      const why = waiting.get(c.key);
+      return !c.ship || why === undefined
+        ? c
+        : { ...c, ship: false, status: "held back", reason: `${c.reason}; ${why}` };
+    }),
+  };
 }
 
 /**
@@ -1110,10 +1134,14 @@ export async function runReleasePlan(options: {
     return newer.get(commit) === true;
   };
 
-  const firsts = request.surfaces.flatMap((key) => {
-    const first = SHIPS_AFTER.get(key);
-    return first === undefined || request.surfaces.includes(first) ? [] : [first];
-  });
+  // A requested surface in the stack of a SHIPS_AFTER surface needs that
+  // surface's first, since the stack would upload it.
+  const firsts = [...SHIPS_AFTER].flatMap(([key, first]) =>
+    request.surfaces.includes(first) ||
+    !request.surfaces.some((s) => surface(s).stack === surface(key).stack)
+      ? []
+      : [first],
+  );
   const production = await lastDeployed(reader, "production", [
     ...new Set([...request.surfaces, ...firsts]),
     ...requestedStacks(request.surfaces).map(stackRecordKey),
@@ -1143,11 +1171,11 @@ export async function runReleasePlan(options: {
   );
   const gated = applyShipsAfter({
     decisions: applyDevGate({ decisions: changed, dev, diff, force: request.force }),
+    changes: applyStackDevGate({ changes: stackChanges, dev, force: request.force }),
     production,
     force: request.force,
   });
-  const gatedStacks = applyStackDevGate({ changes: stackChanges, dev, force: request.force });
-  const planned = stackPlans(gated, request.force, gatedStacks);
+  const planned = stackPlans(gated.decisions, request.force, gated.changes);
   const release: ReleaseDecisions = planned;
 
   return {

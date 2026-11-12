@@ -204,11 +204,6 @@ export interface GuardInput {
    * that through only for one that exists.
    */
   readonly existing?: ReadonlySet<string>;
-  /**
-   * `<Worker>/<BINDING>` of each Durable Object namespace binding the stack
-   * declares. Unbinding one asks Cloudflare to delete the class and its storage.
-   */
-  readonly durableObjectBindings?: readonly string[];
 }
 
 /**
@@ -241,8 +236,10 @@ export function planTextFaults(plan: ParsedPlan): string[] {
  * plan text the guard cannot read or whose lines disagree with its counts,
  * a resource the stack does not declare on production, an adoption of a kind
  * production does not adopt, a database or bucket created, an API Worker
- * created that does not exist live, a protected kind replaced, deleted or
- * orphaned, and a Durable Object binding unbound.
+ * created that does not exist live, and a protected kind replaced, deleted
+ * or orphaned. A Durable Object class is part of its Worker's upload, which
+ * the plan does not break down, so the live read judges it (judgeLive in
+ * production-live.ts).
  */
 export function guardPlan(input: GuardInput): string[] {
   const { plan, kinds } = input;
@@ -275,14 +272,6 @@ export function guardPlan(input: GuardInput): string[] {
     if (ESCALATING.has(resource.action) && PROTECTED_KINDS.has(kind)) {
       refusals.push(
         `${resource.fqn} (${kind}) would be ${resource.action === "orphaned" ? "orphaned" : `${resource.action}d`}`,
-      );
-    }
-  }
-  const durableObjects = new Set(input.durableObjectBindings ?? []);
-  for (const binding of plan.bindings) {
-    if (binding.action === "unbind" && durableObjects.has(binding.fqn)) {
-      refusals.push(
-        `${binding.fqn} would be unbound, and Cloudflare deletes a Durable Object class no binding names, with its storage`,
       );
     }
   }
@@ -666,11 +655,8 @@ export function runPlanGuardCli(input: PlanGuardCliInput): number {
   const existing = new Set(
     Object.entries(liveState?.workers ?? {}).flatMap(([id, worker]) => (worker.exists ? [id] : [])),
   );
-  const durableObjectBindings = Object.entries(input.adopted.workers).flatMap(([id, worker]) =>
-    Object.keys(worker.durableObjects).map((binding) => `${id}/${binding}`),
-  );
   const refusals = [
-    ...guardPlan({ plan, kinds: input.kinds, existing, durableObjectBindings }),
+    ...guardPlan({ plan, kinds: input.kinds, existing }),
     ...domains.problems,
     ...domainRefusals(domains.changes, holds),
     ...holdRefusals(input.declared, holds),

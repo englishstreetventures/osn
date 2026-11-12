@@ -153,17 +153,34 @@ describe("plan:guard, the musubi stack's production plan guard", () => {
     );
   }, 30_000);
 
-  test("GP4: refuses unbinding the coordination store, which would delete its class", () => {
+  test("GP4: on a release that adopts nothing, refuses a live Durable Object class no declared binding names", () => {
+    // What a declaration that dropped its binding looks like after the first
+    // release: the plan shows an update, and the live Worker still hosts the class.
+    const osnApi = LIVE_STATE.workers.OsnApi!;
     const result = guard(
       [
-        "[20:17:45.301] INFO: Plan: 1 to update, 1 binding changes",
+        "[20:17:45.301] INFO: Plan: 1 to update",
+        "[20:17:45.301] INFO: [MusubiLanding] noop",
+        "[20:17:45.301] INFO: [MusubiSocial] noop",
         "[20:17:45.301] INFO: [OsnApi] update",
-        "[20:17:45.301] INFO: [OsnApi/COORDINATION] unbind",
+        "[20:17:45.301] INFO: [OsnDb] noop",
         "",
       ].join("\n"),
+      {
+        ...LIVE_STATE,
+        workers: {
+          ...LIVE_STATE.workers,
+          OsnApi: {
+            ...osnApi,
+            durableObjectClasses: [...osnApi.durableObjectClasses, "RetiredStore"],
+          },
+        },
+      },
     );
     expect(result.exitCode).toBe(1);
-    expect(errors(result.stdout).join("\n")).toContain("OsnApi/COORDINATION would be unbound");
+    expect(errors(result.stdout).join("\n")).toContain(
+      "osn-api-production hosts Durable Object classes no declared binding names: RetiredStore; the deploy would delete each, with its storage",
+    );
   }, 30_000);
 
   test("G16: reads a real dev plan, every resource of which production declares too", () => {

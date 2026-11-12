@@ -1822,6 +1822,46 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(runStep(guard!, {}, 1).exitCode).not.toBe(0);
       expect(stepIndex(job, "migrate")).toBe(stepIndex(job, "guard") + 1);
       expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "migrate") + 1);
+      // Wrangler migrates the stack's production database, and only when its
+      // API ships: a migration file is in the API's own paths.
+      const migrate = stepById(job, "migrate");
+      const migration: unknown = {
+        if: migrate?.if,
+        run: migrate?.run,
+        cwd: migrate?.["working-directory"],
+        env: migrate?.env,
+      };
+      expect(migration).toEqual(
+        new Map([
+          [
+            "cire",
+            {
+              if: "needs.plan.outputs.cire_api == 'true'",
+              run: "bun run --cwd cire/db db:migrate:prod",
+              cwd: undefined,
+              env: PRODUCTION_CREDENTIALS,
+            },
+          ],
+          [
+            "musubi",
+            {
+              if: "needs.plan.outputs.osn_api == 'true'",
+              run: "bun run --cwd osn/db db:migrate:prod",
+              cwd: undefined,
+              env: PRODUCTION_CREDENTIALS,
+            },
+          ],
+          [
+            "zap",
+            {
+              if: "needs.plan.outputs.zap_api == 'true'",
+              run: "bunx wrangler d1 migrations apply zap-db-prod --env production --remote",
+              cwd: "zap/api",
+              env: PRODUCTION_CREDENTIALS,
+            },
+          ],
+        ]).get(key),
+      );
       const live = stepById(job, "live");
       expect(live?.run).toBe('bun run read:live -- --out "$RUNNER_TEMP/live.json"');
       expect(live?.["working-directory"]).toBe(`${key}/infra`);

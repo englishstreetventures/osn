@@ -1959,7 +1959,7 @@ describe("SA: osn-api and cire-api ship only once zap-api has a production recor
         stack_musubi: "false",
         stack_cire: "false",
       });
-      expect(plan.summary).toContain("it ships once zap_api has a production record");
+      expect(plan.summary).toContain("ships once zap_api has a production record");
     });
   });
 
@@ -1985,21 +1985,82 @@ describe("SA: osn-api and cire-api ship only once zap-api has a production recor
 
   test("SA3: a forced release skips the hold, as it skips the dev gate", () => {
     const decisions = decide(["osn/api/x.ts"]);
-    expect(
-      applyShipsAfter({ decisions, production: new Map(), force: true }).find(
-        (d) => d.key === "osn_api",
-      )?.ship,
-    ).toBe(true);
-    expect(
-      applyShipsAfter({ decisions, production: new Map(), force: false }).find(
-        (d) => d.key === "osn_api",
-      ),
-    ).toMatchObject({ ship: false, status: "held back" });
-    expect(
-      applyShipsAfter({ decisions, production: new Map([["zap_api", "a1"]]), force: false }).find(
-        (d) => d.key === "osn_api",
-      )?.ship,
-    ).toBe(true);
+    const changes: StackChange[] = [
+      { key: "musubi", ship: true, status: "ships", reason: "musubi/infra changed" },
+    ];
+    const held = (production: ReadonlyMap<RecordKey, string>, force: boolean) =>
+      applyShipsAfter({ decisions, changes, production, force });
+    expect(held(new Map(), true).decisions.find((d) => d.key === "osn_api")?.ship).toBe(true);
+    expect(held(new Map(), true).changes[0]?.ship).toBe(true);
+    expect(held(new Map(), false).decisions.find((d) => d.key === "osn_api")).toMatchObject({
+      ship: false,
+      status: "held back",
+    });
+    expect(held(new Map(), false).changes[0]).toMatchObject({ ship: false, status: "held back" });
+    const recorded = held(new Map<RecordKey, string>([["zap_api", "a1"]]), false);
+    expect(recorded.decisions.find((d) => d.key === "osn_api")?.ship).toBe(true);
+    expect(recorded.changes[0]?.ship).toBe(true);
+  });
+
+  // A stack deploys every Worker it declares, so a change to a sibling site,
+  // or to the stack's own paths, would upload the waiting API with it.
+  test("SA4: with no zap-api record, a change to a cire site alone holds the cire stack, the API with it", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/host/src/a.ts": "1" });
+      const b = await commit(repo, { "cire/host/src/a.ts": "2" });
+      const github = fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]);
+      const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(plan.outputs)).toMatchObject({ cire_host: "false", stack_cire: "false" });
+      expect(plan.summary).toContain("ships once zap_api has a production record");
+      const shipped = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs)).toMatchObject({
+        cire_host: "true",
+        stack_cire: "true",
+      });
+    });
+  });
+
+  test("SA5: with no zap-api record, a change to the musubi stack's own paths alone holds the stack", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "musubi/infra/src/a.ts": "1" });
+      const b = await commit(repo, { "musubi/infra/src/a.ts": "2" });
+      const github = fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]);
+      const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(plan.outputs)).toMatchObject({ stack_musubi: "false" });
+      expect(plan.summary).toContain("ships once zap_api has a production record");
+      const shipped = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs)).toMatchObject({ stack_musubi: "true" });
+    });
+  });
+
+  test("SA6: a release naming a cire site alone still reads zap-api's record", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/host/src/a.ts": "1" });
+      const b = await commit(repo, { "cire/host/src/a.ts": "2" });
+      const held = await runReleasePlan({
+        env: env(b, { SURFACES: "cire_host" }),
+        fetch: fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(held.outputs)).toMatchObject({ cire_host: "false", stack_cire: "false" });
+      const shipped = await runReleasePlan({
+        env: env(b, { SURFACES: "cire_host" }),
+        fetch: fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs)).toMatchObject({
+        cire_host: "true",
+        stack_cire: "true",
+      });
+    });
   });
 });
 
