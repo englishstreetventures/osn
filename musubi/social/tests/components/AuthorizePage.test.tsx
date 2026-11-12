@@ -291,9 +291,46 @@ describe("<AuthorizePage />", () => {
       await screen.findByText("Could not load this request");
 
       expect(screen.getByRole("status").textContent).toBe("");
+      // `Notice` reads its mark as "Error:" before the sentence.
       expect(screen.getByRole("alert").textContent).toBe(
-        "Too many attempts. Wait a while, then try again.",
+        "Error: Too many attempts. Wait a while, then try again.",
       );
+    });
+
+    it("shows a retry as pending and says a second failure aloud", async () => {
+      let failAgain: (err: Error) => void = () => {};
+      mocks.getContext.mockRejectedValueOnce(
+        new AuthorizeError("rate_limited", 429, "Too many attempts."),
+      );
+      mocks.getContext.mockReturnValueOnce(
+        new Promise((_, reject) => {
+          failAgain = reject;
+        }),
+      );
+
+      renderPage();
+      await screen.findByText("Could not load this request");
+      const tryAgain = screen.getByRole("button", { name: "Try again" });
+      tryAgain.focus();
+      fireEvent.click(tryAgain);
+
+      // Busy, not disabled: it keeps focus, and a second press loads nothing.
+      const pending = await screen.findByRole("button", { name: "Checking…" });
+      expect(pending.getAttribute("aria-busy")).toBe("true");
+      expect((pending as HTMLButtonElement).disabled).toBe(false);
+      expect(document.activeElement).toBe(pending);
+      fireEvent.click(pending);
+      expect(mocks.getContext).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("status").textContent).toBe("Checking this request.");
+
+      failAgain(new AuthorizeError("rate_limited", 429, "PLANTED-429"));
+
+      await waitFor(() =>
+        expect(screen.getByRole("status").textContent).toBe(
+          "Too many attempts. Wait a while, then try again.",
+        ),
+      );
+      expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
     });
   });
 
@@ -573,6 +610,28 @@ describe("<AuthorizePage />", () => {
     fireEvent.click(screen.getByText("finish sign-in"));
 
     expect(await screen.findByText("Allow")).toBeDefined();
+  });
+
+  it("leads with sign-up when this tab was waiting on a sign-up link before a reload", async () => {
+    sessionStorage.setItem(
+      "osn.signup.pending",
+      JSON.stringify({
+        requestId: "signup_000000000001",
+        claimSecret: "1".repeat(64),
+        expiresAt: Math.floor(Date.now() / 1000) + 600,
+        email: "alice@example.com",
+        handle: "alice",
+      }),
+    );
+    try {
+      mocks.getContext.mockResolvedValue(context({ signedIn: false, profiles: [] }));
+
+      renderPage(`?request=${REQUEST_ID}&reason=login`);
+
+      expect((await screen.findByText("finish sign-in")).dataset["initialMode"]).toBe("register");
+    } finally {
+      sessionStorage.clear();
+    }
   });
 
   it("leads with sign-up when reason=create", async () => {

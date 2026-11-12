@@ -24,6 +24,9 @@
  *   animation keeps focus inside it, and Kobalte's hand-back to the trigger
  *   then falls to `<body>`.
  *
+ * In both looks the separator is a fill, so it draws a top border in a
+ * contrast theme alone.
+ *
  * The accent look reads an app's own `--elev-2`, `--dur-fast` and `--ease-out`
  * first and the contract's `--ui-*` after, as `choice.ts` and `control.ts` do,
  * so cire's portals need no new mapping and nothing else they render moves.
@@ -94,9 +97,19 @@ const EYEBROW = {
     "base:px-3 base:pt-2 base:pb-1 base:font-ui-body base:text-ui-xs base:tracking-ui-widest base:uppercase base:font-normal base:text-ui-ink-secondary",
 } satisfies Readonly<Record<MenuVariant, string>>;
 
+/**
+ * The line is the 1px hairline fill, so both looks set `border-0`: the
+ * separator is an `<hr>`, which keeps preflight's 1px top border in the
+ * panel's ink, and that border covers the fill wherever an app's base styles
+ * leave its colour alone. A contrast theme replaces the fill with the page
+ * colour, so both looks draw the top border back there for the theme to
+ * paint.
+ */
 const SEPARATOR = {
-  default: "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px",
-  accent: "base:bg-ui-hairline base:mx-1 base:my-1 base:h-px base:border-0",
+  default:
+    "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px base:border-0 base:forced-colors:border-t",
+  accent:
+    "base:bg-ui-hairline base:mx-1 base:my-1 base:h-px base:border-0 base:forced-colors:border-t",
 } satisfies Readonly<Record<MenuVariant, string>>;
 
 /** The trailing mark on a chosen radio row and a checked check row. */

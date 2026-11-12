@@ -30,12 +30,23 @@ the inline script that sets the theme before first paint, under each portal's
 own storage keys), and `createHaptics` (touch feedback by event name). The
 guest and marketing sites import none of them.
 
-`UsernameInput` is the one apparent duplicate, and the reason is the API rather
-than the styling: `@shared/ui`'s is controlled and renders its own debounced
-availability status, this one spreads raw input props because its single call
-site (`cire/host`'s add-host combobox) drives `aria-expanded`,
-`aria-activedescendant` and a suggestion list onto the box. The full argument is
-in `src/username-input.tsx`.
+Four names here are also `@shared/ui` parts. `Button` and `Card` are the house
+style above.
+
+`UsernameInput` differs in its API rather than its styling: `@shared/ui`'s is
+controlled and renders its own debounced availability status, this one spreads
+raw input props because its single call site (`cire/host`'s add-host combobox)
+drives `aria-expanded`, `aria-activedescendant` and a suggestion list onto the
+box. The full argument is in `src/username-input.tsx`.
+
+`Skeleton` differs in its look: cire's paints `--ui-surface`, at full strength
+for a card or a row and at 60% for a field or a pill, with the corners of
+cire's own stand-ins, and pulses on `PULSE`, which follows `--motion-scale`.
+`@shared/ui`'s paints the sunk well, because an app such as Musubi maps
+`--ui-surface` to its page colour, and pulses on Tailwind's `--animate-pulse`.
+The two share the words `row` and `card` but not the default or the corner
+of a row; `wiki/shared/component-library.md` §`Skeleton` sets them side by
+side.
 
 ## It is written against the token contract
 
@@ -57,7 +68,7 @@ own (a different curve) wherever an app declares none, so the contract's
 `--ui-ease-in-out` written behind it is never reached in a Tailwind app.
 The reduced-motion kill switch is a global rule in each app's `global.css`. It
 selects `*`, which reaches no pseudo-element, so a part that animates one —
-`Disclosure`'s fade on `::details-content` — carries its own `motion-safe:`
+`Disclosure`'s opening on `::details-content` — carries its own `motion-safe:`
 gate.
 
 ## Adding an app

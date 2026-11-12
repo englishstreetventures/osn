@@ -10,8 +10,11 @@ import { StorageLive, type Storage } from "./storage";
  * It resolves with every response, whatever its status, except that a 401 is
  * renewed and retried once. It rejects with exactly one of:
  *
- * - `AuthExpiredError` — the session has ended; `onSessionChange` listeners
- *   were told.
+ * - `AuthExpiredError` — the session the request was made for has ended.
+ *   When the runtime ended it, `onSessionChange` listeners were told. When
+ *   it was replaced or ended on this page or in another tab while the
+ *   request was out, the request was not renewed or sent again and its
+ *   answer, whatever it was, is not handed back.
  * - whatever `fetch` rejected with (`TypeError`, `AbortError`) — the request
  *   itself failed or was aborted; the session is kept. A URL that is not on
  *   the issuer's origin is refused the same way, with a `TypeError`, before

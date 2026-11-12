@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -42,9 +42,9 @@ last-reviewed: 2026-11-10
 
 | Dependency | Used by | NOT used by |
 |---|---|---|
-| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, `cire-vendor`, `cire-host`, `cire-landing`, `osn-social` | the Pages projects |
+| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, `cire-vendor`, `cire-host`, `cire-landing`, `osn-social` | — |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
-| **Cloudflare Pages** | the `cire-landing` and `osn-social` projects, deployed by no job, each serving its apex until its flip release moves it to its Worker; the `cire-host` and `cire-vendor` projects, deployed by no job and serving no host; each kept for a rollback | the Workers |
+| **Cloudflare Pages** | nothing: every production site is a Worker | the Workers |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) and the other bindings in its `wrangler.toml`; **osn-api**'s one-minute limiters, `RL_AUTH_IP_*` and `RL_USER_*` ([[rate-limiting]]) | — |
 | **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]); **osn-api** `COORDINATION` (`CoordinationStore`, the limiters longer than a minute, ceremonies, single-use claims and lockouts — [[coordination-store]]) | zap-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
@@ -321,7 +321,7 @@ size, 50K databases, 1 TB storage; overage is cheap ($0.001/M read, $1/M written
 
 ## Cloudflare Pages (Free)
 
-**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the `cire-landing` and `osn-social` projects, each serving its apex until its flip release moves it to a Worker, the `cire-host` and `cire-vendor` projects kept for a rollback, and the stale musubi and pulse landing preview projects; no workflow deploys any of them. Every production site serves from a production Worker, each apex once its flip release has run ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
+**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts no production site: the projects the sites moved from are deleted, and no workflow deploys to Pages. Every production site serves from a production Worker ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -430,7 +430,7 @@ table, don't guess.**
 | **Coordination store** (osn-api's `COORDINATION` Durable Object) failing, or the dev account's Durable Object allowance spent | The auth limiters longer than a minute, the per-account export, deletion and restore limiters, the per-account caps | **fail-CLOSED** — a failed `increment` denies (`createCoordinationRateLimiter`, `shared/coordination/src/client.ts`) | 429 on recovery-code generate and sign-in, emailed-recovery begin, email-change begin, OIDC client registration, account export and deletion | `coordination store call failed` in osn-api's logs; `osn.auth.rate_limited` spike | Wait out a blip; on dev, the 00:00 UTC reset. **Do not** flip to fail-open. |
 | ″ | Ceremony stores and their guess counts | **fail-CLOSED** — a failed call is a `CoordinationError`, answered with a generic 503 (`osn/api/src/services/auth/store-call.ts`) | Passkey sign-in and registration, step-up, recovery, email change, TOTP enrolment, cross-device sign-in and the `/authorize` hand-off answer 503 | `coordination store call failed`; `GET /health/coordination` answers 503 | The user-facing one: restore it first. |
 | ″ | Step-up token guard | **fail-CLOSED** — a failed `claim` refuses the token as "could not be verified" (`osn/api/src/services/auth/step-up.ts`) | Step-up-gated actions refused | `osn.auth.step_up.verified` drop | Same — the posture is intentional. |
-| ″ | Lockout counters (recovery code, emailed recovery code, TOTP) | **fail-CLOSED** — `status` and `recordFailure` answer `"unknown"`; the caller refuses with its generic error and writes no security event (`osn/api/src/lib/coordination/durable.ts`) | Recovery-code sign-in, emailed recovery and TOTP checks refused | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable"}` | Restore promptly — the owner's own recovery is refused. |
+| ″ | Lockout counters (recovery code, emailed recovery link, TOTP) | **fail-CLOSED** — `status` and `recordFailure` answer `"unknown"`; the caller refuses (a recovery link's right number with a 503 that keeps the request; the others with their generic error) and writes no security event (`osn/api/src/lib/coordination/durable.ts`) | Recovery-code sign-in, emailed recovery and TOTP checks refused | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable"}` | Restore promptly — the owner's own recovery is refused. |
 | **D1** down / over daily rows quota (a daily quota binds the dev account only) | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB`. osn-api's token refresh writes the new session and its rotation record in one batch and reads the record to detect reuse, so a failed write or read fails the grant, keeps the session marker and revokes nothing (`osn/api/src/services/auth/tokens.ts`) | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or move dev to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota (dev account only) | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Wait for the reset, or move dev to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |

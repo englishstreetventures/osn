@@ -1,31 +1,34 @@
 /**
  * Security-event audit surface: the unacknowledged-events banner feed, the
  * step-up-gated acknowledge paths, and the shared best-effort email
- * notification used by the passkey / cross-device flows.
+ * notification used by the passkey, TOTP, cross-device, recovery-factor and
+ * email-change flows.
  */
 
 import { accounts, securityEvents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { type EmailTemplateData, EmailService, type SendEmailInput } from "@shared/email";
 import type { SecurityEventKind } from "@shared/observability/metrics";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, ne, or } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { canBatch } from "../../lib/batch";
 import {
   metricSecurityEventAcknowledged,
   metricSecurityEventNotified,
   metricSecurityEventNotifyDuration,
 } from "../../metrics";
+import { EMAIL_CHANGE_ACK_HOLD_SECONDS } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, DatabaseError, EmailChangeHeldError } from "./errors";
 import type { StepUpModule } from "./step-up";
 import type { SecurityEventSummary } from "./types";
 
 /**
  * The templates {@link SecurityEventsModule.notifySecurityEventByAccountId}
- * will send. A closed list rather than `EmailTemplate`, so this helper can
- * never be pointed at an OTP template and mail a code to an account it looked
- * up itself.
+ * and {@link SecurityEventsModule.notifySecurityEventTo} will send. A closed
+ * list rather than `EmailTemplate`, so neither helper can ever be pointed at
+ * an OTP template and mail a code.
  */
 type SecurityNoticeTemplate =
   | "passkey-added"
@@ -33,43 +36,78 @@ type SecurityNoticeTemplate =
   | "totp-enrolled"
   | "totp-disabled"
   | "cross-device-login"
-  | "recovery-used";
+  | "recovery-used"
+  | "email-changed";
 
 export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModule) {
   const { config, recoveryGenerateAllowedAmr } = ctx;
   const { verifyStepUpToken } = stepUp;
 
   /**
-   * Lists still-unacknowledged security events for an account, newest first.
+   * The rows an acknowledgement may change at `nowSec`: every kind but an
+   * `email_changed` row still inside its hold. Part of each acknowledging
+   * UPDATE, so the hold is judged row by row in the write itself.
+   */
+  const outsideHold = (nowSec: number) =>
+    or(
+      ne(securityEvents.kind, "email_changed"),
+      lte(securityEvents.createdAt, nowSec - EMAIL_CHANGE_ACK_HOLD_SECONDS),
+    );
+
+  /**
+   * Lists still-unacknowledged security events for an account, newest first:
+   * the newest 50, plus any `email_changed` row still inside its hold, which
+   * no acknowledgement can clear and so must not page out behind newer rows.
    * Intended for the Settings banner — acknowledged rows are kept for audit
    * but are filtered out of the surface.
    *
-   * P-I1: explicit projection so adding an internal column later (e.g. a
-   * JSON context blob) doesn't silently grow the wire payload.
+   * Explicit projection, so adding an internal column later (e.g. a JSON
+   * context blob) doesn't silently grow the wire payload.
    */
   const listUnacknowledgedSecurityEvents = (
     accountId: string,
   ): Effect.Effect<{ events: SecurityEventSummary[] }, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({
-              id: securityEvents.id,
-              kind: securityEvents.kind,
-              createdAt: securityEvents.createdAt,
-              uaLabel: securityEvents.uaLabel,
-              ipHash: securityEvents.ipHash,
-            })
-            .from(securityEvents)
-            .where(
-              and(eq(securityEvents.accountId, accountId), isNull(securityEvents.acknowledgedAt)),
-            )
-            .orderBy(desc(securityEvents.createdAt))
-            .limit(50),
+      const nowSec = Math.floor(Date.now() / 1000);
+      const projection = {
+        id: securityEvents.id,
+        kind: securityEvents.kind,
+        createdAt: securityEvents.createdAt,
+        uaLabel: securityEvents.uaLabel,
+        ipHash: securityEvents.ipHash,
+      };
+      const unacknowledged = and(
+        eq(securityEvents.accountId, accountId),
+        isNull(securityEvents.acknowledgedAt),
+      );
+      const newest = db
+        .select(projection)
+        .from(securityEvents)
+        .where(unacknowledged)
+        .orderBy(desc(securityEvents.createdAt))
+        .limit(50);
+      // The change cap keeps this to two rows in practice; the limit bounds it.
+      const held = db
+        .select(projection)
+        .from(securityEvents)
+        .where(
+          and(
+            unacknowledged,
+            eq(securityEvents.kind, "email_changed"),
+            gt(securityEvents.createdAt, nowSec - EMAIL_CHANGE_ACK_HOLD_SECONDS),
+          ),
+        )
+        .limit(50);
+      const [page, heldRows] = yield* Effect.tryPromise({
+        // One round trip on D1.
+        try: () => (canBatch(db) ? db.batch([newest, held]) : Promise.all([newest, held])),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      const seen = new Set(page.map((row) => row.id));
+      const rows = [...page, ...heldRows.filter((row) => !seen.has(row.id))].sort(
+        (a, b) => b.createdAt - a.createdAt,
+      );
       return {
         events: rows.map((row) => ({
           id: row.id,
@@ -87,25 +125,30 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
   /**
    * Marks a single security event as acknowledged.
    *
-   * S-M1: step-up gated. Without step-up, an XSS that sniffed the access
+   * Step-up gated. Without step-up, an XSS that sniffed the access
    * token could GET the list and POST ack on every id before the user ever
    * saw the banner — the banner is the defence against the very scenario
    * that compromised the access token, so it can't be dismissible by that
-   * same token. Allowed amr defaults to `["webauthn", "otp"]`, matching the
-   * `/recovery/generate` gate.
+   * same token. The allowed amr set is `recoveryGenerateAllowedAmr`, the
+   * `/recovery/generate` gate's.
    *
    * Idempotent on the row side — acking a row that's already acknowledged,
    * or a row that doesn't exist on the caller's account, returns
    * `{ acknowledged: false }` rather than surfacing "not found" (same posture
-   * as `/logout` and `/sessions/:id`). The step-up jti is still consumed on
-   * such calls; callers are expected to bulk-ack via
+   * as `/logout` and `/sessions/:id`). An `email_changed` row inside its hold
+   * fails with `EmailChangeHeldError` instead. The step-up jti is still
+   * consumed on such calls; callers are expected to bulk-ack via
    * `acknowledgeAllSecurityEvents` when dismissing a full banner.
    */
   const acknowledgeSecurityEvent = (
     accountId: string,
     eventId: string,
     stepUpToken: string,
-  ): Effect.Effect<{ acknowledged: boolean }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { acknowledged: boolean },
+    AuthError | DatabaseError | EmailChangeHeldError,
+    Db
+  > =>
     Effect.gen(function* () {
       yield* verifyStepUpToken(
         stepUpToken,
@@ -119,44 +162,63 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
       }
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      const existing = yield* Effect.tryPromise({
+      // One statement, guarded on the row still being unacknowledged: of two
+      // acks at once, only the one whose write changed the row reports it,
+      // and the first acknowledgement time stands.
+      const changed = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: securityEvents.id, kind: securityEvents.kind })
-            .from(securityEvents)
+            .update(securityEvents)
+            .set({ acknowledgedAt: nowSec })
             .where(
               and(
                 eq(securityEvents.id, eventId),
                 eq(securityEvents.accountId, accountId),
                 isNull(securityEvents.acknowledgedAt),
+                outsideHold(nowSec),
               ),
             )
-            .limit(1),
+            .returning({ kind: securityEvents.kind }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const match = existing[0];
+      const match = changed[0];
       if (!match) {
+        // Nothing changed: the row is missing, already acknowledged, or held.
+        // Only the last is a refusal.
+        const [row] = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({ kind: securityEvents.kind, createdAt: securityEvents.createdAt })
+              .from(securityEvents)
+              .where(
+                and(
+                  eq(securityEvents.id, eventId),
+                  eq(securityEvents.accountId, accountId),
+                  isNull(securityEvents.acknowledgedAt),
+                ),
+              )
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        const holdEndsAt = row ? row.createdAt + EMAIL_CHANGE_ACK_HOLD_SECONDS : 0;
+        if (row?.kind === "email_changed" && holdEndsAt > nowSec) {
+          return yield* Effect.fail(new EmailChangeHeldError({ holdEndsAt }));
+        }
         return { acknowledged: false };
       }
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(securityEvents)
-            .set({ acknowledgedAt: nowSec })
-            .where(eq(securityEvents.id, match.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
       metricSecurityEventAcknowledged(match.kind as SecurityEventKind);
       return { acknowledged: true };
     }).pipe(Effect.withSpan("auth.security_event.ack"));
 
   /**
-   * Bulk-acks every unacknowledged security event for an account in a single
-   * transaction. One step-up → one call dismisses the entire banner. This is
+   * Bulk-acks every unacknowledged security event for an account in one
+   * statement, and reports and counts the rows that statement changed. An
+   * `email_changed` row inside its hold is left in place. One step-up → one
+   * call dismisses the rest of the banner. This is
    * the UX path the banner uses; `acknowledgeSecurityEvent` remains for API
    * clients that want per-row control.
    *
-   * S-M1: step-up gated on the same amr set as `/recovery/generate`.
+   * Step-up gated on the same amr set as `/recovery/generate`.
    */
   const acknowledgeAllSecurityEvents = (
     accountId: string,
@@ -172,67 +234,40 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
 
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      const unacked = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({ id: securityEvents.id, kind: securityEvents.kind })
-            .from(securityEvents)
-            .where(
-              and(eq(securityEvents.accountId, accountId), isNull(securityEvents.acknowledgedAt)),
-            ),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      if (unacked.length === 0) {
-        return { acknowledged: 0 };
-      }
-      yield* Effect.tryPromise({
+      const acked = yield* Effect.tryPromise({
         try: () =>
           db
             .update(securityEvents)
             .set({ acknowledgedAt: nowSec })
             .where(
-              and(eq(securityEvents.accountId, accountId), isNull(securityEvents.acknowledgedAt)),
-            ),
+              and(
+                eq(securityEvents.accountId, accountId),
+                isNull(securityEvents.acknowledgedAt),
+                outsideHold(nowSec),
+              ),
+            )
+            .returning({ kind: securityEvents.kind }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      for (const row of unacked) {
+      for (const row of acked) {
         metricSecurityEventAcknowledged(row.kind as SecurityEventKind);
       }
-      return { acknowledged: unacked.length };
+      return { acknowledged: acked.length };
     }).pipe(Effect.withSpan("auth.security_event.ack_all"));
 
   /**
-   * Best-effort "a security-relevant thing happened on your account" email,
-   * shared by the passkey add / remove and cross-device-login flows. Fetches
-   * the account's email and dispatches the given template — the body is a
-   * boilerplate "it was you or investigate" framing; codes and identifying
-   * material are never included. Callers fork this as a daemon with a
-   * timeout so mailer health never gates the user-visible operation.
+   * Sends `template` to `recipient` and counts the outcome. The body is a
+   * boilerplate "it was you or investigate" framing; codes are never
+   * included. A send failure becomes `notify_dispatch_failed`, with the
+   * provider's response (which may echo the recipient) left out.
    */
-  const notifySecurityEventByAccountId = <T extends SecurityNoticeTemplate>(
-    accountId: string,
+  const dispatch = <T extends SecurityNoticeTemplate>(
+    recipient: string,
     kind: SecurityEventKind,
     template: T,
-    /**
-     * The template's own data, less the instance name, which this helper adds
-     * from `config`. Every notice but one is boilerplate and passes `{}`;
-     * `recovery-used` carries the "this wasn't me" URL, which is the whole
-     * reason this parameter exists. Typed against the template so a caller
-     * cannot pass the wrong bag or forget a required one.
-     */
     data: Omit<EmailTemplateData<T>, "instanceName">,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<void, AuthError, EmailService> =>
     Effect.gen(function* () {
-      const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const recipient = rows[0]?.email;
-      if (!recipient) {
-        metricSecurityEventNotified(kind, "skipped");
-        return;
-      }
       const email = yield* EmailService;
       const start = Date.now();
       // `SendEmailInput` is a discriminated union over `template`, and TypeScript
@@ -260,13 +295,62 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
           }),
         ),
       );
+    });
+
+  /**
+   * Best-effort "a security-relevant thing happened on your account" email,
+   * shared by the passkey add / remove, TOTP, cross-device-login and
+   * recovery-factor flows. Fetches the account's email and dispatches the
+   * given template. Callers fork this as a daemon with a timeout so mailer
+   * health never gates the user-visible operation.
+   */
+  const notifySecurityEventByAccountId = <T extends SecurityNoticeTemplate>(
+    accountId: string,
+    kind: SecurityEventKind,
+    template: T,
+    /**
+     * The template's own data, less the instance name, which this helper adds
+     * from `config`. Most notices are boilerplate and pass `{}`;
+     * `recovery-used` carries the "this wasn't me" URL. Typed against the
+     * template so a caller cannot pass the wrong bag or forget a required one.
+     */
+    data: Omit<EmailTemplateData<T>, "instanceName">,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const recipient = rows[0]?.email;
+      if (!recipient) {
+        metricSecurityEventNotified(kind, "skipped");
+        return;
+      }
+      yield* dispatch(recipient, kind, template, data);
     }).pipe(Effect.withSpan("auth.security_event.notify", { attributes: { kind } }));
+
+  /**
+   * The same notice, sent to an address the caller names instead of the one
+   * the account holds now: for the email-change notice, whose recipient is
+   * the address the change replaced. Forked like its sibling.
+   */
+  const notifySecurityEventTo = <T extends SecurityNoticeTemplate>(
+    recipient: string,
+    kind: SecurityEventKind,
+    template: T,
+    data: Omit<EmailTemplateData<T>, "instanceName">,
+  ): Effect.Effect<void, AuthError, EmailService> =>
+    dispatch(recipient, kind, template, data).pipe(
+      Effect.withSpan("auth.security_event.notify", { attributes: { kind } }),
+    );
 
   return {
     listUnacknowledgedSecurityEvents,
     acknowledgeSecurityEvent,
     acknowledgeAllSecurityEvents,
     notifySecurityEventByAccountId,
+    notifySecurityEventTo,
   };
 }
 

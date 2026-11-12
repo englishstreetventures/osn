@@ -1,24 +1,27 @@
 import { it, expect, describe } from "@effect/vitest";
+import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import type { StepUpPurpose } from "@shared/observability/metrics";
-import { Effect, Layer } from "effect";
-import { beforeAll } from "vitest";
+import { Effect, Fiber, Layer } from "effect";
+import { beforeAll, vi } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
+import { stepUpThroughService } from "../helpers/step-up-link";
 
 /**
- * M-PK1b: security_events audit trail + out-of-band notification.
+ * The security_events audit trail and its out-of-band notification.
  *
  * Invariants we care about:
  *   • generateRecoveryCodesForAccount writes one unacked security_events row
  *     per call, in the same transaction as the code swap.
  *   • consumeRecoveryCode writes one unacked security_events row per
- *     successful consumption (S-H1) — the takeover half of the threat model.
+ *     successful consumption — the takeover half of the threat model.
  *   • listUnacknowledgedSecurityEvents surfaces only unacked rows, newest
  *     first, with the coarse UA label we threaded in from the route.
- *   • acknowledgeSecurityEvent is step-up gated (S-M1), idempotent on missing
+ *   • acknowledgeSecurityEvent is step-up gated, idempotent on missing
  *     / already-acked IDs, and scoped to the owning account.
  *   • If the email transport rejects, the recovery codes still commit — the
  *     notification is forked + timed-out defence in depth, not the primary
@@ -36,14 +39,7 @@ function makeEmailCapture() {
   const email = makeLogEmailLive();
   return {
     layer: Layer.merge(createTestLayer(), email.layer),
-    latest: (): string | undefined => {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/(?:step-up code is|code is): (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => email.recorded(),
   };
 }
 
@@ -64,7 +60,7 @@ const registered = (auth: ReturnType<typeof createAuthService>, email: string, h
   });
 
 /**
- * Drives the OTP step-up ceremony and returns a single-use token. Each call
+ * Drives the step-up through the emailed link and returns a single-use token. Each call
  * mints a fresh token — step-up jti is consumed on first verify, so tests
  * that ack multiple events need one token per ack OR a bulk-ack call.
  */
@@ -74,13 +70,7 @@ const mintStepUp = (
   capture: ReturnType<typeof makeEmailCapture>,
   // The ack gates are purpose-bound; default to the ceremony these tests drive.
   purpose: StepUpPurpose = "security_event_ack",
-) =>
-  Effect.gen(function* () {
-    yield* auth.beginStepUpOtp(accountId);
-    const code = capture.latest()!;
-    const { stepUpToken } = yield* auth.completeStepUpOtp(accountId, code, purpose);
-    return stepUpToken;
-  });
+) => stepUpThroughService(auth, accountId, purpose, capture.recorded);
 
 describe("generateRecoveryCodesForAccount → security_events", () => {
   it.effect("creates exactly one unacked row per generate call", () =>
@@ -136,7 +126,7 @@ describe("generateRecoveryCodesForAccount → security_events", () => {
   );
 });
 
-describe("consumeRecoveryCode → security_events (S-H1)", () => {
+describe("consumeRecoveryCode → security_events", () => {
   it.effect("records a recovery_code_consume audit row in the consume transaction", () =>
     Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
@@ -229,7 +219,7 @@ describe("listUnacknowledgedSecurityEvents", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-S1: the service caps results at .limit(50). A regression that drops
+  // The service caps results at .limit(50). A regression that drops
   // the cap (or the isNull filter) would silently leak unbounded data into
   // the Settings banner.
   it.effect("caps results at 50 even when more unacked rows exist", () =>
@@ -244,7 +234,7 @@ describe("listUnacknowledgedSecurityEvents", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-S1: ack + list mixed state — only unacked rows survive the filter.
+  // Ack + list mixed state — only unacked rows survive the filter.
   it.effect("excludes acknowledged rows when mixed with unacked rows", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -269,7 +259,7 @@ describe("listUnacknowledgedSecurityEvents", () => {
   });
 });
 
-// T-S2: the defensive branches in notifyRecovery are unreachable in production
+// The defensive branches in notifyRecovery are unreachable in production
 // (FK + step-up guarantee an account exists, and the mailer is configured in
 // deploy envs). Silent drift that removes the null-check could leak a "sent"
 // metric for a notification that never actually dispatched. Pin it.
@@ -314,7 +304,7 @@ describe("notifyRecovery (defensive branches)", () => {
   });
 });
 
-// T-E1: same contract for the shared passkey / cross-device notification
+// The same contract for the shared passkey / cross-device notification
 // helper — its missing-recipient branch is unreachable in production (the
 // account row is read in the same flow that fires the daemon), so pin it
 // directly the way the notifyRecovery branches are pinned above.
@@ -354,7 +344,7 @@ describe("notifySecurityEventByAccountId (defensive branches)", () => {
   });
 });
 
-describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
+describe("acknowledgeSecurityEvent (step-up gated)", () => {
   it.effect("acking a row with a valid step-up token removes it from the unacked list", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -469,7 +459,7 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
   });
 });
 
-describe("acknowledgeAllSecurityEvents (S-M1 bulk path)", () => {
+describe("acknowledgeAllSecurityEvents (bulk path)", () => {
   it.effect("dismisses every unacked event for the account in one call", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
@@ -528,5 +518,270 @@ describe("acknowledgeAllSecurityEvents (S-M1 bulk path)", () => {
       const ownerList = yield* auth.listUnacknowledgedSecurityEvents(owner.accountId);
       expect(ownerList.events).toHaveLength(1);
     }).pipe(Effect.provide(cap.layer));
+  });
+});
+
+/**
+ * An acknowledgement reports and counts the rows its own write changed. Each
+ * case holds the acknowledging UPDATE while another write lands.
+ */
+describe("acknowledgement while another write lands", () => {
+  function makeHeld() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const held = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: held.db }), email.layer),
+      hold: held.hold,
+      sqlite,
+    };
+  }
+
+  const ackToken = (auth: ReturnType<typeof createAuthService>, accountId: string) =>
+    auth.issueStepUpToken(accountId, "otp", "security_event_ack");
+
+  it.live("of two acks of one event, exactly one acknowledges it", () => {
+    const { layer, hold } = makeHeld();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-race-one@example.com", "sevraceone");
+      yield* auth.generateRecoveryCodesForAccount(profile.accountId);
+      const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
+      const id = events[0]!.id;
+      const [first, second] = yield* Effect.all([
+        ackToken(auth, profile.accountId),
+        ackToken(auth, profile.accountId),
+      ]);
+
+      const firstWrite = hold(/^update "security_events"/);
+      const a = yield* Effect.forkChild(
+        auth.acknowledgeSecurityEvent(profile.accountId, id, first),
+      );
+      yield* Effect.promise(() => firstWrite.reached);
+      const b = yield* auth.acknowledgeSecurityEvent(profile.accountId, id, second);
+      firstWrite.release();
+      const aResult = yield* Fiber.join(a);
+
+      expect([aResult.acknowledged, b.acknowledged].filter(Boolean)).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("ack-all reports every row it acknowledged", () => {
+    const { layer, hold, sqlite } = makeHeld();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-race-all@example.com", "sevraceall");
+      yield* auth.generateRecoveryCodesForAccount(profile.accountId);
+      const token = yield* ackToken(auth, profile.accountId);
+
+      const write = hold(/^update "security_events"/);
+      const all = yield* Effect.forkChild(
+        auth.acknowledgeAllSecurityEvents(profile.accountId, token),
+      );
+      yield* Effect.promise(() => write.reached);
+      // A second event lands before the acknowledging write runs.
+      sqlite
+        .query(
+          `INSERT INTO security_events (id, account_id, kind, created_at, acknowledged_at)
+           VALUES (?, ?, 'totp_enrolled', ?, NULL)`,
+        )
+        .run("sev_aaaaaaaaaaaa", profile.accountId, Math.floor(Date.now() / 1000));
+      write.release();
+      const result = yield* Fiber.join(all);
+
+      const acked = sqlite
+        .query(
+          "SELECT count(*) AS n FROM security_events WHERE account_id = ? AND acknowledged_at IS NOT NULL",
+        )
+        .get(profile.accountId) as { n: number };
+      expect(result.acknowledged).toBe(acked.n);
+    }).pipe(Effect.provide(layer));
+  });
+});
+
+/**
+ * An `email_changed` row is held for 7 days after the change: no factor
+ * acknowledges it until then, and any factor the gate admits does after.
+ * Ack-all acknowledges every other row and leaves a held one.
+ */
+describe("the hold on an email_changed row", () => {
+  const HOLD = 7 * 24 * 60 * 60;
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  function makeSeeded() {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    let n = 0;
+    const seed = (accountId: string, kind: string, createdAt: number): string => {
+      const id = `sev_${(++n).toString(16).padStart(12, "0")}`;
+      sqlite
+        .query(
+          `INSERT INTO security_events (id, account_id, kind, created_at, acknowledged_at)
+           VALUES (?, ?, ?, ?, NULL)`,
+        )
+        .run(id, accountId, kind, createdAt);
+      return id;
+    };
+    const acknowledged = (id: string): boolean =>
+      (
+        sqlite.query("SELECT acknowledged_at FROM security_events WHERE id = ?").get(id) as {
+          acknowledged_at: number | null;
+        }
+      ).acknowledged_at !== null;
+    const markAcknowledged = (id: string) =>
+      sqlite.query("UPDATE security_events SET acknowledged_at = ? WHERE id = ?").run(nowSec(), id);
+    return { layer, seed, acknowledged, markAcknowledged };
+  }
+
+  const ackToken = (auth: ReturnType<typeof createAuthService>, accountId: string) =>
+    auth.issueStepUpToken(accountId, "otp", "security_event_ack");
+
+  it.effect("no factor acknowledges a held row, and the refusal names when the hold ends", () => {
+    const { layer, seed, acknowledged } = makeSeeded();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-hold@example.com", "sevhold");
+      const changedAt = nowSec() - 60;
+      const id = seed(profile.accountId, "email_changed", changedAt);
+
+      const byCode = yield* Effect.flip(
+        auth.acknowledgeSecurityEvent(
+          profile.accountId,
+          id,
+          yield* ackToken(auth, profile.accountId),
+        ),
+      );
+      // A passkey the account has held for a year is refused too.
+      const oldPasskey = yield* auth.issueStepUpToken(
+        profile.accountId,
+        "passkey",
+        "security_event_ack",
+        {
+          id: "pk_000000000001",
+          createdAt: changedAt - 365 * 24 * 60 * 60,
+          provenance: "webauthn",
+        },
+      );
+      const byPasskey = yield* Effect.flip(
+        auth.acknowledgeSecurityEvent(profile.accountId, id, oldPasskey),
+      );
+
+      for (const err of [byCode, byPasskey]) {
+        expect(err._tag).toBe("EmailChangeHeldError");
+        if (err._tag === "EmailChangeHeldError") expect(err.holdEndsAt).toBe(changedAt + HOLD);
+      }
+      expect(acknowledged(id)).toBe(false);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("the hold ends exactly 7 days after the change", () => {
+    const { layer, seed, acknowledged } = makeSeeded();
+    // One frozen second for the test and the service, so the edge is exact.
+    const frozen = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(frozen);
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-hold-edge@example.com", "sevholdedge");
+      const now = nowSec();
+      const ended = seed(profile.accountId, "email_changed", now - HOLD);
+      const notYet = seed(profile.accountId, "email_changed", now - HOLD + 1);
+
+      const done = yield* auth.acknowledgeSecurityEvent(
+        profile.accountId,
+        ended,
+        yield* ackToken(auth, profile.accountId),
+      );
+      expect(done.acknowledged).toBe(true);
+      const err = yield* Effect.flip(
+        auth.acknowledgeSecurityEvent(
+          profile.accountId,
+          notYet,
+          yield* ackToken(auth, profile.accountId),
+        ),
+      );
+      expect(err._tag).toBe("EmailChangeHeldError");
+      expect(acknowledged(notYet)).toBe(false);
+    }).pipe(Effect.provide(layer), Effect.ensuring(Effect.sync(() => clock.mockRestore())));
+  });
+
+  it.effect("ack-all acknowledges every row but a held one", () => {
+    const { layer, seed, acknowledged } = makeSeeded();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-hold-all@example.com", "sevholdall");
+      const now = nowSec();
+      const held = seed(profile.accountId, "email_changed", now - 60);
+      const past = seed(profile.accountId, "email_changed", now - HOLD - 60);
+      const other = seed(profile.accountId, "recovery_code_generate", now - 30);
+
+      const result = yield* auth.acknowledgeAllSecurityEvents(
+        profile.accountId,
+        yield* ackToken(auth, profile.accountId),
+      );
+      expect(result.acknowledged).toBe(2);
+      expect(acknowledged(past)).toBe(true);
+      expect(acknowledged(other)).toBe(true);
+      expect(acknowledged(held)).toBe(false);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("a missing id and an already-acknowledged row are not reported as held", () => {
+    const { layer, seed, markAcknowledged } = makeSeeded();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-hold-noop@example.com", "sevholdnoop");
+      // Inside its hold, but already acknowledged: a no-op, not a refusal.
+      const id = seed(profile.accountId, "email_changed", nowSec() - 60);
+      markAcknowledged(id);
+      const again = yield* auth.acknowledgeSecurityEvent(
+        profile.accountId,
+        id,
+        yield* ackToken(auth, profile.accountId),
+      );
+      expect(again.acknowledged).toBe(false);
+      const missing = yield* auth.acknowledgeSecurityEvent(
+        profile.accountId,
+        "sev_ffffffffffff",
+        yield* ackToken(auth, profile.accountId),
+      );
+      expect(missing.acknowledged).toBe(false);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("the list always shows a held row, however many newer rows there are", () => {
+    const { layer, seed } = makeSeeded();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* registered(auth, "sev-hold-list@example.com", "sevholdlist");
+      const now = nowSec();
+      const held = seed(profile.accountId, "email_changed", now - 3600);
+      // Past its hold, so it pages out like any other row.
+      const past = seed(profile.accountId, "email_changed", now - HOLD - 3600);
+      for (let i = 0; i < 50; i++) seed(profile.accountId, "recovery_code_generate", now - i);
+
+      const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
+      const ids = events.map((e) => e.id);
+      expect(ids).toContain(held);
+      expect(ids).not.toContain(past);
+      // Still newest first.
+      const times = events.map((e) => e.createdAt);
+      expect(times).toEqual([...times].sort((a, b) => b - a));
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("another account's held row answers as a missing id, not as held", () => {
+    const { layer, seed, acknowledged } = makeSeeded();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const owner = yield* registered(auth, "sev-hold-owner@example.com", "sevholdowner");
+      const other = yield* registered(auth, "sev-hold-other@example.com", "sevholdother");
+      const held = seed(owner.accountId, "email_changed", nowSec() - 60);
+
+      const result = yield* auth.acknowledgeSecurityEvent(
+        other.accountId,
+        held,
+        yield* ackToken(auth, other.accountId),
+      );
+      expect(result.acknowledged).toBe(false);
+      expect(acknowledged(held)).toBe(false);
+    }).pipe(Effect.provide(layer));
   });
 });

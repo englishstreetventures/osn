@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Guards with a threshold
@@ -56,10 +56,13 @@ exactly the class the guard was written for would have landed under the line
 and deployed. The fix was to re-measure against the build as it is now and set
 the headroom to ~11.7 KB, roughly half the mistake.
 
-*Unverified — the method is on record, the date is not. Gzip
-`cire/invites/dist/client/_astro/animate.*.js` from a clean build, or rebuild
-with `stubMotionForSsr()` removed and diff the total. Written into this page
-2026-09-07.*
+*Unverified — the method is on record, the date is not: `motion`'s own client
+chunk, gzipped from a clean build, written into this page 2026-09-07. The
+client build has no such chunk to gzip today, since the library ships inside
+the event sheet's. Bundling `animate` alone, minified, gives a close figure:
+20362 bytes.*
+
+*Measured 2026-11-11 in cire/invites — `echo 'export { animate } from "motion";' | bunx --bun esbuild --bundle --minify --format=esm --platform=browser | gzip -nc | wc -c`*
 
 The corollary is a check, not a rule: **you have not verified a guard until you
 have seen it fire.** Break the input and watch what it does: the non-zero exit,
@@ -227,7 +230,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 366482 B | 378182 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
+| cire/host | static | 378475 B | 390175 B *(re-baselined, englishstreetventures/osn#2176 — see below)* |
 | cire/vendor | static | 99379 B | 103718 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -441,6 +444,45 @@ cire/<app>`, on `feat/cire-guest` at `2305bcb13`, rebased onto `origin/main`
 `7d2ad85d1`. The eager vendor figure is the same build with `VendorApp.tsx`
 from the commit before `66e039e35`, the one that loads the thread with `lazy()`.
 Chunk sizes are `gzip -9 -n` per file.*
+
+### `cire/host` re-baselined for the disclosure that grows open
+
+`Disclosure` grows its box open instead of jumping, and the module panel's
+`createAutoSize` frame follows that growth instead of animating each frame of
+it (englishstreetventures/osn#2071). The cost is the opening's class strings,
+their CSS rules and the frame's check for a growing `<details>`. No dependency
+is added.
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **377874 B**, 89 files | 378182 B, 308 B of headroom |
+| with the growth | **378318 B**, 89 files (+444) | **390018 B** (+11700) |
+
+*Measured 2026-11-11 — `bun run --cwd cire/host build`, which ends with
+`../../scripts/guard-bundle-size.sh .`, on `feat/cire-disclosure-grows` at
+`57302a7cd`; the `main` figure is the same build with
+`cire/ui/src/disclosure.tsx` and `cire/ui/src/lib/auto-size.ts` taken from
+`origin/main`, which leaves every source the build reads as it is at
+`b0971b3a6`.*
+
+### `cire/host` re-baselined for the dropped row that settles
+
+`@shared/sortable` eases a dropped list row into its slot and keeps the row's
+lifted look until it lands (englishstreetventures/osn#2176). The cost is the
+provider's settle and its settling-row state. No dependency is added. The owner
+chose to raise the row with this change rather than after the other motion work
+(2026-11-11).
+
+| Build | Measured | Threshold |
+|---|---:|---:|
+| `main` | **377989 B**, 89 files | 378182 B, 193 B of headroom |
+| with the settle | **378475 B**, 89 files (+486) | **390175 B** (+11700) |
+
+*Measured 2026-11-11 — `rm -rf cire/host/dist && CLAUDECODE= bun run --cwd
+cire/host build`, which ends with `../../scripts/guard-bundle-size.sh .`, on
+`feat/shared-sortable-settle` at `0af4b5734`, twice; the `main` figure is the
+same build with `shared/sortable/src` taken from `origin/main` `65aad70ad`,
+which leaves every source the build reads as it is there.*
 
 ### `cire/invites` re-baselined after the zod override
 
@@ -726,8 +768,9 @@ warm local bun cache: 879 against 879 in 15.6 s, where the plain
   to keep, the failing guard names one number: set the value line to it and
   put the branch and date in the line's trailing comment. Two raises open at
   once then conflict as text instead of merging to one number. A raise open
-  while the bot lowers the line conflicts too; after the rebase, run the guard
-  again and take the number it names.
+  while the bot lowers the line conflicts too; after the rebase the owner
+  green-lights ([[stacked-prs#Rebasing a stack]]), run the guard again and take
+  the number it names.
 - **Never down in a pull request.** Lowering by hand puts every such branch
   back on the one line that conflicts.
 

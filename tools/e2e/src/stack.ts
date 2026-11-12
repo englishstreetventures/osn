@@ -157,6 +157,34 @@ export function appSpecs(): AppSpec[] {
       },
     },
     {
+      // A second osn-api that takes browser Email Verification API tokens,
+      // with its own database and limiter windows. Musubi reaches it only in
+      // the flows that call `throughEmailVerificationApi`. Its verifier
+      // resolves and fetches through the issuer stand-in (`src/issuer.ts`);
+      // its mail goes to the same Resend stand-in as the first's.
+      name: "osnApiEvt",
+      dir: "osn/api",
+      command: API_COMMAND,
+      readyUrl: `${ORIGINS.osnApiEvt}/.well-known/jwks.json`,
+      env: {
+        PORT: String(PORTS.osnApiEvt),
+        OSN_ENV: "local",
+        OSN_DATABASE_URL: DB_FILES.osnEvt,
+        OSN_ISSUER_URL: ORIGINS.osnApiEvt,
+        OSN_RP_ID: "localhost",
+        OSN_RP_NAME: "Musubi",
+        // Musubi first: the token's audience is the first origin's.
+        OSN_ORIGIN: ORIGINS.musubi,
+        OSN_CORS_ORIGIN: ORIGINS.musubi,
+        INTERNAL_SERVICE_SECRET,
+        RESEND_API_KEY: E2E_RESEND_KEY,
+        RESEND_API_URL: ORIGINS.mail,
+        OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
+        OSN_EMAIL_VERIFICATION_API: "on",
+        OSN_EMAIL_VERIFICATION_EMULATOR_URL: `http://127.0.0.1:${PORTS.issuer}`,
+      },
+    },
+    {
       name: "pulseApi",
       dir: "pulse/api",
       command: API_COMMAND,

@@ -25,7 +25,8 @@ packages:
   - "@pulse/web"
   - "@shared/ui"
   - "@musubi/social"
-last-reviewed: 2026-11-09
+  - "@osn/auth-ui"
+last-reviewed: 2026-11-11
 ---
 
 # Frontend Patterns
@@ -78,6 +79,8 @@ Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). 
 - `<SessionsView />` — per-device session list + "sign out everywhere else"
 - `<PasskeysView />` — passkey rename / delete (step-up gated)
 - `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
+- `<CheckEmailView />` — the "Check your email" wait after a flow emails a link: the address, the number the page the link opens asks for (when the host passes one), a Resend that unlocks after a wait, "Use a different email". Presentational; the parent sends and polls ([[component-library]])
+- `<ConfirmLinkPage />` — the page an emailed link opens: "Confirm this email", the numbers to pick from (the person taps the one the waiting screen shows, which is the confirm), or, for recovery, one field to type it in, and "I didn't ask for this"; then confirmed, cancelled, expired, or an error with Try again. Presentational; the host route reads the link and the numbers and makes the call ([[component-library]])
 
 An app imports these from `@osn/auth-ui/*` and injects clients from `@osn/client`. `@musubi/social` is the one app that does today; its `DESIGN.md` §Auth surfaces lists where each view mounts, and `osn/auth-ui/DESIGN.md` holds the views' design rules.
 
@@ -90,6 +93,8 @@ Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded i
 On a cold desktop load of `/discover` with the rail's chunk held back 400ms, the page's layout shift goes from 0.167 to 0 (phone: 0.058 to 0).
 
 *Measured 2026-11-09 — `vite build` and `vite preview` of `@musubi/social`, Playwright Chromium at 1440×900 and 390×844, the shell chunk's request delayed 400ms by `page.route`, summing buffered `layout-shift` entries.*
+
+**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside a render-phase tracking scope (a `Show`'s `when`, a memo, JSX; not a `createEffect`), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels and Musubi's `ConnectedAppsSection` read this way (`osn/auth-ui/DESIGN.md` §6).
 
 **Group dialogs that load together into one dynamic import.** In `@musubi/social`, two `lazy()` dialogs imported from two modules made the bundler split the entry chunk in two and keep client code it otherwise drops. With the shell frames and the dialogs' provider added, the entry closure grew 2.0 KB gzipped that way, and 1.0 KB with both dialogs behind one module (`ShellDialogSet.tsx`).
 
@@ -158,7 +163,7 @@ a trusted workspace. TypeScript 7 ships no `tsserver`, so editors and the agents
 
 Every one of these cost a real bug. Most were found in cire, but none of them
 is cire-specific — they are properties of Tailwind's scanner, Solid's reactivity,
-Motion One's finish behaviour and the CSS spec, so they apply to `@pulse/web` and
+how an animation ends and the CSS spec, so they apply to `@pulse/web` and
 `@musubi/social` the same way. What unites them is that **the fast test tier cannot
 fully see any of them**: jsdom and happy-dom compute no styles and no layout, so a
 green unit suite proves nothing here. Pin the class contract in the fast tier and
@@ -201,9 +206,10 @@ read, which is where you would look for it.
 ### A `transform` on any ancestor breaks `position: fixed`
 
 It makes `fixed` resolve against that ancestor rather than the viewport, **and**
-makes the ancestor a stacking context that no `z-index` can escape. Motion One
-leaves its final inline `transform` on the elements it animates, so anything
-`fixed` mounted inside an animated section is doubly trapped: mispositioned
+makes the ancestor a stacking context that no `z-index` can escape. An animated
+`transform` does the same while it runs, and a library that commits its last
+keyframe inline (`motion` does) keeps doing it after, so anything `fixed`
+mounted inside an animated section is doubly trapped: mispositioned
 (measured 723–814px down the page instead of at the viewport edge — off-screen on
 a phone) and painted below page-level overlays. This is what left cire's RSVP save
 toast behind the `z-100` sheet it fires underneath.
@@ -217,10 +223,10 @@ even when painted perfectly. Assert the mechanism instead — no fixed-position
 containing block between the element and `<body>`, and a computed `z-index` above
 `Z_LAYER.MODAL`.
 
-### Motion One leaves its final keyframe as inline style, and Solid will not clean it up
+### A reveal's inline end state outlives it, and Solid will not clean it up
 
-A fade-out ending at `opacity: 0` leaves `opacity: 0` on the element forever.
-Harmless while the element never returns — and a blank-screen bug the moment
+A fade-out that settles on an inline `opacity: 0` leaves it on the element
+forever. Harmless while the element never returns — and a blank-screen bug the moment
 something brings it back, because Solid's style binding on that node typically
 owns only `display`. It happily restores `display` onto a fully transparent box.
 
@@ -237,20 +243,26 @@ claim form sat at `opacity: 0` in both design packs, with 800 unit tests green.)
 
 ### Write an animation's inline end state when it finishes, never before it starts
 
-Motion reverts to base styles on finish, which is why a reveal keeps an inline end
-state. Writing that `opacity: 1` up front instead paints one full-brightness frame
-that the animation's first keyframe drops back to zero — the viewer sees content
-blink in, vanish, and fade in again.
+A CSS animation holds its last frame only while its rule still matches, so a
+reveal that takes its marks off afterwards keeps an inline end state; cire's
+unlock reveal (`components/unlock-reveal.ts`) does. Write it once the step has
+ended. A script animation that starts a frame after it is called, as `motion`'s
+does, paints whatever is inline in between: an `opacity: 1` written up front is
+one full-brightness frame that the first keyframe then drops back to zero — the
+viewer sees content blink in, vanish, and fade in again.
 
 A staggered child is worse: nothing hides it (only its container carries
-`opacity-0`), so a `startDelay` leaves every child at full opacity from the moment
-the container appears until Motion commits its first frame. Hide the children
-inline first, run the animations, and settle the inline end state in a `finally`,
-so a stalled or throwing step can never leave them invisible.
+`opacity-0`), so a delay that does not hold the first keyframe — a script's, or
+a CSS animation without a `backwards` or `both` fill — leaves it at full opacity
+from the moment the container appears until its own first frame. Hide the
+children inline first,
+run the animations, and settle the inline end state in a `finally`, so a
+stalled or throwing step can never leave them invisible.
 
 One frame is invisible to jsdom **and** to the browser tier's assertions-after-the-
 fact — catch it by sampling `getComputedStyle` per `requestAnimationFrame` in a
-real browser (`UnlockReveal.motion.ts`, both packs).
+real browser, as `cire/invites` `tests/designs/UnlockReveal.browser.test.ts`
+does for both packs' reveal.
 
 ### Anything a choreography animates must be in the DOM before it runs
 
@@ -259,9 +271,9 @@ flight when the claim resolves, `<Suspense fallback={null}>` renders no cards, a
 the reveal animates an empty section with nothing to stagger. The cards then slam
 into the layout at full opacity when the chunk lands. `awaitEventCards`
 (`cire/invites` `components/await-event-cards.ts`) is the fix: the sequence awaits
-it through the `waitForEvents` hook, **under** the fade-out of the step before it
-rather than on top of it, and both halves of the wait are capped so a chunk that
-never arrives still reveals the page.
+it through the `waitForEvents` hook, **alongside** the welcome's rise and the
+layout beat rather than after them, and both halves of the wait are capped so a
+chunk that never arrives still reveals the page.
 
 ### A closed dialog with a display class is still drawn
 
@@ -542,6 +554,40 @@ measured and no JavaScript runs; `interpolate-size: allow-keywords` with
 `height: auto` says the same thing more directly but is not yet in every engine
 these apps are opened in.
 
+Two things about the box that clips:
+
+- **The wrapper clips, not the row.** Partway through, Chromium sizes the row
+  against the wrapper's own height, which has already grown by the same
+  fraction, so the row is the square of it: at 40% of the way the wrapper is
+  137px of a 340px block and the row 55px. A clip on the row shows the content
+  lagging the box, over an empty band.
+- **It keeps 4px of room.** The wrapper carries `p-1` inside a matching `-m-1`,
+  so a focus outline 2px wide and 2px out at the content's edge is not cut and
+  nothing moves. The row's box takes `min-w-0` as well as `min-h-0`, or a
+  scrolling track inside widens the column instead of scrolling. The room
+  overlaps 4px of each neighbour, and while the wrapper is shut or fading in it
+  paints above them, so the wrapper never takes pointer events and the row
+  takes them back (`pointer-events-auto`): a tap on the bottom of the control
+  above lands on that control.
+
+*Measured 2026-11-11 — Chromium, `cire/invites`' RSVP sheet at 1280px, the
+dietary section's transitions paused at a tenth of their duration*
+
+The room reaches 4px past the content sideways as well, shut or open. A
+`Reveal` flush with the inline end of a scroll box that has no inline padding
+makes that box scroll 4px sideways: a "me" message's "Sent" line in a
+`MessageThread` placed straight in such a box does. Put at least 4px of inline
+padding between them. Every thread today has more: the portal's `page-frame`
+gives 20px or more, and the vendor's `Card` 20px.
+
+*Measured 2026-11-11 — Chromium, a `MessageThread` of two messages in a 360px
+`overflow-y: auto` box with no padding: `scrollWidth` 364 against `clientWidth`
+360, the "me" row's shut `Reveal` wrapper ending at 364. Open, the wrapper
+keeps the same `-m-1 p-1`, so its edges do not move*
+
+`Reveal` opens on the app's `--dur-base` unless the caller passes
+`pace="slow"`, which the guest site does ([[cire-invite-designs#Corners, labels and motion]]).
+
 ### A computed timing function is a list, and `cubic-bezier()` has commas of its own
 
 Reading an animation's timing back from `getComputedStyle` — to run a Web
@@ -560,6 +606,26 @@ script animation with no CSS twin — a spring — has nothing to read back: che
 
 The fast tier cannot see either: jsdom computes no animation, so the value is
 empty and no tween runs.
+
+### An `<hr>` keeps preflight's border, which paints over its fill
+
+Tailwind's preflight gives every `<hr>` `height: 0`, `color: inherit` and
+`border-top-width: 1px`, and its `*` rule sets `border: 0 solid`, so the
+border's colour is `currentColor`. With `box-sizing: border-box`, an `<hr>`
+drawn as a 1px fill (`h-px` and a background) is all border. In an app whose
+base styles leave `border-color` alone, as pulse's do, the line paints in its
+parent's full ink, not the fill's colour. An app whose base layer sets
+`border-color` on `*`, as Musubi's `App.css` does, hides the fault, because the
+border then paints the hairline too.
+
+Put `border-0` on any `<hr>` drawn as a fill. A contrast theme (forced
+colours) replaces a fill with the page colour, so a fill-only line does not
+show there; add `forced-colors:border-t` where the line must stay, as both
+of the menu's separators do ([[component-library]] §`DropdownMenu`).
+
+The fast tier cannot see it: read `getComputedStyle(hr).borderTopWidth` in the
+browser tier, with and without `emulateMedia({ forcedColors: "active" })`
+(`shared/ui/tests/dropdown-menu-default.browser.test.tsx`).
 
 ## Motion follows the input
 
@@ -654,6 +720,42 @@ pseudo-element matches it. An animation on `::details-content`, `::backdrop` or
 `::marker` keeps running for a reader who asked for none. Declare such an
 animation inside `@media (prefers-reduced-motion: no-preference)` instead of
 relying on the clamp to undo it.
+
+### A box grown to `auto` holds its clip only while it grows
+
+`interpolate-size: allow-keywords` lets `height` transition from `0` to
+`auto`, so a `<details>` body can grow open with no measuring. Three things go
+wrong if it is written the obvious way:
+
+- **The clip stays.** The growing box needs `overflow: clip`, or its content
+  spills past it until the height catches up. Left on at rest, it cuts a focus
+  ring at the box's edge and a row lifted by a drag. Let it go when the growth
+  ends: list `overflow` in the transition with a duration of `0s`, a delay
+  equal to the growth, and `transition-behavior: allow-discrete`, so the
+  closed state's `clip` holds through the delay and steps to `visible` at its
+  end.
+- **The fallback steps.** Only Chrome and Edge have `interpolate-size`. With
+  `allow-discrete` on the transition, an engine without it treats `0` to `auto`
+  as a discrete change and swaps it partway through. Put the height, the clip
+  and `interpolate-size` itself inside `@supports (interpolate-size:
+  allow-keywords)`, so elsewhere the height never changes and the box opens at
+  once.
+- **A frame round it chases it.** A box that animates its own height to its
+  content, such as `createAutoSize()`'s frame, sees each frame of the growth
+  as a change of content and starts a fresh transition from the last height:
+  it trails the growth, its clip cuts the content's foot, by 50px on one
+  short panel, and it catches up a transition later. `createAutoSize()`
+  follows with no transition of its own while a `<details>` inside it grows
+  (its `::details-content` is shorter than the body it holds) and for the
+  change straight after. A disclosure that opens at once is an ordinary
+  change to it.
+
+*Measured 2026-11-11 — a throwaway browser-tier probe in `cire/host`: a `createAutoSize()` frame round "Arrange tables" with a line above and below, 360px wide, motion scale 1, before the follow. The committed `tests/components/ModuleShell.disclosure.browser.test.tsx` runs at 3× and cut 24px before the follow.*
+
+Chromium does not list a transition on `::details-content` in
+`getAnimations()`, so a test reads the opening frame by frame from layout and
+`getComputedStyle(el, "::details-content")` instead. `@cire/ui`'s `Disclosure`
+is the reference (`cire/host/DESIGN.md` §4); [[browser-tests]] lists its tests.
 
 ## Server-rendered islands
 

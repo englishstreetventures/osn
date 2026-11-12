@@ -10,7 +10,7 @@ related:
   - "[[eprivacy]]"
   - "[[frontend-patterns]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-11
 ---
 
 # Envelope opening
@@ -71,9 +71,14 @@ Whenever the first three rows hold, the boot script also sets
 `data-envelope-capable`, seen or not, key or not. The replay button shows only
 under `html[data-envelope-capable][data-envelope-key]`.
 
-**Browsers.** Chrome 157 and later, on Android and desktop, has the API on by
-default. Chromium 156 has it behind `--enable-blink-features=CanvasDrawElement`
-(the E2E flow passes that flag). Safari and Firefox have none, so iPhone guests
+**Browsers.** On production, Chrome on Android and desktop gets the API through
+an origin trial: every guest-site response carries the `HTMLInCanvas` token
+(`@cire/build-tools/origin-trial`; renewal and expiry in
+[[cire-development#Chrome origin trials]]). The trial runs to Chrome 160, and
+the release that turns the API on without a token is not confirmed. Chromium
+156 has it behind `--enable-blink-features=CanvasDrawElement` (the E2E flow
+passes that flag), as does any origin the token does not cover, such as the dev
+tier. Safari and Firefox have none, so iPhone guests
 get the page as it is. There is no fallback rendering, by the owner's choice.
 
 ## States
@@ -325,4 +330,5 @@ only.
 
 To try it on a phone, run cire-api and `astro dev` for `cire/invites` on the
 LAN address (`--host 0.0.0.0`), with `CIRE_E2E_ORGANISER=1` for the seeded
-weddings, and open `/cire/invite?slug=envelope-wedding&envelope=1` in Chrome 157.
+weddings, and open `/cire/invite?slug=envelope-wedding&envelope=1` in Chrome with the
+`CanvasDrawElement` flag on (`chrome://flags`).

@@ -14,20 +14,24 @@
 import { createHash } from "node:crypto";
 
 import type { Db } from "@osn/db/service";
-import { makeLogEmailLive } from "@shared/email";
+import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
 import { Effect, Layer } from "effect";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 
+import { createApp } from "../../src/app";
+import { buildAppDeps } from "../../src/build-deps";
 import { createDurableCeremonyStore } from "../../src/lib/coordination/durable";
+import { createInMemoryCoordination } from "../../src/lib/coordination/memory";
+import { osnLoggerLayer } from "../../src/observability";
 import { createDefaultAuthRateLimiters } from "../../src/routes/auth/limiters";
 import { renderAuthorizeErrorPage } from "../../src/routes/auth/oidc";
 import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes, type AuthRateLimiters } from "../helpers/routes";
 
 const REDIRECT_URI = "https://rp.example.com/callback";
@@ -44,10 +48,15 @@ beforeAll(async () => {
   config = await makeTestAuthConfig();
 });
 
+/** Anything that answers a `Request`: the auth routes alone, or the whole app. */
+interface HandlesRequests {
+  handle: (request: Request) => Promise<Response>;
+}
+
 interface Harness {
   app: ReturnType<typeof createAuthRoutes>;
-  /** Latest OTP the log transport captured, for the registration flow. */
-  code: () => string | undefined;
+  /** Every mail the log transport captured, for reading a sign-up link back. */
+  recorded: () => readonly RecordedEmail[];
   seedClient: (overrides?: Partial<SeedClient>) => void;
   /** Raw DB handle — used to age sessions for auth_time / max_age tests. */
   sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"];
@@ -67,49 +76,56 @@ interface SeedClient {
   firstParty: boolean;
 }
 
-function setup(configOverrides: Partial<AuthConfig> = {}): Harness {
+/** Inserts a relying party into `oauth_clients` on the given database. */
+function seedClientRow(
+  sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"],
+  overrides: Partial<SeedClient> = {},
+): void {
+  const c: SeedClient = {
+    clientId: "cid_rp",
+    name: "Relying Party",
+    redirectUris: [REDIRECT_URI],
+    clientSecretHash: null,
+    firstParty: false,
+    ...overrides,
+  };
+  sqlite.run(
+    `INSERT INTO oauth_clients
+       (id, client_id, name, logo_url, redirect_uris, client_secret_hash,
+        sector_identifier, allowed_scopes, is_first_party, created_at, disabled_at)
+     VALUES (?, ?, ?, NULL, ?, ?, ?, 'openid profile email', ?, ?, NULL)`,
+    [
+      `oc_${c.clientId}`,
+      c.clientId,
+      c.name,
+      JSON.stringify(c.redirectUris),
+      c.clientSecretHash,
+      new URL(c.redirectUris[0]).host,
+      c.firstParty ? 1 : 0,
+      Math.floor(Date.now() / 1000),
+    ],
+  );
+}
+
+function setup(
+  configOverrides: Partial<AuthConfig> = {},
+  rateLimiters?: AuthRateLimiters,
+): Harness {
   const { layer, sqlite } = createTestLayerWithSqlite();
   const rec = makeLogEmailLive();
-  const app = createAuthRoutes({ ...config, ...configOverrides }, Layer.merge(layer, rec.layer));
+  const app = createAuthRoutes(
+    { ...config, ...configOverrides },
+    Layer.merge(layer, rec.layer),
+    undefined,
+    rateLimiters,
+  );
 
   return {
     app,
     sqlite,
     layer,
-    code: () => {
-      const all = rec.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
-    seedClient: (overrides = {}) => {
-      const c: SeedClient = {
-        clientId: "cid_rp",
-        name: "Relying Party",
-        redirectUris: [REDIRECT_URI],
-        clientSecretHash: null,
-        firstParty: false,
-        ...overrides,
-      };
-      sqlite.run(
-        `INSERT INTO oauth_clients
-           (id, client_id, name, logo_url, redirect_uris, client_secret_hash,
-            sector_identifier, allowed_scopes, is_first_party, created_at, disabled_at)
-         VALUES (?, ?, ?, NULL, ?, ?, ?, 'openid profile email', ?, ?, NULL)`,
-        [
-          `oc_${c.clientId}`,
-          c.clientId,
-          c.name,
-          JSON.stringify(c.redirectUris),
-          c.clientSecretHash,
-          new URL(c.redirectUris[0]).host,
-          c.firstParty ? 1 : 0,
-          Math.floor(Date.now() / 1000),
-        ],
-      );
-    },
+    recorded: () => rec.recorded(),
+    seedClient: (overrides = {}) => seedClientRow(sqlite, overrides),
   };
 }
 
@@ -119,21 +135,7 @@ async function register(
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  await settledHandle(
-    h.app,
-    new Request("http://localhost/register/begin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, handle, birthdate: "1990-01-01" }),
-    }),
-  );
-  const res = await h.app.handle(
-    new Request("http://localhost/register/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, code: h.code() }),
-    }),
-  );
+  const res = await registeredResponse(h.app, h.recorded, email, handle);
   const body = (await res.json()) as { session: { access_token: string } };
   const setCookie = res.headers.get("set-cookie") ?? "";
   const token = setCookie.split(";")[0];
@@ -700,12 +702,15 @@ describe("GET /authorize/context", () => {
  * pair ready to join onto a Cookie header.
  */
 async function startAuthorize(
-  h: Harness,
+  h: { app: HandlesRequests },
   cookie: string | null,
   params: Record<string, string> = goodParams,
+  headers: Record<string, string> = {},
 ): Promise<{ requestId: string; binding: string }> {
   const res = await h.app.handle(
-    new Request(authorizeUrl(params), cookie === null ? undefined : { headers: { cookie } }),
+    new Request(authorizeUrl(params), {
+      headers: cookie === null ? headers : { ...headers, cookie },
+    }),
   );
   const requestId = new URL(res.headers.get("location")!).searchParams.get("request")!;
   const binding = (res.headers.get("set-cookie") ?? "").split(";")[0];
@@ -920,6 +925,531 @@ describe("POST /authorize/decision", () => {
     const loc = new URL(res.headers.get("location")!);
     expect(loc.searchParams.get("code")).toMatch(/^cod_/);
     expect(loc.searchParams.get("error")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /authorize/decline — a refusal from a browser that holds no session.
+//
+// The binding cookie is the only proof that this browser started the flow, so
+// each test below pins what that proof buys: it ends its own parked request
+// with `access_denied`, once, through the decision's rate limit, and nothing
+// more. Never a code, never another browser's request, never a value the page
+// chose, and never a read of the session cookie.
+// ---------------------------------------------------------------------------
+
+const DECLINE_URL = "http://localhost/authorize/decline";
+const UNKNOWN_REQUEST_ID = "oar_ffffffffffff";
+
+/** A decline for `requestId`, with `cookie` as the Cookie header when given. */
+function declineRequest(
+  requestId: string,
+  cookie: string | null,
+  options: { extra?: Record<string, unknown>; headers?: Record<string, string> } = {},
+): Request {
+  return new Request(DECLINE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(cookie === null ? {} : { cookie }),
+      ...options.headers,
+    },
+    body: JSON.stringify({ requestId, ...options.extra }),
+  });
+}
+
+/** An approval sent to `/authorize/decision`. */
+function approvalRequest(
+  requestId: string,
+  profileId: string,
+  cookie: string | null,
+  headers: Record<string, string> = {},
+): Request {
+  return new Request("http://localhost/authorize/decision", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(cookie === null ? {} : { cookie }),
+      ...headers,
+    },
+    body: JSON.stringify({ requestId, profileId, approved: true }),
+  });
+}
+
+/** The profile a signed-in browser would approve with, read from the context. */
+async function firstProfileId(h: Harness, requestId: string, cookie: string): Promise<string> {
+  const res = await h.app.handle(
+    new Request(`http://localhost/authorize/context?request=${requestId}`, { headers: { cookie } }),
+  );
+  const { profiles } = (await res.json()) as { profiles: { id: string }[] };
+  return profiles[0]!.id;
+}
+
+/**
+ * Asserts the refusal a `goodParams` request must produce: the registered
+ * redirect URI with exactly these four parameters — so a `code`, a second
+ * `state` or anything the body sent fails it.
+ */
+function expectRefusalRedirect(redirectTo: string): void {
+  const url = new URL(redirectTo);
+  expect(url.origin + url.pathname).toBe(REDIRECT_URI);
+  expect(url.hash).toBe("");
+  expect([...url.searchParams].map(([k, v]) => `${k}=${v}`).toSorted()).toEqual([
+    "error=access_denied",
+    "error_description=The user refused the request",
+    `iss=${config.issuerUrl}`,
+    "state=st_123",
+  ]);
+}
+
+/** A harness whose parked requests live in the Durable Object store, as deployed. */
+function setupWithDurableRequests(rateLimiters?: AuthRateLimiters) {
+  const fake = createFakeNamespace();
+  const h = setup(
+    {
+      ceremonyStores: {
+        ...createDefaultCeremonyStores(),
+        authorizeRequests: createDurableCeremonyStore(fake.ns, "oidc_authorize_request", () => {}),
+      },
+    },
+    rateLimiters,
+  );
+  return { h, fake };
+}
+
+describe("POST /authorize/decline", () => {
+  it("sends a signed-out browser back to the app with access_denied", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+
+    const res = await h.app.handle(declineRequest(requestId, binding));
+
+    expect(res.status).toBe(200);
+    // JSON, not a 302: the page navigates itself.
+    expect(res.headers.get("location")).toBeNull();
+    // The body carries the app's `state`; no cache may keep it.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const { redirectTo } = (await res.json()) as { redirectTo: string };
+    expectRefusalRedirect(redirectTo);
+  });
+
+  it("expires the binding cookie of the request it ends", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+
+    const res = await h.app.handle(declineRequest(requestId, binding));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toContain(`osn_${requestId}=;`);
+    expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+
+  it("answers a missing, wrong or borrowed binding cookie exactly like an unknown id, and burns nothing", async () => {
+    const h = setup();
+    h.seedClient();
+    const a = await startAuthorize(h, null);
+    const b = await startAuthorize(h, null);
+    const secretOf = (binding: string) => binding.slice(binding.indexOf("=") + 1);
+
+    const unknown = await h.app.handle(declineRequest(UNKNOWN_REQUEST_ID, null));
+    expect(unknown.status).toBe(400);
+    const unknownBody = await unknown.text();
+    expect(JSON.parse(unknownBody)).toEqual({
+      error: "invalid_request",
+      error_description: "Unknown or expired request",
+    });
+
+    for (const cookie of [
+      null,
+      // Another request's cookie, as that browser holds it.
+      b.binding,
+      // Another request's secret under this request's cookie name.
+      `osn_${a.requestId}=${secretOf(b.binding)}`,
+    ]) {
+      const res = await h.app.handle(declineRequest(a.requestId, cookie));
+      expect(res.status).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(await res.text()).toBe(unknownBody);
+      // A refusal leaves the real browser's cookie alone.
+      expect(res.headers.get("set-cookie")).toBeNull();
+    }
+
+    // The real browser's flow is untouched: it signs in and approves.
+    const session = await signIn(h, "survivor@example.com", "survivor_user");
+    const cookie = `${session}; ${a.binding}`;
+    const profileId = await firstProfileId(h, a.requestId, cookie);
+    const approved = await h.app.handle(approvalRequest(a.requestId, profileId, cookie));
+    expect(approved.status).toBe(200);
+    const { redirectTo } = (await approved.json()) as { redirectTo: string };
+    expect(new URL(redirectTo).searchParams.get("code")).toMatch(/^cod_/);
+  });
+
+  it("answers an expired request exactly like an unknown id", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+    const unknownBody = await (await h.app.handle(declineRequest(UNKNOWN_REQUEST_ID, null))).text();
+
+    // Past the request's 600-second life.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 601_000);
+    const res = await (async () => {
+      try {
+        return await h.app.handle(declineRequest(requestId, binding));
+      } finally {
+        clock.mockRestore();
+      }
+    })();
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe(unknownBody);
+  });
+
+  it("leaves approval to a session: a binding cookie alone cannot approve", async () => {
+    const h = setup();
+    h.seedClient();
+    const session = await signIn(h, "bindonly@example.com", "bindonly_user");
+    const { requestId, binding } = await startAuthorize(h, session);
+    const profileId = await firstProfileId(h, requestId, `${session}; ${binding}`);
+
+    const bindingOnly = await h.app.handle(approvalRequest(requestId, profileId, binding));
+    expect(bindingOnly.status).toBe(401);
+    expect(h.sqlite.query("SELECT 1 FROM oauth_authorization_codes").all()).toEqual([]);
+
+    // The request survives: with the session as well, the approval goes through.
+    const withSession = await h.app.handle(
+      approvalRequest(requestId, profileId, `${session}; ${binding}`),
+    );
+    expect(withSession.status).toBe(200);
+  });
+
+  it("treats approved and profileId in the body as a decline, and mints nothing", async () => {
+    const h = setup();
+    h.seedClient();
+    const session = await signIn(h, "extras@example.com", "extras_user");
+    const { requestId, binding } = await startAuthorize(h, session);
+    const cookie = `${session}; ${binding}`;
+    const profileId = await firstProfileId(h, requestId, cookie);
+
+    const res = await h.app.handle(
+      declineRequest(requestId, cookie, { extra: { approved: true, profileId } }),
+    );
+
+    expect(res.status).toBe(200);
+    const { redirectTo } = (await res.json()) as { redirectTo: string };
+    expectRefusalRedirect(redirectTo);
+    expect(h.sqlite.query("SELECT 1 FROM oauth_authorization_codes").all()).toEqual([]);
+    expect(h.sqlite.query("SELECT 1 FROM oauth_consents").all()).toEqual([]);
+  });
+
+  it("builds the redirect from the parked request, whatever the body sends", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+
+    const res = await h.app.handle(
+      declineRequest(requestId, binding, {
+        extra: {
+          redirect_uri: "https://evil.example/cb",
+          redirectUri: "https://evil.example/cb",
+          state: "forged",
+          error: "server_error",
+          error_description: "forged",
+          iss: "https://evil.example",
+        },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const { redirectTo } = (await res.json()) as { redirectTo: string };
+    expectRefusalRedirect(redirectTo);
+  });
+
+  it("answers a replayed decline as an unknown id", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+
+    expect((await h.app.handle(declineRequest(requestId, binding))).status).toBe(200);
+    const replay = await h.app.handle(declineRequest(requestId, binding));
+
+    expect(replay.status).toBe(400);
+    expect(((await replay.json()) as { error: string }).error).toBe("invalid_request");
+  });
+
+  // Two identical declines run in lockstep, so a read followed by a delete
+  // would let both through; only an atomic claim answers one of them.
+  it.each([
+    ["in-memory", () => setup()],
+    ["Durable Object", () => setupWithDurableRequests().h],
+  ])("answers exactly one of two declines sent at once, on the %s store", async (_store, make) => {
+    const h = make();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+
+    const statuses = (
+      await Promise.all([
+        h.app.handle(declineRequest(requestId, binding)),
+        h.app.handle(declineRequest(requestId, binding)),
+      ])
+    ).map((res) => res.status);
+
+    expect(statuses.toSorted()).toEqual([200, 400]);
+  });
+
+  it("answers exactly one of a decline and an approval sent at once", async () => {
+    const h = setup();
+    h.seedClient();
+    const session = await signIn(h, "raceboth@example.com", "raceboth_user");
+    const { requestId, binding } = await startAuthorize(h, session);
+    const cookie = `${session}; ${binding}`;
+    const profileId = await firstProfileId(h, requestId, cookie);
+
+    const statuses = (
+      await Promise.all([
+        h.app.handle(declineRequest(requestId, binding)),
+        h.app.handle(approvalRequest(requestId, profileId, cookie)),
+      ])
+    ).map((res) => res.status);
+
+    expect(statuses.toSorted()).toEqual([200, 400]);
+  });
+
+  it("draws on the decision's rate limit: an eleventh request in a minute is refused", async () => {
+    const h = setup();
+    const ip = { "x-forwarded-for": "198.51.100.1" };
+    for (let i = 0; i < 5; i++) {
+      const res = await h.app.handle(approvalRequest(UNKNOWN_REQUEST_ID, "usr_x", null, ip));
+      expect(res.status).toBe(401);
+    }
+    for (let i = 0; i < 5; i++) {
+      const res = await h.app.handle(declineRequest(UNKNOWN_REQUEST_ID, null, { headers: ip }));
+      expect(res.status).toBe(400);
+    }
+
+    const eleventh = await h.app.handle(declineRequest(UNKNOWN_REQUEST_ID, null, { headers: ip }));
+    expect(eleventh.status).toBe(429);
+    expect(await eleventh.json()).toEqual({ error: "rate_limited" });
+
+    // Another address keeps its own budget.
+    const other = await h.app.handle(
+      declineRequest(UNKNOWN_REQUEST_ID, null, { headers: { "x-forwarded-for": "198.51.100.2" } }),
+    );
+    expect(other.status).toBe(400);
+  });
+
+  it("spends the decision's budget: ten declines leave no approval in that minute", async () => {
+    const h = setup();
+    const ip = { "x-forwarded-for": "198.51.100.3" };
+    for (let i = 0; i < 10; i++) {
+      const res = await h.app.handle(declineRequest(UNKNOWN_REQUEST_ID, null, { headers: ip }));
+      expect(res.status).toBe(400);
+    }
+
+    const approval = await h.app.handle(approvalRequest(UNKNOWN_REQUEST_ID, "usr_x", null, ip));
+    expect(approval.status).toBe(429);
+  });
+
+  it("refuses at the rate limit before it reads the parked request", async () => {
+    let allow = false;
+    const { h, fake } = setupWithDurableRequests({
+      ...createDefaultAuthRateLimiters(),
+      oidcAuthorizeDecision: { check: async () => allow },
+    });
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+    const parked = [{ store: "oidc_authorize_request", op: "write" }];
+    expect(fake.calls).toEqual(parked);
+
+    const refused = await h.app.handle(declineRequest(requestId, binding));
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("cache-control")).toBe("no-store");
+    expect(fake.calls).toEqual(parked);
+
+    allow = true;
+    expect((await h.app.handle(declineRequest(requestId, binding))).status).toBe(200);
+  });
+
+  it("answers with redirectTo alone, signed in or not", async () => {
+    const h = setup();
+    h.seedClient();
+    const signedOut = await startAuthorize(h, null);
+    const session = await signIn(h, "keys@example.com", "keys_user");
+    const signedIn = await startAuthorize(h, session);
+
+    for (const res of [
+      await h.app.handle(declineRequest(signedOut.requestId, signedOut.binding)),
+      await h.app.handle(declineRequest(signedIn.requestId, `${session}; ${signedIn.binding}`)),
+    ]) {
+      expect(res.status).toBe(200);
+      expect(Object.keys((await res.json()) as object)).toEqual(["redirectTo"]);
+    }
+  });
+
+  it("never reads the session cookie", async () => {
+    const h = setup();
+    h.seedClient();
+    const session = await signIn(h, "untouched@example.com", "untouched_user");
+    const { requestId, binding } = await startAuthorize(h, session);
+    const hourAgo = Math.floor(Date.now() / 1000) - 3600;
+    h.sqlite.run("UPDATE sessions SET last_used_at = ?", [hourAgo]);
+    const lastUsed = () => h.sqlite.query("SELECT last_used_at FROM sessions").all();
+
+    const res = await h.app.handle(declineRequest(requestId, `${session}; ${binding}`));
+
+    expect(res.status).toBe(200);
+    expect(lastUsed()).toEqual([{ last_used_at: hourAgo }]);
+    // The control: a route that does resolve this cookie stamps the column.
+    await startAuthorize(h, session);
+    expect(lastUsed()).not.toEqual([{ last_used_at: hourAgo }]);
+  });
+
+  it("has no GET form, which a link on another site could fire", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+
+    const get = await h.app.handle(
+      new Request(`${DECLINE_URL}?requestId=${requestId}`, { headers: { cookie: binding } }),
+    );
+    expect(get.status).toBe(404);
+
+    expect((await h.app.handle(declineRequest(requestId, binding))).status).toBe(200);
+  });
+
+  it("declines a request that demanded a fresh sign-in, with no session at all", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null, {
+      ...goodParams,
+      prompt: "login",
+    });
+
+    const res = await h.app.handle(declineRequest(requestId, binding));
+
+    expect(res.status).toBe(200);
+    const { redirectTo } = (await res.json()) as { redirectTo: string };
+    expectRefusalRedirect(redirectTo);
+  });
+
+  it("answers 503, and expires no cookie, when the parked request cannot be read", async () => {
+    const { h, fake } = setupWithDurableRequests();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+    fake.failWhen((call) => call.op === "read");
+
+    const res = await h.app.handle(declineRequest(requestId, binding));
+
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("temporarily_unavailable");
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("answers 503, and sends the app nothing, when the claim cannot be made", async () => {
+    const { h, fake } = setupWithDurableRequests();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+    fake.failWhen((call) => call.store === "oidc_authorize_request" && call.op === "remove");
+
+    const res = await h.app.handle(declineRequest(requestId, binding));
+
+    // An unclaimed request is still live, so no refusal may reach the app
+    // and the binding cookie stays.
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("temporarily_unavailable");
+    expect(res.headers.get("set-cookie")).toBeNull();
+
+    // Once the store answers, the same decline goes through.
+    fake.failWhen(null);
+    expect((await h.app.handle(declineRequest(requestId, binding))).status).toBe(200);
+  });
+
+  it("rejects a malformed or missing request id before it reaches the store", async () => {
+    const { h, fake } = setupWithDurableRequests();
+
+    const malformed = await h.app.handle(declineRequest("oar_XYZ", null));
+    const missing = await h.app.handle(
+      new Request(DECLINE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
+    );
+
+    expect(malformed.status).toBe(422);
+    expect(missing.status).toBe(422);
+    expect(fake.calls).toEqual([]);
+  });
+});
+
+/** A client address for whole-app requests; the app trusts one proxy hop. */
+const FULL_APP_IP = { "x-forwarded-for": "203.0.113.7" };
+/** An origin the local CORS fallback allows, so a POST clears the Origin guard. */
+const ALLOWED_ORIGIN = "http://localhost:1422";
+
+/**
+ * The whole app on the local tier, built as the Workers entry builds it: no
+ * observability plugin, so no ahead-of-time compilation either.
+ */
+async function buildFullApp() {
+  const { layer, sqlite } = createTestLayerWithSqlite();
+  const built = await buildAppDeps(
+    { OSN_ENV: "local", TRUSTED_PROXY_COUNT: "1" },
+    {
+      coordination: () => createInMemoryCoordination(),
+      dbAndEmailLayer: layer,
+      observabilityLayer: osnLoggerLayer,
+      includeObservabilityPlugin: false,
+    },
+  );
+  expect(built.deps.aot).toBe(false);
+  seedClientRow(sqlite);
+  return { app: createApp(built.deps), sqlite };
+}
+
+describe("POST /authorize/decline in the whole app", () => {
+  it("stays behind the Origin guard", async () => {
+    const { app } = await buildFullApp();
+    const send = (origin: string | null) =>
+      app.handle(
+        declineRequest(UNKNOWN_REQUEST_ID, null, {
+          headers: { ...FULL_APP_IP, ...(origin === null ? {} : { origin }) },
+        }),
+      );
+
+    expect((await send(null)).status).toBe(403);
+    expect((await send("https://evil.example")).status).toBe(403);
+    // The control: an allowed origin reaches the route, which knows no such id.
+    expect((await send(ALLOWED_ORIGIN)).status).toBe(400);
+  });
+
+  // The compiled handler strips unknown body fields before it validates, so
+  // the route tests above see a plain decline. This one validates first, so
+  // the same body fails validation. Either way, nothing mints a code.
+  it("refuses approved and profileId in the body on the Workers handler, and mints nothing", async () => {
+    const { app, sqlite } = await buildFullApp();
+    const { requestId, binding } = await startAuthorize({ app }, null, goodParams, FULL_APP_IP);
+    const send = (extra: Record<string, unknown>) =>
+      app.handle(
+        declineRequest(requestId, binding, {
+          headers: { ...FULL_APP_IP, origin: ALLOWED_ORIGIN },
+          extra,
+        }),
+      );
+
+    const withExtras = await send({ approved: true, profileId: "usr_x" });
+    expect(withExtras.status).toBe(422);
+    expect(await withExtras.text()).not.toContain("cod_");
+    expect(sqlite.query("SELECT 1 FROM oauth_authorization_codes").all()).toEqual([]);
+
+    // The refused body burnt nothing: a plain decline still ends the request.
+    const plain = await send({});
+    expect(plain.status).toBe(200);
+    const url = new URL(((await plain.json()) as { redirectTo: string }).redirectTo);
+    expect(url.origin + url.pathname).toBe(REDIRECT_URI);
+    expect(url.searchParams.get("error")).toBe("access_denied");
+    expect(url.searchParams.get("code")).toBeNull();
   });
 });
 

@@ -1,5 +1,30 @@
 # @shared/design-tokens
 
+## 0.7.0
+
+### Minor Changes
+
+- 2035748: A contract token for the curve an overlay leaves on, `--ui-ease-exit`, and `animate-out` reads it. `Dialog`, `Popover` and the default `DropdownMenu` close on it; `animate-in` still reads `--ui-ease-out`. Its value is `cubic-bezier(0.22, 1, 0.36, 1)`, the same as `--ui-ease-out`, and no app sets either, so no overlay in any app changes how it moves. An app can now map `--ui-ease-out` onto its own arriving curve and its overlays still leave as before. `CONTRACT_SCALAR_TOKENS.motion` lists the new token, and the agreement test now also fails when `tokens.css` declares a root token the list leaves out.
+
+## 0.6.1
+
+### Patch Changes
+
+- 5bc7db4: `DialogTitle` reads its weight from the design-token contract's title-weight role, `--ui-weight-title`, through the utility `font-ui-title`, as `Badge` does, and falls back to 600, the `font-semibold` it carried before. The token's comments in `tokens.css` and `index.ts` name both parts that read it. No app maps the token, so pulse's three dialogs, Musubi's and the auth views draw their titles exactly as before; a snapshot of the title's computed style written before the change still passes, and pulse's browser tests check 600 under pulse's own stylesheet. An app whose house style stops at 500 maps the token once instead of passing a class to each title.
+
+  An app that wants its overlays to fade without scaling sets `--ui-scale-enter` and `--ui-scale-exit` to 1. Every Kobalte overlay then changes only its opacity; `Modal`'s exit scale stops too, while its rise and sink stay, and its entry keeps its own `scale(0.98)`, so it still grows as it opens. No component changed for this: the browser tests now prove it, and the design-token wiki page describes it. Default motion is unchanged.
+
+## 0.6.0
+
+### Minor Changes
+
+- 2c2906f: A title weight in the token contract, and `Badge` reads it.
+
+  - `@shared/design-tokens`: new role token `--ui-weight-title`, the weight a shared part sets a short title or a tag in, read through the utility `font-ui-title` (`--font-weight-ui-title` in `@theme inline`). It falls back to 600. `CONTRACT_SCALAR_TOKENS.fontWeight` lists it, and the agrees test fails if `tokens.css` does not alias it. The README's contract table gains it, with the `field` and `sheet` radius roles it was missing.
+  - `@shared/ui`: `Badge`'s label reads `font-ui-title` in place of `font-semibold`, so an app sets its weight once with `--ui-weight-title`. No app maps it, so every badge still draws at 600. `Badge`'s props refuse `innerHTML`, `innerText` and `textContent` (`SafeProps`). `Badge` carries no focus classes: a label takes no focus, so it draws no ring and removes no outline. A frozen snapshot of the unmapped badge's computed style, written before the change, holds pulse's look.
+  - `@tools/lab`: `Badges` shows both treatments and gains a treatment control; new `BadgeWeights` shows every badge unmapped and under `--ui-weight-title: 500`, captioned with the computed weight. The theming story's unmapped column also clears the weight token.
+  - `@pulse/web`: the token-contract browser test checks pulse's three badges compute 600 under its own stylesheet.
+
 ## 0.5.0
 
 ### Minor Changes

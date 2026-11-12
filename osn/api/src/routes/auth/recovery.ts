@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import { buildSessionCookies } from "../../lib/cookie-session";
+import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
@@ -66,7 +67,19 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // M-PK1: require a fresh step-up token (passkey or OTP amr by
+            // Before the step-up token is verified: a token whose session has
+            // ended spends no step-up token and writes no code set.
+            const staleErr = await ctx.liveSessionGate(
+              "recovery_generate",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
+            // Require a fresh step-up token (passkey or OTP amr by
             // default). Access token alone is insufficient — a stolen
             // access token cannot burn the user's existing recovery codes.
             const headerToken = headers["x-step-up-token"];
@@ -103,6 +116,8 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
             400: errorResponse,
             401: errorResponse,
             403: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -216,16 +231,19 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
       // Email + TOTP account recovery — the way back in for a user who has lost
       // the device AND never printed the codes.
       //
-      // All three are unauthenticated, and all three end in a RESTRICTED
-      // recovery session (`aud: "osn-recovery"`, 15-minute absolute lifetime)
-      // whose only privilege is enrolling a passkey. Nothing here is a login
-      // factor; see `[[wiki/osn/account-recovery-factors]]` §B.
+      // All unauthenticated. The email path is an emailed link (the shared
+      // confirm routes are in `email-link.ts`); its status poll and the TOTP
+      // completer end in a RESTRICTED recovery session (`aud: "osn-recovery"`,
+      // 15-minute absolute lifetime) whose only privilege is enrolling a
+      // passkey. Nothing here is a login factor; see
+      // `[[wiki/osn/account-recovery-factors]]` §B.
       // -------------------------------------------------------------------------
       .post(
         "/login/recovery/email/begin",
         async ({ body, set, headers, server, request }) => {
-          // A recovery code is minted here. Nothing may cache any part of this
-          // exchange — first statement, so the 400s and the 429 carry it too.
+          // A request and its claim secret are minted here. Nothing may cache
+          // any part of this exchange — first statement, so the 400s and the
+          // 429 carry it too.
           set.headers["cache-control"] = "no-store";
 
           const rlErr = await rateLimit(
@@ -247,7 +265,12 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
             return tsErr;
           }
           try {
-            const result = await run(auth.beginEmailRecovery(body.identifier));
+            const result = await run(
+              auth.beginEmailRecovery(
+                body.identifier,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
+            );
             set.status = 202;
             return result;
           } catch (e) {
@@ -265,10 +288,18 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
             turnstileToken: t.Optional(t.String()),
           }),
           response: {
-            // The SAME body whether the address resolves, does not resolve, or
-            // belongs to an account that has hit its 3-per-24h cap. Telling
-            // them apart is what a dashboard is for.
-            202: t.Object({ status: t.Literal("accepted") }),
+            // The SAME shape whether the address names an account or not, and
+            // whether or not its link is held back by the lockout or a cap.
+            // `claimSecret` and `pairingCode` match log redaction deny-list
+            // entries: the tab that began keeps the secret and shows the
+            // number, and nothing else sees either. `expiresAt` is Unix
+            // seconds.
+            202: t.Object({
+              requestId: t.String(),
+              claimSecret: t.String(),
+              pairingCode: t.String(),
+              expiresAt: t.Number(),
+            }),
             400: errorResponse,
             429: errorResponse,
             500: errorResponse,
@@ -276,16 +307,24 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
           detail: { operationId: "beginEmailRecovery" },
         },
       )
+      // -------------------------------------------------------------------------
+      // Email recovery: status, polled by the tab that began with its claim
+      // secret. `pending` until the emailed link is confirmed (on any device);
+      // then the poll claims the request and answers 201 with the RESTRICTED
+      // recovery session, once. Every refusal is `expired`. The device that
+      // opened the link gets nothing.
+      // -------------------------------------------------------------------------
       .post(
-        "/login/recovery/email/complete",
-        async ({ body, set, headers, server, request }) => {
+        "/login/recovery/email/:requestId/status",
+        async ({ params, body, set, headers, server, request }) => {
+          // The completing answer carries an access token.
           set.headers["cache-control"] = "no-store";
 
           const rlErr = await rateLimit(
             headers,
             socketIpOf({ server, request }),
-            "recovery_email_complete",
-            rl.recoveryEmailComplete,
+            "recovery_email_status",
+            rl.recoveryEmailStatus,
           );
           if (rlErr) {
             set.status = 429;
@@ -293,21 +332,24 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
           }
           try {
             const result = await run(
-              auth.completeEmailRecovery(
-                body.identifier,
-                body.code,
+              auth.emailRecoveryStatus(
+                params.requestId,
+                body.claimSecret,
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
-            // Exactly as `/login/recovery/complete` above. Without it
+            if (result.status !== "complete") return result;
+            // As `/login/recovery/complete` does. Without it
             // `completePasskeyRegistration` cannot resolve the caller's own
             // session and answers 409 `session_stale` — at the one step this
             // session exists to perform.
+            set.status = 201;
             set.headers["set-cookie"] = buildSessionCookies(
               result.session.refreshToken,
               cookieConfig,
             );
             return {
+              status: result.status,
               session: toTokenResponseCookieOnly(result.session),
               profile: result.profile,
             };
@@ -318,17 +360,81 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
           }
         },
         {
-          // An email or a handle: the email-only rule belongs to `begin`, which
-          // sends mail. This route sends nothing and answers one generic failure
-          // to anyone not holding the code.
-          body: t.Object({ identifier: t.String(), code: t.String() }),
+          params: t.Object({
+            requestId: t.String({ pattern: emailLinkIdPattern("recovery") }),
+          }),
+          body: t.Object({ claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }) }),
           response: {
-            200: t.Object({ session: tokenResponse, profile: publicProfile }),
+            200: t.Union([
+              // The number the waiting screen shows, so a reloaded tab can
+              // show it again without keeping it.
+              t.Object({ status: t.Literal("pending"), pairingCode: t.Optional(t.String()) }),
+              // Also "no such request", "wrong claim secret" and a recovery
+              // the cooldown refuses: a stranger's poll reads as a lapsed one.
+              t.Object({ status: t.Literal("expired") }),
+            ]),
+            201: t.Object({
+              status: t.Literal("complete"),
+              // Cookie-only token set: the refresh token went out in the
+              // `Set-Cookie` header above, never in this body.
+              session: tokenResponse,
+              profile: publicProfile,
+            }),
             400: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
-          detail: { operationId: "completeEmailRecovery" },
+          detail: { operationId: "getEmailRecoveryStatus" },
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Email recovery: one more link for the same request. Only the tab
+      // holding the claim secret can ask; three links in all. An address with
+      // no account answers alike and mails nothing.
+      // -------------------------------------------------------------------------
+      .post(
+        "/login/recovery/email/:requestId/resend",
+        async ({ params, body, set, headers, server, request }) => {
+          set.headers["cache-control"] = "no-store";
+
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_email_resend",
+            rl.recoveryEmailResend,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            return await run(
+              auth.resendEmailRecovery(
+                params.requestId,
+                body.claimSecret,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
+            );
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({
+            requestId: t.String({ pattern: emailLinkIdPattern("recovery") }),
+          }),
+          body: t.Object({ claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }) }),
+          response: {
+            200: t.Object({
+              status: t.Union([t.Literal("sent"), t.Literal("limit"), t.Literal("expired")]),
+            }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "resendEmailRecoveryLink" },
         },
       )
       .post(

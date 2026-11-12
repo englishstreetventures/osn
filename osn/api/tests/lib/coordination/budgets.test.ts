@@ -13,7 +13,12 @@ import {
   type AuthRateLimiters,
   type RateLimitBudget,
 } from "../../../src/routes/auth/limiters";
-import { TOTP_LOCKOUT_MS, TOTP_LOCKOUT_THRESHOLD } from "../../../src/services/auth/constants";
+import {
+  REGISTRATION_LINK_LOCKOUT_MS,
+  REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  TOTP_LOCKOUT_MS,
+  TOTP_LOCKOUT_THRESHOLD,
+} from "../../../src/services/auth/constants";
 import { createFakeNamespace } from "../../helpers/coordination-namespace";
 
 /**
@@ -100,9 +105,24 @@ function slots(bundle: CoordinationStores): Slot[] {
     OSN_RATE_LIMITS.emailChangeBeginCap,
   );
   add(
-    "recoveryEmailBeginCap",
-    (k) => bundle.recoveryEmailBeginCap.check(k),
-    OSN_RATE_LIMITS.recoveryEmailBeginCap,
+    "recoveryLinkAddressCap",
+    (k) => bundle.recoveryLinkAddressCap.check(k),
+    OSN_RATE_LIMITS.recoveryLinkAddressCap,
+  );
+  add(
+    "recoveryResendCap",
+    (k) => bundle.recoveryResendCap.check(k),
+    OSN_RATE_LIMITS.recoveryResendCap,
+  );
+  add(
+    "recoveryLinkCeiling",
+    (k) => bundle.recoveryLinkCeiling.check(k),
+    OSN_RATE_LIMITS.recoveryLinkCeiling,
+  );
+  add(
+    "registrationSendCap",
+    (k) => bundle.registrationSendCap.check(k),
+    OSN_RATE_LIMITS.registrationSendCap,
   );
   return out;
 }
@@ -163,12 +183,18 @@ describe.each(Object.entries(builders))("%s bundle", (_name, build) => {
       ["recovery_lockout", RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
       ["recovery_otp_lockout", RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
       ["totp_lockout", TOTP_LOCKOUT_THRESHOLD, TOTP_LOCKOUT_MS],
+      [
+        "registration_link_lockout",
+        REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+        REGISTRATION_LINK_LOCKOUT_MS,
+      ],
     ] as const;
     const storeOf = (bundle: CoordinationStores, name: (typeof lockouts)[number][0]) =>
       ({
         recovery_lockout: bundle.recoveryLockoutStore,
         recovery_otp_lockout: bundle.recoveryOtpLockoutStore,
         totp_lockout: bundle.totpLockoutStore,
+        registration_link_lockout: bundle.registrationLinkLockoutStore,
       })[name];
     vi.useFakeTimers();
     try {

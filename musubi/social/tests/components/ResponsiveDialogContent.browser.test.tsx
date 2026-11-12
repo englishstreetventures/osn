@@ -31,7 +31,8 @@ function renderDialog(width?: "sm" | "xs") {
       </ResponsiveDialogContent>
     </Dialog>
   ));
-  // The layout width: the opening zoom scales the painted box for a moment.
+  // The layout width, the box's own size, not a painted size any transform
+  // could change.
   return screen.getByRole("dialog").offsetWidth;
 }
 

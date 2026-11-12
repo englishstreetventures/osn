@@ -88,15 +88,22 @@ describe("createRegistrationClient", () => {
   });
 
   describe("beginRegistration", () => {
-    it("POSTs JSON to /register/begin with the right body", async () => {
-      const { calls } = stubFetch(() => jsonResponse({ sent: true }));
+    it("POSTs JSON to /register/begin and answers the request the tab now holds", async () => {
+      const begun = {
+        requestId: "signup_0123456789ab",
+        claimSecret: "c".repeat(64),
+        pairingCode: "47",
+        expiresAt: 1_900_000_000,
+      };
+      const { calls } = stubFetch(() => jsonResponse(begun));
       const result = await client.beginRegistration({
         email: "alice@example.com",
         handle: "alice",
         birthdate: "1990-01-01",
         displayName: "Alice",
+        previous: { requestId: "signup_aaaaaaaaaaaa", claimSecret: "d".repeat(64) },
       });
-      expect(result).toEqual({ sent: true });
+      expect(result).toEqual(begun);
       expect(calls[0].url).toBe("https://osn.example.com/register/begin");
       expect(calls[0].init?.method).toBe("POST");
       expect(JSON.parse(calls[0].init?.body as string)).toEqual({
@@ -104,92 +111,112 @@ describe("createRegistrationClient", () => {
         handle: "alice",
         birthdate: "1990-01-01",
         displayName: "Alice",
+        previous: { requestId: "signup_aaaaaaaaaaaa", claimSecret: "d".repeat(64) },
       });
     });
 
     it("propagates the server error message", async () => {
-      stubFetch(() => jsonResponse({ error: "Email already registered" }, { status: 400 }));
+      stubFetch(() => jsonResponse({ error: "age_restricted" }, { status: 422 }));
       await expect(
         client.beginRegistration({
-          email: "taken@example.com",
-          handle: "taken",
-          birthdate: "1990-01-01",
+          email: "kid@example.com",
+          handle: "kid",
+          birthdate: "2020-01-01",
         }),
-      ).rejects.toThrow("Email already registered");
+      ).rejects.toThrow("age_restricted");
     });
   });
 
-  describe("completeRegistration", () => {
-    it("POSTs JSON to /register/complete and parses the session", async () => {
-      const { calls } = stubFetch(() =>
-        jsonResponse(
-          {
-            profileId: "usr_abc",
-            handle: "alice",
-            email: "alice@example.com",
-            session: {
-              access_token: "acc_999",
-              token_type: "Bearer",
-              expires_in: 3600,
-              scope: "openid profile",
-            },
-          },
-          { status: 201 },
-        ),
-      );
-      const result = await client.completeRegistration({
-        email: "alice@example.com",
-        code: "123456",
-      });
+  describe("registrationStatus", () => {
+    const ids = { requestId: "signup_0123456789ab", claimSecret: "c".repeat(64) };
+    const complete = {
+      status: "complete",
+      profileId: "usr_abc",
+      handle: "alice",
+      email: "alice@example.com",
+      session: {
+        access_token: "acc_999",
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: "openid profile",
+      },
+    };
+
+    it("parses the completing answer's session", async () => {
+      const { calls } = stubFetch(() => jsonResponse(complete, { status: 201 }));
+      const result = await client.registrationStatus(ids);
+      expect(result.status).toBe("complete");
+      if (result.status !== "complete") return;
       expect(result.profileId).toBe("usr_abc");
       expect(result.handle).toBe("alice");
       expect(result.email).toBe("alice@example.com");
       expect(result.session.accessToken).toBe("acc_999");
       expect("refreshToken" in result.session).toBe(false);
       expect(result.session.scopes).toEqual(["openid", "profile"]);
-      expect(result.session.expiresAt).toBeGreaterThan(Date.now());
-      expect("enrollmentToken" in result).toBe(false);
+      expect(calls[0].url).toBe("https://osn.example.com/register/signup_0123456789ab/status");
+      expect(JSON.parse(calls[0].init?.body as string)).toEqual({ claimSecret: "c".repeat(64) });
+    });
 
-      expect(calls[0].url).toBe("https://osn.example.com/register/complete");
-      expect(JSON.parse(calls[0].init?.body as string)).toEqual({
-        email: "alice@example.com",
-        code: "123456",
+    it("passes pending, expired and conflict through", async () => {
+      for (const status of ["pending", "expired", "conflict"]) {
+        stubFetch(() => jsonResponse({ status }));
+        // oxlint-disable-next-line no-await-in-loop -- one stub at a time
+        expect(await client.registrationStatus(ids)).toEqual({ status });
+      }
+    });
+
+    it("passes a pending answer's number through, so a reloaded tab can show it", async () => {
+      stubFetch(() => jsonResponse({ status: "pending", pairingCode: "47" }));
+      expect(await client.registrationStatus(ids)).toEqual({
+        status: "pending",
+        pairingCode: "47",
       });
     });
 
-    it("throws RegistrationError on wrong OTP", async () => {
-      stubFetch(() => jsonResponse({ error: "invalid_request" }, { status: 400 }));
-      await expect(
-        client.completeRegistration({ email: "alice@example.com", code: "000000" }),
-      ).rejects.toThrow("invalid_request");
+    it("reads a refusal as expired, so a dead request ends the wait", async () => {
+      for (const status of [400, 404, 422]) {
+        stubFetch(() => jsonResponse({ error: "invalid_request" }, { status }));
+        // oxlint-disable-next-line no-await-in-loop -- one stub at a time
+        expect(await client.registrationStatus(ids)).toEqual({ status: "expired" });
+      }
+    });
+
+    it("throws on a rate limit, a server error or no answer, so the wait goes on", async () => {
+      for (const status of [429, 500, 503]) {
+        stubFetch(() => jsonResponse({ error: "x" }, { status }));
+        // oxlint-disable-next-line no-await-in-loop -- one stub at a time
+        await expect(client.registrationStatus(ids)).rejects.toBeInstanceOf(RegistrationError);
+      }
+      stubFetch(() => Promise.reject(new TypeError("Failed to fetch")));
+      await expect(client.registrationStatus(ids)).rejects.toMatchObject({
+        name: "RegistrationError",
+        status: 0,
+      });
     });
 
     /**
-     * The refresh token exists ONLY as the `Set-Cookie` on this response — the
-     * assertion just above pins that the body has no `refreshToken`. The issuer
-     * is a different origin from every app that calls it, and a cross-origin
-     * fetch on the default `same-origin` credentials mode discards `Set-Cookie`
-     * outright. So without this header registration finished with an in-memory
-     * access token and no session at all: a reload signed the brand-new account
-     * back out, and an OIDC `prompt=create` journey bounced back to the consent
-     * screen's sign-up panel, because `/authorize/context` still saw a
-     * signed-out browser.
+     * The refresh token exists ONLY as the `Set-Cookie` on the completing
+     * answer. The issuer is a different origin from every app that calls it,
+     * and a cross-origin fetch on the default `same-origin` credentials mode
+     * discards `Set-Cookie` outright, so without this the new account would
+     * end with an in-memory access token and no session.
      */
     it("sends credentials so the refresh cookie survives the cross-origin hop", async () => {
-      const { calls } = stubFetch(() =>
-        jsonResponse(
-          {
-            profileId: "usr_abc",
-            handle: "alice",
-            email: "alice@example.com",
-            session: { access_token: "acc_999", token_type: "Bearer", expires_in: 3600 },
-          },
-          { status: 201 },
-        ),
-      );
-      await client.completeRegistration({ email: "alice@example.com", code: "123456" });
-
+      const { calls } = stubFetch(() => jsonResponse(complete, { status: 201 }));
+      await client.registrationStatus(ids);
       expect(calls[0].init?.credentials).toBe("include");
+    });
+  });
+
+  describe("resendRegistrationLink", () => {
+    it("POSTs the claim secret and answers the status", async () => {
+      const { calls } = stubFetch(() => jsonResponse({ status: "limit" }));
+      const result = await client.resendRegistrationLink({
+        requestId: "signup_0123456789ab",
+        claimSecret: "c".repeat(64),
+      });
+      expect(result).toEqual({ status: "limit" });
+      expect(calls[0].url).toBe("https://osn.example.com/register/signup_0123456789ab/resend");
     });
   });
 
@@ -234,11 +261,11 @@ describe("createRegistrationClient", () => {
     });
 
     /**
-     * T-U1. Enrollment shares `postJson` with registration, so it inherits
+     * Enrollment shares `postJson` with registration, so it inherits
      * `credentials: "include"` — and it needs it for its own reason. The bearer
      * token names the *account*; the cookie names *which session is the
      * caller's own*, which is how `/passkey/register/complete` knows to spare
-     * that one when it revokes the rest (S-H1). Without the cookie the server
+     * that one when it revokes the rest. Without the cookie the server
      * falls back to the access token's `osn_sid` binding rather than failing,
      * so a regression here is silent — no test elsewhere would go red. Pinning
      * it at both cookie-dependent routes makes the header a property of the

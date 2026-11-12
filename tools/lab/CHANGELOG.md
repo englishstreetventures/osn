@@ -1,5 +1,121 @@
 # @tools/lab
 
+## 0.3.53
+
+### Patch Changes
+
+- a6a57fc: The `SegmentedTabs` stories set the portals' `--ease-glide` on their panels, in the `cubic-bezier` form the portals fall back to, so the glass glides in the lab on the portals' curve. It runs at the touch pace, 320ms, even with a mouse, where the portals take 200ms.
+
+## 0.3.52
+
+### Patch Changes
+
+- 2035748: The design system's `Motion` story names `ease-exit`, the curve an overlay leaves on, in its introduction; its grid shows the new token beside the other easings.
+- Updated dependencies [2035748]
+- Updated dependencies [2035748]
+  - @shared/design-tokens@0.7.0
+  - @shared/ui@0.15.1
+  - @osn/auth-ui@4.5.3
+
+## 0.3.51
+
+### Patch Changes
+
+- 9a86d64: A `CardTitleWeights` story in `shared/ui/display`: one card that unsets the title weight token, so it draws the 600 fallback whatever the lab's stylesheet maps, beside one with the token at 500, each captioned with the weight the browser computed.
+- e275448: The lab imports Musubi's stylesheet, so its stories now draw shared titles at 14px and 500 and overlays with no scale. Stories that show the contract's default keep it: `BadgeWeights`' unmapped column lends `--ui-weight-title: initial`, `DialogStory` also lends `--ui-text-md: initial`, and `cireStyle()` lends `initial` for the title weight and both scale tokens, which cire leaves unmapped, so cire subtrees draw cire's 600 title and 96% pop. The `MenuItems` and type-scale comments say what the lab draws. `tests/cire-mapping.test.ts` fails when Musubi maps a `--ui-*` token that `cireStyle()` neither maps nor lends `initial`, so a cire column never draws Musubi's value.
+- Updated dependencies [e275448]
+- Updated dependencies [9a86d64]
+- Updated dependencies [e275448]
+  - @osn/auth-ui@4.5.2
+  - @shared/ui@0.15.0
+
+## 0.3.50
+
+### Patch Changes
+
+- 5bc7db4: Two `Dialog` stories in `shared/ui/overlays`: `DialogTitleWeight` sets the title weight token from a control, with an `unmapped` option that shows the 600 fallback, and `DialogFadeOnly` sets both scale tokens to 1, as a card or a sheet. The default `DialogStory` now unsets the title weight and both scale tokens, so it draws the contract's default whatever the lab's stylesheet maps.
+- Updated dependencies [5bc7db4]
+- Updated dependencies [5684587]
+  - @shared/design-tokens@0.6.1
+  - @shared/ui@0.14.0
+  - @osn/auth-ui@4.5.1
+
+## 0.3.49
+
+### Patch Changes
+
+- Updated dependencies [f052448]
+  - @osn/auth-ui@4.5.0
+
+## 0.3.48
+
+### Patch Changes
+
+- Updated dependencies [0821963]
+  - @osn/auth-ui@4.4.0
+
+## 0.3.47
+
+### Patch Changes
+
+- ff81047: The lab depends on `@osn/auth-ui` and gains its first stories for it, `osn/auth-ui/CheckEmailView`: waiting before and after the Resend wait, expired, error, every flow, a 320px phone with a long address, the number the page the link opens asks for (at rest, on recovery and step-up, across a resend, and on a phone), and a playground.
+- f4c9fea: The lab gains stories for `@osn/auth-ui`'s `ConfirmLinkPage`, `osn/auth-ui/ConfirmLinkPage`: ready with three numbers and with five of six digits, confirming (with the slow line after 10 seconds), confirmed, confirmed with Continue, expired, an error and its retry, declined, opening on a known answer, every flow before and after the tap, three cards on a 320px phone, the typed field ready, confirming, after an error, refused and on a 320px phone, and a playground.
+- Updated dependencies [ff81047]
+- Updated dependencies [f4c9fea]
+- Updated dependencies [cbd32bd]
+- Updated dependencies [9d193fe]
+  - @osn/auth-ui@4.3.0
+
+## 0.3.46
+
+### Patch Changes
+
+- 989666f: The cire `Disclosure` card story names the growth: a click shows the card grow open as the body fades in. It also says the lab declares neither cire's `--dur-slow` nor its `--ease-out`, so the opening runs on the part's 320ms fallback and the lab's own curve, and the pace is judged in the app.
+
+## 0.3.45
+
+### Patch Changes
+
+- 452ec7b: Every six-digit code is typed into `OtpInput`'s boxes, tied to its error line, and every loading placeholder is `Skeleton`.
+
+  - `@osn/auth-ui`: `StepUpDialog`'s two code steps and `ChangeEmailForm`'s code are a row of `OtpInput` boxes under a span label, in place of a single `Input`; each code step puts focus in box 1 as it opens. Every row of code boxes (`Register`, `RecoveryLoginForm`'s two, `TotpView`, `StepUpDialog`'s two, `ChangeEmailForm`) names its group by its label (`aria-labelledby`; `Register`'s keeps "Verification code") and its error line by `aria-describedby`, on every box. The boxes are marked invalid, with the danger edge, only for a `400` or `422` refusal other than the verification check, so a wait or an outage ties the line without calling the code wrong. After such a refusal sent with Enter, `Register` puts focus back in box 1 when focus is on the page or still in the row, as WebKit can leave it on the disabled box. `PasskeysView`, `SessionsView`, `TotpView` and `RecoveryCodesView` show `Skeleton` while they load, in a region marked `aria-busy`, in place of "Loading…" and a hand-drawn pulse; each reads its resource's `state` before its value, so it never joins a host's `Suspense` boundary or throws a failed read, and `StepUpDialog` reads `GET /totp/status` the same way, so opening a step-up never swaps its host for the host's fallback. `PasskeysView` and `SessionsView` disable their actions while a list they have shown is read again, so a passkey just deleted or a session just revoked cannot be acted on. A passkey's or a session's name wraps inside a word, so a long one keeps the row's actions inside the card on a phone. `TotpView`'s enrolment step drops its border and padding below `md`, and `StepUpDialog` its side padding, so a code row takes the panel's whole column on a phone; a panel's header action wraps under its heading when the two do not fit.
+  - `@musubi/social`: Connections, Discover, Organisations, an organisation's head and members, Connected apps, and the fallbacks of Settings' Security and Connected apps tabs and `/authorize`'s sign-in frame draw `Skeleton` in place of "Loading…" lines and `bg-muted/50 animate-pulse` blocks, each in a region marked `aria-busy`, at the height of what replaces it at each width: a row whose buttons grow to the touch height below `md` takes one block per width (`ResponsiveSkeleton`), and each placeholder list takes its list's gap. `/authorize`'s placeholder takes the shape of the half that leads, at the panel's width: sign-up's heading, Cancel and four fields for `reason=create`, sign-in's heading, field, buttons and "Create one" line otherwise, with the heading and the birth date's hint drawn as words so they wrap as the panel's do. Connected apps' lead paragraph moves to the page, so it shows while the section loads, and its empty list is an `EmptyNote`. Connected apps says a failed list in its own line instead of throwing to the page's error boundary, and keeps its rows on screen while it reads them again after a revoke. The Settings Security tab shows each panel's own placeholder rather than its fallback for the whole tab. `DESIGN.md` gains the loading rule, that what replaces a placeholder, an error line and a step that replaces another arrive with no fade, and the code boxes' widths at 320px, and lists no `Badge`, which Musubi does not draw; the token-contract browser test drops its `Badge` case. A new browser test opens the step-up's code step in Settings' Security tab at 320 and 1440px and checks the code row's width and that no button runs past the card, nor with a 64-character passkey name at 320px. Two more hold every loading placeholder's height against what lands at 320 and 1440px (`/authorize`'s at 390 too), with its region the only busy one until then.
+  - `@tools/lab`: `SkeletonGrounds` drops the half-strength placeholder Musubi drew by hand.
+
+- 2c2906f: A title weight in the token contract, and `Badge` reads it.
+
+  - `@shared/design-tokens`: new role token `--ui-weight-title`, the weight a shared part sets a short title or a tag in, read through the utility `font-ui-title` (`--font-weight-ui-title` in `@theme inline`). It falls back to 600. `CONTRACT_SCALAR_TOKENS.fontWeight` lists it, and the agrees test fails if `tokens.css` does not alias it. The README's contract table gains it, with the `field` and `sheet` radius roles it was missing.
+  - `@shared/ui`: `Badge`'s label reads `font-ui-title` in place of `font-semibold`, so an app sets its weight once with `--ui-weight-title`. No app maps it, so every badge still draws at 600. `Badge`'s props refuse `innerHTML`, `innerText` and `textContent` (`SafeProps`). `Badge` carries no focus classes: a label takes no focus, so it draws no ring and removes no outline. A frozen snapshot of the unmapped badge's computed style, written before the change, holds pulse's look.
+  - `@tools/lab`: `Badges` shows both treatments and gains a treatment control; new `BadgeWeights` shows every badge unmapped and under `--ui-weight-title: 500`, captioned with the computed weight. The theming story's unmapped column also clears the weight token.
+  - `@pulse/web`: the token-contract browser test checks pulse's three badges compute 600 under its own stylesheet.
+
+- 3424e05: `OtpInput` fits a phone, names its boxes from a label, and puts focus where it says.
+
+  - The boxes share the column's width, up to 48px each and 48px tall; from a 328px column up the row is the same six 48px squares, 8px apart. Narrower, the gaps close to 4px before the boxes shrink, so the boxes are 40px wide in a 260px column, and the row still fits a 212px one.
+  - An empty box's edge is the ink at 55%, which reads at 3:1 on a light and a dark ground, and the boxes take the text fields' `field` corner.
+  - New optional `aria-labelledby` (the visible label's id): the group takes the label's name and box N is named "<label> Digit N". Without it the names stay "Verification code" and "Digit N".
+  - New optional `aria-describedby`, set on every box; every box is `aria-invalid` while `status` is `error`.
+  - `autofocus` and the refocus after an error focus box 1 one task later, once it is enabled, so they land when the caller re-enables the boxes in the same run and inside a Kobalte dialog.
+  - Focus draws the text field's 2px `--ui-focus` ring 2px off the ground, with an outline a contrast theme paints on the focused box only; colours fade on the contract's fast step.
+  - The value has no gaps: focus past the first empty box moves to it, typing over a digit replaces it, Backspace, Delete and a cut remove one, and an autofill of the whole code is taken whole (no box has `maxlength`).
+
+  The lab's `shared/ui/forms` group draws it as `Otp`, `OtpStates` and `OtpNarrow`. Musubi's `DESIGN.md` records the boxes' edge and corner, and that a screen gives the code row at least 260px on a phone.
+
+- ae53236: New `Skeleton` (`@shared/ui/ui/skeleton`): the block a list or panel shows in place of each line, row, field, button, card or chip while it loads.
+
+  - `standsFor` names what the block stands in for and sets its corner: `line` (`rounded-ui-sm`), `row` (`rounded-ui-md`, the default and the fallback for an unknown value), `field` (`rounded-ui-field`, the role `Input` and `Select` read), `control` (`rounded-ui-control`, the role `Button` reads), `card` (`rounded-ui-lg`) or `pill` (`rounded-ui-pill`).
+  - `width` and `height` are spacing steps (`48` is 12rem); no width fills the container. Both are always inline, so a caller's `w-*` or `h-*` cannot resize the block. It never runs wider than its container, a numeric width does not shrink in a flex row, and a size that is not a finite number of at least 0 is refused (full width, or a 1rem height).
+  - Every block fills with `--ui-surface-sunk`, with no edge. In a forced-colours theme, which repaints that fill as the page's `Canvas`, it draws a 1px edge the theme paints in its text colour. It pulses on Tailwind's `--animate-pulse` behind `motion-safe:`, so it stands still for a reader who asked for reduced motion.
+  - One `aria-hidden` div with no role and no children; `class` carries placement only, and no other prop reaches it.
+
+  Nothing imports it yet. The lab's `shared/ui/feedback` group draws it as `Skeletons`, `SkeletonGrounds`, `SkeletonInPlace` and `SkeletonPlayground`, and the overview has an entry. The package README's list of primitives names `Skeleton`, `Switch`, `Textarea`, `Label` and `Fieldset`.
+
+- Updated dependencies [2c2906f]
+- Updated dependencies [3424e05]
+- Updated dependencies [ae53236]
+  - @shared/design-tokens@0.6.0
+  - @shared/ui@0.13.0
+
 ## 0.3.44
 
 ### Patch Changes

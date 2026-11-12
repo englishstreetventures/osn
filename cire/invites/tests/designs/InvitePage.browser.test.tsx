@@ -22,9 +22,8 @@ import { noSession, withSession } from "../test-support/claim-fetch";
  * `@shared/toast` and `PulseAccountLink` — necessarily, to assert the page's
  * wiring in isolation. That leaves nothing anywhere in the suite that exercises
  * the confirmation inside the page it actually ships in: the themed events
- * `<section>`, the Motion-One-animated `[data-event-card]` wrappers each with a
- * leftover inline `transform`, and the modal overlay that unmounts on top of it
- * all.
+ * `<section>`, the `[data-event-card]` wrappers the unlock reveal moves with a
+ * `transform`, and the modal overlay that unmounts on top of it all.
  *
  * Only `PulseAccountLink` is stubbed here — it reaches the account API and has
  * its own tests. Everything the confirmation and the toast touch is the real
@@ -191,8 +190,8 @@ function paintedInk(element: Element): string {
  * `position: fixed` descendant — a `transform`, `filter`, `perspective`,
  * `contain` or `will-change` on any ancestor does it, and it makes that
  * ancestor a stacking context too. This is the exact mechanism that broke the
- * toast: `<Toaster>` used to live inside the events section, which Motion One
- * leaves with an inline `transform`, so the toast was positioned against the
+ * toast: `<Toaster>` used to live inside the events section, which the unlock
+ * reveal moves with a `transform`, so the toast was positioned against the
  * section and stacked inside it — below the page-level `z-100` modal, whatever
  * `z-index` the toast itself carried.
  *
@@ -218,6 +217,7 @@ function fixedContainingBlockAncestor(el: HTMLElement): HTMLElement | null {
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 /**
  * Wait out the slide a switch between the sheet's panels plays. The sheet
@@ -275,14 +275,24 @@ function openRestored(Pack: typeof classicInvitePage, rsvpResponses: Response[])
 
 /**
  * A FIRST-time guest, typing their code. Unlike {@link openRestored} this runs
- * the real `unlockRevealSequence`, which is the difference that matters: Motion
- * One animates the events `<section>` and every `[data-event-card]` and leaves
- * the final inline `transform` behind. A transformed ancestor becomes the
- * containing block for `position: fixed` descendants and creates a stacking
- * context — so anything fixed that lives inside that section (the `<Toaster>`
- * does) stops being positioned against the viewport.
+ * the real `unlockRevealSequence`, which is the difference that matters: it
+ * moves the events `<section>` and every `[data-event-card]` with a
+ * `transform`. A transformed ancestor becomes the containing block for
+ * `position: fixed` descendants and creates a stacking context — so anything
+ * fixed that lives inside that section (the `<Toaster>` does) stops being
+ * positioned against the viewport.
  */
 async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Response[]) {
+  const view = submitCode(Pack, rsvpResponses);
+  // The reveal choreography is ~1.2s of staggered animation before the cards
+  // are settled and clickable.
+  await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 5000 });
+  await wait(1500);
+  return view;
+}
+
+/** A first-time guest submits their code; returns as the claim is sent. */
+function submitCode(Pack: typeof classicInvitePage, rsvpResponses: Response[]) {
   let call = 0;
   const inner = ((input: Parameters<typeof fetch>[0]) => {
     const url = typeof input === "string" ? input : (input as Request).url;
@@ -304,11 +314,6 @@ async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Respons
       (b) => b.textContent === "Open invitation",
     ) as HTMLButtonElement
   ).click();
-
-  // The reveal choreography is ~1.2s of staggered animation before the cards
-  // are settled and clickable.
-  await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 5000 });
-  await wait(1500);
   return view;
 }
 
@@ -319,8 +324,8 @@ async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Respons
  * duplicating these into a second file would be waste. What is NOT
  * pack-independent is the tree the toast assertions walk: gala nests its cards
  * two wrappers deeper than classic and its reveal (`gala/UnlockReveal.motion.ts`)
- * leaves inline transforms on different nodes at different times. Since the
- * containing-block trap is invisible to happy-dom by construction, a gala-only
+ * moves them on its own timing. Since the containing-block trap is invisible
+ * to happy-dom by construction, a gala-only
  * wrapper that ever gains a `filter` or `will-change: transform` would put the
  * toast back behind the sheet with the fast tier still green — on the pack with
  * no measurement. `describe.each` buys the pack-specific half without
@@ -530,8 +535,9 @@ describe.each([
 
   it("shows the save toast on the first-visit path too", async () => {
     // The path the restored test cannot cover: `unlockRevealSequence` has run,
-    // so the events section carries Motion One's inline transform and anything
-    // fixed inside it is no longer positioned against the viewport.
+    // so the events section has been moved by a transform, and anything fixed
+    // inside a transformed section is no longer positioned against the
+    // viewport.
     await openByCode(Pack, [json({ rsvps: [row("guest-priya")] })]);
 
     respondButton().click();
@@ -591,15 +597,49 @@ describe.each([
     expect(rect.bottom, "toast is below the fold").toBeLessThanOrEqual(window.innerHeight);
     expect(rect.top, "toast is not anchored to the viewport top").toBeLessThan(200);
   });
-  it("T-U1: the code form comes back PAINTED after sign-out", async () => {
+  it("rises the welcome and shimmers its heading through the page's own swap", async () => {
+    // `UnlockReveal.browser.test.ts` stands in for the page with its own
+    // `onFormHidden`. Here the swap is the page's: `setRevealed` flips
+    // LoginSection's `display` binding, and the sequence starts the welcome's
+    // step straight after. A CSS animation never starts on a `display: none`
+    // element, so a swap that landed later (deferred to a microtask, an
+    // effect or a transition) would leave the welcome and its heading to pop
+    // in with no motion while every other test stayed green.
+    submitCode(Pack, []);
+    const seen = new Set<string>();
+    let eventsStarted = false;
+    const deadline = performance.now() + 5000;
+    while (!eventsStarted && performance.now() < deadline) {
+      await nextFrame();
+      const frame: string[] = [];
+      for (const animation of document.getAnimations()) {
+        if (!(animation instanceof CSSAnimation)) continue;
+        const target = (animation.effect as KeyframeEffect | null)?.target;
+        if (!(target instanceof HTMLElement) || !target.dataset.unlock) continue;
+        if (target.dataset.unlock === "section") eventsStarted = true;
+        frame.push(`${target.dataset.unlock} ${target.tagName} ${animation.animationName}`);
+      }
+      // Only frames before the events' step count.
+      if (!eventsStarted) for (const entry of frame) seen.add(entry);
+    }
+    expect(eventsStarted, "the events' step never started").toBe(true);
+    expect([...seen]).toEqual(
+      expect.arrayContaining(["welcome DIV unlock-rise", "shimmer H2 unlock-shimmer"]),
+    );
+    // The reveal ends with every mark off.
+    await waitFor(() => expect(document.querySelector("[data-unlock]")).toBeNull(), {
+      timeout: 5000,
+    });
+  });
+
+  it("the code form comes back PAINTED after sign-out", async () => {
     // The unit tier mocks `UnlockReveal.motion` and `motion` away, so it asserts
     // the form is back in the layout and never that it is visible. The real
-    // sequence fades the form out with Motion, which leaves its end state as
-    // inline styles on the wrapper (`opacity: 0`, plus a `translateY`). Solid's
-    // binding there owns only `display`, so without an explicit clear the form
-    // returns fully transparent — a blank panel, and the guest's only way out is
-    // a reload, which (the session cookie being untouched) re-opens the invite
-    // they were trying to leave.
+    // sequence closes the form at once and writes no style on it. Solid's
+    // binding there owns only `display`, so anything the reveal ever left
+    // inline (an `opacity: 0`) would bring the form back fully transparent — a
+    // blank panel, and the guest's only way out is a reload, which (the session
+    // cookie being untouched) re-opens the invite they were trying to leave.
     await openByCode(Pack, []);
 
     const button = [...document.querySelectorAll("button")].find((b) =>
@@ -621,8 +661,7 @@ describe.each([
       "the restored code form is in the layout but not painted",
     ).toBe(true);
 
-    // And the residue is actually gone from the wrapper, not merely overridden
-    // somewhere down the tree.
+    // And the wrapper itself is at full opacity, not merely the field inside it.
     const wrapper = input.closest("form")?.parentElement as HTMLElement;
     expect(Number.parseFloat(getComputedStyle(wrapper).opacity)).toBe(1);
 

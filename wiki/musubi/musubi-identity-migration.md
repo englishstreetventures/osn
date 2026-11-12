@@ -13,7 +13,7 @@ related:
   - "[[social]]"
   - "[[recovery-codes]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Migrating OSN identity to musubi.social
@@ -70,8 +70,8 @@ ceremonies are illegal, and the redirect flow dead-ends.
 
 The `deploy-osn-social` job published the `osn-social` Pages project. It went into
 `deploy.yml` on 2026-07-26 (step 5 below). Production now deploys the app through the
-musubi stack to the `osn-social` Worker, which takes the apex at its flip release
-([[production-deploy]] §5.7). The job was written against `me.cireweddings.com` and **never served
+musubi stack to the `osn-social` Worker, which holds the apex since 2026-11-10
+([[production-deploy]] §5.3). The job was written against `me.cireweddings.com` and **never served
 that hostname**: the 2026-07-27 decision to go straight to musubi.social landed
 before the Pages custom domain was attached, so production targets the
 **`musubi.social` apex** with
@@ -141,8 +141,9 @@ inventory read `0` on both rows two days earlier.
 **After cutover, to re-establish a credential:**
 
 1. `POST /login/recovery/complete` — identifier + code. Returns a session.
-2. `POST /step-up/otp/begin` → `/step-up/otp/complete` with purpose
-   `passkey_register`. OTP is email-based, so it does not need a passkey.
+2. `POST /step-up/email/begin` with purpose `passkey_register`, confirm the
+   emailed link with the number shown, and poll its status for the token. The
+   link is email-based, so it does not need a passkey.
 3. Enroll a fresh passkey under the new RP ID.
 4. `POST /recovery/generate` again — the consumed set is spent.
 

@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import Reveal from "@cire/ui/reveal";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import {
@@ -180,16 +181,16 @@ interface LoginSectionProps {
    * the welcome banner. Absent ⇒ derived from `result`, i.e. the plain instant
    * swap, which is what a caller that doesn't choreograph the unlock wants.
    *
-   * It is a separate signal from `result` because the swap is CHOREOGRAPHED: the
-   * form fades out before it leaves the layout, so it has to stay displayed for
-   * the length of that fade — a beat after the claim has already resolved. This
-   * prop is the single owner of both elements' `display`; the motion sequence
-   * reports when to flip it and never writes `display` itself — see the
-   * `RevealHooks` note in each design pack's `UnlockReveal.motion.ts` for why
-   * an imperative write there would desynchronise this binding permanently.
+   * It is a separate signal from `result` because the swap is CHOREOGRAPHED: it
+   * waits for the unlock sequence, which starts the welcome's rise in the same
+   * task — a beat after the claim has already resolved. The form itself closes
+   * at once, with no fade. This prop is the single owner of both elements'
+   * `display`; the unlock sequence reports when to flip it and never writes
+   * `display` itself — see the `RevealHooks` note in
+   * `components/unlock-reveal.ts` for why an imperative write there would
+   * desynchronise this binding permanently.
    */
   revealed?: boolean;
-  formRef?: (el: HTMLDivElement) => void;
   welcomeRef?: (el: HTMLDivElement) => void;
   /**
    * Validated CSS-variable map for the "welcome" theme section
@@ -448,7 +449,6 @@ export function LoginSection(props: LoginSectionProps) {
     "background-color": "var(--invite-section-bg)",
   });
 
-  let formEl: HTMLDivElement | undefined;
   let codeInputRef: HTMLInputElement | undefined;
   let turnstile: TurnstileControls | undefined;
 
@@ -479,16 +479,6 @@ export function LoginSection(props: LoginSectionProps) {
     // Re-challenge so a fresh single-use token can replace the one the
     // previous claim redeemed. No-op when Turnstile is unconfigured.
     turnstile?.reset();
-    // The packs' unlock sequence fades the form out with Motion, which leaves
-    // its end state inline on this wrapper (`opacity: 0` and a `translateY`).
-    // The binding here owns only `display`, so nothing else clears them, and
-    // the form would come back fully transparent. Writing these two is safe
-    // where writing `display` would not be: no binding owns them, so there is
-    // nothing to desynchronise.
-    if (formEl) {
-      formEl.style.opacity = "";
-      formEl.style.transform = "";
-    }
     // Let the page swap the view back BEFORE focusing — the form is
     // `display: none` until it does, and `focus()` on a hidden element is
     // silently dropped.
@@ -512,13 +502,7 @@ export function LoginSection(props: LoginSectionProps) {
   const body = () => (
     <>
       {/* Login form — visible before claim */}
-      <div
-        ref={(el) => {
-          formEl = el;
-          props.formRef?.(el);
-        }}
-        style={{ display: showWelcome() ? "none" : "" }}
-      >
+      <div style={{ display: showWelcome() ? "none" : "" }}>
         <Eyebrow class="mb-3">Your Invitation</Eyebrow>
         <h2 class={`${HEADING} text-text mb-5 ${layout().headingSize}`}>Enter your code</h2>
         <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
@@ -598,7 +582,11 @@ export function LoginSection(props: LoginSectionProps) {
           (a display swap, not a second panel). */}
       <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
         <Show when={props.result?.preview}>
-          <div class={`mb-6 ${layout().measure}`} role="status">
+          <div
+            class={`mb-6 ${layout().measure}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and preview mode is a notice about the page, not the result of anything the guest did.
+            role="status"
+          >
             <Notice size="sm" tone="accent" fill="none">
               Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
             </Notice>
@@ -746,54 +734,64 @@ export function LoginSection(props: LoginSectionProps) {
             )}
           </Show>
         </Show>
-        {/* The chosen member's own address. Keyed on the member, so a new
+        {/* `Reveal`: answering "Who are you?" grows the member's boxes open as
+            one block rather than dropping them in between two frames; "Not
+            you?" takes them away at once. A household restored from its
+            session paints them open, with no motion: the welcome is hidden
+            until the result lands, and a box shown out of `display: none`
+            has no earlier state to move from. */}
+        <Reveal pace="slow" when={memberStep() && chosen() !== null}>
+          {/* The chosen member's own address. Keyed on the member, so a new
             "Who are you?" answer starts a fresh box. Once RSVPs have closed a
             member with no address on file has nothing to add and nothing to
             remove, so gets no box. That is decided once, when the member is
             chosen: after it, neither a removal nor the clock passing the
             deadline unmounts the box, whose status line and focus the guest
             is using. */}
-        <Show when={memberStep() && !props.result?.preview ? chosen() : null} keyed>
-          {(m) => {
-            const offered =
-              props.rsvpDeadlineState !== "closed" ||
-              (props.result ? readMemberEmail(props.result) : null) !== null;
-            return (
-              <Show when={offered}>
-                <Suspense fallback={null}>
-                  <GuestEmailBox
-                    apiUrl={props.apiUrl}
-                    member={m}
-                    email={props.result ? readMemberEmail(props.result) : null}
-                    closed={props.rsvpDeadlineState === "closed"}
-                    onChange={(email) => updateResult((result) => withMemberEmail(result, email))}
-                    onMemberRequired={() => updateResult((result) => ({ ...result, member: null }))}
-                    class={`mb-8 ${layout().measure} ${layout().box}`}
-                  />
-                </Suspense>
+          <Show when={memberStep() && !props.result?.preview ? chosen() : null} keyed>
+            {(m) => {
+              const offered =
+                props.rsvpDeadlineState !== "closed" ||
+                (props.result ? readMemberEmail(props.result) : null) !== null;
+              return (
+                <Show when={offered}>
+                  <Suspense fallback={null}>
+                    <GuestEmailBox
+                      apiUrl={props.apiUrl}
+                      member={m}
+                      email={props.result ? readMemberEmail(props.result) : null}
+                      closed={props.rsvpDeadlineState === "closed"}
+                      onChange={(email) => updateResult((result) => withMemberEmail(result, email))}
+                      onMemberRequired={() =>
+                        updateResult((result) => ({ ...result, member: null }))
+                      }
+                      class={`mb-8 ${layout().measure} ${layout().box}`}
+                    />
+                  </Suspense>
+                </Show>
+              );
+            }}
+          </Show>
+          <Show when={memberStep() && accountLink() ? accountLink() : null}>
+            {(state) => (
+              <Show when={chosen()}>
+                {(m) => (
+                  <Suspense fallback={null}>
+                    <PulseAccountLink
+                      apiUrl={props.apiUrl}
+                      member={m()}
+                      state={state()}
+                      onLinked={(id) => setLinked(id, true)}
+                      onUnlinked={(id) => setLinked(id, false)}
+                      onNotYou={() => void handleNotYou()}
+                      class={`mb-8 ${layout().measure} ${layout().box}`}
+                    />
+                  </Suspense>
+                )}
               </Show>
-            );
-          }}
-        </Show>
-        <Show when={memberStep() && accountLink() ? accountLink() : null}>
-          {(state) => (
-            <Show when={chosen()}>
-              {(m) => (
-                <Suspense fallback={null}>
-                  <PulseAccountLink
-                    apiUrl={props.apiUrl}
-                    member={m()}
-                    state={state()}
-                    onLinked={(id) => setLinked(id, true)}
-                    onUnlinked={(id) => setLinked(id, false)}
-                    onNotYou={() => void handleNotYou()}
-                    class={`mb-8 ${layout().measure} ${layout().box}`}
-                  />
-                </Suspense>
-              )}
-            </Show>
-          )}
-        </Show>
+            )}
+          </Show>
+        </Reveal>
         <Show when={props.onSignOut}>
           <Button variant="touchLink" type="button" onClick={handleSignOut}>
             {signOutLabel()}

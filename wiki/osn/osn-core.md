@@ -19,7 +19,7 @@ related:
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
 dev-host: https://id.musubi.localhost
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-11
 ---
 
 # OSN Core
@@ -33,7 +33,7 @@ OSN Core is the identity stack every other OSN app builds on. It owns auth (pass
 | `@osn/api` | Binary server (port 4000). Hosts auth, graph, organisations, recommendations, S2S routes, and JWKS. |
 | `@osn/client` | Browser/SDK: `createOsnAuthRuntime` (the page's one `OsnAuthService` and its renewing `authFetch`), `useAuth`, plus typed clients for the auth ceremonies, graph, organisations and recommendations, the authenticated ones built on that `authFetch`. Every REST client's error extends `OsnApiError`, carrying the response's `status` (`0` when none arrived) and the server's `code`. `ProfileManagementError`, from `OsnAuthService`'s profile calls, carries both as optional fields. `describeAuthError` reads either and turns it into a plain sentence. |
 | `@osn/db` | Drizzle + SQLite schema (accounts, profiles, passkeys, sessions, social graph, organisations, service accounts). |
-| `@osn/auth-ui` | SolidJS views for the ceremonies below: `<SignIn>`, `<Register>`, `<PasskeysView>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<TotpView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`, the profile forms, `<TurnstileWidget>`; and `describePasskeyError`, a plain sentence for a failed passkey step. |
+| `@osn/auth-ui` | SolidJS views for the ceremonies below: `<SignIn>`, `<Register>`, `<PasskeysView>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<TotpView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`, `<CheckEmailView>` (the wait after a flow emails a link), `<ConfirmLinkPage>` (the page the link opens), the profile forms, `<TurnstileWidget>`; and `describePasskeyError`, a plain sentence for a failed passkey step. |
 | `@shared/crypto` | ARC token primitives + recovery-code helpers. |
 
 `@osn/auth-ui` renders `@shared/ui` primitives but is not itself one of them: a
@@ -51,16 +51,21 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 | WebAuthn passkey or security key | Primary login (`POST /login/passkey/*`), required at register |
 | Recovery code | Lost-device fallback (`POST /login/recovery/complete`) |
 | Step-up passkey ceremony | Sudo gate for sensitive endpoints — see [[step-up]] |
-| Step-up OTP (to verified email) | Step-up fallback factor — see [[step-up]] |
+| Emailed link (to the address being signed up, on the account, or a new one) | Proves the address at sign-up, the mailbox in email recovery and step-up, and the new inbox in an email change; confirms it and signs nobody in — the tab that began gets the result — see [[email-links]] |
+| Authenticator code (TOTP) | Step-up factor, and a recovery factor — see [[totp]] |
 
 ### Public route surface
 
 | Route | Purpose |
 |---|---|
-| `POST /register/{begin,complete}` | New account + first profile (issues access + session cookie) |
+| `POST /register/begin` | Opens a sign-up and mails its link; answers the request id, claim secret and pairing number |
+| `POST /register/:requestId/{status,resend}` | The tab that began polls (the poll that finds the link confirmed makes the account and issues access + session cookie), or asks for another link |
+| `POST /email-link/:requestId/{candidates,confirm}` | The link's page: the numbers to pick from (sign-up), then the confirm with the number picked or typed. Never a session |
 | `POST /passkey/register/{begin,complete}` | Bind a passkey (mandatory at signup; step-up gated thereafter) |
 | `POST /login/passkey/{begin,complete}` | Identifier-bound or discoverable WebAuthn login |
 | `POST /login/recovery/complete` | Recovery-code login |
+| `POST /login/recovery/email/begin`, `…/:requestId/{status,resend}` | Email recovery: mails a link; the tab that began polls, and gets a restricted session (passkey enrolment only) once the link is confirmed — see [[account-recovery-factors]] |
+| `POST /login/recovery/totp/complete` | Authenticator recovery: a restricted session |
 | `POST /token` | Refresh-grant rotation (refresh token read **only** from HttpOnly cookie); an optional `profile_id` names the profile to mint for ([[identity-model#Session load on mount — durable refresh across reloads]]) |
 | `POST /logout` | Server-side session destruction |
 | `POST /step-up/{passkey,otp}/{begin,complete}` | Mint a single-use sudo token |
@@ -107,6 +112,7 @@ Auth routes use `createAuthRoutes(authConfig, dbLayer?)` — `authConfig` is req
 
 - [[identity-model]] — accounts, profiles, organisations, token model
 - [[passkey-primary]] — primary login contract
+- [[email-links]] — the emailed-link challenge sign-up uses
 - [[recovery-codes]] — Copenhagen Book M2 recovery flow
 - [[sessions]] — per-device session management
 - [[step-up]] — sudo token gating

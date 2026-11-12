@@ -144,9 +144,8 @@ export function selectEmailLayer(
           "CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_EMAIL_API_TOKEN all absent) and " +
           `${EMAIL_OPTIONAL_VAR} is set — booting with a NO-OP email transport. ` +
           "Transactional mail will NOT be delivered: OTP step-up codes, email-change " +
-          "OTPs, and security-notice emails (passkey added/removed, recovery codes, " +
-          "cross-device login) are all DISCARDED. Passkey login is primary and " +
-          "unaffected. Re-enable by setting RESEND_API_KEY (preferred) and unsetting " +
+          "OTPs, and every security-notice email are all DISCARDED. Passkey login is " +
+          "primary and unaffected. Re-enable by setting RESEND_API_KEY (preferred) and unsetting " +
           `${EMAIL_OPTIONAL_VAR}.`,
       ).pipe(Effect.provide(observabilityLayer)),
     );

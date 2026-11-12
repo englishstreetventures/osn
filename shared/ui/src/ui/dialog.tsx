@@ -140,11 +140,16 @@ const DialogFooter: Component<ComponentProps<"div">> = (props) => {
   );
 };
 
+/**
+ * The dialog's heading. Its weight is the contract's title weight,
+ * `--ui-weight-title` through `font-ui-title`, which falls back to 600, so an
+ * app that maps nothing keeps the semibold title it always had.
+ */
 const DialogTitle: Component<ComponentProps<"h2">> = (props) => {
   const [local, others] = splitProps(props, ["class"]);
   return (
     <KobalteDialog.Title
-      class={clsx("base:text-ui-ink base:text-ui-md base:font-semibold", local.class)}
+      class={clsx("base:text-ui-ink base:text-ui-md base:font-ui-title", local.class)}
       {...others}
     />
   );

@@ -251,7 +251,7 @@ export function createRecoveryModule(
   ): Effect.Effect<{ profile: ProfileWithEmail }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
-      const profile = yield* resolveIdentifier(normalised);
+      const profile = yield* resolveIdentifier(identifier);
       const { db } = yield* Db;
       const probe = serverMac.probeKey(normalised);
       const nowSec = Math.floor(Date.now() / 1000);

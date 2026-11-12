@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -189,9 +189,8 @@ screen shows even when consent is on record (pinned in
    `https://musubi.social/authorize` on 2026-07-27. Smoke check still open: full
    authorize → consent → token round-trip against a self-registered client
    (`POST /oidc/clients` makes this testable without an operator). It needs
-   the apex `musubi.social` serving `@musubi/social`: the `osn-social` Pages
-   project until its flip release, then the `osn-social` Worker — see
-   [[production-deploy]] §5.7 and [[musubi-identity-migration]].
+   the apex `musubi.social` serving `@musubi/social`, which the `osn-social`
+   Worker does — see [[production-deploy]] §5.3 and [[musubi-identity-migration]].
 
 ### What the build settled
 
@@ -227,10 +226,11 @@ screen shows even when consent is on record (pinned in
   new account. `initialMode` is therefore gated on `signedInHere()`: once a
   ceremony has happened on this page, the way forward is signing in.
 - **A registration that leaves no session is the same loop, one layer down.**
-  `POST /register/complete` returns the refresh token *only* as a
-  `Set-Cookie`, and the issuer is a different origin from this app — so
-  `@osn/client`'s registration calls have to run `credentials: "include"` or
-  the browser drops the cookie without a word. It did, until 2026-08-06:
+  The completing sign-up status poll (`POST /register/:requestId/status`)
+  returns the refresh token *only* as a `Set-Cookie`, and the issuer is a
+  different origin from this app — so `@osn/client`'s registration calls have
+  to run `credentials: "include"` or the browser drops the cookie without a
+  word. It did, until 2026-08-06:
   registration ended with an in-memory access token and no session, the
   context refetch reported `signedIn: false`, and a `prompt=create` journey
   landed back on the sign-up panel having apparently done nothing. Pinned by

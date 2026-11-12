@@ -76,11 +76,12 @@ describe("flow sources", () => {
   // `/authorize` (20 a minute, `oidcAuthorize` in
   // osn/api/src/routes/auth/limiters.ts). A Pulse sign-in, `signInToPulse`,
   // spends one `/authorize` too. A Musubi sign-in as the dev profile,
-  // `signInToMusubiAsDev`, spends one `/dev/login` and nothing else. All of it
+  // `signInToMusubiAsDev` or `signInToMusubiAsDevWithoutApp`, spends one
+  // `/dev/login` and nothing else. All of it
   // from the suite's one address, in fixed windows, so a sign-in past the
-  // budget fails only on a fast machine. Seven organiser sign-ins, one Musubi
-  // one and two Pulse ones keep every window with room: 14 of the 15 redirect
-  // legs, 8 of the 10 dev logins, 9 of the 20 authorizes.
+  // budget fails only on a fast machine. Seven organiser sign-ins, two Musubi
+  // ones and two Pulse ones keep every window with room: 14 of the 15 redirect
+  // legs, 9 of the 10 dev logins, 9 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     // The support modules too, less the helpers' own definitions.
     const sources = dirs.flatMap((dir) =>
@@ -92,33 +93,90 @@ describe("flow sources", () => {
       sources.reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
     const signIns = count(/(?<!function )signInToCireHost\(|\/dev\/login\?/g);
     const pulseSignIns = count(/(?<!function )signInToPulse\(/g);
-    const musubiDevSignIns = count(/(?<!function )signInToMusubiAsDev\(/g);
+    const musubiDevSignIns = count(/(?<!function )signInToMusubiAsDev(?:WithoutApp)?\(/g);
     expect(signIns).toBeGreaterThan(0);
     expect(signIns).toBeLessThanOrEqual(7);
     expect(signIns + pulseSignIns).toBeLessThanOrEqual(9);
     expect(signIns + musubiDevSignIns).toBeLessThanOrEqual(9);
   });
 
-  // osn-api allows 5 sign-up begins a minute per client address
-  // (`registerBegin` in `AUTH_RATE_LIMITS`, osn/api/src/routes/auth/limiters.ts,
-  // in-memory on this stack), one window shared by the whole run, so a sixth begin is a 429
-  // only on a machine fast enough to fit them in one minute. A flow begins a
-  // sign-up by pressing "Send verification code" or "Resend code" in Musubi's
-  // dialog, written exactly as the patterns below, or by `registerThroughApi`.
+  // osn-api allows 5 sign-up begins, 5 link Resends and 10 link confirms a
+  // minute per client address (`registerBegin`, `registerResend` and
+  // `emailLinkConfirm` in `AUTH_RATE_LIMITS`, osn/api/src/routes/auth/limiters.ts,
+  // in-memory on this stack), each one window shared by the whole run, so one
+  // more is a 429 only on a machine fast enough to fit them in one minute. A
+  // flow begins a sign-up by pressing "Send verification link" in Musubi's
+  // dialog, resends with "Resend link", and confirms by pressing a number on
+  // the link's page, right or wrong, or "I didn't ask for this" there, written
+  // exactly as the patterns below; `registerThroughApi` does one begin and one
+  // confirm. A recovery or step-up link's confirm, typing the number, and an
+  // email change's, picking it, spend the same confirm budget.
+  //
+  // A flow that calls `throughEmailVerificationApi` sends its osn-api calls to
+  // the stack's second osn-api, whose windows are its own, so its begins are
+  // counted against that one's five and not the first's.
+  const flowSources = () =>
+    readdirSync(join(import.meta.dirname, "flows")).map((file) =>
+      readFileSync(join(import.meta.dirname, "flows", file), "utf8"),
+    );
+  const toSecondApi = (source: string) => /throughEmailVerificationApi\(/.test(source);
+  const countIn = (pattern: RegExp, second = false): number =>
+    flowSources()
+      .filter((source) => toSecondApi(source) === second)
+      .reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
+  const BEGINS = /name: "Send verification link" \}\)\.click\(|registerThroughApi\(/g;
+
   test("the flows begin no more sign-ups than osn-api allows in a minute", () => {
-    const dir = join(import.meta.dirname, "flows");
-    const begins = readdirSync(dir)
-      .map((file) => readFileSync(join(dir, file), "utf8"))
-      .reduce(
-        (sum, source) =>
-          sum +
-          (source.match(
-            /name: "(?:Send verification code|Resend code)" \}\)\.click\(|registerThroughApi\(/g,
-          )?.length ?? 0),
-        0,
-      );
+    const begins = countIn(BEGINS);
     expect(begins).toBeGreaterThan(0);
     expect(begins).toBeLessThanOrEqual(5);
+  });
+
+  test("the flows routed to the second osn-api begin no more sign-ups than it allows in a minute", () => {
+    const begins = countIn(BEGINS, true);
+    expect(begins).toBeGreaterThan(0);
+    expect(begins).toBeLessThanOrEqual(5);
+  });
+
+  test("the flows resend and confirm no more links than osn-api allows in a minute", () => {
+    const resends = countIn(/name: "Resend link" \}\)\.click\(/g);
+    const confirms = countIn(
+      /confirmLinkOnPage\(|pickWrongNumberOnPage\(|declineLinkOnPage\(|typeNumberOnPage\(|registerThroughApi\(/g,
+    );
+    expect(resends).toBeLessThanOrEqual(5);
+    expect(confirms).toBeGreaterThan(0);
+    expect(confirms).toBeLessThanOrEqual(10);
+  });
+
+  // osn-api sends one account at most three recovery links a day from one
+  // client address, first links and Resends together (`recoveryLinkAddressCap`,
+  // osn/api/src/routes/auth/limiters.ts), and takes five recovery begins an
+  // hour per address (`recoveryEmailBegin`). The whole run asks from one
+  // address, so a fourth link is held back without an error: the begin still
+  // answers 202 and the flow waits for mail that never comes. A flow asks for
+  // a recovery link with "Send the link" and resends with "Resend link";
+  // `musubi-recovery` presses the first through its `askForLink` helper, so
+  // there each call of the helper is the press that counts.
+  test("the flows send no more recovery links than osn-api allows one account a day", () => {
+    const recovery = readdirSync(join(import.meta.dirname, "flows"))
+      .map((file) => readFileSync(join(import.meta.dirname, "flows", file), "utf8"))
+      .filter((source) => source.includes('name: "Email me a link"'));
+    const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
+    const begins = recovery.reduce(
+      (sum, source) =>
+        sum +
+        count(source, /name: "Send the link" \}\)\.click\(/g) *
+          (source.includes("askForLink(") ? 0 : 1) +
+        count(source, /askForLink\("/g),
+      0,
+    );
+    const resends = recovery.reduce(
+      (sum, source) => sum + count(source, /name: "Resend link" \}\)\.click\(/g),
+      0,
+    );
+    expect(recovery.length).toBeGreaterThan(0);
+    expect(begins).toBeGreaterThan(0);
+    expect(begins + resends).toBeLessThanOrEqual(3);
   });
 
   // The organiser's window exists only because the stack's cire-api keeps a

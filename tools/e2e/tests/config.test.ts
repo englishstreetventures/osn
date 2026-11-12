@@ -27,5 +27,7 @@ describe("PORTS", () => {
     const devPorts = Object.values(DEV_APPS).map((app) => app.port);
     expect(devPorts).not.toContain(PORTS.mail);
     expect(devPorts).not.toContain(PORTS.stripe);
+    expect(devPorts).not.toContain(PORTS.issuer);
+    expect(devPorts).not.toContain(PORTS.osnApiEvt);
   });
 });

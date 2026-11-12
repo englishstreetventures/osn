@@ -1,0 +1,214 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 2095,
+    "branch": "feat/auth-ui-check-email-view",
+    "base_sha": "65aad70ada6f9396d023bf874ac6586241bab6b0",
+    "head_sha": "2712175502f17b0a512ab3329acfe6bae104c642",
+    "generated_at": "2026-11-10T16:15:08.833Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2085,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": 1,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 15,
+    "first_ts": "2026-11-06T10:44:22.227Z",
+    "last_ts": "2026-11-06T17:38:42.982Z",
+    "span_seconds": 24861,
+    "active_seconds": 7313,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 74.73562310000005,
+    "tokens": {
+      "input": 1464,
+      "output": 634105,
+      "thinking": 269509,
+      "cache_write_5m": 3344552,
+      "cache_write_1h": 0,
+      "cache_read": 113894407
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1452,
+          "output": 629118,
+          "thinking": 269064,
+          "cache_write_5m": 3290149,
+          "cache_write_1h": 0,
+          "cache_read": 113659636
+        },
+        "usd_equivalent": 74.50276740000005,
+        "messages": 691
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 12,
+          "output": 4987,
+          "thinking": 445,
+          "cache_write_5m": 54403,
+          "cache_write_1h": 0,
+          "cache_read": 234771
+        },
+        "usd_equivalent": 0.2328557,
+        "messages": 6
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 56,
+          "output": 6632,
+          "thinking": 3367,
+          "cache_write_5m": 181994,
+          "cache_write_1h": 0,
+          "cache_read": 246130
+        },
+        "usd_equivalent": 1.1412859999999996,
+        "messages": 28
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1408,
+          "output": 627473,
+          "thinking": 266142,
+          "cache_write_5m": 3162558,
+          "cache_write_1h": 0,
+          "cache_read": 113648277
+        },
+        "usd_equivalent": 73.59433710000006,
+        "messages": 670
+      }
+    },
+    "effort": {
+      "medium": 34,
+      "xhigh": 502,
+      "high": 161
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 4,
+      "test": 2,
+      "docs": 7,
+      "config": 2,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 16,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1025,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 232,
+        "deleted": 30
+      },
+      "config": {
+        "added": 2,
+        "deleted": 0
+      },
+      "source": {
+        "added": 732,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "osn/auth-ui",
+      "tools/lab"
+    ],
+    "touches_migration": false,
+    "commits": 24
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 480,
+      "Read": 155,
+      "Edit": 136,
+      "Write": 28,
+      "Skill": 26,
+      "StructuredOutput": 14,
+      "SubagentHandback": 12,
+      "Agent": 8,
+      "ToolSearch": 4,
+      "Grep": 3,
+      "TaskStop": 3,
+      "WebFetch": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 11,
+      "max_edits_one_file": 27
+    },
+    "skills": {
+      "design-system": 4,
+      "new-feat": 2,
+      "stress-plan": 1,
+      "write-wiki": 5,
+      "obsidian:obsidian-markdown": 4,
+      "web-design-guidelines": 2,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-design": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "write-pr": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "reviewer": 4,
+      "mechanic": 1,
+      "implementer": 1
+    },
+    "requests": {
+      "main": 28,
+      "subagent": 669,
+      "with_tools": 689,
+      "with_one_tool": 572,
+      "context_median": 151379,
+      "context_p90": 297100
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 7,
+    "located": 5,
+    "acted_on": 5,
+    "paired": 5,
+    "acted_on_paired": 5,
+    "control_changed": 3,
+    "acted_on_by_test": 3,
+    "acted_on_paired_by_test": 3
+  }
+}

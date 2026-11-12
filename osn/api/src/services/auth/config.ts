@@ -2,6 +2,7 @@ import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
+import type { IssuerNetwork } from "./email-verification-network";
 import type {
   AccountCapLimiter,
   CeremonyStores,
@@ -51,7 +52,7 @@ export interface AuthConfig {
   accessTokenTtl?: number;
   /** Refresh token TTL in seconds (default: 2592000 = 30 days) */
   refreshTokenTtl?: number;
-  /** OTP TTL in seconds (default: 600 = 10 min). Applies to registration, email change, and step-up OTP. */
+  /** Emailed-link TTL in seconds (default: 600 = 10 min). Applies to sign-up, email change and step-up links. */
   otpTtl?: number;
   /**
    * Step-up (sudo) token TTL in seconds. Default: 300 (5 min). Short enough
@@ -120,7 +121,7 @@ export interface AuthConfig {
    */
   passkeyRegisterAllowedAmr?: readonly ("webauthn" | "otp" | "totp")[];
   // A fourth AMR allow-list exists and has no field here on purpose:
-  // `emailChangeAllowedAmr` (`context.ts`) gates `/account/email/complete` at
+  // `emailChangeAllowedAmr` (`context.ts`) gates `/account/email/:requestId/complete` at
   // `["webauthn", "otp"]` and no deployment may widen it. Its `otp` arm proves
   // control of the CURRENT mailbox, which a TOTP seed does not, and email
   // change is the pivot to permanent takeover — so it is a property of the
@@ -141,6 +142,12 @@ export interface AuthConfig {
    */
   passkeyChallengeClaims?: ChallengeClaimStore;
   /**
+   * Single-use claims on browser Email Verification API nonces, so a token is
+   * accepted for one sign-up. A deployed Worker passes the coordination
+   * store's; the in-memory default holds in one process only.
+   */
+  emailVerificationNonceClaims?: ChallengeClaimStore;
+  /**
    * O2: per-account recovery-code lockout counter. Defaults to in-memory; a
    * deployed Worker passes the coordination store's, so the threshold holds
    * across isolates. Keyed on the resolved accountId — see
@@ -158,13 +165,27 @@ export interface AuthConfig {
    */
   totpLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per-account lockout for the email-OTP recovery path. Its own instance
-   * rather than a share of {@link recoveryLockoutStore}: an attacker grinding
-   * 64-bit recovery codes must not deny the owner the email path, nor the
-   * reverse — the whole point of a second recovery factor is that it is
-   * independent of the first.
+   * Per-account lockout for email recovery: wrong numbers typed on the
+   * account's recovery links. Its own instance rather than a share of
+   * {@link recoveryLockoutStore}: an attacker grinding 64-bit recovery codes
+   * must not deny the owner the email path, nor the reverse — the whole point
+   * of a second recovery factor is that it is independent of the first.
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
+  /**
+   * Per address as typed (lowercased): wrong picks on sign-up links
+   * ({@link REGISTRATION_LINK_LOCKOUT_THRESHOLD} in
+   * {@link REGISTRATION_LINK_LOCKOUT_MS}). Read before every sign-up link is
+   * mailed; past the threshold, none is.
+   */
+  registrationLinkLockoutStore?: RecoveryLockoutStore;
+  /**
+   * Per account: wrong typed numbers on step-up links (recovery's numbers:
+   * five in 15 minutes). While it holds, no step-up link is mailed and a right
+   * number is refused. Its own counter, so a step-up never locks anyone out of
+   * a recovery factor.
+   */
+  stepUpLinkLockoutStore?: RecoveryLockoutStore;
   /**
    * The AES-GCM keys TOTP shared secrets are encrypted under at rest, by the
    * version stamped on a row. `buildAppDeps` builds it at boot from
@@ -199,13 +220,44 @@ export interface AuthConfig {
   profileSwitchCap?: AccountCapLimiter;
   emailChangeBeginCap?: AccountCapLimiter;
   /**
-   * Per-account cap on `/login/recovery/email/begin` (3 per 24 h). Keyed on the
-   * resolved accountId — never on the submitted identifier, or an attacker
-   * could exhaust a victim's allowance by naming them, and the cap would double
-   * as an account-existence oracle. See
-   * {@link RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX}.
+   * Recovery links per (account, client address): 3 per 24 h, keyed on
+   * `serverMac.recoverySendKey(accountId, ip)` and checked only where a link
+   * goes out. Each client address has its own allowance for an account, so
+   * requests from one address never use another's. See
+   * {@link RECOVERY_LINKS_PER_ADDRESS_MAX}.
    */
-  recoveryEmailBeginCap?: AccountCapLimiter;
+  recoveryLinkAddressCap?: AccountCapLimiter;
+  /**
+   * Resent recovery links per account, from every address together: 3 per
+   * 24 h, keyed on the resolved accountId. A begin's first link never counts.
+   * See {@link RECOVERY_RESENDS_PER_ACCOUNT_MAX}.
+   */
+  recoveryResendCap?: AccountCapLimiter;
+  /**
+   * Every recovery link to one account in 24 hours, first links and Resends
+   * together (20), keyed on `serverMac.probeKey(accountId)` and checked only
+   * where a link would go out. See {@link RECOVERY_LINKS_PER_ACCOUNT_CEILING}.
+   */
+  recoveryLinkCeiling?: AccountCapLimiter;
+  /**
+   * Cap on resent sign-up links (6 an hour), keyed on the probe key of
+   * `mailboxKey(address)` and checked only
+   * where a link goes out. See
+   * {@link REGISTRATION_SENDS_PER_ADDRESS_MAX}.
+   */
+  registrationSendCap?: AccountCapLimiter;
+  /**
+   * Every step-up link to one account in 24 hours, first links and Resends
+   * together (10), keyed on the account id and checked only where a link would
+   * go out. See {@link STEP_UP_LINKS_PER_ACCOUNT_CEILING}.
+   */
+  stepUpLinkCeiling?: AccountCapLimiter;
+  /**
+   * Resent step-up and email-change links per mailbox (3 a day), keyed on the
+   * probe key of `mailboxKey(address)`. A first link never counts. See
+   * {@link LINK_RESENDS_PER_MAILBOX_MAX}.
+   */
+  linkResendCap?: AccountCapLimiter;
   /**
    * HMAC key for pairwise subject identifiers. Every relying party sees a
    * different `sub` for the same profile, derived from this key plus the
@@ -224,4 +276,12 @@ export interface AuthConfig {
    * echoes the raw OAuth parameters. Defaults to the first configured origin.
    */
   authorizeUiUrl?: string;
+  /**
+   * Sign-up accepts a browser Email Verification API token when this is set,
+   * and ignores one entirely when it is not. `buildAppDeps` sets it from
+   * `OSN_EMAIL_VERIFICATION_API`, off unless that reads true; nothing else
+   * reads the variable. `network` is every outbound request the verifier
+   * makes: DNS-over-HTTPS and the issuer's metadata and keys.
+   */
+  emailVerification?: { readonly network: IssuerNetwork };
 }

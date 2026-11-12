@@ -53,13 +53,30 @@ export interface CoordinationStores {
   readonly stepUpJtiStore: StepUpJtiStore;
   /** Single-use claims on discoverable passkey challenges. */
   readonly passkeyChallengeClaims: ChallengeClaimStore;
+  /** Single-use claims on Email Verification API nonces. */
+  readonly emailVerificationNonceClaims: ChallengeClaimStore;
   readonly ceremonyStores: CeremonyStores;
   readonly recoveryLockoutStore: RecoveryLockoutStore;
   readonly recoveryOtpLockoutStore: RecoveryLockoutStore;
   readonly totpLockoutStore: RecoveryLockoutStore;
+  /** Wrong picks on sign-up links, per address as typed (lowercased). */
+  readonly registrationLinkLockoutStore: RecoveryLockoutStore;
+  /** Per account: wrong typed numbers on step-up links. */
+  readonly stepUpLinkLockoutStore: RecoveryLockoutStore;
   readonly profileSwitchCap: AccountCapLimiter;
   readonly emailChangeBeginCap: AccountCapLimiter;
-  readonly recoveryEmailBeginCap: AccountCapLimiter;
+  /** Recovery links per (account, client address), keyed on `serverMac.recoverySendKey`. */
+  readonly recoveryLinkAddressCap: AccountCapLimiter;
+  /** Resent recovery links per account, from every address together. */
+  readonly recoveryResendCap: AccountCapLimiter;
+  /** Every recovery link to one account, from every address together. */
+  readonly recoveryLinkCeiling: AccountCapLimiter;
+  /** Cap on resent sign-up links, keyed on the probe key of `mailboxKey(address)`. */
+  readonly registrationSendCap: AccountCapLimiter;
+  /** Every step-up link to one account, keyed on the account id. */
+  readonly stepUpLinkCeiling: AccountCapLimiter;
+  /** Resent step-up and email-change links per mailbox. */
+  readonly linkResendCap: AccountCapLimiter;
   /** `GET /health/coordination`'s write, read and remove on its own store. */
   readonly healthProbe: CoordinationProbe;
   /** Per-IP guard in front of the health probe. */

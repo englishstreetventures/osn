@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-11-11
 ---
 
 # Bun 1.4 migration
@@ -219,7 +219,7 @@ hand-written bash assertion into `bun test`:
 | `validate-changesets.sh` | 122 + 102 |
 | `changeset-required.sh` | 68 + 88 |
 
-`cire-db-seed.sh`, `db-reset.sh`, `ensure-pages-project.sh`
+`cire-db-seed.sh`, `db-reset.sh`
 and `labels.sh` are straight command sequences — shorter under `$`, but there is
 no correctness argument for moving them.
 

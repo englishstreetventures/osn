@@ -76,14 +76,14 @@ describe("ExploreCard", () => {
 
   it("separator dot appears between venue and location", () => {
     const { container } = render(() => <ExploreCard event={baseEvent} />);
-    const dots = container.querySelectorAll(".rounded-full.bg-foreground\\/20");
-    expect(dots.length).toBe(1);
+    const dots = container.querySelectorAll('span[aria-hidden="true"]');
+    expect(Array.from(dots).filter((d) => d.textContent?.trim() === "·")).toHaveLength(1);
   });
 
   it("omits separator dot when only venue or only location", () => {
     const venueOnly = { ...baseEvent, location: null };
     const { container } = render(() => <ExploreCard event={venueOnly} />);
-    const dots = container.querySelectorAll(".rounded-full.bg-foreground\\/20");
-    expect(dots.length).toBe(0);
+    const dots = container.querySelectorAll('span[aria-hidden="true"]');
+    expect(Array.from(dots).filter((d) => d.textContent?.trim() === "·")).toHaveLength(0);
   });
 });

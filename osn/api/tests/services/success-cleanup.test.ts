@@ -1,9 +1,9 @@
 import { it, expect, describe } from "@effect/vitest";
-import { accounts, emailChanges, totpCredentials } from "@osn/db/schema";
+import { totpCredentials } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { CoordinationNamespace, CoordinationOp } from "@shared/coordination";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
-import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
+import { type EmailService, makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
@@ -15,6 +15,12 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
+import { latestLinkTo } from "../helpers/registration";
+import {
+  changeEmailThroughService,
+  confirmedEmailChange,
+  NO_LIVE_SESSION,
+} from "../helpers/step-up-link";
 
 /**
  * A success answers once the work that matters has committed. The store call
@@ -22,14 +28,13 @@ import { createTestLayer } from "../helpers/db";
  * lockout counter — runs in the background, registered with the request's
  * `waitUntil`, so the caller never waits a round trip for it. Each case holds
  * that one call until the answer is in, which an awaited cleanup would never
- * reach, then lets it go and checks it landed. A recovery code or an emailed
- * recovery code whose counter read 0 on the way in has nothing to clear, so it
- * makes no call at all. A TOTP check counts its own attempt before it compares
+ * reach, then lets it go and checks it landed. A recovery code whose counter
+ * read 0 on the way in has nothing to clear, so it makes no call at all. A TOTP check counts its own attempt before it compares
  * the code, so a right code always clears the count.
  *
- * The later cases hold one call — a cleanup, a claim, a capped guess's delete,
- * a failed send's settle — while another request writes at the same key, then
- * let it go and check what the other request wrote survived it.
+ * The later cases hold one call — a cleanup, a claim, a capped guess's delete
+ * — while another request writes at the same key, then let it go and check
+ * what the other request wrote survived it.
  */
 
 let base: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -99,23 +104,7 @@ function harness(
   const email = makeLogEmailLive();
   const layer = Layer.merge(createTestLayer(), mail ?? email.layer);
   const ops = (from = 0) => fake.calls.slice(from).map((call) => `${call.store}.${call.op}`);
-  /** The newest six-digit code mailed. */
-  const code = () => {
-    const all = email.recorded();
-    for (let i = all.length - 1; i >= 0; i--) {
-      const match = all[i]!.text.match(/code is: (\d{6})/);
-      if (match) return match[1]!;
-    }
-    throw new Error("no code mailed");
-  };
-  /** The newest six-digit code, once a send has landed: some sends run after the answer. */
-  const mailedCode = Effect.gen(function* () {
-    for (let i = 0; i < 200; i++) {
-      if (email.recorded().some((sent) => /code is: \d{6}/.test(sent.text))) return code();
-      yield* Effect.sleep("5 millis");
-    }
-    throw new Error("no code mailed");
-  });
+  const recorded = () => email.recorded();
   /** Waits until `op`, or one of several, has reached the store since call `from`. */
   const landed = (op: string | readonly string[], from = 0) =>
     Effect.gen(function* () {
@@ -146,8 +135,7 @@ function harness(
     bundle,
     layer,
     ops,
-    code,
-    mailedCode,
+    recorded,
     landed,
     holdingAtLeast,
     settledWithout,
@@ -179,48 +167,21 @@ const totpCodeFor = (secret: string) =>
     deriveTotpCode(base32Decode(secret), Math.floor(Date.now() / 1000 / STEP_SECONDS)),
   );
 
-/**
- * Mail that records every code it is asked to send. The first send waits until
- * `failFirst()`, then fails with `error`; every later send succeeds.
- */
-function scriptedMail(error: EmailError) {
-  const codes: string[] = [];
-  let failFirst!: () => void;
-  const failing = new Promise<void>((resolve) => {
-    failFirst = resolve;
-  });
-  let sends = 0;
-  const layer = Layer.succeed(EmailService, {
-    send: (input) =>
-      Effect.gen(function* () {
-        if ("code" in input.data) codes.push(input.data.code);
-        sends += 1;
-        if (sends > 1) return;
-        yield* Effect.promise(() => failing);
-        return yield* Effect.fail(error);
-      }),
-  });
-  /** The code the `n`th send carried, counting from 0, once that send has been made. */
-  const nth = (n: number) =>
-    Effect.gen(function* () {
-      for (let i = 0; i < 200; i++) {
-        if (codes.length > n) return codes[n]!;
-        yield* Effect.sleep("5 millis");
-      }
-      throw new Error(`no send ${n}`);
-    });
-  return { layer, nth, failFirst: () => failFirst() };
-}
-
 describe("success paths answer without waiting on their cleanup", () => {
-  it.live("registration complete: the spent entry's delete", () => {
+  it.live("registration complete: the pending entry's delete", () => {
     const h = harness((store, op) => store === "pending_registration" && op === "remove");
+    const address = "clean-reg@example.com";
     return Effect.gen(function* () {
-      yield* settle(h.auth.beginRegistration("clean-reg@example.com", "cleanreg", "1990-01-01"));
+      const begun = yield* settle(h.auth.beginRegistration(address, "cleanreg", "1990-01-01"));
+      const link = latestLinkTo(h.recorded(), address)!;
+      yield* h.auth.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
       const done = yield* h.auth
-        .completeRegistration("clean-reg@example.com", h.code())
+        .registrationStatus(begun.requestId, begun.claimSecret)
         .pipe(Effect.timeout(ANSWER_WITHIN));
-      expect(done.handle).toBe("cleanreg");
+      expect(done.status === "complete" && done.handle).toBe("cleanreg");
       h.release();
       yield* h.landed("pending_registration.remove");
     }).pipe(Effect.provide(h.layer));
@@ -292,19 +253,6 @@ describe("a lockout with no failures on record", () => {
       expect(yield* h.settledWithout("recovery_lockout.remove", from)).toBe(true);
     }).pipe(Effect.provide(h.layer));
   });
-
-  it.live("emailed recovery code sign-in makes no reset call", () => {
-    const h = harness();
-    return Effect.gen(function* () {
-      yield* h.auth.registerProfile("clean-er0@example.com", "cleaner0");
-      yield* h.auth.beginEmailRecovery("clean-er0@example.com");
-      const code = yield* h.mailedCode;
-      const from = h.ops().length;
-      yield* h.auth.completeEmailRecovery("clean-er0@example.com", code);
-      expect(h.ops(from)).toContain("recovery_otp_lockout.count");
-      expect(yield* h.settledWithout("recovery_otp_lockout.remove", from)).toBe(true);
-    }).pipe(Effect.provide(h.layer));
-  });
 });
 
 /**
@@ -315,58 +263,41 @@ describe("a lockout with no failures on record", () => {
  */
 describe("a cleanup leaves what another request wrote", () => {
   it.live("email change: a begin after the answer keeps its entry", () => {
-    // Every remove but the first — the completing change's own claim — is held,
-    // so any delete the completed change made after its answer would still be
-    // in flight when the next change begins.
-    let removes = 0;
-    const h = harness(
-      (store, op) => store === "pending_email_change" && op === "remove" && ++removes > 1,
-    );
+    // Every pending-change remove is held, so the completed change's cleanup
+    // is still in flight when the next change begins.
+    const h = harness((store, op) => store === "pending_email_change" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("keep-ec@example.com", "keepec");
       const first = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      yield* h.auth.beginEmailChange(profile.accountId, "keep-ec-1@example.com");
-      yield* h.auth.completeEmailChange(profile.accountId, h.code(), first, null);
+      yield* changeEmailThroughService(
+        h.auth,
+        profile.accountId,
+        "keep-ec-1@example.com",
+        first,
+        h.recorded,
+      );
+      yield* h.holdingAtLeast(1);
 
-      yield* h.auth.beginEmailChange(profile.accountId, "keep-ec-2@example.com");
-      const code = h.code();
+      const begun = yield* confirmedEmailChange(
+        h.auth,
+        profile.accountId,
+        "keep-ec-2@example.com",
+        h.recorded,
+      );
       h.release();
 
       const second = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      const done = yield* h.auth.completeEmailChange(profile.accountId, code, second, null);
+      const done = yield* h.auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        begun.requestId,
+        begun.claimSecret,
+        second,
+        NO_LIVE_SESSION,
+      );
       expect(done.email).toBe("keep-ec-2@example.com");
     }).pipe(Effect.provide(h.layer));
   });
-
-  it.live(
-    "email change: a begin while the capped guess's delete is in flight keeps its entry",
-    () => {
-      const h = harness((store, op) => store === "pending_email_change" && op === "remove");
-      return Effect.gen(function* () {
-        const profile = yield* h.auth.registerProfile("keep-ecl@example.com", "keepecl");
-        yield* h.auth.beginEmailChange(profile.accountId, "keep-ecl-1@example.com");
-        const wrong = wrongFor(h.code());
-        for (let i = 1; i < MAX_OTP_ATTEMPTS; i++) {
-          const token = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-          yield* Effect.flip(h.auth.completeEmailChange(profile.accountId, wrong, token, null));
-        }
-        const last = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-        const capped = yield* Effect.forkChild(
-          Effect.flip(h.auth.completeEmailChange(profile.accountId, wrong, last, null)),
-        );
-        yield* h.holdingAtLeast(1);
-
-        yield* h.auth.beginEmailChange(profile.accountId, "keep-ecl-2@example.com");
-        const code = h.code();
-        h.release();
-        expect((yield* Fiber.join(capped))._tag).toBe("AuthError");
-
-        const token = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-        const done = yield* h.auth.completeEmailChange(profile.accountId, code, token, null);
-        expect(done.email).toBe("keep-ecl-2@example.com");
-      }).pipe(Effect.provide(h.layer));
-    },
-  );
 
   it.live("recovery-code sign-in: a wrong code after the answer keeps its failure", () => {
     const h = harness((store, op) => store === "recovery_lockout" && op === "remove");
@@ -402,35 +333,6 @@ describe("a cleanup leaves what another request wrote", () => {
       ).toEqual({ status: "open", failures: 1 });
     }).pipe(Effect.provide(h.layer));
   });
-
-  it.live(
-    "emailed recovery code: a wrong code counted while the reset is in flight keeps its failure",
-    () => {
-      const h = harness(
-        (store, op) =>
-          (store === "pending_recovery_otp" || store === "recovery_otp_lockout") && op === "remove",
-      );
-      return Effect.gen(function* () {
-        const profile = yield* h.auth.registerProfile("keep-er@example.com", "keeper");
-        yield* h.auth.beginEmailRecovery("keep-er@example.com");
-        const code = yield* h.mailedCode;
-        yield* Effect.flip(h.auth.completeEmailRecovery("keep-er@example.com", wrongFor(code)));
-
-        // The right code's claim and reset are both held; a wrong code guesses
-        // against the still-live entry and counts its failure on the account.
-        const right = yield* Effect.forkChild(
-          h.auth.completeEmailRecovery("keep-er@example.com", code),
-        );
-        yield* h.holdingAtLeast(2);
-        yield* Effect.flip(h.auth.completeEmailRecovery("keep-er@example.com", wrongFor(code)));
-        h.release();
-        yield* Fiber.join(right);
-        expect(
-          yield* Effect.promise(() => h.bundle.recoveryOtpLockoutStore.status(profile.accountId)),
-        ).toEqual({ status: "open", failures: 1 });
-      }).pipe(Effect.provide(h.layer));
-    },
-  );
 });
 
 /** The tag of the error `result` failed with, or `"ok"`. */
@@ -446,50 +348,6 @@ const outcome = (result: {
  * the fresh code works.
  */
 describe("a claim or a capped guess's delete takes only the entry the guess read", () => {
-  it.live("step-up OTP: a begin while the right code's claim is in flight", () => {
-    const h = harness((store, op) => store === "step_up_otp" && op === "remove");
-    return Effect.gen(function* () {
-      const profile = yield* h.auth.registerProfile("claim-su@example.com", "claimsu");
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const old = yield* Effect.forkChild(
-        Effect.result(h.auth.completeStepUpOtp(profile.accountId, h.code())),
-      );
-      yield* h.holdingAtLeast(1);
-
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const code = h.code();
-      h.release();
-      expect(outcome(yield* Fiber.join(old))).toBe("AuthError");
-
-      const done = yield* h.auth.completeStepUpOtp(profile.accountId, code);
-      expect(done.stepUpToken).toBeTruthy();
-    }).pipe(Effect.provide(h.layer));
-  });
-
-  it.live("step-up OTP: a begin while the capped guess's delete is in flight", () => {
-    const h = harness((store, op) => store === "step_up_otp" && op === "remove");
-    return Effect.gen(function* () {
-      const profile = yield* h.auth.registerProfile("cap-su@example.com", "capsu");
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const wrong = wrongFor(h.code());
-      for (let i = 1; i < MAX_OTP_ATTEMPTS; i++) {
-        yield* Effect.flip(h.auth.completeStepUpOtp(profile.accountId, wrong));
-      }
-      const capped = yield* Effect.forkChild(
-        Effect.flip(h.auth.completeStepUpOtp(profile.accountId, wrong)),
-      );
-      yield* h.holdingAtLeast(1);
-
-      yield* h.auth.beginStepUpOtp(profile.accountId);
-      const code = h.code();
-      h.release();
-      expect((yield* Fiber.join(capped))._tag).toBe("AuthError");
-
-      const done = yield* h.auth.completeStepUpOtp(profile.accountId, code);
-      expect(done.stepUpToken).toBeTruthy();
-    }).pipe(Effect.provide(h.layer));
-  });
-
   it.live("TOTP enrolment: a begin while the right code's claim is in flight", () => {
     const h = harness((store, op) => store === "pending_totp_enroll" && op === "remove");
     return Effect.gen(function* () {
@@ -553,160 +411,97 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
     }).pipe(Effect.provide(h.layer));
   });
 
-  it.live("emailed recovery code: a begin while the right code's claim is in flight", () => {
-    // No failure is on record, so the right code makes no reset: the one held
-    // call is its claim.
-    const h = harness((store, op) => store === "pending_recovery_otp" && op === "remove");
-    return Effect.gen(function* () {
-      yield* h.auth.registerProfile("claim-er@example.com", "claimer");
-      yield* settle(h.auth.beginEmailRecovery("claim-er@example.com"));
-      const old = yield* Effect.forkChild(
-        Effect.result(h.auth.completeEmailRecovery("claim-er@example.com", h.code())),
-      );
-      yield* h.holdingAtLeast(1);
-
-      yield* settle(h.auth.beginEmailRecovery("claim-er@example.com"));
-      const code = h.code();
-      h.release();
-      expect(outcome(yield* Fiber.join(old))).toBe("AuthError");
-
-      const done = yield* h.auth.completeEmailRecovery("claim-er@example.com", code);
-      expect(done.session.accessToken).toMatch(/^eyJ/);
-    }).pipe(Effect.provide(h.layer));
-  });
-
-  it.live("email change: a begin while the right code's claim is in flight", () => {
-    const h = harness((store, op) => store === "pending_email_change" && op === "remove");
+  it.live("email change: a begin while the request's claim is in flight keeps its entry", () => {
+    // The claim is the request's own entry, which a new begin does not touch,
+    // so the change already authorised goes through; the cleanup after it
+    // removes the account's pending change only while it names that request,
+    // so the new begin's change can still complete.
+    const h = harness((store, op) => store === "email_link" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("claim-ec@example.com", "claimec");
       const first = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      yield* h.auth.beginEmailChange(profile.accountId, "claim-ec-1@example.com");
-      const old = yield* Effect.forkChild(
-        Effect.result(h.auth.completeEmailChange(profile.accountId, h.code(), first, null)),
+      const old = yield* confirmedEmailChange(
+        h.auth,
+        profile.accountId,
+        "claim-ec-1@example.com",
+        h.recorded,
+      );
+      const finishing = yield* Effect.forkChild(
+        h.auth.completeEmailChange(
+          profile.accountId,
+          profile.id,
+          old.requestId,
+          old.claimSecret,
+          first,
+          NO_LIVE_SESSION,
+        ),
       );
       yield* h.holdingAtLeast(1);
 
-      yield* h.auth.beginEmailChange(profile.accountId, "claim-ec-2@example.com");
-      const code = h.code();
+      const begun = yield* confirmedEmailChange(
+        h.auth,
+        profile.accountId,
+        "claim-ec-2@example.com",
+        h.recorded,
+      );
       h.release();
-      expect(outcome(yield* Fiber.join(old))).toBe("AuthError");
-      const { db } = yield* Db;
-      const changes = yield* Effect.promise(() =>
-        db.select().from(emailChanges).where(eq(emailChanges.accountId, profile.accountId)),
-      );
-      expect(changes).toHaveLength(0);
-      const [account] = yield* Effect.promise(() =>
-        db.select().from(accounts).where(eq(accounts.id, profile.accountId)),
-      );
-      expect(account?.email).toBe("claim-ec@example.com");
+      expect((yield* Fiber.join(finishing)).email).toBe("claim-ec-1@example.com");
 
       const second = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
-      const done = yield* h.auth.completeEmailChange(profile.accountId, code, second, null);
+      const done = yield* h.auth.completeEmailChange(
+        profile.accountId,
+        profile.id,
+        begun.requestId,
+        begun.claimSecret,
+        second,
+        NO_LIVE_SESSION,
+      );
       expect(done.email).toBe("claim-ec-2@example.com");
     }).pipe(Effect.provide(h.layer));
   });
 
   // A registration `begin` writes only where nothing is live, so it can land
-  // between a guess and its delete only once the guessed entry's life has run
-  // out. The clock is moved past it while the delete is held.
+  // between the capped guess and the release of its pending entry only once
+  // that entry's life has run out. The clock is moved past it while the
+  // release's delete is held.
   it.live(
-    "registration: a begin after the entry expired while the capped guess's delete is in flight",
+    "registration: a begin after the entry expired while the capped guess's release is in flight",
     () => {
       const h = harness((store, op) => store === "pending_registration" && op === "remove");
       const address = "cap-reg@example.com";
+      const wrong = "0".repeat(64);
       let clock: { mockRestore(): void } | undefined;
       return Effect.gen(function* () {
-        yield* settle(h.auth.beginRegistration(address, "capreg", "1990-01-01"));
-        const wrong = wrongFor(h.code());
+        const begun = yield* settle(h.auth.beginRegistration(address, "capreg", "1990-01-01"));
+        const link = latestLinkTo(h.recorded(), address)!;
         for (let i = 1; i < MAX_OTP_ATTEMPTS; i++) {
-          yield* Effect.flip(h.auth.completeRegistration(address, wrong));
+          yield* h.auth.confirmEmailLink(link.requestId, {
+            linkSecret: wrong,
+            pairingPick: begun.pairingCode,
+          });
         }
         const capped = yield* Effect.forkChild(
-          Effect.flip(h.auth.completeRegistration(address, wrong)),
+          h.auth.confirmEmailLink(link.requestId, {
+            linkSecret: wrong,
+            pairingPick: begun.pairingCode,
+          }),
         );
         yield* h.holdingAtLeast(1);
 
         const later = Date.now() + (base.otpTtl ?? 600) * 1000 + 1_000;
         clock = vi.spyOn(Date, "now").mockReturnValue(later);
-        yield* settle(h.auth.beginRegistration(address, "capreg", "1990-01-01"));
-        const code = h.code();
+        const again = yield* settle(h.auth.beginRegistration(address, "capreg", "1990-01-01"));
+        const next = latestLinkTo(h.recorded(), address)!;
         h.release();
-        expect((yield* Fiber.join(capped))._tag).toBe("AuthError");
+        expect(yield* Fiber.join(capped)).toBe("expired");
 
-        const done = yield* h.auth.completeRegistration(address, code);
-        expect(done.handle).toBe("capreg");
+        yield* h.auth.confirmEmailLink(next.requestId, {
+          linkSecret: next.linkSecret,
+          pairingPick: again.pairingCode,
+        });
+        const done = yield* settle(h.auth.registrationStatus(again.requestId, again.claimSecret));
+        expect(done.status === "complete" && done.handle).toBe("capreg");
       }).pipe(Effect.ensuring(Effect.sync(() => clock?.mockRestore())), Effect.provide(h.layer));
-    },
-  );
-});
-
-/**
- * A registration whose code's send failed settles the entry its own `begin`
- * wrote, in one call that names that entry: gone when nothing was sent, held a
- * minute when the code may still arrive. Each case holds that call — armed
- * once the steps before it have run — while another request changes the
- * entry, then lets it go.
- */
-describe("a failed send's settle touches only the entry its begin wrote", () => {
-  it.live("nothing sent: a begin while the settle's delete is in flight keeps its entry", () => {
-    let armed = false;
-    const mail = scriptedMail(new EmailError({ reason: "dispatch_failed", cause: 403 }));
-    const h = harness(
-      (store, op) => armed && store === "pending_registration" && op === "remove",
-      mail.layer,
-    );
-    const address = "settle-none@example.com";
-    return Effect.gen(function* () {
-      yield* h.auth.beginRegistration(address, "settlenone", "1990-01-01");
-      const wrong = wrongFor(yield* mail.nth(0));
-      // The cap spends the entry while its send is still out.
-      for (let i = 1; i <= MAX_OTP_ATTEMPTS; i++) {
-        yield* Effect.flip(h.auth.completeRegistration(address, wrong));
-      }
-
-      armed = true;
-      mail.failFirst();
-      yield* h.holdingAtLeast(1);
-      yield* settle(h.auth.beginRegistration(address, "settlenone", "1990-01-01"));
-      const code = yield* mail.nth(1);
-      const from = h.ops().length;
-      h.release();
-      yield* h.landed("pending_registration.remove", from);
-
-      const done = yield* h.auth.completeRegistration(address, code);
-      expect(done.handle).toBe("settlenone");
-    }).pipe(Effect.provide(h.layer));
-  });
-
-  it.live(
-    "may still arrive: an entry spent while the settle's hold is in flight stays spent",
-    () => {
-      let armed = false;
-      const mail = scriptedMail(new EmailError({ reason: "api_unreachable" }));
-      const h = harness(
-        (store, op) =>
-          armed && store === "pending_registration" && (op === "write" || op === "swap"),
-        mail.layer,
-      );
-      const address = "settle-held@example.com";
-      return Effect.gen(function* () {
-        yield* h.auth.beginRegistration(address, "settleheld", "1990-01-01");
-        const code = yield* mail.nth(0);
-
-        armed = true;
-        mail.failFirst();
-        yield* h.holdingAtLeast(1);
-        const done = yield* h.auth.completeRegistration(address, code);
-        expect(done.handle).toBe("settleheld");
-        yield* h.landed("pending_registration.remove");
-        const from = h.ops().length;
-        h.release();
-        yield* h.landed(["pending_registration.write", "pending_registration.swap"], from);
-
-        expect(
-          yield* Effect.promise(() => h.bundle.ceremonyStores.pendingRegistrations.get(address)),
-        ).toBeNull();
-      }).pipe(Effect.provide(h.layer));
     },
   );
 });

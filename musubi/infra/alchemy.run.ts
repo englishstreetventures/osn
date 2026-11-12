@@ -11,6 +11,7 @@ import {
   flattenMigrations,
   hostsFor,
   origin,
+  PRODUCTION_HOST_HOLDS,
   PRODUCTION_SITE_MODES,
   productionSiteKinds,
   refuseDotEnvFiles,
@@ -20,6 +21,7 @@ import {
   siteWorker,
   stackOptions,
   tierOf,
+  type HostHold,
   type SiteMode,
   type SiteSurface,
 } from "@shared/infra";
@@ -87,19 +89,21 @@ function writeSeed(path: string, sql: string): void {
 
 /**
  * The musubi stack on production: each site `modes` does not turn off,
- * built for production and checked to be, under today's name. It reads no
- * secret or seed value, writes no file, and declares neither osn-api nor
- * its database; anything else declared fails the scope check before the
- * plan.
+ * built for production and checked to be, under today's name, with no
+ * custom domain while `holds` holds its host. It reads no secret or seed
+ * value, writes no file, and declares neither osn-api nor its database;
+ * anything else declared fails the scope check before the plan.
  */
 const musubiProductionStack = (input: {
   readonly stage: string;
   readonly workingDir: string;
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
     const declared = musubiProductionSites({
       modes: input.modes,
+      holds: input.holds,
       hosts: hostsFor(input.stage, {}),
     });
     for (const site of declared.prebuilt) {
@@ -128,13 +132,15 @@ const musubiProductionStack = (input: {
  * working directory, `musubi/infra`. `workingDir` names that directory to
  * the checks: the `.env` files Bun would load from it are refused, and the
  * site paths resolve from it. On production it declares the sites alone,
- * at `modes` (PRODUCTION_SITE_MODES unless a test passes its own).
+ * at `modes` and `holds` (PRODUCTION_SITE_MODES and PRODUCTION_HOST_HOLDS
+ * unless a test passes its own).
  */
 export const musubiStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
   readonly workingDir: string;
   readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly holds?: readonly HostHold[];
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
@@ -145,6 +151,7 @@ export const musubiStack = (input: {
         stage,
         workingDir: input.workingDir,
         modes: input.modes ?? PRODUCTION_SITE_MODES,
+        holds: input.holds ?? PRODUCTION_HOST_HOLDS,
       });
     }
     const hosts = hostsFor(stage, env);

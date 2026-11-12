@@ -209,7 +209,8 @@ what it draws, the component you checked, and the verdict — `U-<id>`, `uses
   duplicates a package's, or each of two surfaces of one product carrying its
   own. The Solution uses the package's, or moves the one component into the
   package, which ships as a pull request of its own
-  (`wiki/conventions/stacked-prs.md` §Frontend: one component per pull request).
+  (`wiki/conventions/stacked-prs.md` §Frontend: when a component gets its own
+  pull request).
 - A component two surfaces need and no package has: a finding proposing it for
   the package. One that one surface alone needs is not.
 

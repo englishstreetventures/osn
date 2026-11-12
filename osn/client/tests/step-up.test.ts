@@ -51,16 +51,32 @@ describe("createStepUpClient", () => {
     });
   });
 
-  describe("otpComplete", () => {
-    it("parses step_up_token + expires_in", async () => {
-      fetchMock.mockResolvedValue(okResponse({ step_up_token: "eyJotp", expires_in: 300 }));
-      const result = await client.otpComplete({ code: "123456" });
-      expect(result).toEqual({ token: "eyJotp", expiresIn: 300 });
+  describe("emailStatus", () => {
+    const poll = () =>
+      client.emailStatus({
+        requestId: "stepup_0123456789ab",
+        claimSecret: "c".repeat(64),
+      });
+
+    it("parses the token from a complete answer", async () => {
+      fetchMock.mockResolvedValue(
+        okResponse({ status: "complete", step_up_token: "eyJlink", expires_in: 300 }),
+      );
+      expect(await poll()).toEqual({
+        status: "complete",
+        token: { token: "eyJlink", expiresIn: 300 },
+      });
+      const [url] = fetchMock.mock.calls[0]!;
+      expect(url).toBe("https://osn.example.com/step-up/email/stepup_0123456789ab/status");
     });
 
-    it("throws a StepUpError when the server returns non-2xx", async () => {
-      fetchMock.mockResolvedValue(errResponse({ error: "invalid_code" }));
-      await expect(client.otpComplete({ code: "000000" })).rejects.toThrow(StepUpError);
+    it("reads a refusal as expired and throws on a transient", async () => {
+      fetchMock.mockResolvedValueOnce(errResponse({ error: "invalid_request" }));
+      expect(await poll()).toEqual({ status: "expired" });
+      for (const status of [429, 503]) {
+        fetchMock.mockResolvedValueOnce(new Response("{}", { status }));
+        await expect(poll()).rejects.toThrow(StepUpError);
+      }
     });
   });
 });

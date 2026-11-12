@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-11
 ---
 # Identity Model
 
@@ -60,7 +60,7 @@ The `accounts` table is the **authentication principal** — the entity that log
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `text PK` | `acc_` prefix + 12 hex chars |
-| `email` | `text UNIQUE` | Login credential — the only place email lives |
+| `email` | `text UNIQUE` | Login credential — the only place email lives. Written lower case; the database refuses a capital: see below |
 | `passkeyUserId` | `text NOT NULL UNIQUE` | Random UUID used as WebAuthn `user.id` — opaque, non-correlating |
 | `maxProfiles` | `integer` | Default 5; enforced by `createProfile` |
 | `createdAt` | `timestamp` | |
@@ -71,6 +71,10 @@ The `accounts` table is the **authentication principal** — the entity that log
 - `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. It stops anyone correlating two profiles on the same account through matching WebAuthn credential `user.id` fields.
 - Email is **only on accounts**, not duplicated on profiles.
 - Passkeys reference `accounts.id` (not profile IDs), because authentication is account-level.
+
+**The email at the database.** Every writer stores the address lower-cased: registration, email change and `registerProfile` call `toLowerCase()`, and the seeds use lower-case literals. Two triggers, `accounts_email_lower_case` (insert) and `accounts_email_lower_case_update` (update of `email`), refuse an email holding a capital A to Z with the message `account email is not lower case`, whoever writes it. SQLite's `lower()` folds only A to Z, so a capital outside them passes; no writer stores one. Migration [`20261110132140_account_email_lower_case.sql`](../../osn/db/drizzle/20261110132140_account_email_lower_case.sql) creates the triggers and changes no stored row, so it cannot fail on what a database holds. [`osn/db/src/triggers.ts`](../../osn/db/src/triggers.ts) copies them into every test database and into the local file `db:push` builds ([[testing-patterns#Schema-derived test databases]]).
+
+**Finding an account by what the user typed.** Passkey sign-in (begin and complete), recovery-code sign-in, and email and authenticator-code recovery all take one identifier, an email address or a handle. `normaliseIdentifier` (`osn/api/src/services/auth/helpers.ts`) trims it, strips any leading `@` and lower-cases it, so `Alice@X.com`, `@Alice` and ` alice ` name the same account, as they do in the people search. Every store key a ceremony derives (the login challenge, the probe key) starts from that one string, so a ceremony begun in one case and finished in another meets its own entries. `resolveIdentifier` (`profiles.ts`) treats one longer than 255 characters, longer than any stored email or handle, as naming nobody and looks nothing up. Otherwise it looks up a handle by that string, and an email in one statement that matches the address as typed (trimmed, `@` stripped, case kept) or lower-cased, preferring the row stored as typed, and of that account its default profile. The typed match is for a row stored with capitals before the triggers: it signs in by its address exactly as stored, and stays apart from an account whose address differs only in case. The owner, never an agent, can count such rows with `SELECT count(*) FROM accounts WHERE email <> lower(email)`, which reads counts only and sees capitals A to Z only.
 
 ## Profiles (DB table: `users`)
 
@@ -177,8 +181,8 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `restricted_amr` | `text` nullable | The RFC 8176 factor that minted a restricted recovery session (`otp` / `totp` / `webauthn`). What the passkey-enrolment bypass is checked against, so the step-up it skips is priced at the ceremony actually performed. NULL on every ordinary session |
 
 Two profile management endpoints:
-- `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
-- `POST /profiles/list` — present the session token in the request body; receive all profiles for the account. Session tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
+- `POST /profiles/switch` — Bearer access token, target `profile_id` in the body; receive a new access token for that profile, bound to the caller's session. That session must be live, named by the session cookie or the token's `osn_sid`, or the answer is `409 session_stale` ([[sessions#Access-token session binding (`osn_sid`)]]). Per-account rate limited (20 switches/hr).
+- `GET /profiles/list` — Bearer access token; receive all profiles for the account. The session token itself travels only in the HttpOnly cookie, never in an `Authorization` header, so it is not confused with an access token.
 
 ## Client Storage Model
 
@@ -219,6 +223,8 @@ interface StoredAccount {
 
 `toSession` yields `null` without a valid token, so a `loadSession` that trusted the stored account alone would report every reloaded user as signed out while the cookie is alive; the third case is what stops that.
 
+A session set or ended while the bootstrap grant is out wins: a sign-in adopted, a log out, or another tab storing another sign-in or none. The load then resolves to the session the page holds, or `null`, and the grant's answer is neither saved nor, if refused, allowed to forget the stored account ([[sessions#Renewal in the browser]]).
+
 **Single-flight + retry/backoff.** Both cold-start and rehydrate go through one shared, single-flighted cookie grant (`fetchTokenGrant`), so concurrent mounts fire **exactly one** `/token` — replaying a rotated cookie a second time would trip C2 reuse detection and revoke the family. The grant classifies failures:
 
 - **Terminal** (`/token` 4xx but 429, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated: fail fast, **no retry**; `loadSession` resolves to `null` (genuinely logged out, never throws). The exception is a `400 invalid_grant` the issuer marks as leaving the cookie's status unknown (a lost rotation race, a storage error): it is retried once after 250 ms — see [[sessions#Renewal in the browser]].
@@ -236,15 +242,25 @@ This keeps the short access-token TTL (XSS blast-radius cap) intact while making
 
 ```mermaid
 sequenceDiagram
-  participant U as User
+  participant U as Tab that began
+  participant M as Device the email is opened on
   participant API as @osn/api
   participant DB as accounts + users + passkeys
 
-  U->>API: POST /register/begin<br/>{ email, handle, displayName }
-  API->>U: 200 (OTP emailed)
-  U->>API: POST /register/complete { otp }
-  API->>DB: tx { insert account, insert profile }
-  API-->>U: 200 + access token + HttpOnly session cookie
+  U->>API: POST /register/begin<br/>{ email, handle, birthdate, displayName }
+  API-->>U: 200 { requestId, claimSecret, pairingCode }
+  API-)M: email: /verify/<requestId>#<link secret>
+  loop until confirmed
+    U->>API: POST /register/:requestId/status { claimSecret }
+    API-->>U: 200 { status: pending, pairingCode }
+  end
+  M->>API: POST /email-link/:requestId/candidates { linkSecret }
+  API-->>M: 200 { pairingCandidates }
+  M->>API: POST /email-link/:requestId/confirm { linkSecret, pairingPick }
+  API-->>M: 200 { status: confirmed } (no cookie, no token)
+  U->>API: POST /register/:requestId/status { claimSecret }
+  API->>DB: batch { insert account, insert profile }
+  API-->>U: 201 + access token + HttpOnly session cookie
   Note over U,API: UI refuses to advance until passkey enrollment completes
   U->>API: POST /passkey/register/begin<br/>Authorization: Bearer <access>
   API-->>U: WebAuthn options
@@ -253,12 +269,14 @@ sequenceDiagram
   API-->>U: 200 — account now has ≥1 WebAuthn credential
 ```
 
-Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
+The link, the pairing number and the refusals are in [[email-links]]. With the Email Verification API flag on, a browser that has the API can prove the address at `begin` instead: the request is confirmed there, no email goes, and the tab's first status poll makes the account — [[email-verification-api]]. Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and
-email-change verification factor. The recovery-code path is the single
-"lost device" escape hatch — see `[[recovery-codes]]`.
+email-change verification factor. A lost device has three ways back: a
+recovery code, which mints an ordinary session, and an emailed link or an
+authenticator code, each of which mints a restricted session that can only
+enrol a passkey — see [[recovery-codes]] and [[account-recovery-factors]].
 
 ## Cross-Service Impact
 

@@ -11,7 +11,7 @@ related:
   - "[[component-lab]]"
   - "[[cire-registry]]"
   - "[[cire-upgrades]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-11
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
 
@@ -197,7 +197,7 @@ ancestor the containing block for a fixed descendant — and a stacking context
 with it — so a toast mounted inside an animated section is positioned against
 that section and stacked inside it, below every page-level overlay, whatever
 `z-index` it carries. That is exactly what put cire's RSVP toast behind the sheet
-it fires under (Motion One leaves an inline `transform` on the events section).
+it fires under (the unlock reveal moves the events section with a `transform`).
 The portal makes it robust by construction.
 
 The centred positions (`top-center`, `bottom-center`) set both side insets and

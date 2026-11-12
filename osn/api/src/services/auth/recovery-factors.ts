@@ -1,6 +1,6 @@
 /**
  * Account recovery by a factor that is neither a passkey nor a recovery code:
- * a code emailed to the address on file, or a code from the account's
+ * a link emailed to the address on file, or a code from the account's
  * authenticator app.
  *
  * These are the two paths back in for a user who has lost the device and never
@@ -10,68 +10,65 @@
  * downstream services — whose only privilege is enrolling a passkey. See
  * `[[wiki/osn/account-recovery-factors]]` §B.
  *
- * Four properties carry this module, and each is enforced here rather than at
- * the routes:
+ * The email path is a flow of the shared emailed-link challenge
+ * (`email-link.ts`): begin opens a request and answers the tab that began with
+ * its request id, claim secret and pairing number; the link only confirms;
+ * the tab polls with the claim secret and, once the link is confirmed, gets the
+ * restricted session. The device that opens the link gets nothing.
  *
- * - **`begin` answers the same 202 whether or not the identifier resolves**, and
- *   costs roughly the same either way. A uniform body is not enough on its own:
- *   the mail send is the oracle, so it is dispatched detached and both branches
- *   return at probe cost.
- * - **Every branch of every route here makes the same number of store round
- *   trips**, whichever way it ends. A uniform body and a detached send close the
- *   oracle at `begin` and reopen it at `complete` if the branches there are left
- *   to cost what they happen to cost: each store call is a Durable Object hop in
- *   every tier but `local`, so "how many hops did that take" is readable with a
- *   stopwatch and separates a real account from a stranger's guess. Each route
- *   below pins its own count, and the padding always matches the COSTLIEST
- *   branch — padding to the cheapest is the same oracle upside down.
- * - **The recipient is the victim.** The address is the account holder's own, so
- *   the send is capped per resolved account as well as per IP.
+ * What this module holds to, and enforces here rather than at the routes:
+ *
+ * - **Every branch answers alike and costs alike.** Begin, a poll and a Resend
+ *   give the same answer, after the same store calls and database queries,
+ *   whether or not the address names an account: an address with no account
+ *   gets a request of its own that is never mailed. The send runs after the
+ *   answer, so a mail round trip is no oracle.
+ * - **The recipient is the victim.** The address is the account holder's own,
+ *   so recovery links are capped per account and client address, and Resends
+ *   per account: each address that asks has its own allowance, and a begin's
+ *   first link never counts against the account's Resends.
  * - **Completion matches `consumeRecoveryCode`**: every session on the account
  *   is revoked and the audit row is written in the same batch, before the new
  *   session exists.
- * - **Every code check is constant-time**, and no code reaches a log line, a
- *   metric attribute, an error body or the OpenAPI document.
+ * - **No secret reaches a log line**, a metric attribute, an error body or the
+ *   OpenAPI document; every code check is constant-time.
  */
 
 import { accounts, passkeys, securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch, jsonEachIn } from "@shared/db-utils";
-import { type EmailError, EmailService } from "@shared/email";
+import { EmailService } from "@shared/email";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
 import { forkBackground } from "../../lib/background";
-import { RECOVERY_LOCKOUT_THRESHOLD } from "../../lib/recovery-lockout-store";
 import {
-  metricAuthOtpSent,
+  metricEmailLinkSend,
   metricRecoveryCooldown,
   metricRecoveryDisown,
   metricRecoveryEmailBegin,
-  metricRecoveryLockout,
   metricSecurityEventRecorded,
   metricSessionSecurityInvalidation,
   withAuthLogin,
   withAuthRecovery,
 } from "../../metrics";
-import { claimEntry, guessEntry } from "./attempts";
 import {
-  MAX_OTP_ATTEMPTS,
   RECOVERY_COOLDOWN_MS,
   RECOVERY_DISOWN_SECRET_BYTES,
   RECOVERY_DISOWN_TTL_MS,
-  RECOVERY_OTP_TTL_MS,
+  RECOVERY_LINK_TTL_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
+import type { EmailLinkModule } from "./email-link";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import {
+  frontendOrigin,
   genDisownToken,
   genId,
-  genOtpCode,
   hashSessionToken,
-  logDevOtp,
+  logDevLink,
   looksLikeEmail,
   normaliseIdentifier,
   parseDisownToken,
@@ -79,6 +76,7 @@ import {
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
 import { storeCall } from "./store-call";
+import type { EmailLinkChallenge } from "./stores";
 import type { TokensModule } from "./tokens";
 import type { TotpModule } from "./totp";
 import type {
@@ -91,7 +89,7 @@ import type {
 import { toPublicProfile } from "./types";
 
 /**
- * The single failure message every rejected code check answers with. A caller
+ * The single failure message every rejected check answers with. A caller
  * learns the attempt failed and nothing else — not whether the identifier names
  * an account, not whether a code is pending, not whether the account is locked
  * out. `publicError` flattens it to `{ error: "invalid_request" }` before it
@@ -99,10 +97,37 @@ import { toPublicProfile } from "./types";
  */
 const GENERIC_FAILURE = "Invalid or expired code";
 
-/** What `begin` answers, on every branch. */
-export interface RecoveryEmailBeginResult {
+/** What email recovery's begin answers, on every branch: the request the tab that began holds. */
+export interface RecoveryEmailBegun {
+  readonly requestId: string;
+  /** Kept by the tab that began; whoever holds it receives the restricted session. */
+  readonly claimSecret: string;
+  /** Shown by the tab that began; the link's confirm step asks for it. */
+  readonly pairingCode: string;
+  /** Unix seconds. */
+  readonly expiresAt: number;
+}
+
+/** What an email-recovery status poll answers. */
+export type RecoveryEmailStatus =
+  | {
+      readonly status: "pending";
+      /** The number the waiting screen shows, for a tab that has lost it. */
+      readonly pairingCode?: string;
+    }
+  | { readonly status: "expired" }
+  | {
+      readonly status: "complete";
+      readonly session: TokenSet;
+      readonly profile: PublicProfile;
+    };
+
+/** What `POST /recovery/disown` answers, on every branch. */
+export interface RecoveryDisownAccepted {
   readonly status: "accepted";
 }
+
+const EXPIRED = { status: "expired" } as const;
 
 export function createRecoveryFactorsModule(
   ctx: AuthContext,
@@ -110,229 +135,345 @@ export function createRecoveryFactorsModule(
   tokens: TokensModule,
   totp: TotpModule,
   securityEventsModule: SecurityEventsModule,
+  links: EmailLinkModule,
 ) {
-  const { config, stores, hashIp, serverMac, recoveryEmailBeginCap, recoveryOtpLockoutStore } = ctx;
-  const { resolveIdentifier } = profiles;
+  const {
+    config,
+    stores,
+    hashIp,
+    serverMac,
+    recoveryLinkAddressCap,
+    recoveryResendCap,
+    recoveryLinkCeiling,
+    recoveryOtpLockoutStore,
+  } = ctx;
+  const { resolveIdentifier, findDefaultProfile } = profiles;
   const { issueRecoverySession } = tokens;
   const { checkTotpCode, burnTotpCheckCost } = totp;
 
-  const ACCEPTED: RecoveryEmailBeginResult = { status: "accepted" };
-  const otpTtlMinutes = RECOVERY_OTP_TTL_MS / 60_000;
+  const linkTtlMinutes = RECOVERY_LINK_TTL_MS / 60_000;
 
   /**
-   * Where the "this wasn't me" link points.
-   *
-   * The origin is DERIVED, not configured: `authorizeUiUrl`'s origin, falling
-   * back to the first configured WebAuthn origin — the same precedence
-   * `buildInteractionRedirect` uses in `oidc.ts`, so the service has one answer
-   * to "where does the frontend live" rather than two that can disagree. A new
-   * `Env` key would have to be set in four wrangler environments and the
-   * dev-urls map before it was correct anywhere, and would be silently wrong
-   * until it was.
+   * Where the "this wasn't me" link points: {@link frontendOrigin}.
    *
    * The token rides in the **fragment**. Corporate mail scanners prefetch every
    * link in a message, and this one is single use — in the query string a
    * security appliance would spend it before the owner read the mail. A
    * fragment is never sent to any server, so it also cannot reach a log.
-   *
-   * The page that turns this link into the POST lands with the UI phase of this
-   * epic, englishstreetventures/osn#953.
    */
-  const disownUrl = (token: string): string => {
-    const configured = config.authorizeUiUrl;
-    const fallback = Array.isArray(config.origin) ? config.origin[0] : config.origin;
-    const base = configured ?? fallback ?? "";
-    let origin = base;
-    try {
-      origin = new URL(base).origin;
-    } catch {
-      // A malformed origin must not fail the recovery that is already
-      // committed. The notice still sends; the link is simply not usable.
-      origin = base;
-    }
-    return `${origin}/recovery/disown#token=${encodeURIComponent(token)}`;
-  };
-
-  /*
-   * Padding. The branches that must not be told apart pay for the store calls
-   * the costliest of them makes, with the SAME operation on the SAME store, at
-   * `serverMac.probeKey(identifier)` — the key derived from what the caller
-   * submitted, the same length as an account id, and the same object on every
-   * request that names that identifier. A Durable Object call's cost depends on
-   * whether it reads or writes and on whether the object was used a moment
-   * ago, so a read standing in for a write, or a fresh random key, would each
-   * leave a difference a stopwatch can find.
-   *
-   * The writes leave small entries behind under probe keys; each expires with
-   * the TTL the real one would have, and the per-IP limits on these routes
-   * bound how many identifiers a caller can name.
-   */
-
-  /** Guess at the pending-code entry at `key`; neither the value nor the count is used. */
-  const padGuess = (key: string): Effect.Effect<void, CoordinationError> =>
-    storeCall(stores.pendingRecoveryOtp, "guess", () => stores.pendingRecoveryOtp.guess(key)).pipe(
-      Effect.asVoid,
-    );
-
-  /** Read the lockout counter at `key`. Never fails: an unreadable one is "unknown". */
-  const padLockoutRead = (key: string): Effect.Effect<void> =>
-    Effect.promise(() => recoveryOtpLockoutStore.status(key)).pipe(Effect.asVoid);
-
-  /** Record a failure at `key`. Never fails, as above. */
-  const padFailure = (key: string): Effect.Effect<void> =>
-    Effect.promise(() => recoveryOtpLockoutStore.recordFailure(key)).pipe(Effect.asVoid);
+  // A malformed origin must not fail the recovery that is already committed:
+  // `frontendOrigin` answers it as given, so the notice still sends.
+  const disownUrl = (token: string): string =>
+    `${frontendOrigin(config)}/recovery/disown#token=${encodeURIComponent(token)}`;
 
   /**
-   * Park an entry at `key` — what a sent `begin` does to the real key, which
-   * also starts its guess count again. The value has the real entry's shape
-   * and holds a random hash no code matches.
+   * The keyed digest of an address a recovery request is bound to: the
+   * address the link went to, which the claim and a Resend check again.
    */
-  const padPark = (key: string): Effect.Effect<void, CoordinationError> =>
-    storeCall(stores.pendingRecoveryOtp, "set", () =>
-      stores.pendingRecoveryOtp.set(
-        key,
-        {
-          codeHash: hashSessionToken(genOtpCode() + genId("")),
-          expiresAt: Date.now() + RECOVERY_OTP_TTL_MS,
-        },
-        RECOVERY_OTP_TTL_MS,
-      ),
-    );
+  const addressDigest = (address: string): string =>
+    serverMac.probeKey(address.trim().toLowerCase());
 
   /**
-   * Send the recovery code, off the request's latency path.
+   * Mails a recovery link for `accountId` to `address`, after the answer: the
+   * caller forks it, registered with the request's `waitUntil`
+   * (`forkBackground`), so the send still runs on workerd once the response is
+   * out and adds nothing to the time to answer. The account's limits are read
+   * here, so they cost the answer nothing and are reached only where a link
+   * would go out:
    *
-   * Forked detached with a timeout, the shape `notifyRecovery` uses. Awaiting it
-   * would make the response an account-existence oracle that no amount of body
-   * uniformity can close: a Resend round trip is hundreds of milliseconds and
-   * the non-resolving branch's probe is sub-millisecond, so the two branches
-   * would be trivially separable by anyone with a stopwatch.
+   *  - no link goes to an account its recovery lockout holds, or whose
+   *    lockout cannot be read;
+   *  - every link counts against the allowance of the account at the client
+   *    address that asked (`recoverySendKey`), so requests from one address
+   *    never use another's;
+   *  - a Resend's link also counts against the account's Resends a day. A
+   *    begin's first link does not, so the newest request always gets its
+   *    first link whoever has spent the Resends;
+   *  - every link that passes those counts against the account's ceiling on
+   *    recovery mail, which bounds the mail one mailbox can be sent however
+   *    many addresses ask. Past it, nothing is sent; begin answers as ever.
    *
-   * The provider's response body — which can echo the recipient — is never
-   * logged; only the bounded outcome metric is emitted.
-   *
-   * `forkBackground`, not a bare `Effect.forkDetach`: it registers the fibre's
-   * completion with the request's sink, which the Worker entry hands to
-   * `ExecutionContext.waitUntil`. Detached alone would be orphaned on workerd —
-   * the request context is torn down once the response is returned — so the
-   * code would silently fail to send in the one tier that matters. See
-   * `lib/background.ts`.
+   * A held-back or failed send is counted and goes no further; the transport
+   * has already logged why a send failed. The provider's response body —
+   * which can echo the recipient — is never logged. The request stays live
+   * either way, and Resend on it is the retry.
    */
-  const sendRecoveryOtp = (
-    recipientEmail: string,
-    code: string,
-  ): Effect.Effect<void, AuthError, EmailService> =>
+  const sendRecoveryLink = (
+    accountId: string,
+    address: string,
+    url: string,
+    ttlMinutes: number,
+    kind: "first" | "resend",
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<void, never, EmailService> =>
     Effect.gen(function* () {
-      const email = yield* EmailService;
-      yield* email
+      const lockout = yield* Effect.promise(() => recoveryOtpLockoutStore.status(accountId));
+      const sendKey = serverMac.recoverySendKey(accountId, sessionMeta?.ip ?? "");
+      const allowed =
+        lockout.status === "open" &&
+        (yield* Effect.promise(() => recoveryLinkAddressCap.check(sendKey))) &&
+        (kind === "first" || (yield* Effect.promise(() => recoveryResendCap.check(accountId)))) &&
+        (yield* Effect.promise(() => recoveryLinkCeiling.check(serverMac.probeKey(accountId))));
+      if (!allowed) {
+        metricEmailLinkSend("recovery", "capped");
+        return;
+      }
+      const emailSvc = yield* EmailService;
+      yield* emailSvc
         .send({
-          template: "otp-recovery",
-          to: recipientEmail,
-          data: { code, ttlMinutes: otpTtlMinutes, instanceName: config.instanceName },
+          template: "link-recovery",
+          to: address,
+          data: {
+            url,
+            ttlMinutes,
+            instanceName: config.instanceName,
+            device: sessionMeta?.uaLabel ?? null,
+          },
         })
         .pipe(
-          Effect.mapError(
-            (cause: EmailError) => new AuthError({ message: `recovery_send_${cause.reason}` }),
-          ),
+          Effect.timeout("10 seconds"),
+          Effect.tap(() => Effect.sync(() => metricEmailLinkSend("recovery", "sent"))),
+          Effect.catch(() => Effect.sync(() => metricEmailLinkSend("recovery", "failed"))),
         );
-    }).pipe(Effect.withSpan("auth.recovery.otp_send"));
+    }).pipe(Effect.withSpan("auth.recovery.link_send"));
 
   /**
-   * `POST /login/recovery/email/begin` — email an account-recovery code.
+   * `POST /login/recovery/email/begin` — email a recovery link.
    *
-   * Always answers {@link ACCEPTED}. The caller cannot tell a delivered code
-   * from an unknown address from an account that has hit its cap, and the three
-   * branches are told apart only on a dashboard.
+   * Answers {@link RecoveryEmailBegun} on every branch, after the same calls:
+   * one database query to resolve the address, then one store write that opens
+   * the request. An address with no account gets a request about its probe
+   * key, which is never mailed, so its poll stays `pending` until it expires as
+   * an unconfirmed real one does. Whether the address has an account, and
+   * whether its link was held back, show only on a dashboard.
    *
-   * **The same two store calls on all three**, which is what the sent branch
-   * makes: the cap check and the entry write. The other two make the same
-   * calls at the probe key (see "Padding" above).
+   * Several requests for one account may be live at once: a stranger's begin
+   * neither replaces nor blocks the owner's.
    *
    * The identifier must be an **email address**: this endpoint puts mail in
    * somebody's inbox, and a handle is public, so accepting one would turn a
-   * public identifier into a way to mail a stranger. `/login/passkey/begin` can
-   * take a handle precisely because it sends nothing. The check is syntactic —
+   * public identifier into a way to mail a stranger. The check is syntactic —
    * it reads only the submitted string and never touches the database — so
    * refusing a handle discloses nothing about any account.
    */
   const beginEmailRecovery = (
     identifier: string,
+    sessionMeta?: SessionMeta,
   ): Effect.Effect<
-    RecoveryEmailBeginResult,
+    RecoveryEmailBegun,
     AuthError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
-      const normalised = normaliseIdentifier(identifier).trim().toLowerCase();
+      const normalised = normaliseIdentifier(identifier);
       if (!looksLikeEmail(normalised)) {
         return yield* Effect.fail(
           new AuthError({ message: "Enter the email address on the account" }),
         );
       }
 
-      const profile = yield* resolveIdentifier(normalised);
-      const probe = serverMac.probeKey(normalised);
+      const profile = yield* resolveIdentifier(identifier);
+      const bound = addressDigest(normalised);
+      const opened = yield* links.open(
+        "recovery",
+        profile ? profile.accountId : bound,
+        RECOVERY_LINK_TTL_MS,
+        { bound },
+      );
+      const answer: RecoveryEmailBegun = {
+        requestId: opened.requestId,
+        claimSecret: opened.claimSecret,
+        pairingCode: opened.pairingCode,
+        expiresAt: Math.floor(opened.expiresAt / 1000),
+      };
       if (!profile) {
-        // The sent branch's calls, at the probe key: the cap check and the
-        // entry write. Parity is APPROXIMATE, not exact, exactly
-        // as `consumeRecoveryCode` concedes for its own: the resolving branch
-        // also runs `genOtpCode` and a SHA-256, both sub-microsecond and both
-        // dwarfed by a single store hop. What the detached send removes is the
-        // term that actually mattered.
-        yield* Effect.promise(() => recoveryEmailBeginCap.check(probe));
-        yield* padPark(probe);
         metricRecoveryEmailBegin("unknown_identifier");
-        return ACCEPTED;
+        return answer;
       }
 
-      // Keyed on the RESOLVED accountId, never the submitted identifier. Keying
-      // on the identifier would let an attacker exhaust a victim's allowance by
-      // naming them, and would make the cap itself an existence oracle.
-      const allowed = yield* Effect.promise(() => recoveryEmailBeginCap.check(profile.accountId));
-      if (!allowed) {
-        // Return WITHOUT parking a code. Parking one here would invalidate the
-        // code the user is already holding from an earlier send — a denial of
-        // service on the account holder, dressed as flood control.
-        //
-        // The write happens at the probe key instead, so this
-        // branch makes the sent branch's calls. Without them, a fourth request
-        // for an address whose allowance is spent answers measurably sooner
-        // than one for an address that names nobody — which confirms the
-        // address is real, and the cap becomes the oracle the uniform 202 was
-        // there to prevent.
-        yield* padPark(probe);
-        metricRecoveryEmailBegin("capped");
-        return ACCEPTED;
-      }
-
-      const code = genOtpCode();
-      yield* storeCall(stores.pendingRecoveryOtp, "set", () =>
-        stores.pendingRecoveryOtp.set(
-          profile.accountId,
-          { codeHash: hashSessionToken(code), expiresAt: Date.now() + RECOVERY_OTP_TTL_MS },
-          RECOVERY_OTP_TTL_MS,
-        ),
-      );
-
-      // Inert unless the runtime tier is `local` — the same helper the
-      // registration, step-up and email-change ceremonies use, and the only way
-      // to complete this flow on a dev machine with no inbox.
-      yield* logDevOtp("recovery", code);
-
+      // Inert unless the runtime tier is `local`: the only way to finish this
+      // flow on a dev machine with no inbox.
+      yield* logDevLink("recovery", opened.url);
       yield* forkBackground(
-        sendRecoveryOtp(profile.email, code).pipe(
-          Effect.timeout("10 seconds"),
-          Effect.catch(() => Effect.void),
+        sendRecoveryLink(
+          profile.accountId,
+          profile.email,
+          opened.url,
+          linkTtlMinutes,
+          "first",
+          sessionMeta,
         ),
       );
-
-      metricAuthOtpSent("recovery");
-      metricRecoveryEmailBegin("sent");
-      return ACCEPTED;
+      metricRecoveryEmailBegin("resolved");
+      return answer;
     }).pipe(withAuthRecovery("email_begin"));
 
   /**
-   * Everything both factors do once the code has been believed.
+   * `POST /login/recovery/email/:requestId/resend` — another link for the
+   * same request, for the tab that holds its claim secret. Every link sent
+   * stays usable until the request ends; at most `EMAIL_LINK_MAX_SENDS` in
+   * all, each counted against the same limits as the first. Answers:
+   *
+   *  - `sent` — another link is on its way; also for an address with no
+   *    account (nothing goes out) and for a request already confirmed (the
+   *    next poll finishes it);
+   *  - `limit` — the request has sent all the links it may;
+   *  - `expired` — no live request matches.
+   *
+   * Like begin, it mails after the answer, and an address with no account
+   * makes the same calls: the account is read on every branch, by a key that
+   * names none. A link goes only to the address the request was begun for.
+   */
+  const resendEmailRecovery = (
+    requestId: string,
+    claimSecret: string,
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<
+    { status: "sent" | "limit" | "expired" },
+    DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
+    Effect.gen(function* () {
+      const resent = yield* links.resend("recovery", requestId, claimSecret);
+      if (resent.state === "expired") return EXPIRED;
+      if (resent.state === "limit") return { status: "limit" } as const;
+      if (resent.state === "confirmed") return { status: "sent" } as const;
+      const profile = yield* findDefaultProfile(resent.subject);
+      if (profile && resent.bound === addressDigest(profile.email)) {
+        const minutesLeft = Math.max(1, Math.ceil((resent.expiresAt - Date.now()) / 60_000));
+        yield* logDevLink("recovery", resent.url);
+        yield* forkBackground(
+          sendRecoveryLink(
+            profile.accountId,
+            profile.email,
+            resent.url,
+            minutesLeft,
+            "resend",
+            sessionMeta,
+          ),
+        );
+      }
+      return { status: "sent" } as const;
+    }).pipe(withAuthRecovery("email_resend"));
+
+  /**
+   * Hands the restricted recovery session to the caller — the tab that holds
+   * the claim secret — for a confirmed request, or finishes a request an
+   * earlier poll claimed and could not finish.
+   *
+   *  - The account must still have the address the link went to (`bound`).
+   *  - The claim fixes the profile and the id of the `account_recovered` row
+   *    every later try uses. Of two polls at once one claims the request; the
+   *    other answers `expired`, as does a poll that finds it held by another.
+   *  - The session is answered only once this poll has spent the request, so
+   *    of all the polls that ever hold it exactly one delivers. A refusal
+   *    (the cooldown, a default profile changed since the claim) spends it
+   *    too. Any other failure keeps the claim and lets go of it, so the next
+   *    poll takes over at once; a try after the recovery committed finds its
+   *    own row and goes on to the session rather than meeting the cooldown.
+   */
+  const finishEmailRecovery = (
+    requestId: string,
+    link: EmailLinkChallenge,
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<
+    RecoveryEmailStatus,
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
+    Effect.gen(function* () {
+      const profile = yield* findDefaultProfile(link.subject);
+      if (!profile || link.bound !== addressDigest(profile.email)) {
+        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+      }
+      const claimed = yield* links.claim(requestId, link, {
+        accountId: profile.accountId,
+        profileId: profile.id,
+        eventId: genId("sev_"),
+      });
+      if (!claimed) return EXPIRED;
+      const { claim } = claimed;
+
+      const done = yield* Effect.gen(function* () {
+        if (claim.profileId !== profile.id || claim.eventId === undefined) {
+          return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+        }
+        const finished = yield* completeRecoveryFactor(profile, "otp", sessionMeta, claim.eventId);
+        // Another poll took the request over and delivers it.
+        if (!(yield* links.spend(requestId, claimed))) return null;
+        return finished;
+      }).pipe(
+        Effect.tapError((e) =>
+          (e._tag === "AuthError"
+            ? links.spend(requestId, claimed)
+            : links.letGo(requestId, claimed)
+          ).pipe(Effect.ignore),
+        ),
+      );
+      if (!done) return EXPIRED;
+      return { status: "complete", session: done.session, profile: done.profile } as const;
+    }).pipe(withAuthRecovery("email_complete"), withAuthLogin("email_recovery"));
+
+  /**
+   * `POST /login/recovery/email/:requestId/status` — polled by the tab that
+   * began, with its claim secret. Answers `pending` until the link is
+   * confirmed, with the request's number so a reloaded tab can show it again
+   * without keeping it; then claims the request and answers `complete` with
+   * the restricted recovery session, once. `expired` for every refusal: an
+   * unknown, expired, declined or other-flow request, a wrong claim secret, a
+   * poll that lost the claim to another or found another holding it, and a
+   * recovery the cooldown refuses. A poll that fails after the claim leaves
+   * the request claimed, and the next one finishes it.
+   *
+   * No attempts counter: a waiting tab polls every few seconds. The finishing
+   * part counts as the recovery's `email_complete` step.
+   */
+  const emailRecoveryStatus = (
+    requestId: string,
+    claimSecret: string,
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<RecoveryEmailStatus, DatabaseError | CoordinationError, Db | EmailService> =>
+    Effect.gen(function* () {
+      const polled = yield* links.poll("recovery", requestId, claimSecret);
+      if (polled.state === "pending") {
+        return polled.pairingCode === undefined
+          ? ({ status: "pending" } as const)
+          : ({ status: "pending", pairingCode: polled.pairingCode } as const);
+      }
+      if (polled.state === "expired") return EXPIRED;
+      return yield* finishEmailRecovery(requestId, polled.entry, sessionMeta).pipe(
+        Effect.catchTag("AuthError", () => Effect.succeed(EXPIRED)),
+      );
+    }).pipe(Effect.withSpan("auth.recovery.email_status"));
+
+  /** When the account's `account_recovered` row `eventId` was written, or null for none. */
+  const recoveryRowAt = (
+    accountId: string,
+    eventId: string,
+  ): Effect.Effect<number | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ createdAt: securityEvents.createdAt })
+            .from(securityEvents)
+            .where(
+              and(
+                eq(securityEvents.id, eventId),
+                eq(securityEvents.accountId, accountId),
+                eq(securityEvents.kind, "account_recovered"),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows[0]?.createdAt ?? null;
+    });
+
+  /**
+   * Everything both factors do once they have been believed: the emailed link
+   * confirmed and claimed, or the authenticator code checked.
    *
    * Matches `consumeRecoveryCode` deliberately and in detail — that function is
    * the existing recovery ceremony and a second one that revoked less, or
@@ -344,11 +485,22 @@ export function createRecoveryFactorsModule(
    * audit row with the wipe rather than the insert means a failure between the
    * two leaves a recorded recovery and no session — loud and safe — rather than
    * a session nobody can see was created.
+   *
+   * `eventId`, from an emailed link's claim, names the `account_recovered` row
+   * this recovery writes. A try that finds the cooldown running, that row
+   * already written, and the account's last recovery still the instant that
+   * row records is the same recovery, committed by an earlier try whose
+   * session never went out: it skips the batch and goes on from that instant,
+   * so its disown link names that recovery. It sets a disown token and sends
+   * the notice again, since the earlier try may have failed before either.
+   * Once any later recovery has stamped the account, the try is refused like
+   * a second recovery.
    */
   const completeRecoveryFactor = (
     profile: ProfileWithEmail,
     amr: RecoveryFactorAmr,
     sessionMeta?: SessionMeta,
+    eventId?: string,
   ): Effect.Effect<
     { session: TokenSet; profile: PublicProfile },
     AuthError | DatabaseError | CoordinationError,
@@ -366,51 +518,60 @@ export function createRecoveryFactorsModule(
       //
       // Checked HERE rather than at `begin`, which is the only place both
       // factor paths meet. Two enforcement points would drift, and TOTP has no
-      // `begin` to check. It costs the caller the code they just proved, which
-      // is the right way round — a refused recovery should not leave a live
-      // code behind — and it costs the branch no store round trips, because by
-      // this point `completeEmailRecovery` has already made all of its own.
+      // `begin` to check. It costs the caller the factor they just proved,
+      // which is the right way round — a refused recovery should not leave a
+      // live link or code behind. Only a confirmed and claimed link, or a
+      // checked code, reaches here, so the refusal is no oracle.
       //
       // `lastRecoveredAt` rides in on the profile, so this reads nothing: a
       // database hop inside the resolving branch alone would separate a real
       // account from a stranger's guess by latency, which is the oracle the
       // whole module is written to avoid.
       const previousRecovery = profile.lastRecoveredAt;
+      let recoveredAt = nowSec;
       if (
         previousRecovery !== null &&
         Date.now() - previousRecovery * 1000 < RECOVERY_COOLDOWN_MS
       ) {
-        metricRecoveryCooldown("second_recovery_refused");
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+        // Read only for a confirmed and claimed email link that meets the
+        // cooldown, past the link and its number, so this read is no oracle
+        // either.
+        const ownAt =
+          eventId === undefined ? null : yield* recoveryRowAt(profile.accountId, eventId);
+        if (ownAt === null || ownAt !== previousRecovery) {
+          metricRecoveryCooldown("second_recovery_refused");
+          return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+        }
+        recoveredAt = ownAt;
+      } else {
+        const securityEventRow: typeof securityEvents.$inferInsert = {
+          id: eventId ?? genId("sev_"),
+          accountId: profile.accountId,
+          kind: "account_recovered",
+          createdAt: nowSec,
+          acknowledgedAt: null,
+          ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+          uaLabel: sessionMeta?.uaLabel ?? null,
+        };
+
+        yield* Effect.tryPromise({
+          try: () =>
+            commitBatch(db, [
+              db.delete(sessions).where(eq(sessions.accountId, profile.accountId)),
+              db.insert(securityEvents).values(securityEventRow),
+              // Opens both windows: the second-recovery refusal above, and the
+              // email-change gate's reason to stop trusting an emailed OTP.
+              db
+                .update(accounts)
+                .set({ lastRecoveredAt: nowSec })
+                .where(eq(accounts.id, profile.accountId)),
+            ]),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+
+        metricSessionSecurityInvalidation("account_recovered");
+        metricSecurityEventRecorded("account_recovered");
       }
-
-      const securityEventRow: typeof securityEvents.$inferInsert = {
-        id: genId("sev_"),
-        accountId: profile.accountId,
-        kind: "account_recovered",
-        createdAt: nowSec,
-        acknowledgedAt: null,
-        ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
-        uaLabel: sessionMeta?.uaLabel ?? null,
-      };
-
-      yield* Effect.tryPromise({
-        try: () =>
-          commitBatch(db, [
-            db.delete(sessions).where(eq(sessions.accountId, profile.accountId)),
-            db.insert(securityEvents).values(securityEventRow),
-            // Opens both windows: the second-recovery refusal above, and the
-            // email-change gate's reason to stop trusting an emailed OTP.
-            db
-              .update(accounts)
-              .set({ lastRecoveredAt: nowSec })
-              .where(eq(accounts.id, profile.accountId)),
-          ]),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      metricSessionSecurityInvalidation("account_recovered");
-      metricSecurityEventRecorded("account_recovered");
 
       // The "this wasn't me" lever. Parked before the notice is dispatched, so
       // a token can never reach an inbox before the store can honour it.
@@ -428,7 +589,7 @@ export function createRecoveryFactorsModule(
           {
             secretHash: hashSessionToken(disown.secret),
             accountId: profile.accountId,
-            recoveredAt: nowSec,
+            recoveredAt,
             expiresAt: Date.now() + RECOVERY_DISOWN_TTL_MS,
           },
           RECOVERY_DISOWN_TTL_MS,
@@ -467,199 +628,6 @@ export function createRecoveryFactorsModule(
     });
 
   /**
-   * `POST /login/recovery/email/complete` — exchange the emailed code for a
-   * restricted recovery session.
-   *
-   * Accepts an email address or a handle. The email-only rule belongs to
-   * `begin`, which sends mail; this route sends nothing, and answers the same
-   * generic failure to anyone not holding the code.
-   *
-   * **The same three store calls on every refusal, in two hops** — the lockout
-   * lookup and the guess (the entry read and its count, in one call) side by
-   * side, then the failure record — whether the identifier resolves, whether
-   * the account is locked, whether a code is pending and whether the code is
-   * wrong. That is what a wrong code against a live entry makes, and it is the
-   * most any refusal makes, so every other refusal makes the same calls at the
-   * probe key (see "Padding" above).
-   *
-   * Uniform bodies are not the whole guard. `begin` answers 202 for an address
-   * that names nobody and parks a code for one that does; call it, then call
-   * this with a wrong code and time the answer. On unequal branches that reads
-   * out as "this address has an account", against no per-account cap and only a
-   * 10-per-minute per-IP limiter — which a rotating fleet already defeats at
-   * this issuer.
-   */
-  const completeEmailRecovery = (
-    identifier: string,
-    code: string,
-    sessionMeta?: SessionMeta,
-  ): Effect.Effect<
-    { session: TokenSet; profile: PublicProfile },
-    AuthError | DatabaseError | CoordinationError,
-    Db | EmailService
-  > =>
-    Effect.gen(function* () {
-      const normalised = normaliseIdentifier(identifier);
-      const profile = yield* resolveIdentifier(normalised);
-      const probe = serverMac.probeKey(normalised);
-
-      // Hashed up front on every branch so both pay the same SHA-256, whether or
-      // not there is anything to compare it against.
-      const codeHash = hashSessionToken(code);
-
-      if (!profile) {
-        // The wrong-code branch's calls, at the probe key, in its shape: the
-        // lockout lookup and the guess side by side, then the failure record.
-        yield* Effect.all([padLockoutRead(probe), padGuess(probe)], {
-          concurrency: "unbounded",
-          discard: true,
-        });
-        yield* padFailure(probe);
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
-      }
-
-      // The lockout lookup and the guess touch different objects and neither
-      // waits on the other, so they run side by side: one hop, not two. The
-      // guess is counted against the pending code even when the lockout then
-      // refuses it — it is a guess at that code all the same.
-      //
-      // Fail-closed: an unreachable counter behind a six-digit code is no
-      // throttle at all, so `"unknown"` refuses like `"locked"`, and writes no
-      // security event — nothing is known to have crossed the threshold.
-      //
-      // Read and counted in one call, before the code is compared; see
-      // `attempts.ts`. Unlike the other ceremonies, the guess that reaches the
-      // cap does not delete the entry: the count already refuses every guess
-      // after it, and a delete there would be a call only that guess makes. A
-      // new `begin` replaces the entry and starts the count again.
-      const [lockout, guessed] = yield* Effect.all(
-        [
-          Effect.promise(() => recoveryOtpLockoutStore.status(profile.accountId)),
-          guessEntry(stores.pendingRecoveryOtp, profile.accountId, MAX_OTP_ATTEMPTS),
-        ],
-        { concurrency: "unbounded" },
-      );
-      if (lockout.status !== "open") {
-        // Pad to the failure record and answer the same generic failure: a
-        // locked account must be indistinguishable from a wrong code, or the
-        // lockout becomes its own oracle — and one an attacker can create at
-        // will, by spending the account's attempts first. A counter that cannot
-        // be read pays the same, or a store fault would answer a real account
-        // sooner than an identifier that names nobody. The failure goes to the
-        // probe key: a refused guess does not extend the lockout.
-        yield* padFailure(probe);
-        metricRecoveryLockout(lockout.status === "locked" ? "locked" : "unavailable");
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
-      }
-
-      if (!guessed) {
-        // Deliberately NOT counted as a failed attempt. There is no pending code
-        // here, so this is not a guess against anything — and counting it would
-        // hand anyone who knows the identifier a lever to lock the owner out of
-        // their own recovery without ever guessing a digit.
-        //
-        // It still has to COST what counting one costs. Otherwise "no code
-        // pending" is timeable, and since `begin` parks a code only for an
-        // address that resolves, that is the account-existence oracle again by
-        // another route. So the failure is recorded at the probe key.
-        yield* padFailure(probe);
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
-      }
-      const { entry, standing } = guessed;
-
-      if (standing === "spent" || !timingSafeEqualString(entry.codeHash, codeHash)) {
-        // The guess count caps guesses per code; this counter caps them per
-        // account. They coincide on the first code by construction (both are
-        // 5). What the counter adds is the SECOND and THIRD codes: without it
-        // the 3-per-24h send cap would still allow fifteen guesses inside the
-        // lockout window.
-        const failures = yield* Effect.promise(() =>
-          recoveryOtpLockoutStore.recordFailure(profile.accountId),
-        );
-        if (failures === "unknown") {
-          // Not counted, so not known to have crossed the threshold: no event.
-          metricRecoveryLockout("unavailable");
-        } else if (failures >= RECOVERY_LOCKOUT_THRESHOLD) {
-          metricRecoveryLockout("locked");
-          // After the answer, not before it: only a real account can cross
-          // the threshold, so a refusal that waited on this insert would tell
-          // a stopwatch the address is real.
-          yield* forkBackground(recordLockoutEvent(profile.accountId, sessionMeta));
-        } else {
-          metricRecoveryLockout("recorded");
-        }
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
-      }
-
-      // Of two right codes sent at once, exactly one claims the entry; none
-      // does once a new `begin` has replaced it. The lockout reset runs beside
-      // the claim: a right code takes back the failures the lookup counted
-      // whether or not its claim wins — of two right codes, or a right code
-      // for an entry replaced since its guess, which only the mailbox's holder
-      // can send — so it waits on nothing. A lookup that counted no failures
-      // leaves nothing to take back, so then there is no reset. A failure a
-      // concurrent wrong code records after the lookup stands either way, and
-      // expires with its window.
-      const clearsFailures = lockout.failures > 0;
-      const [won] = yield* Effect.all(
-        [
-          claimEntry(stores.pendingRecoveryOtp, profile.accountId, entry),
-          clearsFailures
-            ? Effect.promise(() =>
-                recoveryOtpLockoutStore.reset(profile.accountId, lockout.failures),
-              )
-            : Effect.void,
-        ],
-        { concurrency: "unbounded" },
-      );
-      if (clearsFailures) metricRecoveryLockout("reset");
-      if (!won) {
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
-      }
-
-      return yield* completeRecoveryFactor(profile, "otp", sessionMeta);
-    }).pipe(withAuthRecovery("email_complete"), withAuthLogin("email_recovery"));
-
-  /**
-   * Write the `recovery_otp_lockout` audit row when an account crosses the
-   * failed-attempt threshold, so the owner sees "repeated failed recovery
-   * attempts" in the security banner even though every attempt answered the
-   * same generic error over the wire.
-   *
-   * Best-effort and off the response path: the caller forks it, so the
-   * refusal never waits on it, and a write failure is logged, never answered.
-   * Mirrors `recordRecoveryLockoutEvent` in `recovery.ts`.
-   */
-  const recordLockoutEvent = (
-    accountId: string,
-    eventMeta?: SessionMeta,
-  ): Effect.Effect<void, never, Db> =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const nowSec = Math.floor(Date.now() / 1000);
-      yield* Effect.tryPromise({
-        try: () =>
-          db.insert(securityEvents).values({
-            id: genId("sev_"),
-            accountId,
-            kind: "recovery_otp_lockout",
-            createdAt: nowSec,
-            acknowledgedAt: null,
-            ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
-            uaLabel: eventMeta?.uaLabel ?? null,
-          }),
-        catch: (cause) => new DatabaseError({ cause }),
-      }).pipe(
-        Effect.tap(() => Effect.sync(() => metricSecurityEventRecorded("recovery_otp_lockout"))),
-        Effect.catch((cause) =>
-          Effect.logWarning("auth.recovery.otp_lockout: audit write failed").pipe(
-            Effect.annotateLogs({ error: String(cause) }),
-          ),
-        ),
-      );
-    }).pipe(Effect.withSpan("auth.recovery.otp_lockout"));
-
-  /**
    * `POST /login/recovery/totp/complete` — exchange an authenticator code for a
    * restricted recovery session.
    *
@@ -691,7 +659,7 @@ export function createRecoveryFactorsModule(
   > =>
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
-      const profile = yield* resolveIdentifier(normalised);
+      const profile = yield* resolveIdentifier(identifier);
 
       if (!profile) {
         // Mirror the cost of the branch `checkTotpCode` would have taken —
@@ -708,7 +676,7 @@ export function createRecoveryFactorsModule(
     }).pipe(withAuthRecovery("totp_complete"), withAuthLogin("totp_recovery"));
 
   /** What `POST /recovery/disown` answers, on every branch. */
-  const DISOWN_ACCEPTED: RecoveryEmailBeginResult = { status: "accepted" };
+  const DISOWN_ACCEPTED: RecoveryDisownAccepted = { status: "accepted" };
 
   /**
    * `POST /recovery/disown` — the "this wasn't me" lever from the recovery
@@ -759,7 +727,7 @@ export function createRecoveryFactorsModule(
    */
   const disownRecovery = (
     token: string,
-  ): Effect.Effect<RecoveryEmailBeginResult, DatabaseError, Db> =>
+  ): Effect.Effect<RecoveryDisownAccepted, DatabaseError, Db> =>
     Effect.gen(function* () {
       const parsed = parseDisownToken(token);
       // A malformed token still pays for both hops, so "that was not even the
@@ -963,7 +931,8 @@ export function createRecoveryFactorsModule(
 
   return {
     beginEmailRecovery,
-    completeEmailRecovery,
+    emailRecoveryStatus,
+    resendEmailRecovery,
     completeTotpRecovery,
     disownRecovery,
   };

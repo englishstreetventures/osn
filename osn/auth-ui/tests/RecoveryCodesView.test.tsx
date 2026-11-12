@@ -2,6 +2,7 @@ import type { RecoveryClient, StepUpClient } from "@osn/client";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 // @vitest-environment happy-dom
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { RecoveryCodesView, recoveryCodesFileName } from "../src/RecoveryCodesView";
@@ -29,8 +30,9 @@ interface ClientStub {
 interface StepUpStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
+  emailBegin: ReturnType<typeof vi.fn>;
+  emailStatus: ReturnType<typeof vi.fn>;
+  emailResend: ReturnType<typeof vi.fn>;
 }
 
 function makeClientStub(): ClientStub {
@@ -47,8 +49,9 @@ function makeStepUpStub(): StepUpStub {
     passkeyComplete: vi
       .fn()
       .mockResolvedValue({ token: "su_tok", expiresAt: Math.floor(Date.now() / 1000) + 300 }),
-    otpBegin: vi.fn(),
-    otpComplete: vi.fn(),
+    emailBegin: vi.fn(),
+    emailStatus: vi.fn(),
+    emailResend: vi.fn(),
   };
 }
 
@@ -349,13 +352,74 @@ describe("RecoveryCodesView", () => {
       () => screen.getByRole("button", { name: /Checking/i }) as HTMLButtonElement,
     );
     expect(button.disabled).toBe(true);
-    expect(screen.getByTestId("recovery-status-skeleton")).toBeTruthy();
+    // The line's place is held by a block a reader skips, in a busy region.
+    const region = document.querySelector('[aria-busy="true"]');
+    expect(region?.querySelector('[aria-hidden="true"]')).toBeTruthy();
 
     release({ active: 0, total: 0, generatedAt: null });
     await waitFor(() => expect(button.disabled).toBe(false));
     // Settled: the placeholder is gone and the button says what it will do.
-    expect(screen.queryByTestId("recovery-status-skeleton")).toBeNull();
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(screen.getByText(/You don't have any recovery codes yet/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Generate recovery codes/i })).toBeTruthy();
+  });
+});
+
+// A read under a host's Suspense boundary would hand the whole boundary to the
+// host's fallback, on the first read and on the refetch after Done.
+describe("RecoveryCodesView — under a host's Suspense", () => {
+  beforeEach(() => {
+    stub = makeClientStub();
+    stepUp = makeStepUpStub();
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function renderInSuspense() {
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <RecoveryCodesView
+          client={asClient(stub)}
+          stepUpClient={asStepUp(stepUp)}
+          runPasskeyCeremony={async () => assertion}
+          passkeyOnly
+          productName="Musubi"
+        />
+      </Suspense>
+    ));
+  }
+
+  it("holds its place while the first status read is out", async () => {
+    stub.getRecoveryCodesStatus.mockReturnValue(new Promise(() => {}));
+    renderInSuspense();
+    await waitFor(() => expect(stub.getRecoveryCodesStatus).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("button", { name: /Checking/i })).toBeTruthy();
+  });
+
+  it("keeps the count on screen while it reads the status again", async () => {
+    stub.getRecoveryCodesStatus
+      .mockResolvedValueOnce({ active: 10, total: 10, generatedAt: 1_750_000_000 })
+      .mockReturnValue(new Promise(() => {}));
+    stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
+    renderInSuspense();
+
+    await clickGenerate(/Generate new codes/i);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    await screen.findByText(sampleCodes[0]!);
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: /^Done$/ }));
+
+    await waitFor(() => expect(stub.getRecoveryCodesStatus).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByText(/10 of 10 codes unused/)).toBeTruthy();
   });
 });
 

@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CardTitle with no weight token set > computes the styles it computed before the token, beside a plain heading > computed style 1`] = `
+{
+  "--tw-font-weight": "600",
+  "--tw-leading": "1",
+  "--tw-tracking": "-0.02em",
+  "color": "rgb(26, 26, 34)",
+  "font-size": "16.8px",
+  "font-weight": "600",
+  "letter-spacing": "-0.336px",
+  "line-height": "16.8px",
+}
+`;

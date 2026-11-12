@@ -1,5 +1,5 @@
 ---
-title: Design tokens — the contract every shared component reads
+title: Design tokens — @shared/design-tokens and the ui-* contract
 tags:
   - architecture
   - design-system
@@ -12,14 +12,14 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-11
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
 
 One neutral vocabulary that the shared component packages write and every app
 maps onto once. Colour roles, plus type, tracking, leading, radius and measure
-scales.
+scales, and a title weight.
 
 ## The problem it solves
 
@@ -110,8 +110,9 @@ Scales, each spelled as a Tailwind utility: `text-ui-xs` … `2xl`,
 `tracking-ui-tight` … `ultra`, `leading-ui-none` … `relaxed`,
 `rounded-ui-hair` … `pill` plus the three role radii `rounded-ui-control`,
 `rounded-ui-field` and `rounded-ui-sheet`, `font-ui-body` /
-`-display` / `-mono`, and the measure scale `max-w-ui-xs` … `3xl` — declared
-as `--container-ui-*`, which is the namespace Tailwind reads a `max-w-*` from.
+`-display` / `-mono`, the weight role `font-ui-title`, and the measure scale
+`max-w-ui-xs` … `3xl` — declared as `--container-ui-*`, which is the namespace
+Tailwind reads a `max-w-*` from.
 
 Three groups sit outside `@theme` as plain custom properties, because a
 component consumes them inside its own rule rather than as a utility:
@@ -152,6 +153,27 @@ same values: `cire/vendor/tests/styles/tokens.test.ts` reads each one and fails
 if a role or a step differs. What each step paints in cire is
 `cire/host/DESIGN.md` §4.
 
+**`title` is a weight role**, not a step on a weight scale: the weight a shared
+part sets a short title or a tag in, one step over body text. An app maps
+`--ui-weight-title`; parts read it through `font-ui-title`, which `tokens.css`
+declares as `--font-weight-ui-title: var(--ui-weight-title, 600)` in its
+`@theme inline` block. Tailwind tells it apart from the `font-ui-*` families by
+the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
+fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
+those parts semibold. `@shared/ui`'s `Badge`, `DialogTitle` and `CardTitle`
+read it ([[component-library]], §Variant components, §Kobalte components and
+§Simple styled components). Musubi maps it to 500 in the contract block of
+`musubi/social/src/App.css`, and the lab and the metrics dashboard, which
+import that stylesheet, draw its 500. Pulse and cire map nothing: pulse draws
+a badge and a dialog title at 600 and no `CardTitle`. Musubi draws dialog and
+card titles at 500 and no badge. In the lab, `DialogStory`, the unmapped
+columns of `CardTitleWeights` and `BadgeWeights`, and every cire subtree
+(`cireStyle()`) lend `initial`, so they draw 600 whatever the lab maps. `shared/ui/tests/badge-default.browser.test.tsx`,
+`dialog-default.browser.test.tsx` and `card-default.browser.test.tsx` each hold
+an unmapped badge's or title's whole computed style, and pulse's
+`tests/styles/token-contract.browser.test.tsx` holds 600 for its badges and the
+dialog title under pulse's own stylesheet.
+
 `@cire/ui` also reads a few of cire's own app tokens, outside the contract,
 with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and
 `--elev-1`, the motion ladder's `--dur-*` and `--ease-*`, and the portals' two
@@ -187,8 +209,9 @@ curve, not `--ui-ease-out`: write `ease-(--ui-ease-out)` ([[house-lint-rules]]
 | `--ui-dur-base` | 200ms | A panel swap, a pill sliding |
 | `--ui-dur-slow` | 320ms | Something crossing the screen |
 | `--ui-dur-exit` | 80ms | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on its own `--ui-modal-exit` ([[component-library]], §Overlays: `Modal`) |
-| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving; a Kobalte overlay leaving runs on it too. `Modal`'s exit runs `ease-in` |
+| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving |
 | `--ui-ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | Something moving between two places |
+| `--ui-ease-exit` | `cubic-bezier(0.22, 1, 0.36, 1)` | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal`'s exit runs `ease-in` |
 | `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` |
 | `--ui-scale-exit` | 0.98 | How small an overlay ends as it leaves, `Modal` included |
 | `--ui-distance-enter` | 24px | How far `Modal` rises into place |
@@ -198,23 +221,54 @@ curve, not `--ui-ease-out`: write `ease-(--ui-ease-out)` ([[house-lint-rules]]
 more to tell the reader, so it gets out of the way: 80ms against 120ms, and it
 ends at 0.98 where it started at 0.96. `Modal` keeps its entry's own 0.98, so
 its exit is softer by distance and time alone (8px in 150ms against 24px in
-350ms). No app sets any of these today, so every app runs the values above.
+350ms). Musubi sets the two scale tokens to 1 (below); no app sets the
+durations or distances, so every app runs those, and pulse and cire run the
+scales too.
+
+**An exit has its own curve.** `--ui-ease-exit` carries the same curve as
+`--ui-ease-out`, so a Kobalte overlay leaves on the curve it arrives on. They
+are two tokens so that an app can map `--ui-ease-out` onto its own arriving
+curve without moving its overlays' exits, which `animate-out` times. No app
+sets either. `overlay-motion.browser.test.tsx` holds each overlay that exits
+on `--ui-ease-exit`, unmoved by `--ui-ease-out`, and
+`dialog-default.browser.test.tsx` holds an unmapped `Dialog`'s entry and exit
+on the one curve ([[browser-tests]]).
 
 `Dialog`'s `sheet` presentation scales like its centred card, from its
 centre. Below `md` the sheet is pinned to the bottom edge at full width, so
 its sides and its bottom edge sit in from the screen's by 2% of its size as
 it arrives and 1% as it leaves. `Modal`'s sheet rises from below the edge
-instead. Musubi's dialogs, most of the sheet's callers, move to a fade with
-no scale in englishstreetventures/osn#2040; pulse's share dialog keeps the
-scale.
+instead. Musubi's dialogs, most of the sheet's callers, fade with no scale
+(below); pulse's share dialog keeps the scale.
+
+**A fade with no scale is the two scale tokens at 1.** An app whose overlays
+should fade without moving sets `--ui-scale-enter` and `--ui-scale-exit` to 1
+on its root. Every Kobalte overlay — `Dialog` as card and as sheet, `Popover`,
+both `DropdownMenu` looks and `Tooltip` — then changes only its opacity, since
+`zoom-in` and `zoom-out` read those tokens and nothing else in the keyframes
+moves a panel. `--ui-scale-exit` at 1 also stops `Modal`'s exit scale. Its
+entry keeps its own `scale(0.98)` (`modal.tsx`), which no token reaches, so it
+still grows as it opens; its rise and sink (`--ui-distance-enter`,
+`--ui-distance-exit`) stay too. No component takes a prop for it: a prop would
+give a panel's scale a second home, and leave the menus and popovers of the
+same app zooming. A held frame's computed `transform` is the identity matrix
+rather than `none`, because the shared keyframes always declare one.
+`overlay-motion.browser.test.tsx` holds the fade for all five overlays, and
+for `Dialog` as a sheet at 390px, against a control that scales, and the lab's
+`DialogFadeOnly` story shows it ([[component-lab]]). Musubi sets both to 1 in
+its contract block, so the lab and the metrics dashboard fade too. On real
+pages `tools/e2e` holds Musubi's account menu, profile switcher and
+create-organisation dialog on the fade, and pulse's avatar menus and "More
+filters" dialog on the contract's 0.96 (`musubi-surfaces.ts`,
+`pulse-menus.ts`).
 
 The overlays reach them through four utilities in `tokens.css`, not by
-reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` and
-`animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` set the scale an
-element enters from and leaves to from `--ui-scale-enter` and
-`--ui-scale-exit`. Two pairs of names sit close: `--ui-scale-enter` is the
-token an app sets, `--ui-enter-scale` is what `zoom-in` writes on one element
-for the keyframes to read.
+reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` on
+`--ui-ease-out` and `animate-out` runs `--ui-dur-exit` on `--ui-ease-exit`;
+`zoom-in` and `zoom-out` set the scale an element enters from and leaves to
+from `--ui-scale-enter` and `--ui-scale-exit`. Two pairs of names sit close:
+`--ui-scale-enter` is the token an app sets, `--ui-enter-scale` is what
+`zoom-in` writes on one element for the keyframes to read.
 
 **Reduced motion has one home for the Kobalte overlays.** Under
 `prefers-reduced-motion: reduce`, a flat block in `tokens.css` sets

@@ -1,6 +1,7 @@
 import {
   describeAuthError,
   type AccountClient,
+  type EmailChangeRequest,
   type StepUpClient,
   type StepUpToken,
 } from "@osn/client";
@@ -10,19 +11,23 @@ import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
+import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy, fieldError, type FieldError } from "./error-lines";
+import { createLinkPoll, type LinkPollStep } from "./link-poll";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
- * Settings-panel surface for changing the account email. Two-phase:
- *   1. Enter the new address → OTP is sent.
- *   2. Enter the OTP + complete a step-up ceremony → email swaps and
- *      every other session is revoked.
+ * Settings-panel surface for changing the account email:
+ *   1. Enter the new address → a link is mailed there.
+ *   2. Wait (`CheckEmailView`) while the link is confirmed, on any device,
+ *      with the number this panel shows.
+ *   3. Confirm it's you (`StepUpDialog`, purpose `email_change`: a passkey or
+ *      a link to the CURRENT address) → the email swaps and every other
+ *      session is revoked.
  *
- * The step-up token is obtained via the passkey/OTP dialog below. We
- * treat this as a "sensitive action" because an email change downstream
- * controls account recovery — stolen access tokens alone should not be
- * enough to pivot into permanent takeover.
+ * A sensitive action because an email change downstream controls account
+ * recovery: a stolen access token alone must not be enough to pivot into
+ * permanent takeover. The claim secret and the number live in memory only.
  */
 export interface ChangeEmailFormProps {
   accountClient: AccountClient;
@@ -33,27 +38,49 @@ export interface ChangeEmailFormProps {
   runPasskeyCeremony?: RunPasskeyCeremony;
 }
 
-type Phase = "enter_email" | "enter_code" | "step_up" | "done";
+type Phase = "enter_email" | "check_email" | "step_up" | "finishing" | "done";
+
+/**
+ * Seconds before Resend unlocks. A mailbox gets three resent links a day
+ * (`osn/api/src/services/auth/constants.ts`); at the 30-second default a
+ * person would spend them in under two minutes.
+ */
+const RESEND_WAIT_SECONDS = 120;
+
+const LIMIT_LINE =
+  "We've sent all the links we can for this request. Use the newest one, or use a different email.";
+const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 
 export function ChangeEmailForm(props: ChangeEmailFormProps) {
   const [phase, setPhase] = createSignal<Phase>("enter_email");
   const [newEmail, setNewEmail] = createSignal("");
-  const [code, setCode] = createSignal("");
-  const [stepUp, setStepUp] = createSignal<StepUpToken | null>(null);
   const [busy, setBusy] = createSignal(false);
-  // Each phase's line sits under its one field, tied to it.
+  // The address phase's line sits under its field, tied to it.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
+  const [request, setRequest] = createSignal<EmailChangeRequest | null>(null);
+  const [pairingCode, setPairingCode] = createSignal<string | undefined>(undefined);
+  const [linkStatus, setLinkStatus] = createSignal<CheckEmailStatus>("waiting");
+  const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
+  const linkPoll = createLinkPoll(pollLink);
+
+  /** A new request to the address typed, with its own number, and the wait on it. */
+  async function sendLink() {
+    const begun = await props.accountClient.changeEmailBegin({ newEmail: newEmail() });
+    setRequest(begun);
+    setPairingCode(begun.pairingCode);
+    setLinkError(undefined);
+    setLinkStatus("waiting");
+    linkPoll.start();
+  }
 
   async function begin() {
     if (busy()) return;
     setBusy(true);
     setError(null);
     try {
-      await props.accountClient.changeEmailBegin({
-        newEmail: newEmail(),
-      });
-      setPhase("enter_code");
+      await sendLink();
+      setPhase("check_email");
     } catch (e) {
       setError(fieldError(describeAuthError(e, "details"), e));
     } finally {
@@ -61,29 +88,110 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
     }
   }
 
-  async function complete() {
-    if (busy()) return;
-    if (!stepUp()) {
+  /** One poll: still waiting, gone, or confirmed — then on to the step-up. */
+  async function pollLink(): Promise<LinkPollStep> {
+    const current = request();
+    if (!current) return "stop";
+    const answer = await props.accountClient.changeEmailStatus({
+      requestId: current.requestId,
+      claimSecret: current.claimSecret,
+    });
+    if (request() !== current) return "stop";
+    if (answer.status === "pending") {
+      if (answer.pairingCode !== undefined) setPairingCode(answer.pairingCode);
+      return "wait";
+    }
+    if (answer.status === "confirmed") {
       setPhase("step_up");
+      return "stop";
+    }
+    setLinkStatus("expired");
+    return "stop";
+  }
+
+  /**
+   * Resend in the waiting view. A live request gets another link of its own;
+   * an expired one is replaced by a new request, with a new number. A
+   * rejection is how the view learns that no new link went.
+   */
+  async function resendLink() {
+    const current = request();
+    if (!current) return;
+    if (linkStatus() === "expired") {
+      try {
+        await sendLink();
+      } catch (err) {
+        setLinkError(RESEND_FAILED_LINE);
+        setLinkStatus("error");
+        throw err;
+      }
       return;
     }
-    setBusy(true);
+    setLinkStatus("waiting");
+    setLinkError(undefined);
+    let answer: { status: "sent" | "limit" | "expired" };
+    try {
+      answer = await props.accountClient.changeEmailResend({
+        requestId: current.requestId,
+        claimSecret: current.claimSecret,
+      });
+    } catch (err) {
+      setLinkError(RESEND_FAILED_LINE);
+      setLinkStatus("error");
+      throw err;
+    }
+    if (answer.status === "sent") {
+      linkPoll.start();
+      return;
+    }
+    if (answer.status === "limit") {
+      setLinkError(LIMIT_LINE);
+      setLinkStatus("error");
+      throw new Error(LIMIT_LINE);
+    }
+    linkPoll.stop();
+    setLinkStatus("expired");
+    throw new Error("The link expired");
+  }
+
+  /** Back to the address, kept. The request is left to expire. */
+  function changeAddress() {
+    linkPoll.stop();
+    setRequest(null);
+    setPairingCode(undefined);
     setError(null);
+    setPhase("enter_email");
+  }
+
+  async function complete(stepUp: StepUpToken) {
+    const current = request();
+    if (!current) return;
+    setPhase("finishing");
+    setBusy(true);
     try {
       const result = await props.accountClient.changeEmailComplete({
-        code: code(),
-        stepUpToken: stepUp()!.token,
+        requestId: current.requestId,
+        claimSecret: current.claimSecret,
+        stepUpToken: stepUp.token,
       });
+      setRequest(null);
+      setPairingCode(undefined);
+      setNewEmail(result.email);
       setPhase("done");
       props.onChanged?.(result.email);
     } catch (e) {
-      setError(fieldError(describeAuthError(e, "code"), e));
+      // Back to the wait: the poll says whether the request can still be
+      // completed (a step-up again) or is spent (a new link).
+      setLinkError(describeAuthError(e));
+      setLinkStatus("error");
+      setPhase("check_email");
+      linkPoll.start();
     } finally {
       setBusy(false);
     }
   }
 
-  /** The phase's error line, under its field. */
+  /** The address phase's error line, under its field. */
   const errorLine = () => (
     <Show when={error()}>
       {(line) => (
@@ -94,7 +202,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
     </Show>
   );
   /**
-   * For the phase's field: its id, the field's own description, then the
+   * For the address field: its id, the field's own description, then the
    * line, and a mark on a refused input.
    */
   const tie = (field: FieldControlProps) => ({
@@ -123,34 +231,23 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
           )}
         </Field>
         <Button onClick={begin} busy={busy()} disabled={!busy() && !newEmail()}>
-          {busy() ? "Sending…" : "Send verification code"}
+          {busy() ? "Sending…" : "Send a link"}
         </Button>
       </Show>
 
-      <Show when={phase() === "enter_code"}>
-        <p class="text-muted-foreground text-sm">
-          We sent a 6-digit code to {newEmail()}. Enter it below to continue.
-        </p>
-        <Field labelTreatment="plain" label="Code">
-          {(field) => (
-            <>
-              <Input
-                face="code"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                spellcheck={false}
-                maxLength={6}
-                value={code()}
-                onInput={(e) => setCode(e.currentTarget.value)}
-                {...tie(field)}
-              />
-              {errorLine()}
-            </>
-          )}
-        </Field>
-        <Button onClick={complete} busy={busy()} disabled={!busy() && code().length !== 6}>
-          {busy() ? "Checking…" : "Confirm identity & change email"}
-        </Button>
+      {/* Mounted inside the panel that is already open, so the view's heading
+          keeps the focus it takes. */}
+      <Show when={phase() === "check_email"}>
+        <CheckEmailView
+          purpose="email-change"
+          email={newEmail()}
+          status={linkStatus()}
+          errorMessage={linkError()}
+          pairingCode={pairingCode()}
+          resendWaitSeconds={RESEND_WAIT_SECONDS}
+          onResend={resendLink}
+          onChangeEmail={changeAddress}
+        />
       </Show>
 
       <Show when={phase() === "step_up"}>
@@ -158,13 +255,16 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
           client={props.stepUpClient}
           runPasskeyCeremony={props.runPasskeyCeremony}
           purpose="email_change"
-          onToken={(tok) => {
-            setStepUp(tok);
-            setPhase("enter_code");
-            void complete();
-          }}
-          onCancel={() => setPhase("enter_code")}
+          reason="to change your email"
+          onToken={(tok) => void complete(tok)}
+          onCancel={changeAddress}
         />
+      </Show>
+
+      <Show when={phase() === "finishing"}>
+        <p class="text-muted-foreground text-sm" aria-live="polite">
+          Changing your email…
+        </p>
       </Show>
 
       <Show when={phase() === "done"}>

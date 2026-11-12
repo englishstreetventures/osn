@@ -8,7 +8,9 @@ import { beforeAll } from "vitest";
 import { RECOVERY_LOCKOUT_THRESHOLD } from "../../src/lib/recovery-lockout-store";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
+import { latestLinkTo } from "../helpers/registration";
 
 /**
  * Only a real account can cross a lockout threshold, and crossing it writes an
@@ -77,20 +79,39 @@ describe("the guess that crosses a lockout threshold answers without its audit r
     }).pipe(Effect.provide(db.layer));
   });
 
-  it.live("emailed recovery code", () => {
+  it.live("emailed recovery link", () => {
     const db = auditNeverFinishes();
     const auth = createAuthService(base);
     return Effect.gen(function* () {
       yield* auth.registerProfile("bg-email@example.com", "bgemail");
-      // A code pending, so each wrong code is a counted failure on the account.
-      yield* auth.beginEmailRecovery("bg-email@example.com");
-      db.stall();
-      for (let i = 0; i < RECOVERY_LOCKOUT_THRESHOLD - 1; i++) {
-        yield* Effect.result(auth.completeEmailRecovery("bg-email@example.com", "000000"));
+      // A request per wrong number, each mailed: a wrong number ends its request.
+      const requests = [];
+      for (let n = 0; n < RECOVERY_LOCKOUT_THRESHOLD; n++) {
+        const begun = yield* settle(
+          auth.beginEmailRecovery("bg-email@example.com", { ip: `198.51.100.${n}`, uaLabel: null }),
+        );
+        const link = latestLinkTo(db.email.recorded(), "bg-email@example.com")!;
+        requests.push({ begun, link });
       }
-      expect(
-        yield* refusedPromptly(auth.completeEmailRecovery("bg-email@example.com", "000000")),
-      ).toBe("AuthError");
+      const wrongFor = (right: string) => (right === "00" ? "01" : "00");
+      db.stall();
+      for (const { begun, link } of requests.slice(0, -1)) {
+        const answer = yield* auth.confirmEmailLink(begun.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: wrongFor(begun.pairingCode),
+        });
+        expect(answer).toBe("expired");
+      }
+      // A wrong number answers `expired` rather than failing, so the crossing
+      // one is timed as an answer within the second.
+      const last = requests.at(-1)!;
+      const crossing = yield* auth
+        .confirmEmailLink(last.begun.requestId, {
+          linkSecret: last.link.linkSecret,
+          pairingPick: wrongFor(last.begun.pairingCode),
+        })
+        .pipe(Effect.timeout("1 second"));
+      expect(crossing).toBe("expired");
     }).pipe(Effect.provide(db.layer));
   });
 });

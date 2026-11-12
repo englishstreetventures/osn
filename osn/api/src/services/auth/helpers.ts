@@ -1,5 +1,5 @@
 /**
- * Pure helpers shared across the auth modules: id / token / OTP generation,
+ * Pure helpers shared across the auth modules: id / token generation,
  * JWT sign + verify primitives, boundary schemas, identifier normalisation.
  * Nothing in here touches the DB or holds state.
  */
@@ -282,36 +282,14 @@ export async function verifyJwt(
 }
 
 /**
- * Generates a uniformly distributed 6-digit OTP via rejection sampling.
- * `crypto.getRandomValues` returns a 32-bit value; naive `% 900_000` is biased
- * because 2^32 is not a multiple of 900_000. We discard draws that fall in the
- * tail and resample.
+ * Whether this process runs on a local machine (`OSN_ENV` unset or "local"),
+ * the only place {@link logDevLink} writes a link with its secret.
  */
-export function genOtpCode(): string {
-  const buf = new Uint32Array(1);
-  // 2^32 = 4_294_967_296. Largest multiple of 900_000 not exceeding it.
-  const ceil = Math.floor(0x1_0000_0000 / 900_000) * 900_000;
-  do {
-    crypto.getRandomValues(buf);
-  } while (buf[0]! >= ceil);
-  return (100_000 + (buf[0]! % 900_000)).toString();
-}
-
-/**
- * Local-dev convenience: surface a freshly minted OTP in the server log so an
- * operator can complete an email-OTP flow (registration, step-up, email change)
- * without a real inbox — `LogEmailLive` records the body in-memory but never
- * logs the code. Gated strictly on a local environment (`OSN_ENV` unset or
- * "local") so a code is NEVER logged in staging/production. Emitted at debug:
- * local dev defaults to the debug log level (so it shows), non-local defaults to
- * info (a second guard on top of the env check).
- */
-// P-I1: resolved once and cached — `process.env` is a backed getter, not a
-// plain property read, so re-reading it per OTP issuance is wasted work.
-// S-L2: resolution is LAZY (first `logDevOtp` call, i.e. mid-request) rather
-// than at module evaluation, so a runtime that populates `process.env` after
-// module load can never freeze an unset `OSN_ENV` into "local" — and with it
-// OTP logging — for the process lifetime. "Unset ⇒ local" itself matches the
+// Resolved once and cached — `process.env` is a backed getter, not a plain
+// property read. The resolution is LAZY (first `logDevLink` call, i.e.
+// mid-request) rather than at module evaluation, so a runtime that populates
+// `process.env` after module load can never freeze an unset `OSN_ENV` into
+// "local" — and with it link logging — for the process lifetime. "Unset ⇒ local" itself matches the
 // codebase-wide convention (`isNonLocal` in index.ts).
 let isLocalEnvCached: boolean | undefined;
 
@@ -322,7 +300,7 @@ let isLocalEnvCached: boolean | undefined;
 // `nodejs_compat_populate_process_env` is on, and only on first access. Drop
 // that flag, bump the compat date past a rename, deploy a Worker that never
 // touches `process` first — and `OSN_ENV` reads empty, "unset ⇒ local" holds,
-// and live OTP codes go to the log sink. So the deployed path stamps the real
+// and live link secrets go to the log sink. So the deployed path stamps the real
 // tier here from the binding and `process.env` is only the fallback for the Bun
 // entry (`local.ts`), where it is native and always populated.
 // An absent binding normalises to "unknown", NOT to undefined: undefined would
@@ -339,16 +317,41 @@ const isLocalEnv = (): boolean => {
   return (isLocalEnvCached ??= !process.env.OSN_ENV || process.env.OSN_ENV === "local");
 };
 
-// S-L4: the recipient address used to be interpolated into this line. A
-// free-text message is not annotation-shaped, so the key-based redaction
-// deny-list in `@shared/observability` never sees it — the env gate was the
-// only thing standing between an OTP recipient and the log sink. The address
-// is dropped rather than annotated: an operator reading a local dev log
-// already knows which address they just typed, so it bought nothing that a
-// second line of defence had to be trusted to protect.
-export function logDevOtp(purpose: string, code: string): Effect.Effect<void> {
+/**
+ * The emailed link, secret included, as a local-only debug line — so a local
+ * stack with no mail provider can still be signed up through. Gated strictly
+ * on a local environment, so a secret is never logged in staging or
+ * production, and emitted at debug, the level only local dev shows by
+ * default. It names no recipient: the operator knows which address they typed.
+ */
+export function logDevLink(purpose: string, url: string): Effect.Effect<void> {
   if (!isLocalEnv()) return Effect.void;
-  return Effect.logDebug(`[dev-otp] ${purpose} code=${code}`);
+  return Effect.logDebug(`[dev-link] ${purpose} ${url}`);
+}
+
+/**
+ * The origin of the web app that serves pages an email links to — the recovery
+ * notice's "this wasn't me" page and an emailed link's confirm page.
+ *
+ * Derived, not configured: `authorizeUiUrl`'s origin, falling back to the first
+ * configured WebAuthn origin, the same precedence `buildInteractionRedirect`
+ * uses in `routes/auth/oidc.ts`. One answer to "where does the frontend live"
+ * rather than two that can disagree, and no `Env` key that would have to be set
+ * in every wrangler environment before it was right anywhere. A malformed value
+ * is returned as given: the mail that carries the link is already committed,
+ * and it still sends with a link that does not work.
+ */
+export function frontendOrigin(config: {
+  readonly authorizeUiUrl?: string;
+  readonly origin: string | string[];
+}): string {
+  const fallback = Array.isArray(config.origin) ? config.origin[0] : config.origin;
+  const base = config.authorizeUiUrl ?? fallback ?? "";
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -477,14 +480,66 @@ export const PasskeyLabelSchema = Schema.String.check(
 );
 
 /**
- * Normalises an identifier by stripping a leading @ sigil.
- * Users may type "@alice" meaning handle "alice"; this strips it before dispatch.
+ * An identifier as the caller meant it, case kept: surrounding space trimmed and
+ * any leading `@` sigils stripped, so "@alice" names the handle "alice".
+ */
+export function identifierAsTyped(identifier: string): string {
+  return identifier.trim().replace(/^@+/, "");
+}
+
+/**
+ * An identifier as stored: {@link identifierAsTyped}, lower-cased. Handles are
+ * lower case only, and every email is now written lower-cased, so a phone that
+ * capitalises the first letter still names the same account. Every lookup and
+ * every store key a sign-in or recovery ceremony derives from an identifier
+ * starts from this one string, so a ceremony begun in one case and finished in
+ * another meets its own entries. The same result as `normaliseHandleQuery` in
+ * `@shared/db-utils/search`.
  */
 export function normaliseIdentifier(identifier: string): string {
-  return identifier.startsWith("@") ? identifier.slice(1) : identifier;
+  return identifierAsTyped(identifier).toLowerCase();
 }
 
 /** Returns true if the (already-normalised) identifier looks like an email address. */
 export function looksLikeEmail(identifier: string): boolean {
   return identifier.includes("@");
+}
+
+/**
+ * Providers whose mail ignores dots in the local part, and the domain each
+ * reads as: Gmail's two domains, one mailbox. The only extras the key takes
+ * on top of the `+tag` cut every domain gets.
+ */
+const ONE_MAILBOX_PROVIDERS = new Map([
+  ["gmail.com", { domain: "gmail.com" }],
+  ["googlemail.com", { domain: "gmail.com" }],
+]);
+
+/**
+ * `address` as the Resend caps' key (sign-up, step-up, email change), and for
+ * nothing else:
+ * lowercased, the local part cut at its first `+` (when one follows the first
+ * character) on every domain, and at a provider in
+ * {@link ONE_MAILBOX_PROVIDERS} its dots dropped and the domain read as that
+ * provider's. Every `+tag` variant of a local part then shares one cap. On a
+ * domain where `+` names a different mailbox, one cap covers both. Never
+ * stored, mailed or shown, and never the key an account is looked up by: the
+ * strike counter, the account, the pending sign-up and the mail keep the
+ * address as typed, lowercased. A value with no `@` comes back lowercased and
+ * otherwise as given.
+ */
+export function mailboxKey(address: string): string {
+  const lower = address.toLowerCase();
+  const at = lower.lastIndexOf("@");
+  if (at < 0) return lower;
+  let local = lower.slice(0, at);
+  let domain = lower.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus > 0) local = local.slice(0, plus);
+  const provider = ONE_MAILBOX_PROVIDERS.get(domain);
+  if (provider) {
+    local = local.replaceAll(".", "");
+    domain = provider.domain;
+  }
+  return `${local}@${domain}`;
 }

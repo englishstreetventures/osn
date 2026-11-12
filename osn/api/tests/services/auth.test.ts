@@ -1,28 +1,29 @@
+import { createHash } from "node:crypto";
+
 import { it, expect, describe } from "@effect/vitest";
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Deferred, Effect, Layer, Logger, References } from "effect";
-import { TestClock } from "effect/testing";
-import { beforeAll, vi } from "vitest";
+import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
-import { hashSessionToken } from "../../src/services/auth/helpers";
+import { createServerMac } from "../../src/services/auth/server-mac";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { latestLinkTo, registerThroughService } from "../helpers/registration";
 
 /**
- * Build a fresh auth service + OTP-capturing email recorder + merged
- * test layer. Replaces the old `sendEmail` callback in `AuthConfig`.
+ * Build a fresh auth service + email recorder + merged test layer.
  *
  * Usage:
  *   it.effect("...", () => {
- *     const { svc, captured, layer } = makeAuth();
+ *     const { svc, recorded, layer } = makeAuth();
  *     return Effect.gen(function* () {
  *       yield* settle(svc.beginRegistration(...));
- *       expect(captured.code).toMatch(/.../);
+ *       expect(latestLinkTo(recorded(), address)).not.toBeNull();
  *     }).pipe(Effect.provide(layer));
  *   });
  */
@@ -30,19 +31,7 @@ function makeAuth() {
   const email = makeLogEmailLive();
   const svc = createAuthService(config);
   const layer = Layer.merge(createTestLayer(), email.layer);
-  const captured = {
-    get code(): string | undefined {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
-    /** Clear the capture ring — use when a test asserts the absence of a send. */
-    reset: () => email.reset(),
-  };
-  return { svc, captured, layer };
+  return { svc, recorded: () => email.recorded(), layer };
 }
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -76,6 +65,26 @@ describe("registerProfile", () => {
     Effect.gen(function* () {
       yield* auth.registerProfile("carol@example.com", "carol");
       const error = yield* Effect.flip(auth.registerProfile("carol@example.com", "carol2"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Email already registered");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("stores and returns the email in lower case", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("Reg-Case@Example.COM", "regcase");
+      expect(profile.email).toBe("reg-case@example.com");
+      expect(yield* auth.findProfileByEmail("reg-case@example.com")).toMatchObject({
+        id: profile.id,
+        email: "reg-case@example.com",
+      });
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses an email that differs from a registered one only in case", () =>
+    Effect.gen(function* () {
+      yield* auth.registerProfile("reg-twin@example.com", "regtwin");
+      const error = yield* Effect.flip(auth.registerProfile("REG-Twin@example.com", "regtwin2"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Email already registered");
     }).pipe(Effect.provide(createTestLayer())),
@@ -187,33 +196,23 @@ describe("checkHandle", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Email-verified registration: beginRegistration + completeRegistration
+// Sign-up through the emailed link: beginRegistration, the link's confirm,
+// registrationStatus. The refusals over HTTP are in
+// tests/routes/registration-link.test.ts; these hold what only the service
+// can show — what is stored, and how a send or a database fault plays out.
 // ---------------------------------------------------------------------------
 
-/** What `read` answers with the clock `aheadMs` past now. */
-async function readAhead<A>(aheadMs: number, read: () => Promise<A>): Promise<A> {
-  const now = Date.now();
-  const clock = vi.spyOn(Date, "now").mockReturnValue(now + aheadMs);
-  try {
-    return await read();
-  } finally {
-    clock.mockRestore();
-  }
-}
-
-describe("beginRegistration + completeRegistration", () => {
-  // Each test gets a fresh makeAuth() via the module-scope helper so the
-  // OTP captured in begin can be replayed in complete.
-
-  it.effect("happy path: begin → complete creates user and returns session", () => {
-    const { svc, captured, layer } = makeAuth();
+describe("sign-up through the emailed link", () => {
+  it.effect("creates the account for the tab that began, with a session", () => {
+    const { svc, recorded, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* settle(
-        svc.beginRegistration("verify@example.com", "verifyme", "1990-01-01", "Verify Me"),
+      const result = yield* registerThroughService(
+        svc,
+        recorded,
+        "verify@example.com",
+        "verifyme",
+        { displayName: "Verify Me" },
       );
-      expect(captured.code).toMatch(/^\d{6}$/);
-
-      const result = yield* svc.completeRegistration("verify@example.com", captured.code!);
       expect(result.profileId).toMatch(/^usr_/);
       expect(result.handle).toBe("verifyme");
       expect(result.email).toBe("verify@example.com");
@@ -222,7 +221,6 @@ describe("beginRegistration + completeRegistration", () => {
       expect(result.refreshToken.length).toBeGreaterThan(0);
       expect(result.expiresIn).toBeGreaterThan(0);
 
-      // The user row must now exist.
       const found = yield* svc.findProfileByEmail("verify@example.com");
       expect(found?.handle).toBe("verifyme");
       expect(found?.displayName).toBe("Verify Me");
@@ -230,31 +228,34 @@ describe("beginRegistration + completeRegistration", () => {
   });
 
   it.effect("email is normalised to lowercase across the pipeline", () => {
-    const { svc, captured, layer } = makeAuth();
+    const { svc, recorded, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("MixedCase@Example.com", "mixedcase", "1990-01-01"));
-      // The OTP is captured from the email body which is sent to the
-      // lowercased address; complete must also accept the lowercased form.
-      const result = yield* svc.completeRegistration("MixedCase@Example.com", captured.code!);
+      const result = yield* registerThroughService(
+        svc,
+        recorded,
+        "MixedCase@Example.com",
+        "mixedcase",
+      );
       expect(result.email).toBe("mixedcase@example.com");
-
-      // Lookups by either casing find the same row.
       const a = yield* svc.findProfileByEmail("mixedcase@example.com");
       expect(a?.id).toBe(result.profileId);
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("does not create the user before the OTP is verified", () => {
-    const { svc, layer } = makeAuth();
+  it.effect("does not create the user before the link is confirmed and claimed", () => {
+    const { svc, recorded, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("pending@example.com", "pendinguser", "1990-01-01"));
+      const begun = yield* settle(
+        svc.beginRegistration("pending@example.com", "pendinguser", "1990-01-01"),
+      );
+      const link = latestLinkTo(recorded(), "pending@example.com")!;
+      yield* svc.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
 
-      // No DB row yet.
-      const found = yield* svc.findProfileByEmail("pending@example.com");
-      expect(found).toBeNull();
-      // Handle still free.
-      const status = yield* svc.checkHandle("pendinguser");
-      expect(status.available).toBe(true);
+      expect(yield* svc.findProfileByEmail("pending@example.com")).toBeNull();
+      expect((yield* svc.checkHandle("pendinguser")).available).toBe(true);
     }).pipe(Effect.provide(layer));
   });
 
@@ -290,7 +291,7 @@ describe("beginRegistration + completeRegistration", () => {
   });
 
   it.effect("COPPA: begin rejects an under-13 birthdate with AgeRestrictionError", () => {
-    const { svc, captured, layer } = makeAuth();
+    const { svc, recorded, layer } = makeAuth();
     return Effect.gen(function* () {
       // Ten years ago today — comfortably under 13.
       const tenYearsAgo = new Date();
@@ -300,27 +301,27 @@ describe("beginRegistration + completeRegistration", () => {
         svc.beginRegistration("child@example.com", "childuser", dob),
       );
       expect(error._tag).toBe("AgeRestrictionError");
-      // No OTP is sent and no personal information is collected.
-      expect(captured.code).toBeUndefined();
+      // No link is sent and no personal information is collected.
+      expect(recorded()).toEqual([]);
       const found = yield* svc.findProfileByEmail("child@example.com");
       expect(found).toBeNull();
     }).pipe(Effect.provide(layer));
   });
 
   it.effect("COPPA: begin accepts a birthdate exactly on the 13th birthday", () => {
-    const { svc, captured, layer } = makeAuth();
+    const { svc, recorded, layer } = makeAuth();
     return Effect.gen(function* () {
       const thirteenToday = new Date();
       thirteenToday.setUTCFullYear(thirteenToday.getUTCFullYear() - 13);
       const dob = thirteenToday.toISOString().slice(0, 10);
       const result = yield* settle(svc.beginRegistration("teen@example.com", "teenuser", dob));
-      expect(result.sent).toBe(true);
-      expect(captured.code).toMatch(/^\d{6}$/);
+      expect(result.requestId).toMatch(/^signup_/);
+      expect(latestLinkTo(recorded(), "teen@example.com")).not.toBeNull();
     }).pipe(Effect.provide(layer));
   });
 
   it.effect("COPPA: rejects when the 13th birthday has not yet occurred this year", () => {
-    const { svc, captured, layer } = makeAuth();
+    const { svc, recorded, layer } = makeAuth();
     return Effect.gen(function* () {
       // Born ~13 years ago but the birthday is still ~2 days away ⇒ age 12.
       // Exercises the `monthDelta < 0 || day-not-reached` branch of ageInYears.
@@ -332,7 +333,7 @@ describe("beginRegistration + completeRegistration", () => {
         svc.beginRegistration("almost13@example.com", "almost13", dob),
       );
       expect(error._tag).toBe("AgeRestrictionError");
-      expect(captured.code).toBeUndefined();
+      expect(recorded()).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
 
@@ -346,180 +347,179 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("begin returns sent:true silently when email is already taken", () => {
-    const { svc, captured, layer } = makeAuth();
-    return Effect.gen(function* () {
-      yield* svc.registerProfile("taken@example.com", "takenuser");
-      // No throw — and crucially, no email sent (otherwise enumeration is
-      // possible via timing or via observing outbound mail).
-      const result = yield* settle(
-        svc.beginRegistration("taken@example.com", "newhandle", "1990-01-01"),
-      );
-      expect(result.sent).toBe(true);
-      expect(captured.code).toBeUndefined();
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("begin returns sent:true silently when handle is already taken", () => {
-    const { svc, captured, layer } = makeAuth();
+  it.effect("begin mails nothing when the handle is already taken", () => {
+    const { svc, recorded, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.registerProfile("first@example.com", "duphandle");
       const result = yield* settle(
         svc.beginRegistration("second@example.com", "duphandle", "1990-01-01"),
       );
-      expect(result.sent).toBe(true);
-      expect(captured.code).toBeUndefined();
+      expect(result.requestId).toMatch(/^signup_/);
+      expect(recorded()).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("begin refuses to overwrite a non-expired pending entry", () => {
-    const { svc, captured, layer } = makeAuth();
-    return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("dup@example.com", "dupuser", "1990-01-01"));
-      const firstCode = captured.code;
-      captured.reset();
-      // Second call within the TTL should not send another email and should
-      // not change the stored OTP.
-      yield* settle(svc.beginRegistration("dup@example.com", "differenthandle", "1990-01-01"));
-      expect(captured.code).toBeUndefined();
-      // The original code must still verify.
-      const result = yield* svc.completeRegistration("dup@example.com", firstCode!);
-      expect(result.profileId).toMatch(/^usr_/);
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("complete fails with AuthError when the OTP is wrong", () => {
-    const { svc, layer } = makeAuth();
-    return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("wrong@example.com", "wronguser", "1990-01-01"));
-      const error = yield* Effect.flip(svc.completeRegistration("wrong@example.com", "000000"));
-      expect(error._tag).toBe("AuthError");
-      expect(error.message).toContain("Invalid or expired code");
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("complete fails with AuthError when there is no pending registration", () =>
-    Effect.gen(function* () {
-      const { svc } = makeAuth();
-      const error = yield* Effect.flip(
-        svc.completeRegistration("never-began@example.com", "123456"),
-      );
-      expect(error._tag).toBe("AuthError");
-      expect(error.message).toContain("Invalid or expired code");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("complete is single-use: a replayed code fails", () => {
-    const { svc, captured, layer } = makeAuth();
-    return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("replay@example.com", "replayuser", "1990-01-01"));
-      yield* svc.completeRegistration("replay@example.com", captured.code!);
-
-      // Second call with the same code must fail — pending entry was deleted.
-      const error = yield* Effect.flip(
-        svc.completeRegistration("replay@example.com", captured.code!),
-      );
-      expect(error._tag).toBe("AuthError");
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("brute-force is capped — pending entry is wiped after 5 wrong guesses", () => {
-    const { svc, captured, layer } = makeAuth();
-    return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("brute@example.com", "bruteuser", "1990-01-01"));
-      // 5 wrong guesses
-      for (let i = 0; i < 5; i++) {
-        const err = yield* Effect.flip(svc.completeRegistration("brute@example.com", "000000"));
-        expect(err._tag).toBe("AuthError");
-      }
-      // The correct code should now ALSO fail because the entry was wiped.
-      const err = yield* Effect.flip(svc.completeRegistration("brute@example.com", captured.code!));
-      expect(err._tag).toBe("AuthError");
-      expect(err.message).toContain("Invalid or expired code");
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("a TOCTOU loss against the legacy /register doesn't burn the OTP", () => {
-    const { svc, captured, layer } = makeAuth();
-    return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("toctou@example.com", "toctouuser", "1990-01-01"));
-      // Simulate someone winning the race via the legacy registerProfile path.
-      yield* svc.registerProfile("toctou@example.com", "toctouuser");
-      // Our complete fails (handle/email taken) but the pending entry must
-      // not have been deleted — though in practice the user would now be
-      // told to log in instead.
-      const err = yield* Effect.flip(
-        svc.completeRegistration("toctou@example.com", captured.code!),
-      );
-      expect(err._tag).toBe("AuthError");
-      expect(err.message).toContain("already registered");
-    }).pipe(Effect.provide(layer));
-  });
-
-  // #557: a non-uniqueness constraint failure at the write must surface as
-  // DatabaseError, never get folded into the generic "already registered"
-  // AuthError the genuine-conflict path returns. `completeRegistration`
-  // builds its own accounts+users insert with internally-consistent foreign
-  // keys, so a FK violation can't be induced through the service itself — a
-  // trigger stands in for "some other constraint failed", raising a
-  // constraint-worded message that does not contain "UNIQUE", which is
-  // exactly the string the old `/UNIQUE|constraint/i` pattern matched by
-  // mistake.
-  it.effect("surfaces a non-uniqueness constraint failure as DatabaseError", () => {
-    const email = makeLogEmailLive();
-    const { layer: dbLayer, sqlite } = createTestLayerWithSqlite();
-    const layer = Layer.merge(dbLayer, email.layer);
-    const svc = createAuthService(config);
-    const latestCode = (): string | undefined => {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    };
-    return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("regfault@example.com", "regfaultuser", "1990-01-01"));
-      const code = latestCode();
-      sqlite.run(`
-        CREATE TRIGGER reject_users_insert_regfault BEFORE INSERT ON users
-        BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed: users'); END;
-      `);
-      const err = yield* Effect.flip(svc.completeRegistration("regfault@example.com", code!));
-      expect(err._tag).toBe("DatabaseError");
-    }).pipe(Effect.provide(layer));
-  });
-
-  // #557: pins the *direction* of the narrowed match — a genuine duplicate
-  // must still land on the caller-facing AuthError (not DatabaseError), and
-  // the pending entry must survive so a retry is possible (registration.ts
-  // :393-396). Distinct from the TOCTOU test above: that one only asserts the
-  // error class and message; this one proves survival by re-driving the
-  // exact same code and observing the same conflict again, rather than the
-  // "Invalid or expired code" a wiped pending entry would produce instead.
   it.effect(
-    "a genuine duplicate email still resolves to AuthError, and the pending entry survives for retry",
+    "a second begin for a live sign-up mails nothing, and the first link still finishes it",
     () => {
-      const { svc, captured, layer } = makeAuth();
+      const { svc, recorded, layer } = makeAuth();
       return Effect.gen(function* () {
-        yield* settle(svc.beginRegistration("realdup@example.com", "realdupuser", "1990-01-01"));
-        const code = captured.code;
-        // Someone else wins the race for the SAME email via the legacy path
-        // before our OTP is redeemed.
-        yield* svc.registerProfile("realdup@example.com", "otherhandle");
-        const first = yield* Effect.flip(svc.completeRegistration("realdup@example.com", code!));
-        expect(first._tag).toBe("AuthError");
-        expect(first.message).toContain("already registered");
-        // Retried with the same code: if the pending entry had been wiped,
-        // this would fail "Invalid or expired code" instead.
-        const retry = yield* Effect.flip(svc.completeRegistration("realdup@example.com", code!));
-        expect(retry._tag).toBe("AuthError");
-        expect(retry.message).toContain("already registered");
+        const first = yield* settle(
+          svc.beginRegistration("dup@example.com", "dupuser", "1990-01-01"),
+        );
+        const link = latestLinkTo(recorded(), "dup@example.com")!;
+        yield* settle(svc.beginRegistration("dup@example.com", "differenthandle", "1990-01-01"));
+        expect(recorded()).toHaveLength(1);
+
+        yield* svc.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: first.pairingCode,
+        });
+        const done = yield* settle(svc.registrationStatus(first.requestId, first.claimSecret));
+        expect(done.status === "complete" && done.handle).toBe("dupuser");
       }).pipe(Effect.provide(layer));
     },
   );
 
-  // The address is free, so this begin is the one that mails a code; it
+  it.effect("stores no pairing number and no candidates: only a keyed digest of the number", () => {
+    const stores = createDefaultCeremonyStores();
+    const svc = createAuthService({ ...config, ceremonyStores: stores });
+    const email = makeLogEmailLive();
+    return Effect.gen(function* () {
+      const begun = yield* settle(
+        svc.beginRegistration("stored@example.com", "storeduser", "1990-01-01"),
+      );
+      const entry = yield* Effect.promise(() => stores.emailLinks.get(begun.requestId));
+      expect(Object.keys(entry!).toSorted()).toEqual(
+        [
+          "claimSecretHash",
+          "expiresAt",
+          "flow",
+          "mailSecretHashes",
+          "pairingHash",
+          "signUp",
+          "status",
+          "subject",
+          "v",
+        ].toSorted(),
+      );
+      // The sign-up it parks, so it can park later; never the birthdate.
+      expect(entry!.signUp).toEqual({
+        email: "stored@example.com",
+        handle: "storeduser",
+        displayName: null,
+      });
+      const stored = JSON.stringify(entry);
+      expect(stored).not.toContain("1990");
+      const serverMac = createServerMac(config.sessionIpPepper);
+      for (const candidate of serverMac.pairingCandidates(begun.requestId, 5)) {
+        expect(stored).not.toContain(`"${candidate}"`);
+      }
+      expect(stored).not.toContain(`"${begun.pairingCode}"`);
+      expect(entry!.pairingHash).toMatch(/^[a-f0-9]{64}$/);
+      const unkeyed = (value: string) => createHash("sha256").update(value).digest("hex");
+      expect(entry!.pairingHash).not.toBe(unkeyed(`${begun.requestId}\0${begun.pairingCode}`));
+      expect(entry!.pairingHash).not.toBe(unkeyed(begun.pairingCode));
+      expect(stored).not.toContain(begun.claimSecret);
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+  });
+
+  it.effect("refuses a stored request that carries no pairing digest", () => {
+    const stores = createDefaultCeremonyStores();
+    const svc = createAuthService({ ...config, ceremonyStores: stores });
+    const email = makeLogEmailLive();
+    return Effect.gen(function* () {
+      const begun = yield* settle(
+        svc.beginRegistration("nodigest@example.com", "nodigest", "1990-01-01"),
+      );
+      const link = latestLinkTo(email.recorded(), "nodigest@example.com")!;
+      const entry = (yield* Effect.promise(() => stores.emailLinks.get(begun.requestId)))!;
+      const { pairingHash: _dropped, ...withoutDigest } = entry;
+      yield* Effect.promise(() =>
+        stores.emailLinks.set(begun.requestId, withoutDigest as typeof entry, 600_000),
+      );
+
+      const answer = yield* svc.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      expect(answer).toBe("expired");
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+  });
+
+  it.effect("a handle taken while the person waited answers conflict and frees the address", () => {
+    const stores = createDefaultCeremonyStores();
+    const svc = createAuthService({ ...config, ceremonyStores: stores });
+    const email = makeLogEmailLive();
+    return Effect.gen(function* () {
+      const begun = yield* settle(
+        svc.beginRegistration("toctou@example.com", "toctouuser", "1990-01-01"),
+      );
+      const link = latestLinkTo(email.recorded(), "toctou@example.com")!;
+      yield* svc.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      yield* svc.registerProfile("someone-else@example.com", "toctouuser");
+
+      const done = yield* settle(svc.registrationStatus(begun.requestId, begun.claimSecret));
+      expect(done).toEqual({ status: "conflict" });
+      // The pending entry is gone, so the address can take a new sign-up.
+      expect(
+        yield* Effect.promise(() => stores.pendingRegistrations.get("toctou@example.com")),
+      ).toBeNull();
+      // The request is over, and the account that took the handle is untouched.
+      expect(yield* settle(svc.registrationStatus(begun.requestId, begun.claimSecret))).toEqual({
+        status: "expired",
+      });
+      expect(yield* svc.findProfileByEmail("toctou@example.com")).toBeNull();
+      expect((yield* svc.findProfileByHandle("toctouuser"))?.email).toBe(
+        "someone-else@example.com",
+      );
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+  });
+
+  // A non-uniqueness constraint failure at the write must surface as
+  // DatabaseError, never be folded into the conflict a genuine duplicate
+  // answers. The insert's foreign keys are consistent by construction, so a
+  // trigger stands in for "some other constraint failed", raising a
+  // constraint-worded message that does not contain "UNIQUE". It refuses the
+  // first statement, as D1 refuses the whole batch: bun:sqlite runs the two
+  // inserts one after the other, with no batch to undo the first. The request
+  // stays claimed, and the next poll inserts with the same ids and finishes.
+  it.effect(
+    "a database fault after the claim answers DatabaseError, and the next poll finishes",
+    () => {
+      const email = makeLogEmailLive();
+      const { layer: dbLayer, sqlite } = createTestLayerWithSqlite();
+      const layer = Layer.merge(dbLayer, email.layer);
+      const svc = createAuthService(config);
+      return Effect.gen(function* () {
+        const begun = yield* settle(
+          svc.beginRegistration("regfault@example.com", "regfaultuser", "1990-01-01"),
+        );
+        const link = latestLinkTo(email.recorded(), "regfault@example.com")!;
+        yield* svc.confirmEmailLink(link.requestId, {
+          linkSecret: link.linkSecret,
+          pairingPick: begun.pairingCode,
+        });
+        sqlite.run(`
+        CREATE TRIGGER reject_accounts_insert_regfault BEFORE INSERT ON accounts
+        BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed: accounts'); END;
+      `);
+        const err = yield* Effect.flip(
+          settle(svc.registrationStatus(begun.requestId, begun.claimSecret)),
+        );
+        expect(err._tag).toBe("DatabaseError");
+
+        sqlite.run("DROP TRIGGER reject_accounts_insert_regfault");
+        const done = yield* settle(svc.registrationStatus(begun.requestId, begun.claimSecret));
+        expect(done.status === "complete" && done.handle).toBe("regfaultuser");
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  // The address is free, so this begin is the one that mails a link; it
   // answers before the send does, as the taken and pending branches answer
   // without one. A begin that waited would answer later for a free address
   // than for a taken one.
@@ -536,136 +536,46 @@ describe("beginRegistration + completeRegistration", () => {
           Effect.provide(Layer.merge(createTestLayer(), hangingEmailLayer)),
           Effect.timeout("2 seconds"),
         );
-      expect(answer).toEqual({ sent: true });
+      expect(answer.requestId).toMatch(/^signup_/);
       yield* Deferred.await(sending).pipe(Effect.timeout("2 seconds"));
     });
   });
 
-  // A send that never answers is cut off at ten seconds, after the begin has
-  // answered. Resend may still deliver it, so the entry stays, for a minute at
-  // most: a retry cannot mail the address again at once, and can a minute
-  // later.
-  it.effect(
-    "a send that never answers is cut off at ten seconds and holds its entry for a minute",
-    () => {
-      const stores = createDefaultCeremonyStores();
-      const svc = createAuthService({ ...config, ceremonyStores: stores });
-      return Effect.gen(function* () {
-        const sending = yield* Deferred.make<void>();
-        const hangingEmailLayer = Layer.succeed(EmailService, {
-          send: () => Deferred.succeed(sending, undefined).pipe(Effect.andThen(Effect.never)),
-        });
-        expect(
-          yield* svc
-            .beginRegistration("slow@example.com", "slowmail", "1990-01-01")
-            .pipe(Effect.provide(Layer.merge(createTestLayer(), hangingEmailLayer))),
-        ).toEqual({ sent: true });
-        yield* Deferred.await(sending);
-        // Let the timeout's timer reach the test clock before moving it.
-        const tick = Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
-        yield* tick;
-        const pending = () =>
-          Effect.promise(() => stores.pendingRegistrations.get("slow@example.com"));
-
-        yield* TestClock.adjust("9 seconds");
-        yield* tick;
-        expect((yield* pending())!.expiresAt - Date.now()).toBeGreaterThan(60_000);
-
-        yield* TestClock.adjust("1 second");
-        yield* tick;
-        const held = (key: string) => () => stores.pendingRegistrations.get(key);
-        const late = yield* Effect.promise(() => readAhead(59_000, held("slow@example.com")));
-        expect(late?.handle).toBe("slowmail");
-        expect(yield* Effect.promise(() => readAhead(60_001, held("slow@example.com")))).toBeNull();
-      });
-    },
-  );
-
-  // A send the API never reached may still have gone, as above.
-  it.effect(
-    "an unreachable send holds its entry for a minute, so a retry at once sends nothing",
-    () => {
-      const stores = createDefaultCeremonyStores();
-      const svc = createAuthService({ ...config, ceremonyStores: stores });
-      let sends = 0;
-      const unreachableEmailLayer = Layer.succeed(EmailService, {
-        send: () =>
-          Effect.sync(() => (sends += 1)).pipe(
-            Effect.andThen(Effect.fail(new EmailError({ reason: "api_unreachable" }))),
-          ),
-      });
-      return Effect.gen(function* () {
-        expect(
-          yield* settle(svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01")),
-        ).toEqual({
-          sent: true,
-        });
-        yield* settle(svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01"));
-        expect(sends).toBe(1);
-
-        const held = () => stores.pendingRegistrations.get("gone@example.com");
-        expect((yield* Effect.promise(() => readAhead(59_000, held)))?.handle).toBe("gonemail");
-        expect(yield* Effect.promise(() => readAhead(60_001, held))).toBeNull();
-      }).pipe(Effect.provide(Layer.merge(createTestLayer(), unreachableEmailLayer)));
-    },
-  );
-
-  // A refused send removes its own pending entry so a retry sends a new code.
-  // Between storing it and the refusal, another begin for the same address can
-  // have replaced it (both passed the pending check before either stored), and
-  // that one's code may have been delivered: the refusal must leave it alone.
-  it.effect("a refused send leaves in place an entry another begin wrote meanwhile", () => {
-    const stores = createDefaultCeremonyStores();
-    const svc = createAuthService({ ...config, ceremonyStores: stores });
-    const winner = "111111";
-    const refusingEmailLayer = Layer.succeed(EmailService, {
-      send: () =>
-        Effect.promise(() =>
-          stores.pendingRegistrations.set(
-            "race@example.com",
-            {
-              email: "race@example.com",
-              handle: "racewinner",
-              displayName: null,
-              codeHash: hashSessionToken(winner),
-              expiresAt: Date.now() + 600_000,
-            },
-            600_000,
-          ),
-        ).pipe(
-          Effect.andThen(Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 }))),
-        ),
+  // A refused send leaves the request live: the tab's Resend on the same
+  // request is the retry, and its link confirms.
+  it.effect("a refused send leaves the request live, and a Resend's link finishes it", () => {
+    let refuseNext = true;
+    const email = makeLogEmailLive();
+    const refusingOnce = Layer.succeed(EmailService, {
+      send: (input) =>
+        refuseNext
+          ? Effect.sync(() => (refuseNext = false)).pipe(
+              Effect.andThen(
+                Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 })),
+              ),
+            )
+          : Effect.gen(function* () {
+              const svc = yield* EmailService;
+              return yield* svc.send(input);
+            }).pipe(Effect.provide(email.layer)),
     });
+    const svc = createAuthService(config);
     return Effect.gen(function* () {
       const begun = yield* settle(
-        svc.beginRegistration("race@example.com", "raceloser", "1990-01-01"),
+        svc.beginRegistration("refused@example.com", "refused", "1990-01-01"),
       );
-      expect(begun).toEqual({ sent: true });
-      const created = yield* svc.completeRegistration("race@example.com", winner);
-      expect(created.handle).toBe("racewinner");
-    }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
-  });
-
-  // A refused send removes its own entry, or every retry inside the code's
-  // life would meet the pending check and send nothing.
-  it.effect("a refused send deletes its own entry, so a retry sends a new code", () => {
-    const stores = createDefaultCeremonyStores();
-    const svc = createAuthService({ ...config, ceremonyStores: stores });
-    let sends = 0;
-    const refusingEmailLayer = Layer.succeed(EmailService, {
-      send: () =>
-        Effect.sync(() => (sends += 1)).pipe(
-          Effect.andThen(Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 }))),
-        ),
-    });
-    return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("refused@example.com", "refused", "1990-01-01"));
-      expect(
-        yield* Effect.promise(() => stores.pendingRegistrations.get("refused@example.com")),
-      ).toBeNull();
-      yield* settle(svc.beginRegistration("refused@example.com", "refused", "1990-01-01"));
-      expect(sends).toBe(2);
-    }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
+      expect(email.recorded()).toEqual([]);
+      expect(yield* settle(svc.resendRegistration(begun.requestId, begun.claimSecret))).toEqual({
+        status: "sent",
+      });
+      const link = latestLinkTo(email.recorded(), "refused@example.com")!;
+      yield* svc.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      const done = yield* settle(svc.registrationStatus(begun.requestId, begun.claimSecret));
+      expect(done.status).toBe("complete");
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingOnce)));
   });
 });
 
@@ -1091,7 +1001,7 @@ describe("LogEmailLive local-mode behaviour", () => {
   }
 
   it.effect("beginRegistration logs template+subject+to, and records the rendered body", () => {
-    const { svc, captured: emailCap, layer } = makeAuth();
+    const { svc, recorded, layer } = makeAuth();
     const { captured: logLines, loggerLayer } = captureLogs();
     return Effect.gen(function* () {
       yield* settle(
@@ -1103,17 +1013,18 @@ describe("LogEmailLive local-mode behaviour", () => {
           ),
       );
 
-      // Log line: template + subject + to, no OTP code.
+      // Log line: template + subject + to, and nothing of the link.
       const emailLogs = logLines.filter((l) => l.includes("[email:log]"));
       expect(emailLogs.length).toBe(1);
-      expect(emailLogs[0]).toContain("template=otp-registration");
-      expect(emailLogs[0]).toContain('subject="Verify your Musubi email"');
+      expect(emailLogs[0]).toContain("template=link-registration");
+      expect(emailLogs[0]).toContain('subject="Confirm your Musubi email"');
       expect(emailLogs[0]).toContain("to=dev@example.com");
-      expect(emailLogs[0]).not.toMatch(/\d{6}/); // no OTP code in logs
+      expect(emailLogs[0]).not.toContain("/verify/");
+      expect(emailLogs[0]).not.toMatch(/[a-f0-9]{64}/); // no link secret
       expect(emailLogs[0]).not.toContain("[REDACTED]");
 
-      // Recorder has the code for test-side replay.
-      expect(emailCap.code).toMatch(/^\d{6}$/);
+      // Recorder has the link for test-side replay.
+      expect(latestLinkTo(recorded(), "dev@example.com")).not.toBeNull();
     }).pipe(Effect.provide(layer));
   });
 });
@@ -1236,11 +1147,33 @@ describe("two-tier token model", () => {
 // ---------------------------------------------------------------------------
 
 describe("switchProfile", () => {
+  /** A session on the profile's account: the hash the route's gate resolves. */
+  const sessionOf = (profile: {
+    id: string;
+    accountId: string;
+    email: string;
+    handle: string;
+    displayName: string | null;
+  }) =>
+    auth
+      .issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      )
+      .pipe(Effect.map((t) => auth.hashSessionToken(t.refreshToken)));
+
   it.effect("issues new access token for target profile", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("switch@example.com", "switchme");
       // Switch to self (same profile) — should work fine
-      const result = yield* auth.switchProfile(profile.accountId, profile.id);
+      const result = yield* auth.switchProfile(
+        profile.accountId,
+        profile.id,
+        yield* sessionOf(profile),
+      );
       expect(result.accessToken).toBeTruthy();
       expect(result.expiresIn).toBe(300);
       expect(result.profile.id).toBe(profile.id);
@@ -1255,7 +1188,9 @@ describe("switchProfile", () => {
   it.effect("fails when target profile does not exist", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("switch2@example.com", "switch2");
-      const error = yield* Effect.flip(auth.switchProfile(profile.accountId, "usr_nonexistent"));
+      const error = yield* Effect.flip(
+        auth.switchProfile(profile.accountId, "usr_nonexistent", yield* sessionOf(profile)),
+      );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Profile not found");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1266,7 +1201,9 @@ describe("switchProfile", () => {
       const alice = yield* auth.registerProfile("alice_switch@example.com", "alice_switch");
       const bob = yield* auth.registerProfile("bob_switch@example.com", "bob_switch");
       // Try to switch to Bob's profile using Alice's accountId
-      const error = yield* Effect.flip(auth.switchProfile(alice.accountId, bob.id));
+      const error = yield* Effect.flip(
+        auth.switchProfile(alice.accountId, bob.id, yield* sessionOf(alice)),
+      );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("does not belong to this account");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1274,7 +1211,10 @@ describe("switchProfile", () => {
 
   it.effect("fails when account does not exist", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.switchProfile("acc_nonexistent", "usr_any"));
+      // No account, so no session of it either: any hash will do.
+      const error = yield* Effect.flip(
+        auth.switchProfile("acc_nonexistent", "usr_any", "0".repeat(64)),
+      );
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );

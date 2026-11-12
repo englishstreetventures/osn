@@ -77,8 +77,9 @@ describe("the glass", () => {
     render(() => <Strip />);
     await settle();
     await userEvent.click(screen.getByRole("tab", { name: "Events" }));
-    // The owner's motion: the house spring, not the rail's ease-out.
-    expect(glass().style.transition).toContain("--ease-spring");
+    // The owner's motion: the glide, not the rail's ease-out. How it moves
+    // frame by frame is `lib/sliding-pill.browser.test.tsx`.
+    expect(glass().style.transition).toContain("--ease-glide");
     await settle(700);
     const item = screen.getByRole("tab", { name: "Events" }).getBoundingClientRect();
     const box = glass().getBoundingClientRect();
