@@ -370,6 +370,40 @@ came back in every run of their files.
 
 *Measured 2026-11-12 — CI run 43164178747 (`ubuntu-latest`) failed `BudgetView.reveal.browser.test.tsx:479` ("expected 0 to be greater than 40") on attempt 1 and `ProfileMenu.crossfade.browser.test.tsx:50` on attempt 2; `main`'s runs 43163940734 and 43163863603 failed the same `BudgetView` line. On macOS on Apple silicon, `chromium_headless_shell-1248`, `bun run --cwd cire/host test:browser <file>` passed each file 15 of 15 times plain and 15 of 15 with ten `yes` processes on ten cores. With the CPU throttled tenfold, each file failed in 5 of 5 runs, the first frame after the click reading 0px with both of the panel's transitions pending; with the waits above, 5 of 5 runs of both files passed.*
 
+### A test run twice in one page
+
+`--repeats=2` runs each test twice more, straight after itself, in the same
+page: `beforeEach` and `afterEach` run around every run, `beforeAll` and
+`afterAll` once. Pass it to the package script with no `--` in front:
+
+```bash
+bun run --cwd shared/ui test:browser --repeats=2
+```
+
+With `-- --repeats=2`, `bun run` hands the `--` on to Vitest, which ignores
+everything after it: each test runs once and the run passes. The verbose
+reporter (`--reporter=verbose`) prints `(repeat x2)` beside a repeated test.
+
+Each run starts on the page the last one left, so a test puts back what it
+changed. Emulation and request routes follow [[#Media emulation]] and
+[[#A failed fetch]]. Beyond those:
+
+- **The DOM.** Call `cleanup()` in an `afterEach`. Without it each run's tables
+  stay, the next renders below them, out of the window, and `elementFromPoint`
+  finds nothing there.
+- **A count.** A count of `performance` entries starts from the run's own first
+  reading, not from 0.
+- **A module cannot be put back.** Once a fetch of it succeeds, the page keeps
+  it, and nothing a test can reach unloads it. A test of what shows before a
+  lazy module arrives checks that on its first run only: it counts its runs in
+  a variable in the file and expects the loaded result after the first, as
+  `button-busy-load.browser.test.tsx` and `button-busy-failed.browser.test.tsx`
+  in `@shared/ui` do. Choose the expected value by run,
+  `toBe(first ? "SPAN" : "CANVAS")`: lint refuses an `expect` inside an `if`
+  (`vitest/no-conditional-expect`).
+
+*Measured 2026-11-12 — macOS on Apple silicon, `chromium_headless_shell-1248`: on `main`, `bun run --cwd shared/ui test:browser <file> --repeats=2` failed four tests across `data`, `button-busy-load` and `button-busy-failed`, and the same command with `-- --repeats=2` passed every test, each run once. With the fixes, the whole `@shared/ui` tier passed with `--repeats=2` (516 passed, 16 skipped, 73s against 25s plain).*
+
 ### Chrome's accessibility tree
 
 Testing Library and the `page` locators compute accessible names in JavaScript,

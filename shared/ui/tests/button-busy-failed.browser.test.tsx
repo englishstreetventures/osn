@@ -7,6 +7,13 @@
  *
  * The fetch is failed in the browser, for this file's frame only, so the
  * module cache this reads is cold and the failure is a real one.
+ *
+ * A page keeps a module once it has arrived, and nothing a test can reach
+ * unloads it. So once the second test has drawn the orb, a repeat of it in the
+ * same page (`--repeats`) has no failed fetch to recover from: it holds what a
+ * page with the orb still guarantees, that a busy button draws it at once and
+ * fetches nothing more. The fetch after the failure is checked on its first
+ * run only.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -41,10 +48,12 @@ const orbFetches = () =>
   performance.getEntriesByType("resource").filter((entry) => /\/ui\/orb\.tsx\b/.test(entry.name));
 
 it("keeps its label, its busy state and the orb's room when the orb fails to load", async () => {
+  // Counted from here: a repeat in the same page waits for its own failed fetch.
+  const fetched = orbFetches().length;
   render(() => <Button busy>Creating…</Button>);
   const button = screen.getByRole("button", { name: "Creating…" });
   const width = button.getBoundingClientRect().width;
-  await expect.poll(() => orbFetches().length, { timeout: 5000 }).toBeGreaterThan(0);
+  await expect.poll(() => orbFetches().length, { timeout: 5000 }).toBeGreaterThan(fetched);
   // Long enough for a module that was going to arrive to have arrived.
   await new Promise((resolve) => setTimeout(resolve, 500));
   expect(button.querySelector("canvas")).toBeNull();
@@ -57,12 +66,21 @@ it("keeps its label, its busy state and the orb's room when the orb fails to loa
   expect(button.textContent).toBe("Creating…");
 });
 
+/** Runs of the test below so far in this page; after the first, the page holds the orb. */
+let laterRuns = 0;
+
 it("asks for the orb again when a later button is busy", async () => {
-  const failed = orbFetches().length;
-  expect(failed).toBeGreaterThan(0);
+  const first = laterRuns++ === 0;
+  // On the first run every one of these failed.
+  const fetched = orbFetches().length;
+  expect(fetched).toBeGreaterThan(0);
   await requests.allowRequests(ORB);
   render(() => <Button busy>Saving…</Button>);
   const button = screen.getByRole("button", { name: "Saving…" });
-  await expect.poll(() => orbFetches().length, { timeout: 5000 }).toBeGreaterThan(failed);
+  // The first run starts in the room the failed fetch left; a later one, with
+  // the orb already drawn.
+  expect(button.firstElementChild?.tagName).toBe(first ? "SPAN" : "CANVAS");
   await expect.poll(() => button.querySelector("canvas"), { timeout: 5000 }).not.toBeNull();
+  // One fetch more on the first run, and none on a later one.
+  await expect.poll(() => orbFetches().length, { timeout: 5000 }).toBe(fetched + (first ? 1 : 0));
 });
