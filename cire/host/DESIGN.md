@@ -588,11 +588,44 @@ this package by design**.
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
 --dur-base: calc(200ms * var(--motion-scale)); /* a panel's height, a pill slide */
 --dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal, a disclosure opening, a strip's glass */
---ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
 --ease-glide: linear(0, 0.053, …, 1.028, …, 1); /* a strip's glass, travelling with barely any */
+--default-transition-timing-function: var(--ease-out); /* a transition that names no easing */
 ```
+
+`--ease-out` is the strong ease-out the motion skills name (`emil-design-eng`,
+`animate`), the owner's choice of 2026-11-11 for all four cire apps, and
+cire's one curve for something arriving: "consolidate to one arriving
+curve … Use our default curve not tailwind's" (the owner, 2026-11-11). Each
+cire stylesheet's `@theme` sets Tailwind's `--default-transition-timing-function`
+to it, so a transition that names no easing runs cire's curve, never
+Tailwind's `cubic-bezier(0.4, 0, 0.2, 1)`: a bare `transition-colors` or
+`transition-ui-colors`, and the `@shared/ui` parts cire renders that write
+one — `Checkbox`'s and `RadioGroupItem`'s drawn box, `Switch`'s track and
+thumb, `Meter`'s fill. Tailwind's `ease-out` class reads it, and so does every
+shared part that reads `var(--ease-out, var(--ui-ease-out))`: the fields, the
+native checkbox and radio classes, the accent `DropdownMenu`'s pop and its
+rows, `SegmentedTabs`.
+
+The shared overlays arrive on it too. Each cire stylesheet's contract mapping
+sets `--ui-ease-out: var(--ease-out)` (the owner's choice of 2026-11-12, once
+the contract gave exits a token of their own, englishstreetventures/osn#2228),
+so `Modal`'s rise and every entry run by `@shared/design-tokens`' `animate-in`
+— `Tooltip` and `Popover` opening, the default `DropdownMenu`'s pop — follow
+cire's curve rather than the contract's `cubic-bezier(0.22, 1, 0.36, 1)`.
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if one app drops the
+mapping or maps an exit; `tests/styles/overlay-curves.browser.test.tsx` reads a
+`Popover`'s and a `Modal`'s curves back as they run. `@shared/toast` alone
+arrives on CSS's own `ease-out`, a keyword in its own stylesheet.
+
+Exits keep their own curves. `Popover`'s exit, like every `animate-out`, runs
+the contract's `--ui-ease-exit`, `cubic-bezier(0.22, 1, 0.36, 1)`, which no
+cire stylesheet maps; `Modal`'s and the toast's run `ease-in`, the nav sheet's
+and the droplet's `--ease-in-out`. A `Switch`'s thumb and a `Meter`'s fill move
+between two places, which would take `--ease-in-out`, but they name no easing,
+so they run `--ease-out`; naming one is a change to `@shared/ui`.
 
 `--ease-spring` is a damped spring (damping ratio 0.62) sampled into `linear()`:
 it overshoots by 8% at about 40% of the run and settles. The browser floor
@@ -650,13 +683,19 @@ glass under a strip's choice moves on its own, slower clock (`--dur-slow` with
 touch against the glass's 320ms, at 150ms at a desk against its 200ms.
 
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
-marketing site carry this ladder, its `pointer: fine` block and the two easings
-`--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
-fails if any copy differs. The two springs are the two portals' alone, because
-only their animations read them — the glass strips glide on `--ease-glide` in
-both, the thread's send button grows on `--ease-spring` in both, the droplet
-in host: the guest site and the marketing site declare neither token nor the
-`@supports` block, and the test fails if one gains a copy. The vendor portal
+marketing site carry this ladder, its `pointer: fine` block, the two easings
+`--ease-out` and `--ease-in-out`, and the default curve set to `--ease-out`;
+`cire/vendor`'s `tests/styles/tokens.test.ts` fails if any copy differs or
+drops the default curve. The same test holds the two copies outside the apps
+to this file: `@cire/ui`'s test stylesheet (`tests/test-support/tailwind.css`,
+the desk ladder, both easings, the default curve and the springs' `@theme`
+fallbacks) and every
+`--dur-*` or `--ease-*` a cire story in the component lab sets inline. The two
+springs are the two portals' alone, because only their animations read them —
+the glass strips glide on `--ease-glide` in both, the thread's send button
+grows on `--ease-spring` in both, the droplet in host: the guest site and the
+marketing site declare neither token nor the `@supports` block, and the test
+fails if one gains a copy. The vendor portal
 renders no `Modal`, so it alone
 sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
 own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
@@ -786,6 +825,20 @@ Under reduced motion the global switch cuts it to nothing. `ActionTip.browser.te
 holds it: a delayed open runs `menu-pop-in` from the panel's bottom edge, a
 keyboard open and the next tip in a run run nothing, and under reduced motion
 no frame is partway.
+
+**The command palette fades up.** ⌘K's centred dialog rises through the page:
+from transparent, 10px below its place and at 98.5% of its size, scaled from
+its own centre, while its scrim fades in (`palette-rise` and `palette-scrim` in
+`global.css`). Both run on `--dur-base` with `--ease-out` — 150ms at a desk,
+200ms on touch — one rung slower than a hover, so the arrival can be seen. The
+owner asked for "a little slower than the compare page's fast rung"
+(englishstreetventures/osn#2164, 2026-11-10), and chose `--dur-base` for the
+entry (2026-11-11: "keep --dur-base for cmd palette entry"). It has no exit: a box
+holding live controls closes at once, so the palette and its scrim leave in
+one frame. Under reduced motion the global switch zeroes both, and it appears
+at once. `tests/components/CommandPalette.browser.test.tsx` holds the first
+frame (below its place, no sideways offset, opacity under 1), the clock, the
+one-frame exit at rest and mid-arrival, and the reduced-motion case.
 
 **A disclosure grows open and closes at once.** As a `<details>` opens, its box
 grows from the summary row to its full height while the body drops 4px and

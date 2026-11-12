@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { contrastOklch, cssRamp, type Oklch } from "@cire/theme";
@@ -282,7 +282,10 @@ describe("one shape and one pace across cire", () => {
   it("every cire surface carries one motion ladder", () => {
     const ladders = mapSurfaces((css) => ladder(declarations(css)));
     // A parse that found nothing would make every copy agree with it.
-    expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 2, 4]);
+    expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 3, 4]);
+    // A transition that names no easing runs cire's arriving curve, not
+    // Tailwind's own; an app without the line would fall back to Tailwind's.
+    expect(ladders.host.easing).toContain("--default-transition-timing-function: var(--ease-out)");
     // The two portals glide their glass strips and grow the send button on
     // the springs; nothing on the guest or marketing site animates with
     // either, so a copy added to one without a use is caught here.
@@ -294,6 +297,82 @@ describe("one shape and one pace across cire", () => {
       invites: noSpring,
       landing: noSpring,
     });
+  });
+
+  it("every cire surface maps the contract's arriving curve onto --ease-out, and no exit", () => {
+    // `Modal`'s rise and every `animate-in` entry read `--ui-ease-out`, so an
+    // app that leaves it unmapped runs the contract's curve beside its own.
+    // An exit reads `--ui-ease-exit`; an app that mapped it too would move
+    // every overlay's exit.
+    // `@cire/ui`'s test stylesheet stands in for an app, so it maps the same.
+    const curves = (css: string) =>
+      declarations(css)
+        .filter((d) => d.name.startsWith("--ui-ease-"))
+        .map((d) => `${d.path.join(" ")} { ${d.name}: ${d.value} }`);
+    const one = [":root { --ui-ease-out: var(--ease-out) }"];
+    expect({
+      ...mapSurfaces(curves),
+      ui: curves(readCire("ui/tests/test-support/tailwind.css")),
+    }).toEqual({ host: one, vendor: one, invites: one, landing: one, ui: one });
+  });
+
+  it("@cire/ui's test stylesheet carries the host's desk ladder and easings", () => {
+    // `@cire/ui`'s browser tier has no app, so its stylesheet copies the host's
+    // motion at a desk, Chromium's pointer being fine. A copy that drifts would
+    // time the shared parts on a pace no app runs, with every test green. Its
+    // two springs are the host's `@theme` fallbacks, not the `linear()` that
+    // replaces each: no test there reads a spring's shape.
+    const host = ladder(declarations(SURFACES.host));
+    const expected = [
+      ...host.touch.filter((line) => line.startsWith("--motion-scale:")),
+      ...host.desk.map(atScaleOne),
+      ...host.easing,
+      ...host.spring.filter((line) => !line.includes("linear(")),
+    ];
+    const copy = declarations(readCire("ui/tests/test-support/tailwind.css"))
+      .filter(
+        (d) =>
+          isTopLevel(d, ":root") &&
+          /^--(motion-scale|dur-|ease-|default-transition-timing-function$)/.test(d.name),
+      )
+      .map((d) => `${d.name}: ${d.value.replace(/\s+/g, "")}`);
+    // Sorted, not keyed by name, so a token declared twice shows up as two lines.
+    expected.sort();
+    copy.sort();
+    // A parse that found nothing would make the copy agree with it.
+    expect(expected).toHaveLength(9);
+    expect(copy).toEqual(expected);
+  });
+
+  it("the lab's cire stories set only motion values the host declares", () => {
+    // The lab's `cireStyle` carries cire's colours, not its motion, so a cire
+    // story that animates sets the portals' `--dur-*` and `--ease-*` inline.
+    // A copy that drifts shows a pace no cire app runs; the stories render
+    // either way. A rung may take the touch or the desk step.
+    const declared = new Map<string, string[]>();
+    for (const d of declarations(SURFACES.host)) {
+      declared.set(d.name, [
+        ...(declared.get(d.name) ?? []),
+        atScaleOne(d.value.replace(/\s+/g, "")),
+      ]);
+    }
+    const stories = new URL("../../../../tools/lab/src/stories/cire-ui/", import.meta.url);
+    const copies = readdirSync(stories)
+      .filter((file) => /\.tsx?$/.test(file))
+      .flatMap((file) =>
+        [
+          ...readFileSync(new URL(file, stories), "utf8").matchAll(
+            /"(--(?:dur|ease)-[\w-]+)":\s*"([^"]+)"/g,
+          ),
+        ].map(([, name, value]) => ({ file, name: name!, value: value!.replace(/\s+/g, "") })),
+      );
+    // A parse that found nothing would make every copy agree with it.
+    expect(copies.filter((c) => c.name === "--ease-out").length).toBeGreaterThan(0);
+    expect(declared.get("--dur-fast")).toEqual(["120ms", "90ms"]);
+    const drifted = copies
+      .filter((c) => !(declared.get(c.name) ?? []).includes(c.value))
+      .map((c) => `${c.file}: ${c.name} ${c.value}`);
+    expect(drifted).toEqual([]);
   });
 
   it("every cire surface defines transition-ui-colors once, with the same body", () => {
@@ -422,10 +501,17 @@ describe("one shape and one pace across cire", () => {
 
 /** Another cire app's stylesheet, read from disk. */
 function readSheet(app: "host" | "invites" | "landing"): string {
-  return readFileSync(
-    fileURLToPath(new URL(`../../../${app}/src/styles/global.css`, import.meta.url)),
-    "utf8",
-  );
+  return readCire(`${app}/src/styles/global.css`);
+}
+
+/** A file under `cire/`, read from disk. */
+function readCire(path: string): string {
+  return readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), "utf8");
+}
+
+/** A rung written as `calc(<n>ms*var(--motion-scale))`, as `<n>ms`: its value at scale 1. */
+function atScaleOne(text: string): string {
+  return text.replace(/calc\((\d+ms)\*var\(--motion-scale\)\)/g, "$1");
 }
 
 /**
@@ -546,8 +632,9 @@ function cornerPx(scope: Map<string, string>, name: string): number | string {
 /**
  * An app's motion tokens, as `name: value` lines with the whitespace removed:
  * the touch ladder at `:root`, the desk ladder under `(pointer: fine)` and the
- * `Modal` durations set there, the two easings every app uses in `@theme`, and
- * the two springs, which only the apps that read them declare. A `Modal` duration set at `:root` lands in
+ * `Modal` durations set there, the two easings every app uses in `@theme` with
+ * the default curve Tailwind's bare transitions read, and the two springs,
+ * which only the apps that read them declare. A `Modal` duration set at `:root` lands in
  * `touch`, where host has none.
  */
 function ladder(decls: Declaration[]) {
@@ -565,7 +652,10 @@ function ladder(decls: Declaration[]) {
     touch: lines((d) => isTopLevel(d, ":root"), /^--(motion-scale|dur-|ui-modal-)/),
     desk: lines((d) => nested(d, "@media (pointer: fine)"), /^--dur-/),
     modal: lines((d) => nested(d, "@media (pointer: fine)"), /^--ui-modal-/),
-    easing: lines((d) => isTopLevel(d, "@theme"), /^--ease-(out|in-out)$/),
+    easing: lines(
+      (d) => isTopLevel(d, "@theme"),
+      /^--(ease-(out|in-out)|default-transition-timing-function)$/,
+    ),
     // The portals read the two springs, so they alone declare them: each
     // one's `@theme` fallback and the `linear()` block that replaces it.
     spring: [
