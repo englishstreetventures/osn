@@ -127,7 +127,9 @@ and checkboxes: `wiki/cire/cire-invite-designs.md` §Corners, labels and motion.
   the move: "Some of these could be just a tad slower to allow people to feel
   the animation." Choose the rung by eye, rendered, and write it in this
   section beside the motion it times.
-- **A box that holds live controls closes at once.**
+- **A modal dialog may fade out, because it keeps focus until the exit ends;
+  every other box that holds controls closes at once** (the owner,
+  2026-11-12, englishstreetventures/osn#2197).
 - **Under `prefers-reduced-motion: reduce` it changes at once.**
 
 ### The ladder
@@ -176,7 +178,7 @@ The portals' ladder, value for value, in `global.css`:
 | A block opening under a control (`Reveal` with `pace="slow"`): the dietary section and its "Anything else", the gift page's own amount, a gift's reserve form, the chosen member's email and musubi boxes | `--dur-slow`                                | `--ease-out`              |
 | The calendar and maps menus opening (`LinkMenu`, `menu-pop`): scaled up from 0.96 and faded in from the corner at their trigger | `--dur-base`                                | `--ease-out`              |
 | A FAQ answer opening (`Disclosure`): its box grows as the answer fades in and drops 0.25rem; its `+` turning | `--dur-slow`; the `+` `--dur-fast`          | `--ease-out`              |
-| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`) †    | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ease-out` in (through `--ui-ease-out`), CSS `ease-in` out |
+| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`)      | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ease-out` in (through `--ui-ease-out`), CSS `ease-in` out |
 | A toast (`@shared/toast`)                                                      | 160ms in and out                            | CSS `ease-out` in, CSS `ease-in` out |
 
 **Choreography longer than `--dur-slow` keeps its own time:**
@@ -193,9 +195,6 @@ The portals' ladder, value for value, in `global.css`:
 | A swipe between the sheet's panels settling (`settleCurve`, `[data-settling]`)       | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel from rest settles in about 0.4s | the spring sampled into a `linear()` at release; a `cubic-bezier()` with the same first slope where the engine has none | yes    |
 | The envelope opening (`@cire/envelope`)                                              | its own timeline: `wiki/cire/cire-envelope.md` §Taps, timeline and breaks | —                    | —      |
 
-† Breaks a rule (Known breaches, below). The row records what ships, not the
-house look, and new motion copies none of it.
-
 The swipe's settle is the one easing that is no token: its curve starts at the
 finger's speed, which differs with every release, so the sheet samples the
 spring into a CSS `linear()` easing at release and runs it as a transition
@@ -203,12 +202,14 @@ spring into a CSS `linear()` easing at release and runs it as a transition
 stretch moves at the release speed exactly, the curve stops where a fast flick
 would pass the panel's rest, and an engine without `linear()` (Safari before
 17.2) gets one `cubic-bezier()` that leaves at the same speed and never passes
-the rest. The unlock reveal closes the code form at once, brings the welcome in with a shimmer on its
-heading, then lifts the events section and its cards one by one. The scroll
-cue, the card's mark, the sheet, the swipe and the reveal are described with
-their tests in `wiki/cire/cire-invite-designs.md` (§The hero scroll cue,
-§Event card states, §The event sheet, §Corners, labels and motion); the
-reveal's guards against a blank or flashing invite in
+the rest.
+
+The unlock reveal closes the code form at once, brings the welcome in with a
+shimmer on its heading, then lifts the events section and its cards one by
+one. The scroll cue, the card's mark, the sheet, the swipe and the reveal are
+described with their tests in `wiki/cire/cire-invite-designs.md` (§The hero
+scroll cue, §Event card states, §The event sheet, §Corners, labels and
+motion); the reveal's guards against a blank or flashing invite in
 `wiki/shared/frontend-patterns.md` §Rendering and animation gotchas.
 
 The blocks under a control open a rung slower than the portals' panels, and
@@ -219,11 +220,14 @@ blocks' rung, and where focus goes when the reserve form closes, are in
 
 ### What must not move
 
-- **A box that holds live controls closes at once.** `Reveal` (`@cire/ui`)
-  drops its content the moment it closes, and the empty wrapper finishes
-  closing behind it; a `Disclosure` closes at once; the link menus close at
-  once; the unlock reveal's code form leaves the layout before anything
-  rises. `Modal`'s exit breaks this rule (Known breaches, below).
+- **A box that holds controls closes at once, unless it is a modal dialog.**
+  `Reveal` (`@cire/ui`) drops its content the moment it closes, and the empty
+  wrapper finishes closing behind it; a `Disclosure` closes at once; the link
+  menus close at once; the unlock reveal's code form leaves the layout before
+  anything rises. A modal dialog — the event sheet, the consent prompt,
+  privacy choices (`Modal`) — fades and drops out over `--dur-base` at a desk
+  and 150ms on touch: it stays modal through the exit, so focus stays inside
+  it until the exit ends and nothing behind it can be reached while it moves.
 - **Nothing already open animates on first paint.** A `Reveal` that mounts open
   is open; a `Disclosure` open when it first paints does not fade; a reply on
   file loads with Respond already filled and ticked; the sheet's first panel
@@ -241,15 +245,10 @@ blocks' rung, and where focus goes when the reserve form closes, are in
 
 ### Known breaches
 
-These moves ship, and each breaks the rule named beside it. They are the rows
-marked † above. None is a pattern to copy, and each entry goes when its fix
-lands.
-
-- **`Modal`'s exit moves a box that holds live controls**, where such a box
-  closes at once: `--dur-base` at a desk, 150ms on touch. The dialog stays
-  modal through the exit, so focus cannot leave it while it moves. Whether the
-  exit stays or the rule names it is the owner's call, under
-  englishstreetventures/osn#2197.
+None ships today. A move that ships while it breaks a rule above is listed
+here with the rule it breaks and the issue that fixes it, and its row in the
+tables carries a † mark. None is a pattern to copy, and each entry goes when
+its fix lands.
 
 ### Reduced motion
 
@@ -258,9 +257,9 @@ branch in each component. On `*`, `*::before` and `*::after` it sets every
 animation to one run of 0.01ms that starts already finished (a -1ms delay), and
 every transition to 0.01ms with no delay, all with `!important`, which beats an
 inline style. So the tick is drawn, the scroll cue is there and still, and a
-`Reveal`, a link menu's pop, a panel switch or a swipe's settle lands at once. Spinners are the
-exception: a still ring reads as a stalled page, so `.animate-spin` keeps
-turning, once every 1.5s.
+`Reveal`, a link menu's pop, a panel switch or a swipe's settle lands at once.
+Spinners are the exception: a still ring reads as a stalled page, so
+`.animate-spin` keeps turning, once every 1.5s.
 
 The clamp reaches no other pseudo-element and no script, so these carry their
 own gate:
