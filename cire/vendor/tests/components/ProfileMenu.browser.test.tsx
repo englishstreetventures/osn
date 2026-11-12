@@ -53,7 +53,11 @@ describe("the vendor's account menu", () => {
     it(`reads the build's version at ${WCAG_TEXT_MIN}:1 on the menu, ${theme}`, async () => {
       document.documentElement.setAttribute("data-theme", theme);
       render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
-      fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+      // Waited for, not read at once: the menu the light test left open can
+      // still hold `aria-hidden` on `<body>` for a frame after it unmounts
+      // (wiki/conventions/browser-tests.md, A slow runner's frames).
+      const trigger = await screen.findByRole("button", { name: /account menu/i });
+      fireEvent.pointerDown(trigger, { button: 0 });
       const open = await waitFor(() => screen.getByRole("menu"));
       await Promise.all(open.getAnimations().map((a) => a.finished));
       const line = screen.getByText(/^Version /);

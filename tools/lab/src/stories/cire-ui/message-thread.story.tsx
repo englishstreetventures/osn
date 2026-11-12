@@ -22,7 +22,7 @@ const MOTION: JSX.CSSProperties = {
   "--dur-fast": "90ms",
   "--dur-base": "150ms",
   "--dur-slow": "200ms",
-  "--ease-out": "cubic-bezier(0.22, 1, 0.36, 1)",
+  "--ease-out": "cubic-bezier(0.23, 1, 0.32, 1)",
   "--ease-spring": "cubic-bezier(0.34, 1.32, 0.64, 1)",
 };
 

@@ -1,11 +1,40 @@
+import { createComputed, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { dismiss, EXIT_MS, resetToasts, scheduleDismiss, toasts, upsert } from "../src/store";
+import {
+  dismiss,
+  EXIT_MS,
+  pause,
+  resetToasts,
+  scheduleDismiss,
+  toasts,
+  upsert,
+} from "../src/store";
+
+const roots: (() => void)[] = [];
 
 afterEach(() => {
+  for (const dispose of roots.splice(0)) dispose();
   resetToasts();
   vi.useRealTimers();
 });
+
+/**
+ * What a toast holding focus does as `dismiss` re-renders it. The new object
+ * `dismiss` writes makes `<For>` replace the row; Chromium fires `focusout`
+ * from the row it takes away, and the row resumes its clock (`Toast.tsx`), all
+ * inside the store's own write. happy-dom drops focus on removal without an
+ * event, so a rendered `Toaster` cannot show this; a computation on the queue
+ * runs at the same point instead.
+ */
+function resumeAsFocusLeaves(id: string, duration: number) {
+  createRoot((dispose) => {
+    roots.push(dispose);
+    createComputed(() => {
+      if (toasts().find((t) => t.id === id)?.dismissing) scheduleDismiss(id, duration);
+    });
+  });
+}
 
 describe("the toast queue", () => {
   it("raises a toast and hands back its id", () => {
@@ -110,7 +139,60 @@ describe("the auto-dismiss clock", () => {
   });
 });
 
-describe("the queue is bounded (S-L1)", () => {
+describe("a leaving toast's clock", () => {
+  it("leaves no timer but its removal, and none after resetToasts(), when it held focus", () => {
+    vi.useFakeTimers();
+    const id = upsert({ tone: "success", message: "Deleted", duration: 5000 });
+    resumeAsFocusLeaves(id, 5000);
+
+    dismiss(id);
+    expect(vi.getTimerCount(), "a dwell outlived the dismissal beside its removal").toBe(1);
+
+    resetToasts();
+    expect(vi.getTimerCount(), "a timer outlived resetToasts()").toBe(0);
+  });
+
+  it("does not cut short a toast raised again under its id within the dwell", () => {
+    vi.useFakeTimers();
+    upsert({ tone: "success", message: "Deleted", id: "undo", duration: 5000 });
+    resumeAsFocusLeaves("undo", 5000);
+    vi.advanceTimersByTime(1000);
+    dismiss("undo");
+    vi.advanceTimersByTime(EXIT_MS);
+    expect(toasts()).toHaveLength(0);
+
+    // Raised at 1200, so its dwell runs to 6200. A dwell restarted by the
+    // dismissal at 1000 would end it at 6000.
+    upsert({ tone: "success", message: "Deleted again", id: "undo", duration: 5000 });
+    vi.advanceTimersByTime(5000 - EXIT_MS + 50);
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]!.dismissing, "the toast raised again was cut short").toBeFalsy();
+
+    vi.advanceTimersByTime(150 + EXIT_MS);
+    expect(toasts()).toHaveLength(0);
+  });
+
+  it("still goes when the pointer comes to rest on it on its way out", () => {
+    vi.useFakeTimers();
+    const id = upsert({ tone: "success", message: "Saved" });
+    dismiss(id);
+    pause(id);
+    vi.advanceTimersByTime(EXIT_MS);
+    expect(toasts(), "the pause cancelled the removal").toHaveLength(0);
+  });
+
+  it("still goes on time when focus or the pointer leaves it on its way out", () => {
+    vi.useFakeTimers();
+    const id = upsert({ tone: "success", message: "Saved" });
+    dismiss(id);
+    scheduleDismiss(id, 4000);
+    vi.advanceTimersByTime(EXIT_MS);
+    expect(toasts(), "the resumed dwell replaced the removal").toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("the queue is bounded", () => {
   it("expires a toast that never renders", () => {
     // The zombie path. A `Toaster` caps what it RENDERS, and an item-owned
     // clock only starts on mount — so a burst raised inside one Solid batch

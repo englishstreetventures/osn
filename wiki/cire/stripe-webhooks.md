@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-12
 ---
 
 # Stripe webhooks (cire-api)
@@ -121,11 +121,11 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
 
    On production, once the paperwork gate allows it, follow the order in
    [[access-control]]: add the name to cire-api's production row in
-   `shared/infra/src/secrets/inventory.ts`, set it in the `production`
-   Environment, then `cd cire/api && bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production`
-   and redeploy. A live secret the inventory lacks is deleted by cire-api's first
-   Alchemy deploy, and with it `POST /api/stripe/webhook`
-   ([[infrastructure-as-code#Secrets]]).
+   `shared/infra/src/secrets/inventory.ts`, then
+   `cd cire/api && bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production`.
+   No `production` Environment copy: the cire stack uploads no production secret,
+   and every deploy keeps the live one
+   ([[production-deploy#5.9 Setting a production secret 🔑]]).
 
 The Connect **platform** side also has to exist before any of this does
 anything: Connect enabled on the account, and the platform profile complete
@@ -155,7 +155,7 @@ way to connect an account made outside cire.
    ```
 
    On production, in the same order as the webhook secrets: the inventory row,
-   the `production` Environment, `bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production`, a redeploy.
+   then `bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production`.
 
 The client id is not secret — it is in every authorize URL — but it sits with
 the other Stripe values. The tier's `STRIPE_SECRET_KEY` makes the token call,
@@ -204,9 +204,8 @@ secret set but the endpoint missing at Stripe, a paid purchase stays `pending`.
    ```
 
    On production, in the same order as the Connect secret: the inventory row
-   first, then the `production` Environment, then
-   `bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production` and
-   a redeploy.
+   first, then
+   `bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production`.
 
 The upgrade path also needs **three Prices**, or nothing is for sale: one
 product per paid tier, each with a one-off Price, plus a second Price on the
@@ -242,9 +241,10 @@ wedding gets.
 ## After either secret changes
 
 On dev, the **Deploy** run that uploads the new value is the redeploy. On
-production, `wrangler secret put` does not cycle warm isolates, so redeploy, or
-the old value keeps serving: dispatch a release with `surfaces: cire_api` and
-`force` ([[production-deploy]] §5.5).
+production, treat `wrangler secret put` as not reaching warm isolates: the old
+value may keep serving until cire-api deploys again. To deploy it now, dispatch
+Production release with `force` and `surfaces: cire_api`, which uploads the cire
+stack's Workers again ([[production-deploy#5.9 Setting a production secret 🔑]]).
 
 ---
 

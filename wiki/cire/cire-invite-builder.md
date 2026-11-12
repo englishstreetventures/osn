@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 # Cire invite builder
 
@@ -1217,8 +1217,8 @@ fourth item in the row, because the three legal links already fill a 320px
 phone.
 
 - **Where it comes from.** `PUBLIC_BUILD_SHA`, set to `github.sha` on the
-  build step of `stack-cire-dev` (`deploy.yml`) and
-  `deploy-cire-invites` (`production-release.yml`), and typed in
+  guest-site build step of `stack-cire-dev` (`deploy.yml`) and of
+  `sites` (`production-release.yml`), and typed in
   `cire/invites/env.d.ts`. Astro inlines it like `PUBLIC_API_URL`, into the
   SSR Worker and the prerendered legal pages alike.
 - **No stale build.** A `PUBLIC_*` variable is in turbo's `build.env` hash

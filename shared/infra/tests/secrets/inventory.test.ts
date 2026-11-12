@@ -35,45 +35,6 @@ const reads = (dir: string, name: string): boolean =>
 
 const read = (path: string): string => readFileSync(join(REPO_ROOT, path), "utf8");
 
-/** The `<name>="A B"` lists a workflow step's shell sets, by name. */
-const shellLists = (run: string): Map<string, string[]> =>
-  new Map(
-    [...run.matchAll(/^\s*(\w+)="([^"]*)"\s*$/gm)].map((match) => [
-      match[1]!,
-      match[2]!.split(/\s+/).filter((name) => name !== ""),
-    ]),
-  );
-
-interface PreflightStep {
-  readonly run?: string;
-  readonly "working-directory"?: string;
-}
-
-/** Each production deploy preflight, as the Worker it checks and the `required` and `forbidden` names it holds the Worker to. */
-const PREFLIGHTS = Object.values(
-  (
-    Bun.YAML.parse(read(".github/workflows/production-release.yml")) as {
-      jobs: Record<string, { steps?: PreflightStep[] }>;
-    }
-  ).jobs,
-)
-  .flatMap((job) => job.steps ?? [])
-  .flatMap((step) => {
-    const lists = shellLists(step.run ?? "");
-    const directory = step["working-directory"];
-    const entry = SECRET_INVENTORY.find(
-      (candidate) => directory !== undefined && candidate.sourceDir.startsWith(`${directory}/`),
-    );
-    if (entry === undefined || !(lists.has("forbidden") || lists.has("required"))) return [];
-    return [
-      {
-        worker: entry.worker,
-        required: lists.get("required") ?? [],
-        forbidden: lists.get("forbidden") ?? [],
-      },
-    ];
-  });
-
 /** The secrets osn/api/wrangler.toml marks `REQUIRED non-local`: osn-api refuses to serve outside local without them. */
 const OSN_API_REQUIRED_NON_LOCAL = [
   ...read("osn/api/wrangler.toml").matchAll(/^#\s+([A-Z][A-Z0-9_]+)\s.*REQUIRED non-local/gm),
@@ -129,29 +90,45 @@ describe("secret inventory", () => {
   });
 
   test("osn-api declares every secret it fails closed without, on both tiers", () => {
-    const failClosed = [
-      ...OSN_API_REQUIRED_NON_LOCAL,
-      ...PREFLIGHTS.filter((step) => step.worker === "osn-api").flatMap((step) => step.required),
-    ];
+    // OSN_PAIRWISE_SALT: every OIDC subject is derived from it, and a release
+    // refuses osn-api while it is not live.
+    const failClosed = [...OSN_API_REQUIRED_NON_LOCAL, "OSN_PAIRWISE_SALT"];
     expect(OSN_API_REQUIRED_NON_LOCAL.length).toBeGreaterThan(0);
     for (const tier of TIERS) {
       expect(tierSecrets("osn-api", tier).secrets).toEqual(expect.arrayContaining(failClosed));
     }
   });
 
-  test("production forbids every name a deploy preflight refuses", () => {
-    expect(
-      PREFLIGHTS.filter((step) => step.forbidden.length > 0)
-        .map((step) => step.worker)
-        .toSorted(),
-    ).toEqual(["cire-api", "osn-api"]);
-    for (const step of PREFLIGHTS) {
-      const forbidden = tierSecrets(step.worker, "production").forbidden;
-      expect({
-        worker: step.worker,
-        notForbidden: step.forbidden.filter((name) => !forbidden.includes(name)),
-      }).toEqual({ worker: step.worker, notForbidden: [] });
+  test("production forbids every name a deployed Worker refuses, so a release refuses a Worker holding one", () => {
+    // osn-api: the passkey-less sign-in, the local mail emulator and the
+    // stand-in token verifier; cire-api: the local mail emulator.
+    expect(tierSecrets("osn-api", "production").forbidden).toEqual(
+      expect.arrayContaining([
+        "DEV_LOGIN_SECRET",
+        "OSN_EMAIL_VERIFICATION_EMULATOR_URL",
+        "RESEND_API_URL",
+      ]),
+    );
+    expect(tierSecrets("cire-api", "production").forbidden).toContain("RESEND_API_URL");
+  });
+
+  test("SI1: dev takes its secrets from the dev Environment; production's stay on the Workers", () => {
+    for (const entry of SECRET_INVENTORY) {
+      expect({ worker: entry.worker, source: entry.tiers.dev.source }).toEqual({
+        worker: entry.worker,
+        source: "environment",
+      });
+      expect({ worker: entry.worker, source: entry.tiers.production.source }).toEqual({
+        worker: entry.worker,
+        source: "worker",
+      });
     }
+  });
+
+  test("SI2: cire-api production may hold the operator's alert address, and needs it on neither tier", () => {
+    expect(tierSecrets("cire-api", "production").optional).toContain("CIRE_OPS_EMAIL");
+    expect(tierSecrets("cire-api", "production").secrets).not.toContain("CIRE_OPS_EMAIL");
+    expect(tierSecrets("cire-api", "dev").secrets).not.toContain("CIRE_OPS_EMAIL");
   });
 
   test("dev forbids the local mail emulator's address, which a deployed Worker refuses", () => {

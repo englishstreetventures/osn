@@ -427,7 +427,7 @@ describe("--tier production: the site Workers a production stack deploys", () =>
   test("WD2: a surface with no production site Worker, or a tier that is neither, exits 2 before any request; dev keeps its own list", async () => {
     await withFiles(async ({ snapshot }) => {
       for (const args of [
-        ["snapshot", snapshot, "--tier", "production", "cire_api"],
+        ["snapshot", snapshot, "--tier", "production", "no_such_surface"],
         ["snapshot", snapshot, "--tier", "staging", "cire_host"],
         ["snapshot", snapshot, "cire_host", "--tier"],
       ]) {
@@ -439,11 +439,11 @@ describe("--tier production: the site Workers a production stack deploys", () =>
         });
       }
       const production = await run(
-        ["snapshot", snapshot, "--tier", "production", "cire_api"],
+        ["snapshot", snapshot, "--tier", "production", "no_such_surface"],
         {},
         {},
       );
-      expect(production.output).toContain("is not a production site");
+      expect(production.output).toContain("is not a production surface");
       const dev = await run(["snapshot", snapshot, "cire_api"], { "cire-api-dev": NOT_FOUND }, {});
       expect(dev.code).toBe(0);
       expect(dev.calls).toEqual([deploymentsUrl("cire-api-dev")]);
@@ -537,7 +537,7 @@ describe("domains: the custom domains each production site Worker holds now", ()
       for (const args of [
         ["domains", file, "cire_host"],
         ["domains", file, "--tier", "dev", "cire_host"],
-        ["domains", file, "--tier", "production", "cire_api"],
+        ["domains", file, "--tier", "production", "no_such_surface"],
       ]) {
         const refused = await run(args, {}, {});
         expect({ args, code: refused.code, calls: refused.calls }).toEqual({

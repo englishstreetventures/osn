@@ -4,27 +4,50 @@ import { knownCredentials } from "../accounts";
 import type { Tier } from "../stage";
 
 /**
- * Every secret each deployed Worker holds, per tier. Alchemy uploads a Worker
- * with exactly the secrets its stack declares and drops the rest, so a name
- * missing here is a secret deleted by the first Alchemy deploy, and a secret
- * a Worker should start holding is a change to this file.
+ * Every secret each deployed Worker holds, per tier, and where the stacks take
+ * it from (`source`):
+ *
+ *  - `environment` (dev): the GitHub Environment secret of the same name. The
+ *    stack uploads every required name and every optional one that holds a
+ *    value, so a secret a Worker should start holding is a change to this
+ *    file, and one dropped from it is deleted by that Worker's next deploy.
+ *  - `worker` (production): the Worker itself. The stacks upload no secret;
+ *    each value is set on the Worker (`wrangler secret put`, or the
+ *    set-osn-api-secret workflow), and every Alchemy upload keeps the secrets
+ *    it does not name (the provider patch's `keep_bindings`). The release
+ *    reads the live names before each deploy and refuses one that lacks a
+ *    required name or holds a forbidden one.
  *
  * The production rows' required and present optional names equal `wrangler
  * secret list --name <scriptName>` on each live Worker. The dev rows name
  * what the dev account's Workers hold, which the dev stacks create with
  * these secrets. `bun run --cwd shared/infra secrets:check-live -- --tier
  * <tier>` compares either tier with what is live and reports any forbidden
- * name a Worker still holds. Each value lives in the GitHub Environment
- * secret of the same name, in the `dev` or `production` Environment.
+ * name a Worker still holds.
  */
 export type WorkerKey = "osn-api" | "cire-api" | "zap-api" | "cire-invites";
+
+/**
+ * Where a tier's Worker secrets come from: the GitHub Environment, which the
+ * stack uploads on every deploy, or the Worker itself, which the stack never
+ * uploads to and every upload keeps.
+ */
+export type SecretSource = "environment" | "worker";
 
 export interface TierSecrets {
   /** The deployed script name, or null when the tier has no Worker. */
   readonly scriptName: string | null;
-  /** Sorted names declared on every deploy; a missing value fails it. */
+  readonly source: SecretSource;
+  /**
+   * Sorted names the Worker must hold. From the `environment`, each is
+   * uploaded on every deploy and a missing value fails it; on the `worker`,
+   * a deploy is refused while one is not live.
+   */
   readonly secrets: readonly string[];
-  /** Sorted names declared only while their GitHub secret holds a value. */
+  /**
+   * Sorted names the Worker may hold. From the `environment`, each is
+   * uploaded only while its GitHub secret holds a value.
+   */
   readonly optional: readonly string[];
   /** Names that must never be set on this Worker on this tier. */
   readonly forbidden: readonly string[];
@@ -51,6 +74,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
     tiers: {
       dev: {
         scriptName: "osn-api-dev",
+        source: "environment",
         secrets: [
           "DEV_LOGIN_SECRET",
           "INTERNAL_SERVICE_SECRET",
@@ -72,6 +96,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
       },
       production: {
         scriptName: "osn-api-production",
+        source: "worker",
         secrets: [
           "INTERNAL_SERVICE_SECRET",
           "OSN_JWT_PRIVATE_KEY",
@@ -93,6 +118,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
     tiers: {
       dev: {
         scriptName: "cire-api-dev",
+        source: "environment",
         secrets: [
           "CIRE_API_ARC_KEY_ID",
           "CIRE_API_ARC_PRIVATE_KEY",
@@ -122,6 +148,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
       },
       production: {
         scriptName: "cire-api-production",
+        source: "worker",
         secrets: [
           "CIRE_API_ARC_KEY_ID",
           "CIRE_API_ARC_PRIVATE_KEY",
@@ -129,7 +156,13 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "GROWTHBOOK_CLIENT_KEY",
           "OSN_API_URL",
         ],
-        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
+        // CIRE_OPS_EMAIL: the operator's address for the daily cron's claim
+        // reminder and the R2 reconcilers' alerts; unset, the cron only logs.
+        optional: [
+          "CIRE_INTERNAL_REVOKE_SECRET",
+          "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS",
+          "CIRE_OPS_EMAIL",
+        ],
         forbidden: ["RESEND_API_URL", "STRIPE_API_URL", "STRIPE_CONNECT_URL"],
       },
     },
@@ -140,6 +173,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
     tiers: {
       dev: {
         scriptName: "zap-api-dev",
+        source: "environment",
         secrets: ["INTERNAL_SERVICE_SECRET"],
         optional: [],
         // No zap code reads a GrowthBook key.
@@ -147,10 +181,11 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
       },
       production: {
         scriptName: "zap-api-production",
+        source: "worker",
         secrets: ["INTERNAL_SERVICE_SECRET"],
         optional: [],
-        // No zap code reads a GrowthBook key; zap-api's first Alchemy deploy
-        // deletes the live one (englishstreetventures/osn#1532).
+        // No zap code reads a GrowthBook key; the release refuses zap-api
+        // while it is live (englishstreetventures/osn#1532).
         forbidden: ["GROWTHBOOK_CLIENT_KEY"],
       },
     },
@@ -159,16 +194,29 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
     worker: "cire-invites",
     sourceDir: "cire/invites/src",
     tiers: {
-      dev: { scriptName: "cire-invites-dev", secrets: [], optional: [], forbidden: [] },
-      production: { scriptName: "cire-invites", secrets: [], optional: [], forbidden: [] },
+      dev: {
+        scriptName: "cire-invites-dev",
+        source: "environment",
+        secrets: [],
+        optional: [],
+        forbidden: [],
+      },
+      production: {
+        scriptName: "cire-invites",
+        source: "worker",
+        secrets: [],
+        optional: [],
+        forbidden: [],
+      },
     },
   },
 ];
 
 /**
- * A name two Workers hold on one tier is one GitHub secret, so the next
- * Alchemy deploy gives both Workers its one value. Each such pair is listed
- * here on purpose.
+ * A name two Workers hold on one tier must hold one value on both. On an
+ * `environment` tier it is one GitHub secret, so the next deploy of each
+ * stack gives both Workers its one value; on a `worker` tier each Worker
+ * holds its own copy, set together. Each such pair is listed here on purpose.
  */
 export const SHARED_SECRET_VALUES: readonly {
   readonly tier: Tier;
@@ -202,8 +250,22 @@ export const WORKFLOW_SECRETS = {
     "CF_ACCESS_CLIENT_ID",
     "CF_ACCESS_CLIENT_SECRET",
   ],
-  // production-release.yml's jobs read the production account's pair alone.
+  // production-release.yml's jobs read the production account's pair, and
+  // ENVIRONMENT_WORKER_SECRETS' production names.
   production: [],
+} as const satisfies Readonly<Record<Tier, readonly string[]>>;
+
+/**
+ * Worker secret names a `worker`-sourced tier's GitHub Environment still
+ * holds, because a workflow reads the value: no stack uploads them.
+ * `secrets:check-github` requires each. On an `environment` tier every
+ * required Worker secret is required there already.
+ */
+export const ENVIRONMENT_WORKER_SECRETS = {
+  dev: [],
+  // osn-api's production smoke check sends it to /health/coordination, which
+  // answers only the value the Worker holds.
+  production: ["INTERNAL_SERVICE_SECRET"],
 } as const satisfies Readonly<Record<Tier, readonly string[]>>;
 
 /**

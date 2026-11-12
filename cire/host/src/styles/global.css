@@ -399,8 +399,13 @@
   --radius-md: 10px;
   --radius-pill: 999px;
 
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* What a transition that names no easing runs — a bare
+     `transition-ui-colors`, a shared part's `transition-transform` — in place
+     of Tailwind's own `cubic-bezier(0.4, 0, 0.2, 1)`, so cire has one arriving
+     curve (DESIGN.md §4). */
+  --default-transition-timing-function: var(--ease-out);
   /* Something landing with a little give: an overshoot of about 8% and one
      settle. A one-overshoot curve here, for the engines on the floor that have
      no `linear()`; the real spring is the `@supports` block below. */
@@ -520,6 +525,12 @@
   --ui-on-danger: var(--bg);
 
   --ui-focus: var(--focus);
+
+  /* Something arriving, on cire's one arriving curve (DESIGN.md §4):
+   * `Modal`'s rise and every entry `animate-in` runs — `Tooltip`, `Popover`,
+   * the default menu. An overlay leaving reads `--ui-ease-exit`, which stays
+   * the contract's, so this moves no exit. */
+  --ui-ease-out: var(--ease-out);
 
   /* The portals' pill, which `@cire/ui`'s `Button` reads (DESIGN.md §4, One
    * pill language): every non-primary pill sits on the glass track's ground,
@@ -836,6 +847,43 @@
   }
   &[data-closed] {
     animation: sheet-panel-out var(--dur-base) var(--ease-in-out);
+  }
+}
+
+/* ── The command palette, arriving ──────────────────────────────────────────
+ * ⌘K's centred Kobalte dialog fades up through the page: from transparent,
+ * 10px below its place and at 98.5% of its size, scaled from its own centre
+ * (a modal is not anchored to the trigger that opened it). It runs on
+ * `--dur-base`, a rung slower than a hover, so the arrival can be seen; its
+ * scrim fades in on the same clock.
+ *
+ * Entry only, on `[data-expanded]`: a box holding live controls closes at
+ * once. Kobalte holds a closing dialog mounted only while an animation runs
+ * on it, so with none the palette and its scrim leave in one frame. The
+ * reduced-motion block above zeroes both, and the palette appears at once.
+ */
+@keyframes palette-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+@keyframes palette-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility palette-rise {
+  &[data-expanded] {
+    animation: palette-rise-in var(--dur-base) var(--ease-out);
+  }
+}
+
+@utility palette-scrim {
+  &[data-expanded] {
+    animation: palette-scrim-in var(--dur-base) var(--ease-out);
   }
 }
 

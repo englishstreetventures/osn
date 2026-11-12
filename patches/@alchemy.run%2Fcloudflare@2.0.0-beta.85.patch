@@ -284,6 +284,35 @@ index 075182ce9116cef909966f252d0c4c406e0dbc34..1e06984724b4d5f72a5089c81e221219
              return hashed;
          })), Effect.flatMap(sha256), Effect.map((hash) => hash.slice(0, 32)));
          count++;
+diff --git a/lib/Workers/WorkerProvider.js b/lib/Workers/WorkerProvider.js
+index dfb1556eb8940a581533238bb7518ebd11cc3abc..ac93e85fe5ddb7dfe21a410a6cb0a7a6d9ad4e99 100644
+--- a/lib/Workers/WorkerProvider.js
++++ b/lib/Workers/WorkerProvider.js
+@@ -906,6 +906,15 @@ const resolveWorkerMetadataHash = ({ props, bindings, accountId, stack, selfUrl,
+         }
+         : undefined,
+ }).pipe(Effect.flatMap((metadata) => sha256Object({ metadata })));
++/**
++ * The binding types every full script upload asks Cloudflare to keep from the
++ * Worker's previous version, as `wrangler deploy` does: each secret the
++ * upload does not name stays bound, and a secret the upload names replaces
++ * it. A secret set outside Alchemy therefore survives every deploy; one an
++ * earlier deploy uploaded and this one dropped is deleted by name after the
++ * upload.
++ */
++export const KEPT_BINDING_TYPES = ["secret_text", "secret_key"];
+ export const WorkerProvider = () => ProviderLayer.dual(Worker, {
+     live: () => LiveWorkerProvider(),
+     // The local runtime deps (workerd, WorkerProxy, LocalRuntimeState)
+@@ -2908,7 +2917,7 @@ export const LiveWorkerProvider = () => Provider.effect(Worker, Effect.gen(funct
+             compatibilityFlags: compatibility.flags,
+             containers: metadataContainers.length > 0 ? metadataContainers : undefined,
+             keepAssets,
+-            keepBindings: undefined,
++            keepBindings: [...KEPT_BINDING_TYPES],
+             limits: news.limits,
+             logpush: news.logpush,
+             mainModule: bundle.main,
 diff --git a/src/D1/ImportDatabase.ts b/src/D1/ImportDatabase.ts
 index 70dc62fe415a69e4d5eab54d74263f33247e6b35..4a8f7be5ccfb270dad730db35f8cb78643be1866 100644
 --- a/src/D1/ImportDatabase.ts
@@ -640,3 +669,36 @@ index 1cd1de32a9e6fa9eb4ecf76256e54682c53f5d72..5a894b8626a9c9f6b010ba5708587ace
              return hashed;
            }),
          ),
+diff --git a/src/Workers/WorkerProvider.ts b/src/Workers/WorkerProvider.ts
+index 90aabe32b61600c3a9f5c8855f2f1b7dc9607009..af009fd9c9c6472e77e8f27f5fd70320ad8ba1b2 100644
+--- a/src/Workers/WorkerProvider.ts
++++ b/src/Workers/WorkerProvider.ts
+@@ -1227,6 +1227,19 @@ const resolveWorkerMetadataHash = ({
+       : undefined,
+   }).pipe(Effect.flatMap((metadata) => sha256Object({ metadata })));
+ 
++/**
++ * The binding types every full script upload asks Cloudflare to keep from the
++ * Worker's previous version, as `wrangler deploy` does: each secret the
++ * upload does not name stays bound, and a secret the upload names replaces
++ * it. A secret set outside Alchemy therefore survives every deploy; one an
++ * earlier deploy uploaded and this one dropped is deleted by name after the
++ * upload.
++ */
++export const KEPT_BINDING_TYPES: readonly ["secret_text", "secret_key"] = [
++  "secret_text",
++  "secret_key",
++];
++
+ export const WorkerProvider = () =>
+   ProviderLayer.dual(Worker, {
+     live: () => LiveWorkerProvider(),
+@@ -3831,7 +3844,7 @@ export const LiveWorkerProvider = () =>
+           compatibilityFlags: compatibility.flags,
+           containers: metadataContainers.length > 0 ? metadataContainers : undefined,
+           keepAssets,
+-          keepBindings: undefined,
++          keepBindings: [...KEPT_BINDING_TYPES],
+           limits: news.limits,
+           logpush: news.logpush,
+           mainModule: bundle.main,

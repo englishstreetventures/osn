@@ -145,11 +145,12 @@ function nextPointer() {
 const end = (type: "pointerup" | "pointercancel", pointer: { id: number }) =>
   document.dispatchEvent(new PointerEvent(type, { pointerId: pointer.id, bubbles: true }));
 
+/** The transition of `property` on `el`, pending or running, if there is one. */
+const transitionOf = (el: HTMLElement, property: string) =>
+  el.getAnimations().find((a) => a instanceof CSSTransition && a.transitionProperty === property);
+
 /** The transform transition running on `el`, if one is. */
-const settling = (el: HTMLElement) =>
-  el
-    .getAnimations()
-    .find((a) => a instanceof CSSTransition && a.transitionProperty === "transform");
+const settling = (el: HTMLElement) => transitionOf(el, "transform");
 
 /** Where `el` is painted, against where it would be with no transform. */
 const shown = (el: HTMLElement) => {
@@ -293,9 +294,16 @@ describe("a dropped row settles into its slot", () => {
     expect(getComputedStyle(row("b")).transform).toBe("none");
     await mouse("mouseReleased", at);
     // The clamp gives every property a 0.01ms transition, the lift's shadow
-    // among them, so the look is read once a frame has run.
-    await new Promise(requestAnimationFrame);
-    expect(look(row("b")).shadow).toBe("none");
+    // among them, and a slow runner starts it a frame or more after the
+    // release; until then the row shows the lifted shadow. So the look is read
+    // once that transition has ended, however many frames that takes.
+    await vi.waitFor(
+      () => {
+        expect(transitionOf(row("b"), "box-shadow"), "the shadow is still easing").toBeUndefined();
+        expect(look(row("b")).shadow, "the landed row still looks lifted").toBe("none");
+      },
+      { timeout: 2000 },
+    );
   });
 
   it("is caught mid-settle by a new drag without a jump", async () => {

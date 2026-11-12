@@ -1,4 +1,4 @@
-import { resetToasts, toast, Toaster, toasts } from "@shared/toast";
+import { EXIT_MS, resetToasts, toast, Toaster, toasts } from "@shared/toast";
 import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands, userEvent } from "vitest/browser";
@@ -55,11 +55,21 @@ function deleteRow(name: string, click?: MouseEvent): Seen {
   return seen;
 }
 
-/** A row's ✕, which deletes `name` with the click that pressed it. */
+/**
+ * A row's ✕, which deletes `name` with the click that pressed it. It carries
+ * `data-undo-key`, as every list's ✕ does, so Undo hands focus back to it
+ * before the toast goes. A toast hidden with focus still inside restarts its
+ * clock, and `resetToasts()` cannot stop that clock, so it would end a later
+ * test's toast.
+ */
 function mountDeleteButton(name: string, seen: { current?: Seen }) {
   render(() => (
     <>
-      <button type="button" onClick={(e) => (seen.current = deleteRow(name, e))}>
+      <button
+        type="button"
+        data-undo-key={`row:${name}`}
+        onClick={(e) => (seen.current = deleteRow(name, e))}
+      >
         Delete {name}
       </button>
       <Toaster position="bottom-right" topLayer />
@@ -101,6 +111,7 @@ afterEach(async () => {
   // spies rather than the next test's.
   resetToasts();
   cleanup();
+  vi.useRealTimers();
   await commands.emulateMedia({ reducedMotion: "no-preference" });
 });
 
@@ -178,7 +189,49 @@ describe("the undo window", () => {
 
     expect(seen.current!.restored).toBe(1);
     expect(isPendingDelete("row:Book the venue")).toBe(false);
+    // Undo hands focus back to the row's ✕, not to the page.
+    expect(document.activeElement).toBe(cross);
   }, 15_000);
+
+  it("leaves no clock running behind an Undo pressed with focus on it, so the next delete keeps its whole window", () => {
+    vi.useFakeTimers();
+    mountToaster();
+    deleteRow("Book the venue");
+    const firstId = toastOf("Book the venue")!.dataset.toastId;
+    const undo = within(toastOf("Book the venue")!).getByRole("button", {
+      name: "Undo deleting “Book the venue”",
+    });
+    undo.focus();
+    expect(document.activeElement).toBe(undo);
+
+    // No row here carries the ✕ that Undo hands focus back to, so Undo still
+    // holds focus as its toast is dismissed, and the row the Toaster replaces
+    // fires a real `focusout` inside the store's write.
+    undo.click();
+
+    // The first toast's removal and the "Restored" toast's dwell, and nothing
+    // else: a dwell restarted by that `focusout` would make three.
+    expect(vi.getTimerCount(), "a dwell outlived the dismissed toast").toBe(2);
+    vi.advanceTimersByTime(EXIT_MS);
+    expect(toastOf("Book the venue")).toBeUndefined();
+    resetToasts();
+    expect(vi.getTimerCount(), "a timer outlived resetToasts()").toBe(0);
+
+    // `resetToasts()` restarts ids, so this toast takes the first one's id. It
+    // was raised EXIT_MS after the Undo, and keeps its dwell past the point
+    // where a dwell restarted by the Undo would have ended it.
+    const second = deleteRow("Order the cake");
+    expect(toastOf("Order the cake")!.dataset.toastId).toBe(firstId);
+    vi.advanceTimersByTime(UNDO_MS - EXIT_MS + 50);
+    expect(
+      toastOf("Order the cake")?.classList.contains("ui-toast--leaving"),
+      "the next delete's toast was cut short",
+    ).toBe(false);
+    expect(second.commits).toHaveLength(0);
+
+    vi.advanceTimersByTime(150 + EXIT_MS);
+    expect(second.commits.map((c) => c.keepalive)).toEqual([false]);
+  });
 
   it("leaves focus alone when the ✕ is pressed with the pointer", async () => {
     const seen: { current?: Seen } = {};

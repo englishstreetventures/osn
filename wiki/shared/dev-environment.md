@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Dev environment (cire + OSN identity)
@@ -18,13 +18,13 @@ last-reviewed: 2026-11-11
 `cireweddings.com` serves live weddings, so nothing reaches production per merge.
 Every merge deploys a **dev tier** automatically, and production waits for a
 **release**: a separate workflow, run once a day and by hand, that ships whatever
-production is behind on after one approval.
+production is behind on after two approvals.
 
 ```
 deploy.yml (every push)                              production-release.yml (daily, or by hand)
 
-changes ──┐                                          plan ──> build ──> deploy-<surface>
-          ├──> stack-<stack>-dev ──> deploy-<surface>-dev           waits for one approval
+changes ──┐                                          plan ──> build, sites ──> alchemy-plan ──> stack-<stack>-production ──> record-<surface>
+          ├──> stack-<stack>-dev ──> deploy-<surface>-dev                  approval 1         approval 2, Alchemy
 build ────┘        Alchemy, automatic     record jobs
 ```
 
@@ -764,8 +764,8 @@ so the page the secret is typed on never reaches the target as a `Referer`.
 > an issue, a PR, or a chat, and rotate `DEV_LOGIN_SECRET` if it turns up in one.
 > Production is unreachable this way — the tier gate keeps
 > the route unmounted, the inventory forbids the secret on production, and the
-> production deploy job **fails** while `DEV_LOGIN_SECRET` is set on
-> `osn-api-production`.
+> production release's plan guard **refuses** to deploy osn-api while
+> `DEV_LOGIN_SECRET` is set on `osn-api-production`.
 
 > [!important] Why `GET`, and why no button
 > The origin guard rejects a POST without a matching `Origin` header, so GET is

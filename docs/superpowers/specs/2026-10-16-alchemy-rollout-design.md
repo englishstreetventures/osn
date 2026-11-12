@@ -71,6 +71,8 @@ One pull request per phase (P3 is one per step).
   4. cire-api with its D1 database and R2 buckets.
   5. cire-invites, once the latest dev guest route comparison has matched.
   After the last, the Pages projects are deleted by the owner and the Wrangler migration scripts go.
+
+  *Status, 2026-11-12:* production's API Workers — zap-api, osn-api, cire-api and cire-invites — deploy through the zap, musubi and cire stacks, each adopted in place with its databases and buckets (`AdoptPolicy.adopt(true)` on each API Worker, no `--adopt` run), and zap-api ships first. The stacks upload no production secret; every upload keeps the secrets it does not name. Wrangler stays the production D1 migrator, in each stack job before its deploy; moving production to Alchemy's migrator is englishstreetventures/osn#2237.
 - **P4 — previews.** Each pull request uploads dev Worker versions with a preview alias and posts the URLs. Previews share dev D1 and R2: a pull request that adds a migration is previewed after its migration reaches dev.
 
 ## Deploy flow

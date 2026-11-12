@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-12
 ---
 
 # Cire
@@ -189,15 +189,15 @@ tier` once, as an error ([`src/index.ts`](../../cire/api/src/index.ts)), which
 is expected while push is off. No var turns push off; the binding is the
 switch.
 
-The two tiers deploy cire-api with different tools, and the `TopicHub` class
-lives by different rules on each. Both upload the same module, `src/entry.ts`,
-which exports the class.
+Both tiers deploy cire-api through the cire Alchemy stack, from the same
+module, `src/entry.ts`, which exports the `TopicHub` class. The class lives by
+different rules on each.
 
 | | dev | production |
 |---|---|---|
-| Uploads cire-api | `stack-cire-dev` in `.github/workflows/deploy.yml`, through the cire Alchemy stack; `deploy-cire-api-dev` only records the run | `deploy-cire-api` in `.github/workflows/production-release.yml`, with `wrangler deploy --env production` |
-| Binds `REALTIME_HUB` | [`cire/infra/src/declaration.ts`](../../cire/infra/src/declaration.ts) | `[[env.production.durable_objects.bindings]]` in [wrangler.toml](../../cire/api/wrangler.toml) |
-| Deletes the class | the first deploy in which no binding names it | a `[[migrations]]` entry listing it in `deleted_classes` |
+| Uploads cire-api | `stack-cire-dev` in `.github/workflows/deploy.yml`; `deploy-cire-api-dev` only records the run | `stack-cire-production` in `.github/workflows/production-release.yml`; `record-cire-api` only records the run |
+| Binds `REALTIME_HUB` | `cireDeclaration()` in [`cire/infra/src/declaration.ts`](../../cire/infra/src/declaration.ts) | `cireProductionApis()` in the same file; `[[env.production.durable_objects.bindings]]` in [wrangler.toml](../../cire/api/wrangler.toml) mirrors it |
+| Deletes the class | the first deploy in which no binding names it | no release: the live read refuses every release while the Worker hosts a class no declared binding names ([[infrastructure-as-code#Production API Workers and storage]]) |
 
 **How Alchemy treats the class.** Alchemy `2.0.0-beta.85` records each class
 the Worker hosts, keyed by its binding's env key, in the Worker's
@@ -227,15 +227,18 @@ page, its error table and "Rollbacks cannot cross a lifecycle change".
 
 #### Push off, class kept
 
-- **Production**, through Wrangler until the Alchemy rollout's P3 moves
-  production to Alchemy ([[infrastructure-as-code]]).
-  Delete the `[[env.production.durable_objects.bindings]]` block and release.
-  Keep the export, the `v1` migration and the top-level block, which only
-  `wrangler dev` and the `build` dry run read. The class and its namespace
-  stay, so restoring the block turns push back on. Tests to change: the
-  production row of the binding check in `cire/api/tests/wrangler-config.test.ts`,
-  and K2 in `cire/infra/tests/parity.test.ts`, which must read a missing
-  `durable_objects` table as empty and list `REALTIME_HUB` in `DEV_ONLY`.
+- **Production** deploys through the cire stack too, from
+  `cireProductionApis()`. Dropping the `REALTIME_HUB` binding there would
+  have the upload delete `TopicHub` with its storage, and the live read
+  refuses every release while cire-api hosts a class no declared binding names
+  ([[infrastructure-as-code#Production API Workers and storage]]). So no
+  release turns push off on production by dropping the binding; a rename that
+  keeps `className: "TopicHub"`, as on dev, keeps the class named. The
+  `[[env.production.durable_objects.bindings]]` block in `wrangler.toml`
+  mirrors the declaration, and `cire/infra/tests/parity.test.ts` (PA2) holds
+  the two equal.
+
+  *Unverified — a production release that renames the binding has not run.*
 - **Dev.** Rename the binding's key in `declaration.ts` (to `REALTIME_HUB_OFF`,
   say) and keep `className: "TopicHub"`. A binding still names the class, so
   Alchemy keeps it and creates nothing, and cire-api finds no `REALTIME_HUB`.
@@ -249,16 +252,16 @@ verifying the dev tier) say push is on; change them in the same pull request.
 
 #### Removing push from both tiers
 
-One change, which deletes the class on both tiers:
+One change, which deletes the class on dev, and on production once the live
+read allows it (below):
 
-1. Remove the `TopicHub` export from `src/entry.ts`, the `REALTIME_HUB` entry
-   from `declaration.ts`, and the read of `env.REALTIME_HUB` and its error log
-   from `src/index.ts`.
+1. Remove the `TopicHub` export from `src/entry.ts`, both `REALTIME_HUB`
+   entries from `declaration.ts` (`cireDeclaration()` and
+   `cireProductionApis()`), and the read of `env.REALTIME_HUB` and its error
+   log from `src/index.ts`.
 2. Delete both `REALTIME_HUB` blocks from `wrangler.toml`, and add a
    `[[migrations]]` entry with a new tag and `deleted_classes = ["TopicHub"]`.
-   Never edit `v1`. Wrangler 4.149 can send the declarative `exports` form
-   instead, but a script that has used `exports` cannot go back to migrations,
-   so production stays on migrations until the Alchemy rollout's P3.
+   Never edit `v1`.
 3. Change the tests that pin the hub: K10 in `cire/infra/tests/bundle.test.ts`
    to an exact empty list (it is the only check that pins the classes the dev
    Worker hosts, whatever production binds), K2's `durable_objects` reads,
@@ -270,13 +273,14 @@ One change, which deletes the class on both tiers:
    [[dev-environment]], [[infrastructure-as-code]], [[subprocessors]] and
    [[data-map]].
 
-The merge deploys dev, where Alchemy's tombstone deletes the namespace; the
-next production release applies the migration. Neither deploy can be rolled
-back, so ship the removal in a release with no other cire-api change. Nothing
-checks the production half before that release: the `build` dry run reads only
-the top-level config and sends no migrations. Turning push back on repeats the
-adoption steps in [[realtime]], with a new migration tag listing `TopicHub` in
-`new_sqlite_classes` for production.
+The merge deploys dev, where Alchemy's tombstone deletes the namespace. On
+production the live read refuses every release while cire-api hosts `TopicHub`
+and no declared binding names it, so the change holds every cire production
+release until the guard is changed to let that one deletion through
+([[infrastructure-as-code#Production API Workers and storage]]). Neither
+deletion can be rolled back, so ship the removal in a release with no other
+cire-api change. Turning push back on repeats the adoption steps in
+[[realtime]].
 
 *Unverified — that Cloudflare re-creates a class under a name it has deleted;
 Alchemy declares it as a new SQLite class.*

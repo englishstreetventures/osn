@@ -24,6 +24,7 @@ import {
 import {
   apiAheadOfHost,
   applyDevGate,
+  applyShipsAfter,
   applyStackDevGate,
   changedStacks,
   changedSurfaces,
@@ -55,6 +56,7 @@ import {
   type FixtureRecord,
   fullRun,
   prod,
+  RECORD_RUN_OFFSET,
   REPO,
   stackJob,
   TOKEN,
@@ -140,16 +142,16 @@ describe("a surface whose production deploy never ran", () => {
 
       const github = fakeGitHub([
         {
-          environment: "production",
+          environment: "production-records",
           sha: c,
-          run: 3,
+          run: RECORD_RUN_OFFSET + 3,
           job: prod("osn_api"),
           states: ["success", "waiting"],
         },
         {
-          environment: "production",
+          environment: "production-records",
           sha: b,
-          run: 2,
+          run: RECORD_RUN_OFFSET + 2,
           job: prod("cire_api"),
           states: ["error", "waiting"],
         },
@@ -186,9 +188,9 @@ describe("a surface whose production deploy never ran", () => {
       // The release of B was rejected at the gate: its record never succeeded.
       const github = fakeGitHub([
         {
-          environment: "production",
+          environment: "production-records",
           sha: b,
-          run: 2,
+          run: RECORD_RUN_OFFSET + 2,
           job: prod("osn_api"),
           states: ["failure", "waiting"],
         },
@@ -235,7 +237,7 @@ describe("a surface whose production deploy never ran", () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "osn/api/src/index.ts": "1" });
       const b = await commit(repo, { "README.md": "docs" });
-      const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", a, 1)]);
+      const github = fakeGitHub([...fullRun("production", a, 9), ...fullRun("dev", a, 1)]);
 
       const outputs = parseOutputs(
         (await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo })).outputs,
@@ -265,7 +267,7 @@ describe("dev still gates production", () => {
 
       // Dev's deploy of B failed; dev still runs A.
       const failed = fakeGitHub([
-        ...fullRun("production", a, 1),
+        ...fullRun("production", a, 9),
         {
           environment: "dev",
           sha: b,
@@ -366,7 +368,7 @@ describe("dev still gates production", () => {
     });
   });
 
-  test("force ships what it names, whatever production and dev run, and a stack site's whole stack", async () => {
+  test("force ships what it names, whatever production and dev run, and a stack surface's whole stack", async () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "cire/host/src/App.tsx": "1" });
       const github = fakeGitHub([...fullRun("production", a, 1)]);
@@ -382,7 +384,16 @@ describe("dev still gates production", () => {
         Object.entries(outputs)
           .filter(([, v]) => v === "true")
           .map(([k]) => k),
-      ).toEqual(["cire_host", "cire_vendor", "cire_landing", "stack_cire", "any", "any_stack"]);
+      ).toEqual([
+        "cire_api",
+        "cire_invites",
+        "cire_host",
+        "cire_vendor",
+        "cire_landing",
+        "stack_cire",
+        "any",
+        "any_stack",
+      ]);
       expect(outputs).toMatchObject({ stack_cire: "true", stack_musubi: "false" });
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
@@ -407,7 +418,13 @@ describe("a surface whose smoke check failed", () => {
       const b = await commit(repo, { "osn/api/src/index.ts": "2" });
       const c = await commit(repo, { "README.md": "docs" });
       const github = fakeGitHub([
-        { environment: "production", sha: b, run: 2, job: prod("osn_api"), states: SMOKE_FAILED },
+        {
+          environment: "production-records",
+          sha: b,
+          run: RECORD_RUN_OFFSET + 2,
+          job: prod("osn_api"),
+          states: SMOKE_FAILED,
+        },
         ...fullRun("production", a, 1),
         { environment: "dev", sha: b, run: 2, job: dev("osn_api"), states: ["success"] },
         ...fullRun("dev", a, 1),
@@ -459,16 +476,34 @@ describe("a surface whose smoke check failed", () => {
 describe("lastDeployed", () => {
   test("takes the newest record with a success status, per surface", async () => {
     const github = fakeGitHub([
-      { environment: "production", sha: "c3", run: 3, job: prod("osn_api"), states: ["error"] },
       {
-        environment: "production",
+        environment: "production-records",
+        sha: "c3",
+        run: 3,
+        job: prod("osn_api"),
+        states: ["error"],
+      },
+      {
+        environment: "production-records",
         sha: "b2",
         run: 2,
         job: prod("osn_api"),
         states: ["success", "waiting"],
       },
-      { environment: "production", sha: "a1", run: 1, job: prod("osn_api"), states: ["success"] },
-      { environment: "production", sha: "a1", run: 1, job: prod("cire_api"), states: ["success"] },
+      {
+        environment: "production-records",
+        sha: "a1",
+        run: 1,
+        job: prod("osn_api"),
+        states: ["success"],
+      },
+      {
+        environment: "production-records",
+        sha: "a1",
+        run: 1,
+        job: prod("cire_api"),
+        states: ["success"],
+      },
     ]);
     const found = await lastDeployed(reader(github), "production", ["osn_api", "cire_api"]);
     expect(Object.fromEntries(found)).toEqual({ osn_api: "b2", cire_api: "a1" });
@@ -477,7 +512,7 @@ describe("lastDeployed", () => {
   test("counts a success that a later status superseded", async () => {
     const github = fakeGitHub([
       {
-        environment: "production",
+        environment: "production-records",
         sha: "b2",
         run: 2,
         job: prod("osn_api"),
@@ -508,7 +543,13 @@ describe("lastDeployed", () => {
         states: ["success"],
       },
       { environment: "production", sha: "x7", run: 7, job: dev("osn_api"), states: ["success"] },
-      { environment: "production", sha: "a1", run: 1, job: prod("osn_api"), states: ["success"] },
+      {
+        environment: "production-records",
+        sha: "a1",
+        run: 1,
+        job: prod("osn_api"),
+        states: ["success"],
+      },
     ]);
     expect(
       Object.fromEntries(await lastDeployed(reader(github), "production", ["osn_api"])),
@@ -520,8 +561,20 @@ describe("lastDeployed", () => {
   test("ignores a record whose run is gone", async () => {
     const github = fakeGitHub(
       [
-        { environment: "production", sha: "b2", run: 2, job: prod("osn_api"), states: ["success"] },
-        { environment: "production", sha: "a1", run: 1, job: prod("osn_api"), states: ["success"] },
+        {
+          environment: "production-records",
+          sha: "b2",
+          run: 2,
+          job: prod("osn_api"),
+          states: ["success"],
+        },
+        {
+          environment: "production-records",
+          sha: "a1",
+          run: 1,
+          job: prod("osn_api"),
+          states: ["success"],
+        },
       ],
       { goneRuns: [2] },
     );
@@ -534,7 +587,13 @@ describe("lastDeployed", () => {
 
   test("stops reading once every wanted surface is found", async () => {
     const records: FixtureRecord[] = [
-      { environment: "production", sha: "b2", run: 2, job: prod("osn_api"), states: ["success"] },
+      {
+        environment: "production-records",
+        sha: "b2",
+        run: 2,
+        job: prod("osn_api"),
+        states: ["success"],
+      },
       ...Array.from({ length: 150 }, (_, i) => ({
         environment: "production" as const,
         sha: `old${i}`,
@@ -552,7 +611,7 @@ describe("lastDeployed", () => {
   test("gives up after maxRecords and reports the surface as not found", async () => {
     const github = fakeGitHub(
       Array.from({ length: 250 }, (_, i) => ({
-        environment: "production" as const,
+        environment: "production-records" as const,
         sha: `s${i}`,
         run: i + 1,
         job: prod("osn_api"),
@@ -575,11 +634,11 @@ describe("lastDeployed", () => {
       PRODUCTION_SURFACES.map((s) => s.key),
     );
     expect(found.size).toBe(PRODUCTION_SURFACES.length);
-    // One run for the jobs' own records, one for the record jobs'.
-    expect(github.calls.filter((call) => call.includes("/jobs"))).toHaveLength(2);
+    // Every surface's record is its record job's, all in one run.
+    expect(github.calls.filter((call) => call.includes("/jobs"))).toHaveLength(1);
   });
 
-  test("RP1: a site its stack deploys is read from production-records by its record job, never from production", async () => {
+  test("RP1: a surface its stack deploys, site or API, is read from production-records by its record job, never from production", async () => {
     const record = {
       sha: "b2",
       run: 7,
@@ -599,13 +658,19 @@ describe("lastDeployed", () => {
     expect(inRecords.calls.some((call) => call.includes("environment=production-records"))).toBe(
       true,
     );
-    // A job surface's record is never looked for there.
+    // An API Worker's record is its record job's there too, and never one in production.
     const api = fakeGitHub([
       { ...record, job: prod("osn_api"), environment: "production-records" },
     ]);
-    expect(Object.fromEntries(await lastDeployed(reader(api), "production", ["osn_api"]))).toEqual(
-      {},
-    );
+    expect(Object.fromEntries(await lastDeployed(reader(api), "production", ["osn_api"]))).toEqual({
+      osn_api: "b2",
+    });
+    const apiInProduction = fakeGitHub([
+      { ...record, job: prod("osn_api"), environment: "production" },
+    ]);
+    expect(
+      Object.fromEntries(await lastDeployed(reader(apiInProduction), "production", ["osn_api"])),
+    ).toEqual({});
   });
 
   test("RP2: a production-records record counts only from a production-release.yml run on main in this repository", async () => {
@@ -671,14 +736,14 @@ describe("lastDeployed", () => {
 // shows; each must be passed over for the older, true one.
 describe("a record counts only when the run it links bears it out", () => {
   const truth: FixtureRecord = {
-    environment: "production",
+    environment: "production-records",
     sha: "a1",
     run: 1,
     job: prod("osn_api"),
     states: ["success"],
   };
   const claim = (overrides: Partial<FixtureRecord>): FixtureRecord => ({
-    environment: "production",
+    environment: "production-records",
     sha: "b2",
     run: 2,
     job: prod("osn_api"),
@@ -718,11 +783,11 @@ describe("a record counts only when the run it links bears it out", () => {
     }
   });
 
-  test("production takes deploy.yml's records, which carried production before releases", async () => {
+  test("production takes only production-release.yml's records", async () => {
     const github = fakeGitHub([claim({}), truth], {
       origins: { 2: { path: WORKFLOW_FILE.dev } },
     });
-    expect(await found(github)).toEqual({ osn_api: "b2" });
+    expect(await found(github)).toEqual({ osn_api: "a1" });
   });
 
   test("dev takes only deploy.yml's records", async () => {
@@ -783,7 +848,13 @@ describe("a record counts only when the run it links bears it out", () => {
       // a pull-request run made from a fork's own `main` branch.
       const github = fakeGitHub(
         [
-          { environment: "production", sha: b, run: 9, job: prod("osn_api"), states: ["success"] },
+          {
+            environment: "production-records",
+            sha: b,
+            run: 9,
+            job: prod("osn_api"),
+            states: ["success"],
+          },
           ...fullRun("production", a, 1),
           { environment: "dev", sha: b, run: 2, job: dev("osn_api"), states: ["success"] },
           ...fullRun("dev", a, 1),
@@ -850,7 +921,7 @@ describe("how far the walk reads", () => {
     // attempt 1, which GitHub lists only with filter=all.
     const github = fakeGitHub([
       {
-        environment: "production",
+        environment: "production-records",
         sha: "b2",
         run: 5,
         attempt: 2,
@@ -858,14 +929,20 @@ describe("how far the walk reads", () => {
         states: ["success"],
       },
       {
-        environment: "production",
+        environment: "production-records",
         sha: "b2",
         run: 5,
         attempt: 1,
         job: prod("osn_api"),
         states: ["success"],
       },
-      { environment: "production", sha: "a1", run: 1, job: prod("osn_api"), states: ["success"] },
+      {
+        environment: "production-records",
+        sha: "a1",
+        run: 1,
+        job: prod("osn_api"),
+        states: ["success"],
+      },
     ]);
     expect(
       Object.fromEntries(await lastDeployed(reader(github), "production", ["osn_api"])),
@@ -875,13 +952,19 @@ describe("how far the walk reads", () => {
   test("the default cap is 300 records, three pages, then the surface is not found", async () => {
     const github = fakeGitHub([
       ...Array.from({ length: 300 }, (_, i) => ({
-        environment: "production" as const,
+        environment: "production-records" as const,
         sha: `s${i}`,
         run: i + 10,
         job: prod("cire_api"),
         states: ["error"],
       })),
-      { environment: "production", sha: "a1", run: 1, job: prod("osn_api"), states: ["success"] },
+      {
+        environment: "production-records",
+        sha: "a1",
+        run: 1,
+        job: prod("osn_api"),
+        states: ["success"],
+      },
     ]);
     const found = await lastDeployed(reader(github), "production", ["osn_api"]);
     expect(found.size).toBe(0);
@@ -1117,21 +1200,34 @@ describe("parseRequest", () => {
   });
 
   test("takes a comma or space separated list, once each, in map order", () => {
-    expect(parseRequest("osn_api, cire_api osn_api", "false").surfaces).toEqual([
-      "cire_api",
+    expect(parseRequest("zap_api, zap_api", "false").surfaces).toEqual(["zap_api"]);
+    expect(parseRequest("osn_api, zap_api osn_api", "false").surfaces).toEqual([
       "osn_api",
+      "osn_social",
+      "musubi_landing",
+      "zap_api",
     ]);
   });
 
-  test("RP5: naming a site a production stack deploys asks for every site that stack deploys, and nothing else", () => {
-    expect(parseRequest("cire_host, cire_api", "").surfaces).toEqual([
+  test("RP5: naming a surface a production stack deploys asks for every surface that stack deploys, and nothing else", () => {
+    expect(parseRequest("cire_host", "").surfaces).toEqual([
       "cire_api",
+      "cire_invites",
       "cire_host",
       "cire_vendor",
       "cire_landing",
     ]);
-    expect(parseRequest("musubi_landing", "").surfaces).toEqual(["osn_social", "musubi_landing"]);
-    expect(parseRequest("osn_api", "").surfaces).toEqual(["osn_api"]);
+    expect(parseRequest("musubi_landing", "").surfaces).toEqual([
+      "osn_api",
+      "osn_social",
+      "musubi_landing",
+    ]);
+    expect(parseRequest("osn_api", "").surfaces).toEqual([
+      "osn_api",
+      "osn_social",
+      "musubi_landing",
+    ]);
+    expect(parseRequest("zap_api", "").surfaces).toEqual(["zap_api"]);
   });
 
   test("refuses a name that is not a surface, listing the real ones", () => {
@@ -1334,10 +1430,14 @@ describe("which production stacks ship", () => {
       .stacks.filter((s) => s.ship)
       .map((s) => s.key);
 
-  test("RP3: a site that ships ships its stack; an API alone ships none", () => {
+  test("RP3: a surface that ships, site or API, ships its stack", () => {
     expect(shippingStacks(decide(["cire/landing/src/a.astro"]))).toEqual(["cire"]);
     expect(shippingStacks(decide(["musubi/landing/src/a.astro"]))).toEqual(["musubi"]);
-    expect(shippingStacks(decide(["osn/api/src/index.ts", "cire/api/x.ts"]))).toEqual([]);
+    expect(shippingStacks(decide(["osn/api/src/index.ts", "cire/api/x.ts"]))).toEqual([
+      "musubi",
+      "cire",
+    ]);
+    expect(shippingStacks(decide(["zap/api/src/index.ts"]))).toEqual(["zap"]);
     const lines = outputLines(release(decide(["cire/landing/src/a.astro"])));
     expect(parseOutputs(lines)).toMatchObject({
       cire_landing: "true",
@@ -1407,7 +1507,7 @@ describe("what the plan job writes", () => {
           .trim()
           .split("\n")
           .map((line) => line.split("=")[0]),
-      ).toEqual([...SHIPPED, "stack_musubi", "stack_cire", "any", "any_stack"]);
+      ).toEqual([...SHIPPED, "stack_musubi", "stack_cire", "stack_zap", "any", "any_stack"]);
       expect(plan.summary).toContain("musubi_landing");
       expect(plan.summary).not.toContain("pulse_landing");
       // Two approvals when a stack ships.
@@ -1425,38 +1525,47 @@ describe("what the plan job writes", () => {
       .split("\n");
     expect(lines).toEqual([
       ...PRODUCTION_SURFACES.map((s) => `${s.key}=${s.key === "osn_api"}`),
-      "stack_musubi=false",
+      "stack_musubi=true",
       "stack_cire=false",
+      "stack_zap=false",
       "any=true",
-      "any_stack=false",
+      "any_stack=true",
     ]);
     expect(parseOutputs(outputLines(release(decide([]))))).toMatchObject({ any: "false" });
-    // A stack-path change ships both stacks on their own records, and of the
-    // sites only those whose Workers serve their hosts: today, every one.
+    // A stack-path change ships every stack on its own record, and every
+    // surface each deploys on production.
     const infra = ["shared/infra/src/x.ts"];
     expect(
       parseOutputs(outputLines(stackPlans(decide(infra), false, stacksFor(infra)))),
     ).toMatchObject({
       stack_musubi: "true",
       stack_cire: "true",
+      stack_zap: "true",
       any_stack: "true",
       musubi_landing: "true",
       cire_host: "true",
       cire_landing: "true",
       osn_social: "true",
+      osn_api: "true",
+      cire_api: "true",
+      cire_invites: "true",
+      zap_api: "true",
     });
   });
 
-  test("the summary warns when cire-api ships while the host portal is behind", () => {
+  test("the summary warns when cire-api and the host portal both change, since one stack run deploys them in no set order", () => {
     const context = { head, repository: REPO, serverUrl: "https://github.com" };
     expect(apiAheadOfHost(decide(["cire/dietary/x.ts"]))).toBe(true);
     expect(renderSummary(release(decide(["cire/dietary/x.ts"])), context)).toContain("[!WARNING]");
+    expect(renderSummary(release(decide(["cire/dietary/x.ts"])), context)).toContain(
+      "ship the portal side first",
+    );
     expect(apiAheadOfHost(decide(["cire/api/x.ts"]))).toBe(false);
     expect(renderSummary(release(decide(["cire/api/x.ts"])), context)).not.toContain("[!WARNING]");
     const held = decide(["cire/dietary/x.ts"]);
     const host = held.findIndex((d) => d.key === "cire_host");
     held[host] = { ...held[host]!, ship: false, status: "held back" };
-    expect(apiAheadOfHost(held)).toBe(true);
+    expect(apiAheadOfHost(held)).toBe(false);
   });
 
   test("the summary lists every surface with its production commit and a compare link", () => {
@@ -1545,7 +1654,13 @@ describe("a production stack ships on its own record", () => {
       { environment: "production-records", sha: b, job: CIRE_STACK, states: ["success"], run: 7 },
       { environment: "dev", sha: b, job: "Alchemy cire stack — dev", states: ["success"], run: 8 },
       { environment: "production", sha: a, job: CIRE_STACK, states: ["success"], run: 9 },
-      { environment: "production", sha: a, job: prod("osn_api"), states: ["success"], run: 9 },
+      {
+        environment: "production-records",
+        sha: a,
+        job: prod("osn_api"),
+        states: ["success"],
+        run: 9,
+      },
     ]);
     const found = await lastDeployed(reader(github), "production", [
       "osn_api",
@@ -1555,7 +1670,7 @@ describe("a production stack ships on its own record", () => {
     expect(github.calls.filter((call) => call.includes("environment=production&"))).toHaveLength(1);
   });
 
-  test("RP12: a stack-path change ships both stacks and the sites whose Workers serve their hosts, and no API", async () => {
+  test("RP12: a stack-path change ships every stack and every surface each deploys, API Workers and sites", async () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "shared/infra/src/x.ts": "1" });
       const b = await commit(repo, { "shared/infra/src/x.ts": "2" });
@@ -1564,31 +1679,36 @@ describe("a production stack ships on its own record", () => {
       expect(parseOutputs(plan.outputs)).toMatchObject({
         stack_cire: "true",
         stack_musubi: "true",
+        stack_zap: "true",
         musubi_landing: "true",
         cire_host: "true",
         cire_vendor: "true",
         cire_landing: "true",
         osn_social: "true",
-        cire_api: "false",
-        osn_api: "false",
+        cire_api: "true",
+        cire_invites: "true",
+        osn_api: "true",
+        zap_api: "true",
         any_stack: "true",
       });
       expect(plan.summary).toContain("shared/infra/src/x.ts changed, which the cire stack deploys");
     });
   });
 
-  test("RP12: a stack none of whose sites the request names never ships", async () => {
+  test("RP12: a stack none of whose surfaces the request names never ships", async () => {
     await withRepo(async (repo) => {
-      const a = await commit(repo, { "shared/infra/src/x.ts": "1", "cire/api/a.ts": "1" });
-      const b = await commit(repo, { "shared/infra/src/x.ts": "2", "cire/api/a.ts": "2" });
+      const a = await commit(repo, { "shared/infra/src/x.ts": "1", "zap/api/a.ts": "1" });
+      const b = await commit(repo, { "shared/infra/src/x.ts": "2", "zap/api/a.ts": "2" });
       const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]);
-      const api = await runReleasePlan({
-        env: env(b, { SURFACES: "cire_api" }),
+      const zap = await runReleasePlan({
+        env: env(b, { SURFACES: "zap_api" }),
         fetch: github.fetch,
         cwd: repo,
       });
-      expect(parseOutputs(api.outputs)).toMatchObject({
-        cire_api: "true",
+      expect(parseOutputs(zap.outputs)).toMatchObject({
+        zap_api: "true",
+        stack_zap: "true",
+        cire_api: "false",
         stack_cire: "false",
         stack_musubi: "false",
       });
@@ -1782,9 +1902,9 @@ describe("a production stack ships on its own record", () => {
       "no successful cire stack deployment found",
     );
     // Asked for nothing of the stack's: not asked.
-    expect(
-      stacksFor(infra, { surfaces: ["cire_api"] }).find((c) => c.key === "cire"),
-    ).toMatchObject({ ship: false, status: "not requested" });
+    expect(stacksFor(infra, { surfaces: ["zap_api"] }).find((c) => c.key === "cire")).toMatchObject(
+      { ship: false, status: "not requested" },
+    );
   });
 
   test("RP15: the production walk and the production-records walk run at once", async () => {
@@ -1803,7 +1923,7 @@ describe("a production stack ships on its own record", () => {
       origin: async () => undefined,
     };
     const outcome = await Promise.race([
-      lastDeployed(waiting, "production", ["osn_api", "musubi_landing"]).then(() => "read"),
+      lastDeployed(waiting, "production", ["osn_api", stackRecordKey("musubi")]).then(() => "read"),
       Bun.sleep(2_000).then(() => "stuck"),
     ]);
     expect(outcome).toBe("read");
@@ -1811,6 +1931,153 @@ describe("a production stack ships on its own record", () => {
 });
 
 // ── inputs no release reads ────────────────────────────────────────────────────
+
+describe("SA: osn-api and cire-api ship only once zap-api has a production record", () => {
+  /** A full production run at `sha` with no zap-api record: zap-api's stack never passed. */
+  const withoutZap = (sha: string, run: number) =>
+    fullRun("production", sha, run).filter((record) => record.job !== prod("zap_api"));
+
+  test("SA1: with no zap-api record, osn-api and cire-api wait, their stacks with them, and zap-api ships", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, {
+        "osn/api/src/a.ts": "1",
+        "cire/api/src/a.ts": "1",
+        "zap/api/src/a.ts": "1",
+      });
+      const b = await commit(repo, {
+        "osn/api/src/a.ts": "2",
+        "cire/api/src/a.ts": "2",
+        "zap/api/src/a.ts": "2",
+      });
+      const github = fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]);
+      const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(plan.outputs)).toMatchObject({
+        zap_api: "true",
+        stack_zap: "true",
+        osn_api: "false",
+        cire_api: "false",
+        stack_musubi: "false",
+        stack_cire: "false",
+      });
+      expect(plan.summary).toContain("ships once zap_api has a production record");
+    });
+  });
+
+  test("SA2: a release naming cire-api alone still reads zap-api's record, and ships once it exists", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/api/src/a.ts": "1" });
+      const b = await commit(repo, { "cire/api/src/a.ts": "2" });
+      const records = [...fullRun("production", a, 1), ...fullRun("dev", b, 2)];
+      const shipped = await runReleasePlan({
+        env: env(b, { SURFACES: "cire_api" }),
+        fetch: fakeGitHub(records).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs)).toMatchObject({ cire_api: "true", stack_cire: "true" });
+      const held = await runReleasePlan({
+        env: env(b, { SURFACES: "cire_api" }),
+        fetch: fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(held.outputs)).toMatchObject({ cire_api: "false", stack_cire: "false" });
+    });
+  });
+
+  // The hold guards secrets, which a forced upload would put at the same risk.
+  test("SA3: a forced release keeps the hold; a zap-api record lifts it", async () => {
+    const decisions = decide(["osn/api/x.ts"]);
+    const changes: StackChange[] = [
+      { key: "musubi", ship: true, status: "ships", reason: "musubi/infra changed" },
+    ];
+    const held = applyShipsAfter({ decisions, changes, production: new Map() });
+    expect(held.decisions.find((d) => d.key === "osn_api")).toMatchObject({
+      ship: false,
+      status: "held back",
+    });
+    expect(held.changes[0]).toMatchObject({ ship: false, status: "held back" });
+    const recorded = applyShipsAfter({
+      decisions,
+      changes,
+      production: new Map<RecordKey, string>([["zap_api", "a1"]]),
+    });
+    expect(recorded.decisions.find((d) => d.key === "osn_api")?.ship).toBe(true);
+    expect(recorded.changes[0]?.ship).toBe(true);
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "osn/api/src/a.ts": "1" });
+      const b = await commit(repo, { "osn/api/src/a.ts": "2" });
+      const forced = await runReleasePlan({
+        env: env(b, { SURFACES: "osn_api", FORCE: "true" }),
+        fetch: fakeGitHub([...withoutZap(a, 1)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(forced.outputs)).toMatchObject({
+        osn_api: "false",
+        stack_musubi: "false",
+      });
+    });
+  });
+
+  // A stack deploys every Worker it declares, so a change to a sibling site,
+  // or to the stack's own paths, would upload the waiting API with it.
+  test("SA4: with no zap-api record, a change to a cire site alone holds the cire stack, the API with it", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/host/src/a.ts": "1" });
+      const b = await commit(repo, { "cire/host/src/a.ts": "2" });
+      const github = fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]);
+      const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(plan.outputs)).toMatchObject({ cire_host: "false", stack_cire: "false" });
+      expect(plan.summary).toContain("ships once zap_api has a production record");
+      const shipped = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs)).toMatchObject({
+        cire_host: "true",
+        stack_cire: "true",
+      });
+    });
+  });
+
+  test("SA5: with no zap-api record, a change to the musubi stack's own paths alone holds the stack", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "musubi/infra/src/a.ts": "1" });
+      const b = await commit(repo, { "musubi/infra/src/a.ts": "2" });
+      const github = fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]);
+      const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(plan.outputs)).toMatchObject({ stack_musubi: "false" });
+      expect(plan.summary).toContain("ships once zap_api has a production record");
+      const shipped = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs)).toMatchObject({ stack_musubi: "true" });
+    });
+  });
+
+  test("SA6: a release naming a cire site alone still reads zap-api's record", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/host/src/a.ts": "1" });
+      const b = await commit(repo, { "cire/host/src/a.ts": "2" });
+      const held = await runReleasePlan({
+        env: env(b, { SURFACES: "cire_host" }),
+        fetch: fakeGitHub([...withoutZap(a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(held.outputs)).toMatchObject({ cire_host: "false", stack_cire: "false" });
+      const shipped = await runReleasePlan({
+        env: env(b, { SURFACES: "cire_host" }),
+        fetch: fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs)).toMatchObject({
+        cire_host: "true",
+        stack_cire: "true",
+      });
+    });
+  });
+});
 
 describe("retired inputs", () => {
   test("RP18: FLIP, UNFLIP and ATTACH are read by nothing: a release with them set plans as one without", async () => {

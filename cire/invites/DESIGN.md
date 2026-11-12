@@ -116,9 +116,10 @@ and checkboxes: `wiki/cire/cire-invite-designs.md` §Corners, labels and motion.
 - **Every duration and easing is a token** from the ladder below, never a
   literal. `house/no-literal-motion` (`bun run lint`) and
   `scripts/check-motion-literals.ts` (CI, for CSS and Astro) report a literal
-  they can see. Neither sees a `transition-*` class with no easing beside it,
-  which runs Tailwind's default curve, or a script's animation options: check
-  those by eye (englishstreetventures/osn#2104 covers both). A literal
+  they can see. Neither sees a script's animation options: check those by eye
+  (englishstreetventures/osn#2104). A `transition-*` class with no easing
+  beside it runs `--ease-out` (below), so one whose job is not an arrival
+  names its easing. A literal
   stays only where no token's job fits — choreography longer than
   `--dur-slow`, a loop, a stagger, a time shared with script — with its reason
   beside it (`wiki/conventions/house-lint-rules.md` §Literal motion).
@@ -126,7 +127,9 @@ and checkboxes: `wiki/cire/cire-invite-designs.md` §Corners, labels and motion.
   the move: "Some of these could be just a tad slower to allow people to feel
   the animation." Choose the rung by eye, rendered, and write it in this
   section beside the motion it times.
-- **A box that holds live controls closes at once.**
+- **A modal dialog may fade out, because it keeps focus until the exit ends;
+  every other box that holds controls closes at once** (the owner,
+  2026-11-12, englishstreetventures/osn#2197).
 - **Under `prefers-reduced-motion: reduce` it changes at once.**
 
 ### The ladder
@@ -137,7 +140,7 @@ The portals' ladder, value for value, in `global.css`:
 --dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
 --dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a choice */
 --dur-slow: calc(320ms * var(--motion-scale)); /* a sheet */
---ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--ease-out: cubic-bezier(0.23, 1, 0.32, 1); /* something arriving */
 --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 ```
 
@@ -145,12 +148,21 @@ The portals' ladder, value for value, in `global.css`:
   rungs are 90, 150 and 200ms; on touch, the values above. Under the same
   query the site sets `Modal`'s `--ui-modal-enter` to `--dur-slow` and
   `--ui-modal-exit` to `--dur-base`.
-- **No spring token.** `--ease-spring` is the portals' alone; the vendor
-  portal's token test fails if this stylesheet gains one.
+- **`--ease-out` is the owner's choice of 2026-11-11** for all four cire apps,
+  and their one curve for something arriving (`cire/host/DESIGN.md` §4).
+  The contract mapping sets `--ui-ease-out: var(--ease-out)` (the owner's
+  choice of 2026-11-12), so `Modal`'s rise and every shared `animate-in`
+  entry run it too. An overlay's exit keeps its own curve: `animate-out`
+  reads the contract's `--ui-ease-exit`, which no cire stylesheet maps, and
+  `Modal` leaves on CSS's `ease-in`.
+- **No spring token.** `--ease-spring` and `--ease-glide` are the portals'
+  alone; the vendor portal's token test fails if this stylesheet gains one.
 - **Tailwind's `ease-out` and `ease-in-out` classes read the house curves**,
-  because `global.css`'s `@theme` sets `--ease-out` and `--ease-in-out`. A
-  class that names no easing — a bare `transition-opacity` — runs Tailwind's
-  default, `cubic-bezier(0.4, 0, 0.2, 1)`.
+  because `global.css`'s `@theme` sets `--ease-out` and `--ease-in-out`. It
+  also sets Tailwind's `--default-transition-timing-function` to
+  `var(--ease-out)`, so a class that names no easing — a bare
+  `transition-opacity` — runs `--ease-out`, never Tailwind's
+  `cubic-bezier(0.4, 0, 0.2, 1)`.
 - **`--motion-scale`** multiplies each rung, so a motion can be slowed to 0.1×
   and judged frame by frame. Nothing in the app writes it.
 
@@ -166,33 +178,45 @@ The portals' ladder, value for value, in `global.css`:
 | A block opening under a control (`Reveal` with `pace="slow"`): the dietary section and its "Anything else", the gift page's own amount, a gift's reserve form, the chosen member's email and musubi boxes | `--dur-slow`                                | `--ease-out`              |
 | The calendar and maps menus opening (`LinkMenu`, `menu-pop`): scaled up from 0.96 and faded in from the corner at their trigger | `--dur-base`                                | `--ease-out`              |
 | A FAQ answer opening (`Disclosure`): its box grows as the answer fades in and drops 0.25rem; its `+` turning | `--dur-slow`; the `+` `--dur-fast`          | `--ease-out`              |
-| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`) †    | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ui-ease-out` in, CSS `ease-in` out |
+| A dialog — the event sheet, the consent prompt, privacy choices (`Modal`)      | at a desk `--dur-slow` in, `--dur-base` out; on touch 250ms fade and 350ms rise in, 150ms out | `--ease-out` in (through `--ui-ease-out`), CSS `ease-in` out |
 | A toast (`@shared/toast`)                                                      | 160ms in and out                            | CSS `ease-out` in, CSS `ease-in` out |
 
 **Choreography longer than `--dur-slow` keeps its own time:**
 
 | What                                                                                | Time                                                       | Easing                                      | Scaled |
 | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------- | ------ |
-| The bloom fill sweeping across Respond once every member has replied (`SWEEP_DURATION_MS`) † | 500ms                                             | `--ease-out`                                | no     |
-| The tick drawing in behind it (`--animate-tick-draw`) †                             | 340ms, after 180ms                                         | CSS `ease-out`                              | no     |
-| The hero scroll cue: a fade, then a 6px drift down and back twice (`--animate-scroll-cue`) † | 600ms fade after 1s, then two 2s drifts: 4.6s of motion | CSS `ease-out`, then CSS `ease-in-out`    | no     |
-| The scroll cue leaving on the first scroll †                                         | 500ms                                                      | Tailwind's default                          | yes    |
-| The hero photo fading in once it loads †                                             | 700ms                                                      | Tailwind's default                          | yes    |
+| The bloom fill sweeping across Respond once every member has replied (`SWEEP_DURATION_MS`) | 500ms                                              | `--ease-out`                                | yes    |
+| The tick drawing in behind it (`--animate-tick-draw`; the hold that ends its draw, `TOTAL_DURATION_MS`, scales with it) | 340ms, after 180ms                  | `--ease-out`                                | yes    |
+| The hero scroll cue: a fade, then a 6px drift down and back twice (`--animate-scroll-cue`) | 600ms fade after 1s, then two 2s drifts: 4.6s of motion | `--ease-out`, then `--ease-in-out`           | yes    |
+| The scroll cue leaving on the first scroll                                           | 500ms                                                      | `--ease-out`, the default curve             | yes    |
+| The hero photo fading in once it loads                                               | 700ms                                                      | `--ease-out`, the default curve             | yes    |
 | The closing band settling into or out of its cap, on a live resize across 1536px     | 500ms                                                      | `--ease-out`                                | yes    |
 | The unlock reveal after a claim (`unlock-rise` and `unlock-shimmer` in `src/styles/global.css`, ordered by `src/components/unlock-reveal.ts`) | classic: rises of 450–500ms and a 1.2s shimmer, a 200ms beat, cards 120ms apart after 150ms; gala: 350–400ms and 1s, a 150ms beat, cards 80ms apart after 100ms | the rises `--ease-out`; the shimmer one CSS `ease-in-out`, cut at its keyframes | yes    |
-| A swipe between the sheet's panels settling (`SETTLE_SPRING`) †                      | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel settles in about 0.4s | —        | no     |
+| A swipe between the sheet's panels settling (`settleCurve`, `[data-settling]`)       | a critically damped spring with a 0.3s response, started at the finger's speed: a full panel from rest settles in about 0.4s | the spring sampled into a `linear()` at release; a `cubic-bezier()` with the same first slope where the engine has none | yes    |
 | The envelope opening (`@cire/envelope`)                                              | its own timeline: `wiki/cire/cire-envelope.md` §Taps, timeline and breaks | —                    | —      |
 
-† Breaks a rule (Known breaches, below). The row records what ships, not the
-house look, and new motion copies none of it.
+The swipe's settle is the one easing written at run time: its curve starts at
+the finger's speed, which differs with every release, so the sheet samples the
+spring into a CSS `linear()` easing at release and runs it as a transition
+(the owner's choice, 2026-11-12, englishstreetventures/osn#2197). Its first
+stretch moves at the release speed exactly, the curve stops where a fast flick
+would pass the panel's rest, and an engine without `linear()` (Chrome before
+113 and Safari before 17.2, both inside the browser floor) gets one
+`cubic-bezier()` that leaves at the same speed, never passes the rest, and
+runs no further the wrong way than the spring.
 
-The swipe's spring is the one move on the `motion` library. The unlock reveal
-closes the code form at once, brings the welcome in with a shimmer on its
-heading, then lifts the events section and its cards one by one. The scroll
-cue, the card's mark, the sheet, the swipe and the reveal are described with
-their tests in `wiki/cire/cire-invite-designs.md` (§The hero scroll cue,
-§Event card states, §The event sheet, §Corners, labels and motion); the
-reveal's guards against a blank or flashing invite in
+Three other easings in these tables are no token, each for a reason: `Modal`'s
+exit and the toast run curves their shared packages set (`@shared/ui`,
+`@shared/toast`), and the unlock shimmer, choreography longer than
+`--dur-slow`, is one CSS `ease-in-out` cut at its keyframes, each cut marked
+`motion-literal` in `global.css`.
+
+The unlock reveal closes the code form at once, brings the welcome in with a
+shimmer on its heading, then lifts the events section and its cards one by
+one. The scroll cue, the card's mark, the sheet, the swipe and the reveal are
+described with their tests in `wiki/cire/cire-invite-designs.md` (§The hero
+scroll cue, §Event card states, §The event sheet, §Corners, labels and
+motion); the reveal's guards against a blank or flashing invite in
 `wiki/shared/frontend-patterns.md` §Rendering and animation gotchas.
 
 The blocks under a control open a rung slower than the portals' panels, and
@@ -203,11 +227,14 @@ blocks' rung, and where focus goes when the reserve form closes, are in
 
 ### What must not move
 
-- **A box that holds live controls closes at once.** `Reveal` (`@cire/ui`)
-  drops its content the moment it closes, and the empty wrapper finishes
-  closing behind it; a `Disclosure` closes at once; the link menus close at
-  once; the unlock reveal's code form leaves the layout before anything
-  rises. `Modal`'s exit breaks this rule (Known breaches, below).
+- **A box that holds controls closes at once, unless it is a modal dialog.**
+  `Reveal` (`@cire/ui`) drops its content the moment it closes, and the empty
+  wrapper finishes closing behind it; a `Disclosure` closes at once; the link
+  menus close at once; the unlock reveal's code form leaves the layout before
+  anything rises. A modal dialog — the event sheet, the consent prompt,
+  privacy choices (`Modal`) — fades and drops out over `--dur-base` at a desk
+  and 150ms on touch: it stays modal through the exit, so focus stays inside
+  it until the exit ends and nothing behind it can be reached while it moves.
 - **Nothing already open animates on first paint.** A `Reveal` that mounts open
   is open; a `Disclosure` open when it first paints does not fade; a reply on
   file loads with Respond already filled and ticked; the sheet's first panel
@@ -225,33 +252,10 @@ blocks' rung, and where focus goes when the reserve form closes, are in
 
 ### Known breaches
 
-These moves ship, and each breaks the rule named beside it. They are the rows
-marked † above. None is a pattern to copy, and each entry goes when its fix
-lands.
-
-- **The hero photo's fade and the scroll cue's exit name no easing**, so they
-  run Tailwind's default curve, `cubic-bezier(0.4, 0, 0.2, 1)`, where every
-  easing must be a token (`src/components/HeroCropLayer.tsx`, both packs'
-  `src/designs/<pack>/InviteHeader.tsx`, `src/components/HeroScrollCue.tsx`).
-  englishstreetventures/osn#2104 has the lint report a `transition-*` class
-  with no easing, and moves each one onto a token or keeps it with a reason.
-- **The bloom sweep, the tick and the scroll cue's entry and drift are not
-  scaled by `--motion-scale`**, which `cire/host/DESIGN.md` §4 asks of every
-  cire duration, and the tick and the cue run CSS's `ease-out` and
-  `ease-in-out` where every easing must be a token
-  (`src/components/EventCard.tsx`; `--animate-tick-draw` and
-  `--animate-scroll-cue` in `src/styles/global.css`).
-  englishstreetventures/osn#2197 puts each on a token and the scale.
-- **The swipe's settle spring runs on the `motion` library**, where motion is
-  CSS only (`SETTLE_SPRING` in `src/components/sheet-swipe.ts`, started in
-  `src/components/EventSheet.tsx`). It starts at the finger's speed, which a
-  fixed-length ease cannot, so whether it moves to CSS is the owner's call,
-  under englishstreetventures/osn#2197.
-- **`Modal`'s exit moves a box that holds live controls**, where such a box
-  closes at once: `--dur-base` at a desk, 150ms on touch. The dialog stays
-  modal through the exit, so focus cannot leave it while it moves. Whether the
-  exit stays or the rule names it is the owner's call, under
-  englishstreetventures/osn#2197.
+None ships today. A move that ships while it breaks a rule above is listed
+here with the rule it breaks and the issue that fixes it, and its row in the
+tables carries a † mark. None is a pattern to copy, and each entry goes when
+its fix lands.
 
 ### Reduced motion
 
@@ -260,9 +264,9 @@ branch in each component. On `*`, `*::before` and `*::after` it sets every
 animation to one run of 0.01ms that starts already finished (a -1ms delay), and
 every transition to 0.01ms with no delay, all with `!important`, which beats an
 inline style. So the tick is drawn, the scroll cue is there and still, and a
-`Reveal`, a link menu's pop or a panel switch lands at once. Spinners are the
-exception: a still ring reads as a stalled page, so `.animate-spin` keeps
-turning, once every 1.5s.
+`Reveal`, a link menu's pop, a panel switch or a swipe's settle lands at once.
+Spinners are the exception: a still ring reads as a stalled page, so
+`.animate-spin` keeps turning, once every 1.5s.
 
 The clamp reaches no other pseudo-element and no script, so these carry their
 own gate:
@@ -270,8 +274,8 @@ own gate:
 - `Disclosure`'s fade on `::details-content` is declared only under
   `prefers-reduced-motion: no-preference`;
 - `Modal` cuts its own transitions, `::backdrop` included, to 1ms;
-- the unlock reveal and the swipe's spring check
-  `matchMedia("(prefers-reduced-motion: reduce)")` and land at once;
+- the unlock reveal checks
+  `matchMedia("(prefers-reduced-motion: reduce)")` and lands at once;
 - the envelope never plays: its boot script does not seal the page while the
   query matches.
 

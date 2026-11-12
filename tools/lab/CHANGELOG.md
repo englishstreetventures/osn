@@ -1,5 +1,20 @@
 # @tools/lab
 
+## 0.3.56
+
+### Patch Changes
+
+- Updated dependencies [6dd5ff4]
+  - @shared/ui@0.15.2
+  - @osn/auth-ui@4.5.5
+
+## 0.3.55
+
+### Patch Changes
+
+- add334b: The cire stories for `MessageThread`, `PersonAvatar` and `Wordmark` set cire's
+  `--ease-out` to `cubic-bezier(0.23, 1, 0.32, 1)`, the curve the cire apps run.
+
 ## 0.3.54
 
 ### Patch Changes

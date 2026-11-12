@@ -531,16 +531,20 @@
   /* The tick that confirms a recorded RSVP, drawing itself in behind the bloom
      sweep that fills the events section's Respond button (`components/EventCard`
      — see `components/rsvp-responded.ts` for the timing contract these two
-     numbers are half of; the other half is the `duration-500` on that button's
+     numbers are half of; the other half is the 500ms sweep on that button's
      fill layer). It lived on the RSVP sheet's Save button until #388, which is
      a button the sheet closes over before a guest can register it.
+
+     Choreography longer than `--dur-slow`, so its own times, each scaled like
+     every cire duration. A tick arriving, so `--ease-out`.
 
      `both` so the path holds its undrawn state through the delay and its drawn
      state afterwards; without it the tick would flash in whole, then draw.
 
      Reduced motion needs no special case here: the global block below clamps
      animation-duration and -delay, so the path simply starts drawn. */
-  --animate-tick-draw: tick-draw 340ms ease-out 180ms both;
+  --animate-tick-draw: tick-draw calc(340ms * var(--motion-scale)) var(--ease-out)
+    calc(180ms * var(--motion-scale)) both;
 
   /* The hero's scroll cue (`components/HeroScrollCue`): it fades in a beat
      after the title has landed, drifts down and back twice, then rests. The
@@ -553,18 +557,24 @@
      seconds needs a control to stop it (WCAG 2.2.2), so a longer or endless
      drift is not an option.
 
+     The hero's choreography, longer than `--dur-slow`, so its own times, each
+     scaled like every cire duration. The fade is the glyph arriving, so
+     `--ease-out`; the drift moves it between two places, so `--ease-in-out`.
+
      Reduced motion needs no special case: the global clamp plays the entry out
      at once, leaving the glyph at its own full opacity, and runs the drift out
      in 0.01ms, back to rest — so the cue is there and still. */
   --animate-scroll-cue:
-    scroll-cue-in 600ms ease-out 1s backwards, scroll-cue-drift 2s ease-in-out 1.6s 2;
+    scroll-cue-in calc(600ms * var(--motion-scale)) var(--ease-out)
+      calc(1s * var(--motion-scale)) backwards,
+    scroll-cue-drift calc(2s * var(--motion-scale)) var(--ease-in-out)
+      calc(1.6s * var(--motion-scale)) 2;
 
   /* An event sheet's panel arriving (`components/EventSheet`): it fades in
      while sliding the last 1.5rem from the side it lives on — the details from
      the start, the RSVP form from the end, the order of their buttons on the
      card. A panel swap, so `--dur-base` on the house curve. A swipe settles on a
-     spring instead, started at the finger's speed (`SETTLE_SPRING`,
-     `sheet-swipe.ts`).
+     spring instead, started at the finger's speed (`[data-settling]`, below).
 
      Reduced motion needs no special case: the global clamp plays it out in
      0.01ms. */
@@ -672,9 +682,10 @@
 
 /* The event sheet's badge (`components/EventSheet`): its two labels moving
    through it like a ticker to the panel on screen, on the panels' own duration
-   and curve after a press. Under a finger and through a swipe's spring
-   (`data-dragging` on the badge) the sheet writes their place every frame, with
-   no easing. The reduced-motion clamp below reaches this too. */
+   and curve after a press. Under a finger (`data-dragging` on the badge) the
+   sheet writes their place every frame, with no easing; through a swipe's
+   settle (`data-settling`) they ride the settle's spring with the panels, below.
+   The reduced-motion clamp below reaches this too. */
 @utility transition-badge-settle {
   transition:
     opacity var(--dur-base) var(--ease-out),
@@ -683,6 +694,25 @@
   [data-dragging] & {
     transition: none;
   }
+
+  [data-settling] & {
+    transition:
+      opacity var(--swipe-settle-time) var(--swipe-settle-ease),
+      transform var(--swipe-settle-time) var(--swipe-settle-ease);
+  }
+}
+
+/* A released swipe settling between the event sheet's panels
+   (`components/EventSheet`). Its curve is a critically damped spring started
+   at the finger's speed, which no token can hold, since it differs with every
+   release: the sheet samples it into a `linear()` easing at release
+   (`settleCurve`, `sheet-swipe.ts`; a slope-matched `cubic-bezier()` where the
+   engine has no `linear()`) and writes it, with its time stretched by
+   `--motion-scale`, on the rail and the badge while `data-settling` is on them
+   (the owner's choice, `cire/invites/DESIGN.md` §5). The reduced-motion clamp
+   below cuts it to 0.01ms, so the panels land at once. */
+[data-settling] > [data-panel] {
+  transition: transform var(--swipe-settle-time) var(--swipe-settle-ease);
 }
 
 /* ── The unlock reveal ──────────────────────────────────────────────────────
@@ -885,8 +915,11 @@
   --radius-md: 10px;
   --radius-pill: 999px;
 
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* What a transition that names no easing runs, in place of Tailwind's own
+     curve, as in the portals (cire/host/DESIGN.md §4). */
+  --default-transition-timing-function: var(--ease-out);
 }
 
 @layer base {
@@ -1103,6 +1136,12 @@
   --ui-on-danger: var(--color-bg);
 
   --ui-focus: var(--invite-focus);
+
+  /* Something arriving, on cire's one arriving curve (cire/host/DESIGN.md §4):
+     `Modal`'s rise and every entry `animate-in` runs — `Tooltip`, `Popover`,
+     the default menu. An overlay leaving reads `--ui-ease-exit`, which stays
+     the contract's, so this moves no exit. */
+  --ui-ease-out: var(--ease-out);
 
   /* The corner each role paints, the same in every cire app: buttons are
      pills; text fields, selects and the `tile`, `field` and `swatch` buttons
