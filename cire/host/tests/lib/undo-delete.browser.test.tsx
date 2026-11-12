@@ -55,11 +55,21 @@ function deleteRow(name: string, click?: MouseEvent): Seen {
   return seen;
 }
 
-/** A row's ✕, which deletes `name` with the click that pressed it. */
+/**
+ * A row's ✕, which deletes `name` with the click that pressed it. It carries
+ * `data-undo-key`, as every list's ✕ does, so Undo hands focus back to it
+ * before the toast goes. A toast hidden with focus still inside restarts its
+ * clock, and `resetToasts()` cannot stop that clock, so it would end a later
+ * test's toast.
+ */
 function mountDeleteButton(name: string, seen: { current?: Seen }) {
   render(() => (
     <>
-      <button type="button" onClick={(e) => (seen.current = deleteRow(name, e))}>
+      <button
+        type="button"
+        data-undo-key={`row:${name}`}
+        onClick={(e) => (seen.current = deleteRow(name, e))}
+      >
         Delete {name}
       </button>
       <Toaster position="bottom-right" topLayer />
@@ -179,6 +189,8 @@ describe("the undo window", () => {
 
     expect(seen.current!.restored).toBe(1);
     expect(isPendingDelete("row:Book the venue")).toBe(false);
+    // Undo hands focus back to the row's ✕, not to the page.
+    expect(document.activeElement).toBe(cross);
   }, 15_000);
 
   it("leaves no clock running behind an Undo pressed with focus on it, so the next delete keeps its whole window", () => {

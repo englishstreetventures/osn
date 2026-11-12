@@ -168,11 +168,17 @@ beforeAll(() => {
   document.head.append(style);
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   authFetch.mockReset();
   delete document.documentElement.dataset.theme;
   window.scrollTo(0, 0);
+  // `cleanup()` does not move the pointer. Left where a test hovered or
+  // clicked, it would lift whatever the next render draws there, the same
+  // test run again included. `unhover` moves it to the middle of the page, and
+  // here it runs whether the test passed or failed, so a failure is reported
+  // once, by the test that failed.
+  await userEvent.unhover(document.body);
 });
 
 interface AXNode {
