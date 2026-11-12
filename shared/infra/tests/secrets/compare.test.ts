@@ -163,6 +163,22 @@ describe("GitHub Environments", () => {
   test("accepts an optional secret held during a rotation", () => {
     expect(githubDiff("production", ["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"]).unexpected).toEqual([]);
   });
+
+  test("SG1: production, whose secrets stay on the Workers, needs only its account pair and the smoke check's bearer, and may hold any Worker secret", () => {
+    expect(githubExpectations("production")).toEqual([
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "INTERNAL_SERVICE_SECRET",
+    ]);
+    const holding = githubDiff("production", [
+      ...githubExpectations("production"),
+      "OSN_TOTP_ENCRYPTION_KEY",
+      "OSN_PAIRWISE_SALT",
+    ]);
+    expect(holding).toMatchObject({ missing: [], unexpected: [], forbidden: [] });
+    // Dev uploads from its Environment, so every required dev secret is expected there.
+    expect(githubExpectations("dev")).toEqual(expect.arrayContaining(["DEV_LOGIN_SECRET"]));
+  });
 });
 
 describe("parseTierArgument", () => {

@@ -54,6 +54,7 @@ const cireApiDev: ApiWorkerInput = {
   bindings: {},
   secrets: cireApiSecrets("dev"),
   observability: {
+    logs: true,
     headSamplingRate: 1,
     redactQueryString: false,
     traces: { enabled: true, headSamplingRate: 1 },
@@ -69,8 +70,10 @@ const cireApiProduction: ApiWorkerInput = {
   name: "cire-api-production",
   stage: "production",
   domain: "api.cireweddings.com",
-  secrets: cireApiSecrets("production"),
+  // Production's secrets stay on the Worker: the stack passes none.
+  secrets: {},
   observability: {
+    logs: true,
     headSamplingRate: 1,
     redactQueryString: true,
     traces: { enabled: false },
@@ -95,7 +98,9 @@ describe("apiWorkerProps", () => {
   });
 
   test("BA1: refuses a production Worker no step has adopted, after every other production rule", () => {
-    expect(() => apiWorkerProps(cireApiProduction)).toThrow(ProductionNotAdoptedError);
+    // PRODUCTION_ADOPTIONS names today's production Workers.
+    expect(apiWorkerProps(cireApiProduction).name).toBe("cire-api-production");
+    expect(() => apiWorkerProps(cireApiProduction, [])).toThrow(ProductionNotAdoptedError);
     expect(() => apiWorkerProps(cireApiProduction, ["cire-api"])).toThrow(
       ProductionNotAdoptedError,
     );
@@ -126,19 +131,13 @@ describe("apiWorkerProps", () => {
   ] as const)(
     "refuses %s as a plain var, naming it and never its value",
     (_kind, worker, stage, vars) => {
-      const secrets = Object.fromEntries(
-        tierSecrets(worker, stage).secrets.map((name) => [
-          name,
-          Redacted.make("not-a-real-secret"),
-        ]),
-      );
       const error = thrown(() =>
         apiWorkerProps({
           ...cireApiProduction,
           worker,
           name: `${worker}-${stage}`,
           stage,
-          secrets,
+          secrets: {},
           vars,
         }),
       );
@@ -189,6 +188,7 @@ describe("apiWorkerProps", () => {
     vars: {},
     secrets: {},
     observability: {
+      logs: true,
       headSamplingRate: 1,
       redactQueryString: true,
       traces: { enabled: true, headSamplingRate: 1 },
@@ -233,12 +233,6 @@ describe("apiWorkerProps", () => {
       ...cireApiProduction,
       worker: "osn-api",
       name: "osn-api-production",
-      secrets: Object.fromEntries(
-        tierSecrets("osn-api", "production").secrets.map((name) => [
-          name,
-          Redacted.make("not-a-real-secret"),
-        ]),
-      ),
       observability: { ...cireApiProduction.observability, traces: { enabled: true } },
     };
     expect(() => apiWorkerProps(osnApi)).toThrow(/native traces/);
@@ -258,17 +252,26 @@ describe("apiWorkerProps", () => {
       ...cireApiProduction,
       worker: "osn-api",
       name: "osn-api-production",
-      secrets: Object.fromEntries(
-        tierSecrets("osn-api", "production").secrets.map((name) => [
-          name,
-          Redacted.make("not-a-real-secret"),
-        ]),
-      ),
       observability: { ...cireApiProduction.observability, invocationLogs: true },
     };
     expect(apiWorkerProps(osnApi, ADOPTED).observability?.logs).toEqual({
       enabled: true,
       invocationLogs: true,
+    });
+  });
+
+  test("LG1: Workers Logs off uploads observability disabled, invocation logs off whatever the input says", () => {
+    const off = apiWorkerProps({
+      ...cireApiDev,
+      observability: { ...cireApiDev.observability, logs: false, invocationLogs: true },
+    });
+    expect(off.observability).toMatchObject({
+      enabled: false,
+      logs: { enabled: false, invocationLogs: false },
+    });
+    expect(apiWorkerProps(cireApiDev).observability).toMatchObject({
+      enabled: true,
+      logs: { enabled: true },
     });
   });
 
@@ -319,23 +322,22 @@ describe("apiWorkerProps", () => {
   });
 
   test("passes an optional secret held during a rotation, still redacted", () => {
-    const row = tierSecrets("osn-api", "production");
+    const row = tierSecrets("osn-api", "dev");
     // The previous TOTP key, which osn-api holds only while a key rotation drains.
     const optional = "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS";
     expect(row.optional).toContain(optional);
     const env = Object.fromEntries(
-      [...row.secrets, optional].map((name) => [name, "not-a-real-secret"]),
+      // 32 characters: DEV_LOGIN_SECRET must be at least that long on dev.
+      [...row.secrets, optional].map((name) => [name, "not-a-real-secret".padEnd(32, "x")]),
     );
-    const props = apiWorkerProps(
-      {
-        ...cireApiProduction,
-        worker: "osn-api",
-        name: "osn-api-production",
-        main: "../../osn/api/src/index.ts",
-        secrets: requireSecrets({ worker: "osn-api", stage: "production", env }),
-      },
-      ADOPTED,
-    );
+    const props = apiWorkerProps({
+      ...cireApiDev,
+      worker: "osn-api",
+      name: "osn-api-dev",
+      main: "../../osn/api/src/index.ts",
+      vars: {},
+      secrets: requireSecrets({ worker: "osn-api", stage: "dev", env }),
+    });
     const passed = (props.env as Record<string, unknown>)[optional];
     expect(Redacted.isRedacted(passed)).toBe(true);
   });
@@ -355,18 +357,41 @@ describe("apiWorkerProps", () => {
 
   test("refuses a secret the inventory does not declare for the Worker and tier, naming it", () => {
     const secrets = {
-      ...cireApiSecrets("production"),
-      STRIPE_SECRET_KEY: Redacted.make("not-a-real-secret"),
+      ...cireApiSecrets("dev"),
+      GROWTHBOOK_CLIENT_KEY: Redacted.make("not-a-real-secret"),
     };
-    const error = thrown(() => apiWorkerProps({ ...cireApiProduction, secrets }));
+    const error = thrown(() => apiWorkerProps({ ...cireApiDev, secrets }));
     expect(error).toBeInstanceOf(UndeclaredSecretsError);
     expect(error).toMatchObject({
       worker: "cire-api",
-      tier: "production",
+      tier: "dev",
       missing: [],
-      unexpected: ["STRIPE_SECRET_KEY"],
+      unexpected: ["GROWTHBOOK_CLIENT_KEY"],
     });
     expect((error as Error).message).not.toContain("not-a-real-secret");
+  });
+
+  test("SW2: on production, whose secrets stay on the Workers, any secret passed is refused, naming it, and none is required", () => {
+    for (const worker of ["osn-api", "cire-api", "zap-api"] as const) {
+      const row = tierSecrets(worker, "production");
+      expect(row.source).toBe("worker");
+      const secrets = Object.fromEntries(
+        [...row.secrets, ...row.optional].map((name) => [name, Redacted.make("not-a-real-secret")]),
+      );
+      const input = { ...cireApiProduction, worker, name: row.scriptName, secrets };
+      const error = thrown(() => apiWorkerProps(input, [row.scriptName]));
+      expect(error).toBeInstanceOf(UndeclaredSecretsError);
+      expect(error).toMatchObject({
+        tier: "production",
+        missing: [],
+        unexpected: Object.keys(secrets).toSorted(),
+      });
+      expect((error as Error).message).toContain("stay on the Worker");
+      expect((error as Error).message).not.toContain("not-a-real-secret");
+      // With none passed, nothing is missing: every required name is live.
+      const env = apiWorkerProps({ ...input, secrets: {} }, [row.scriptName]).env;
+      expect(Object.keys(env ?? {})).toEqual(Object.keys(cireApiProduction.vars));
+    }
   });
 
   test("I3: OSN_API_URL is a var on dev and a secret on production, never both", () => {
@@ -393,16 +418,16 @@ describe("apiWorkerProps", () => {
     const refused = thrown(() => apiWorkerProps({ ...cireApiDev, vars: withSecretName }));
     expect(refused).toBeInstanceOf(SecretAsPlainBindingError);
     expect(refused).toMatchObject({ worker: "cire-api", names: ["GROWTHBOOK_CLIENT_KEY"] });
-    // Production lists OSN_API_URL as a required secret, so a var of that name
-    // meets the secret check or the clash check before the plain-var check
-    // could exempt it; the inventory test pins that every plain var is a
-    // required secret on the other tier.
+    // Production lists OSN_API_URL as a required secret, held on the Worker,
+    // and lists no plain var, so a var of that name is refused there; the
+    // inventory test pins that every plain var is a required secret on the
+    // other tier.
     expect(() =>
       apiWorkerProps({
         ...cireApiProduction,
         vars: { ...cireApiProduction.vars, OSN_API_URL: "https://osn.invalid" },
       }),
-    ).toThrow(BindingNameClashError);
+    ).toThrow(SecretAsPlainBindingError);
   });
 
   test("leaves zone routes unmanaged", () => {

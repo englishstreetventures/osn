@@ -383,20 +383,27 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     ([id]) => id === "alchemy-plan" || /^stack-[a-z]+-production$/.test(id),
   );
 
-  test("in the Alchemy jobs, only the token, state, snapshot, custom-domain, plan, deploy, compare and smoke steps hold the production pair, and no job-level env holds a secret", () => {
+  test("in the Alchemy jobs, only the token, state, snapshot, custom-domain, live-read, plan, migrate, deploy, compare, kept and smoke steps hold the production pair, osn-api's smoke check alone adds its bearer, and no job-level env holds a secret", () => {
     expect(alchemyJobs.map(([id]) => id).toSorted()).toEqual([
       "alchemy-plan",
       "stack-cire-production",
       "stack-musubi-production",
+      "stack-zap-production",
     ]);
     const holds =
-      /^(token|state|snapshot(_[a-z]+)?|worker_domains(_[a-z]+)?|plan(_[a-z]+)?|deploy|deployments|smoke_[a-z_]+)$/;
+      /^(token|state|snapshot(_[a-z]+)?|worker_domains(_[a-z]+)?|live(_[a-z]+)?|plan(_[a-z]+)?|migrate|deploy|deployments|kept|smoke_[a-z_]+)$/;
     const pair = accountSecrets("production");
+    // The coordination probe sends the Environment's internal-service bearer.
+    const extra: Readonly<Record<string, readonly string[]>> = {
+      smoke_osn_api: ["INTERNAL_SERVICE_SECRET"],
+    };
     for (const [id, job] of alchemyJobs) {
       expect({ id, env: secretsRead(job.env) }).toEqual({ id, env: [] });
       for (const step of job.steps ?? []) {
         const read = secretsRead(step);
-        const expected = holds.test(step.id ?? "") ? [...pair] : [];
+        const expected = holds.test(step.id ?? "")
+          ? [...pair, ...(extra[step.id ?? ""] ?? [])].toSorted()
+          : [];
         expect({ id, step: step.name ?? step.id, read }).toEqual({
           id,
           step: step.name ?? step.id,

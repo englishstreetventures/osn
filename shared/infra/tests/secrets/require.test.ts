@@ -41,10 +41,24 @@ describe("requireSecrets", () => {
     expect(Redacted.value(out.OSN_PAIRWISE_SALT)).toBe("value-of-OSN_PAIRWISE_SALT");
   });
 
-  test("production never receives a secret its tier does not declare", () => {
-    const env = { ...envFor("osn-api", "production"), DEV_LOGIN_SECRET: "present-in-env" };
-    const out = requireSecrets({ worker: "osn-api", stage: "production", env });
-    expect(out).not.toHaveProperty("DEV_LOGIN_SECRET");
+  test("SW1: production reads no secret: whatever the job's env holds, nothing is returned to upload", () => {
+    for (const worker of ["osn-api", "cire-api", "zap-api", "cire-invites"] as const) {
+      const row = tierSecrets(worker, "production");
+      expect(row.source).toBe("worker");
+      const names = [...row.secrets, ...row.optional, ...row.forbidden, "DEV_LOGIN_SECRET"];
+      const set = Object.fromEntries(names.map((name) => [name, `value-of-${name}`]));
+      expect(requireSecrets({ worker, stage: "production", env: set })).toEqual({});
+      // Unset, padded or short values refuse nothing either: none is read.
+      const broken = Object.fromEntries(names.map((name) => [name, " short\n"]));
+      expect(requireSecrets({ worker, stage: "production", env: broken })).toEqual({});
+      expect(requireSecrets({ worker, stage: "production", env: {} })).toEqual({});
+    }
+  });
+
+  test("a dev stage never receives a secret its tier does not declare", () => {
+    const env = { ...envFor("zap-api", "dev"), GROWTHBOOK_CLIENT_KEY: "present-in-env" };
+    const out = requireSecrets({ worker: "zap-api", stage: "dev", env });
+    expect(out).not.toHaveProperty("GROWTHBOOK_CLIENT_KEY");
   });
 
   test("names every missing or empty secret in one error", () => {
@@ -64,8 +78,8 @@ describe("requireSecrets", () => {
   });
 
   test("refuses a value with surrounding whitespace, naming it but never printing it", () => {
-    const env = { ...envFor("osn-api", "production"), OSN_PAIRWISE_SALT: "s3cr3t-salt-value\n" };
-    const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "production", env }));
+    const env = { ...envFor("osn-api", "dev"), OSN_PAIRWISE_SALT: "s3cr3t-salt-value\n" };
+    const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "dev", env }));
     expect((error as MissingSecretsError).malformed).toEqual(["OSN_PAIRWISE_SALT"]);
     expect((error as Error).message).toContain("OSN_PAIRWISE_SALT");
     expect((error as Error).message).not.toContain("s3cr3t-salt-value");
@@ -84,18 +98,18 @@ describe("requireSecrets", () => {
   });
 
   test("declares an optional secret only while its GitHub secret holds a value", () => {
-    const env = envFor("osn-api", "production");
-    expect(requireSecrets({ worker: "osn-api", stage: "production", env })).not.toHaveProperty(
+    const env = envFor("osn-api", "dev");
+    expect(requireSecrets({ worker: "osn-api", stage: "dev", env })).not.toHaveProperty(
       "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS",
     );
     const draining = { ...env, OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: "outgoing-key" };
-    const out = requireSecrets({ worker: "osn-api", stage: "production", env: draining });
+    const out = requireSecrets({ worker: "osn-api", stage: "dev", env: draining });
     expect(Redacted.value(out.OSN_TOTP_ENCRYPTION_KEY_PREVIOUS)).toBe("outgoing-key");
   });
 
   test("refuses an optional value of only whitespace rather than dropping the secret", () => {
-    const env = { ...envFor("osn-api", "production"), OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: "\n" };
-    const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "production", env }));
+    const env = { ...envFor("osn-api", "dev"), OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: "\n" };
+    const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "dev", env }));
     expect(error).toBeInstanceOf(MissingSecretsError);
     expect((error as MissingSecretsError).malformed).toEqual(["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"]);
   });
@@ -156,17 +170,17 @@ describe("SH1: requireSecrets refuses a dev secret that breaks its tier's rule b
     ).toBe("s3cr3t".padEnd(32, "x"));
   });
 
-  test("CIRE_INTERNAL_REVOKE_SECRET under 32 characters is refused on dev and production for both Workers that hold it; 32 is taken", () => {
+  test("CIRE_INTERNAL_REVOKE_SECRET under 32 characters is refused on dev and in an investigation stage for both Workers that hold it; 32 is taken", () => {
     const short = "s3cr3t".padEnd(31, "x");
-    for (const stage of ["dev", "production"] as const) {
+    for (const stage of ["dev", "probe"] as const) {
       for (const worker of ["osn-api", "cire-api"] as const) {
-        const env = { ...envFor(worker, stage), CIRE_INTERNAL_REVOKE_SECRET: short };
+        const env = { ...envFor(worker, "dev"), CIRE_INTERNAL_REVOKE_SECRET: short };
         const error = thrown(() => requireSecrets({ worker, stage, env }));
         expect(error).toMatchObject({ breaksRule: ["CIRE_INTERNAL_REVOKE_SECRET"] });
         expect((error as Error).message).toContain("at least 32 characters");
         expect((error as Error).message).not.toContain(short);
         const long = {
-          ...envFor(worker, stage),
+          ...envFor(worker, "dev"),
           CIRE_INTERNAL_REVOKE_SECRET: "s3cr3t".padEnd(32, "x"),
         };
         expect(
