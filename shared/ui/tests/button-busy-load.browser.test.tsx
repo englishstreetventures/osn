@@ -9,10 +9,10 @@
  *
  * A page keeps a module once it has arrived, and nothing a test can reach
  * unloads it, so a repeat of the test in the same page (`--repeats`) finds the
- * orb already there. It then holds what a page with the orb still guarantees:
- * no second fetch, and the busy button draws the orb at once, at the room's
- * size. The orb's room, and its width while the orb arrives, are checked on the
- * first run only.
+ * orb already there. A repeat checks that the busy button then draws the orb
+ * at once, at the room's size. Its fetch counts hold because the page keeps the
+ * module, whatever `Button` does. The orb's room, the width while the orb
+ * arrives, and when its fetch starts are checked on the first run only.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -30,23 +30,29 @@ afterEach(() => {
 const orbFetches = () =>
   performance.getEntriesByType("resource").filter((entry) => /\/ui\/orb\.tsx\b/.test(entry.name));
 
-/** Let idle callbacks and a few frames run, so a fetch scheduled for idle time has started. */
-async function idle() {
-  await new Promise((resolve) => requestIdleCallback(resolve, { timeout: 500 }));
-  for (let i = 0; i < 3; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
-  await new Promise((resolve) => setTimeout(resolve, 200));
-}
+/**
+ * Wait for the page's next idle period, or 2.5s where the page is never idle
+ * (a full run of the tier can starve idle callbacks for longer than a test's
+ * timeout). Idle callbacks run in the order they were queued, and this
+ * deadline is later than the 2s `Button` gives its own, so one a button queued
+ * as it mounted has run, and any fetch it starts has started, by then.
+ */
+const idle = () => new Promise((resolve) => requestIdleCallback(resolve, { timeout: 2500 }));
 
-/** Runs of the test so far in this page; only the first finds the orb not yet fetched. */
-let runs = 0;
-
-it("fetches the orb only for a busy button, and keeps its width while the orb arrives", async () => {
-  const first = runs++ === 0;
+it("fetches the orb only for a busy button, and keeps its width while the orb arrives", async ({
+  task,
+}) => {
+  // Vitest's index of this repeat. A retry keeps its run's index, so a retry
+  // of the first run makes the first run's checks.
+  const first = !task.result?.repeatCount;
   render(() => <Button>Save</Button>);
   await idle();
   expect(orbFetches()).toHaveLength(first ? 0 : 1);
   cleanup();
 
+  // A fetch's entry is written once it ends, so a count alone can miss one
+  // still in flight; its start time cannot.
+  const busyAt = performance.now();
   render(() => <Button busy>Creating…</Button>);
   const button = screen.getByRole("button", { name: "Creating…" });
   const mark = button.firstElementChild!;
@@ -60,4 +66,6 @@ it("fetches the orb only for a busy button, and keeps its width while the orb ar
   expect(button.firstElementChild?.tagName).toBe("CANVAS");
   expect(button.getBoundingClientRect().width).toBe(waiting);
   expect(orbFetches()).toHaveLength(1);
+  // The one fetch started once the button turned busy, not at idle time before.
+  expect(orbFetches().filter((entry) => entry.startTime >= busyAt)).toHaveLength(first ? 1 : 0);
 });

@@ -237,9 +237,24 @@ different argument, undo and reach:
 Both abort the request as a dropped network does, so a dynamic import of that
 module rejects the way a missing chunk does. Either way, set it in a
 `beforeAll`, undo it in an `afterAll`, and keep the file to the one failure:
-routing outlives the test that set it, and the page keeps the failed module for
-the rest of the file. A test moved between the two packages changes its
-argument and its undo.
+routing outlives the test that set it, and while the route stands every import
+of the module in the file fails. Chromium does not keep a failed module; it
+fetches it again on the next import, so a later test that lifts the route can
+load it (`button-busy-failed.browser.test.tsx`). A test moved between the two
+packages changes its argument and its undo.
+
+To check that nothing arrives after the failure, wait for an import to
+settle, not for a length of time. Once the component's fetch shows in
+`performance`, import the module from the test and expect it to reject. That
+fetch starts after the component's ended, or joins one still in flight, so it
+settles after the component's import has, as the first test in
+`button-busy-failed.browser.test.tsx` does:
+
+```ts
+await expect(import("@shared/ui/ui/orb")).rejects.toThrow(
+  "Failed to fetch dynamically imported module",
+);
+```
 
 ### Width
 
@@ -391,18 +406,34 @@ changed. Emulation and request routes follow [[#Media emulation]] and
 - **The DOM.** Call `cleanup()` in an `afterEach`. Without it each run's tables
   stay, the next renders below them, out of the window, and `elementFromPoint`
   finds nothing there.
-- **A count.** A count of `performance` entries starts from the run's own first
-  reading, not from 0.
+- **A count.** A count of `performance` entries either starts from the run's
+  own first reading, as `button-busy-failed` does, or is an absolute number
+  chosen by run, as `button-busy-load` does; never an absolute number that only
+  the first run can meet. A resource entry is written when its fetch ends, so
+  to show a fetch did not start before some moment, take `performance.now()`
+  then and compare each entry's `startTime` with it, as `button-busy-load`
+  does.
+- **Idle-time work.** To wait until a component's `requestIdleCallback` has
+  run, queue one of your own with a later `timeout` than the component's. Idle
+  callbacks run in the order they were queued, and the later deadline keeps
+  yours behind it when the page is never idle. Never queue one with no
+  `timeout`: a full run of the tier can starve it past the test's own timeout.
 - **A module cannot be put back.** Once a fetch of it succeeds, the page keeps
-  it, and nothing a test can reach unloads it. A test of what shows before a
-  lazy module arrives checks that on its first run only: it counts its runs in
-  a variable in the file and expects the loaded result after the first, as
-  `button-busy-load.browser.test.tsx` and `button-busy-failed.browser.test.tsx`
-  in `@shared/ui` do. Choose the expected value by run,
+  it, and nothing a test can reach unloads it; a failed one is not kept
+  ([[#A failed fetch]]). A test of what shows before a lazy module arrives
+  checks that on its first run only, and expects the loaded result after it,
+  as `button-busy-load.browser.test.tsx` and
+  `button-busy-failed.browser.test.tsx` in `@shared/ui` do. It reads the run
+  from Vitest, `const first = !task.result?.repeatCount` with `task` from the
+  test's context, never from a counter in the file: a retry keeps its run's
+  index, so a retry of a failed first run makes the first run's checks again
+  rather than the later runs' looser ones. Choose the expected value by run,
   `toBe(first ? "SPAN" : "CANVAS")`: lint refuses an `expect` inside an `if`
-  (`vitest/no-conditional-expect`).
+  (`vitest/no-conditional-expect`). On a later run such a file's fetch counts
+  hold because the page keeps the module, so they check the page, not the
+  component.
 
-*Measured 2026-11-12 — macOS on Apple silicon, `chromium_headless_shell-1248`: on `main`, `bun run --cwd shared/ui test:browser <file> --repeats=2` failed four tests across `data`, `button-busy-load` and `button-busy-failed`, and the same command with `-- --repeats=2` passed every test, each run once. With the fixes, the whole `@shared/ui` tier passed with `--repeats=2` (516 passed, 16 skipped, 73s against 25s plain).*
+*Measured 2026-11-12 — macOS on Apple silicon, `chromium_headless_shell-1248`: on `main`, `bun run --cwd shared/ui test:browser <file> --repeats=2` failed four tests across `data`, `button-busy-load` and `button-busy-failed`, and the same command with `-- --repeats=2` passed every test, each run once. With the fixes, the whole `@shared/ui` tier passed with `--repeats=2` (516 passed, 16 skipped, 72s against 25s plain). With an idle callback of no `timeout` in `button-busy-failed`, 3 of 6 plain runs of the tier timed that test out at 15s, and a probe logged the callback firing 15.0s after the failed fetch it waited behind; with a 2.5s `timeout`, 8 runs in a row passed. A probe run with `--retry=1 --repeats=1` that failed every other attempt read `repeatCount` 0, 0, 1, 1 and `retryCount` 0, 1, 1, 2 across its four attempts.*
 
 ### Chrome's accessibility tree
 

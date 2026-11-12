@@ -10,10 +10,10 @@
  *
  * A page keeps a module once it has arrived, and nothing a test can reach
  * unloads it. So once the second test has drawn the orb, a repeat of it in the
- * same page (`--repeats`) has no failed fetch to recover from: it holds what a
- * page with the orb still guarantees, that a busy button draws it at once and
- * fetches nothing more. The fetch after the failure is checked on its first
- * run only.
+ * same page (`--repeats`) has no failed fetch to recover from: it checks that a
+ * busy button then draws the orb at once. Its fetch count holds because the
+ * page keeps the module, whatever `Button` does. The fetch after the failure is
+ * checked on the first run only.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -54,8 +54,18 @@ it("keeps its label, its busy state and the orb's room when the orb fails to loa
   const button = screen.getByRole("button", { name: "Creating…" });
   const width = button.getBoundingClientRect().width;
   await expect.poll(() => orbFetches().length, { timeout: 5000 }).toBeGreaterThan(fetched);
-  // Long enough for a module that was going to arrive to have arrived.
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // The page's first busy button also queues a fetch for idle time, which asks
+  // again after a failure. Idle callbacks run in the order they were queued,
+  // and this deadline is later than the 2s `Button` gives its own (a full run
+  // of the tier can starve idle callbacks), so once this one runs, that fetch
+  // has started.
+  await new Promise((resolve) => requestIdleCallback(resolve, { timeout: 2500 }));
+  // This import starts after every fetch the button started, or joins the one
+  // still in flight, so it settles after them: by then the orb has either
+  // arrived or never will. It may add one more failed fetch to the count.
+  await expect(import("@shared/ui/ui/orb")).rejects.toThrow(
+    "Failed to fetch dynamically imported module",
+  );
   expect(button.querySelector("canvas")).toBeNull();
   const mark = button.firstElementChild!;
   expect(mark.tagName).toBe("SPAN");
@@ -66,11 +76,11 @@ it("keeps its label, its busy state and the orb's room when the orb fails to loa
   expect(button.textContent).toBe("Creating…");
 });
 
-/** Runs of the test below so far in this page; after the first, the page holds the orb. */
-let laterRuns = 0;
-
-it("asks for the orb again when a later button is busy", async () => {
-  const first = laterRuns++ === 0;
+it("asks for the orb again when a later button is busy", async ({ task }) => {
+  // Vitest's index of this repeat; after the first, the page holds the orb. A
+  // retry keeps its run's index, so a retry of the first run makes the first
+  // run's checks.
+  const first = !task.result?.repeatCount;
   // On the first run every one of these failed.
   const fetched = orbFetches().length;
   expect(fetched).toBeGreaterThan(0);
