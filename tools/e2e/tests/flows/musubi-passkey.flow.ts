@@ -1096,6 +1096,24 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await expect(page.getByLabel("Email or @handle")).toBeVisible();
   });
   await authorizeSignInSurfaces(flow, page);
+  // Here Register's Cancel switches back to sign-in, so it says so.
+  const signInInstead = page.getByRole("button", { name: "Sign in instead", exact: true });
+  await flow.step("open /authorize's create-account panel, then go back", async () => {
+    await page.getByRole("button", { name: "Create one" }).click();
+    await expect(signInInstead).toBeVisible();
+  });
+  flow.check(
+    'authorize: Register\'s Cancel reads "Sign in instead"',
+    "Sign in instead",
+    (await signInInstead.textContent())?.trim() ?? "",
+  );
+  await flow.step("go back to sign-in with Sign in instead", async () => {
+    await signInInstead.click();
+    await expect(
+      page.getByRole("heading", { name: "Sign in to Musubi", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Email or @handle")).toBeVisible();
+  });
   await flow.step("sign in to Pulse through Musubi's /authorize", async () => {
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();

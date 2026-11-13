@@ -7,7 +7,7 @@ import { ADDED, never, stepUpClient } from "./settings-bench.tsx";
 
 /**
  * The banner over every signed-in page while an account has unacknowledged
- * security events: the warn edge and wash, the ink left alone (D17). The one
+ * security events: the warn edge and wash, the ink left alone. The one
  * message box the package draws by hand.
  */
 export const meta = { title: "osn/auth-ui/SecurityEventsBanner", layout: "padded" as const };

@@ -72,9 +72,9 @@ The `RsvpAvatar` test asserts that the constant reaches the DOM, so you can chec
 
 Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). These components use Zaidan primitives (Button, Input, Label) internally and receive an injected client prop to stay app-agnostic:
 
-- `<Register />` — multi-step registration flow (email + handle + display name, OTP verification, **mandatory** passkey enrollment)
+- `<Register />` — registration: email, handle and display name, an emailed link confirmed on the address's device, then a **mandatory** passkey
 - `<SignIn />` — passkey-only login (identifier-bound or discoverable). Routes to `<RecoveryLoginForm>` via the "Lost your passkey?" link
-- `<RecoveryLoginForm />` — recovery-code login (lost-device escape hatch)
+- `<RecoveryLoginForm />` — the lost-passkey chooser: a recovery code, an emailed link or an authenticator code ([[passkey-primary]])
 - `<StepUpDialog />` — sudo ceremony for sensitive actions (recovery generate, email change, passkey delete)
 - `<SessionsView />` — per-device session list + "sign out everywhere else"
 - `<PasskeysView />` — passkey rename / remove (step-up gated; a removal asks in the step-up sheet)

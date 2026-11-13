@@ -138,9 +138,11 @@ osn/auth-ui/src/
 ├── pairing-code.ts         ← isPairingCode: the number's format, for every view that draws one (not exported)
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── StepUpDialog.tsx  RecoveryLoginForm.tsx  ChangeEmailForm.tsx  ← OtpInput
-├── TotpView.tsx            ← Card, OtpInput, Skeleton
-├── PasskeysView.tsx  SessionsView.tsx  RecoveryCodesView.tsx  ← Card, Skeleton (rows are nested Cards)
-├── RowPlaceholder.tsx      ← one row's Skeleton, a block for each width (not exported)
+├── TotpView.tsx            ← OtpInput, RowPlaceholder, SettingsRow
+├── PasskeysView.tsx  SessionsView.tsx  ← RowPlaceholder, SettingsRow
+├── RecoveryCodesView.tsx   ← Card (the codes' well), Skeleton
+├── SettingsRow.tsx         ← Card: a Settings panel's row, nested in the host's card (not exported)
+├── RowPlaceholder.tsx      ← one SettingsRow's Skeleton, a block for each width (not exported)
 └── ProfileOnboarding.tsx   SecurityEventsBanner.tsx  TurnstileWidget.tsx
 
 cire/ui/src/

@@ -485,7 +485,7 @@ async function menus(flow: Flow, page: Page): Promise<void> {
  * Security's rows and rules, drawn as hairlines.
  */
 async function security(flow: Flow, page: Page, profileName: string): Promise<void> {
-  // A passkey row: `Card radius="md" padding="sm"` inside its `li` (D11).
+  // A passkey row: `Card radius="md" padding="sm"` inside its `li`, the nested row's 8px corner.
   const row = page
     .locator("li")
     .filter({ has: page.getByRole("button", { name: /^Rename / }) })
@@ -1478,7 +1478,7 @@ export async function authorizeSignInSurfaces(flow: Flow, page: Page): Promise<v
   const link = page.getByRole("button", { name: "Create one" });
   const sentence = link.locator("xpath=..");
   await expect(link).toBeVisible();
-  // D2: the app's name leads at the display step, the panel's own heading
+  // The app's name leads at the display step, the panel's own heading
   // under it at the title step, and the panel draws no frame of its own.
   const client = page.getByRole("heading", { level: 1 });
   const heading = page.getByRole("heading", { name: "Sign in to Musubi", exact: true });

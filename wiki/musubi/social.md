@@ -350,6 +350,22 @@ request. The rules they hold are in
 [DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
 fields.
 
+On Settings → Security it reads `@osn/auth-ui`'s panels against probes
+(`securityPanelSurfaces` in `tests/support/musubi-surfaces.ts`): each panel
+heading at the title step and weight; a passkey row as a nested `Card` (the
+8px corner, 16px inside, the card's fill) with its meta line at the meta step
+in the secondary ink; Rename and Remove 40px tall at 390 px; and the "Signing
+in somewhere new?" summary taking Button's 2px focus ring from the keyboard.
+The authenticator's removal goes through the step-up sheet, titled with the
+app's name and with no browser `confirm()`; `removalSheetSurfaces` reads it
+as a bottom sheet as wide as a 390 px screen and shoots it as
+`totp-remove-sheet`. On `/authorize`, `authorizeSignInSurfaces` reads the
+app's name at `text-display` and 500 over the sign-in panel's heading at
+14px and 500, with no frame round the panel, and the flow then presses
+"Create one" and finds Register's Cancel named "Sign in instead", which
+brings sign-in back; `authorizeThirdPartySurfaces` reads the name breaking
+anywhere, with the "Third-party app" chip and the domain on screen at 320 px.
+
 Both flows also read what Musubi's contract block maps onto the shared
 overlays and titles (§Typography, §Borders and §Motion there).
 `musubi-passkey` opens the account menu from the rail at 1440 px and from the

@@ -19,8 +19,8 @@ export const meta = { title: "osn/auth-ui/SignIn", layout: "padded" as const };
 /**
  * The view in both hosts musubi gives it: the "Sign in" dialog, the real
  * sheet (a bottom sheet below `md`; narrow the window to see it), which the
- * view names through its `AuthHeader`; and `/authorize`'s column, unframed
- * (D2). The colours are musubi's, which is the lab's own mapping, so the
+ * view names through its `AuthHeader`; and `/authorize`'s column, with no
+ * frame round the panel. The colours are musubi's, which is the lab's own mapping, so the
  * **light · dark** toggle (or `?theme=dark`) is the theme check.
  *
  * `SignIn` gets every client musubi passes it, with Turnstile off, so every view

@@ -99,7 +99,7 @@ function DialogBench(props: { header: (close: () => void) => JSX.Element; body?:
 }
 
 /**
- * `/authorize`'s column, unframed as D2 leaves it, under a stand-in for the
+ * `/authorize`'s column, with no frame round the panel, under a stand-in for the
  * client card's name. The page pads it 24px a side (`max-w-md px-6`); below
  * `md` the lab's own 32px stands in for that, so a 320px frame gives the
  * header 256px against the page's 272px.
@@ -108,7 +108,7 @@ function PageColumn(props: { children: JSX.Element }) {
   return (
     <div class="w-full max-w-md py-6 md:px-6">
       {/* Stands in for the client card's `h1` at `text-display`, which the host
-          draws (D2); a `p` so the lab page keeps one `h1`. */}
+          draws; a `p` so the lab page keeps one `h1`. */}
       <div class="flex flex-col items-center text-center">
         <p class="text-ui-ink text-ui-xl font-medium">Pulse</p>
         <p class="text-ui-ink-secondary text-ui-sm mt-1">wants to use your Musubi account</p>

@@ -7,7 +7,7 @@ import { ADDED, failed, never, SettingsCard, stepUpClient } from "./settings-ben
 
 /**
  * Settings → Security's passkey panel, in the card musubi draws it in. Each
- * row is a `Card` nested in that card, 8px corners and 16px inside (D11), and
+ * row is a `Card` nested in that card, 8px corners and 16px inside, and
  * its actions name their passkey. "Remove" opens the step-up sheet titled
  * with the passkey's name; its calls never answer, so it holds there.
  * The colours are musubi's, so the **light · dark** toggle is the theme check.

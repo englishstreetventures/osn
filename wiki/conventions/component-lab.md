@@ -173,7 +173,9 @@ every file under a cire package's `src/`, never sees them.
   such as cire's `font-body`, renders in the lab's defaults: judge it in the
   app.
 - **A session.** Pass stub client objects as props where the component takes
-  them: objects in the story file, never a real client. A stub returns fixed
+  them: objects in the story file, or in a non-story module beside it that
+  several stories share (as `osn-auth-ui/settings-bench.tsx` does), never a
+  real client. A stub returns fixed
   data where the story shows what comes after the answer, and a promise that
   never settles where it shows the wait, or where the story never answers
   that call at all.

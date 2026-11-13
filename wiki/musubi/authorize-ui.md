@@ -100,9 +100,10 @@ along. If the user opens the link in a *different* browser, every call
    render the client card (name + logo + "wants to use your Musubi
    account"; the name at `text-display`) above the standard `<SignIn>`
    component, unframed (`host="page"`) and 24px under the card, with a
-   register link. `<Register>`'s Cancel reads "Sign in instead" here. With `reason=create` the panel opens on `<Register>` instead,
-   until a sign-in or registration has happened on this page (see
-   below). On success, re-fetch context and continue. A sign-in performed
+   register link. With `reason=create` the panel opens on `<Register>`
+   instead, until a sign-in or registration has happened on this page
+   (see below). `<Register>`'s Cancel reads "Sign in instead" here. On
+   success, re-fetch context and continue. A sign-in performed
    here creates a fresh session, which by construction satisfies
    `requireAuthAfter` — the retry loop needs no special casing.
 4. **Account** (`reason=select_account`, signed in, and no sign-in made on

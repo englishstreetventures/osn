@@ -33,7 +33,7 @@ export const ADDED = 1_700_000_000;
 
 /**
  * Settings → Security's card in musubi: `Card padding="md"`, which a panel's
- * rows nest inside, so they take the 8px corner (D11). `phone` narrows it to
+ * rows nest inside, so they take a nested row's 8px corner. `phone` narrows it to
  * a 320px screen's column after `main`'s 16px each side.
  */
 export function SettingsCard(props: { children: JSX.Element; phone?: boolean }) {
@@ -68,8 +68,10 @@ export function DialogBench(props: { children: JSX.Element }) {
 }
 
 /**
- * `/authorize`'s column, unframed as D2 leaves it, under a stand-in for the
- * client card. The page pads it 24px a side (`max-w-md px-6`).
+ * `/authorize`'s column, with no frame round the panel, under a stand-in for
+ * the client card. The page pads it 24px a side (`max-w-md px-6`); below `md`
+ * the lab's own 32px stands in for that, so at a 320px frame the panel is
+ * 256px wide against the page's 272px, and never wider than the page draws it.
  */
 export function AuthorizeColumn(props: { children: JSX.Element }) {
   return (
