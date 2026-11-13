@@ -7,7 +7,6 @@ import {
 } from "@osn/client";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
-import { Card } from "@shared/ui/ui/card";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { labelVariants } from "@shared/ui/ui/label";
@@ -19,6 +18,7 @@ import { createResource, createSignal, createUniqueId, onCleanup, Show } from "s
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
 import { RowPlaceholder } from "./RowPlaceholder";
+import { SettingsRow } from "./SettingsRow";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
@@ -183,7 +183,7 @@ export function TotpView(props: TotpViewProps) {
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-ui-ink text-ui-md font-ui-title">Authenticator app</h2>
         <Show when={current()?.enrolled === false && enrollment() === null}>
-          <Button size="sm" onClick={requestEnroll} disabled={locked()}>
+          <Button size="sm" class="max-md:h-10" onClick={requestEnroll} disabled={locked()}>
             Add an authenticator app
           </Button>
         </Show>
@@ -224,33 +224,25 @@ export function TotpView(props: TotpViewProps) {
             )}
           </Show>
           <Show when={current()?.enrolled === true}>
-            <Card
-              radius="md"
-              padding="sm"
-              class="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch"
-            >
-              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span class="text-ui-ink text-ui-base font-medium wrap-break-word">
-                  {appName()}
-                </span>
-                <span class="text-ui-xs text-ui-ink-secondary">
-                  Added {formatTs(current()?.createdAt ?? null)}
-                </span>
-                <span class="text-ui-xs text-ui-ink-secondary">
-                  Last used {formatTs(current()?.lastUsedAt ?? null)}
-                </span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                class="shrink-0 max-md:h-10 max-md:self-start"
-                onClick={requestDisable}
-                disabled={locked()}
-                aria-label={`Remove ${appName()}`}
-              >
-                Remove
-              </Button>
-            </Card>
+            <SettingsRow
+              name={appName()}
+              meta={[
+                `Added ${formatTs(current()?.createdAt ?? null)}`,
+                `Last used ${formatTs(current()?.lastUsedAt ?? null)}`,
+              ]}
+              actions={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="max-md:h-10"
+                  onClick={requestDisable}
+                  disabled={locked()}
+                  aria-label={`Remove ${appName()}`}
+                >
+                  Remove
+                </Button>
+              }
+            />
           </Show>
         </div>
       </Show>

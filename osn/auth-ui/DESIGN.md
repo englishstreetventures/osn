@@ -96,7 +96,8 @@ an arbitrary value, or a checkbox the view draws itself.
 - `ui-success` — ink for a confirmed good state: the shared parts' own success
   states (`UsernameInput`, `OtpInput`).
 - `ui-warn` — a border and a wash: the `SecurityEventsBanner` box, with the
-  ink left alone (musubi D17); and `Notice tone="warn"`, ink included, for
+  ink left alone, since Musubi puts warn ink inside `Notice` only
+  (`musubi/social/DESIGN.md` §Status colours); and `Notice tone="warn"`, ink included, for
   `RecoveryCodesView`'s line when an account has no recovery codes.
 - `ui-info` — `Notice tone="info"` for a blocker that stops a flow here: no
   WebAuthn in `SignIn` and `Register`, and `RecoveryLoginForm`'s ways back in
@@ -194,23 +195,26 @@ As built:
 - **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
   `flex-col gap-3` section: a header row with the heading and, on the right,
   the panel's action (a `size="sm"` Button in `PasskeysView` and `TotpView`,
-  an `outline` Button at the default size in `SessionsView`), which wraps
-  under the heading, 8px below it, when the two do not fit on one line
-  ("Add an authenticator app" at 320px); then the list.
-  Each row is `@shared/ui`'s `Card` with `radius="md"` and `padding="sm"`
-  inside its `li`: the card's fill, the hairline edge, 8px corners and 16px
-  inside. A panel is drawn for a host card (Settings' section), so its rows
-  are nested and take the nested corner; a row standing alone on a page
-  would take `Card`'s own 16px (musubi D11). A row holds a name, two meta
-  lines ("Added …" or "Created …", then "Last used …", one each, so a long
-  date never wraps into a third) and `outline` `sm` actions. From `md` the
-  actions sit at the row's end beside the words; below `md` they sit under
-  them, 12px down, at the start, 40px tall (`max-md:h-10`), so the words get
-  the card's whole width on a phone. The words give way (`min-w-0 flex-1`)
-  and the name breaks inside a word (`wrap-break-word`), so `PasskeysView`'s
-  64-character name, or `SessionsView`'s device line, wraps and keeps the
-  actions inside the card at 320px. A row in rename swaps its name for `Input` at `size="sm"` with
-  Save and Cancel. `RecoveryCodesView` draws no heading; its host gives it
+  an `outline` Button at the default size in `SessionsView`, each 40px tall
+  below `md`, `max-md:h-10`), which wraps under the heading, 8px below it,
+  when the two do not fit on one line ("Add an authenticator app" at
+  320px); then the list.
+  Each row is `SettingsRow` (internal), one markup for all three panels:
+  `@shared/ui`'s `Card` with `radius="md"` and `padding="sm"` inside its
+  `li`, the card's fill, the hairline edge, 8px corners and 16px inside. A
+  panel is drawn for a host card (Settings' section), so its rows are nested
+  and take the nested corner; a row standing alone on a page would take
+  `Card`'s own 16px: a nested row's corner sits inside the card's, so it is
+  the smaller ([the owner's call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06). A row holds a name,
+  two meta lines ("Added …" or "Created …", then "Last used …", one each, so
+  a long date never wraps into a third) and `outline` `sm` actions. From `md`
+  the actions sit at the row's end beside the words; below `md` they sit
+  under them, 12px down, at the start, 40px tall (`max-md:h-10`), so the
+  words get the card's whole width on a phone. The words give way (`min-w-0
+  flex-1`) and the name breaks inside a word (`wrap-break-word`), so
+  `PasskeysView`'s 64-character name, or `SessionsView`'s device line, wraps
+  and keeps the actions inside the card at 320px. A row in rename swaps its
+  name for `Input` at `size="sm"` with Save and Cancel. `RecoveryCodesView` draws no heading; its host gives it
   one. Its new codes sit in a well, `Card variant="muted" radius="md"
   padding="sm"`, two columns of `font-ui-mono`; the "I've saved these
   codes" `Checkbox` is the drawn 16px box at `size="sm"`, in a row 44px tall
@@ -225,7 +229,11 @@ As built:
   line each (`RowPlaceholder`, internal): 92px from `md` (three 18px lines
   in Musubi) and 144px below it, where the 40px actions sit under the words.
   `Skeleton` takes its height inline, so each width draws its own block. A
-  row whose name wraps is taller than its placeholder.
+  row whose name wraps is taller than its placeholder. The heights hold in
+  Musubi's type mapping only: a host whose `--ui-text-*` steps carry other
+  leading draws rows of another height, and its placeholder would jump.
+  Musubi's own `ResponsiveSkeleton` draws a block per width the same way;
+  #2261 gives `Skeleton` a phone height so neither has to.
 - **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
   one phase at a time. The email phase is a `Field` over a full-width
   Button; the wait is `CheckEmailView`; the step-up phase opens
@@ -252,7 +260,8 @@ As built:
   the warn border and wash and 12px inside: each event as a headline and a
   meta line, a footer line, and Acknowledge (`outline`, `sm`) at the right.
   It is the one message box the package draws by hand: `Notice tone="warn"`
-  would paint the words warn too, and Musubi keeps them in its ink (D17).
+  would paint the words warn too, and Musubi keeps them in its ink
+  (`musubi/social/DESIGN.md` §Status colours).
 - **Step-up** (`StepUpDialog`) is `@shared/ui`'s `Dialog` with
   `DialogContent presentation="sheet"` (§8): a bottom sheet as wide as the
   screen below `md`, a centred card capped at 384px (`md:max-w-sm`) from `md`,
@@ -286,7 +295,9 @@ As built:
   384px from `md` (`md:max-w-sm`) as the step-up sheet is: a bottom sheet
   below `md`, a centred card from it. Each has a `DialogHeader` and
   `DialogTitle`, a `p-4` body and, where there are actions, a
-  `DialogFooter`. Its dismiss button is `secondary` (musubi D13):
+  `DialogFooter`. Its dismiss button is `secondary`, so it reads as a way
+  out beside the commit and not as a second commit ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06):
   "Generate a new set?"'s Cancel, and `CreateProfileForm`'s Cancel, whose
   one host is that dialog. A Cancel inside a view that closes no dialog
   (rename, `TotpView`'s enrolment) stays `ghost`.
@@ -326,7 +337,8 @@ themselves:
   `LoadFailed` (`src/LoadFailed.tsx`, internal) is the failed-load line built
   on it (§7).
 - A `<details>` disclosure, "Signing in somewhere new?", under the list in
-  `PasskeysView`; its `<summary>` takes Button's ring (§9).
+  `PasskeysView`; its `<summary>` takes Button's ring (§9). `@cire/ui`'s
+  `Disclosure` would draw it once it moves into `@shared/ui` (#2262).
 - The `SecurityEventsBanner` box (§4).
 
 **Links.** A link standing alone is Button's `link` at `sm`: `text-ui-sm` (13px
@@ -871,8 +883,17 @@ As built:
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
-  (`vi.mock("@osn/auth-ui/…")`) and check how the app wires them. The suites
-  that run the real views are the end-to-end flows
+  (`vi.mock("@osn/auth-ui/…")`) and check how the app wires them. Its browser
+  tests render the real views where layout or paint is the claim:
+  `SecurityStepUp.browser.test.tsx` (the step-up sheet, the rows, the codes
+  and "Generate a new set?"), `LoadingShapes.browser.test.tsx` (Settings'
+  Security fallback against the passkey panel's head and placeholder, and
+  that placeholder against the row that lands, at 320 and 1440px),
+  `ProfileOnboarding.browser.test.tsx` ("Create a new profile" a bottom sheet
+  at 390px and a 384px card at 1440px, its Cancel `secondary`),
+  `CheckEmailView.layout.browser.test.tsx` and
+  `AuthorizeLoading.browser.test.tsx`. The suites that run the real views
+  end to end are the flows
   `tools/e2e/tests/flows/musubi-passkey.flow.ts` and
   `tools/e2e/tests/flows/musubi-register-retry.flow.ts`, which take `Register`
   through `CheckEmailView` and open the link on `ConfirmLinkPage` (a wrong
@@ -908,7 +929,8 @@ As built:
   on `/authorize` before signing in to Pulse (`authorizeSignInSurfaces`),
   the app's name at the display step over the panel's 14px heading at 500,
   the panel with no frame, and "Create one" with no padding and one line tall, underlined 2px under, in its sentence's size and
-  weight; with `GET /passkeys` held on Settings → Security
+  weight, then "Create one" pressed, `Register`'s Cancel read as "Sign in
+  instead" and pressed, and sign-in back; with `GET /passkeys` held on Settings → Security
   (`securityLoadingSurfaces`), the passkey list's own `Skeleton` in a busy
   region, not Settings' fallback: the sunk well, an 8px corner, the pulse,
   still under reduced motion, and as tall as the passkey row that replaces

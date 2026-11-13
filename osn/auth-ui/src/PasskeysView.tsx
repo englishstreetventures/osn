@@ -7,7 +7,6 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
-import { Card } from "@shared/ui/ui/card";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, createUniqueId, For, Show } from "solid-js";
@@ -16,6 +15,7 @@ import { fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
 import { describePasskeyError } from "./passkey-errors";
 import { RowPlaceholder } from "./RowPlaceholder";
+import { SettingsRow } from "./SettingsRow";
 import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
 
 /**
@@ -217,7 +217,7 @@ export function PasskeysView(props: PasskeysViewProps) {
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-ui-ink text-ui-md font-ui-title">Passkeys</h2>
         <Show when={props.profileId && props.runPasskeyRegistration}>
-          <Button size="sm" onClick={requestAdd} disabled={locked()}>
+          <Button size="sm" class="max-md:h-10" onClick={requestAdd} disabled={locked()}>
             Add a passkey
           </Button>
         </Show>
@@ -250,30 +250,20 @@ export function PasskeysView(props: PasskeysViewProps) {
               <For each={rows()}>
                 {(p: PasskeySummary) => (
                   <li>
-                    {/* A row's words take one line each; its actions sit beside them from
-                        `md` and under them below it, so every row is one
-                        height at each width, and so is its placeholder. */}
-                    <Card
-                      radius="md"
-                      padding="sm"
-                      class="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch"
-                    >
-                      {/* The text gives way, so a long name wraps and the row's
-                        actions stay inside the card on a phone. */}
-                      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <Show
-                          when={editingId() === p.id}
-                          fallback={
-                            <span class="text-ui-ink text-ui-base font-medium wrap-break-word">
-                              {friendlyLabel(p)}
-                              <Show when={p.backupEligible}>
-                                <span class="text-ui-ink-secondary text-ui-xs ml-2 font-normal">
-                                  (synced)
-                                </span>
-                              </Show>
+                    <SettingsRow
+                      name={
+                        <>
+                          {friendlyLabel(p)}
+                          <Show when={p.backupEligible}>
+                            <span class="text-ui-ink-secondary text-ui-xs ml-2 font-normal">
+                              (synced)
                             </span>
-                          }
-                        >
+                          </Show>
+                        </>
+                      }
+                      editing={editingId() === p.id}
+                      editor={
+                        <>
                           <div class="flex items-center gap-2">
                             <Input
                               size="sm"
@@ -311,18 +301,16 @@ export function PasskeysView(props: PasskeysViewProps) {
                               </Notice>
                             )}
                           </Show>
-                        </Show>
-                        <span class="text-ui-xs text-ui-ink-secondary">
-                          Added {formatTs(Math.floor(p.createdAt))}
-                        </span>
-                        <span class="text-ui-xs text-ui-ink-secondary">
-                          Last used {formatTs(p.lastUsedAt)}
-                        </span>
-                      </div>
-                      <Show when={editingId() !== p.id}>
-                        {/* Each action names its passkey, so two rows' buttons
-                          never share a name. */}
-                        <div class="flex shrink-0 gap-2 max-md:self-start">
+                        </>
+                      }
+                      meta={[
+                        `Added ${formatTs(Math.floor(p.createdAt))}`,
+                        `Last used ${formatTs(p.lastUsedAt)}`,
+                      ]}
+                      actions={
+                        // Each action names its passkey, so two rows' buttons
+                        // never share a name.
+                        <>
                           <Button
                             variant="outline"
                             size="sm"
@@ -343,9 +331,9 @@ export function PasskeysView(props: PasskeysViewProps) {
                           >
                             Remove
                           </Button>
-                        </div>
-                      </Show>
-                    </Card>
+                        </>
+                      }
+                    />
                   </li>
                 )}
               </For>

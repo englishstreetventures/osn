@@ -115,6 +115,26 @@ describe("SessionsView", () => {
     for (const b of actions) expect(b.disabled).toBe(true);
   });
 
+  it("names each row's Sign out by its device, so two rows never share a name", async () => {
+    const unknown = {
+      id: "f00dfeed00112233",
+      uaLabel: null,
+      createdAt: 7,
+      lastUsedAt: 8,
+      expiresAt: 9,
+      isCurrent: false,
+    };
+    stub.list.mockResolvedValue({ sessions: [...sessions, unknown] });
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Sign out Firefox on macOS" }));
+    expect(screen.getByRole("button", { name: "Sign out Safari on iOS" })).toBeTruthy();
+    const nameless = screen.getByRole("button", { name: "Sign out Unknown device" });
+    // The name carries the device; the words on the button stay the action.
+    expect(nameless.textContent).toBe("Sign out");
+    expect(screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ })).toHaveLength(3);
+  });
+
   it("renders all sessions with UA labels and marks the current one", async () => {
     stub.list.mockResolvedValue({ sessions });
     render(() => <SessionsView client={asClient(stub)} />);

@@ -1,14 +1,17 @@
 import { Skeleton } from "@shared/ui/ui/skeleton";
 
 /**
- * One list row's place while a settings panel's first read is out: as tall as
- * the row that replaces it, at every width, so nothing below the list moves
- * when it lands. A row is its name and two meta lines, 16px inside its card;
- * from `md` its actions sit beside the words, and below `md` under them, 40px
- * tall, so the row, and this block, are taller below `md`. `Skeleton` takes
- * its height inline, so each width gets its own block. A row whose words
- * wrap is taller still. Internal to this package.
+ * One `SettingsRow`'s place while a settings panel's first read is out: as
+ * tall as the row that replaces it, at every width, so nothing below the list
+ * moves when it lands. A row is its name and two meta lines, 16px inside its
+ * card; from `md` its actions sit beside the words, and below `md` under them,
+ * 40px tall, so the row, and this block, are taller below `md`. `Skeleton`
+ * takes its height inline, so each width gets its own block. A row whose words
+ * wrap is taller still. The heights assume Musubi's type mapping (18px lines);
+ * a host with other leading draws rows of another height. Internal to this
+ * package.
  */
+// Two blocks until englishstreetventures/osn#2261 gives `Skeleton` a phone height.
 export function RowPlaceholder() {
   return (
     <>

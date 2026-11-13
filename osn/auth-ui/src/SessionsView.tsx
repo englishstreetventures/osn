@@ -1,11 +1,11 @@
 import { describeAuthError, type SessionsClient, type SessionSummary } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
-import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { LoadFailed } from "./LoadFailed";
 import { RowPlaceholder } from "./RowPlaceholder";
+import { SettingsRow } from "./SettingsRow";
 
 /**
  * Settings-panel surface for listing and revoking the caller's active
@@ -91,7 +91,7 @@ export function SessionsView(props: SessionsViewProps) {
       {/* The action goes under the heading when the two do not fit on one line. */}
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-ui-ink text-ui-md font-ui-title">Active sessions</h2>
-        <Button variant="outline" onClick={revokeAllOther} disabled={locked()}>
+        <Button variant="outline" class="max-md:h-10" onClick={revokeAllOther} disabled={locked()}>
           Sign out everywhere else
         </Button>
       </div>
@@ -123,42 +123,36 @@ export function SessionsView(props: SessionsViewProps) {
               <For each={rows()}>
                 {(s: SessionSummary) => (
                   <li>
-                    <Card
-                      radius="md"
-                      padding="sm"
-                      class="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch"
-                    >
-                      {/* The text gives way, so a long name wraps and the row's
-                          actions stay inside the card on a phone. */}
-                      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span class="text-ui-ink text-ui-base font-medium wrap-break-word">
+                    <SettingsRow
+                      name={
+                        <>
                           {s.uaLabel ?? "Unknown device"}
                           <Show when={s.isCurrent}>
                             <span class="text-ui-accent-ink text-ui-xs ml-2 font-normal">
                               (this device)
                             </span>
                           </Show>
-                        </span>
-                        <span class="text-ui-xs text-ui-ink-secondary">
-                          Created {formatTs(s.createdAt)}
-                        </span>
-                        <span class="text-ui-xs text-ui-ink-secondary">
-                          Last used {formatTs(s.lastUsedAt)}
-                        </span>
-                      </div>
-                      {/* Named by its device, so it is never one more "Sign
-                          out" beside the app's own. */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        class="shrink-0 max-md:h-10 max-md:self-start"
-                        onClick={() => revoke(s.id)}
-                        disabled={locked() || s.isCurrent}
-                        aria-label={`Sign out ${s.uaLabel ?? "Unknown device"}`}
-                      >
-                        Sign out
-                      </Button>
-                    </Card>
+                        </>
+                      }
+                      meta={[
+                        `Created ${formatTs(s.createdAt)}`,
+                        `Last used ${formatTs(s.lastUsedAt)}`,
+                      ]}
+                      actions={
+                        // Named by its device, so it is never one more "Sign
+                        // out" beside the app's own.
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          class="max-md:h-10"
+                          onClick={() => revoke(s.id)}
+                          disabled={locked() || s.isCurrent}
+                          aria-label={`Sign out ${s.uaLabel ?? "Unknown device"}`}
+                        >
+                          Sign out
+                        </Button>
+                      }
+                    />
                   </li>
                 )}
               </For>

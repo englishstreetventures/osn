@@ -84,7 +84,9 @@ describe("ProfileOnboarding", () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Create a new profile" })).toBeTruthy();
     });
-    // A dialog's dismiss button is `secondary`, as in every dialog.
+    // The form's Cancel is the dialog's dismiss button. Its `secondary` paint
+    // and the sheet's placement take a real browser: musubi's
+    // `ProfileOnboarding.browser.test.tsx` holds both.
     const cancel = screen.getByRole("button", { name: "Cancel" });
     expect(cancel.closest("[role=dialog]")).toBeTruthy();
   });
