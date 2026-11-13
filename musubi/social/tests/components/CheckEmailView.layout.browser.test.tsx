@@ -13,10 +13,11 @@
  * - both buttons are 40px tall below `md`, musubi's phone touch height, and
  *   `Button`'s own 32px from `md` up.
  *
- * The view sits where `Register` will put it: `ResponsiveDialogContent` (a
- * bottom sheet below `md`, full width with no side border or padding), then
- * `Register`'s root, `mx-auto max-w-sm px-4 py-8`. At a 320px viewport that
- * leaves the view a 288px column.
+ * The view sits where `Register` puts it in musubi's create-account dialog:
+ * `ResponsiveDialogContent` (a bottom sheet below `md`, full width with no
+ * side border or padding), then `Register`'s root (`flex flex-col`) and its
+ * body for `host="dialog"`, `p-4`, class for class (`Register.tsx`). At a
+ * 320px viewport that leaves the view a 288px column.
  *
  * Each case writes a screenshot to `__screenshots__/` beside this file
  * (gitignored).
@@ -67,15 +68,17 @@ async function mountInSheet(email: string, pairingCode?: string) {
   render(() => (
     <Dialog open onOpenChange={() => {}}>
       <ResponsiveDialogContent aria-label="Check your email">
-        <div class="mx-auto max-w-sm px-4 py-8">
-          <CheckEmailView
-            email={email}
-            purpose="sign-up"
-            status="waiting"
-            pairingCode={pairingCode}
-            onResend={() => {}}
-            onChangeEmail={() => {}}
-          />
+        <div class="flex flex-col">
+          <div class="p-4">
+            <CheckEmailView
+              email={email}
+              purpose="sign-up"
+              status="waiting"
+              pairingCode={pairingCode}
+              onResend={() => {}}
+              onChangeEmail={() => {}}
+            />
+          </div>
         </div>
       </ResponsiveDialogContent>
     </Dialog>

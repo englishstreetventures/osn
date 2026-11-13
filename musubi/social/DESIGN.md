@@ -168,8 +168,8 @@ rule draws it on an element that does not name it (§Borders).
 
   | Utility | Size / line-height | Role |
   | --- | --- | --- |
-  | `text-display` | 24 / 30 | page titles (`h1`) in the shell, large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
-  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`, the emailed-link confirm page) |
+  | `text-display` | 24 / 30 | page titles (`h1`) in the shell, `/authorize`'s client name (the `h1` on its sign-in and consent screens), large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
+  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`'s dead end, its load-error card and "Choose a profile"; the emailed-link confirm page) |
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
@@ -182,8 +182,9 @@ rule draws it on an element that does not name it (§Borders).
   ("Members", "Signed in as", `/search`'s "People" and "Organisations") takes
   the same step and weight, in `text-foreground`. A shell page's `h1` is
   `text-display` (§Layout). `/authorize`, which has no shell, leads with the
-  app's name on its client card at `text-display` and 500 (D2), breaking
-  anywhere since the app chose the words; the screen's own heading under it
+  app's name on its client card at `text-display` and 500, so the app the
+  reader is signing in to is the screen's first word ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06), breaking anywhere since the app chose the words; the screen's own heading under it
   is `text-title` at 500 (the sign-in panel's title, "Signed in as"). The
   profile picker, which draws no client card, titles its screen "Choose a
   profile" at `text-title` and 500. The rail's account trigger is shell chrome and keeps its own
@@ -245,7 +246,8 @@ Where the app does not follow this yet — known breaks include:
   menu panels; and the rail search's results panel (`GlobalSearch`), a
   floating panel drawn as the menus are: `rounded-md`, `bg-popover`,
   `shadow-md`. A bordered row nested inside a card takes 8px too, the card's
-  own corner already spent (D11): `@osn/auth-ui`'s Settings rows, `Card
+  own corner already spent; a row standing alone takes 16px ([the owner's
+  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06): `@osn/auth-ui`'s Settings rows, `Card
   radius="md" padding="sm"` inside Settings' card, and the new recovery codes'
   well.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
@@ -596,7 +598,10 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   at the other, since `Skeleton` takes one height. Rows: a connection or a
   member with Remove 56px and 60px below `md`, a Discover card 114px and
   126px, a connected app 62px and 66px; an organisation card is 74px at
-  both. A placeholder list takes the gap of the list it stands for. Words
+  both. Settings' Security fallback stands for `@osn/auth-ui`'s passkey
+  head, 32px and 40px below `md`, and one of its rows, 92px and 144px,
+  copying the package's own placeholder, which it keeps internal; `/authorize`'s
+  "Sign in instead" is 32px and 40px. A placeholder list takes the gap of the list it stands for. Words
   that do not load stay on screen: Connected apps' lead paragraph is the
   page's, outside the section's `Suspense`, so only its list is a
   placeholder. The region that holds the placeholders and the content that replaces them
@@ -606,7 +611,7 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   `/authorize`'s takes the shape of the half of the panel that leads:
   sign-up's heading beside Cancel and its four fields for `reason=create`;
   sign-in's heading, one field, Continue, "Lost your passkey?" and the
-  "Create one" line otherwise, at the panel's `max-w-sm`. Words that wrap
+  "Create one" line otherwise, at the page column's width. Words that wrap
   stay words there, so they wrap where the panel's do: the heading, and the
   date of birth's hint; labels, fields and buttons are blocks. Two browser
   tests hold every placeholder's height against what lands, at 320 and

@@ -21,6 +21,7 @@ import {
   Switch,
 } from "solid-js";
 
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
 import { authorizeClient } from "../lib/authorize";
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
@@ -764,12 +765,13 @@ function SignInLoading(props: { mode: "register" | "signIn" }) {
         </h2>
         <Show when={register()}>
           {/* "Sign in instead", as wide as the button, so the heading wraps as it does. */}
-          <div class="shrink-0 md:hidden">
-            <Skeleton standsFor="control" width={SIGN_IN_INSTEAD_WIDTH} height={10} />
-          </div>
-          <div class="shrink-0 max-md:hidden">
-            <Skeleton standsFor="control" width={SIGN_IN_INSTEAD_WIDTH} height={8} />
-          </div>
+          <ResponsiveSkeleton
+            standsFor="control"
+            width={SIGN_IN_INSTEAD_WIDTH}
+            height={8}
+            phoneHeight={10}
+            class="shrink-0"
+          />
         </Show>
       </div>
       <div class="flex flex-col gap-4 pt-6">
