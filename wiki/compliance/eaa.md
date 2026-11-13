@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[scope-matrix]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-13
 ---
 
 # EAA — Accessibility
@@ -29,7 +29,7 @@ as "consumer-oriented services" once we have EU users.
 | Surface | Today | Gap |
 |---|---|---|
 | `@musubi/landing` | Astro static site, simple markup | Run `axe-core` audit; document. |
-| `@musubi/social` | Solid + Kobalte; Kobalte primitives are accessible by default | Custom components (ProfileSwitcher, SecurityEventsBanner) need an audit. |
+| `@musubi/social` | Solid + Kobalte; Kobalte primitives are accessible by default | Custom components (ProfileSwitcherDialog, SecurityEventsBanner) need an audit. |
 | `@pulse/web` | Solid + Kobalte; map + calendar are custom | The map's keyboard support is unproven; audit. |
 | `@zap/app` | Not shipped | Build accessibility in from the start. |
 

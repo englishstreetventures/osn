@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Frontend Patterns
@@ -77,8 +77,8 @@ Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). 
 - `<RecoveryLoginForm />` — recovery-code login (lost-device escape hatch)
 - `<StepUpDialog />` — sudo ceremony for sensitive actions (recovery generate, email change, passkey delete)
 - `<SessionsView />` — per-device session list + "sign out everywhere else"
-- `<PasskeysView />` — passkey rename / delete (step-up gated)
-- `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
+- `<PasskeysView />` — passkey rename / remove (step-up gated; a removal asks in the step-up sheet)
+- `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
 - `<CheckEmailView />` — the "Check your email" wait after a flow emails a link: the address, the number the page the link opens asks for (when the host passes one), a Resend that unlocks after a wait, "Use a different email". Presentational; the parent sends and polls ([[component-library]])
 - `<ConfirmLinkPage />` — the page an emailed link opens: "Confirm this email", the numbers to pick from (the person taps the one the waiting screen shows, which is the confirm), or, for recovery, one field to type it in, and "I didn't ask for this"; then confirmed, cancelled, expired, or an error with Try again. Presentational; the host route reads the link and the numbers and makes the call ([[component-library]])
 

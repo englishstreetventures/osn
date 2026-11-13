@@ -14,7 +14,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Passkey-Primary Login
@@ -49,7 +49,7 @@ holds from registration to deletion:
   codes are NOT a substitute credential — they are the "my device is gone"
   escape hatch only.
 - **Rotation.** Users who want to remove a compromised passkey enrol the
-  replacement first via Settings → Security → "Add passkey", then delete
+  replacement first via Settings → Security → "Add a passkey", then remove
   the old one. The add-passkey flow is step-up gated (passkey or OTP AMR)
   so a stolen access token can't silently bind a new authenticator — see
   "Step-up gating on register" below.
@@ -83,7 +83,8 @@ UI surface (`@osn/auth-ui`):
   first-credential enrolment succeeds.
 - `<PasskeysView>` (`@osn/auth-ui/PasskeysView`) — Settings → Security
   surface. Lists the account's credentials; supports rename (step-up
-  gated), delete (last-passkey guarded), and **Add passkey** (step-up
+  gated), remove (last-passkey guarded; the step-up sheet asks first,
+  titled "Remove {name}?"), and **Add a passkey** (step-up
   gated via the same `/passkey/register/*` endpoints the registration
   flow uses). `@musubi/social` mounts it behind a lazy-loaded
   `SecuritySection` so `@simplewebauthn/browser` only ships when the tab
@@ -146,7 +147,7 @@ That table mirrors the **defaults** in `osn/api/src/services/auth/context.ts`;
 three of the four allow-lists are `AuthConfig` fields, so a deployment that
 narrows one reintroduces a dead end the UI cannot see. No deployment sets them.
 
-The dialog offers "Use email instead" only where the purpose admits it, and
+The dialog offers "Email me a link" only where the purpose admits it, and
 never for passkey rename and delete, whose gate is `["webauthn"]`: there the
 link would arrive and the action would still fail. The emailed link needs a
 `purpose`, which it fixes when it is sent ([[email-links#Step-up]]). The
