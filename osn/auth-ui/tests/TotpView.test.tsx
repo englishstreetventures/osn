@@ -110,7 +110,6 @@ beforeEach(() => {
     emailResend: vi.fn(),
     totpComplete: vi.fn(),
   };
-  window.confirm = () => true;
 });
 
 afterEach(() => cleanup());
@@ -120,14 +119,14 @@ describe("TotpView", () => {
     totp.status.mockResolvedValue(notEnrolled);
     mount();
     expect(await screen.findByRole("button", { name: /Add an authenticator app/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Remove$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
   });
 
   it("shows the credential and a remove action when one is enrolled", async () => {
     totp.status.mockResolvedValue(isEnrolled);
     mount();
     await waitFor(() => expect(screen.getByText("iPhone")).toBeTruthy());
-    expect(screen.getByRole("button", { name: /^Remove$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Remove / })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add an authenticator app/i })).toBeNull();
   });
 
@@ -317,13 +316,13 @@ describe("TotpView", () => {
     );
   });
 
-  it("gates removal behind a confirmation and a step-up", async () => {
+  it("gates removal behind the step-up sheet", async () => {
     totp.status.mockResolvedValueOnce(isEnrolled).mockResolvedValue(notEnrolled);
     totp.disable.mockResolvedValue({ disabled: true });
     mount();
 
-    await waitFor(() => screen.getByRole("button", { name: /^Remove$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Remove$/i }));
+    await waitFor(() => screen.getByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove / }));
     await passStepUp();
 
     await waitFor(() => expect(totp.disable).toHaveBeenCalledWith({ stepUpToken: "stpup_x" }));
@@ -332,15 +331,35 @@ describe("TotpView", () => {
     );
   });
 
-  it("does not start a removal the user declined", async () => {
+  it("asks before a removal in the step-up sheet, named and described by the removal, never window.confirm", async () => {
     totp.status.mockResolvedValue(isEnrolled);
-    window.confirm = () => false;
+    const confirm = vi.fn(() => true);
+    window.confirm = confirm;
     mount();
 
-    await waitFor(() => screen.getByRole("button", { name: /^Remove$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^Remove$/i }));
+    await waitFor(() => screen.getByRole("button", { name: "Remove iPhone" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove iPhone" }));
 
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Remove iPhone?" }));
+    const described = (sheet.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("You'll lose it as a way back into your account.");
+    expect(confirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(su.passkeyBegin).not.toHaveBeenCalled();
     expect(totp.disable).not.toHaveBeenCalled();
+  });
+
+  it("names an unnamed app's removal after the app", async () => {
+    totp.status.mockResolvedValue({ ...isEnrolled, label: null });
+    mount();
+    const remove = await waitFor(() =>
+      screen.getByRole("button", { name: "Remove Authenticator app" }),
+    );
+    expect(remove.textContent).toBe("Remove");
   });
 });

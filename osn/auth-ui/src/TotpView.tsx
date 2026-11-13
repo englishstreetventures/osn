@@ -7,17 +7,18 @@ import {
 } from "@osn/client";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { QrCode } from "@shared/ui/ui/qr-code";
-import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
+import { RowPlaceholder } from "./RowPlaceholder";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
@@ -55,12 +56,6 @@ export interface TotpViewProps {
    * Kept caller-side so the host picks the WebAuthn wrapper.
    */
   runPasskeyCeremony?: RunPasskeyCeremony;
-  /**
-   * Suppress the emailed-code step-up factor. See `StepUpDialog.passkeyOnly` —
-   * it means the host cannot deliver mail, and it leaves this surface fully
-   * usable because both ceremonies here accept a passkey.
-   */
-  passkeyOnly?: boolean;
 }
 
 type Pending = "enroll" | "disable" | null;
@@ -82,6 +77,8 @@ export function TotpView(props: TotpViewProps) {
    * since the status it reads again is the thing that just changed.
    */
   const current = () => (status.state === "ready" ? status.latest : undefined);
+  /** The app's name, or what the row calls an unnamed one. */
+  const appName = () => current()?.label?.trim() || "Authenticator app";
 
   // The only place the shared secret exists in this component. Cleared on
   // every exit from the enrolment panel, including unmount.
@@ -114,15 +111,10 @@ export function TotpView(props: TotpViewProps) {
     setPending("enroll");
   }
 
+  // The step-up sheet asks before the removal: its title names it, its warning
+  // says what it costs, and the factor picked there commits it.
   function requestDisable() {
     if (locked()) return;
-    if (
-      !window.confirm(
-        "Remove this authenticator app? You'll lose it as a way back into your account.",
-      )
-    ) {
-      return;
-    }
     setError(null);
     setPending("disable");
   }
@@ -184,7 +176,7 @@ export function TotpView(props: TotpViewProps) {
     <div class="flex flex-col gap-3">
       {/* The action goes under the heading when the two do not fit on one line. */}
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-lg font-semibold">Authenticator app</h2>
+        <h2 class="text-ui-ink text-ui-md font-ui-title">Authenticator app</h2>
         <Show when={current()?.enrolled === false && enrollment() === null}>
           <Button size="sm" onClick={requestEnroll} disabled={locked()}>
             Add an authenticator app
@@ -192,7 +184,7 @@ export function TotpView(props: TotpViewProps) {
         </Show>
       </div>
 
-      <p class="text-muted-foreground text-sm">
+      <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
         A six-digit code from an app on your phone. It needs neither your email nor the device
         holding your passkey, so it works when both are out of reach.
       </p>
@@ -215,7 +207,7 @@ export function TotpView(props: TotpViewProps) {
       >
         <div aria-busy={status.loading || undefined}>
           <Show when={status.loading}>
-            <Skeleton height={15.5} />
+            <RowPlaceholder />
           </Show>
           <Show when={!status.loading && status.error}>
             {(err) => (
@@ -227,18 +219,33 @@ export function TotpView(props: TotpViewProps) {
             )}
           </Show>
           <Show when={current()?.enrolled === true}>
-            <div class="flex items-center justify-between rounded-md border p-3">
-              <div class="flex flex-col gap-0.5">
-                <span class="font-medium">{current()?.label ?? "Authenticator app"}</span>
-                <span class="text-muted-foreground text-xs">
-                  Added {formatTs(current()?.createdAt ?? null)} · Last used{" "}
-                  {formatTs(current()?.lastUsedAt ?? null)}
+            <Card
+              radius="md"
+              padding="sm"
+              class="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch"
+            >
+              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span class="text-ui-ink text-ui-base font-medium wrap-break-word">
+                  {appName()}
+                </span>
+                <span class="text-ui-xs text-ui-ink-secondary">
+                  Added {formatTs(current()?.createdAt ?? null)}
+                </span>
+                <span class="text-ui-xs text-ui-ink-secondary">
+                  Last used {formatTs(current()?.lastUsedAt ?? null)}
                 </span>
               </div>
-              <Button variant="outline" size="sm" onClick={requestDisable} disabled={locked()}>
+              <Button
+                variant="outline"
+                size="sm"
+                class="shrink-0 max-md:h-10 max-md:self-start"
+                onClick={requestDisable}
+                disabled={locked()}
+                aria-label={`Remove ${appName()}`}
+              >
                 Remove
               </Button>
-            </div>
+            </Card>
           </Show>
         </div>
       </Show>
@@ -247,10 +254,14 @@ export function TotpView(props: TotpViewProps) {
         {(secret) => (
           // Below `md` the step drops its frame, so the code row keeps the
           // column Settings' card gives it (§4 Layout in DESIGN.md).
-          <div class="flex flex-col gap-4 rounded-md border p-4 max-md:border-0 max-md:p-0">
+          // A step, not a row, so not a `Card`: `Card` cannot drop its edge
+          // below `md`.
+          <div class="rounded-ui-md border-ui-hairline flex flex-col gap-4 border p-4 max-md:border-0 max-md:p-0">
             <div class="flex flex-col gap-1">
-              <h3 class="font-medium">Scan this with your authenticator app</h3>
-              <p class="text-muted-foreground text-sm">
+              <h3 class="text-ui-ink text-ui-base font-medium">
+                Scan this with your authenticator app
+              </h3>
+              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
                 Then enter the six-digit code it shows, to prove the app is set up.
               </p>
             </div>
@@ -269,7 +280,7 @@ export function TotpView(props: TotpViewProps) {
               {/* Selectable text, not an image: this is the QR's text
                   alternative and the only path for anyone who cannot scan. */}
               <code
-                class="bg-muted rounded-md px-3 py-2 font-mono text-sm break-all select-all"
+                class="bg-ui-surface-sunk rounded-ui-md font-ui-mono text-ui-sm text-ui-ink px-3 py-2 break-all select-all"
                 aria-labelledby="totp-setup-key-label"
               >
                 {secret().totpSecret}
@@ -339,13 +350,16 @@ export function TotpView(props: TotpViewProps) {
             onToken={handleStepUp}
             onCancel={() => setPending(null)}
             runPasskeyCeremony={props.runPasskeyCeremony}
-            passkeyOnly={props.passkeyOnly}
             // Removing an authenticator may be authorised by that same
             // authenticator — holding the device is the proof that matters.
             totpClient={action() === "disable" ? props.client : undefined}
-            reason={
-              action() === "enroll" ? "to add an authenticator app" : "to remove your authenticator"
+            title={action() === "disable" ? `Remove ${appName()}?` : undefined}
+            warning={
+              action() === "disable"
+                ? "You'll lose it as a way back into your account. Confirm it's you to remove it."
+                : undefined
             }
+            reason={action() === "enroll" ? "to add an authenticator app" : undefined}
             purpose={action() === "enroll" ? "totp_enroll" : "totp_disable"}
           />
         )}

@@ -82,7 +82,10 @@ describe("ProfileOnboarding", () => {
     fireEvent.click(screen.getByText("Create profile"));
 
     await waitFor(() => {
-      expect(screen.getByText("Create a new profile")).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "Create a new profile" })).toBeTruthy();
     });
+    // A dialog's dismiss button is `secondary`, as in every dialog.
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel.closest("[role=dialog]")).toBeTruthy();
   });
 });

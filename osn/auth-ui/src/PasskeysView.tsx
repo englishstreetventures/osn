@@ -7,14 +7,15 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
-import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, createUniqueId, For, Show } from "solid-js";
 
 import { fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
 import { describePasskeyError } from "./passkey-errors";
+import { RowPlaceholder } from "./RowPlaceholder";
 import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
 
 /**
@@ -29,18 +30,21 @@ import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } fr
  *   because relabelling is a precondition-inflation attack on the very
  *   confirmation prompt the user uses to choose which credential to
  *   delete.
- * - Once a step-up is in flight, every Rename / Delete button on the
+ * - Once a step-up is in flight, every Rename / Remove button on the
  *   page is disabled so a rapid double-click can't mutate a
  *   different credential than the one the user just confirmed.
+ * - A removal asks nothing of its own: the step-up sheet opens titled with
+ *   the passkey's name, its warning says what removing it costs, and the
+ *   factor picked there commits it.
  */
 
 export interface PasskeysViewProps {
   client: PasskeysClient;
   stepUpClient: StepUpClient;
   /**
-   * Profile ID used for passkey enrolment. Required to surface the "Add
+   * Profile ID used for passkey enrolment. Required to surface the "Add a
    * passkey" button; without it, enrolment stays hidden and only the
-   * list / rename / delete surface renders.
+   * list / rename / remove surface renders.
    */
   profileId?: string;
   /**
@@ -54,25 +58,21 @@ export interface PasskeysViewProps {
    */
   runPasskeyRegistration?: RunPasskeyRegistration;
   /**
-   * Force the step-up ceremony to use the passkey factor only, suppressing
-   * the emailed-link ("Use email instead") option. Set this in hosts where
-   * transactional email is degraded (the cire organiser portal runs the OSN
-   * API with `OSN_EMAIL_OPTIONAL=true`) so the user is never offered a link
-   * that won't be delivered. The delete/rename/add gates all accept a passkey step-up,
-   * so this stays fully functional.
-   */
-  /**
    * TOTP client. Supplied, the step-up dialog offers the authenticator-app
    * factor wherever the ceremony and the account allow it. Omitted, it does
    * not. See `StepUpDialog.totpClient`.
    */
   totpClient?: TotpClient;
-  passkeyOnly?: boolean;
 }
 
 function formatTs(ts: number | null): string {
   if (ts === null) return "never";
   return new Date(ts * 1000).toLocaleString();
+}
+
+/** The passkey a pending removal names. */
+function removing(action: PendingAction): string {
+  return action.kind === "delete" ? action.name : "";
 }
 
 function friendlyLabel(p: PasskeySummary): string {
@@ -83,7 +83,7 @@ function friendlyLabel(p: PasskeySummary): string {
 
 type PendingAction =
   | { kind: "rename"; id: string; label: string }
-  | { kind: "delete"; id: string }
+  | { kind: "delete"; id: string; name: string }
   | { kind: "add" };
 
 export function PasskeysView(props: PasskeysViewProps) {
@@ -127,7 +127,7 @@ export function PasskeysView(props: PasskeysViewProps) {
   // While a step-up ceremony is in flight, freeze every destructive
   // button on the page. Otherwise a rapid double-click could open the
   // dialog with a different `pending` than the one the user thought they
-  // confirmed (the `confirm`/dialog is async; the second click overwrites).
+  // confirmed (the sheet opens asynchronously; the second click overwrites).
   // And while a landed list is read again: a passkey just deleted is still on
   // screen until the read lands, and acting on it would run a step-up for
   // nothing. Not on the first read, when there is no row to act on.
@@ -141,13 +141,10 @@ export function PasskeysView(props: PasskeysViewProps) {
     setPending({ kind: "rename", id, label });
   }
 
-  function requestDelete(id: string) {
+  function requestDelete(p: PasskeySummary) {
     if (locked()) return;
-    if (!window.confirm("Remove this passkey? You'll need another credential to sign in.")) {
-      return;
-    }
     setError(null);
-    setPending({ kind: "delete", id });
+    setPending({ kind: "delete", id: p.id, name: friendlyLabel(p) });
   }
 
   function requestAdd() {
@@ -213,10 +210,10 @@ export function PasskeysView(props: PasskeysViewProps) {
     <div class="flex flex-col gap-3">
       {/* The action goes under the heading when the two do not fit on one line. */}
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-lg font-semibold">Passkeys</h2>
+        <h2 class="text-ui-ink text-ui-md font-ui-title">Passkeys</h2>
         <Show when={props.profileId && props.runPasskeyRegistration}>
           <Button size="sm" onClick={requestAdd} disabled={locked()}>
-            Add passkey
+            Add a passkey
           </Button>
         </Show>
       </div>
@@ -231,7 +228,7 @@ export function PasskeysView(props: PasskeysViewProps) {
           (every account has a passkey), the failure, or the list. */}
       <div aria-busy={passkeys.loading || undefined}>
         <Show when={passkeys.loading && list() === undefined}>
-          <Skeleton height={15.5} />
+          <RowPlaceholder />
         </Show>
         <Show when={!passkeys.loading && passkeys.error}>
           {(err) => (
@@ -247,76 +244,103 @@ export function PasskeysView(props: PasskeysViewProps) {
             <ul class="flex flex-col gap-2">
               <For each={rows()}>
                 {(p: PasskeySummary) => (
-                  <li class="flex items-center justify-between gap-3 rounded-md border p-3">
-                    {/* The text gives way, so a long name wraps and the row's
+                  <li>
+                    {/* A row's words take one line each; its actions sit beside them from
+                        `md` and under them below it, so every row is one
+                        height at each width, and so is its placeholder. */}
+                    <Card
+                      radius="md"
+                      padding="sm"
+                      class="flex items-center justify-between gap-3 max-md:flex-col max-md:items-stretch"
+                    >
+                      {/* The text gives way, so a long name wraps and the row's
                         actions stay inside the card on a phone. */}
-                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <Show
-                        when={editingId() === p.id}
-                        fallback={
-                          <span class="font-medium wrap-break-word">
-                            {friendlyLabel(p)}
-                            <Show when={p.backupEligible}>
-                              <span class="text-muted-foreground ml-2 text-xs">(synced)</span>
-                            </Show>
-                          </span>
-                        }
-                      >
-                        <div class="flex items-center gap-2">
-                          <Input
-                            class="h-8"
-                            value={draftLabel()}
-                            maxLength={64}
-                            onInput={(e) => setDraftLabel(e.currentTarget.value)}
-                            aria-label="Passkey name"
-                            aria-describedby={renameError() ? errorId : undefined}
-                            aria-invalid={renameError()?.invalid || undefined}
-                          />
+                      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <Show
+                          when={editingId() === p.id}
+                          fallback={
+                            <span class="text-ui-ink text-ui-base font-medium wrap-break-word">
+                              {friendlyLabel(p)}
+                              <Show when={p.backupEligible}>
+                                <span class="text-ui-ink-secondary text-ui-xs ml-2 font-normal">
+                                  (synced)
+                                </span>
+                              </Show>
+                            </span>
+                          }
+                        >
+                          <div class="flex items-center gap-2">
+                            <Input
+                              size="sm"
+                              autocomplete="off"
+                              value={draftLabel()}
+                              maxLength={64}
+                              onInput={(e) => setDraftLabel(e.currentTarget.value)}
+                              aria-label="Passkey name"
+                              aria-describedby={renameError() ? errorId : undefined}
+                              aria-invalid={renameError()?.invalid || undefined}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              class="shrink-0 max-md:h-10"
+                              onClick={() => requestRename(p.id)}
+                              disabled={locked() || draftLabel().trim().length === 0}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              class="shrink-0 max-md:h-10"
+                              onClick={cancelEdit}
+                              disabled={busy()}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                          <Show when={renameError()}>
+                            {(line) => (
+                              <Notice tone="danger" size="inline" alert id={errorId}>
+                                {line().text}
+                              </Notice>
+                            )}
+                          </Show>
+                        </Show>
+                        <span class="text-ui-xs text-ui-ink-secondary">
+                          Added {formatTs(Math.floor(p.createdAt))}
+                        </span>
+                        <span class="text-ui-xs text-ui-ink-secondary">
+                          Last used {formatTs(p.lastUsedAt)}
+                        </span>
+                      </div>
+                      <Show when={editingId() !== p.id}>
+                        {/* Each action names its passkey, so two rows' buttons
+                          never share a name. */}
+                        <div class="flex shrink-0 gap-2 max-md:self-start">
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => requestRename(p.id)}
-                            disabled={locked() || draftLabel().trim().length === 0}
+                            class="max-md:h-10"
+                            onClick={() => startEdit(p)}
+                            disabled={locked()}
+                            aria-label={`Rename ${friendlyLabel(p)}`}
                           >
-                            Save
+                            Rename
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={busy()}>
-                            Cancel
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            class="max-md:h-10"
+                            onClick={() => requestDelete(p)}
+                            disabled={locked()}
+                            aria-label={`Remove ${friendlyLabel(p)}`}
+                          >
+                            Remove
                           </Button>
                         </div>
-                        <Show when={renameError()}>
-                          {(line) => (
-                            <Notice tone="danger" size="inline" alert id={errorId}>
-                              {line().text}
-                            </Notice>
-                          )}
-                        </Show>
                       </Show>
-                      <span class="text-muted-foreground text-xs">
-                        Added {formatTs(Math.floor(p.createdAt))} · Last used{" "}
-                        {formatTs(p.lastUsedAt)}
-                      </span>
-                    </div>
-                    <Show when={editingId() !== p.id}>
-                      <div class="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => startEdit(p)}
-                          disabled={locked()}
-                        >
-                          Rename
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => requestDelete(p.id)}
-                          disabled={locked()}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </Show>
+                    </Card>
                   </li>
                 )}
               </For>
@@ -324,30 +348,31 @@ export function PasskeysView(props: PasskeysViewProps) {
           )}
         </Show>
       </div>
-      <details class="text-muted-foreground mt-2 text-sm">
-        <summary class="text-foreground cursor-pointer font-medium">
+      <details class="text-ui-sm leading-ui-snug text-ui-ink-secondary mt-2">
+        {/* Drawn here, so it takes Button's ring (DESIGN.md §9). */}
+        <summary class="text-ui-ink rounded-ui-sm focus-visible:ring-ui-focus cursor-pointer font-medium focus-visible:ring-2 focus-visible:outline-hidden">
           Signing in somewhere new?
         </summary>
         <div class="mt-2 flex flex-col gap-2">
           <p>There are three ways onto a device that has no passkey yet:</p>
           <ul class="list-inside list-disc">
             <li>
-              <span class="text-foreground font-medium">Backed-up passkey</span> — if your passkey
-              is saved to iCloud Keychain, Google Password Manager, or a password manager, it's
-              already available on your other signed-in devices.
+              <span class="text-ui-ink font-medium">Backed-up passkey</span> — if your passkey is
+              saved to iCloud Keychain, Google Password Manager, or a password manager, it's already
+              available on your other signed-in devices.
             </li>
             <li>
-              <span class="text-foreground font-medium">Cross-device sign-in</span> — on the sign-in
+              <span class="text-ui-ink font-medium">Cross-device sign-in</span> — on the sign-in
               screen choose the QR / nearby-device option your password manager offers, then approve
               it with your phone.
             </li>
             <li>
-              <span class="text-foreground font-medium">Recovery code</span> — if you've lost access
-              to every passkey, use a saved recovery code from the "Lost your passkey?" link on
+              <span class="text-ui-ink font-medium">Recovery code</span> — if you've lost access to
+              every passkey, use a saved recovery code from the "Lost your passkey?" link on
               sign-in, then add a fresh passkey here.
             </li>
           </ul>
-          <p>Once you're signed in there, use "Add passkey" above to enrol that device.</p>
+          <p>Once you're signed in there, use "Add a passkey" above to enrol that device.</p>
         </div>
       </details>
       <Show when={pending()}>
@@ -357,8 +382,13 @@ export function PasskeysView(props: PasskeysViewProps) {
             onToken={handleStepUp}
             onCancel={cancelStepUp}
             runPasskeyCeremony={props.runPasskeyCeremony}
-            passkeyOnly={props.passkeyOnly}
             totpClient={props.totpClient}
+            title={action().kind === "delete" ? `Remove ${removing(action())}?` : undefined}
+            warning={
+              action().kind === "delete"
+                ? "You'll need another credential to sign in. Confirm it's you to remove it."
+                : undefined
+            }
             // Bind the minted token to the exact ceremony. Enrolment mints
             // `passkey_register`; rename and delete share the delete gate and
             // both mint `passkey_delete`. The server rejects a token minted for

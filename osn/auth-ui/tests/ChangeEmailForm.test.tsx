@@ -84,7 +84,7 @@ describe("ChangeEmailForm", () => {
     await screen.findByRole("heading", { name: "Check your email" });
     expect(screen.getByText("42")).toBeTruthy();
     window.dispatchEvent(new Event("focus"));
-    fireEvent.click(await screen.findByRole("button", { name: /Use email instead/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Email me a link/ }));
     await screen.findByText("47");
     window.dispatchEvent(new Event("focus"));
   }

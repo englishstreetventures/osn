@@ -11,8 +11,8 @@ import { SERVER, WAIT, alertsText, apiError } from "./helpers/errors";
  * Settings → Sessions view. Tests cover:
  *   - renders all sessions with coarse UA labels
  *   - "this device" badge appears on the current session
- *   - Revoke button is disabled for the current session
- *   - Revoke non-current session triggers client.revoke + refetches
+ *   - A row's Sign out is disabled for the current session
+ *   - Signing out a non-current session triggers client.revoke + refetches
  *   - "Sign out everywhere else" calls revokeAllOther
  */
 
@@ -96,19 +96,19 @@ describe("SessionsView", () => {
   });
 
   // The revoked session stays on screen until the list is read again; its
-  // Revoke then would only meet a session that is gone.
-  it("locks Revoke and Sign out everywhere else while the list is read again", async () => {
+  // Sign out then would only meet a session that is gone.
+  it("locks each row's Sign out and Sign out everywhere else while the list is read again", async () => {
     stub.list.mockResolvedValueOnce({ sessions });
     stub.list.mockReturnValueOnce(new Promise(() => {}));
     stub.revoke.mockResolvedValue({ revokedSelf: false });
     render(() => <SessionsView client={asClient(stub)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Revoke$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Revoke$/ })[1]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ })[1]!);
     await waitFor(() => expect(stub.list).toHaveBeenCalledTimes(2));
 
     const actions = [
-      ...screen.getAllByRole("button", { name: /^Revoke$/ }),
+      ...screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }),
       screen.getByRole("button", { name: /Sign out everywhere else/ }),
     ] as HTMLButtonElement[];
     expect(actions).toHaveLength(3);
@@ -132,8 +132,10 @@ describe("SessionsView", () => {
     stub.revoke.mockResolvedValue({ revokedSelf: false });
     render(() => <SessionsView client={asClient(stub)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Revoke$/ }));
-    const buttons = screen.getAllByRole("button", { name: /^Revoke$/ }) as HTMLButtonElement[];
+    await waitFor(() => screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }));
+    const buttons = screen.getAllByRole("button", {
+      name: /^Sign out (?!everywhere)/,
+    }) as HTMLButtonElement[];
     // The first session is current — its button is disabled.
     expect(buttons[0]!.disabled).toBe(true);
     // The second is not current — clicking revokes it.
@@ -165,9 +167,9 @@ describe("SessionsView", () => {
     stub.revokeAllOther.mockRejectedValue(error);
     render(() => <SessionsView client={asClient(stub)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Revoke$/ }));
+    await waitFor(() => screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ }));
     if (action === "revoke") {
-      fireEvent.click(screen.getAllByRole("button", { name: /^Revoke$/ })[1]!);
+      fireEvent.click(screen.getAllByRole("button", { name: /^Sign out (?!everywhere)/ })[1]!);
     } else {
       fireEvent.click(screen.getByRole("button", { name: /Sign out everywhere else/ }));
     }

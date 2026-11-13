@@ -644,7 +644,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
                   busy={waiting() === "emailBegin"}
                   disabled={busy() && waiting() !== "emailBegin"}
                 >
-                  {waiting() === "emailBegin" ? "Sending…" : "Use email instead"}
+                  {waiting() === "emailBegin" ? "Sending…" : "Email me a link"}
                 </Button>
               </Show>
               {/* An authenticator code needs no delivery, so it survives the

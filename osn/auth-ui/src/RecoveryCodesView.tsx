@@ -6,6 +6,7 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { Checkbox } from "@shared/ui/ui/checkbox";
 import {
   Dialog,
@@ -18,6 +19,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
+import { LoadFailed } from "./LoadFailed";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
@@ -40,7 +42,8 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
  *   no codes at all. It carries counts only, never a code, so it needs no
  *   step-up — and gating it would be circular, since the answer is what tells
  *   the user whether starting a ceremony is worth it. A failed status read
- *   never blocks generation; it just leaves the count unknown.
+ *   never blocks generation: it says so in the count's place, with a Try
+ *   again, and leaves the count unknown.
  * - Regenerating invalidates any previous set server-side, so it asks for
  *   confirmation first — the easy footgun is rotating the set while the
  *   previous codes are still taped to a fridge somewhere.
@@ -57,18 +60,11 @@ export interface RecoveryCodesViewProps {
    */
   runPasskeyCeremony?: RunPasskeyCeremony;
   /**
-   * Force the step-up ceremony to use the passkey factor only, suppressing
-   * the emailed-link ("Use email instead") option. Set this for accounts whose
-   * host has no deliverable transactional email, so the user is never offered
-   * a link that won't arrive.
-   */
-  /**
    * TOTP client. Supplied, the step-up dialog offers the authenticator-app
    * factor wherever the ceremony and the account allow it. Omitted, it does
    * not. See `StepUpDialog.totpClient`.
    */
   totpClient?: TotpClient;
-  passkeyOnly?: boolean;
   /** Fires once the user has acknowledged saving the codes. */
   onSaved?: () => void;
   /** Product name the downloaded file is named after — e.g. "Musubi". */
@@ -158,12 +154,14 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   });
 
   // Fails soft: a status read that errors leaves the count unknown rather than
-  // stranding the user on an error screen with no way to make codes.
+  // stranding the user on an error screen with no way to make codes. The
+  // read never throws, so nothing reaches the host's error boundary; the
+  // failure travels beside the count instead, for the line that says so.
   const [status] = createResource(reloadKey, async () => {
     try {
-      return await props.client.getRecoveryCodesStatus();
-    } catch {
-      return null;
+      return { count: await props.client.getRecoveryCodesStatus(), error: null };
+    } catch (failure) {
+      return { count: null, error: failure };
     }
   });
 
@@ -171,15 +169,20 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   // `firstLoad()` first, and `requestGenerate` waits on `locked()`. From then
   // on `status.latest` keeps the last count through a refetch, where
   // `status()` would join the host's Suspense boundary and blank the panel.
+  const count = () => status.latest?.count ?? null;
+  const readFailure = () => {
+    const latest = status.latest;
+    return latest && latest.count === null ? { error: latest.error } : null;
+  };
   const hasCodes = () => {
-    const s = status.latest;
+    const s = count();
     return s != null && s.total > 0;
   };
 
   // An unreadable status counts as "might have codes". Rotation is
   // destructive, so a failed count must not silently skip the warning.
   const mayHaveCodes = () => {
-    const s = status.latest;
+    const s = count();
     return s == null || s.total > 0;
   };
 
@@ -270,7 +273,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
         when={codes() !== null}
         fallback={
           <div class="flex flex-col gap-3">
-            <p class="text-muted-foreground text-sm">
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
               Recovery codes let you sign in if you lose every device with your passkey. Each code
               works once. Generating a new set invalidates any previous codes.
             </p>
@@ -284,26 +287,28 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                 when={!firstLoad()}
                 fallback={<Skeleton standsFor="line" width={56} height={5} />}
               >
+                <Show when={readFailure()}>
+                  {(failure) => (
+                    <LoadFailed
+                      lead="Your recovery codes didn't load."
+                      error={failure().error}
+                      onRetry={() => setReloadKey((k) => k + 1)}
+                    />
+                  )}
+                </Show>
                 {/* `.latest`, so a refetch keeps the count on screen. */}
-                <Show
-                  when={status.latest}
-                  fallback={
-                    <p class="text-muted-foreground text-sm">
-                      Couldn't check whether you have recovery codes.
-                    </p>
-                  }
-                >
+                <Show when={count()}>
                   {(s) => (
                     <Show
                       when={s().total > 0}
                       fallback={
-                        <p class="text-destructive text-sm">
-                          You don't have any recovery codes yet. Without them, losing every device
-                          with your passkey locks you out.
-                        </p>
+                        <Notice tone="warn" size="sm">
+                          You don&apos;t have any recovery codes yet. Without them, losing every
+                          device with your passkey locks you out.
+                        </Notice>
                       }
                     >
-                      <p class="text-muted-foreground text-sm">
+                      <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
                         {s().active} of {s().total} codes unused
                         <Show when={s().generatedAt}>
                           {(ts) => <> · created {formatDate(ts())}</>}
@@ -342,12 +347,15 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
         }
       >
         <div class="flex flex-col gap-3">
-          <p class="text-muted-foreground text-sm">
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
             Save these codes somewhere safe. You will not see them again.
           </p>
-          <ul class="bg-muted/40 grid grid-cols-2 gap-2 rounded-md border p-3 font-mono text-sm">
-            <For each={codes()!}>{(c) => <li>{c}</li>}</For>
-          </ul>
+          {/* The codes are already the person's, held here to copy: a well. */}
+          <Card variant="muted" radius="md" padding="sm">
+            <ul class="font-ui-mono text-ui-sm text-ui-ink grid grid-cols-2 gap-2">
+              <For each={codes()!}>{(c) => <li>{c}</li>}</For>
+            </ul>
+          </Card>
           <div class="flex flex-wrap gap-2">
             <Button variant="outline" onClick={copyToClipboard}>
               Copy
@@ -357,6 +365,8 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
             </Button>
           </div>
           <Checkbox
+            size="sm"
+            class="max-md:min-h-11 max-md:justify-center"
             checked={acknowledged()}
             onChange={setAcknowledged}
             label="I've saved these codes somewhere safe."
@@ -367,21 +377,22 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
         </div>
       </Show>
       <Dialog open={confirmRotate()} onOpenChange={setConfirmRotate}>
-        <DialogContent>
+        <DialogContent presentation="sheet" class="md:max-w-sm">
           <DialogHeader>
             <DialogTitle>Generate a new set?</DialogTitle>
           </DialogHeader>
           <div class="flex flex-col gap-2 p-4">
-            <p class="text-muted-foreground text-sm">
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
               Your existing recovery codes stop working immediately — any copy you've saved
               elsewhere becomes useless.
             </p>
-            <p class="text-muted-foreground text-sm">
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
               You'll be asked to confirm with your passkey before the new codes are generated.
             </p>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirmRotate(false)}>
+            {/* A dialog's dismiss button is `secondary`. */}
+            <Button variant="secondary" onClick={() => setConfirmRotate(false)}>
               Cancel
             </Button>
             <Button onClick={confirmRotation}>Generate new set</Button>
@@ -394,7 +405,6 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           onToken={handleStepUp}
           onCancel={cancelStepUp}
           runPasskeyCeremony={props.runPasskeyCeremony}
-          passkeyOnly={props.passkeyOnly}
           totpClient={props.totpClient}
           reason="to generate recovery codes"
           purpose="recovery_generate"
