@@ -1,3 +1,5 @@
+import { StepUpDialog } from "@osn/auth-ui/StepUpDialog";
+import type { StepUpClient } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
@@ -14,7 +16,8 @@ import "../../src/App.css";
  * centred 384px card above. Its authenticator-code step is a row of six
  * `OtpInput` boxes inside the sheet's 16px padding, so at 320px the row is
  * 288px and each box at least 40px (`DESIGN.md` §Responsive layout, Code
- * boxes). Widths, the focus hand-back and Escape take a real browser.
+ * boxes). Widths, the focus hand-back, Escape and a press outside the sheet
+ * take a real browser.
  *
  * The factories are written literally: the shared-factory idiom in
  * `test-support/` does not resolve in the browser project.
@@ -44,7 +47,9 @@ vi.mock("../../src/lib/authClients", () => ({
       }),
   },
   // The emailed link's wait: the request answers, and its status never does.
+  // The passkey's begin never answers, so "Use passkey" holds its wait.
   stepUpClient: {
+    passkeyBegin: () => new Promise(() => {}),
     emailBegin: () =>
       Promise.resolve({
         requestId: "stepup_0123456789ab",
@@ -140,9 +145,25 @@ afterEach(() => {
 /**
  * Each shot is taken in its own render with the theme set before it, never by
  * flipping the theme on a drawn page: the buttons' colour transitions would be
- * caught half way. Shots wait for the sheet's entry fade (`--ui-dur-fast`).
+ * caught half way. Shots wait for every animation on the page that ends: the
+ * sheet's entry fade (`--ui-dur-fast`) and its scrim's. One that never ends,
+ * such as a busy button's orb, is left running.
  */
-const settle = () => new Promise((r) => setTimeout(r, 300));
+async function settle() {
+  const ending = document
+    .getAnimations()
+    .filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime ?? 0));
+  await Promise.all(ending.map((a) => a.finished.catch(() => {})));
+}
+
+/** The scrim behind `sheet`, which Kobalte draws just before it. */
+function scrimOf(sheet: HTMLElement): HTMLElement {
+  const scrim = sheet.previousElementSibling;
+  if (!(scrim instanceof HTMLElement) || getComputedStyle(scrim).position !== "fixed") {
+    throw new Error("no scrim before the sheet");
+  }
+  return scrim;
+}
 
 describe("the step-up sheet in Settings → Security", () => {
   it.each(["light", "dark"])(
@@ -223,6 +244,60 @@ describe("the step-up sheet in Settings → Security", () => {
     expect(row.getBoundingClientRect().width).toBeCloseTo(384 - 2 - 32, 1);
     await settle();
     await page.screenshot({ path: `${SHOTS}/step-up-code-1440-${theme}.png` });
+  });
+
+  it("closes on a press outside the card at 1440px, and gives focus back", async () => {
+    await page.viewport(1440, 900);
+    const { sheet, opener } = await openSheet();
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+    // Top left of the scrim, well clear of the centred 384px card.
+    await userEvent.click(scrimOf(sheet), { position: { x: 100, y: 100 } });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  it("stays open on a press outside the card while the passkey call runs", async () => {
+    await page.viewport(1440, 900);
+    const { sheet } = await openSheet();
+    await userEvent.click(within(sheet).getByRole("button", { name: "Use passkey" }));
+    await waitFor(() => within(sheet).getByRole("button", { name: "Waiting for your passkey…" }));
+    await userEvent.click(scrimOf(sheet), { position: { x: 100, y: 100 } });
+    // Long enough for the 80ms exit fade and the 300ms fallback after it.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.getByRole("dialog", { name: "Confirm it's you" })).toBe(sheet);
+    expect(sheet.hasAttribute("data-closed")).toBe(false);
+  });
+});
+
+describe("a step-up sheet whose title names a passkey", () => {
+  // A passkey's name may be one word of 64 characters, the rename field's
+  // limit; a title that names it must break rather than widen the sheet.
+  const title = `Remove ${"x".repeat(64)} passkey?`;
+  const client = {} as StepUpClient;
+
+  it.each([
+    [320, 640],
+    [1440, 900],
+  ])("keeps a 64-character name inside the sheet at %ipx", async (width, height) => {
+    await page.viewport(width, height);
+    render(() => (
+      <StepUpDialog
+        client={client}
+        onToken={() => {}}
+        onCancel={() => {}}
+        purpose="passkey_delete"
+        title={title}
+        warning="You'll need another credential to sign in. Confirm it's you to remove it."
+      />
+    ));
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: title }));
+    expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+    const heading = within(sheet).getByRole("heading", { name: title });
+    // Inside the header's 16px padding.
+    const inner = sheet.getBoundingClientRect().right - 16;
+    expect(heading.getBoundingClientRect().right).toBeLessThanOrEqual(inner + 0.5);
+    await settle();
+    await page.screenshot({ path: `${SHOTS}/step-up-long-title-${width}.png` });
   });
 });
 

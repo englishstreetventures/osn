@@ -579,8 +579,8 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 
 Where the app does not follow this yet:
 
-- The dialogs `@osn/auth-ui`'s views open themselves, but for the step-up
-  sheet, use `DialogContent` without `presentation="sheet"`, so they stay a
+- Every dialog `@osn/auth-ui`'s views open themselves, except the step-up
+  sheet, uses `DialogContent` without `presentation="sheet"`, so it stays a
   centred card below `md` (#2045).
 
 ## Empty states and failed loads
@@ -796,7 +796,7 @@ control the views draw by hand shows the base focus outline (§Borders,
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, the last under the app's own "Recovery codes" heading | `components/SecuritySection.tsx` (lazy) |
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
-| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner` — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as every app dialog | — |
+| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner` — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default | — |
 
 **When the session ends.** The runtime ends a session when the issuer refuses
 to renew it, and when another tab signs out or signs in to another account.
