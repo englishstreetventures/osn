@@ -660,6 +660,7 @@ describe("LL: the live read of a database's migration ledger", () => {
       late: 0,
       wranglerRows: 5,
       frozenMissing: 0,
+      thawed: false,
     } satisfies LedgerCounts);
     // An archived name the ledger lacks: the placeholder would refuse, so it counts as skipped.
     expect(
@@ -724,6 +725,33 @@ describe("LL: the live read of a database's migration ledger", () => {
       rows: 0,
       wranglerRows: 5,
       frozenMissing: 5,
+    });
+  });
+
+  test("LL10: the trigger counts as thawed only when Alchemy's ledger records the freeze and the trigger is gone", () => {
+    const clean = converted([...WRANGLER_LEDGER, FREEZE_MIGRATION.name]);
+    const both = ["d1_migrations", "__alchemy_migrations"];
+    // Converted and frozen.
+    expect(counted({ alchemy: clean, present: [...both, "d1_migrations_frozen"] })).toMatchObject({
+      frozen: true,
+      thawed: false,
+    });
+    // The freeze recorded, its trigger dropped: nothing would put it back.
+    expect(counted({ alchemy: clean, present: both })).toMatchObject({
+      frozen: false,
+      thawed: true,
+    });
+    // The freeze not yet recorded: the migrate step applies it, trigger and row together.
+    expect(counted({ alchemy: converted(WRANGLER_LEDGER), present: both })).toMatchObject({
+      frozen: false,
+      thawed: false,
+      pending: 2,
+    });
+    // Wrangler's ledger alone, frozen: Alchemy's ledger was there once and is gone.
+    expect(counted({ present: ["d1_migrations", "d1_migrations_frozen"] })).toMatchObject({
+      table: "d1_migrations",
+      frozen: true,
+      thawed: false,
     });
   });
 
@@ -952,6 +980,26 @@ describe("LJ: the guard's judgement of a migrated database's ledger", () => {
     expect(
       judged(counted({ present: ["d1_migrations", "__drizzle_migrations"] })).refusals.join("\n"),
     ).toContain("cire-db holds 1 other migration ledger");
+  });
+
+  test("LJ18 (J9): a frozen Wrangler ledger with no Alchemy ledger beside it is refused", () => {
+    // Every migration since the move is recorded only in the Alchemy ledger
+    // that is gone, so a conversion from Wrangler's would apply each again.
+    const { refusals } = judged(counted({ present: ["d1_migrations", "d1_migrations_frozen"] }));
+    expect(refusals).toEqual([
+      "cire-db's d1_migrations is frozen and its __alchemy_migrations is gone: Wrangler's ledger stopped at the move, so the migrate step would apply again every migration since (wiki/shared/production-deploy.md §4.2)",
+    ]);
+  });
+
+  test("LJ19 (J10): a trigger dropped after Alchemy recorded the freeze is refused; one still to apply is not", () => {
+    const clean = converted([...WRANGLER_LEDGER, FREEZE_MIGRATION.name]);
+    const both = ["d1_migrations", "__alchemy_migrations"];
+    expect(judged(counted({ alchemy: clean, present: both })).refusals).toEqual([
+      "cire-db's d1_migrations_frozen trigger is gone, and Alchemy's ledger records the freeze as applied, so no release puts it back (wiki/shared/production-deploy.md §4.2)",
+    ]);
+    expect(
+      judged(counted({ alchemy: converted(WRANGLER_LEDGER), present: both })).refusals,
+    ).toEqual([]);
   });
 
   test("LJ17: an empty Wrangler ledger is refused; counts of more than one read in the plural; late files are listed", () => {

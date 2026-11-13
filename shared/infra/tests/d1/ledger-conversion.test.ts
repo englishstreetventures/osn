@@ -517,6 +517,7 @@ describe.skipIf(!TIER)(
             late: 0,
             wranglerRows: wranglerLedger.length,
             frozenMissing: 0,
+            thawed: false,
           } satisfies LedgerCounts);
           expect(pre.judged.refusals).toEqual([]);
 
@@ -565,6 +566,7 @@ describe.skipIf(!TIER)(
             skipped: 0,
             frozen: true,
             frozenMissing: 0,
+            thawed: false,
           } satisfies Partial<LedgerCounts>);
           expect(post.judged.refusals).toEqual([]);
 
@@ -820,6 +822,42 @@ describe.skipIf(!TIER)(
         expect(refusal).toContain(first!.name);
         expect(writes(api.sent)).toEqual([]);
         expect(await snapshot(moved.DB)).toEqual(before);
+      } finally {
+        await moved.local.dispose();
+      }
+    });
+
+    test("C10 zap-db-prod: a dropped trigger, and a dropped Alchemy ledger, are refused by the release check; the trigger's own statement restores it", async () => {
+      const moved = await converted("after-the-move");
+      try {
+        const { DB } = moved;
+        const ledgerSql = () => counted(DB, ZAP);
+        expect((await ledgerSql()).judged.refusals).toEqual([]);
+
+        // A d1_migrations repair drops the trigger; no release puts it back.
+        await DB.prepare('DROP TRIGGER "d1_migrations_frozen"').run();
+        const thawed = await ledgerSql();
+        record(ZAP, "countsWithTheTriggerDropped", thawed.ledger);
+        expect(thawed.ledger).toMatchObject({ frozen: false, thawed: true, pending: 0 });
+        expect(thawed.judged.refusals.join("\n")).toContain(
+          "zap-db-prod's d1_migrations_frozen trigger is gone",
+        );
+        // The forced migrate step sends nothing: Alchemy's ledger records the freeze.
+        const api = cloudflare(DB, ZAP);
+        value(await reconcile(api.fetch, moved.news, moved.state));
+        expect(writes(api.sent)).toEqual([]);
+        // §4.2's recovery: the freeze file's own statement.
+        await DB.prepare(FREEZE_MIGRATION.sql).run();
+        expect((await ledgerSql()).judged.refusals).toEqual([]);
+
+        // Alchemy's ledger dropped: Wrangler's, frozen at the move, is all that is left.
+        await DB.prepare('DROP TABLE "__alchemy_migrations"').run();
+        const dropped = await ledgerSql();
+        record(ZAP, "countsWithAlchemysLedgerDropped", dropped.ledger);
+        expect(dropped.ledger).toMatchObject({ table: "d1_migrations", frozen: true });
+        expect(dropped.judged.refusals.join("\n")).toContain(
+          "zap-db-prod's d1_migrations is frozen and its __alchemy_migrations is gone",
+        );
       } finally {
         await moved.local.dispose();
       }

@@ -44,6 +44,7 @@ import { dirname } from "node:path";
 
 import {
   compareMigrationNames,
+  FREEZE_MIGRATION,
   migrationFiles,
   migrationHash,
   type MigrationFile,
@@ -236,6 +237,11 @@ export interface LedgerCounts {
   readonly wranglerRows: number;
   /** With both ledgers present, names in Wrangler's that Alchemy's lacks. */
   readonly frozenMissing: number;
+  /**
+   * Alchemy's ledger records the freeze file as applied and its trigger is
+   * gone: no release runs that file again, so nothing puts the trigger back.
+   */
+  readonly thawed: boolean;
 }
 
 export interface LiveBucket {
@@ -589,12 +595,13 @@ export function countLedger(input: {
     ({ file }) => TIMESTAMPED.test(file.name) && !skipped.some((s) => s.file === file),
   );
   const wranglerNames = new Set(input.wrangler ?? []);
+  const frozen = input.present.includes("d1_migrations_frozen");
   return {
     table,
     foreign: input.present.filter(
       (name) => name === "__drizzle_migrations" || name === "_prisma_migrations",
     ).length,
-    frozen: input.present.includes("d1_migrations_frozen"),
+    frozen,
     rows: rows.length,
     duplicates: rows.length - applied.size,
     matched,
@@ -606,6 +613,7 @@ export function countLedger(input: {
     wranglerRows: input.wrangler?.length ?? 0,
     frozenMissing:
       input.alchemy === null ? 0 : [...wranglerNames].filter((name) => !applied.has(name)).length,
+    thawed: !frozen && input.alchemy !== null && applied.has(FREEZE_MIGRATION.name),
   };
 }
 
@@ -1024,6 +1032,19 @@ export function judgeLedger(name: string, ledger: LedgerCounts | undefined): Liv
   if (ledger.foreign > 0) {
     refusals.push(
       `${name} holds ${plural(ledger.foreign, "other migration ledger", "other migration ledgers")} (drizzle-kit or Prisma), which Alchemy would read before Wrangler's (${LEDGER_RUNBOOK})`,
+    );
+  }
+  // Only Alchemy's conversion release creates the trigger, and it records
+  // that in Alchemy's ledger: a frozen Wrangler ledger alone means that
+  // ledger was there and is gone.
+  if (ledger.table === "d1_migrations" && ledger.frozen) {
+    refusals.push(
+      `${name}'s d1_migrations is frozen and its __alchemy_migrations is gone: Wrangler's ledger stopped at the move, so the migrate step would apply again every migration since (${LEDGER_RUNBOOK})`,
+    );
+  }
+  if (ledger.thawed) {
+    refusals.push(
+      `${name}'s d1_migrations_frozen trigger is gone, and Alchemy's ledger records the freeze as applied, so no release puts it back (${LEDGER_RUNBOOK})`,
     );
   }
   return {

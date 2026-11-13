@@ -798,8 +798,13 @@ never names; a recovery that needs the names is an owner's read, under the owner
 Cloudflare login, of migration names only (an agent never reads a production database).
 Every write below is the owner's, on the database the refusal names. After §4.4, write a
 missing or extra name to `__alchemy_migrations`, never to `d1_migrations`, whose trigger
-refuses an insert; a `d1_migrations` repair takes `DROP TRIGGER "d1_migrations_frozen"`
-first, and the next release puts the trigger back.
+refuses an insert. A `d1_migrations` repair takes `DROP TRIGGER "d1_migrations_frozen"`
+first and puts the trigger back after, with the freeze file's own statement
+(`FREEZE_MIGRATION.sql` in `shared/infra/src/migrations.ts`, run with `wrangler d1 execute
+<database> --env production --remote --command`): no release puts it back, since
+Alchemy's ledger records the freeze as applied. Never drop an `__alchemy_migrations` that
+names `1000_freeze_wrangler_ledger.sql`: every migration since the move is recorded only
+there.
 
 | Refusal | What it means | Recovery |
 |---|---|---|
@@ -807,7 +812,9 @@ first, and the next release puts the trigger back.
 | No migration ledger, or an empty one | A wrong database, or a first conversion that could not read `d1_migrations` and left an empty `__alchemy_migrations` (its first migration then failed on a table that exists, writing nothing else) | When `__alchemy_migrations` holds no row and `d1_migrations` does: `DROP TABLE "__alchemy_migrations"`, then dispatch the release again |
 | A row names no migration file | A migration ran there that this checkout lacks, or a file was renamed or deleted after it applied | Read the names; restore the file under its name, or, for a file the chain never needed, a pull request that names it as archived |
 | Files missing behind ones applied after them, or archived files missing | The chain was applied without them: Alchemy would run them (an archived one fails on its placeholder) | Read the names; a pull request that brings the database level forward, never the archived SQL applied by hand under the Worker serving |
-| Wrangler names missing from `__alchemy_migrations` | A conversion that copied part of Wrangler's ledger | `DROP TABLE "__alchemy_migrations"` only while it holds no row Alchemy applied after the conversion, then dispatch again; otherwise insert the missing names with their files' hashes |
+| Wrangler names missing from `__alchemy_migrations` | A conversion that copied part of Wrangler's ledger | Insert the missing names with their files' hashes (`migrationHash()` in `shared/infra/src/migrations.ts`). `DROP TABLE "__alchemy_migrations"` instead only while it names nothing but Wrangler's names: not the freeze file, nor any later one |
+| `d1_migrations` frozen, `__alchemy_migrations` gone | Alchemy's ledger was dropped after the move: only the conversion release creates the trigger. Wrangler's ledger stops at the move, so a new conversion would apply every migration since again | Put `__alchemy_migrations` back: restore a D1 Time Travel bookmark from before the drop, or rebuild it by hand with every applied migration's name and its file's hash, the freeze file and each later one included |
+| The trigger is gone and Alchemy's ledger records the freeze | A `d1_migrations` repair dropped the trigger and did not put it back | Run the freeze file's statement (`FREEZE_MIGRATION.sql`), then dispatch the release again |
 | A file changed after it applied | A rewrite or a squash changed the bytes Alchemy recorded | Restore the applied bytes; ship the change as a new migration (englishstreetventures/osn#2096 holds the squash) |
 | Another migration ledger (drizzle-kit, Prisma) | Alchemy would read it before Wrangler's | Find what wrote it before anything else |
 | Read replication differs | The migrate step would change it | Set it in the dashboard to the declared value, or change the declaration |

@@ -25,6 +25,7 @@ export const CONVERTED_LEDGER: LedgerCounts = {
   late: 0,
   wranglerRows: 11,
   frozenMissing: 0,
+  thawed: false,
 };
 
 export function matchingLive(adopted: AdoptedResources): LiveState {
