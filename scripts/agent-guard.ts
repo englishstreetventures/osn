@@ -593,20 +593,25 @@ function productionDbRule(words: string[]): string | null {
 }
 
 /**
- * Whether the command names `--local` and nothing that turns it off: wrangler
- * reads `--local false`, `--local=false`, `--no-local` and `--remote` as a
- * remote target, whatever else the command says.
+ * Whether wrangler can read the command only as local: one bare `--local`,
+ * followed by a flag or nothing, since its parser takes the next word as the
+ * flag's value (`--local false` is remote) and keeps every copy of a repeated
+ * flag; no other spelling of it (`--local=…`, `--no-local`); no `--remote` or
+ * `--preview`; and no `--`, after which wrangler reads no flag.
  */
 function isLocalOnly(rest: string[]): boolean {
   const at = rest.indexOf("--local");
-  if (at < 0) return false;
-  if (/^(?:false|0|no)$/i.test(rest[at + 1] ?? "")) return false;
+  if (at < 0 || rest.lastIndexOf("--local") !== at) return false;
+  if (!(rest[at + 1] ?? "-").startsWith("-")) return false;
   return !rest.some(
     (word) =>
+      word === "--" ||
       word === "--no-local" ||
+      word.startsWith("--local=") ||
       word === "--remote" ||
       word.startsWith("--remote=") ||
-      (word.startsWith("--local=") && !/^--local=(?:true|1)$/i.test(word)),
+      word === "--preview" ||
+      word.startsWith("--preview="),
   );
 }
 

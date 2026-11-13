@@ -303,16 +303,23 @@ export function parseArgs(argv: readonly string[]): Args | { readonly error: str
   if (!flags.includes("--local")) {
     return { error: "pass --local, so the target is never wrangler's default" };
   }
+  // Each flag once: wrangler's parser keeps every copy of a repeated flag.
+  const seen = new Set<string>();
   for (let at = 0; at < flags.length; at += 1) {
     const flag = flags[at] ?? "";
-    if (flag === "--local" || /^--persist-to=./.test(flag)) continue;
+    const name = flag.split("=")[0] ?? flag;
     const dir = flags[at + 1];
-    if (flag === "--persist-to" && dir !== undefined && !dir.startsWith("-")) {
-      at += 1;
+    const known =
+      flag === "--local" ||
+      /^--persist-to=./.test(flag) ||
+      (flag === "--persist-to" && dir !== undefined && !dir.startsWith("-"));
+    if (known && !seen.has(name)) {
+      seen.add(name);
+      if (flag === "--persist-to") at += 1;
       continue;
     }
     return {
-      error: `${flag} is refused: pass --local and, at most, --persist-to <dir>, so the target is always a local database`,
+      error: `${flag} is refused: pass --local and, at most, --persist-to <dir>, each once, so the target is always a local database`,
     };
   }
   return { database, flags };

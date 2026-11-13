@@ -319,6 +319,9 @@ test("parseArgs passes only --local and --persist-to, refusing every other flag"
     ["cire-db", "--local", "--config", "other.toml"],
     ["cire-db", "--local", "--persist-to"],
     ["cire-db", "--local", "extra"],
+    ["cire-db", "--local", "--local"],
+    ["cire-db", "--local", "--", "--remote"],
+    ["cire-db", "--local", "--persist-to", "/tmp/x", "--persist-to=/tmp/y"],
   ]) {
     expect({ argv, parsed: parseArgs(argv) }).toEqual({
       argv,
