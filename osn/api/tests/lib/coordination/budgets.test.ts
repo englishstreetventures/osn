@@ -124,6 +124,11 @@ function slots(bundle: CoordinationStores): Slot[] {
     (k) => bundle.registrationSendCap.check(k),
     OSN_RATE_LIMITS.registrationSendCap,
   );
+  add(
+    "registrationFirstLinkCap",
+    (k) => bundle.registrationFirstLinkCap.check(k),
+    OSN_RATE_LIMITS.registrationFirstLinkCap,
+  );
   return out;
 }
 

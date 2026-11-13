@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
-import type { LiveState } from "../../../shared/infra/src/production-live";
-import { matchingLive } from "../../../shared/infra/tests/support/live-state";
+import type { LedgerCounts, LiveState } from "../../../shared/infra/src/production-live";
+import { CONVERTED_LEDGER, matchingLive } from "../../../shared/infra/tests/support/live-state";
 import { PRODUCTION_ADOPTED, PRODUCTION_DOMAINS } from "../src/declaration";
 
 const PACKAGE = fileURLToPath(new URL("..", import.meta.url));
@@ -177,4 +177,48 @@ describe("plan:guard, the cire stack's production plan guard", () => {
       "::error::cire production plan refused: cire_landing's Worker would give up old.cireweddings.com; no release takes a production host off its Worker: remove it in the Cloudflare dashboard first",
     ]);
   }, 30_000);
+
+  // A release that carries a migration plans the database as an update: the
+  // migrate step applies the files its ledger lacks, and nothing else can
+  // change on it while its read replication matches the declaration.
+  const MIGRATION_LOG = [
+    "[20:17:45.301] INFO: Plan: 1 to update",
+    "[20:17:45.301] INFO: [CireDb] update",
+    "",
+  ].join("\n");
+
+  test("GM1: allows the database's update when its ledger is whole, listing the ledger's counts", () => {
+    const result = guard(MIGRATION_LOG, LIVE_DOMAINS, withLedger({ pending: 1 }));
+    expect(errors(result.stdout)).toEqual([]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "cire-db migration ledger (__alchemy_migrations): 12 rows, 12 match a migration file, 0 match none; 1 to apply, 0 of them older than the newest applied; Wrangler's ledger frozen",
+    );
+  }, 30_000);
+
+  test("GM2: refuses the database's update when its ledger lacks a file the chain went on without, or its read replication would change", () => {
+    const skipped = guard(MIGRATION_LOG, LIVE_DOMAINS, withLedger({ pending: 1, skipped: 1 }));
+    expect(skipped.exitCode).toBe(1);
+    expect(errors(skipped.stdout).join("\n")).toContain(
+      "1 migration file of cire-db is missing from its ledger",
+    );
+    const replicated = guard(MIGRATION_LOG, LIVE_DOMAINS, {
+      ...LIVE_STATE,
+      databases: { CireDb: { ...LIVE_STATE.databases.CireDb!, readReplication: "disabled" } },
+    });
+    expect(replicated.exitCode).toBe(1);
+    expect(errors(replicated.stdout).join("\n")).toContain(
+      "cire-db's read replication is disabled live and auto declared, and the migrate step would change it",
+    );
+  }, 30_000);
 });
+
+/** The live state with cire-db's ledger counts changed by `change`. */
+function withLedger(change: Partial<LedgerCounts>): LiveState {
+  return {
+    ...LIVE_STATE,
+    databases: {
+      CireDb: { ...LIVE_STATE.databases.CireDb!, ledger: { ...CONVERTED_LEDGER, ...change } },
+    },
+  };
+}

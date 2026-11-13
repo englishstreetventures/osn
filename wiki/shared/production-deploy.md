@@ -16,7 +16,7 @@ related:
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -289,15 +289,16 @@ endpoint. `bunx wrangler secret delete <name> --env production` removes it. No m
 > latency (the project is AU-centric). The WEUR databases were deleted and recreated in `oc`; the ids above
 > and in §2.3 are the new Oceania ones.
 
-The id is already substituted into `cire/api/wrangler.toml` (top-level binding and
-`[env.production]`):
+The id is in `cire/api/wrangler.toml`'s `[env.production]` block alone, with no
+`migrations_dir`: the cire stack migrates the database (§4). The top-level block, the
+local devloop's, names a local-only id, `local:cire-db`, so a command that forgets
+`--env production` reaches no deployed database:
 
 ```toml
-[[d1_databases]]
+[[env.production.d1_databases]]
 binding = "DB"
 database_name = "cire-db"
 database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
-migrations_dir = "../db/migrations"
 ```
 
 ### 2.2 cire R2 buckets — ALREADY CREATED ✅
@@ -338,9 +339,8 @@ The dev tier's `osn-db-dev` is in the dev account, created and migrated by the
 musubi stack ([[dev-environment]]); `osn-db` is what plain `wrangler dev` uses.
 
 All are in **`oc` (Sydney)** (co-located with cire-db).
-They are **freshly created and unmigrated** — apply the migrations per §4.3
-before first use. (The `0002_add_user_handle` data-copy bug that blocked a clean
-apply was fixed in-place; all `0000`→latest migrations apply ✅ to a fresh local D1.)
+The musubi stack migrates `osn-db-prod` (§4.1); staging is migrated by hand (§4.3).
+All `0000`→latest migrations apply ✅ to a fresh local D1.
 
 osn-api secrets are set with `wrangler secret put … --env <env>` (§3.1), surfaced
 **only on `env`** on workerd — never `process.env`, which is why `src/index.ts` threads
@@ -465,7 +465,7 @@ quietly accepting tokens from anywhere.
 
 | Name | How to set | Required? | Notes |
 |---|---|---|---|
-| D1 `database_id` | `wrangler.toml` (top-level + `[env.production]`) | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`, already set. |
+| D1 `database_id` | `wrangler.toml` `[env.production]` | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`, already set. The top-level block names a local-only id. |
 | `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | Comma-sep allowlist; must include the guest, organiser **and** vendor origins. Each entry must be an exact origin (`new URL(o).origin === o`: no path, trailing slash or userinfo) over `https://`, or the Worker fails closed at the edge with a 503; `http://localhost` is accepted only when `OSN_ENV` is `local` (`cire/api/src/lib/web-origin.ts`). Prod = **`https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`**. |
 | `OSN_JWKS_URL` | `wrangler.toml` `[env.production.vars]` | **Yes** | Deployed osn-api JWKS URL (`<OSN_ISSUER_URL>/.well-known/jwks.json`). Prod = **`https://id.musubi.social/.well-known/jwks.json`**. |
 | `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]` | **Yes — Worker answers 503 without it** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL`, since it is the `iss` claim cire checks. Since 2026-08-30 it is on the edge required-vars list (`cire/api/src/index.ts`), so an unset value takes the Worker down rather than falling back to the localhost default and 401ing every request with nothing to say why. Prod = **`https://id.musubi.social`**. |
@@ -486,9 +486,9 @@ quietly accepting tokens from anywhere.
 
 > ⚠️ **cire `wrangler.toml` env nuance:** pass `--env production` to every
 > `wrangler` command run against production (`secret put`, `secret list`,
-> `d1 migrations apply`, `d1 execute`). Without it Wrangler reads the
-> **top-level** config — the local devloop's — not production. The cire stack, not
-> Wrangler, deploys the production Worker (§5.2).
+> `d1 time-travel`). Without it Wrangler reads the **top-level** config — the local
+> devloop's, whose database id is local-only — not production. The cire stack, not
+> Wrangler, deploys the production Worker (§5.2) and migrates its database (§4).
 >
 > Named envs inherit **nothing**, so `[env.production]` declares its own
 > `d1_databases`, `r2_buckets`, `images`, `routes` and `triggers`, and
@@ -714,72 +714,72 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 ## 4. Database migrations
 
 > [!important] A migration must work with the Worker version before it
-> Wrangler is each production database's one migrator. A stack job applies its API's
-> pending migrations in its `migrate` step, after the plan guard and **before** the
-> deploy, and only when the release ships that API; a failed smoke check rolls the
-> Worker back without undoing them (§7). The stacks declare the production databases
-> with no migrations, so Alchemy never reads or writes their migration ledgers. So each
-> migration has to work with the version it replaces as well as the one it ships
-> with: add a column or table in one release and use it in a later one; stop reading
-> a column in one release and drop or rename it in a later one. A migration that
-> drops or renames something the previous version still reads takes the surface
-> down the moment its deploy rolls back. A migration that moves data between
-> stores makes a rollback lossy for writes made in that window: the old Worker
-> writes the old store, and the new one does not read it when it returns.
+> Alchemy is each production database's one migrator. A stack job applies its
+> database's pending migrations in its `migrate` step, after the plan guard and
+> **before** the deploy, on every release that ships the stack; a failed smoke check
+> rolls the Worker back without undoing them (§7). So each migration has to work with
+> the version it replaces as well as the one it ships with: add a column or table in
+> one release and use it in a later one; stop reading a column in one release and drop
+> or rename it in a later one. A migration that drops or renames something the
+> previous version still reads takes the surface down the moment its deploy rolls
+> back. A migration that moves data between stores makes a rollback lossy for writes
+> made in that window: the old Worker writes the old store, and the new one does not
+> read it when it returns.
 
-### 4.1 Apply cire D1 migrations (remote)
+### 4.1 How a production database is migrated
 
-Migrations live in `cire/db/migrations/`: one baseline file,
-`0001_initial.sql`, holding the whole schema, then the numbered files `0082` to
-`0090` and the timestamped files (`<YYYYMMDDHHMMSS>_<name>.sql`) after them. The baseline builds exactly what migrations `0001`–`0081` in
-`cire/db/migrations-archive/` build; nothing applies the archive. Production
-applied that chain file by file, so its `d1_migrations` ledger holds every
-archived name, `0001_initial.sql` among them, and wrangler skips the baseline
-there.
+**CI applies every migration; nothing is run by hand.** Each stack job's `migrate` step
+deploys its database alone with Alchemy (`bun run migrate:production` in
+`<stack>/infra`: `alchemy deploy --stage production --yes --force --include <Db>`), so:
 
-That skip is only right once production has applied **every** archived
-migration. `bun run --cwd cire/db db:migrate:prod` runs
-`scripts/cire-db-migrate.ts`, which reads production's ledger first and refuses
-— before any migration runs or the Worker deploys — when an archived migration
-of the chain it started is missing, or when it names a migration from outside
-that chain. The refusal names the files. The script runs the wrangler
-`cire/api` installs from the lockfile and gives up on a ledger read after two
-minutes, so a stalled call fails the job instead of holding the production
-concurrency group.
+- the migrations land before any Worker or site of the stack uploads, and one that fails
+  stops the job before the deploy, which then uploads nothing;
+- `--force` makes Alchemy read the database's own ledger, `__alchemy_migrations`, on every
+  release and apply exactly the files it lacks, in name order, each with its ledger row in
+  one query that D1 rolls back if any statement fails;
+- the deploy step that follows finds the database unchanged, and each API Worker binds its
+  database, so even a deploy on its own would reconcile the database first
+  ([[infrastructure-as-code#Migrations]]).
 
-> [!warning] A refusal stops the cire stack; never bring production level by hand
-> The refusal fails the cire stack job's `migrate` step, so the job deploys nothing:
-> not cire-api, and not the guest site or the three cire sites the stack deploys
-> with it. No release can bring the ledger level: GitHub re-runs a run for 30 days
-> only, and the archive is older than that. Do not run `db:migrate:prod` from an old
-> checkout instead — that applies the migrations under the Worker already serving,
-> and a migration such as `0076` drops a column that Worker still reads.
+| Stack job | Database | Migrations | Logical id |
+|---|---|---|---|
+| `stack-musubi-production` | `osn-db-prod` | `osn/db/drizzle/` | `OsnDb` |
+| `stack-cire-production` | `cire-db` | `cire/db/migrations/`, plus a refusing placeholder for each name in `cire/db/migrations-archive/` | `CireDb` |
+| `stack-zap-production` | `zap-db-prod` | `zap/db/drizzle/` | `ZapDb` |
 
-The `database_id` is already wired
-(`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1). **CI applies them** — the cire stack
-job (`stack-cire-production` in `production-release.yml`) runs
-`bun run --cwd cire/db db:migrate:prod` in its `migrate` step, before its deploy, so the
-command below is what that step runs.
+**What the approver reads.** Before each approval the stack's live read counts the
+database's ledger against those files and prints the counts in the plan guard's run
+summary under **Live, listed**, never a row:
+`cire-db migration ledger (__alchemy_migrations): R rows, M match a migration file, U
+match none; P to apply, L of them older than the newest applied; Wrangler's ledger frozen`.
+"To apply" is what the migrate step will run; "older than the newest applied" is a
+migration merged after a newer one shipped, which CI proved applies in either order. The
+guard refuses the release, before anything writes, on any count §4.2 lists.
+
+cire's live chain begins with one baseline, `0001_initial.sql`, holding the whole schema,
+then the numbered files `0082` to `0091` and the timestamped files
+(`<YYYYMMDDHHMMSS>_<name>.sql`). The baseline builds exactly what migrations `0001`–`0081`
+in `cire/db/migrations-archive/` build. Production applied that chain file by file, so its
+ledger holds every archived name, `0001_initial.sql` among them. The cire stack therefore
+hands Alchemy a placeholder under each archived name (80 of them): production's ledger
+already names each one, so none ever runs, and a database whose ledger lacked one would
+fail on it rather than replay archived SQL (`0015` deletes rows, `0076` drops a column).
 
 > Production holds no `wed_bootstrap` demo wedding: archived migration
 > `0015_drop_bootstrap_wedding.sql` deleted it and its children, and the
 > baseline never creates it.
 
-```bash
-# from the repo root
-bun run --cwd cire/db db:migrate:prod
-```
-
-> Never apply cire migrations with a bare `wrangler d1 migrations apply`. It
-> skips the ledger check, so on a production database that is behind it reports
-> "No migrations to apply!" and leaves the missing schema missing.
-
-> `--env production` is not optional. Without it wrangler resolves `cire-db`
-> against the top-level config, which is the local devloop's binding set. The
-> `db:migrate:local|prod` scripts each name their database **and** their env,
-> and the wrapper refuses a call that names neither `--local` nor `--remote`.
-> The dev database is migrated by the cire stack, not by these scripts. See
-> `cire/db/README.md`.
+> [!warning] Never run Wrangler's migrator against a production database
+> `d1_migrations`, Wrangler's ledger, stopped at the release that moved each database to
+> Alchemy; every migration since is recorded only in `__alchemy_migrations`. A
+> `wrangler d1 migrations apply` would apply each of them again. So nothing reaches one:
+> the `[env.production]` D1 blocks name no `migrations_dir` (Wrangler stops at "No
+> migrations present"), cire's top-level block names a local-only id, there is no
+> `db:migrate:prod` script, `scripts/cire-db-migrate.ts` refuses `--remote`, the agent
+> guard refuses the command, and a trigger on each production `d1_migrations`
+> (`d1_migrations_frozen`) refuses Wrangler's ledger row, which rolls back the migration
+> with it. Never approve a re-run of a `production-release.yml` run that started before
+> the release in §4.4: its `migrate` step is the old Wrangler one.
 
 > ✅ **No bootstrap-owner step.** cire-api needs **no** `BOOTSTRAP_OWNER_PROFILE_ID`
 > and no seeded owner. **Every authenticated OSN user is a first-class
@@ -789,34 +789,91 @@ bun run --cwd cire/db db:migrate:prod
 > `weddingOwner()` / `weddingMember()` on the `/api/organiser/weddings/:weddingId/*`
 > routes; there is no global boot gate. (Removed in `feat/cire-organiser-open-access`.)
 
-### 4.3 Apply osn-api D1 migrations (remote)
+### 4.2 Recovering a refused migration ledger 🔑
 
-osn-api's migrations live in `osn/db/drizzle/` (`0000_optimal_thunderbolt.sql` and
-`0001_exotic_lady_vermin.sql` at the time of writing) and are wired into every
-`[[env.<env>.d1_databases]]` via `migrations_dir = "../db/drizzle"`. Apply per env
-(against the binding name in `osn/api/wrangler.toml`).
+The plan guard refuses a release, before anything writes, when a production database's
+ledger is one the migrate step could not convert or would replay a migration from
+(`judgeLedger()` in `shared/infra/src/production-live.ts`). The refusal prints counts,
+never names; a recovery that needs the names is an owner's read, under the owner's own
+Cloudflare login, of migration names only (an agent never reads a production database).
+Every write below is the owner's, on the database the refusal names. After §4.4, write a
+missing or extra name to `__alchemy_migrations`, never to `d1_migrations`, whose trigger
+refuses an insert. A `d1_migrations` repair takes `DROP TRIGGER "d1_migrations_frozen"`
+first and puts the trigger back after, with the freeze file's own statement
+(`FREEZE_MIGRATION.sql` in `shared/infra/src/migrations.ts`, run with `wrangler d1 execute
+<database> --env production --remote --command`): no release puts it back, since
+Alchemy's ledger records the freeze as applied. Never drop an `__alchemy_migrations` that
+names `1000_freeze_wrangler_ledger.sql`: every migration since the move is recorded only
+there.
 
-> ✅ **Prod migrations are automatic.** The musubi stack job (`stack-musubi-production`
-> in `production-release.yml`) applies them with Wrangler
-> (`bun run --cwd osn/db db:migrate:prod`) in its `migrate` step, before its deploy, in
-> every release that ships osn-api. Dev migrations are automatic too: the musubi stack
-> applies them to `osn-db-dev`, in the dev account, on every dev deploy
-> ([[infrastructure-as-code#Migrations]]). The commands below are what the production
-> step runs, and the only route for **staging**, which no CI job touches.
+| Refusal | What it means | Recovery |
+|---|---|---|
+| The ledger was not read | The live read failed | Re-run the release once Cloudflare answers |
+| No migration ledger, or an empty one | A wrong database, or a first conversion that could not read `d1_migrations` and left an empty `__alchemy_migrations` (its first migration then failed on a table that exists, writing nothing else) | When `__alchemy_migrations` holds no row and `d1_migrations` does: `DROP TABLE "__alchemy_migrations"`, then dispatch the release again |
+| A row names no migration file | A migration ran there that this checkout lacks, or a file was renamed or deleted after it applied | Read the names; restore the file under its name, or, for a file the chain never needed, a pull request that names it as archived |
+| Files missing behind ones applied after them, or archived files missing | The chain was applied without them: Alchemy would run them (an archived one fails on its placeholder) | Read the names; a pull request that brings the database level forward, never the archived SQL applied by hand under the Worker serving |
+| Wrangler names missing from `__alchemy_migrations` | A conversion that copied part of Wrangler's ledger | Insert the missing names with their files' hashes (`migrationHash()` in `shared/infra/src/migrations.ts`). `DROP TABLE "__alchemy_migrations"` instead only while it names nothing but Wrangler's names: not the freeze file, nor any later one |
+| `d1_migrations` frozen, `__alchemy_migrations` gone | Alchemy's ledger was dropped after the move: only the conversion release creates the trigger. Wrangler's ledger stops at the move, so a new conversion would apply every migration since again | Put `__alchemy_migrations` back: restore a D1 Time Travel bookmark from before the drop, or rebuild it by hand with every applied migration's name and its file's hash, the freeze file and each later one included |
+| The trigger is gone and Alchemy's ledger records the freeze | A `d1_migrations` repair dropped the trigger and did not put it back | Run the freeze file's statement (`FREEZE_MIGRATION.sql`), then dispatch the release again |
+| A file changed after it applied | A rewrite or a squash changed the bytes Alchemy recorded | Restore the applied bytes; ship the change as a new migration (englishstreetventures/osn#2096 holds the squash) |
+| Another migration ledger (drizzle-kit, Prisma) | Alchemy would read it before Wrangler's | Find what wrote it before anything else |
+| Read replication differs | The migrate step would change it | Set it in the dashboard to the declared value, or change the declaration |
+
+A restore from a D1 Time Travel bookmark needs none of this: the next release's forced
+migrate step reads the restored ledger and applies what it lacks, re-converting and
+re-freezing a database restored to before §4.4.
+
+### 4.3 The staging and local databases
+
+`osn-db-staging` and `zap-db-staging` (`[env.staging]` in each API's `wrangler.toml`) and
+the local devloop's databases stay on Wrangler's migrator, with each directory's files.
+No CI job touches staging:
 
 ```bash
-# from osn/api (wrangler.toml + the migrations_dir live relative to it)
-cd osn/api
-bunx wrangler d1 migrations apply osn-db-staging  --env staging    --remote
-bunx wrangler d1 migrations apply osn-db-prod     --env production  --remote
-
-# or via the @osn/db scripts from repo root:
-# bun run --cwd osn/db db:migrate:staging  # remote staging D1
-# bun run --cwd osn/db db:migrate:prod     # remote prod D1
+# from the repo root
+bun run --cwd osn/db db:migrate:staging    # remote staging D1
+bun run --cwd zap/db db:migrate:staging
+bun run --cwd osn/db db:migrate:local      # miniflare
+bun run --cwd cire/db db:migrate:local     # checks the ledger first (scripts/cire-db-migrate.ts)
 ```
 
-The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) applies all
-`0000`→latest cleanly after the `0002_add_user_handle` data-copy fix.
+The dev tier's databases are migrated by their stacks on every dev deploy
+([[infrastructure-as-code#Migrations]]), and the local equivalent of osn's
+(`bun run --cwd osn/db db:migrate:local`, miniflare) applies all `0000`→latest cleanly.
+
+### 4.4 The release that moves production to Alchemy's migrator 🔑
+
+The first release after the change that moved the three production databases to
+Alchemy (englishstreetventures/osn#2237) ships every production stack, since the change
+touches `shared/infra/`. In it, each stack's migrate step converts the database's ledger:
+Alchemy copies every row of `d1_migrations` into a new `__alchemy_migrations`, writes
+nothing else of the database, never writes or drops `d1_migrations`, then applies the
+freeze and any migration merged since the release before. The D1 tier
+(`bun run --cwd shared/infra test:d1`) proves this on local copies.
+
+Owner steps, in order:
+
+1. **At approval 1**, read each stack's ledger counts in the plan guard's run summary.
+   Expect `(d1_migrations)`, every row matching a file, none matching none, and "1 to
+   apply" (the freeze) plus one per migration merged since the last release. Any refusal:
+   §4.2.
+2. **Before approval 2**, take a D1 Time Travel bookmark of each database, the restore
+   point for this release, from a checkout of `main` with your own Cloudflare login (it
+   reads the database's metadata, no row):
+
+   ```bash
+   cd cire/api && bunx wrangler d1 time-travel info cire-db --env production
+   cd ../../osn/api && bunx wrangler d1 time-travel info osn-db-prod --env production
+   cd ../../zap/api && bunx wrangler d1 time-travel info zap-db-prod --env production
+   ```
+
+   Keep the three bookmarks with the release run's link. A restore
+   (`bunx wrangler d1 time-travel restore <db> --env production --bookmark=<bookmark>`)
+   loses every write since, so it is the last resort; a failed release is fixed forward
+   (§4.2).
+3. **After the release**, the next release's counts read `(__alchemy_migrations)` and
+   "Wrangler's ledger frozen". Do not approve a re-run of any release run that started
+   before this one.
 
 ---
 
@@ -896,7 +953,11 @@ what holds it.
    - **A red stack job's guard step** with "not the one approved" means the plan
      changed between the two approvals; nothing deployed. Dispatch a new release.
    - **A red stack job's `migrate` step** stops the job before its deploy: nothing
-     in that stack deployed (§4).
+     in that stack deployed, and the migration that failed was rolled back. The step
+     after it prints Alchemy's log (§4). Fix forward: a new migration, or a write
+     that brings the data level.
+   - **A guard refusal about a migration ledger** (§4.2) stops the release before
+     anything writes.
    - **A red `Check every secret live before the deploy is live after it` step**
      means a secret the Worker held before the deploy is gone after it. The step
      names each; Cloudflare returns no value, so set each again from your copy
@@ -1008,7 +1069,8 @@ only; the planner never offers it to production.
 > checks, a snapshot of each Worker's newest deployment, the Workers' custom domains, a
 > live read of the adopted resources, a fresh plan, the plan guard against the plan
 > approved at `alchemy-plan`, the `migrate` step
-> (`bun run --cwd osn/db db:migrate:prod`, only when osn-api ships), the deploy
+> (`bun run migrate:production` in `musubi/infra`: Alchemy applies `osn-db-prod`'s
+> pending migrations by deploying the database alone, §4), the deploy
 > (`bun run deploy:production` in `musubi/infra`), a compare that names the deployment
 > each Worker got, the check that every secret live before the deploy is live after it,
 > and one smoke check per surface. A last step fails the job when any check failed.
@@ -1115,7 +1177,8 @@ included:
 The cire stack job (`stack-cire-production`) deploys `cire-api-production` with its
 database `cire-db`, its buckets `cire-assets` and `cire-sheets`, the guest site and the
 three cire sites, in the order §5.1 gives for the musubi stack. Its `migrate` step runs
-`bun run --cwd cire/db db:migrate:prod` when cire-api ships (§4.1).
+`bun run migrate:production` in `cire/infra`, which applies `cire-db`'s pending
+migrations with Alchemy (§4.1).
 `cireProductionApis()` in `cire/infra/src/declaration.ts` declares cire-api, the
 database and the buckets under their live names, adopted in place, with the vars,
 bindings, custom domain, cron and observability `[env.production]` in
@@ -1946,11 +2009,11 @@ How it decides:
    (`POST /api/organiser/weddings` → `201`). No bootstrap-owner config is involved.
    Confirm a created wedding then appears in the list and is owner-scoped (another
    account's list stays empty). The owner verifies with:
-   `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM weddings;"`.
+   `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT count(*) FROM weddings;"`.
 8. **RSVP write succeeds.** A guest claims their family code on the guest site and submits
    an RSVP (`POST /api/rsvp`). A 2xx + a persisted row confirms cire-api ↔ D1 writes and
    the guest-session cookie path. The owner verifies with:
-   `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM rsvps;"`.
+   `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT count(*) FROM rsvps;"`.
 9. **(If enabled) account-linking returns non-503.** `POST /api/account/link` should not
    answer 503 once §6 is wired; a 503 means the ARC bridge config is missing.
 
@@ -1972,7 +2035,8 @@ How it decides:
 | osn-api Worker entry (fetch + scheduled) | module `osn/api/src/entry.ts` (handler + `CoordinationStore`), handler `osn/api/src/index.ts`; local Worker `osn/api/package.json` (`dev:wrangler`); production deploy `musubiProductionApis()` in `musubi/infra/src/declaration.ts` |
 | osn-api missing-binding 503 (`COORDINATION`; `RL_USER_*` outside local) | `osn/api/src/index.ts` (`fetch`) |
 | osn D1 bindings + per-env vars | `osn/api/wrangler.toml` (`[[env.<env>.d1_databases]]`, `[env.<env>.vars]`) |
-| osn migrations | `osn/db/drizzle/`; scripts `osn/db/package.json` (`db:migrate:*`); prod applied by the musubi stack job's `migrate` step (`stack-musubi-production` in `production-release.yml`) |
+| osn migrations | `osn/db/drizzle/`; local and staging scripts `osn/db/package.json` (`db:migrate:local|staging`); prod applied by Alchemy in the musubi stack job's `migrate` step (`stack-musubi-production` in `production-release.yml`, `migrate:production` in `musubi/infra/package.json`) |
+| Production migration ledger read and judged (§4) | `shared/infra/src/production-live.ts` (`readLedger`, `countLedger`, `judgeLedger`); production's extra migration files `shared/infra/src/migrations.ts` (`archivedPlaceholder`, `FREEZE_MIGRATION`); proof `shared/infra/tests/d1/ledger-conversion.test.ts` |
 | Post-deploy smoke check + rollback (§7) | `scripts/smoke-check.ts` (`SMOKE_TARGETS` names each Worker and its probes; the origin comes from `SMOKE_ORIGIN`); production Worker names held to the Wrangler configs by `scripts/tests/smoke-targets.test.ts` |
 | Production secrets: inventory, live read, kept after the deploy (§5.9) | `shared/infra/src/secrets/inventory.ts`; `shared/infra/src/production-live.ts`; each stack's `scripts/read-live.ts` (`bun run read:live`); the provider patch `patches/@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch`, held by `shared/infra/tests/keep-secrets.test.ts` |
 | cire D1 / R2 bindings + prod vars | `cire/api/wrangler.toml:12-43` |
@@ -1980,7 +2044,7 @@ How it decides:
 | cire ARC bridge (account-linking) | `cire/api/src/services/osn-bridge.ts`, env `cire/api/src/index.ts:25-27,80-85` |
 | Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations-archive/0015_drop_bootstrap_wedding.sql` (applied; squashed out of the live set 2026-09-10) |
 | Organiser open access (any OSN user; no boot gate) | list/create `cire/api/src/routes/organiser-weddings.ts`; per-wedding authz `cire/api/src/middleware/wedding-owner.ts`, `wedding-member.ts` |
-| cire migrate scripts | `cire/db/package.json` (`db:migrate:local|prod`); the dev database: `cire/infra` |
+| cire migrate scripts | local: `cire/db/package.json` (`db:push`, `db:migrate:local`); dev's and production's databases: the cire stack (`cire/infra`, `migrate:production` on production) |
 | cire seed (local; the dev tier imports it through the cire stack) | `cire/db/seed/dev-seed.sql`; `scripts/cire-db-seed.sh`; `cire/infra/src/declaration.ts` |
 | Dev deploys per push | `.github/workflows/deploy.yml` (`changes` → `stack-<stack>-dev` → `deploy-<surface>-dev`); the stacks under `*/infra/` ([[infrastructure-as-code]]) |
 | Production releases (daily or by hand; two approvals) | `.github/workflows/production-release.yml` (`plan`, then `build` and `sites` side by side, then `alchemy-plan`, then `stack-<stack>-production` for musubi, cire and zap, then `record-<surface>`); planner `scripts/release-plan.ts` (`SHIPS_AFTER`); surface map `scripts/deploy-surfaces.ts`; site modes, host holds and adopted names `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live read `shared/infra/src/production-live.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts` |
@@ -2045,7 +2109,7 @@ To roll the vendor portal back:
 
 > ⚠️ **Requires explicit authorization; prod writes.** Every step in this section changes production infrastructure or sets production secrets. Do NOT run any of these steps without explicit human authorisation from the team. They are a deploy-time checklist, not automated tasks.
 
-These steps are manual follow-ups to the c2b chats PR (Zap PR A). Step 9.1 is done: `zap-db-prod` exists and `zap/api/wrangler.toml` carries its real id. zap-api deploys through the zap stack job (`stack-zap-production` in `.github/workflows/production-release.yml`), which adopts `zap-api-production` and `zap-db-prod` under those names (`zapProductionApis()` in `zap/infra/src/declaration.ts`), applies the database's migrations with Wrangler before each deploy that ships zap-api, and uploads no secret ([[zap]]).
+These steps are manual follow-ups to the c2b chats PR (Zap PR A). Step 9.1 is done: `zap-db-prod` exists and `zap/api/wrangler.toml` carries its real id. zap-api deploys through the zap stack job (`stack-zap-production` in `.github/workflows/production-release.yml`), which adopts `zap-api-production` and `zap-db-prod` under those names (`zapProductionApis()` in `zap/infra/src/declaration.ts`), applies the database's migrations with Alchemy before each deploy (§4), and uploads no secret ([[zap]]).
 
 ### 9.1 Create the zap-db-prod D1 database
 
@@ -2063,10 +2127,9 @@ Copy the returned `database_id` and paste it into `zap/api/wrangler.toml` under 
 binding = "DB"
 database_name = "zap-db-prod"
 database_id = "<paste-id-here>"          # replace "placeholder-replace-after-d1-create"
-migrations_dir = "../db/drizzle"
 ```
 
-The zap stack names the database, and the `migrate` step's `wrangler d1 migrations apply` reads this binding. Commit and merge the change.
+The zap stack names the database by name and the parity test holds the binding equal to it. The block names no `migrations_dir`: the zap stack migrates the database (§4). Commit and merge the change.
 
 ### 9.2 Set zap-api production secrets
 
@@ -2132,24 +2195,14 @@ curl -X POST "$ZAP_API_URL/internal/register-service" \
 
 ### 9.4 Apply zap-db-prod migrations
 
-Once the D1 database exists and the wrangler.toml is updated (§9.1), apply the schema migrations:
-
-```bash
-# From zap/api/ (migrations_dir = "../db/drizzle" is in wrangler.toml)
-bunx wrangler d1 migrations apply zap-db-prod --env production --remote
-
-# Or via the @zap/db script:
-# bun run --cwd zap/db db:migrate:prod
-```
-
-The zap stack job's `migrate` step runs that command in every release that ships zap-api, before its deploy (§4), so a release needs no hand run of it.
+No hand step. The zap stack job's `migrate` step applies `zap/db/drizzle/`'s pending migrations with Alchemy (`bun run migrate:production` in `zap/infra`) in every release that ships the zap stack, before its deploy (§4). Never run `wrangler d1 migrations apply` against `zap-db-prod`: Wrangler's ledger stopped when Alchemy took the database over, so it would apply again every migration since (§4.1).
 
 ### 9.5 Smoke-check zap-api production
 
 After a release that ships zap-api completes:
 
 1. **Health check — automatic.** The zap stack job's smoke check asks `https://zap.cireweddings.com/health` for a 200 after every deploy and rolls the Worker back when it answers wrongly (§7). It confirms the Worker booted, the D1 binding is present and the JWKS URL is set.
-2. **D1 row count (owner step).** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
+2. **D1 row count (owner step).** `bunx wrangler d1 execute zap-db-prod --env production --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
 3. **ARC registration (smoke).** After §9.3, a test `POST /internal/chats` from cire-api should return 201 (not 401/403/503). Confirm the `class` column on the returned row is `'c2b'`.
 
 

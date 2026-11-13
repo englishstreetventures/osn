@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Dev environment (cire + OSN identity)
@@ -354,11 +354,14 @@ schema. Each new migration then runs against real D1 on the merge that adds it,
 which catches DDL `bun:sqlite` accepts and D1 rejects at the migration that
 introduces it.
 
-> [!warning] A half-applied migration has no scripted recovery yet
-> Alchemy applies migrations over D1's HTTP API, which has no transactions. A
-> migration that fails part-way leaves its earlier statements applied and
-> itself unrecorded, and every later deploy of that stack fails on it. Fix
-> forward with a new migration that brings the database level.
+> [!warning] A failed migration has no scripted recovery yet
+> Alchemy sends each migration with its ledger row as one query over D1's HTTP
+> API. Cloudflare documents that a migration that fails that way is rolled back,
+> and on local D1 it is (`shared/infra/tests/d1/ledger-conversion.test.ts`);
+> on a deployed database that is unverified, and a migration that failed
+> part-way would leave its earlier statements applied and itself unrecorded.
+> Either way every later deploy of that stack fails on it. Fix forward with a
+> new migration that brings the database level.
 > englishstreetventures/osn#1554 tracks a tested procedure.
 
 ### Re-setting the sample wedding's owner

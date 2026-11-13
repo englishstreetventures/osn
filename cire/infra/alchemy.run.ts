@@ -31,6 +31,8 @@ import * as Effect from "effect/Effect";
 
 import {
   API_LOGICAL_IDS,
+  CIRE_DB_MIGRATIONS,
+  CIRE_DB_PRODUCTION_MIGRATIONS,
   cireDeclaration,
   cireProductionApis,
   cireProductionSites,
@@ -39,9 +41,6 @@ import {
   type BindingDescription,
 } from "./src/declaration";
 import { ownerSeatSql } from "./src/seeds";
-
-/** cire/db's migrations, flattened for Alchemy on every run. */
-const CIRE_MIGRATIONS = "../db/migrations";
 
 class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<{
   readonly binding: string;
@@ -103,10 +102,10 @@ function writeSeed(path: string, sql: string): void {
  * the guest site's Worker, each adopted under today's name, and each site
  * `modes` does not turn off, with no custom domain while `holds` holds its
  * host. Every build is checked to be production's before anything is written
- * or declared. It reads no secret (production's stay on the Workers), writes
- * only the guest site's staged server output, and migrates nothing: Wrangler
- * migrates cire-db in the stack job before the deploy. Anything else declared
- * fails the scope check before the plan.
+ * or declared. It reads no secret (production's stay on the Workers), and
+ * writes only the guest site's staged server output and cire-db's migrations,
+ * which Alchemy applies to cire-db in the stack job's migrate step, before the
+ * deploy. Anything else declared fails the scope check before the plan.
  */
 const cireProductionStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -132,8 +131,11 @@ const cireProductionStack = (input: {
     const apiSecrets = requireSecrets({ worker: "cire-api", stage, env: input.env });
     const invitesSecrets = requireSecrets({ worker: "cire-invites", stage, env: input.env });
 
+    flattenMigrations({ ...CIRE_DB_PRODUCTION_MIGRATIONS, target: apis.cireDb.migrations });
     writePrebuiltStage(invitesServer, apis.invitesServer.target);
 
+    // Binding `db` makes cire-api wait for the database's reconcile, which
+    // applies its migrations.
     const db = yield* retainedD1("CireDb", apis.cireDb);
     const assets = yield* retainedBucket("CireAssets", apis.cireAssets);
     const sheets = yield* retainedBucket("CireSheets", apis.cireSheets);
@@ -223,7 +225,7 @@ export const cireStack = (input: {
     const apiSecrets = requireSecrets({ worker: "cire-api", stage, env });
     const invitesSecrets = requireSecrets({ worker: "cire-invites", stage, env });
 
-    flattenMigrations({ source: CIRE_MIGRATIONS, target: declared.cireDb.migrations });
+    flattenMigrations({ ...CIRE_DB_MIGRATIONS, target: declared.cireDb.migrations });
     if (ownerSeat !== null) writeSeed(declared.seeds.ownerSeat, ownerSeat);
     writePrebuiltStage(invitesServer, declared.invitesServer.target);
 

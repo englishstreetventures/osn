@@ -30,6 +30,8 @@ import {
   RECOVERY_LINKS_PER_ADDRESS_WINDOW_MS,
   REGISTRATION_LINK_LOCKOUT_MS,
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  REGISTRATION_FIRST_LINKS_MAX,
+  REGISTRATION_FIRST_LINKS_WINDOW_MS,
   REGISTRATION_SENDS_PER_ADDRESS_MAX,
   REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   STEP_UP_LINKS_PER_ACCOUNT_CEILING,
@@ -44,7 +46,6 @@ import {
   createInMemoryJtiStore,
 } from "../../services/auth/stores";
 import { createInMemoryRecoveryLockoutStore } from "../recovery-lockout-store";
-import { createInMemoryRegistrationRestartStore } from "../registration-restart-store";
 import type { CoordinationStores } from "./index";
 import { createCoordinationProbe, createMemoryProbeTarget } from "./probe";
 
@@ -75,7 +76,6 @@ export function createInMemoryCoordination(): CoordinationStores {
       lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
     }),
     stepUpLinkLockoutStore: createInMemoryRecoveryLockoutStore(),
-    registrationRestartStore: createInMemoryRegistrationRestartStore(),
     profileSwitchCap: createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS),
     emailChangeBeginCap: createInMemoryAccountCap(
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
@@ -96,6 +96,10 @@ export function createInMemoryCoordination(): CoordinationStores {
     registrationSendCap: createInMemoryAccountCap(
       REGISTRATION_SENDS_PER_ADDRESS_MAX,
       REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+    ),
+    registrationFirstLinkCap: createInMemoryAccountCap(
+      REGISTRATION_FIRST_LINKS_MAX,
+      REGISTRATION_FIRST_LINKS_WINDOW_MS,
     ),
     stepUpLinkCeiling: createInMemoryAccountCap(
       STEP_UP_LINKS_PER_ACCOUNT_CEILING,

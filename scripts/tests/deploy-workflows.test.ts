@@ -1476,17 +1476,18 @@ describe("production-release.yml", () => {
     expect(production.env?.DO_NOT_TRACK).toBe("1");
   });
 
-  // Per stack: a plan at approval 1, and a re-plan and a deploy in its stack
-  // job. One test per run: each spawns a shell twice, and a loop over all of
-  // them in one test spends its whole budget on a loaded runner.
+  // Per stack: a plan at approval 1, and a re-plan, the migrate step and a
+  // deploy in its stack job. One test per run: each spawns a shell twice, and
+  // a loop over all of them in one test spends its whole budget on a loaded
+  // runner.
   const alchemyRuns = Object.entries(production.jobs).flatMap(([id, job]) =>
     stepsOf(job).flatMap((step, at) =>
-      /\b(plan|deploy):production\b/.test(step.run ?? "") ? [{ id, job, step, at }] : [],
+      /\b(plan|migrate|deploy):production\b/.test(step.run ?? "") ? [{ id, job, step, at }] : [],
     ),
   );
 
-  test("PW10: every stack has its three Alchemy runs", () => {
-    expect(alchemyRuns).toHaveLength(3 * PRODUCTION_STACKS.length);
+  test("PW10: every stack has its four Alchemy runs", () => {
+    expect(alchemyRuns).toHaveLength(4 * PRODUCTION_STACKS.length);
   });
 
   test.each(alchemyRuns.map((run) => [`${run.id}: ${run.step.name}`, run] as const))(
@@ -1508,7 +1509,14 @@ describe("production-release.yml", () => {
       }
       const show = stepsOf(job)[at + 1];
       expect(show?.if).toBe(`\${{ failure() && steps.${step.id}.outcome == 'failure' }}`);
-      expect(show?.run).toBe(`cat "${file}"`);
+      // A plan reads no ledger; a migrate or deploy run can name a production
+      // ledger's migrations, so its log is shown with every file name masked
+      // (PW1 runs the masking).
+      expect(show?.run).toBe(
+        /plan:production/.test(step.run ?? "")
+          ? `cat "${file}"`
+          : `# Migration file names are masked, so no name a production ledger\n# holds reaches this public log (AGENTS.md, Production data).\nsed -E 's/[[:alnum:]_.-]+\\.sql/<migration file>/g' "${file}"\n`,
+      );
     },
   );
 
@@ -1910,50 +1918,56 @@ describe("PW1: one production job per stack with a production deploy", () => {
       );
       expect(domains?.env).toEqual(PRODUCTION_CREDENTIALS);
       expect(domains?.if).toBeUndefined();
-      // A refusal fails the guard step; only the migration stands between it and the deploy.
+      // A refusal fails the guard step; only the migration, and its log on a
+      // failure, stand between it and the deploy.
       expect(runStep(guard!, {}, 1).exitCode).not.toBe(0);
       expect(stepIndex(job, "migrate")).toBe(stepIndex(job, "guard") + 1);
-      expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "migrate") + 1);
-      // Wrangler migrates the stack's production database, and only when its
-      // API ships: a migration file is in the API's own paths.
+      expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "migrate") + 2);
+      // Alchemy migrates the stack's production database, on every release
+      // the stack ships, by deploying that database alone
+      // (`<stack>/infra`'s `migrate:production`, `--force --include <id>`):
+      // a migration that fails stops the job before anything else uploads.
       const migrate = stepById(job, "migrate");
-      const migration: unknown = {
+      expect({
         if: migrate?.if,
-        run: migrate?.run,
+        continues: migrate?.["continue-on-error"],
         cwd: migrate?.["working-directory"],
         env: migrate?.env,
-      };
-      expect(migration).toEqual(
-        new Map([
-          [
-            "cire",
-            {
-              if: "needs.plan.outputs.cire_api == 'true'",
-              run: "bun run --cwd cire/db db:migrate:prod",
-              cwd: undefined,
-              env: PRODUCTION_CREDENTIALS,
-            },
-          ],
-          [
-            "musubi",
-            {
-              if: "needs.plan.outputs.osn_api == 'true'",
-              run: "bun run --cwd osn/db db:migrate:prod",
-              cwd: undefined,
-              env: PRODUCTION_CREDENTIALS,
-            },
-          ],
-          [
-            "zap",
-            {
-              if: "needs.plan.outputs.zap_api == 'true'",
-              run: "bunx wrangler d1 migrations apply zap-db-prod --env production --remote",
-              cwd: "zap/api",
-              env: PRODUCTION_CREDENTIALS,
-            },
-          ],
-        ]).get(key),
-      );
+      }).toEqual({
+        if: undefined,
+        continues: undefined,
+        cwd: `${key}/infra`,
+        env: { DO_NOT_TRACK: "1", OSN_DEPLOY_TIER: "production", ...PRODUCTION_CREDENTIALS },
+      });
+      expect(runStep(migrate!, {}).bunCalls).toEqual(["run migrate:production"]);
+      expect(runStep(migrate!, {}, 3).exitCode).not.toBe(0);
+      const log = stepsOf(job)[stepIndex(job, "migrate") + 1];
+      expect(log?.if).toBe("${{ failure() && steps.migrate.outcome == 'failure' }}");
+      expect(log?.env).toBeUndefined();
+      // On a failure it prints Alchemy's log with every migration file name
+      // masked, as the deploy's log step does: a production ledger's names
+      // stay out of the public run log.
+      const deployLog = stepsOf(job)[stepIndex(job, "deploy") + 1];
+      expect(deployLog?.if).toBe("${{ failure() && steps.deploy.outcome == 'failure' }}");
+      for (const [step, file] of [
+        [log, "migrate.log"],
+        [deployLog, "alchemy.log"],
+      ] as const) {
+        const dir = mkdtempSync(join(tmpdir(), "migrate-log-"));
+        writeFileSync(
+          join(dir, file),
+          "MigrationHistoryConflictError: 1 recorded migration(s) match no local file: 0050_stray_name.sql, 20990101000000_x.sql. D1 said no\n",
+        );
+        const shown = Bun.spawnSync(["bash", "-e", "-c", step?.run ?? "exit 9"], {
+          env: { PATH: "/usr/bin:/bin", RUNNER_TEMP: dir },
+        });
+        expect(shown.exitCode).toBe(0);
+        expect(shown.stdout.toString()).toBe(
+          "MigrationHistoryConflictError: 1 recorded migration(s) match no local file: <migration file>, <migration file>. D1 said no\n",
+        );
+      }
+      // Wrangler's migrator reaches no production database from any workflow.
+      expect(JSON.stringify(job)).not.toMatch(/db:migrate:prod|d1 migrations apply/);
       const live = stepById(job, "live");
       expect(live?.run).toBe('bun run read:live -- --out "$RUNNER_TEMP/live.json"');
       expect(live?.["working-directory"]).toBe(`${key}/infra`);

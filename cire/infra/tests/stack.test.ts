@@ -4,6 +4,9 @@ import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  archivedPlaceholder,
+  FREEZE_MIGRATION,
+  migrationFiles,
   PREBUILT_MODULE_RULES,
   PrebuiltSourceMapError,
   PRODUCTION_SITE_MODES,
@@ -21,6 +24,7 @@ import { devTarget, productionTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
   API_LOGICAL_IDS,
+  CIRE_DB_PRODUCTION_MIGRATIONS,
   cireDeclaration,
   cireProductionApis,
   cireProductionSites,
@@ -44,6 +48,7 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const packageDir = fileURLToPath(new URL("../", import.meta.url));
 
 /** Every secret name a Worker holds on either tier: required, optional and forbidden. */
 const tierSecretNames = (worker: "cire-api" | "cire-invites"): string[] =>
@@ -409,7 +414,9 @@ describe("the cire stack, evaluated offline", () => {
     expect(db?.jurisdiction).toBe("default");
     expect(db?.primaryLocationHint).toBe("oc");
     const migrations = join(dev.generatedDir, "migrations", "cire-db");
-    expect(db?.migrations).toBe(migrations);
+    expect(db?.migrations).toEqual({ dir: migrations, table: "__alchemy_migrations" });
+    // Dev's database was built from the baseline: the live chain alone, no
+    // archived name and no freeze, which are production's.
     const chain = listMigrations(join(repoRoot, "cire/db/migrations")).toSorted();
     expect(readdirSync(migrations).toSorted()).toEqual(chain);
   });
@@ -603,13 +610,33 @@ describe("the cire stack on production", () => {
     });
   });
 
-  test("KA2: the database and buckets are declared as production holds them: no migrations, nothing imported, no location hint", () => {
+  test("KA2: the database and buckets are declared as production holds them, the database migrated by Alchemy: nothing imported, no location hint", () => {
     const resources = resourcesOf(production);
+    const migrations = join(production.generatedDir, "migrations", "cire-db");
     expect(resources.CireDb?.Props).toEqual({
       name: "cire-db",
       readReplication: { mode: "auto" },
       jurisdiction: "default",
+      migrations: { dir: migrations, table: "__alchemy_migrations" },
     });
+    // The live chain, a refusing placeholder under every archived name the
+    // live chain lacks (production's ledger holds them all), and the freeze.
+    const live = listMigrations(join(repoRoot, "cire/db/migrations"));
+    const archived = listMigrations(join(repoRoot, "cire/db/migrations-archive")).filter(
+      (name) => !live.includes(name),
+    );
+    expect(archived).toHaveLength(80);
+    expect(readdirSync(migrations).toSorted()).toEqual(
+      [...live, ...archived, FREEZE_MIGRATION.name].toSorted(),
+    );
+    for (const name of archived) {
+      expect(readFileSync(join(migrations, name), "utf8")).toBe(archivedPlaceholder(name));
+    }
+    for (const name of live) {
+      expect(readFileSync(join(migrations, name), "utf8")).toBe(
+        readFileSync(join(repoRoot, "cire/db/migrations", name), "utf8"),
+      );
+    }
     for (const id of ["CireAssets", "CireSheets"]) {
       expect(resources[id]?.Props).not.toHaveProperty("locationHint");
       expect(resources[id]?.Props).toMatchObject({
@@ -737,7 +764,7 @@ describe("the cire stack on production", () => {
     });
   });
 
-  test("KP3: reads no Worker secret, seed value or DEV_DOMAIN, and writes only the guest site's staged server output", async () => {
+  test("KP3: reads no Worker secret, seed value or DEV_DOMAIN, and writes only the guest site's staged server output and the database's migrations", async () => {
     const env = productionEnv();
     expect(Object.keys(env).toSorted()).toEqual([
       "CLOUDFLARE_ACCOUNT_ID",
@@ -745,7 +772,11 @@ describe("the cire stack on production", () => {
       "OSN_DEPLOY_TIER",
     ]);
     resourcesOf(production);
-    expect(readdirSync(production.generatedDir)).toEqual(["invites-server"]);
+    expect(readdirSync(production.generatedDir).toSorted()).toEqual([
+      "invites-server",
+      "migrations",
+    ]);
+    expect(readdirSync(join(production.generatedDir, "migrations"))).toEqual(["cire-db"]);
     // An env holding every cire secret, both tiers', and the dev domain declares the same, and uploads none of them.
     const withSecrets = await evaluateCire({
       stage: "production",
@@ -773,7 +804,10 @@ describe("the cire stack on production", () => {
         redacted: Object.values(uploaded).some((value) => Redacted.isRedacted(value)),
       }).toEqual({ id, redacted: false });
     }
-    expect(readdirSync(withSecrets.generatedDir)).toEqual(["invites-server"]);
+    expect(readdirSync(withSecrets.generatedDir).toSorted()).toEqual([
+      "invites-server",
+      "migrations",
+    ]);
   });
 
   test("KP5: site or guest output built for dev hosts, or none, refuses the run before it declares anything", async () => {
@@ -905,6 +939,23 @@ describe("the cire stack on production", () => {
       REALTIME_HUB: "TopicHub",
     });
     expect(Object.keys(PRODUCTION_ADOPTED.databases)).toEqual(["CireDb"]);
+    // The live read counts the ledger against the files the stack hands Alchemy.
+    expect(PRODUCTION_ADOPTED.databases.CireDb?.migrations).toEqual(CIRE_DB_PRODUCTION_MIGRATIONS);
+    expect(
+      migrationFiles(CIRE_DB_PRODUCTION_MIGRATIONS)
+        .map((file) => file.name)
+        .toSorted(),
+    ).toEqual(readdirSync(join(production.generatedDir, "migrations", "cire-db")).toSorted());
+    // The stack job's migrate step deploys this database alone.
+    expect(
+      (
+        JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as {
+          readonly scripts: Readonly<Record<string, string>>;
+        }
+      ).scripts["migrate:production"],
+    ).toBe(
+      "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes --force --include CireDb",
+    );
     expect(Object.keys(PRODUCTION_ADOPTED.buckets).toSorted()).toEqual([
       "CireAssets",
       "CireSheets",

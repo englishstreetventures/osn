@@ -34,6 +34,7 @@ export type FontToken = (typeof CONTRACT_SCALAR_TOKENS.fontFamily)[number];
 export const BG = {
   "--ui-ground": "bg-ui-ground",
   "--ui-ground-deep": "bg-ui-ground-deep",
+  "--ui-scrim": "bg-ui-scrim",
   "--ui-surface": "bg-ui-surface",
   "--ui-surface-raised": "bg-ui-surface-raised",
   "--ui-surface-sunk": "bg-ui-surface-sunk",
@@ -58,6 +59,7 @@ export const BG = {
 export const TEXT = {
   "--ui-ground": "text-ui-ground",
   "--ui-ground-deep": "text-ui-ground-deep",
+  "--ui-scrim": "text-ui-scrim",
   "--ui-surface": "text-ui-surface",
   "--ui-surface-raised": "text-ui-surface-raised",
   "--ui-surface-sunk": "text-ui-surface-sunk",
@@ -82,6 +84,7 @@ export const TEXT = {
 export const BORDER = {
   "--ui-ground": "border-ui-ground",
   "--ui-ground-deep": "border-ui-ground-deep",
+  "--ui-scrim": "border-ui-scrim",
   "--ui-surface": "border-ui-surface",
   "--ui-surface-raised": "border-ui-surface-raised",
   "--ui-surface-sunk": "border-ui-surface-sunk",

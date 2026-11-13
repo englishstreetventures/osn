@@ -44,16 +44,9 @@ export type LockoutStoreName =
   // Per account: wrong typed numbers on step-up links.
   | "step_up_link_lockout";
 
-/**
- * Per mailbox: sign-up restarts (`lib/registration-restart-store.ts`), under
- * two keys, `declined.<key>` and `links.<key>`.
- */
-export type RestartStoreName = "registration_restart";
-
 export type CoordinationStoreName =
   | CeremonyStoreName
   | LockoutStoreName
-  | RestartStoreName
   // Consumed step-up token ids: a token verifies once.
   | "step_up_jti"
   // Used discoverable passkey challenges, by nonce: a challenge signs in once.

@@ -56,12 +56,17 @@ const DialogPortal: ParentComponent = (props) => {
   return <KobalteDialog.Portal>{props.children}</KobalteDialog.Portal>;
 };
 
+/**
+ * The veil behind the panel. It paints the contract's scrim role,
+ * `--ui-scrim`, which `Modal`'s `::backdrop` reads too, so an app that maps it
+ * once gets one backdrop for both; unmapped, it is black at 50%.
+ */
 const DialogOverlay: Component<ComponentProps<"div">> = (props) => {
   const [local, others] = splitProps(props, ["class"]);
   return (
     <KobalteDialog.Overlay
       class={clsx(
-        "base:fixed base:inset-0 base:z-50 base:bg-black/50 base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0",
+        "base:fixed base:inset-0 base:z-50 base:bg-ui-scrim base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0",
         local.class,
       )}
       {...others}
@@ -74,8 +79,11 @@ const DialogOverlay: Component<ComponentProps<"div">> = (props) => {
  *
  * `sheet` is the same idea as `Modal`'s, for the Kobalte-backed dialog: below
  * `md` the centred card becomes a bottom sheet — pinned to the bottom edge,
- * full width, square bottom corners, its top corners reading `--ui-radius-sheet`
- * — and at `md` and up it is exactly the centred card again. The safe-area
+ * full width, square bottom corners at every width up to 767px, its top
+ * corners reading `--ui-radius-sheet` — and at `md` and up it is exactly the
+ * centred card again. No class on the panel may round its corners at a
+ * breakpoint under `md`: Tailwind emits a min-width query after the `max-md`
+ * ones, so it would win and round the sheet's bottom corners. The safe-area
  * inset is part of the variant rather than the caller's business, because a
  * panel flush with the bottom edge always has the home indicator drawn over it.
  *
@@ -92,6 +100,11 @@ const DIALOG_PRESENTATION = {
     "max-md:base:pb-[max(0px,env(safe-area-inset-bottom))]",
 } satisfies Readonly<Record<"centred" | "sheet", string>>;
 
+/**
+ * The panel. Its plane is `--ui-surface`, its shadow the contract's raised
+ * elevation, `--ui-elev-2` — the one `Modal`, the raised `Card` and the accent
+ * menu cast — so an app that maps it once themes every raised panel.
+ */
 const DialogContent: ParentComponent<
   ComponentProps<"div"> & { presentation?: keyof typeof DIALOG_PRESENTATION }
 > = (props) => {
@@ -101,7 +114,7 @@ const DialogContent: ParentComponent<
       <DialogOverlay />
       <KobalteDialog.Content
         class={clsx(
-          "base:bg-ui-surface base:border-ui-hairline base:fixed base:top-1/2 base:left-1/2 base:z-50 base:w-full base:max-w-lg base:-translate-x-1/2 base:-translate-y-1/2 base:rounded-ui-lg base:border base:shadow-xl base:focus:outline-none sm:base:rounded-ui-lg",
+          "base:bg-ui-surface base:border-ui-hairline base:fixed base:top-1/2 base:left-1/2 base:z-50 base:w-full base:max-w-lg base:-translate-x-1/2 base:-translate-y-1/2 base:rounded-ui-lg base:border base:shadow-[var(--ui-elev-2)] base:focus:outline-none",
           DIALOG_PRESENTATION[local.presentation ?? "centred"],
           "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out base:data-[expanded]:zoom-in",
           local.class,

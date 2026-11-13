@@ -1,5 +1,13 @@
 # @osn/pulse
 
+## 0.24.81
+
+### Patch Changes
+
+- Updated dependencies [90c891b]
+  - @shared/design-tokens@0.8.0
+  - @shared/ui@0.15.3
+
 ## 0.24.80
 
 ### Patch Changes

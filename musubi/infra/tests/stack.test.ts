@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  FREEZE_MIGRATION,
+  migrationFiles,
   origin,
   PRODUCTION_SITE_MODES,
   SeedValueError,
@@ -20,6 +22,7 @@ import { devTarget, productionTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
   API_LOGICAL_IDS,
+  OSN_DB_PRODUCTION_MIGRATIONS,
   PRODUCTION_ADOPTED,
   PRODUCTION_DOMAINS,
   PRODUCTION_RESOURCE_KINDS,
@@ -43,6 +46,7 @@ import {
 } from "./evaluate";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const packageDir = fileURLToPath(new URL("../", import.meta.url));
 
 /**
  * Each dev surface of the musubi stack and the logical id of the Worker it
@@ -198,7 +202,7 @@ describe("the musubi stack, evaluated offline", () => {
     expect(props?.primaryLocationHint).toBe("oc");
 
     const migrations = join(dev.generatedDir, "migrations", "osn-db");
-    expect(props?.migrations).toBe(migrations);
+    expect(props?.migrations).toEqual({ dir: migrations, table: "__alchemy_migrations" });
     const chain = listMigrations(join(repoRoot, "osn/db/drizzle")).toSorted();
     expect(readdirSync(migrations).toSorted()).toEqual(chain);
 
@@ -345,12 +349,23 @@ describe("the musubi stack on production", () => {
     expect(API_LOGICAL_IDS).toEqual({ osn_api: "OsnApi" });
   });
 
-  test("KA2: osn-db-prod is declared as production holds it: no migrations, nothing imported, no location hint", () => {
+  test("KA2: osn-db-prod is declared as production holds it, migrated by Alchemy from osn/db's chain and the freeze: nothing imported, no location hint", () => {
+    const migrations = join(production.generatedDir, "migrations", "osn-db");
     expect(resourcesOf(production).OsnDb?.Props).toEqual({
       name: "osn-db-prod",
       readReplication: { mode: "disabled" },
       jurisdiction: "default",
+      migrations: { dir: migrations, table: "__alchemy_migrations" },
     });
+    const chain = listMigrations(join(repoRoot, "osn/db/drizzle"));
+    expect(readdirSync(migrations).toSorted()).toEqual(
+      [...chain, FREEZE_MIGRATION.name].toSorted(),
+    );
+    for (const name of chain) {
+      expect(readFileSync(join(migrations, name), "utf8")).toBe(
+        readFileSync(join(repoRoot, "osn/db/drizzle", name), "utf8"),
+      );
+    }
   });
 
   test("KP2: every Worker serves its production host, with the dev site settings; no workers.dev or preview URL", async () => {
@@ -430,13 +445,14 @@ describe("the musubi stack on production", () => {
     );
   });
 
-  test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, uploads no secret, and writes nothing", async () => {
+  test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, uploads no secret, and writes only osn-db-prod's migrations", async () => {
     expect(Object.keys(productionEnv()).toSorted()).toEqual([
       "CLOUDFLARE_ACCOUNT_ID",
       "CLOUDFLARE_API_TOKEN",
       "OSN_DEPLOY_TIER",
     ]);
-    expect(existsSync(production.generatedDir)).toBe(false);
+    expect(readdirSync(production.generatedDir)).toEqual(["migrations"]);
+    expect(readdirSync(join(production.generatedDir, "migrations"))).toEqual(["osn-db"]);
     // Every osn-api secret name of both tiers set in the env changes nothing.
     const names = (["dev", "production"] as const).flatMap((tier) => {
       const row = tierSecrets("osn-api", tier);
@@ -455,7 +471,7 @@ describe("the musubi stack on production", () => {
     expect(Object.keys(env).toSorted()).toEqual(
       Object.keys(resourcesOf(production).OsnApi?.Props.env ?? {}).toSorted(),
     );
-    expect(existsSync(withSecrets.generatedDir)).toBe(false);
+    expect(readdirSync(withSecrets.generatedDir)).toEqual(["migrations"]);
   });
 
   test("KP5: site output built for dev hosts refuses the run, naming the production origins each build must hold", async () => {
@@ -515,7 +531,27 @@ describe("the musubi stack on production", () => {
     expect(adopted?.envNames).toContain("ALCHEMY_STAGE");
     expect(adopted?.durableObjects).toEqual({ COORDINATION: "CoordinationStore" });
     expect(PRODUCTION_ADOPTED.databases).toEqual({
-      OsnDb: { name: "osn-db-prod", readReplication: "disabled" },
+      OsnDb: {
+        name: "osn-db-prod",
+        readReplication: "disabled",
+        migrations: OSN_DB_PRODUCTION_MIGRATIONS,
+      },
     });
+    // The live read counts the ledger against the files the stack hands Alchemy.
+    expect(
+      migrationFiles(OSN_DB_PRODUCTION_MIGRATIONS)
+        .map((file) => file.name)
+        .toSorted(),
+    ).toEqual(readdirSync(join(production.generatedDir, "migrations", "osn-db")).toSorted());
+    // The stack job's migrate step deploys this database alone.
+    expect(
+      (
+        JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as {
+          readonly scripts: Readonly<Record<string, string>>;
+        }
+      ).scripts["migrate:production"],
+    ).toBe(
+      "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes --force --include OsnDb",
+    );
   });
 });

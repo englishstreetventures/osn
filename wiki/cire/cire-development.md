@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Cire development guide
@@ -387,12 +387,15 @@ bun run --cwd cire/db db:reset            # wipe the local D1, migrate, seed
 cd cire/api && bunx wrangler types
 ```
 
-Apply cire migrations through the `cire/db` scripts, never a bare
-`wrangler d1 migrations apply`. `0001_initial.sql` is a baseline standing for
+Apply cire migrations to a local database through the `cire/db` scripts, never a
+bare `wrangler d1 migrations apply`. `0001_initial.sql` is a baseline standing for
 the archived chain in `cire/db/migrations-archive/`, and
 `scripts/cire-db-migrate.ts` refuses a database that stopped part-way through
-that chain, where wrangler would skip the rest without a word. Why, and how to
-squash the chain again: `cire/db/README.md`.
+that chain, where wrangler would skip the rest without a word. It refuses
+`--remote`: the cire stack migrates the dev and production databases with
+Alchemy, and production's release refuses the same gap in production's ledger
+before anything writes ([[production-deploy#4.1 How a production database is migrated]]).
+Why, and the squash's present limit: `cire/db/README.md`.
 
 Organiser sign-in needs five values, read by `oidcConfigFromEnv`
 (`cire/api/src/lib/oidc.ts`) in the Worker and the Bun server alike:

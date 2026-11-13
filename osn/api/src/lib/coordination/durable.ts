@@ -50,8 +50,6 @@ import {
 import {
   REGISTRATION_LINK_LOCKOUT_MS,
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
-  REGISTRATION_RESTART_LINKS_MAX,
-  REGISTRATION_RESTART_WINDOW_MS,
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "../../services/auth/constants";
@@ -73,7 +71,6 @@ import type {
 import type { CeremonyStore, CeremonyStoreOp } from "../ceremony-store";
 import { RECOVERY_LOCKOUT_MS, RECOVERY_LOCKOUT_THRESHOLD } from "../recovery-lockout-store";
 import type { RecoveryLockoutStore } from "../recovery-lockout-store";
-import { restartKeys, type RegistrationRestartStore } from "../registration-restart-store";
 import type { CoordinationErrorReporter, CoordinationStores } from "./index";
 import type { CeremonyStoreName, CoordinationStoreName, LockoutStoreName } from "./names";
 import { createCoordinationProbe } from "./probe";
@@ -250,44 +247,6 @@ export function createDurableLockoutStore(
   };
 }
 
-/**
- * Sign-up restarts on the shared store. A decline is a TTL write, so its mark
- * lasts one window from the latest; the links count is a fixed window from
- * the first. Reads and counts that fail answer as the store's contract says:
- * `"unknown"`, and false.
- */
-export function createDurableRegistrationRestartStore(
-  ns: CoordinationNamespace,
-  onError: CoordinationErrorReporter,
-): RegistrationRestartStore {
-  const store = client(ns, "registration_restart", onError);
-  return {
-    backend: "durable_object",
-    async markDeclined(key) {
-      try {
-        await store.write(restartKeys(key).declined, "1", REGISTRATION_RESTART_WINDOW_MS);
-      } catch {
-        // Reported through `onError`; the next begin is counted only if it can read a mark.
-      }
-    },
-    async declinedLately(key) {
-      try {
-        return (await store.read(restartKeys(key).declined)) !== null;
-      } catch {
-        return "unknown";
-      }
-    },
-    async admitLink(key) {
-      try {
-        const n = await store.increment(restartKeys(key).links, REGISTRATION_RESTART_WINDOW_MS);
-        return n <= REGISTRATION_RESTART_LINKS_MAX;
-      } catch {
-        return false;
-      }
-    },
-  };
-}
-
 /** The step-up token guard: the first `claim` of a token id wins. */
 export function createDurableJtiStore(
   ns: CoordinationNamespace,
@@ -411,13 +370,13 @@ export function createDurableCoordination(
       recoveryLockout,
       onError,
     ),
-    registrationRestartStore: createDurableRegistrationRestartStore(ns, onError),
     profileSwitchCap: named(OSN_RATE_LIMITS.profileSwitchCap),
     emailChangeBeginCap: named(OSN_RATE_LIMITS.emailChangeBeginCap),
     recoveryLinkAddressCap: named(OSN_RATE_LIMITS.recoveryLinkAddressCap),
     recoveryResendCap: named(OSN_RATE_LIMITS.recoveryResendCap),
     recoveryLinkCeiling: named(OSN_RATE_LIMITS.recoveryLinkCeiling),
     registrationSendCap: named(OSN_RATE_LIMITS.registrationSendCap),
+    registrationFirstLinkCap: named(OSN_RATE_LIMITS.registrationFirstLinkCap),
     stepUpLinkCeiling: named(OSN_RATE_LIMITS.stepUpLinkCeiling),
     linkResendCap: named(OSN_RATE_LIMITS.linkResendCap),
     healthProbe: createCoordinationProbe(client(ns, "health_probe", onError)),

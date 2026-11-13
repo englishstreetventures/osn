@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Bun 1.4 migration
@@ -108,9 +108,10 @@ pin the shape.
 No D1 `database_id` guard exists. The production stacks declare each database by
 name and adopt it, and each stack's parity test holds the `[env.production]`
 D1 binding in the Worker's `wrangler.toml` to that declaration
-([[infrastructure-as-code#The stacks]]). A wrong `database_id` there fails the
-stack job's `migrate` step, the one production step that reads it, before the
-deploy ([[production-deploy#4. Database migrations]]).
+([[infrastructure-as-code#The stacks]]). The stacks migrate each database by name
+with Alchemy, so no production step reads that `database_id`; `wrangler d1
+time-travel` and `secret put` with `--env production` read the block
+([[production-deploy#4. Database migrations]]).
 
 ### Two CI bugs found on the way
 

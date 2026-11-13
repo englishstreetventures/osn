@@ -298,6 +298,9 @@ e2e-artifacts-attempt-*/
 # What the script tests that run real tools leave for a reviewer (`bun run test:scripts:wrangler`)
 test-artifacts/
 
+# What the D1 tier's ledger conversion test leaves for a reviewer (`bun run --cwd shared/infra test:d1`)
+shared/infra/d1-artifacts/
+
 # Alchemy's local state and Worker bundles (`.alchemy/` under the directory a CLI run starts in)
 .alchemy/
 

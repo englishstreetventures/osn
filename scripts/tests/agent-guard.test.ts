@@ -368,6 +368,86 @@ describe("18. production database reads", () => {
   });
 });
 
+// Alchemy is each production database's one migrator; Wrangler's migrator
+// against one would apply again every migration Alchemy applied since it
+// took the ledger over, and its `list` reads that ledger.
+describe("18b. Wrangler's migrator against a deployed database", () => {
+  const refusals = [
+    "bunx wrangler d1 migrations apply cire-db --env production --remote",
+    "bunx wrangler d1 migrations apply zap-db-prod --env production --remote",
+    "cd osn/api && bunx wrangler d1 migrations apply osn-db-prod --env=production --remote",
+    "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db-prod --env production --remote",
+    "wrangler d1 migrations apply cire-db --remote",
+    "wrangler d1 migrations list cire-db --env production --remote",
+    "wrangler d1 migrations apply cire-db-dev --env production --remote",
+    "wrangler d1 migrations apply cire-db-dev --remote --config other.toml",
+    // Wrangler reads each of these as remote, whatever `--local` says.
+    "wrangler d1 migrations apply cire-db --env production --remote --local false",
+    "wrangler d1 migrations apply cire-db --env production --local --no-local",
+    "wrangler d1 migrations apply cire-db --env production --local=false",
+    "wrangler d1 execute cire-db --env production --local false --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --env production --local --no-local --command 'SELECT 1'",
+    "wrangler d1 export cire-db --env production --local=0 --output x.sql",
+  ];
+  test.each(refusals)("refuses %s", (command) => {
+    expect(refused(bash(command))).toBe(true);
+  });
+
+  const allowed = [
+    "bunx wrangler d1 migrations apply cire-db --local",
+    "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db --local",
+    "bunx wrangler d1 migrations list zap-db-dev --remote",
+    "bunx wrangler d1 migrations create cire-db add_thing",
+  ];
+  test.each(allowed)("lets through %s", (command) => {
+    expect(refused(bash(command))).toBe(false);
+  });
+});
+
+// `--local` lets a wrangler D1 command through only when wrangler cannot read
+// the command as remote: one bare `--local`, followed by a flag or nothing.
+// Wrangler's parser takes a word after `--local` as its value, keeps every
+// copy of a repeated flag, and reads no flag after `--`, so each shape below
+// is judged as if `--local` were absent, and refused.
+describe("18c. what counts as --local", () => {
+  const refusals = [
+    // Repeated: the parser keeps both values, and the last can say remote.
+    "wrangler d1 execute cire-db --env production --local --local --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --local --remote --env production --local false",
+    "wrangler d1 migrations apply cire-db --env production --local --remote --local=false",
+    // A word after --local is its value, whatever it says.
+    "wrangler d1 execute cire-db --env production --local 'false' --command 'SELECT 1'",
+    'wrangler d1 execute cire-db --env production --local "no" --command "SELECT 1"',
+    "wrangler d1 execute cire-db --env production --local FALSE",
+    "wrangler d1 execute cire-db --env production --local true",
+    "wrangler d1 execute --local cire-db --env production --remote --command 'SELECT 1'",
+    // Every spelling but the bare flag.
+    "wrangler d1 execute cire-db --env production --remote --local=true",
+    "wrangler d1 execute cire-db --env production '--local=false' --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --env production --remote -l",
+    // After `--`, wrangler reads no flag.
+    "wrangler d1 execute cire-db --env production --remote -- --local",
+    "wrangler d1 migrations apply cire-db --env production -- --local",
+    // --preview names a remote database.
+    "wrangler d1 execute cire-db --env production --local --preview --command 'SELECT 1'",
+  ];
+  test.each(refusals)("refuses %s", (command) => {
+    expect(refused(bash(command))).toBe(true);
+  });
+
+  // With one bare --local, wrangler opens the local SQLite file under
+  // .wrangler/state, whatever --env or database name the command gives.
+  const allowed = [
+    "bunx wrangler d1 execute cire-db --local",
+    "bunx wrangler d1 execute cire-db --local --persist-to /tmp/x --command 'SELECT 1'",
+    "bunx wrangler d1 execute cire-db --env production --local --command 'SELECT 1'",
+    "bunx wrangler d1 migrations apply cire-db --local --persist-to /tmp/x",
+  ];
+  test.each(allowed)("lets through %s", (command) => {
+    expect(refused(bash(command))).toBe(false);
+  });
+});
+
 describe("17. fail open", () => {
   test("a missing message file and an unknown repo pass", () => {
     expect(refused(bash("git commit -F missing.txt"))).toBe(false);

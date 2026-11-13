@@ -16,6 +16,7 @@ import {
   type ApiWorkerInput,
   type DeclaredDomains,
   type HostHold,
+  type MigrationSources,
   type PrebuiltSite,
   type ResourceKinds,
   type RetainedD1Input,
@@ -42,14 +43,18 @@ interface OsnApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets">
   readonly bindings: Readonly<Record<string, BindingDescription>>;
 }
 
-/** osn-api's database, migrated by Alchemy from the flattened chain. */
-interface OsnDbDeclaration extends RetainedD1Input {
-  readonly migrations: string;
-}
+/** osn/db's migrations on every stage but production: the chain alone. */
+export const OSN_DB_MIGRATIONS: MigrationSources = { source: "../../osn/db/drizzle" };
+
+/** osn/db's migrations on production: the chain, and the freeze that stops Wrangler writing the ledger Alchemy took over. */
+export const OSN_DB_PRODUCTION_MIGRATIONS: MigrationSources = {
+  source: "../../osn/db/drizzle",
+  freeze: true,
+};
 
 interface MusubiDeclaration {
   readonly osnApi: OsnApiDeclaration;
-  readonly osnDb: OsnDbDeclaration;
+  readonly osnDb: RetainedD1Input;
   readonly musubiSocial: SiteWorkerInput;
   readonly musubiLanding: SiteWorkerInput;
   /** Where the stack writes each generated seed file. */
@@ -207,11 +212,14 @@ interface MusubiProductionApis {
  * binding, domain, cron and setting is `[env.production]`'s in
  * `osn/api/wrangler.toml` (tests/parity.test.ts holds them equal), plus
  * `legacy_module_registry` for the bundled Worker. No secret: production's
- * stay on the Worker. The database names no migrations and imports nothing:
- * Wrangler migrates it, in the stack job, before the deploy. Pure; every
- * host comes from `hosts`.
+ * stay on the Worker. The database imports nothing; Alchemy migrates it from
+ * `OSN_DB_PRODUCTION_MIGRATIONS`, flattened into `generatedDir`, in the stack
+ * job's migrate step before the deploy. Pure; every host comes from `hosts`.
  */
-export function musubiProductionApis(input: { readonly hosts: StageHosts }): MusubiProductionApis {
+export function musubiProductionApis(input: {
+  readonly hosts: StageHosts;
+  readonly generatedDir: string;
+}): MusubiProductionApis {
   const { hosts } = input;
   const app = origin(hosts.musubiSocial);
   return {
@@ -274,7 +282,7 @@ export function musubiProductionApis(input: { readonly hosts: StageHosts }): Mus
       readReplication: "disabled",
       jurisdiction: "default",
       locationHint: null,
-      migrations: null,
+      migrations: join(input.generatedDir, "migrations", "osn-db"),
       importFiles: [],
     },
   };
@@ -319,17 +327,24 @@ export const PRODUCTION_DOMAINS: DeclaredDomains = declaredDomains(
       holds: PRODUCTION_HOST_HOLDS,
       hosts: PRODUCTION_STAGE_HOSTS,
     }).sites,
-    [API_LOGICAL_IDS.osn_api]: musubiProductionApis({ hosts: PRODUCTION_STAGE_HOSTS }).osnApi,
+    [API_LOGICAL_IDS.osn_api]: musubiProductionApis({
+      hosts: PRODUCTION_STAGE_HOSTS,
+      generatedDir: ".generated",
+    }).osnApi,
   },
 );
 
 /** The musubi stack's adopted resources on production, by logical id, as the live read and the plan guard compare them. */
 export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
-  const apis = musubiProductionApis({ hosts: PRODUCTION_STAGE_HOSTS });
+  const apis = musubiProductionApis({ hosts: PRODUCTION_STAGE_HOSTS, generatedDir: ".generated" });
   return {
     workers: { [API_LOGICAL_IDS.osn_api]: adoptedWorkerOf(apis.osnApi) },
     databases: {
-      OsnDb: { name: apis.osnDb.name, readReplication: apis.osnDb.readReplication },
+      OsnDb: {
+        name: apis.osnDb.name,
+        readReplication: apis.osnDb.readReplication,
+        migrations: OSN_DB_PRODUCTION_MIGRATIONS,
+      },
     },
     buckets: {},
   };

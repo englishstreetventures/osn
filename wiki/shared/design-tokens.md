@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -99,6 +99,7 @@ which name a new package, token or identifier takes.
 | Group    | Names                                                               |
 | -------- | ------------------------------------------------------------------- |
 | Grounds  | `ground`, `ground-deep`                                             |
+| Scrim    | `scrim`                                                             |
 | Surfaces | `surface`, `surface-raised`, `surface-sunk`                         |
 | Edges    | `hairline`, `hairline-strong`                                       |
 | Ink      | `ink`, `ink-secondary`, `ink-tertiary`                              |
@@ -173,6 +174,35 @@ columns of `CardTitleWeights` and `BadgeWeights`, and every cire subtree
 an unmapped badge's or title's whole computed style, and pulse's
 `tests/styles/token-contract.browser.test.tsx` holds 600 for its badges and the
 dialog title under pulse's own stylesheet.
+
+**`scrim` is the veil a modal lays over the page.** `Dialog`'s overlay
+(`bg-ui-scrim`) and `Modal`'s `::backdrop` both read it, so an app has one
+backdrop for one kind of interruption, and one line to change it. It is a
+translucent colour measured against nothing, so it sits in no contrast pair and
+no app has to map it: its own group, `scrim`, in `CONTRACT_COLOR_TOKENS`. The
+fallback is black at 50%. `::backdrop` inherits from its dialog, so a mapping on
+`:root` reaches it.
+
+| App    | `--ui-scrim`                                                                            |
+| ------ | --------------------------------------------------------------------------------------- |
+| musubi | not mapped: black at 50%                                                                |
+| pulse  | not mapped: black at 50%                                                                |
+| cire   | `color-mix(in srgb, var(--ui-ground-deep) 72%, transparent)`, in all four stylesheets |
+
+cire's line sits in the `:root` contract block beside `--ui-ground-deep`, where
+`data-theme` and an invite's palette also land, so the backdrop follows both.
+`cire/host/tests/styles/modal-scrim.browser.test.tsx` and
+`cire/invites/tests/styles/modal-scrim.browser.test.tsx` compare the painted
+backdrop with that expression in each theme and palette; `cire/vendor`'s
+`tests/styles/tokens.test.ts` holds the four stylesheets to the one line.
+
+**Raised panels cast `--ui-elev-2`.** `Modal`, `Dialog` and a `Card` with
+`elevation="raised"` read it, and the accent `DropdownMenu` reads it after an
+app's own `--elev-2`. So an app that maps it once themes its dialogs, modals
+and raised cards, and the accent menu where the app sets no `--elev-2`.
+`Popover`, `Tooltip` and the default and touch menus cast Tailwind's
+`shadow-md` or `shadow-lg` and do not follow it. No app maps it, so musubi's
+and pulse's dialogs cast the fallback, `0 8px 24px rgb(0 0 0 / 0.12)`.
 
 `@cire/ui` also reads a few of cire's own app tokens, outside the contract,
 with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and

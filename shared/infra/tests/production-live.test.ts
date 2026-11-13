@@ -1,17 +1,25 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import {
+  FREEZE_MIGRATION,
+  migrationFiles,
+  migrationHash,
+  type MigrationSources,
+} from "../src/migrations";
+import {
   adoptedWorkerOf,
+  countLedger,
   declaredRule,
   judgeLive,
   lostSecrets,
   readProductionLive,
   runReadLiveCli,
   type AdoptedResources,
+  type LedgerCounts,
   type LiveState,
   type LiveWorker,
 } from "../src/production-live";
@@ -47,7 +55,7 @@ const ADOPTED: AdoptedResources = {
       },
     },
   },
-  databases: { CireDb: { name: "cire-db", readReplication: "auto" } },
+  databases: { CireDb: { name: "cire-db", readReplication: "auto", migrations: null } },
   buckets: {
     CireAssets: {
       name: "cire-assets",
@@ -67,9 +75,16 @@ const failed = (status: number, code: number) =>
 /** Every secret cire-api must hold on production, live. */
 const REQUIRED = tierSecrets("cire-api", "production").secrets;
 
-/** A scripted Cloudflare API holding cire's adopted resources as production has them. */
-function scripted(overrides: Readonly<Record<string, () => Response>> = {}) {
+/**
+ * A scripted Cloudflare API holding cire's adopted resources as production has
+ * them. `query`, when given, answers each POST to cire-db's `/query`, by SQL.
+ */
+function scripted(
+  overrides: Readonly<Record<string, () => Response>> = {},
+  query?: (sql: string) => Response,
+) {
   const calls: string[] = [];
+  const queries: string[] = [];
   const routes: Record<string, () => Response> = {
     "/workers/scripts/cire-api-production/settings": () =>
       ok({
@@ -121,13 +136,24 @@ function scripted(overrides: Readonly<Record<string, () => Response>> = {}) {
     "/r2/buckets/cire-assets/domains/custom": () => ok({ domains: [] }),
     ...overrides,
   };
-  const fetcher = (async (input: string | URL | Request) => {
-    const url = String(input instanceof Request ? input.url : input);
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = request.url;
     calls.push(url);
+    if (
+      request.method === "POST" &&
+      query !== undefined &&
+      url === `${API}/d1/database/u-prod/query`
+    ) {
+      const { sql } = (await request.json()) as { readonly sql: string };
+      queries.push(sql);
+      return query(sql);
+    }
+    if (request.method !== "GET") return failed(405, 0);
     const route = routes[url.slice(API.length)];
     return route === undefined ? failed(404, 0) : route();
   }) as unknown as typeof fetch;
-  return { fetch: fetcher, calls };
+  return { fetch: fetcher, calls, queries };
 }
 
 const api = (fetcher: typeof fetch) => ({
@@ -553,5 +579,453 @@ describe("LS: the check after a deploy", () => {
       }),
     ).toBe(2);
     expect(out.join("")).not.toContain(ACCOUNT);
+  });
+});
+
+/**
+ * A cire-shaped pair of migrations directories: the live baseline and later
+ * files, and an archive whose names a production ledger also holds.
+ */
+function migrationSources(): Required<MigrationSources> {
+  const root = mkdtempSync(join(tmpdir(), "ledger-"));
+  const source = join(root, "migrations");
+  const archive = join(root, "migrations-archive");
+  mkdirSync(source);
+  mkdirSync(archive);
+  for (const [name, sql] of [
+    ["0001_initial.sql", "CREATE TABLE weddings (id TEXT);\n"],
+    ["0082_live.sql", "ALTER TABLE weddings ADD COLUMN a TEXT;\n"],
+    ["20261021132850_late.sql", "CREATE INDEX w_a ON weddings (a);\n"],
+    ["20261101000000_new.sql", "ALTER TABLE weddings ADD COLUMN b TEXT;\n"],
+  ] as const) {
+    writeFileSync(join(source, name), sql);
+  }
+  for (const name of ["0001_initial.sql", "0002_two.sql", "0010_ten.sql"]) {
+    writeFileSync(join(archive, name), "DROP TABLE weddings;\n");
+  }
+  return { source, archive, freeze: true };
+}
+
+/** Everything production's ledger held when Wrangler last migrated it. */
+const WRANGLER_LEDGER = [
+  "0001_initial.sql",
+  "0002_two.sql",
+  "0010_ten.sql",
+  "0082_live.sql",
+  "20261021132850_late.sql",
+];
+
+const counted = (input: {
+  readonly wrangler?: readonly string[] | null;
+  readonly alchemy?: readonly { readonly name: string; readonly hash: string | null }[] | null;
+  readonly present?: readonly string[];
+}) => {
+  const files = migrationFiles(migrationSources());
+  const present = input.present ?? [
+    ...(input.wrangler === null ? [] : ["d1_migrations"]),
+    ...(input.alchemy === undefined || input.alchemy === null ? [] : ["__alchemy_migrations"]),
+  ];
+  return countLedger({
+    present,
+    wrangler: input.wrangler === undefined ? WRANGLER_LEDGER : input.wrangler,
+    alchemy: input.alchemy ?? null,
+    files,
+  });
+};
+
+/** The Alchemy ledger a clean conversion of `names` leaves: each row hashed as the local file. */
+const converted = (names: readonly string[]) => {
+  const files = migrationFiles(migrationSources());
+  return names.map((name) => ({
+    name,
+    hash: migrationHash(files.find((file) => file.name === name)?.sql ?? ""),
+  }));
+};
+
+describe("LL: the live read of a database's migration ledger", () => {
+  test("LL2: counts rows, matches, files to apply, and the ones the chain was applied without", () => {
+    // Production before the conversion: everything Wrangler applied matches,
+    // and the file merged since and the freeze are to apply.
+    expect(counted({})).toEqual({
+      table: "d1_migrations",
+      foreign: 0,
+      frozen: false,
+      rows: 5,
+      duplicates: 0,
+      matched: 5,
+      unmatched: 0,
+      rewritten: 0,
+      pending: 2,
+      skipped: 0,
+      late: 0,
+      wranglerRows: 5,
+      frozenMissing: 0,
+      thawed: false,
+    } satisfies LedgerCounts);
+    // An archived name the ledger lacks: the placeholder would refuse, so it counts as skipped.
+    expect(
+      counted({ wrangler: WRANGLER_LEDGER.filter((name) => name !== "0002_two.sql") }),
+    ).toMatchObject({ pending: 3, skipped: 1, late: 0 });
+    // A numbered live file missing behind a later applied one: the chain went on without it.
+    expect(
+      counted({ wrangler: WRANGLER_LEDGER.filter((name) => name !== "0082_live.sql") }),
+    ).toMatchObject({ pending: 3, skipped: 1, late: 0 });
+    // A timestamped file merged late, behind a newer applied one: listed, not skipped.
+    expect(
+      counted({
+        wrangler: [
+          ...WRANGLER_LEDGER.filter((name) => name !== "20261021132850_late.sql"),
+          "20261101000000_new.sql",
+        ],
+      }),
+    ).toMatchObject({ pending: 2, skipped: 0, late: 1 });
+    // A ledger holding the baseline alone: every archived name is missing.
+    expect(counted({ wrangler: ["0001_initial.sql"] })).toMatchObject({ skipped: 2 });
+    // A row that names no file, and one recorded twice.
+    expect(
+      counted({ wrangler: [...WRANGLER_LEDGER, "0050_stray.sql", "0082_live.sql"] }),
+    ).toMatchObject({ rows: 7, duplicates: 1, matched: 5, unmatched: 1 });
+  });
+
+  test("LL3: with both ledgers, counts Wrangler's names Alchemy's lacks, and Alchemy's rows whose file changed", () => {
+    const clean = converted([...WRANGLER_LEDGER, FREEZE_MIGRATION.name]);
+    expect(
+      counted({
+        alchemy: clean,
+        present: ["d1_migrations", "__alchemy_migrations", "d1_migrations_frozen"],
+      }),
+    ).toMatchObject({
+      table: "__alchemy_migrations",
+      frozen: true,
+      rows: 6,
+      matched: 6,
+      pending: 1,
+      wranglerRows: 5,
+      frozenMissing: 0,
+      rewritten: 0,
+    });
+    // A conversion that copied part of Wrangler's ledger.
+    expect(counted({ alchemy: clean.filter((row) => row.name !== "0010_ten.sql") })).toMatchObject({
+      frozenMissing: 1,
+      skipped: 1,
+    });
+    // A file whose bytes changed after Alchemy recorded it: a squash, or a rewrite.
+    expect(
+      counted({
+        alchemy: clean.map((row) =>
+          row.name === "0082_live.sql"
+            ? { name: row.name, hash: migrationHash("something else") }
+            : row,
+        ),
+      }),
+    ).toMatchObject({ rewritten: 1 });
+    // An empty Alchemy ledger beside Wrangler's: a first conversion that read none of it.
+    expect(counted({ alchemy: [] })).toMatchObject({
+      table: "__alchemy_migrations",
+      rows: 0,
+      wranglerRows: 5,
+      frozenMissing: 5,
+    });
+  });
+
+  test("LL10: the trigger counts as thawed only when Alchemy's ledger records the freeze and the trigger is gone", () => {
+    const clean = converted([...WRANGLER_LEDGER, FREEZE_MIGRATION.name]);
+    const both = ["d1_migrations", "__alchemy_migrations"];
+    // Converted and frozen.
+    expect(counted({ alchemy: clean, present: [...both, "d1_migrations_frozen"] })).toMatchObject({
+      frozen: true,
+      thawed: false,
+    });
+    // The freeze recorded, its trigger dropped: nothing would put it back.
+    expect(counted({ alchemy: clean, present: both })).toMatchObject({
+      frozen: false,
+      thawed: true,
+    });
+    // The freeze not yet recorded: the migrate step applies it, trigger and row together.
+    expect(counted({ alchemy: converted(WRANGLER_LEDGER), present: both })).toMatchObject({
+      frozen: false,
+      thawed: false,
+      pending: 2,
+    });
+    // Wrangler's ledger alone, frozen: Alchemy's ledger was there once and is gone.
+    expect(counted({ present: ["d1_migrations", "d1_migrations_frozen"] })).toMatchObject({
+      table: "d1_migrations",
+      frozen: true,
+      thawed: false,
+    });
+  });
+
+  test("LL6: a drizzle or Prisma ledger, which Alchemy would read first, is counted", () => {
+    expect(
+      counted({ present: ["d1_migrations", "__drizzle_migrations", "_prisma_migrations"] }),
+    ).toMatchObject({ foreign: 2 });
+    expect(counted({ wrangler: null, present: [] })).toMatchObject({
+      table: "none",
+      rows: 0,
+      pending: 7,
+    });
+  });
+
+  /** cire's adopted resources with its database migrated from `sources`. */
+  const migrated = (sources: MigrationSources): AdoptedResources => ({
+    ...ADOPTED,
+    databases: { CireDb: { name: "cire-db", readReplication: "auto", migrations: sources } },
+  });
+
+  const d1 = (results: readonly unknown[]) =>
+    ok([{ results, success: true, meta: { served_by_primary: true } }]);
+
+  /** cire-db's `/query`, answering with a production-shaped Wrangler ledger. */
+  const wranglerLedger = (sql: string): Response => {
+    if (sql.includes("FROM sqlite_master")) {
+      return d1([{ type: "table", name: "d1_migrations" }]);
+    }
+    if (sql === 'SELECT name FROM "d1_migrations" ORDER BY id') {
+      return d1(WRANGLER_LEDGER.map((name) => ({ name })));
+    }
+    return failed(400, 7500);
+  };
+
+  test("LL1: reads each ledger table present with read-only SQL, and keeps counts, never a name", async () => {
+    const sources = migrationSources();
+    const fake = scripted({}, wranglerLedger);
+    const live = await readProductionLive(migrated(sources), api(fake.fetch));
+    expect(live.databases.CireDb?.ledger).toEqual(counted({}));
+    expect(fake.queries).toEqual([
+      "SELECT type, name FROM sqlite_master WHERE name IN ('d1_migrations', '__alchemy_migrations', '__drizzle_migrations', '_prisma_migrations', 'd1_migrations_frozen')",
+      'SELECT name FROM "d1_migrations" ORDER BY id',
+    ]);
+    for (const sql of fake.queries) expect(sql).toMatch(/^SELECT /);
+    expect(JSON.stringify(live)).not.toContain("0082_live");
+    // Both ledgers present: both are read.
+    const both = scripted({}, (sql) =>
+      sql.includes("FROM sqlite_master")
+        ? d1([
+            { type: "table", name: "d1_migrations" },
+            { type: "table", name: "__alchemy_migrations" },
+          ])
+        : sql === 'SELECT name, hash FROM "__alchemy_migrations" ORDER BY id'
+          ? d1(converted(WRANGLER_LEDGER))
+          : wranglerLedger(sql),
+    );
+    const read = await readProductionLive(migrated(sources), api(both.fetch));
+    expect(read.databases.CireDb?.ledger).toMatchObject({ table: "__alchemy_migrations", rows: 5 });
+    expect(both.queries).toContain('SELECT name, hash FROM "__alchemy_migrations" ORDER BY id');
+  });
+
+  test("LL4: a refused or unreadable /query throws, naming no account and no row", async () => {
+    const refused = scripted({}, () => failed(400, 7500));
+    const error = await readProductionLive(migrated(migrationSources()), api(refused.fetch)).catch(
+      (e: unknown) => e,
+    );
+    expect(String(error)).toMatch(/answered 400/);
+    expect(String(error)).not.toContain(ACCOUNT);
+    const shapeless = scripted({}, () => ok({ not: "a list" }));
+    await expect(
+      readProductionLive(migrated(migrationSources()), api(shapeless.fetch)),
+    ).rejects.toThrow(/query/);
+    // Three tries on a 5xx, as every read: a read-only query is safe to send again.
+    const busy = scripted({}, () => new Response("busy", { status: 503 }));
+    await expect(readProductionLive(migrated(migrationSources()), api(busy.fetch))).rejects.toThrow(
+      /failed three times/,
+    );
+    expect(busy.queries).toHaveLength(3);
+  });
+
+  test("LL5: a database with no migrations is not queried, and the check after a deploy queries none", async () => {
+    const fake = scripted({}, wranglerLedger);
+    const live = await readProductionLive(ADOPTED, api(fake.fetch));
+    expect(fake.queries).toEqual([]);
+    expect(live.databases.CireDb).toEqual({ exists: true, readReplication: "auto" });
+    const after = scripted({}, wranglerLedger);
+    await readProductionLive(migrated(migrationSources()), api(after.fetch), { secretsOnly: true });
+    expect(after.queries).toEqual([]);
+  });
+
+  test("LL7: read-live prints each database's counts, and no migration name", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "read-live-"));
+    const out: string[] = [];
+    const code = await runReadLiveCli({
+      adopted: migrated(migrationSources()),
+      argv: ["--out", join(dir, "live.json")],
+      env: { CLOUDFLARE_ACCOUNT_ID: ACCOUNT, CLOUDFLARE_API_TOKEN: "token-value" },
+      fetch: scripted({}, wranglerLedger).fetch,
+      sleep: async () => undefined,
+      out: (text) => out.push(text),
+    });
+    expect(code).toBe(0);
+    expect(out.join("")).toContain(
+      "CireDb: d1_migrations, 5 rows, 5 match a migration file, 0 match none, 0 changed since applied; 2 to apply, 0 skipped, 0 applied out of order; Wrangler's ledger not frozen",
+    );
+    expect(out.join("") + readFileSync(join(dir, "live.json"), "utf8")).not.toMatch(
+      /0082_live|_late|_new|0002_two/,
+    );
+  });
+
+  test("LL8: a ledger row whose name is not text throws, naming the column and never the value", async () => {
+    const odd = scripted({}, (sql) =>
+      sql === 'SELECT name FROM "d1_migrations" ORDER BY id'
+        ? d1([{ name: "0001_initial.sql" }, { name: 4242424242 }])
+        : wranglerLedger(sql),
+    );
+    const error = await readProductionLive(migrated(migrationSources()), api(odd.fetch)).catch(
+      (e: unknown) => e,
+    );
+    expect(String(error)).toContain("a migration ledger row's name is not text");
+    expect(String(error)).not.toContain("4242424242");
+  });
+
+  // Alchemy flags a changed file only when the row records a hash
+  // (`AlchemyFormat.ts`, `row?.hash && …`); a converted row can hold an empty one.
+  test("LL9: an Alchemy row with an empty or null hash is never counted as rewritten", async () => {
+    const rows = converted(WRANGLER_LEDGER).map((row) =>
+      row.name === "0082_live.sql" ? { name: row.name, hash: "" } : row,
+    );
+    const read = scripted({}, (sql) =>
+      sql.includes("FROM sqlite_master")
+        ? d1([
+            { type: "table", name: "d1_migrations" },
+            { type: "table", name: "__alchemy_migrations" },
+          ])
+        : sql === 'SELECT name, hash FROM "__alchemy_migrations" ORDER BY id'
+          ? d1([...rows, { name: "0010_ten.sql", hash: null }])
+          : wranglerLedger(sql),
+    );
+    const live = await readProductionLive(migrated(migrationSources()), api(read.fetch));
+    expect(live.databases.CireDb?.ledger).toMatchObject({ rewritten: 0, duplicates: 1 });
+    expect(counted({ alchemy: [...rows, { name: "0002_two.sql", hash: null }] })).toMatchObject({
+      rewritten: 0,
+    });
+  });
+});
+
+describe("LJ: the guard's judgement of a migrated database's ledger", () => {
+  const adopted: AdoptedResources = {
+    ...ADOPTED,
+    databases: {
+      CireDb: { name: "cire-db", readReplication: "auto", migrations: { source: "unused" } },
+    },
+  };
+  const withLedger = (ledger: LedgerCounts | undefined, readReplication = "auto"): LiveState => ({
+    ...matching(),
+    databases: {
+      CireDb: { exists: true, readReplication, ...(ledger === undefined ? {} : { ledger }) },
+    },
+  });
+  const judged = (ledger: LedgerCounts | undefined, adopting = new Set<string>()) =>
+    judgeLive({ adopted, live: withLedger(ledger), adopting });
+
+  test("LJ9: a consistent ledger passes, and its counts are listed with no name", () => {
+    const { refusals, notices } = judged(counted({}));
+    expect(refusals).toEqual([]);
+    expect(notices).toEqual([
+      "cire-db migration ledger (d1_migrations): 5 rows, 5 match a migration file, 0 match none; 2 to apply, 0 of them older than the newest applied; Wrangler's ledger not frozen",
+    ]);
+  });
+
+  test("LJ10 (J1, J2): a ledger not read, absent, or empty is refused", () => {
+    expect(judged(undefined).refusals.join("\n")).toContain(
+      "cire-db's migration ledger was not read",
+    );
+    expect(judged(counted({ wrangler: null, present: [] })).refusals.join("\n")).toContain(
+      "cire-db has no migration ledger",
+    );
+    expect(judged(counted({ alchemy: [] })).refusals.join("\n")).toContain(
+      "cire-db's __alchemy_migrations is empty beside 5 rows of d1_migrations",
+    );
+  });
+
+  test("LJ11 (J3): a ledger row that names no migration file is refused", () => {
+    expect(
+      judged(counted({ wrangler: [...WRANGLER_LEDGER, "0050_stray.sql"] })).refusals.join("\n"),
+    ).toContain("1 row of cire-db's d1_migrations names no migration file");
+  });
+
+  test("LJ12 (J4): a migration the chain was applied without is refused", () => {
+    expect(
+      judged(
+        counted({ wrangler: WRANGLER_LEDGER.filter((name) => name !== "0002_two.sql") }),
+      ).refusals.join("\n"),
+    ).toContain(
+      "1 migration file of cire-db is missing from its ledger behind ones applied after it",
+    );
+  });
+
+  test("LJ13 (J5): Wrangler's names missing from Alchemy's ledger are refused", () => {
+    const clean = converted(WRANGLER_LEDGER);
+    expect(
+      judged(
+        counted({ alchemy: clean.filter((row) => row.name !== "0010_ten.sql") }),
+      ).refusals.join("\n"),
+    ).toContain("1 name in cire-db's d1_migrations is missing from __alchemy_migrations");
+  });
+
+  test("LJ14 (J6): a migration file changed since Alchemy applied it is refused", () => {
+    const changed = converted(WRANGLER_LEDGER).map((row) =>
+      row.name === "0082_live.sql" ? { name: row.name, hash: "0".repeat(64) } : row,
+    );
+    expect(judged(counted({ alchemy: changed })).refusals.join("\n")).toContain(
+      "1 migration file of cire-db changed after it was applied",
+    );
+  });
+
+  test("LJ15 (J7): read replication that differs is refused on every release, the migrate step patches it", () => {
+    const live = withLedger(counted({}), "disabled");
+    expect(judgeLive({ adopted, live, adopting: new Set() }).refusals.join("\n")).toContain(
+      "cire-db's read replication is disabled live and auto declared",
+    );
+  });
+
+  test("LJ16 (J8): a drizzle or Prisma ledger, which Alchemy reads before Wrangler's, is refused", () => {
+    expect(
+      judged(counted({ present: ["d1_migrations", "__drizzle_migrations"] })).refusals.join("\n"),
+    ).toContain("cire-db holds 1 other migration ledger");
+  });
+
+  test("LJ18 (J9): a frozen Wrangler ledger with no Alchemy ledger beside it is refused", () => {
+    // Every migration since the move is recorded only in the Alchemy ledger
+    // that is gone, so a conversion from Wrangler's would apply each again.
+    const { refusals } = judged(counted({ present: ["d1_migrations", "d1_migrations_frozen"] }));
+    expect(refusals).toEqual([
+      "cire-db's d1_migrations is frozen and its __alchemy_migrations is gone: Wrangler's ledger stopped at the move, so the migrate step would apply again every migration since (wiki/shared/production-deploy.md §4.2)",
+    ]);
+  });
+
+  test("LJ19 (J10): a trigger dropped after Alchemy recorded the freeze is refused; one still to apply is not", () => {
+    const clean = converted([...WRANGLER_LEDGER, FREEZE_MIGRATION.name]);
+    const both = ["d1_migrations", "__alchemy_migrations"];
+    expect(judged(counted({ alchemy: clean, present: both })).refusals).toEqual([
+      "cire-db's d1_migrations_frozen trigger is gone, and Alchemy's ledger records the freeze as applied, so no release puts it back (wiki/shared/production-deploy.md §4.2)",
+    ]);
+    expect(
+      judged(counted({ alchemy: converted(WRANGLER_LEDGER), present: both })).refusals,
+    ).toEqual([]);
+  });
+
+  test("LJ17: an empty Wrangler ledger is refused; counts of more than one read in the plural; late files are listed", () => {
+    expect(judged(counted({ wrangler: [] })).refusals.join("\n")).toContain(
+      "cire-db's d1_migrations is empty, so the migrate step would apply every migration",
+    );
+    const twice = judged(
+      counted({
+        wrangler: [...WRANGLER_LEDGER, "0050_stray.sql", "0060_stray.sql"].filter(
+          (name) => name !== "0002_two.sql" && name !== "0010_ten.sql",
+        ),
+      }),
+    ).refusals.join("\n");
+    expect(twice).toContain("2 rows of cire-db's d1_migrations name no migration file");
+    expect(twice).toContain("2 migration files of cire-db are missing from its ledger");
+    const late = judged(
+      counted({
+        wrangler: [
+          ...WRANGLER_LEDGER.filter((name) => name !== "20261021132850_late.sql"),
+          "20261101000000_new.sql",
+        ],
+      }),
+    );
+    expect(late.refusals).toEqual([]);
+    expect(late.notices).toEqual([
+      "cire-db migration ledger (d1_migrations): 5 rows, 5 match a migration file, 0 match none; 2 to apply, 1 of them older than the newest applied; Wrangler's ledger not frozen",
+    ]);
   });
 });

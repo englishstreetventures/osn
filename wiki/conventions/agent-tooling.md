@@ -8,7 +8,7 @@ related:
   - "[[contributing]]"
   - "[[wiki-search]]"
   - "[[review-findings]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-13
 ---
 
 # Agent tooling
@@ -38,7 +38,7 @@ A `PreToolUse` hook runs [`scripts/agent-guard.ts`](../../scripts/agent-guard.ts
 | `git commit` or `git push` on `main`, judged in the directory the command runs in (`cd`, `git -C`, a branch switch earlier in the line), and a push whose destination ref is `main` | Never commit to `main` |
 | A tracker finding ID in a commit message, in `gh pr` or `gh issue` text (`create`, `edit`, `comment`, `review`, `merge`, and a `close` or `reopen` comment) or `gh api` fields (inline, `--body-file`, `-F body=@file`, `--input`), or in a GitHub MCP write, unless it targets `englishstreetventures/osn-tracker` | Issues |
 | A Write or Edit of a test or spec file under a workspace's `src/`, in any worktree of this repository | Tests |
-| `wrangler d1 execute` or `export` unless `--local` is present, or the database is named with a `-dev` suffix (`cire-db-dev`, `osn-db-dev`, `zap-db-dev`) and no `--env`, `CLOUDFLARE_ENV` or `WRANGLER_ENV` names production. Binding names (`DB`), production names, `--env dev` on a production name, `--config`, `-c`, `--cwd`, `--env-file`, an unknown flag before the name, and more than one database word are refused. Real enforcement is the Cloudflare credential, not this hook: an agent shell whose Wrangler login reaches the production account can still read it by means the hook cannot see | Production data |
+| `wrangler d1 execute` or `export`, or `wrangler d1 migrations apply` or `list` (Wrangler migrates no deployed database: [[production-deploy#4.1 How a production database is migrated]]), unless `--local` is present, or the database is named with a `-dev` suffix (`cire-db-dev`, `osn-db-dev`, `zap-db-dev`) and no `--env`, `CLOUDFLARE_ENV` or `WRANGLER_ENV` names production. Binding names (`DB`), production names, `--env dev` on a production name, `--config`, `-c`, `--cwd`, `--env-file`, an unknown flag before the name, and more than one database word are refused. Real enforcement is the Cloudflare credential, not this hook: an agent shell whose Wrangler login reaches the production account can still read it by means the hook cannot see | Production data; one migrator per database |
 | An `Agent` call with no `subagent_type`, which starts `general-purpose` | Choose subagents by definition |
 
 It catches slips; it is not enforcement (it does not see a wrapper script, a variable or `eval` building the command, a dashboard or API call, or a script that reads production without naming `wrangler`), and `AGENTS.md` keeps every rule for agents that run no hooks. It reads only the call itself, never file contents already in the repository. Every failure lets the call through: unreadable input, an unreadable file, a `git` error, a directory it cannot resolve, a thrown check.
