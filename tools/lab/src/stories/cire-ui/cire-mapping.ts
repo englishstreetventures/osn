@@ -35,6 +35,7 @@ const CIRE_COLOR = {
   dark: {
     "--ui-ground": "oklch(16.8% 0.026 148)",
     "--ui-ground-deep": "oklch(13.2% 0.021 148)",
+    "--ui-scrim": "color-mix(in srgb, oklch(13.2% 0.021 148) 72%, transparent)",
     "--ui-surface": "oklch(20.6% 0.028 149)",
     "--ui-surface-raised": "oklch(24.4% 0.032 149)",
     "--ui-surface-sunk": "oklch(14.4% 0.022 148)",
@@ -57,6 +58,7 @@ const CIRE_COLOR = {
   light: {
     "--ui-ground": "oklch(88.6% 0.011 92)",
     "--ui-ground-deep": "oklch(84.5% 0.014 92)",
+    "--ui-scrim": "color-mix(in srgb, oklch(84.5% 0.014 92) 72%, transparent)",
     "--ui-surface": "oklch(92.4% 0.009 92)",
     "--ui-surface-raised": "oklch(95.2% 0.007 92)",
     "--ui-surface-sunk": "oklch(85.8% 0.013 92)",

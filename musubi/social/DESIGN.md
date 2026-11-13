@@ -267,8 +267,8 @@ Where the app does not follow this yet — known breaks include:
   `shared/ui/src/ui/button.tsx`); chips (§Chips); avatars.
 - **Sheets** — below `md`, dialogs render as bottom sheets: 16px top corners
   (the contract's `--ui-radius-sheet`, which Musubi leaves to fall back to
-  `--ui-radius-lg`) with square bottom corners, pinned to the bottom edge (see
-  Responsive layout).
+  `--ui-radius-lg`) with square bottom corners at every width up to 767px,
+  pinned to the bottom edge (see Responsive layout).
 
 Where the app does not follow this yet — known breaks include:
 
@@ -864,6 +864,9 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   `0em`, which the rail's small-caps "Social" tag uses.
 - **Weight.** `--ui-weight-title` is 500, the weight `DialogTitle` and
   `CardTitle` read (§Typography, Dialog and card titles).
+- **Elevation and scrim.** Musubi maps neither `--ui-elev-2` nor `--ui-scrim`,
+  so a dialog casts the contract's `0 8px 24px rgb(0 0 0 / 0.12)` over the
+  contract's scrim, black at 50% (`wiki/shared/design-tokens.md` §The tokens).
 - **Motion.** `--ui-scale-enter` and `--ui-scale-exit` are 1: overlays fade
   with no scale (§Motion). Durations and easings are the contract's own;
   Musubi maps none.

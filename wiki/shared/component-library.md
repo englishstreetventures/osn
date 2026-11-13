@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Component Library (Zaidan)
@@ -1180,6 +1180,19 @@ step, so its dialog titles draw 14px at 500. Overlays that fade without
 scaling are an app's choice too, made with the two scale tokens rather than a
 prop; Musubi makes it ([[design-tokens#Motion]]).
 
+**`Dialog`'s shadow, scrim and sheet corners are the contract's.** The panel
+casts `--ui-elev-2`, as `Modal` and a raised `Card` do, and the overlay paints
+`--ui-scrim`, the role `Modal`'s `::backdrop` reads too
+([[design-tokens#The tokens]]). Neither musubi nor pulse maps either, so their
+dialogs cast `0 8px 24px rgb(0 0 0 / 0.12)` over black at 50%. With
+`presentation="sheet"` the bottom corners are square at every width below `md`
+(767px and under) and the top corners read `--ui-radius-sheet`; from `md` the
+sheet is the centred card, round on all four at `--ui-radius-lg`. No class on
+the panel rounds it at a breakpoint under `md`: Tailwind emits a min-width
+query after the `max-md` ones, so it would round the sheet's bottom corners.
+`shared/ui/tests/dialog.browser.test.tsx` holds the shadow and the scrim,
+mapped and unmapped, and the sheet's corners at 390, 700, 767, 768 and 1440px.
+
 ### Checkbox and RadioGroup — native, in two boxes
 
 `Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
@@ -1540,6 +1553,11 @@ these. The motion tokens are in [[design-tokens]] §Motion.
 `prefers-reduced-motion` drops every one of them to 1ms rather than `none`:
 the exit is _awaited_, and a transition that never started is one there is
 nothing to wait for.
+
+`Modal`'s backdrop paints `--ui-scrim`, the contract's scrim role, which `Dialog`'s
+overlay reads too; unmapped it is black at 50%, and cire maps it onto its deep
+ground at 72% ([[design-tokens#The tokens]]). `::backdrop` inherits from the
+dialog, so a mapping on `:root` reaches it.
 
 > [!important]
 > **Keep the modal mounted across the close.** `Modal` can only animate its exit

@@ -316,6 +316,21 @@ describe("one shape and one pace across cire", () => {
     }).toEqual({ host: one, vendor: one, invites: one, landing: one, ui: one });
   });
 
+  it("every cire surface maps the scrim onto its deep ground at 72%, once, at the root", () => {
+    // `Modal`'s backdrop reads `--ui-scrim`, whose fallback is black at 50%.
+    // An app that drops the line draws that black behind its modals, and the
+    // landing site has no browser tier to see it. On `:root`, beside
+    // `--ui-ground-deep`, so it follows the same theme and palette.
+    const scrims = (css: string) =>
+      declarations(css)
+        .filter((d) => d.name === "--ui-scrim")
+        .map((d) => `${d.path.join(" ")} { ${d.name}: ${d.value} }`);
+    const one = [
+      ":root { --ui-scrim: color-mix(in srgb, var(--ui-ground-deep) 72%, transparent) }",
+    ];
+    expect(mapSurfaces(scrims)).toEqual({ host: one, vendor: one, invites: one, landing: one });
+  });
+
   it("@cire/ui's test stylesheet carries the host's desk ladder and easings", () => {
     // `@cire/ui`'s browser tier has no app, so its stylesheet copies the host's
     // motion at a desk, Chromium's pointer being fine. A copy that drifts would

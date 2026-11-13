@@ -34,6 +34,12 @@ export const CONTRACT_COLOR_TOKENS = {
   ui: ["--ui-hairline-strong", "--ui-focus"],
   /** Decoration with no contrast floor. A card is told apart by its surface, not its edge. */
   decorative: ["--ui-hairline", "--ui-accent-soft"],
+  /**
+   * The veil a modal lays over the page, translucent and measured against
+   * nothing, so no floor. In no contrast pair, so no app has to map it: one
+   * that does not gets black at 50%.
+   */
+  scrim: ["--ui-scrim"],
   /** Fills. What sits *on* them is asserted, not they themselves. */
   fills: ["--ui-accent", "--ui-accent-strong", "--ui-danger"],
   /** Ink that sits on a fill. Asserted against the fill it names, not against the page. */
