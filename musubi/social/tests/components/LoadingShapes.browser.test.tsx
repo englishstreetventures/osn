@@ -320,7 +320,7 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
     // holds it once the section's module has loaded.
     await waitFor(() => expect(reads.held("security-chunk")).toBe(true));
     reads.release("security-chunk", true);
-    await screen.findByRole("button", { name: "Add passkey" });
+    await screen.findByRole("button", { name: "Add a passkey" });
     expect(fallback.isConnected).toBe(false);
     await waitFor(() => expect(document.querySelector("[aria-busy]")).toBeNull());
   });

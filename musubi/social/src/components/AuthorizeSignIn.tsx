@@ -41,6 +41,7 @@ export function AuthorizeSignIn(props: {
         fallback={
           <>
             <SignIn
+              host="page"
               registrationClient={registrationClient}
               runPasskeyRegistration={runPasskeyRegistrationDeferred}
               client={loginClient}
@@ -49,7 +50,7 @@ export function AuthorizeSignIn(props: {
               productName={PRODUCT_NAME}
               onSuccess={() => props.onSuccess()}
             />
-            <p class="text-muted-foreground text-body px-4 pb-4 text-center">
+            <p class="text-muted-foreground text-body mt-6 text-center">
               No account yet?{" "}
               <Button
                 variant="link"
@@ -67,9 +68,11 @@ export function AuthorizeSignIn(props: {
             which is exactly what the parked request is waiting for — so the
             new account carries straight on to consent, no second sign-in. */}
         <Register
+          host="page"
           client={registrationClient}
           turnstileSiteKey={TURNSTILE_SITEKEY}
           productName={PRODUCT_NAME}
+          cancelLabel="Sign in instead"
           onCancel={() => setMode("signIn")}
           onSuccess={() => props.onSuccess()}
         />

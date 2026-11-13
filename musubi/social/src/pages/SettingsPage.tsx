@@ -220,12 +220,22 @@ export function SettingsPage() {
  * each fallback's own wrapper carries `aria-busy` and leaves with it.
  */
 
-/** The Security section's place while its code loads: the passkeys' head and one row. */
+/**
+ * The Security section's place while its code loads: the passkeys' head and
+ * one row. The row is `@osn/auth-ui`'s, taller below `md`, where its actions
+ * sit under its words, so it gets a block for each width, as the view's own
+ * placeholder does.
+ */
 function SecurityLoading() {
   return (
     <div aria-busy="true" class="flex flex-col gap-3">
       <Skeleton standsFor="line" width={24} height={8} />
-      <Skeleton height={15.5} />
+      <div class="md:hidden">
+        <Skeleton standsFor="row" height={36} />
+      </div>
+      <div class="max-md:hidden">
+        <Skeleton standsFor="row" height={23} />
+      </div>
     </div>
   );
 }

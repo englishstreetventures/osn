@@ -181,10 +181,12 @@ rule draws it on an element that does not name it (§Borders).
   `text-muted-foreground`. A heading that opens a section inside a page
   ("Members", "Signed in as", `/search`'s "People" and "Organisations") takes
   the same step and weight, in `text-foreground`. A shell page's `h1` is
-  `text-display` (§Layout). `/authorize`, which has no shell, titles each
-  screen at `text-title` and 500 — the client's name on its client card, or
-  the screen's ask ("Choose a profile") — so the name a screen is about reads
-  as a name. The rail's account trigger is shell chrome and keeps its own
+  `text-display` (§Layout). `/authorize`, which has no shell, leads with the
+  app's name on its client card at `text-display` and 500 (D2), breaking
+  anywhere since the app chose the words; the screen's own heading under it
+  is `text-title` at 500 (the sign-in panel's title, "Signed in as"). The
+  profile picker, which draws no client card, titles its screen "Choose a
+  profile" at `text-title` and 500. The rail's account trigger is shell chrome and keeps its own
   size.
 - **Dialog and card titles** — `@shared/ui`'s `DialogTitle` and `CardTitle`
   are `text-title`'s 14px at 500. Both set their size with `--ui-text-md` and
@@ -231,10 +233,7 @@ rule draws it on an element that does not name it (§Borders).
 Where the app does not follow this yet — known breaks include:
 
 - `@shared/ui`'s `AvatarFallback`: weight 600.
-- Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
-  and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).
-- The auth views (§Auth surfaces) (#2045).
 
 ## Radii — two families + pill
 
@@ -245,7 +244,10 @@ Where the app does not follow this yet — known breaks include:
   maps to `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s Popover and
   menu panels; and the rail search's results panel (`GlobalSearch`), a
   floating panel drawn as the menus are: `rounded-md`, `bg-popover`,
-  `shadow-md`.
+  `shadow-md`. A bordered row nested inside a card takes 8px too, the card's
+  own corner already spent (D11): `@osn/auth-ui`'s Settings rows, `Card
+  radius="md" padding="sm"` inside Settings' card, and the new recovery codes'
+  well.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
   organisations list's rows, `/authorize`'s scope rows and its dead-end and
@@ -570,18 +572,15 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   viewport:
   - Settings → Security: the card's column is 246px (37.7px boxes; 260px from
     a 334px viewport), after `main`'s `px-4` and the card's `p-5` and edge,
-    for `TotpView`'s enrolment step (#2045).
+    for `TotpView`'s enrolment step (#2054).
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
 - The bare routes, `/authorize` and `/verify/:requestId`, render with **no
   shell at any width**.
 
-Where the app does not follow this yet:
-
-- Every dialog `@osn/auth-ui`'s views open themselves, except the step-up
-  sheet, uses `DialogContent` without `presentation="sheet"`, so it stays a
-  centred card below `md` (#2045).
+Every dialog `@osn/auth-ui`'s views open themselves is a sheet below `md`:
+the step-up sheet, "Generate a new set?" and "Create a new profile".
 
 ## Empty states and failed loads
 
@@ -768,19 +767,18 @@ hosts them.
 
 **How they render here.** `@shared/design-tokens/tokens.css`, which `App.css`
 imports, carries the `@source` for `osn/auth-ui/src`, so the views' classes
-compile in this app. The views' own classes name the shadcn colour vocabulary
-(`text-muted-foreground`, `text-destructive`, `bg-muted`), which `App.css`
-defines, and Tailwind's default type steps (`text-xs`, `text-sm`, `text-lg`,
-`text-2xl`), which Musubi's `@theme` leaves as Tailwind sets them: 12/16,
-14/20, 18/28 and 24/32. The `@shared/ui` parts inside the views render through
-the contract mapping (§Token contract). So the views do not follow this file's
-four-step scale or its weights today (#2045). Their form fields, links and busy
-buttons do follow this file: §Form fields, §Links and §Busy buttons.
+compile in this app. The views write only the `ui-*` contract, which the
+contract block in `App.css` maps onto this file's scale (§Token contract): a
+panel heading is `text-title` at 500, body lines `text-body` in the secondary
+ink, meta lines `text-meta`, names in a row 14px at 500. Their form fields,
+links and busy buttons follow this file too: §Form fields, §Links and §Busy
+buttons. A view's title in a dialog is the dialog's `DialogTitle`, so the
+sign-in and create-account dialogs are named "Sign in to Musubi" and
+"Create your Musubi account" by the view; `ResponsiveDialogContent` takes no
+`aria-label` there.
 
-`App.css`'s base rules reach the views too: their bare-bordered rows
-(`PasskeysView`, `TotpView`, `RecoveryCodesView`) draw the hairline, and every
-control the views draw by hand shows the base focus outline (§Borders,
-§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
+Every control the views draw by hand takes Button's focus ring, not the base
+outline (§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
 `UsernameInput`), so each draws `Input`'s `--input` edge.
 
 **Where each view mounts:**
@@ -788,12 +786,12 @@ control the views draw by hand shows the base focus outline (§Borders,
 | View | Where | Host file |
 | --- | --- | --- |
 | `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
-| `SignIn`, `Register` | `/authorize`, in a bordered `rounded-card` frame under the client card; "No account yet? Create one" swaps to `Register` | `components/AuthorizeSignIn.tsx` |
+| `SignIn`, `Register` | `/authorize`, unframed (`host="page"`), 24px under the client card, at the column's width with no side padding; "No account yet? Create one" sits 24px under `SignIn` and swaps to `Register`, whose Cancel reads "Sign in instead". While the panel's code loads, its placeholder takes the same shape (`SignInLoading`) | `components/AuthorizeSignIn.tsx`, in `pages/AuthorizePage.tsx` |
 | `CheckEmailView` | Inside `Register` once its link is sent, and inside `RecoveryLoginForm` once a recovery link is | — |
 | `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column. A sign-up link's page offers the numbers to pick; a recovery link's asks for the number typed (`typeNumber`). Its expired card also answers a link whose id names no flow | `pages/VerifyEmailLinkPage.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
 | `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-link step, when a site key is set | — |
-| `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, the last under the app's own "Recovery codes" heading | `components/SecuritySection.tsx` (lazy) |
+| `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, inside Settings' card, so their rows are nested 8px cards; the last under the app's own "Recovery codes" heading, `text-title` at 500 over a `text-body` intro, as the panels' own headings read. While the section's code loads, `SecurityLoading` draws the passkeys' head and one row, a block for each width as the view's own placeholder does | `components/SecuritySection.tsx` (lazy), in `pages/SettingsPage.tsx` |
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
 | `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner` — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default | — |
