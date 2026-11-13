@@ -82,6 +82,15 @@ function held<T>() {
   return { promise, settle };
 }
 
+/** A promise the test rejects by hand. */
+function refused<T = never>() {
+  let fail!: (reason: unknown) => void;
+  const promise = new Promise<T>((_, reject) => {
+    fail = reject;
+  });
+  return { promise, fail };
+}
+
 /** Lets every queued promise callback run, and a `setTimeout(0)` after them. */
 async function flush() {
   for (let i = 0; i < 5; i += 1) await new Promise((r) => setTimeout(r, 0));
@@ -734,13 +743,36 @@ describe("StepUpDialog — the sheet", () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
-  it("closes on Escape from the factors, and tells the host once", async () => {
-    const onCancel = vi.fn();
-    renderSheet({ onCancel });
-    pressEscape();
-    await flush();
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(onCancel).toHaveBeenCalledTimes(1);
+  // F3a: the positive control for F3, past the 300ms fallback that could
+  // deliver the outcome a second time.
+  describe("tells the host once", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("closes on Escape from the factors, and calls onCancel once", async () => {
+      const onCancel = vi.fn();
+      renderSheet({ onCancel });
+      pressEscape();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes with the passkey's token, and calls onToken once", async () => {
+      stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
+      stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
+      const onToken = vi.fn();
+      renderSheet({ onToken });
+      fireEvent.click(screen.getByRole("button", { name: "Use passkey" }));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(onToken).toHaveBeenCalledTimes(1);
+      expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 });
+    });
   });
 
   // F4
@@ -809,6 +841,167 @@ describe("StepUpDialog — the sheet", () => {
     }
   });
 
+  // F2b
+  it("a Resend that fails after the person went back writes nothing into the next wait", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+    try {
+      const failing = refused();
+      stub.emailBegin.mockResolvedValueOnce(LINK_REQUEST).mockResolvedValueOnce(LINK_REQUEST_2);
+      stub.emailStatus.mockReturnValue(new Promise(() => {}));
+      stub.emailResend.mockReturnValueOnce(failing.promise);
+      await openEmailWait();
+      vi.advanceTimersByTime(121_000);
+      fireEvent.click(await screen.findByRole("button", { name: "Resend link" }));
+      await waitFor(() => expect(stub.emailResend).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Use email instead" }));
+      expect(await screen.findByText("83")).toBeTruthy();
+      failing.fail(new Error("network"));
+      await flush();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByText("83")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * Resend's answers on the wait still on screen. Each case is past the
+   * 120-second wait, where Resend asks the server for another link.
+   */
+  describe("Resend on the wait still on screen", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+      stub.emailBegin.mockResolvedValue(LINK_REQUEST);
+      stub.emailStatus.mockReturnValue(new Promise(() => {}));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function pressResend() {
+      await openEmailWait();
+      vi.advanceTimersByTime(121_000);
+      fireEvent.click(await screen.findByRole("button", { name: "Resend link" }));
+      await waitFor(() => expect(stub.emailResend).toHaveBeenCalledTimes(1));
+    }
+
+    it("at the server's limit, says so", async () => {
+      stub.emailResend.mockResolvedValueOnce({ status: "limit" });
+      await pressResend();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        "We've sent all the links we can for this request. Use the newest one, or cancel and start again.",
+      );
+    });
+
+    it("when the send fails, says no new link went", async () => {
+      stub.emailResend.mockRejectedValueOnce(new Error("network"));
+      await pressResend();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        "We couldn't send a new link just now. Try again in a moment.",
+      );
+    });
+
+    it("when the link has expired, offers a new one", async () => {
+      stub.emailResend.mockResolvedValueOnce({ status: "expired" });
+      await pressResend();
+      expect(await screen.findByRole("button", { name: "Send a new link" })).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("when sent, keeps the same request and polls it again", async () => {
+      stub.emailResend.mockResolvedValueOnce({ status: "sent" });
+      await pressResend();
+      await flush();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByText("47")).toBeTruthy();
+      window.dispatchEvent(new Event("focus"));
+      await waitFor(() =>
+        expect(stub.emailStatus).toHaveBeenLastCalledWith({
+          requestId: LINK_REQUEST.requestId,
+          claimSecret: LINK_REQUEST.claimSecret,
+        }),
+      );
+    });
+  });
+
+  it('"Send a new link" on an expired wait starts a new request and waits on it', async () => {
+    stub.emailBegin.mockResolvedValueOnce(LINK_REQUEST).mockResolvedValueOnce(LINK_REQUEST_2);
+    stub.emailStatus
+      .mockResolvedValueOnce({ status: "expired" })
+      .mockReturnValue(new Promise(() => {}));
+    await openEmailWait();
+    window.dispatchEvent(new Event("focus"));
+    fireEvent.click(await screen.findByRole("button", { name: "Send a new link" }));
+    expect(await screen.findByText("83")).toBeTruthy();
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() =>
+      expect(stub.emailStatus).toHaveBeenLastCalledWith({
+        requestId: LINK_REQUEST_2.requestId,
+        claimSecret: LINK_REQUEST_2.claimSecret,
+      }),
+    );
+  });
+
+  // F17
+  describe("a poll still out when the person went back", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** The first wait's poll held out, then back, then email again: the second wait. */
+    async function secondWait() {
+      const stale = held<unknown>();
+      stub.emailBegin.mockResolvedValueOnce(LINK_REQUEST).mockResolvedValueOnce(LINK_REQUEST_2);
+      stub.emailStatus.mockReturnValueOnce(stale.promise).mockReturnValue(new Promise(() => {}));
+      const onToken = vi.fn();
+      renderSheet({ purpose: "account_export", onToken });
+      fireEvent.click(screen.getByRole("button", { name: "Use email instead" }));
+      await vi.advanceTimersByTimeAsync(10);
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(10);
+      expect(stub.emailStatus).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
+      await vi.advanceTimersByTimeAsync(10);
+      fireEvent.click(screen.getByRole("button", { name: "Use email instead" }));
+      await vi.advanceTimersByTimeAsync(10);
+      expect(screen.getByText("83")).toBeTruthy();
+      return { stale, onToken };
+    }
+
+    const secondWaitPolled = () =>
+      expect(stub.emailStatus).toHaveBeenLastCalledWith({
+        requestId: LINK_REQUEST_2.requestId,
+        claimSecret: LINK_REQUEST_2.claimSecret,
+      });
+
+    it("answering before the next wait's first poll, does not stop it", async () => {
+      const { stale, onToken } = await secondWait();
+      stale.settle({ status: "complete", token: { token: "eyJlate", expiresIn: 300 } });
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.emailStatus).toHaveBeenCalledTimes(2);
+      secondWaitPolled();
+      expect(onToken).not.toHaveBeenCalled();
+    });
+
+    it("answering after the next wait's first poll fell due, polls the next wait all the same", async () => {
+      const { stale, onToken } = await secondWait();
+      await vi.advanceTimersByTimeAsync(2_000);
+      stale.settle({ status: "complete", token: { token: "eyJlate", expiresIn: 300 } });
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.emailStatus).toHaveBeenCalledTimes(2);
+      secondWaitPolled();
+      expect(onToken).not.toHaveBeenCalled();
+    });
+  });
+
   // F10
   it("a new link asked for an expired one, answered after the person went back, starts no wait", async () => {
     const begun = held<typeof LINK_REQUEST>();
@@ -829,6 +1022,29 @@ describe("StepUpDialog — the sheet", () => {
     expect(onToken).not.toHaveBeenCalled();
     // Still the factor list, with no wait drawn behind it.
     expect(screen.queryByRole("heading", { name: "Check your email" })).toBeNull();
+  });
+
+  // F10b
+  it("a new link asked for an expired one, failing after the person started again, writes nothing", async () => {
+    const begun = refused<typeof LINK_REQUEST>();
+    stub.emailBegin
+      .mockResolvedValueOnce(LINK_REQUEST)
+      .mockReturnValueOnce(begun.promise)
+      .mockResolvedValueOnce(LINK_REQUEST_2);
+    stub.emailStatus
+      .mockResolvedValueOnce({ status: "expired" })
+      .mockReturnValue(new Promise(() => {}));
+    await openEmailWait();
+    window.dispatchEvent(new Event("focus"));
+    fireEvent.click(await screen.findByRole("button", { name: "Send a new link" }));
+    await waitFor(() => expect(stub.emailBegin).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use email instead" }));
+    expect(await screen.findByText("83")).toBeTruthy();
+    begun.fail(new Error("network"));
+    await flush();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("83")).toBeTruthy();
   });
 
   // F5
@@ -864,6 +1080,7 @@ describe("StepUpDialog — the sheet", () => {
     expect(codeBoxes("Code from your authenticator app")).toHaveLength(6);
   });
 
+  // F16
   it("passkeyOnly: going back from the code step returns to the passkey without starting it again", async () => {
     stub.passkeyBegin.mockRejectedValueOnce(ceremonyError("NotAllowedError", "PLANTED"));
     renderSheet({ passkeyOnly: true, totpClient: enrolled() });
@@ -980,14 +1197,19 @@ describe("StepUpDialog — the sheet", () => {
 
   // F14
   it("hands nothing to a host that removed it while open", async () => {
-    const onToken = vi.fn();
-    const onCancel = vi.fn();
-    const { unmount } = renderSheet({ onToken, onCancel });
-    expect(screen.getByRole("dialog")).toBeTruthy();
-    unmount();
-    await flush();
-    await new Promise((r) => setTimeout(r, 350));
-    expect(onToken).not.toHaveBeenCalled();
-    expect(onCancel).not.toHaveBeenCalled();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const onToken = vi.fn();
+      const onCancel = vi.fn();
+      const { unmount } = renderSheet({ onToken, onCancel });
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      unmount();
+      // Past the 300ms fallback.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(onToken).not.toHaveBeenCalled();
+      expect(onCancel).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

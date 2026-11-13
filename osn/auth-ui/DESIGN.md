@@ -211,7 +211,10 @@ As built:
 - **Step-up** (`StepUpDialog`) is `@shared/ui`'s `Dialog` with
   `DialogContent presentation="sheet"` (§8): a bottom sheet as wide as the
   screen below `md`, a centred card capped at 384px (`md:max-w-sm`) from `md`,
-  the cap of every Musubi dialog. A `DialogHeader` holds the `DialogTitle`;
+  the default cap of Musubi's dialogs (`ResponsiveDialogContent`'s
+  `width="sm"`). A `DialogHeader` holds the `DialogTitle`, whose text breaks
+  anywhere (`wrap-anywhere`), since it may carry a passkey's name of up to 64
+  characters with no space;
   under it a `flex-col gap-3 p-4` body: the warning, the reason, the
   choose-a-method line, the error line, then the step as a `flex-col gap-2`
   column of full-width Buttons. Its code boxes take the body's column: 288px
@@ -587,7 +590,7 @@ host a short-lived token through `onToken`.
   with `passkeyOnly`), the error line, then the step. It is named by its title
   and described by the warning, or, without one, by the reason line, so a
   screen reader hears what the action costs as the sheet opens.
-- **A destructive action** that leads here (the owner's D16 B): the title
+- **A destructive action** that leads here: the title
   names the action ("Remove Device passkey?"), `warning` says what it costs
   ("You'll need another credential to sign in. Confirm it's you to remove
   it."), and the factor the person picks commits it. No red button.
@@ -601,7 +604,7 @@ host a short-lived token through `onToken`.
   out, read by `state` so the sheet never joins its host's `Suspense`). By `purpose`:
   `passkey_delete` admits the passkey only; `email_change` the passkey and the
   emailed link; every other purpose all three; no purpose, the passkey and the
-  authenticator. Cancel (`secondary`, the owner's D13 A) is last.
+  authenticator. Cancel (`secondary`, as every dialog's dismiss button) is last.
 - **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed
   link and nothing else, and starts the passkey ceremony as the sheet opens.
   Its full meaning is in
@@ -641,17 +644,24 @@ host a short-lived token through `onToken`.
   If the fade has not ended 300ms after the close (a tab the browser has
   hidden runs no animation), the outcome goes then. While it closes, its
   body is `inert` and every action returns early. A host that removes the
-  sheet itself gets neither callback.
+  sheet itself gets neither callback. The cost is the fade: the host's next
+  request starts `--ui-dur-exit` (80ms in Musubi) after the token, or up to
+  300ms in a hidden tab, rather than at once. That is the price of the host's
+  `<Show>` not cutting the fade short and of focus going back only once the
+  sheet has gone.
 - **The claim secret and the number** live in memory only, and every answer
   about the emailed link is checked against the wait it was for, so nothing
-  reaches `onToken` after the person closed the sheet or went back.
+  reaches `onToken` after the person closed the sheet or went back. A status
+  poll still out when the person goes back neither stops nor delays the poll
+  of the wait that follows (`link-poll.ts`).
 - **Who opens it.** `PasskeysView` (`passkey_register` to add,
   `passkey_delete` to rename or delete), `TotpView` (`totp_enroll`,
   `totp_disable`), `RecoveryCodesView` (`recovery_generate`, "to generate
   recovery codes"), `SecurityEventsBanner` (`security_event_ack`) and
   `ChangeEmailForm` (`email_change`). `PasskeysView` and `TotpView` still ask
   the browser's `window.confirm` before a removal and pass no `warning`; they
-  take D16 B with the rest of the Security section (#2045).
+  move to the title-and-warning form above with the rest of the Security
+  section (#2045).
 
 ## 9. Focus
 
@@ -762,10 +772,12 @@ As built:
   `step-up-dialog.story.tsx`: the real sheet, one story per state (the
   factors, a reason, a destructive action's warning, the passkey wait and
   failure, no ceremony runner, `passkeyOnly` waiting and after a failure, with
-  and without an authenticator, the emailed link sending, refused, waiting and
-  expired, the code step, checking, refused and rate-limited), a `Phone` story
-  that frames three of them at 320px, and a playground. The other views get
-  theirs in #2045.
+  and without an authenticator, the emailed link sending, refused, waiting,
+  expired, replaced, not replaced and at the server's limit, the code step,
+  checking, refused and rate-limited, and a title naming a 64-character
+  passkey), a `Phone` story that frames four of them at 320px, and a
+  playground. A story that cannot find a button it presses says so on the
+  page. The other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
@@ -862,8 +874,11 @@ As built:
   passkey"; Resend disabled while the emailed link's wait runs; at 320px the
   authenticator step's row of code boxes 288px wide with no box under 40px,
   and every button inside the sheet's padding and at least 40px tall; at
-  1440px a centred 384px card with the row inside its padding. Shots at 320,
-  390 and 1440px, light and dark, in `e2e-artifacts/musubi-settings/`.
+  1440px a centred 384px card with the row inside its padding, closed by a
+  press on the scrim with focus back on "Add passkey", and kept open by the
+  same press while the passkey call runs. A sheet whose title names a
+  64-character passkey scrolls nothing sideways at 320 and 1440px. Shots at
+  320, 390 and 1440px, light and dark, in `e2e-artifacts/musubi-settings/`.
   `musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx`
   renders `CheckEmailView` in Musubi's auth sheet
   and holds its layout at 320px and 1280px (the long address, the countdown on

@@ -591,7 +591,11 @@ export function StepUpDialog(props: StepUpDialogProps) {
       <DialogContent presentation="sheet" class="md:max-w-sm" {...focusHooks}>
         <OnUnmount onGone={() => queueMicrotask(handOver)} />
         <DialogHeader>
-          <DialogTitle>{props.title ?? "Confirm it's you"}</DialogTitle>
+          {/* A title can carry a passkey's name, one word of up to 64
+              characters, so it breaks anywhere rather than widen the sheet. */}
+          <DialogTitle>
+            <span class="wrap-anywhere">{props.title ?? "Confirm it's you"}</span>
+          </DialogTitle>
         </DialogHeader>
         <div class="flex flex-col gap-3 p-4" inert={closing() || undefined}>
           {/* The warning, when there is one, is what the sheet is about, so it
