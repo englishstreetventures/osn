@@ -8,18 +8,19 @@ import type {
   Session,
 } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
-import { Card } from "@shared/ui/ui/card";
-import { createResource, Show, type ComponentProps, type JSX } from "solid-js";
+import { createResource, type ComponentProps } from "solid-js";
 
 import type { Story } from "../../lab/types.ts";
 import { Gallery, Mono } from "../design-system/chrome.tsx";
+import { AuthorizeColumn, DialogBench } from "./settings-bench.tsx";
 
 export const meta = { title: "osn/auth-ui/SignIn", layout: "padded" as const };
 
 /**
- * The view musubi opens in its "Sign in" dialog, in a frame the size of that
- * dialog and unpadded, as `DialogContent` is, so the view's own column is the
- * only inset. The colours are musubi's, which is the lab's own mapping, so the
+ * The view in both hosts musubi gives it: the "Sign in" dialog, the real
+ * sheet (a bottom sheet below `md`; narrow the window to see it), which the
+ * view names through its `AuthHeader`; and `/authorize`'s column, unframed
+ * (D2). The colours are musubi's, which is the lab's own mapping, so the
  * **light · dark** toggle (or `?theme=dark`) is the theme check.
  *
  * `SignIn` gets every client musubi passes it, with Turnstile off, so every view
@@ -90,42 +91,18 @@ function signedOut(): AuthValue {
   };
 }
 
-/**
- * musubi's dialog, unpadded as `DialogContent` is. At `md` and up it is a
- * 24rem card. Below `md` it is a sheet as wide as the screen, with only its
- * top corners rounded (`--ui-radius-sheet`) and only its top edge drawn.
- * `Card` owns its shape and has no such face, so the sheet is a `div` with
- * the fill, edge and corners `DialogContent`'s sheet presentation gives it.
- * The sheet face is a 20rem screen, the narrowest supported, painted above
- * the sheet with `DialogOverlay`'s fill, so the sheet's edge shows on a light
- * page as it does in musubi.
- */
-function DialogFrame(props: { children: JSX.Element; face?: "card" | "sheet" }) {
-  return (
-    <Show
-      when={props.face === "sheet"}
-      fallback={<Card class="w-full max-w-sm shrink-0">{props.children}</Card>}
-    >
-      <div class="w-80 shrink-0 bg-black/50 pt-16">
-        <div class="border-ui-hairline bg-ui-surface rounded-t-ui-sheet border-t">
-          {props.children}
-        </div>
-      </div>
-    </Show>
-  );
-}
-
-/** `SignIn` as musubi mounts it, signed out. */
-function MusubiSignIn() {
+/** `SignIn` as musubi mounts it in `host`, signed out. */
+function MusubiSignIn(props: { host: "dialog" | "page" }) {
   return (
     <AuthContext.Provider value={signedOut()}>
       <SignIn
+        host={props.host}
         client={loginClient}
         recoveryClient={recoveryClient}
         registrationClient={registrationClient}
         runPasskeyRegistration={runPasskeyRegistration}
         productName="Musubi"
-        onCancel={() => {}}
+        onCancel={props.host === "dialog" ? () => {} : undefined}
       />
     </AuthContext.Provider>
   );
@@ -134,20 +111,39 @@ function MusubiSignIn() {
 export const Default: Story = {
   render: () => (
     <Gallery
-      title="osn/auth-ui SignIn — default"
+      title="osn/auth-ui SignIn — in the dialog"
       intro={
         <>
-          What a signed-out person sees on opening "Sign in": the heading with Cancel, the{" "}
-          <Mono>Email or @handle</Mono> field, Continue and "Lost your passkey?". Type a handle and
-          press Continue to see "Verifying…" hold, since the passkey call never answers. "Lost your
-          passkey?" opens the recovery chooser: a recovery code, an emailed link or an authenticator
-          app. A browser without WebAuthn shows the view that says so instead.
+          What a signed-out person sees on opening "Sign in": the sheet named by its title, Cancel,
+          the <Mono>Email or @handle</Mono> field, Continue and "Lost your passkey?". Type a handle
+          and press Continue to see "Verifying…" hold, since the passkey call never answers. "Lost
+          your passkey?" renames the sheet "Recover your account" and opens the recovery chooser.
+          Escape closes it; the button opens it again.
         </>
       }
     >
-      <DialogFrame>
-        <MusubiSignIn />
-      </DialogFrame>
+      <DialogBench>
+        <MusubiSignIn host="dialog" />
+      </DialogBench>
+    </Gallery>
+  ),
+};
+
+export const OnAuthorize: Story = {
+  render: () => (
+    <Gallery
+      title="osn/auth-ui SignIn — on /authorize"
+      intro={
+        <>
+          The page host: no frame and no side padding, the title at the dialog title's type under
+          the app's name, 24px under the client card and 24px above the form. No Cancel: the page
+          offers "Create one" under the panel instead.
+        </>
+      }
+    >
+      <AuthorizeColumn>
+        <MusubiSignIn host="page" />
+      </AuthorizeColumn>
     </Gallery>
   ),
 };
@@ -155,18 +151,12 @@ export const Default: Story = {
 export const Phone: Story = {
   render: () => (
     <Gallery
-      title="osn/auth-ui SignIn — a 320px phone"
-      intro={
-        <>
-          Below <Mono>md</Mono> musubi opens "Sign in" as a sheet from the bottom of the screen, as
-          wide as the screen, with its top corners rounded. This is that sheet on the narrowest
-          supported phone, under the dimmed page. The view and its stubs are the same as in Default.
-        </>
-      }
+      title="osn/auth-ui SignIn — on /authorize at 320px"
+      intro="The page host in a 320px screen's column, 272px after the page's 24px a side."
     >
-      <DialogFrame face="sheet">
-        <MusubiSignIn />
-      </DialogFrame>
+      <div class="w-68">
+        <MusubiSignIn host="page" />
+      </div>
     </Gallery>
   ),
 };
