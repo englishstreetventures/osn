@@ -41,16 +41,20 @@ function DialogName() {
   const [name, setName] = createSignal<string>();
   let line: HTMLParagraphElement | undefined;
   onMount(() => {
+    const dialog = line?.closest('[role="dialog"]');
     const read = () => {
-      const dialog = line?.closest('[role="dialog"]');
       const id = dialog?.getAttribute("aria-labelledby");
       setName((id && document.getElementById(id)?.textContent) || undefined);
     };
     read();
     // The dialog takes its `aria-labelledby` a tick after it mounts, and the
-    // title can change while it is open (the playground's text box).
-    const observer = new MutationObserver(read);
-    const dialog = line?.closest('[role="dialog"]');
+    // title can change while it is open (the playground's text box). The
+    // dialog as a whole is watched, not its title, which is replaced when one
+    // header replaces another. This line's own text changing is skipped.
+    const observer = new MutationObserver((records) => {
+      if (records.every((record) => line?.contains(record.target))) return;
+      read();
+    });
     if (dialog) {
       observer.observe(dialog, {
         subtree: true,
@@ -295,7 +299,7 @@ export const Playground: Story<PlaygroundArgs> = {
     const props = (): HeaderProps => ({
       title: args.title,
       cancel: args.cancel,
-      cancelLabel: args.cancelLabel || undefined,
+      cancelLabel: args.cancelLabel,
       cancelDisabled: args.cancelDisabled,
     });
     return (
