@@ -14,11 +14,13 @@ afterEach(cleanup);
  * An open sheet, as musubi's sign-in and create-account dialogs are, holding a
  * view's root `div`. The `div` matters: a lone dynamic child of `DialogContent`
  * is never removed under happy-dom once the focus trap has put its guards
- * beside it, and every view has a root element of its own.
+ * beside it, and every view has a root element of its own. Like every real
+ * host, it passes `onOpenChange`: without one a controlled Kobalte dialog
+ * never asks to close, so nothing could show that Cancel asked it to.
  */
-function OpenDialog(props: { children: JSX.Element }) {
+function OpenDialog(props: { children: JSX.Element; onOpenChange?: (open: boolean) => void }) {
   return (
-    <Dialog open>
+    <Dialog open onOpenChange={(open) => props.onOpenChange?.(open)}>
       <DialogContent presentation="sheet">
         <div>{props.children}</div>
       </DialogContent>
@@ -76,14 +78,16 @@ describe("AuthHeader in a dialog", () => {
 
   it("hands Cancel to the view, once, and leaves closing to it", () => {
     const onCancel = vi.fn();
+    const onOpenChange = vi.fn();
     render(() => (
-      <OpenDialog>
+      <OpenDialog onOpenChange={onOpenChange}>
         <AuthHeader host="dialog" title="Sign in to Musubi" onCancel={onCancel} />
       </OpenDialog>
     ));
     fireEvent.click(cancelButton());
     expect(onCancel).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("dialog", { name: "Sign in to Musubi" })).toBeTruthy();
+    // The dialog was not asked to close: only the view's handler decides that.
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 });
 
@@ -114,6 +118,13 @@ describe("AuthHeader on a page", () => {
       </>
     ));
     expect(cancelButton("Sign in instead")).toBeTruthy();
+    expect(cancelButton("Cancel")).toBeTruthy();
+  });
+
+  it.each(["", "  "])('names Cancel "Cancel" when the host\'s words are blank (%j)', (label) => {
+    render(() => (
+      <AuthHeader host="page" title="Sign in to Musubi" cancelLabel={label} onCancel={() => {}} />
+    ));
     expect(cancelButton("Cancel")).toBeTruthy();
   });
 

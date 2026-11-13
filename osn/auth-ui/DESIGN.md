@@ -13,9 +13,10 @@ differ, with the issue that brings the code to the rule.
 ## 1. Scope and hosts
 
 **What the package exports.** One subpath per view in `package.json`
-(`AuthHeader`, `ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
+(`ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
 `ProfileSwitcher`, `RecoveryCodesView`, `Register`, `SecurityEventsBanner`,
-`SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`) and a barrel,
+`SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`), one for `AuthHeader`,
+the title row the sign-in and create-account views share, and a barrel,
 `src/index.ts`, which also carries `RecoveryLoginForm`, `TurnstileWidget`,
 `turnstileEnabled` and the `RunPasskeyCeremony` / `RunPasskeyRegistration`
 types.
@@ -135,8 +136,11 @@ hosts: 14px at 500 in Musubi. The page's own heading above it leads. Both
 hosts' titles break anywhere (`wrap-anywhere`) rather than widen the row, since the title
 carries the host's product name. `DialogTitle`
 (`shared/ui/src/ui/dialog.tsx`) is the one source of those classes; a change
-there is copied to the page's `h2`, and the lab's `BothHosts` story draws the
-two on one sheet.
+there is copied to the page's `h2`.
+`musubi/social/tests/components/AuthHeader.browser.test.tsx` fails when the
+two titles' computed font, size, weight, line height, letter spacing or colour
+differ, in light and dark (§11), and the lab's `BothHosts` story draws the two
+on one sheet.
 
 `CheckEmailView` follows the rule. Its heading is `text-ui-base font-medium`,
 its lines `text-ui-sm` with `leading-ui-snug`, and the number a host passes as
@@ -777,8 +781,8 @@ no product.
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
-- `AuthHeader`'s Cancel reads "Cancel" unless the host passes
-  `cancelLabel`, for a host where going back means something else, such as
+- `AuthHeader`'s Cancel reads "Cancel" unless the host passes a
+  `cancelLabel` that is not blank, for a host where going back means something else, such as
   "Sign in instead" where Cancel takes a create-account view back to
   sign-in.
 - Going back: Cancel, Back, "Back to sign in", "Start again"
@@ -893,9 +897,10 @@ As built:
 - **`AuthHeader` in the package tests** (`AuthHeader.test.tsx`, one case per
   way it can fail): in a dialog, the dialog named by the title, renamed when
   the title changes, and still named, by exactly one element, when one header
-  replaces another; Cancel calling `onCancel` once and leaving the dialog
-  open; on a page, a level-2 heading with no dialog; no Cancel without
-  `onCancel`; the host's words for Cancel and "Cancel" without them; Cancel
+  replaces another; Cancel calling `onCancel` once and never asking the
+  dialog to close; on a page, a level-2 heading with no dialog; no Cancel without
+  `onCancel`; the host's words for Cancel, and "Cancel" without them or with
+  blank ones; Cancel
   refused while `cancelDisabled`; and Cancel never submitting a form it
   sits in.
 - **The step-up sheet in the package tests** (`StepUpDialog.test.tsx`, one
@@ -951,6 +956,14 @@ As built:
   renders Musubi's `/verify/:requestId` page itself, and holds its own failed
   card, its busy Try again and its `Skeleton` placeholder against
   `ConfirmLinkPage`'s card.
+  `musubi/social/tests/components/AuthHeader.browser.test.tsx` renders
+  `AuthHeader` in Musubi's sheet and in `/authorize`'s column, light and dark:
+  at 320px a long title with no space in its product name wraps beside
+  Cancel, which stays 40px tall, unsqueezed and inside the padding, with
+  nothing scrolling sideways; both hosts' titles in the same computed type and
+  colour, 14px at 500; and Cancel drawn as a `secondary` Button in the dialog
+  and a `ghost` one on the page, each compared with a Button of that variant.
+  Shots at 320px in `e2e-artifacts/musubi-auth-header/`.
 
 ## 12. Motion
 

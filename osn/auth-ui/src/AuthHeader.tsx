@@ -24,7 +24,10 @@ export interface AuthHeaderProps {
   host: "dialog" | "page";
   /** Called by Cancel. Absent: no Cancel. */
   onCancel?: () => void;
-  /** Cancel's words, for a host where going back means something else ("Sign in instead"). Default "Cancel". */
+  /**
+   * Cancel's words, for a host where going back means something else ("Sign
+   * in instead"). Absent or blank: "Cancel", so the button always has a name.
+   */
   cancelLabel?: string;
   /** True while a call the view started runs, so nothing leaves the view meanwhile. */
   cancelDisabled?: boolean;
@@ -50,7 +53,7 @@ export function AuthHeader(props: AuthHeaderProps) {
           disabled={props.cancelDisabled}
           onClick={() => onCancel()()}
         >
-          {props.cancelLabel ?? "Cancel"}
+          {props.cancelLabel?.trim() || "Cancel"}
         </Button>
       )}
     </Show>
@@ -71,7 +74,8 @@ export function AuthHeader(props: AuthHeaderProps) {
       <Match when={props.host === "page"}>
         <div class="flex items-center justify-between gap-3">
           {/* DialogTitle's own type (`shared/ui/src/ui/dialog.tsx`), so the
-              title reads the same in both hosts. Change the two together. */}
+              title reads the same in both hosts. Musubi's
+              `AuthHeader.browser.test.tsx` fails when the two differ. */}
           <h2 class="text-ui-ink text-ui-md font-ui-title wrap-anywhere">{props.title}</h2>
           {cancel()}
         </div>
