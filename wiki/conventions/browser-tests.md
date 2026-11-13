@@ -593,6 +593,15 @@ pull request: `scripts/tests/deploy-workflows.test.ts` fails while any package
 with the script is missing from the legs, and each leg checks before it runs
 that turbo found as many packages as it names.
 
+Each leg runs the tier once. When that run fails,
+[`test-with-retry.sh`](../../scripts/test-with-retry.sh) runs the leg's turbo
+command once more: turbo replays the packages that passed, and a failed
+package runs again in a new page. A pass then shows as a warning naming the
+first run's failed tests
+([[testing-patterns#A test that fails only sometimes]]). CI never passes
+`--repeats` or `--retry`, which run a test again inside the page it ran in
+([[#A test run twice in one page]]).
+
 Each leg installs Chromium's system packages and the browser as two steps,
 each with a 10-minute limit. The system half is `playwright install-deps
 chromium`, run by

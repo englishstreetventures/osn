@@ -835,6 +835,91 @@ const rootScripts = (): Readonly<Record<string, string>> =>
     }
   ).scripts;
 
+// A test runs again only when its run failed, and then as a whole run on new
+// processes, never inside the page it failed in. A step that runs the tier
+// plain lets one flaky test drop a pull request from the merge queue; a step
+// that repeats tests that passed doubles the tier on every run.
+describe("PR3: ci.yml runs the scripts and browser tiers once, and the whole tier once more only when it fails, on every event", () => {
+  const ci = load(".github/workflows/ci.yml");
+  // retry.sh's default grace, and its wait for an attempt's processes to go.
+  const PER_RUN_EXTRA = 10 + 10;
+
+  /** The lines a step runs, with comments and blank lines left out. */
+  const linesOf = (step: Step | undefined): string[] =>
+    (step?.run ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("#"));
+
+  /**
+   * The one step of the job whose run matches `runs`: its command must be
+   * `wrapped`, on no condition, with room in the step for two runs at their
+   * limit and room in the job for the step.
+   */
+  const throughTheWrapper = (id: string, runs: RegExp, wrapped: string) => {
+    const job = ci.jobs[id];
+    const steps = stepsOf(job).filter((step) => linesOf(step).some((line) => runs.test(line)));
+    expect(steps.map((step) => step.name)).toHaveLength(1);
+    const step = steps[0];
+    expect(linesOf(step)).toEqual([wrapped]);
+    const [attempts, seconds] = /^bash scripts\/test-with-retry\.sh (\d+) (\d+) /
+      .exec(wrapped)
+      ?.slice(1)
+      .map(Number) ?? [0, 0];
+    expect(attempts).toBe(2);
+    expect({ if: step?.if, "continue-on-error": step?.["continue-on-error"] }).toEqual({
+      if: undefined,
+      "continue-on-error": undefined,
+    });
+    expect(job?.if ?? "").not.toContain("event_name");
+    const stepMinutes = step?.["timeout-minutes"] ?? 0;
+    expect(stepMinutes * 60).toBeGreaterThanOrEqual(attempts * (seconds + PER_RUN_EXTRA));
+    // The job holds every step's limit, so the step's own limit, not the
+    // job's, cuts a run.
+    const limits = stepsOf(job).reduce((sum, one) => sum + (one["timeout-minutes"] ?? 0), 0);
+    expect(job?.["timeout-minutes"] ?? 0).toBeGreaterThan(id === "browser" ? stepMinutes : limits);
+  };
+
+  test("the Scripts job runs `bun run test:scripts` through test-with-retry.sh, at most two runs of five minutes", () => {
+    throughTheWrapper(
+      "script-tests",
+      /\bbun run test:scripts(\s|$)/,
+      "bash scripts/test-with-retry.sh 2 300 Scripts bun run test:scripts",
+    );
+  });
+
+  // `--force` would run every package again, and turbo's cache is how only
+  // the failed package runs on the second run.
+  test("each browser leg runs its turbo `test:browser` through test-with-retry.sh, at most two runs of ten minutes, with no `--force`", () => {
+    throughTheWrapper(
+      "browser",
+      /\bturbo run test:browser\b(?!.*--dry)/,
+      'bash scripts/test-with-retry.sh 2 600 "Browser tests ($LEG)" bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser',
+    );
+  });
+
+  test("the E2E step keeps its own wrapper, which sets the failed run's artifacts aside, and does not go through test-with-retry.sh", () => {
+    const steps = stepsOf(ci.jobs.e2e);
+    expect(steps.filter((step) => step.run?.includes("e2e-with-retry.sh"))).toHaveLength(1);
+    expect(steps.filter((step) => step.run?.includes("test-with-retry.sh"))).toEqual([]);
+  });
+
+  test("no step in any workflow runs a test again after it passed: none carries --rerun-each, --repeats or --randomize", () => {
+    const workflows = Array.from(
+      new Bun.Glob(".github/workflows/*.yml").scanSync({ cwd: root }),
+    ).toSorted();
+    expect(workflows).toContain(".github/workflows/ci.yml");
+    const repeating = workflows.flatMap((path) =>
+      Object.entries(load(path).jobs).flatMap(([id, job]) =>
+        stepsOf(job)
+          .filter((step) => /--rerun-each|--repeats|--randomize/.test(step.run ?? ""))
+          .map((step) => `${path} ${id}: ${step.name}`),
+      ),
+    );
+    expect(repeating).toEqual([]);
+  });
+});
+
 describe("PR2: ci.yml's Build & Test job runs the guest route comparison's reference on real Wrangler, and keeps its logs", () => {
   const RUN = "bun run test:scripts:wrangler";
   const steps = stepsOf(load(".github/workflows/ci.yml").jobs["build-test"]);
@@ -1391,16 +1476,23 @@ describe("production-release.yml", () => {
     expect(production.env?.DO_NOT_TRACK).toBe("1");
   });
 
-  test("PW10: no production Alchemy run writes to the public run log: each writes a file, which the next step shows only when the run failed", () => {
-    const alchemyRuns = Object.values(production.jobs).flatMap((job) =>
-      stepsOf(job).flatMap((step, at) =>
-        /\b(plan|migrate|deploy):production\b/.test(step.run ?? "") ? [{ job, step, at }] : [],
-      ),
-    );
-    // Per stack: a plan at approval 1, and a re-plan, the migrate step and a
-    // deploy in its stack job.
+  // Per stack: a plan at approval 1, and a re-plan, the migrate step and a
+  // deploy in its stack job. One test per run: each spawns a shell twice, and
+  // a loop over all of them in one test spends its whole budget on a loaded
+  // runner.
+  const alchemyRuns = Object.entries(production.jobs).flatMap(([id, job]) =>
+    stepsOf(job).flatMap((step, at) =>
+      /\b(plan|migrate|deploy):production\b/.test(step.run ?? "") ? [{ id, job, step, at }] : [],
+    ),
+  );
+
+  test("PW10: every stack has its four Alchemy runs", () => {
     expect(alchemyRuns).toHaveLength(4 * PRODUCTION_STACKS.length);
-    for (const { job, step, at } of alchemyRuns) {
+  });
+
+  test.each(alchemyRuns.map((run) => [`${run.id}: ${run.step.name}`, run] as const))(
+    "PW10: no production Alchemy run writes to the public run log, each writes a file, which the next step shows only when the run failed (%s)",
+    (_name, { job, step, at }) => {
       expect(step.run).not.toMatch(/\btee\b|\|/);
       const file = /> "(\$RUNNER_TEMP\/[^"]+\.log)" 2>&1\s*$/.exec(step.run ?? "")?.[1];
       expect({ step: step.name, file: file !== undefined }).toEqual({
@@ -1425,8 +1517,8 @@ describe("production-release.yml", () => {
           ? `cat "${file}"`
           : `# Migration file names are masked, so no name a production ledger\n# holds reaches this public log (AGENTS.md, Production data).\nsed -E 's/[[:alnum:]_.-]+\\.sql/<migration file>/g' "${file}"\n`,
       );
-    }
-  }, 30_000);
+    },
+  );
 
   test("one release at a time, never cancelling one in progress", () => {
     expect(production.concurrency?.group).toStartWith("production-release-");

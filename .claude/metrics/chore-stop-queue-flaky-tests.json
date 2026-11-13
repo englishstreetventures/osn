@@ -1,0 +1,176 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/stop-queue-flaky-tests",
+    "base_sha": "efd3f620561ad1d0666cefc5a6e5ab977d3d5e33",
+    "head_sha": "137adffe8d4897ed0948e943b1e8502c8026844f",
+    "generated_at": "2026-11-10T11:16:14.744Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2155,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-10T09:45:12.432Z",
+    "last_ts": "2026-11-10T11:11:46.490Z",
+    "span_seconds": 5194,
+    "active_seconds": 907,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 3.398746400000001,
+    "tokens": {
+      "input": 102,
+      "output": 38383,
+      "thinking": 15720,
+      "cache_write_5m": 186880,
+      "cache_write_1h": 0,
+      "cache_read": 4240696
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 102,
+          "output": 38383,
+          "thinking": 15720,
+          "cache_write_5m": 186880,
+          "cache_write_1h": 0,
+          "cache_read": 4240696
+        },
+        "usd_equivalent": 3.398746400000001,
+        "messages": 48
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 102,
+          "output": 38383,
+          "thinking": 15720,
+          "cache_write_5m": 186880,
+          "cache_write_1h": 0,
+          "cache_read": 4240696
+        },
+        "usd_equivalent": 3.398746400000001,
+        "messages": 49
+      }
+    },
+    "effort": {
+      "high": 48
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 2,
+      "docs": 1,
+      "config": 1,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 75,
+        "deleted": 17
+      },
+      "docs": {
+        "added": 29,
+        "deleted": 0
+      },
+      "config": {
+        "added": 36,
+        "deleted": 4
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 46,
+      "Skill": 3,
+      "Read": 1,
+      "SubagentHandback": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 48,
+      "with_tools": 48,
+      "with_one_tool": 45,
+      "context_median": 90712,
+      "context_p90": 127306
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 7,
+    "located": 6,
+    "acted_on": 3,
+    "paired": 6,
+    "acted_on_paired": 3,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
