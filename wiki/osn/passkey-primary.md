@@ -114,7 +114,10 @@ UI surface (`@osn/auth-ui`):
 factor and nothing else: the passkey factor is unaffected, and the
 authenticator-app factor stays on offer wherever the ceremony and the account
 allow it. With it set the dialog also auto-starts the passkey ceremony on
-mount, since there is no factor picker to show first.
+mount, since there is no factor picker to show first — except when the host
+gives a `warning` (a removal): then the sheet shows its factors and waits for
+a press, because the warning is the only confirmation before the removal and
+the browser's prompt would cover it.
 
 The reason is the whole reason the prop exists. It is there so an OTP step-up
 cannot dead-end on a code that never arrives — and a TOTP code has no delivery

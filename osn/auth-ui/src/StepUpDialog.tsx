@@ -171,7 +171,9 @@ export interface StepUpDialogProps {
    * **The host cannot deliver mail**: suppress the emailed-link factor and
    * drive the passkey ceremony directly. With this set the sheet auto-starts
    * the passkey ceremony on mount and offers a retry on failure, and the
-   * "choose a method" helper line goes with the factor picker.
+   * "choose a method" helper line goes with the factor picker — unless a
+   * `warning` is given: then the sheet shows its factors and waits for a
+   * press, so the warning is read before the browser's prompt covers it.
    *
    * It suppresses the emailed link and **nothing else**. An authenticator app
    * needs no delivery, so it cannot fail the way this prop exists to prevent,
@@ -230,7 +232,11 @@ export function StepUpDialog(props: StepUpDialogProps) {
       ? document.activeElement
       : null;
 
-  const start = (): Mode => (props.passkeyOnly ? "passkey" : "choose");
+  // With a warning the sheet waits for a press, even with `passkeyOnly`: the
+  // warning is the one confirmation before a destructive action, and the
+  // browser's prompt would cover it.
+  const autoStart = () => props.passkeyOnly && !props.warning;
+  const start = (): Mode => (autoStart() ? "passkey" : "choose");
   const [mode, setMode] = createSignal<Mode>(start());
   const [code, setCode] = createSignal("");
   // The call under way, so only the button that started it shows the wait.
@@ -302,7 +308,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
   // soon as the sheet mounts so the user lands straight on the platform
   // authenticator prompt.
   onMount(() => {
-    if (props.passkeyOnly) void startPasskey();
+    if (autoStart()) void startPasskey();
   });
 
   /** Ends any emailed-link wait on this side: the poll, the secret, the number. */

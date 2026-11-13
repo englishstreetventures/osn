@@ -63,6 +63,11 @@ export interface PasskeysViewProps {
    * not. See `StepUpDialog.totpClient`.
    */
   totpClient?: TotpClient;
+  /**
+   * The host cannot deliver mail: the step-up sheet offers no emailed link.
+   * See `StepUpDialog.passkeyOnly`. No host passes it today.
+   */
+  passkeyOnly?: boolean;
 }
 
 function formatTs(ts: number | null): string {
@@ -382,6 +387,7 @@ export function PasskeysView(props: PasskeysViewProps) {
             onToken={handleStepUp}
             onCancel={cancelStepUp}
             runPasskeyCeremony={props.runPasskeyCeremony}
+            passkeyOnly={props.passkeyOnly}
             totpClient={props.totpClient}
             title={action().kind === "delete" ? `Remove ${removing(action())}?` : undefined}
             warning={

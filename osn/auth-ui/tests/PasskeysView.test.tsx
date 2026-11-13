@@ -601,6 +601,40 @@ describe("PasskeysView", () => {
     expect(addButton.disabled).toBe(true);
   });
 
+  // passkeyOnly: a host that cannot deliver mail. A removal still waits for
+  // the person to press the passkey factor under its warning.
+  it("passkeyOnly: a removal waits for the passkey press and offers no link", async () => {
+    pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
+    pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
+    pk.delete.mockResolvedValue({ success: true, remaining: 1 });
+    armPasskeyStepUp(su);
+    const runCeremony = vi.fn().mockResolvedValue(assertion);
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        passkeyOnly
+        runPasskeyCeremony={runCeremony}
+      />
+    ));
+
+    await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Work laptop" }));
+    await waitFor(() => screen.getByRole("dialog", { name: "Remove Work laptop?" }));
+    expect(runCeremony).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
+
+    await useThePasskeyFactor();
+    await waitFor(() =>
+      expect(pk.delete).toHaveBeenCalledWith({
+        id: "pk_aaaaaaaaaaaa",
+        stepUpToken: stepUpToken.token,
+      }),
+    );
+    expect(su.emailBegin).not.toHaveBeenCalled();
+  });
+
   // While a step-up is in flight, every Rename / Delete button on the
   // page is disabled to prevent a rapid double-click swapping the pending id.
   it("locks every Rename/Delete button while a step-up is in flight (S-L1)", async () => {

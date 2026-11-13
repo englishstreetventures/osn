@@ -4,7 +4,7 @@
 "@tools/lab": patch
 ---
 
-Every `@osn/auth-ui` view now paints with the `ui-*` contract alone, so it renders the same in any app that maps the contract: colours, type steps, weights up to 500 and radii, held by a new `token-contract.test.ts`. Breaking: `ProfileSwitcher` and its export are gone (no app used it; Musubi has its own switcher), `SignIn` and `Register` take a required `host` (`"dialog"` or `"page"`) and an optional `cancelLabel`, and `PasskeysView`, `TotpView` and `RecoveryCodesView` no longer take `passkeyOnly`.
+Every `@osn/auth-ui` view now paints with the `ui-*` contract alone, so it renders the same in any app that maps the contract: colours, type steps, weights up to 500 and radii, held by a new `token-contract.test.ts`. Breaking: `ProfileSwitcher` and its export are gone (no app used it; Musubi has its own switcher), `SignIn` and `Register` take a required `host` (`"dialog"` or `"page"`) and an optional `cancelLabel`. With `passkeyOnly`, a step-up sheet that carries a `warning` now waits for a factor press instead of starting the passkey prompt.
 
 - `SignIn` and `Register` head themselves with `AuthHeader`, so a dialog is named by the view's title ("Sign in to Musubi", "Create your Musubi account"); on a page they draw no frame and no side padding.
 - Settings rows are nested `Card`s (8px corners, 16px inside), with the dates on two lines and the actions under the words below `md`, 40px tall; each action is named by its item ("Remove Work laptop"). Each list's placeholder is as tall as the row that replaces it at every width.

@@ -334,6 +334,33 @@ describe("StepUpDialog", () => {
     expect(stub.emailBegin).not.toHaveBeenCalled();
   });
 
+  // A destructive action's warning is the one confirmation before it: with
+  // `passkeyOnly` the sheet still waits for a press, so the warning is read
+  // before the browser's prompt covers it.
+  it("passkeyOnly with a warning: waits for the factor press, and offers no link", async () => {
+    stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
+    stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
+    const runPasskey = vi.fn(async () => assertion);
+    const onToken = vi.fn();
+    renderSheet({
+      runPasskeyCeremony: runPasskey,
+      onToken,
+      passkeyOnly: true,
+      purpose: "totp_disable",
+      title: "Remove iPhone?",
+      warning: "You'll lose it as a way back into your account. Confirm it's you to remove it.",
+    });
+
+    const usePasskey = await waitFor(() => buttonsIn("Remove iPhone?").get(/^Use passkey$/));
+    await flush();
+    expect(runPasskey).not.toHaveBeenCalled();
+    expect(stub.passkeyBegin).not.toHaveBeenCalled();
+    expect(buttonsIn("Remove iPhone?").query(/Email me a link/)).toBeNull();
+
+    fireEvent.click(usePasskey);
+    await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 }));
+  });
+
   it("passkeyOnly: surfaces a retry affordance when the ceremony fails", async () => {
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
     const runPasskey = vi

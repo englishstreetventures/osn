@@ -65,6 +65,11 @@ export interface RecoveryCodesViewProps {
    * not. See `StepUpDialog.totpClient`.
    */
   totpClient?: TotpClient;
+  /**
+   * The host cannot deliver mail: the step-up sheet offers no emailed link.
+   * See `StepUpDialog.passkeyOnly`. No host passes it today.
+   */
+  passkeyOnly?: boolean;
   /** Fires once the user has acknowledged saving the codes. */
   onSaved?: () => void;
   /** Product name the downloaded file is named after — e.g. "Musubi". */
@@ -405,6 +410,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           onToken={handleStepUp}
           onCancel={cancelStepUp}
           runPasskeyCeremony={props.runPasskeyCeremony}
+          passkeyOnly={props.passkeyOnly}
           totpClient={props.totpClient}
           reason="to generate recovery codes"
           purpose="recovery_generate"

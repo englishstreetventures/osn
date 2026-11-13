@@ -56,6 +56,11 @@ export interface TotpViewProps {
    * Kept caller-side so the host picks the WebAuthn wrapper.
    */
   runPasskeyCeremony?: RunPasskeyCeremony;
+  /**
+   * The host cannot deliver mail: the step-up sheet offers no emailed link.
+   * See `StepUpDialog.passkeyOnly`. No host passes it today.
+   */
+  passkeyOnly?: boolean;
 }
 
 type Pending = "enroll" | "disable" | null;
@@ -350,6 +355,7 @@ export function TotpView(props: TotpViewProps) {
             onToken={handleStepUp}
             onCancel={() => setPending(null)}
             runPasskeyCeremony={props.runPasskeyCeremony}
+            passkeyOnly={props.passkeyOnly}
             // Removing an authenticator may be authorised by that same
             // authenticator — holding the device is the proof that matters.
             totpClient={action() === "disable" ? props.client : undefined}

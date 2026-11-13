@@ -49,9 +49,9 @@ switcher is its own (`ProfileSwitcherDialog`); the package draws none.
 | `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`, `host` (`"dialog"` or `"page"`); `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess`, `onCancel`, `cancelLabel` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
 | `Register` | `client` (`RegistrationClient`), `productName`, `host`, `onCancel`; `cancelLabel`, `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
 | `RecoveryLoginForm` | `client` (`RecoveryClient`); `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`; `onSuccess`, `onCancel` | `AuthProvider` |
-| `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient` | — |
-| `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony` | `Toaster` |
-| `RecoveryCodesView` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `onSaved` | — |
+| `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly` | — |
+| `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly` | `Toaster` |
+| `RecoveryCodesView` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `onSaved` | — |
 | `SecurityEventsBanner` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `onVisibleCountChange` | — |
 | `SessionsView` | `client` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
@@ -677,7 +677,10 @@ host a short-lived token through `onToken`.
   emailed link; every other purpose all three; no purpose, the passkey and the
   authenticator. Cancel (`secondary`, as every dialog's dismiss button) is last.
 - **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed
-  link and nothing else, and starts the passkey ceremony as the sheet opens.
+  link and nothing else, and starts the passkey ceremony as the sheet opens —
+  except when a `warning` is given, where the sheet shows its factors and
+  waits for a press, so the warning is read before the browser's prompt
+  covers it.
   Its full meaning is in
   [passkey-primary §What `passkeyOnly` means](../../wiki/osn/passkey-primary.md).
 - **States.** Choosing a factor ("Use passkey" ("Waiting for your passkey…"),
@@ -734,7 +737,7 @@ host a short-lived token through `onToken`.
   need another credential to sign in. Confirm it's you to remove it." and
   "You'll lose it as a way back into your account. Confirm it's you to
   remove it."), and ask nothing before it: no `window.confirm`. No host
-  passes `passkeyOnly`.
+  passes `passkeyOnly`; the three Settings views hand it on to the sheet.
 
 ## 9. Focus
 
