@@ -576,7 +576,8 @@ module card, the droplet popovers, the reply key's panel), every portal menu (th
 look reads `--elev-2`), the co-host suggestion list and a row lifted by a
 drag;
 the command palette takes the same raised surface and depth at its 16px modal
-corner. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
+corner. `Modal` is the exception: it casts the shared contract shadow
+(`--ui-elev-2`), which cire does not map. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
 `shadow-md`, the shadow `@shared/ui`'s `Tooltip` paints, so a tooltip here
 matches the shared one beside it. A pill stays flat but for the glass's own
 lift. Nothing else writes Tailwind's other shadow steps.
