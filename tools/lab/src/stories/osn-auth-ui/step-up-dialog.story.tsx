@@ -44,6 +44,25 @@ const LINK: StepUpEmailRequest = {
   expiresAt: 1_900_000_000,
 };
 
+/** The request a new link starts, with a number of its own. */
+const NEW_LINK: StepUpEmailRequest = {
+  requestId: "fixture-request-2",
+  claimSecret: "fixture-secret-two",
+  pairingCode: "83",
+  expiresAt: 1_900_000_000,
+};
+
+/** The first link sent, which the first poll finds expired; every later one is new and waits. */
+function expiringClient(answers: Partial<StepUpClient> = {}): StepUpClient {
+  let sent = 0;
+  return client({
+    emailBegin: () => Promise.resolve(sent++ === 0 ? LINK : NEW_LINK),
+    emailStatus: ({ requestId }) =>
+      requestId === LINK.requestId ? Promise.resolve({ status: "expired" }) : never(),
+    ...answers,
+  });
+}
+
 /** Every call waits forever unless the story says otherwise. */
 function client(answers: Partial<StepUpClient> = {}): StepUpClient {
   return {
@@ -144,8 +163,21 @@ function take(step: Step): boolean {
   return true;
 }
 
-/** Runs `steps` in order, each retried every 50ms for up to two seconds. */
+/** What a step looks for, as the line below names it when it is not found. */
+function wanted(step: Step): string {
+  if ("press" in step) return `the button "${step.press}"`;
+  if ("type" in step) return "the code boxes";
+  return "the open sheet";
+}
+
+/**
+ * Runs `steps` in order, each retried every 50ms for up to two seconds. A step
+ * whose button never appears — a label renamed, say — stops the run and says
+ * so in a line under the opener, so nobody judges the earlier state the sheet
+ * was left in as the one the story names.
+ */
 function Drive(props: { steps: readonly Step[] }) {
+  const [missed, setMissed] = createSignal<string | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(timer));
   function run(index: number, tries: number) {
@@ -153,27 +185,41 @@ function Drive(props: { steps: readonly Step[] }) {
     if (!step) return;
     if (take(step)) timer = setTimeout(() => run(index + 1, 0), 50);
     else if (tries < 40) timer = setTimeout(() => run(index, tries + 1), 50);
+    else setMissed(wanted(step));
   }
   // After the sheet's own focus move, which lands a tick after it opens.
   onMount(() => {
     timer = setTimeout(() => run(0, 0), 100);
   });
-  return null;
+  return (
+    <Show when={missed()}>
+      {(what) => (
+        <p class="text-ui-danger text-ui-base mt-2" data-drive-missed>
+          This story could not find {what()} in the sheet, so the sheet shows an earlier state than
+          the story's title.
+        </p>
+      )}
+    </Show>
+  );
 }
 
+type SheetProps = Omit<StepUpDialogProps, "onToken" | "onCancel">;
+
+/** `props` as a function builds them afresh for each sheet the story opens. */
 function state(
   title: string,
   intro: JSX.Element,
-  props: Omit<StepUpDialogProps, "onToken" | "onCancel">,
+  props: SheetProps | (() => SheetProps),
   steps?: readonly Step[],
 ): Story {
+  const fresh = () => (typeof props === "function" ? props() : props);
   return {
     render: () => (
       <Gallery title={`osn/auth-ui StepUpDialog — ${title}`} intro={intro}>
         <Bench
           label="Open the step-up"
           steps={steps}
-          sheet={(close) => <StepUpDialog {...props} onToken={close} onCancel={close} />}
+          sheet={(close) => <StepUpDialog {...fresh()} onToken={close} onCancel={close} />}
         />
       </Gallery>
     ),
@@ -212,15 +258,29 @@ export const WithReason = state(
 export const DestructiveWarning = state(
   "a destructive action's warning",
   <>
-    Where removing a passkey leads here (the owner's D16 B): the title names the action, the warning
-    says what it costs, and the passkey, the only factor <Mono>passkey_delete</Mono> admits, commits
-    it. No red button.
+    Where removing a passkey leads here: the title names the action, the warning says what it costs,
+    and the passkey, the only factor <Mono>passkey_delete</Mono> admits, commits it. No red button.
   </>,
   {
     client: client(),
     runPasskeyCeremony: heldCeremony,
     purpose: "passkey_delete",
     title: "Remove Device passkey?",
+    warning: WARNING,
+  },
+);
+
+export const LongPasskeyName = state(
+  "a title with a 64-character name",
+  <>
+    The same, for a passkey whose name is one 64-character word, the longest the rename field takes:
+    the title breaks inside the word rather than widen the sheet.
+  </>,
+  {
+    client: client(),
+    runPasskeyCeremony: heldCeremony,
+    purpose: "passkey_delete",
+    title: `Remove ${"x".repeat(64)} passkey?`,
     warning: WARNING,
   },
 );
@@ -349,6 +409,54 @@ export const EmailExpired = state(
   [{ press: "Use email instead" }, { focusTab: true }],
 );
 
+export const EmailResent = state(
+  "a new link sent",
+  <>
+    The expired link replaced: "Send a new link" pressed, and the new request waits with a number of
+    its own, 83, and the words "a new link".
+  </>,
+  () => ({
+    client: expiringClient(),
+    runPasskeyCeremony: heldCeremony,
+    purpose: "passkey_register",
+  }),
+  [{ press: "Use email instead" }, { focusTab: true }, { press: "Send a new link" }],
+);
+
+export const EmailResendFailed = state(
+  "a new link not sent",
+  <>
+    "Send a new link" pressed and the send failing: "We couldn't send a new link just now. Try again
+    in a moment.", and Resend counting down its 120 seconds again.
+  </>,
+  () => ({
+    client: expiringClient({
+      emailBegin: (() => {
+        let sent = 0;
+        return () => (sent++ === 0 ? Promise.resolve(LINK) : Promise.reject(new Error("fixture")));
+      })(),
+    }),
+    runPasskeyCeremony: heldCeremony,
+    purpose: "passkey_register",
+  }),
+  [{ press: "Use email instead" }, { focusTab: true }, { press: "Send a new link" }],
+);
+
+export const EmailLimit = state(
+  "the server's limit on new links",
+  <>
+    The live wait, whose Resend the server refuses at its limit. Resend unlocks after 120 seconds, a
+    wait this story keeps: leave it open two minutes, press "Resend link", and the line reads "We've
+    sent all the links we can for this request. Use the newest one, or cancel and start again."
+  </>,
+  {
+    client: client({ emailResend: () => Promise.resolve({ status: "limit" }) }),
+    runPasskeyCeremony: heldCeremony,
+    purpose: "passkey_register",
+  },
+  [{ press: "Use email instead" }],
+);
+
 export const Code = state(
   "the authenticator code",
   <>
@@ -404,7 +512,7 @@ export const CodeRateLimited = state(
   [{ press: "Use your authenticator app" }, { type: "123456" }, { press: "Confirm" }],
 );
 
-const PHONE_STORIES = ["Factors", "EmailWaiting", "Code"] as const;
+const PHONE_STORIES = ["Factors", "EmailWaiting", "Code", "LongPasskeyName"] as const;
 
 /**
  * The sheet face shows only on a screen narrower than 768px, so each frame
@@ -419,9 +527,10 @@ export const Phone: Story = {
         title="osn/auth-ui StepUpDialog — a 320px phone"
         intro={
           <>
-            The bottom sheet on the narrowest supported phone: the factors, the emailed link's wait
-            and the code step, each the story of that name in a 320 × 640 frame. The keyboard is not
-            drawn: open the code step on a phone to see what it covers.
+            The bottom sheet on the narrowest supported phone: the factors, the emailed link's wait,
+            the code step and a title with a 64-character passkey name, each the story of that name
+            in a 320 × 640 frame. The keyboard is not drawn: open the code step on a phone to see
+            what it covers.
           </>
         }
       >
@@ -429,7 +538,7 @@ export const Phone: Story = {
           when={shown()}
           fallback={
             <Button variant="outline" onClick={() => setShown(true)}>
-              Load the three frames
+              Load the four frames
             </Button>
           }
         >
