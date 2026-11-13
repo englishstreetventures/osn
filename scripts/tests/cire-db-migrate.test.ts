@@ -307,6 +307,30 @@ test("parseArgs refuses --remote, with --local or without", () => {
   }
 });
 
+// Wrangler reads `--local false` and `--no-local` as remote, and `--env` or
+// `--config` can point a local name at another block; the script passes
+// nothing to wrangler but `--local` and a persistence directory.
+test("parseArgs passes only --local and --persist-to, refusing every other flag", () => {
+  for (const argv of [
+    ["cire-db", "--local", "false"],
+    ["cire-db", "--local", "--no-local"],
+    ["cire-db", "--local=false"],
+    ["cire-db", "--local", "--env", "production"],
+    ["cire-db", "--local", "--config", "other.toml"],
+    ["cire-db", "--local", "--persist-to"],
+    ["cire-db", "--local", "extra"],
+  ]) {
+    expect({ argv, parsed: parseArgs(argv) }).toEqual({
+      argv,
+      parsed: { error: expect.any(String) },
+    });
+  }
+  expect(parseArgs(["cire-db", "--persist-to=/tmp/x", "--local"])).toEqual({
+    database: "cire-db",
+    flags: ["--persist-to=/tmp/x", "--local"],
+  });
+});
+
 // ── the real archive ─────────────────────────────────────────────────────────
 
 const archive = archivedMigrations();

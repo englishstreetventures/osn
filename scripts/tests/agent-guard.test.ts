@@ -381,6 +381,13 @@ describe("18b. Wrangler's migrator against a deployed database", () => {
     "wrangler d1 migrations list cire-db --env production --remote",
     "wrangler d1 migrations apply cire-db-dev --env production --remote",
     "wrangler d1 migrations apply cire-db-dev --remote --config other.toml",
+    // Wrangler reads each of these as remote, whatever `--local` says.
+    "wrangler d1 migrations apply cire-db --env production --remote --local false",
+    "wrangler d1 migrations apply cire-db --env production --local --no-local",
+    "wrangler d1 migrations apply cire-db --env production --local=false",
+    "wrangler d1 execute cire-db --env production --local false --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --env production --local --no-local --command 'SELECT 1'",
+    "wrangler d1 export cire-db --env production --local=0 --output x.sql",
   ];
   test.each(refusals)("refuses %s", (command) => {
     expect(refused(bash(command))).toBe(true);

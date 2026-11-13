@@ -2002,11 +2002,11 @@ How it decides:
    (`POST /api/organiser/weddings` → `201`). No bootstrap-owner config is involved.
    Confirm a created wedding then appears in the list and is owner-scoped (another
    account's list stays empty). The owner verifies with:
-   `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM weddings;"`.
+   `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT count(*) FROM weddings;"`.
 8. **RSVP write succeeds.** A guest claims their family code on the guest site and submits
    an RSVP (`POST /api/rsvp`). A 2xx + a persisted row confirms cire-api ↔ D1 writes and
    the guest-session cookie path. The owner verifies with:
-   `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM rsvps;"`.
+   `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT count(*) FROM rsvps;"`.
 9. **(If enabled) account-linking returns non-503.** `POST /api/account/link` should not
    answer 503 once §6 is wired; a 503 means the ARC bridge config is missing.
 
@@ -2195,7 +2195,7 @@ No hand step. The zap stack job's `migrate` step applies `zap/db/drizzle/`'s pen
 After a release that ships zap-api completes:
 
 1. **Health check — automatic.** The zap stack job's smoke check asks `https://zap.cireweddings.com/health` for a 200 after every deploy and rolls the Worker back when it answers wrongly (§7). It confirms the Worker booted, the D1 binding is present and the JWKS URL is set.
-2. **D1 row count (owner step).** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
+2. **D1 row count (owner step).** `bunx wrangler d1 execute zap-db-prod --env production --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
 3. **ARC registration (smoke).** After §9.3, a test `POST /internal/chats` from cire-api should return 201 (not 401/403/503). Confirm the `class` column on the returned row is `'c2b'`.
 
 

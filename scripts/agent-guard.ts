@@ -585,11 +585,29 @@ function productionDbRule(words: string[]): string | null {
   );
   const verb = read >= 0 ? read : migrate;
   if (verb < 0) return null;
-  if (rest.includes("--local")) return null;
+  if (isLocalOnly(rest)) return null;
   if (!isCleanDevCommand(words, rest, positional, verb)) {
     return read >= 0 ? PRODUCTION_READ : PRODUCTION_MIGRATE;
   }
   return null;
+}
+
+/**
+ * Whether the command names `--local` and nothing that turns it off: wrangler
+ * reads `--local false`, `--local=false`, `--no-local` and `--remote` as a
+ * remote target, whatever else the command says.
+ */
+function isLocalOnly(rest: string[]): boolean {
+  const at = rest.indexOf("--local");
+  if (at < 0) return false;
+  if (/^(?:false|0|no)$/i.test(rest[at + 1] ?? "")) return false;
+  return !rest.some(
+    (word) =>
+      word === "--no-local" ||
+      word === "--remote" ||
+      word.startsWith("--remote=") ||
+      (word.startsWith("--local=") && !/^--local=(?:true|1)$/i.test(word)),
+  );
 }
 
 /** Flags that redirect what a database name resolves to. */

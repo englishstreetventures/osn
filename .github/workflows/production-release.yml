@@ -932,7 +932,10 @@ jobs:
       # failed; GitHub masks every secret the job holds in what it prints.
       - name: Show the musubi migrate log, as the step failed
         if: ${{ failure() && steps.migrate.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/migrate.log"
+        run: |
+          # Migration file names are masked, so no name a production ledger
+          # holds reaches this public log (AGENTS.md, Production data).
+          sed -E 's/[[:alnum:]_.-]+\.sql/<migration file>/g' "$RUNNER_TEMP/migrate.log"
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each build was made for production. It
@@ -952,7 +955,10 @@ jobs:
       # failed; GitHub masks every secret the job holds in what it prints.
       - name: Show the musubi deploy log, as the step failed
         if: ${{ failure() && steps.deploy.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/alchemy.log"
+        run: |
+          # Migration file names are masked, so no name a production ledger
+          # holds reaches this public log (AGENTS.md, Production data).
+          sed -E 's/[[:alnum:]_.-]+\.sql/<migration file>/g' "$RUNNER_TEMP/alchemy.log"
 
       # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan
@@ -1230,7 +1236,10 @@ jobs:
       # failed; GitHub masks every secret the job holds in what it prints.
       - name: Show the cire migrate log, as the step failed
         if: ${{ failure() && steps.migrate.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/migrate.log"
+        run: |
+          # Migration file names are masked, so no name a production ledger
+          # holds reaches this public log (AGENTS.md, Production data).
+          sed -E 's/[[:alnum:]_.-]+\.sql/<migration file>/g' "$RUNNER_TEMP/migrate.log"
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each build was made for production. It
@@ -1250,7 +1259,10 @@ jobs:
       # failed; GitHub masks every secret the job holds in what it prints.
       - name: Show the cire deploy log, as the step failed
         if: ${{ failure() && steps.deploy.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/alchemy.log"
+        run: |
+          # Migration file names are masked, so no name a production ledger
+          # holds reaches this public log (AGENTS.md, Production data).
+          sed -E 's/[[:alnum:]_.-]+\.sql/<migration file>/g' "$RUNNER_TEMP/alchemy.log"
 
       # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan
@@ -1556,7 +1568,10 @@ jobs:
       # failed; GitHub masks every secret the job holds in what it prints.
       - name: Show the zap migrate log, as the step failed
         if: ${{ failure() && steps.migrate.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/migrate.log"
+        run: |
+          # Migration file names are masked, so no name a production ledger
+          # holds reaches this public log (AGENTS.md, Production data).
+          sed -E 's/[[:alnum:]_.-]+\.sql/<migration file>/g' "$RUNNER_TEMP/migrate.log"
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each build was made for production. It
@@ -1576,7 +1591,10 @@ jobs:
       # failed; GitHub masks every secret the job holds in what it prints.
       - name: Show the zap deploy log, as the step failed
         if: ${{ failure() && steps.deploy.outcome == 'failure' }}
-        run: cat "$RUNNER_TEMP/alchemy.log"
+        run: |
+          # Migration file names are masked, so no name a production ledger
+          # holds reaches this public log (AGENTS.md, Production data).
+          sed -E 's/[[:alnum:]_.-]+\.sql/<migration file>/g' "$RUNNER_TEMP/alchemy.log"
 
       # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan

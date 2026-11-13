@@ -283,7 +283,12 @@ export function namesOf(rows: readonly D1Row[]): readonly string[] {
 
 export type Args = { readonly database: string; readonly flags: readonly string[] };
 
-/** The database name, then wrangler's own flags, which must name a local target. */
+/**
+ * The database name, then the flags passed to wrangler: `--local`, required,
+ * and at most a `--persist-to <dir>`. Any other flag is refused, since
+ * wrangler reads `--local false` or `--no-local` as remote, and `--env` or
+ * `--config` can point the name at another database.
+ */
 export function parseArgs(argv: readonly string[]): Args | { readonly error: string } {
   const [database, ...flags] = argv;
   if (database === undefined || database.startsWith("-")) {
@@ -297,6 +302,18 @@ export function parseArgs(argv: readonly string[]): Args | { readonly error: str
   }
   if (!flags.includes("--local")) {
     return { error: "pass --local, so the target is never wrangler's default" };
+  }
+  for (let at = 0; at < flags.length; at += 1) {
+    const flag = flags[at] ?? "";
+    if (flag === "--local" || /^--persist-to=./.test(flag)) continue;
+    const dir = flags[at + 1];
+    if (flag === "--persist-to" && dir !== undefined && !dir.startsWith("-")) {
+      at += 1;
+      continue;
+    }
+    return {
+      error: `${flag} is refused: pass --local and, at most, --persist-to <dir>, so the target is always a local database`,
+    };
   }
   return { database, flags };
 }

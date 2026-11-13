@@ -528,15 +528,20 @@ export async function readLedger(
   files: readonly MigrationFile[],
 ): Promise<LedgerCounts> {
   const present = (await query(LEDGER_OBJECTS_SQL)).map((row) => textColumn(row, "name"));
-  const wrangler = present.includes("d1_migrations")
-    ? (await query(WRANGLER_LEDGER_SQL)).map((row) => textColumn(row, "name"))
-    : null;
-  const alchemy = present.includes("__alchemy_migrations")
-    ? (await query(ALCHEMY_LEDGER_SQL)).map((row) => ({
-        name: textColumn(row, "name"),
-        hash: typeof row.hash === "string" && row.hash !== "" ? row.hash : null,
-      }))
-    : null;
+  // The two ledger reads depend only on which tables exist, so they run together.
+  const [wrangler, alchemy] = await Promise.all([
+    present.includes("d1_migrations")
+      ? query(WRANGLER_LEDGER_SQL).then((rows) => rows.map((row) => textColumn(row, "name")))
+      : null,
+    present.includes("__alchemy_migrations")
+      ? query(ALCHEMY_LEDGER_SQL).then((rows) =>
+          rows.map((row) => ({
+            name: textColumn(row, "name"),
+            hash: typeof row.hash === "string" && row.hash !== "" ? row.hash : null,
+          })),
+        )
+      : null,
+  ]);
   return countLedger({ present, wrangler, alchemy, files });
 }
 
@@ -624,17 +629,20 @@ async function readDatabase(
     }
   }
   const path = `/d1/database/${uuid}`;
-  const read = objectOf(await get(api, path), path);
-  const replication = read.read_replication;
+  // The settings and the ledgers each need only the database's id, so they are read together.
+  const [envelope, ledger] = await Promise.all([
+    get(api, path),
+    database.migrations === null
+      ? undefined
+      : readLedger(d1Query(api, uuid), migrationFiles(database.migrations, workingDir)),
+  ]);
+  const replication = objectOf(envelope, path).read_replication;
   // The provider reads an absent or null setting as disabled.
   const readReplication =
     isRecord(replication) && typeof replication.mode === "string" ? replication.mode : "disabled";
-  if (database.migrations === null) return { exists: true, readReplication };
-  return {
-    exists: true,
-    readReplication,
-    ledger: await readLedger(d1Query(api, uuid), migrationFiles(database.migrations, workingDir)),
-  };
+  return ledger === undefined
+    ? { exists: true, readReplication }
+    : { exists: true, readReplication, ledger };
 }
 
 /** A live lifecycle rule as the provider's `toLifecycleRule` reads it. */

@@ -1394,11 +1394,12 @@ describe("production-release.yml", () => {
   test("PW10: no production Alchemy run writes to the public run log: each writes a file, which the next step shows only when the run failed", () => {
     const alchemyRuns = Object.values(production.jobs).flatMap((job) =>
       stepsOf(job).flatMap((step, at) =>
-        /\b(plan|deploy):production\b/.test(step.run ?? "") ? [{ job, step, at }] : [],
+        /\b(plan|migrate|deploy):production\b/.test(step.run ?? "") ? [{ job, step, at }] : [],
       ),
     );
-    // Per stack: a plan at approval 1, and a re-plan and a deploy in its stack job.
-    expect(alchemyRuns).toHaveLength(3 * PRODUCTION_STACKS.length);
+    // Per stack: a plan at approval 1, and a re-plan, the migrate step and a
+    // deploy in its stack job.
+    expect(alchemyRuns).toHaveLength(4 * PRODUCTION_STACKS.length);
     for (const { job, step, at } of alchemyRuns) {
       expect(step.run).not.toMatch(/\btee\b|\|/);
       const file = /> "(\$RUNNER_TEMP\/[^"]+\.log)" 2>&1\s*$/.exec(step.run ?? "")?.[1];
@@ -1416,7 +1417,14 @@ describe("production-release.yml", () => {
       }
       const show = stepsOf(job)[at + 1];
       expect(show?.if).toBe(`\${{ failure() && steps.${step.id}.outcome == 'failure' }}`);
-      expect(show?.run).toBe(`cat "${file}"`);
+      // A plan reads no ledger; a migrate or deploy run can name a production
+      // ledger's migrations, so its log is shown with every file name masked
+      // (PW1 runs the masking).
+      expect(show?.run).toBe(
+        /plan:production/.test(step.run ?? "")
+          ? `cat "${file}"`
+          : `# Migration file names are masked, so no name a production ledger\n# holds reaches this public log (AGENTS.md, Production data).\nsed -E 's/[[:alnum:]_.-]+\\.sql/<migration file>/g' "${file}"\n`,
+      );
     }
   }, 30_000);
 
@@ -1843,8 +1851,29 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(runStep(migrate!, {}, 3).exitCode).not.toBe(0);
       const log = stepsOf(job)[stepIndex(job, "migrate") + 1];
       expect(log?.if).toBe("${{ failure() && steps.migrate.outcome == 'failure' }}");
-      expect(log?.run).toBe('cat "$RUNNER_TEMP/migrate.log"');
       expect(log?.env).toBeUndefined();
+      // On a failure it prints Alchemy's log with every migration file name
+      // masked, as the deploy's log step does: a production ledger's names
+      // stay out of the public run log.
+      const deployLog = stepsOf(job)[stepIndex(job, "deploy") + 1];
+      expect(deployLog?.if).toBe("${{ failure() && steps.deploy.outcome == 'failure' }}");
+      for (const [step, file] of [
+        [log, "migrate.log"],
+        [deployLog, "alchemy.log"],
+      ] as const) {
+        const dir = mkdtempSync(join(tmpdir(), "migrate-log-"));
+        writeFileSync(
+          join(dir, file),
+          "MigrationHistoryConflictError: 1 recorded migration(s) match no local file: 0050_stray_name.sql, 20990101000000_x.sql. D1 said no\n",
+        );
+        const shown = Bun.spawnSync(["bash", "-e", "-c", step?.run ?? "exit 9"], {
+          env: { PATH: "/usr/bin:/bin", RUNNER_TEMP: dir },
+        });
+        expect(shown.exitCode).toBe(0);
+        expect(shown.stdout.toString()).toBe(
+          "MigrationHistoryConflictError: 1 recorded migration(s) match no local file: <migration file>, <migration file>. D1 said no\n",
+        );
+      }
       // Wrangler's migrator reaches no production database from any workflow.
       expect(JSON.stringify(job)).not.toMatch(/db:migrate:prod|d1 migrations apply/);
       const live = stepById(job, "live");
