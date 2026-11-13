@@ -13,7 +13,11 @@
  *    that lacks a secret the inventory requires on production or holds one it
  *    forbids; a declared var or binding, or one the provider adds to every
  *    upload, named like a live secret, which the upload would replace; a live Durable Object class no declared binding
- *    names, which the upload would delete with its storage;
+ *    names, which the upload would delete with its storage; for a database
+ *    Alchemy migrates, a read replication that differs (the migrate step
+ *    reconciles the database every release) and a migration ledger the
+ *    migrate step could not convert, or would replay a migration from
+ *    (`judgeLedger`);
  *  - for a resource the plan adopts (`adopted`, or an API Worker's `create`,
  *    which the deploy adopts): a live cron schedule that differs from the
  *    declared one, a database whose read replication differs, and a bucket
@@ -28,13 +32,24 @@
  * resource the plan names, so its check holds on every release.
  *
  * Every value read is a name or a setting: no secret's value is ever fetched,
- * and the file holds none. Each read defaults exactly as the provider does
- * when it reads the same reply (`@alchemy.run/cloudflare` 2.0.0-beta.85).
+ * and the file holds none. A database's migration ledger is read with
+ * read-only SQL through D1's `/query` and kept as counts alone (`LedgerCounts`):
+ * no row, not even a migration's name, reaches the file or the log. Each read
+ * defaults exactly as the provider does when it reads the same reply
+ * (`@alchemy.run/cloudflare` 2.0.0-beta.85).
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import {
+  compareMigrationNames,
+  FREEZE_MIGRATION,
+  migrationFiles,
+  migrationHash,
+  type MigrationFile,
+  type MigrationSources,
+} from "./migrations";
 import { redactAccountIds } from "./secrets/compare";
 import { tierSecrets, type WorkerKey } from "./secrets/inventory";
 import type { ApiWorkerObservability } from "./worker";
@@ -68,6 +83,12 @@ export interface AdoptedWorker {
 export interface AdoptedDatabase {
   readonly name: string;
   readonly readReplication: "auto" | "disabled";
+  /**
+   * Where the stack's migrations for this database come from, paths relative
+   * to the stack's directory, or null when Alchemy does not migrate it. The
+   * live read compares the database's migration ledger with these files.
+   */
+  readonly migrations: MigrationSources | null;
 }
 
 export interface AdoptedBucket {
@@ -178,6 +199,49 @@ export interface LiveWorker {
 export interface LiveDatabase {
   readonly exists: boolean;
   readonly readReplication: string;
+  /** What its migration ledger holds, as counts; absent for a database Alchemy does not migrate. */
+  readonly ledger?: LedgerCounts;
+}
+
+/**
+ * A database's migration ledger against the stack's migration files, as
+ * counts only: the live read keeps no migration name, so nothing it writes or
+ * prints is a row of a production database.
+ */
+export interface LedgerCounts {
+  /** The ledger Alchemy reads: its own once it exists, else Wrangler's, else none. */
+  readonly table: "__alchemy_migrations" | "d1_migrations" | "none";
+  /** drizzle-kit or Prisma ledgers present, which Alchemy would read before Wrangler's. */
+  readonly foreign: number;
+  /** Whether the trigger that stops Wrangler writing its ledger is in place. */
+  readonly frozen: boolean;
+  readonly rows: number;
+  /** Rows naming a migration another row already names. */
+  readonly duplicates: number;
+  /** Distinct names that name a migration file. */
+  readonly matched: number;
+  /** Distinct names that name none: Alchemy refuses such a ledger. */
+  readonly unmatched: number;
+  /** Alchemy rows whose recorded hash differs from the file's: Alchemy refuses those too. */
+  readonly rewritten: number;
+  /** Files no row names: what the next migrate step applies. */
+  readonly pending: number;
+  /**
+   * Pending files the chain was applied without: an archived file, or a
+   * numbered one sorting before the newest applied. Applying one would run a
+   * migration whose effect the database most likely holds already.
+   */
+  readonly skipped: number;
+  /** Pending timestamped files sorting before the newest applied: merged after a newer one shipped. */
+  readonly late: number;
+  readonly wranglerRows: number;
+  /** With both ledgers present, names in Wrangler's that Alchemy's lacks. */
+  readonly frozenMissing: number;
+  /**
+   * Alchemy's ledger records the freeze file as applied and its trigger is
+   * gone: no release runs that file again, so nothing puts the trigger back.
+   */
+  readonly thawed: boolean;
 }
 
 export interface LiveBucket {
@@ -221,20 +285,35 @@ interface Envelope {
 }
 
 /** One GET of the v4 API, tried again after a network error, a 429 or a 5xx. */
-async function get(api: CloudflareApi, path: string): Promise<Envelope> {
+const get = (api: CloudflareApi, path: string): Promise<Envelope> => send(api, "GET", path);
+
+/**
+ * One request of the v4 API, tried again after a network error, a 429 or a
+ * 5xx. Only reads go through here: every GET, and POSTs to D1's `/query` whose
+ * SQL only reads, so sending one again changes nothing.
+ */
+async function send(
+  api: CloudflareApi,
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+): Promise<Envelope> {
   const url = `${CLOUDFLARE_API}/accounts/${api.account}${path}`;
   const once = async (): Promise<Envelope | "transient"> => {
+    const headers = new Headers({ authorization: `Bearer ${api.token}` });
+    const init: RequestInit = { method, headers, signal: AbortSignal.timeout(15_000) };
+    if (body !== undefined) {
+      headers.set("content-type", "application/json");
+      init.body = JSON.stringify(body);
+    }
     let response: Response;
     try {
-      response = await api.fetch(url, {
-        headers: { authorization: `Bearer ${api.token}` },
-        signal: AbortSignal.timeout(15_000),
-      });
+      response = await api.fetch(url, init);
     } catch {
       return "transient";
     }
     if (response.status === 429 || response.status >= 500) return "transient";
-    const body = (await response.json().catch(() => undefined)) as
+    const answer = (await response.json().catch(() => undefined)) as
       | {
           readonly success?: unknown;
           readonly errors?: readonly { readonly code?: unknown }[];
@@ -242,19 +321,19 @@ async function get(api: CloudflareApi, path: string): Promise<Envelope> {
           readonly result_info?: unknown;
         }
       | undefined;
-    if (body === undefined) {
+    if (answer === undefined) {
       throw new LiveReadError(
-        `GET ${redactAccountIds(url)} answered ${response.status} with no JSON`,
+        `${method} ${redactAccountIds(url)} answered ${response.status} with no JSON`,
       );
     }
     return {
       status: response.status,
-      success: body.success === true,
-      codes: (body.errors ?? []).flatMap((error) =>
+      success: answer.success === true,
+      codes: (answer.errors ?? []).flatMap((error) =>
         typeof error.code === "number" ? [error.code] : [],
       ),
-      result: body.result,
-      resultInfo: body.result_info,
+      result: answer.result,
+      resultInfo: answer.result_info,
     };
   };
   for (const delay of [...RETRY_DELAYS_MS, undefined]) {
@@ -265,13 +344,15 @@ async function get(api: CloudflareApi, path: string): Promise<Envelope> {
     // oxlint-disable-next-line no-await-in-loop -- the pause between tries
     await api.sleep(delay);
   }
-  throw new LiveReadError(`GET ${redactAccountIds(url)} failed three times (network, 429 or 5xx)`);
+  throw new LiveReadError(
+    `${method} ${redactAccountIds(url)} failed three times (network, 429 or 5xx)`,
+  );
 }
 
-const refusedRead = (path: string, envelope: Envelope): LiveReadError =>
+const refusedRead = (path: string, envelope: Envelope, method = "GET"): LiveReadError =>
   new LiveReadError(
     redactAccountIds(
-      `GET ${path} answered ${envelope.status}${envelope.codes.length === 0 ? "" : ` (codes ${envelope.codes.join(", ")})`}`,
+      `${method} ${path} answered ${envelope.status}${envelope.codes.length === 0 ? "" : ` (codes ${envelope.codes.join(", ")})`}`,
     ),
   );
 
@@ -412,7 +493,136 @@ async function readWorker(
   };
 }
 
-async function readDatabase(api: CloudflareApi, name: string): Promise<LiveDatabase> {
+/** The ledger tables Alchemy looks for, and the trigger that freezes Wrangler's. */
+const LEDGER_OBJECTS_SQL =
+  "SELECT type, name FROM sqlite_master WHERE name IN ('d1_migrations', '__alchemy_migrations', '__drizzle_migrations', '_prisma_migrations', 'd1_migrations_frozen')";
+const WRANGLER_LEDGER_SQL = 'SELECT name FROM "d1_migrations" ORDER BY id';
+const ALCHEMY_LEDGER_SQL = 'SELECT name, hash FROM "__alchemy_migrations" ORDER BY id';
+
+/** One row a ledger query answers, each column checked before use. */
+export type LedgerRow = Answered;
+
+/** Runs one read-only statement against a database and returns its rows. */
+export type LedgerQuery = (sql: string) => Promise<readonly LedgerRow[]>;
+
+/** A D1 database's `/query`, through the v4 API: the first result's rows, or a LiveReadError naming no row. */
+const d1Query =
+  (api: CloudflareApi, uuid: string): LedgerQuery =>
+  async (sql) => {
+    const path = `/d1/database/${uuid}/query`;
+    const envelope = await send(api, "POST", path, { sql });
+    if (!envelope.success) throw refusedRead(path, envelope, "POST");
+    const first: unknown = Array.isArray(envelope.result) ? envelope.result[0] : undefined;
+    if (!isRecord(first) || !Array.isArray(first.results)) {
+      throw new LiveReadError(`POST ${path}: the query answered no result list`);
+    }
+    return first.results.filter(isRecord);
+  };
+
+/** The text of a column, or a LiveReadError naming the column and never the value. */
+const textColumn = (row: LedgerRow, column: string): string => {
+  const value = row[column];
+  if (typeof value !== "string") {
+    throw new LiveReadError(`a migration ledger row's ${column} is not text`);
+  }
+  return value;
+};
+
+/** Reads a database's migration ledgers with `query` and counts them against `files`. */
+export async function readLedger(
+  query: LedgerQuery,
+  files: readonly MigrationFile[],
+): Promise<LedgerCounts> {
+  const present = (await query(LEDGER_OBJECTS_SQL)).map((row) => textColumn(row, "name"));
+  // The two ledger reads depend only on which tables exist, so they run together.
+  const [wrangler, alchemy] = await Promise.all([
+    present.includes("d1_migrations")
+      ? query(WRANGLER_LEDGER_SQL).then((rows) => rows.map((row) => textColumn(row, "name")))
+      : null,
+    present.includes("__alchemy_migrations")
+      ? query(ALCHEMY_LEDGER_SQL).then((rows) =>
+          rows.map((row) => ({
+            name: textColumn(row, "name"),
+            hash: typeof row.hash === "string" && row.hash !== "" ? row.hash : null,
+          })),
+        )
+      : null,
+  ]);
+  return countLedger({ present, wrangler, alchemy, files });
+}
+
+const TIMESTAMPED = /^\d{14}_/;
+
+/**
+ * A ledger against the migration files, as `LedgerCounts`. `present` names the
+ * ledger tables and the trigger the database holds; `wrangler` and `alchemy`
+ * are their rows in `id` order, null when the table is absent. Pure.
+ */
+export function countLedger(input: {
+  readonly present: readonly string[];
+  readonly wrangler: readonly string[] | null;
+  readonly alchemy: readonly { readonly name: string; readonly hash: string | null }[] | null;
+  readonly files: readonly MigrationFile[];
+}): LedgerCounts {
+  const files = input.files.toSorted((a, b) => compareMigrationNames(a.name, b.name));
+  const table =
+    input.alchemy !== null
+      ? "__alchemy_migrations"
+      : input.wrangler !== null
+        ? "d1_migrations"
+        : "none";
+  const rows =
+    input.alchemy !== null ? input.alchemy.map((row) => row.name) : (input.wrangler ?? []);
+  const applied = new Set(rows);
+  const byName = new Map(files.map((file) => [file.name, file]));
+  const matched = [...applied].filter((name) => byName.has(name)).length;
+  // Alchemy keeps the last row of a name it reads (`appliedHistory`), and
+  // checks a row's hash only when it records one (`row?.hash && …`).
+  const recorded = new Map((input.alchemy ?? []).map((row) => [row.name, row.hash]));
+  const rewritten = [...recorded].filter(([name, hash]) => {
+    const file = byName.get(name);
+    return file !== undefined && hash !== null && hash !== "" && hash !== migrationHash(file.sql);
+  }).length;
+  const newest = files.findLastIndex((file) => applied.has(file.name));
+  const pending = files.flatMap((file, index) => (applied.has(file.name) ? [] : [{ file, index }]));
+  const behind = pending.filter(({ index }) => index < newest);
+  const skipped = pending.filter(
+    ({ file, index }) =>
+      file.kind === "archived" ||
+      (file.kind === "live" && !TIMESTAMPED.test(file.name) && index < newest),
+  );
+  const late = behind.filter(
+    ({ file }) => TIMESTAMPED.test(file.name) && !skipped.some((s) => s.file === file),
+  );
+  const wranglerNames = new Set(input.wrangler ?? []);
+  const frozen = input.present.includes("d1_migrations_frozen");
+  return {
+    table,
+    foreign: input.present.filter(
+      (name) => name === "__drizzle_migrations" || name === "_prisma_migrations",
+    ).length,
+    frozen,
+    rows: rows.length,
+    duplicates: rows.length - applied.size,
+    matched,
+    unmatched: applied.size - matched,
+    rewritten,
+    pending: pending.length,
+    skipped: skipped.length,
+    late: late.length,
+    wranglerRows: input.wrangler?.length ?? 0,
+    frozenMissing:
+      input.alchemy === null ? 0 : [...wranglerNames].filter((name) => !applied.has(name)).length,
+    thawed: !frozen && input.alchemy !== null && applied.has(FREEZE_MIGRATION.name),
+  };
+}
+
+async function readDatabase(
+  api: CloudflareApi,
+  database: AdoptedDatabase,
+  workingDir: string,
+): Promise<LiveDatabase> {
+  const { name } = database;
   let uuid: string | undefined;
   for (let page = 1; uuid === undefined; page++) {
     const path = `/d1/database?name=${encodeURIComponent(name)}&page=${page}&per_page=100`;
@@ -427,14 +637,20 @@ async function readDatabase(api: CloudflareApi, name: string): Promise<LiveDatab
     }
   }
   const path = `/d1/database/${uuid}`;
-  const database = objectOf(await get(api, path), path);
-  const replication = database.read_replication;
-  return {
-    exists: true,
-    // The provider reads an absent or null setting as disabled.
-    readReplication:
-      isRecord(replication) && typeof replication.mode === "string" ? replication.mode : "disabled",
-  };
+  // The settings and the ledgers each need only the database's id, so they are read together.
+  const [envelope, ledger] = await Promise.all([
+    get(api, path),
+    database.migrations === null
+      ? undefined
+      : readLedger(d1Query(api, uuid), migrationFiles(database.migrations, workingDir)),
+  ]);
+  const replication = objectOf(envelope, path).read_replication;
+  // The provider reads an absent or null setting as disabled.
+  const readReplication =
+    isRecord(replication) && typeof replication.mode === "string" ? replication.mode : "disabled";
+  return ledger === undefined
+    ? { exists: true, readReplication }
+    : { exists: true, readReplication, ledger };
 }
 
 /** A live lifecycle rule as the provider's `toLifecycleRule` reads it. */
@@ -507,17 +723,24 @@ async function readBucket(api: CloudflareApi, name: string): Promise<LiveBucket>
 }
 
 /**
- * Reads every adopted resource of a stack, each map in logical-id order.
- * With `secretsOnly`, the check after a deploy, it reads each Worker's
- * existence and secret names alone, and no database or bucket. Throws
- * LiveReadError, whose message names no account id.
+ * Reads every adopted resource of a stack, each map in logical-id order, and
+ * each migrated database's ledger as counts against the stack's migration
+ * files (`workingDir` is the stack's directory, which their paths are
+ * relative to). With `secretsOnly`, the check after a deploy, it reads each
+ * Worker's existence and secret names alone, and no database or bucket.
+ * Throws LiveReadError, whose message names no account id.
  */
 export async function readProductionLive(
   adopted: AdoptedResources,
   api: CloudflareApi,
-  options: { readonly secretsOnly?: boolean } = {},
+  options: {
+    readonly secretsOnly?: boolean;
+    /** The stack's directory, which each database's migration paths are relative to; the working directory unless given. */
+    readonly workingDir?: string;
+  } = {},
 ): Promise<LiveState> {
   const secretsOnly = options.secretsOnly === true;
+  const workingDir = options.workingDir ?? process.cwd();
   let listed:
     | Promise<readonly { readonly script: string; readonly className: string }[]>
     | undefined;
@@ -535,7 +758,9 @@ export async function readProductionLive(
   };
   const [workers, databases, buckets] = await Promise.all([
     byId(adopted.workers, (worker) => readWorker(api, worker.name, namespaces, secretsOnly)),
-    byId(secretsOnly ? {} : adopted.databases, (database) => readDatabase(api, database.name)),
+    byId(secretsOnly ? {} : adopted.databases, (database) =>
+      readDatabase(api, database, workingDir),
+    ),
     byId(secretsOnly ? {} : adopted.buckets, (bucket) => readBucket(api, bucket.name)),
   ]);
   return { workers, databases, buckets };
@@ -710,11 +935,18 @@ export function judgeLive(input: {
       );
       continue;
     }
-    if (adopting.has(id) && state.readReplication !== database.readReplication) {
+    // A database Alchemy migrates is reconciled on every release by the stack
+    // job's migrate step, which sets its read replication as declared.
+    const reconciled = database.migrations !== null;
+    if ((adopting.has(id) || reconciled) && state.readReplication !== database.readReplication) {
       refusals.push(
-        `${database.name}'s read replication is ${state.readReplication} live and ${database.readReplication} declared, and adopting it would change it`,
+        `${database.name}'s read replication is ${state.readReplication} live and ${database.readReplication} declared, and ${reconciled ? "the migrate step" : "adopting it"} would change it`,
       );
     }
+    if (!reconciled) continue;
+    const judged = judgeLedger(database.name, state.ledger);
+    refusals.push(...judged.refusals);
+    notices.push(...judged.notices);
   }
   for (const [id, bucket] of Object.entries(adopted.buckets)) {
     const state = live.buckets[id];
@@ -742,6 +974,85 @@ export function judgeLive(input: {
     }
   }
   return { refusals, notices };
+}
+
+/** Where each refusal below is recovered from. */
+const LEDGER_RUNBOOK = "wiki/shared/production-deploy.md §4.2";
+
+const plural = (count: number, one: string, many: string): string =>
+  `${count} ${count === 1 ? one : many}`;
+
+/**
+ * What the guard makes of a migrated database's ledger counts: every reason
+ * the stack job's migrate step must not run, and the counts, listed. Names
+ * nothing but the database: the counts carry no migration name.
+ */
+export function judgeLedger(name: string, ledger: LedgerCounts | undefined): LiveJudgement {
+  if (ledger === undefined) {
+    return {
+      refusals: [
+        `${name}'s migration ledger was not read, so nothing says what the migrate step would apply`,
+      ],
+      notices: [],
+    };
+  }
+  const refusals: string[] = [];
+  const distinct = ledger.rows - ledger.duplicates;
+  if (ledger.table === "none") {
+    refusals.push(
+      `${name} has no migration ledger, so the migrate step would apply every migration to a database that holds them (${LEDGER_RUNBOOK})`,
+    );
+  } else if (distinct === 0) {
+    refusals.push(
+      ledger.table === "__alchemy_migrations" && ledger.wranglerRows > 0
+        ? `${name}'s __alchemy_migrations is empty beside ${ledger.wranglerRows} rows of d1_migrations: a conversion that read no Wrangler ledger, so the migrate step would apply every migration again (${LEDGER_RUNBOOK})`
+        : `${name}'s ${ledger.table} is empty, so the migrate step would apply every migration to a database that holds them (${LEDGER_RUNBOOK})`,
+    );
+  }
+  if (ledger.unmatched > 0) {
+    refusals.push(
+      `${plural(ledger.unmatched, "row", "rows")} of ${name}'s ${ledger.table} ${ledger.unmatched === 1 ? "names" : "name"} no migration file: Alchemy refuses a ledger it cannot match (${LEDGER_RUNBOOK})`,
+    );
+  }
+  if (ledger.skipped > 0) {
+    refusals.push(
+      `${plural(ledger.skipped, "migration file", "migration files")} of ${name} ${ledger.skipped === 1 ? "is" : "are"} missing from its ledger behind ones applied after ${ledger.skipped === 1 ? "it" : "them"}, or archived: the chain was applied without ${ledger.skipped === 1 ? "it" : "them"}, and the migrate step must not run ${ledger.skipped === 1 ? "it" : "them"} now (${LEDGER_RUNBOOK})`,
+    );
+  }
+  if (ledger.frozenMissing > 0) {
+    refusals.push(
+      `${plural(ledger.frozenMissing, "name", "names")} in ${name}'s d1_migrations ${ledger.frozenMissing === 1 ? "is" : "are"} missing from __alchemy_migrations: a conversion that copied part of Wrangler's ledger, so the migrate step would apply ${ledger.frozenMissing === 1 ? "it" : "them"} again (${LEDGER_RUNBOOK})`,
+    );
+  }
+  if (ledger.rewritten > 0) {
+    refusals.push(
+      `${plural(ledger.rewritten, "migration file", "migration files")} of ${name} changed after ${ledger.rewritten === 1 ? "it was" : "they were"} applied: Alchemy refuses the release in its migrate step; restore the applied bytes or add a new migration (${LEDGER_RUNBOOK})`,
+    );
+  }
+  if (ledger.foreign > 0) {
+    refusals.push(
+      `${name} holds ${plural(ledger.foreign, "other migration ledger", "other migration ledgers")} (drizzle-kit or Prisma), which Alchemy would read before Wrangler's (${LEDGER_RUNBOOK})`,
+    );
+  }
+  // Only Alchemy's conversion release creates the trigger, and it records
+  // that in Alchemy's ledger: a frozen Wrangler ledger alone means that
+  // ledger was there and is gone.
+  if (ledger.table === "d1_migrations" && ledger.frozen) {
+    refusals.push(
+      `${name}'s d1_migrations is frozen and its __alchemy_migrations is gone: Wrangler's ledger stopped at the move, so the migrate step would apply again every migration since (${LEDGER_RUNBOOK})`,
+    );
+  }
+  if (ledger.thawed) {
+    refusals.push(
+      `${name}'s d1_migrations_frozen trigger is gone, and Alchemy's ledger records the freeze as applied, so no release puts it back (${LEDGER_RUNBOOK})`,
+    );
+  }
+  return {
+    refusals,
+    notices: [
+      `${name} migration ledger (${ledger.table}): ${ledger.rows} rows, ${ledger.matched} match a migration file, ${ledger.unmatched} match none; ${ledger.pending} to apply, ${ledger.late} of them older than the newest applied; Wrangler's ledger ${ledger.frozen ? "frozen" : "not frozen"}`,
+    ],
+  };
 }
 
 /** Whether `value` holds what lostSecrets reads: each Worker's secret names. */
@@ -825,6 +1136,12 @@ export async function runReadLiveCli(input: ReadLiveCliInput): Promise<number> {
         : keptFile !== undefined
           ? `${id}: ${worker.secrets.length} secrets\n`
           : `${id}: ${worker.secrets.length} secrets, ${worker.crons.length} crons, ${worker.durableObjectClasses.length} Durable Object classes, ${worker.domains.length} custom domains\n`,
+    );
+  }
+  for (const [id, { ledger }] of Object.entries(live.databases)) {
+    if (ledger === undefined) continue;
+    input.out(
+      `${id}: ${ledger.table}, ${ledger.rows} rows, ${ledger.matched} match a migration file, ${ledger.unmatched} match none, ${ledger.rewritten} changed since applied; ${ledger.pending} to apply, ${ledger.skipped} skipped, ${ledger.late} applied out of order; Wrangler's ledger ${ledger.frozen ? "frozen" : "not frozen"}\n`,
     );
   }
   if (keptFile === undefined) return 0;

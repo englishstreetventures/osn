@@ -131,7 +131,7 @@ describe("SQL builders", () => {
     expect(targetArgs("cire", "dev")).toEqual(["cire-db-dev", "--remote"]);
     expect(targetArgs("osn", "dev")).toEqual(["osn-db-dev", "--remote"]);
     // A `--remote` name the top-level block holds would resolve to that block's
-    // database_id, which is production's.
+    // database_id: osn's names a database in the production account.
     for (const [db, config] of [
       ["cire", "cire/api/wrangler.toml"],
       ["osn", "osn/api/wrangler.toml"],

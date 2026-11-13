@@ -19,6 +19,7 @@ import {
   type ApiWorkerObservability,
   type DeclaredDomains,
   type HostHold,
+  type MigrationSources,
   type PrebuiltSite,
   type ResourceKind,
   type ResourceKinds,
@@ -53,14 +54,9 @@ interface CireApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"
 /** cire-invites' Worker input apart from its secrets, which the stack reads. */
 type CireInvitesDeclaration = Omit<ApiWorkerInput, "secrets">;
 
-/** cire's database, migrated by Alchemy from the flattened chain and seeded. */
-interface CireDbDeclaration extends RetainedD1Input {
-  readonly migrations: string;
-}
-
 interface CireDeclaration {
   readonly cireApi: CireApiDeclaration;
-  readonly cireDb: CireDbDeclaration;
+  readonly cireDb: RetainedD1Input;
   readonly cireAssets: RetainedBucketInput;
   readonly cireSheets: RetainedBucketInput;
   readonly cireInvites: CireInvitesDeclaration;
@@ -94,6 +90,25 @@ const LANDING_DIST = "../landing/dist";
 
 /** cire/db's dev seed, imported after the migrations on every tier but production. */
 const DEV_SEED = "../db/seed/dev-seed.sql";
+
+/**
+ * cire/db's migrations on every stage but production: the live chain alone.
+ * Those databases were built from the baseline, so no ledger of theirs names
+ * an archived migration.
+ */
+export const CIRE_DB_MIGRATIONS: MigrationSources = { source: "../db/migrations" };
+
+/**
+ * cire/db's migrations on production. Production applied the archived chain
+ * file by file before a squash moved it to `migrations-archive/`, so its
+ * ledger names every archived file: each gets a refusing placeholder under its
+ * name. The freeze stops Wrangler writing the ledger Alchemy took over.
+ */
+export const CIRE_DB_PRODUCTION_MIGRATIONS: MigrationSources = {
+  source: "../db/migrations",
+  archive: "../db/migrations-archive",
+  freeze: true,
+};
 
 /**
  * cire-api's per-IP and per-session limiters, each over 60 seconds. A
@@ -341,9 +356,10 @@ const productionBucket = (name: string): RetainedBucketInput => ({
  * name and adopted in place. Every var, binding, domain, cron and setting is
  * `[env.production]`'s in `cire/api/wrangler.toml` and `cire/invites/wrangler.jsonc`
  * (tests/parity.test.ts holds them equal), plus `legacy_module_registry` for
- * the bundled Worker. No secret: production's stay on the Workers. The
- * database names no migrations: Wrangler migrates it, in the stack job,
- * before the deploy. Pure; every host comes from `hosts`.
+ * the bundled Worker. No secret: production's stay on the Workers. Alchemy
+ * migrates the database from `CIRE_DB_PRODUCTION_MIGRATIONS`, flattened into
+ * `generatedDir`, in the stack job's migrate step before the deploy. Pure;
+ * every host comes from `hosts`.
  */
 export function cireProductionApis(input: {
   readonly hosts: StageHosts;
@@ -406,7 +422,7 @@ export function cireProductionApis(input: {
       readReplication: "auto",
       jurisdiction: "default",
       locationHint: null,
-      migrations: null,
+      migrations: join(input.generatedDir, "migrations", "cire-db"),
       importFiles: [],
     },
     cireAssets: productionBucket("cire-assets"),
@@ -656,7 +672,11 @@ export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
       [API_LOGICAL_IDS.cire_invites]: adoptedWorkerOf({ ...apis.cireInvites, bindings: {} }),
     },
     databases: {
-      CireDb: { name: apis.cireDb.name, readReplication: apis.cireDb.readReplication },
+      CireDb: {
+        name: apis.cireDb.name,
+        readReplication: apis.cireDb.readReplication,
+        migrations: CIRE_DB_PRODUCTION_MIGRATIONS,
+      },
     },
     buckets: {
       CireAssets: adoptedBucketOf(apis.cireAssets),

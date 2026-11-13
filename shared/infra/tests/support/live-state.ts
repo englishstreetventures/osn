@@ -7,8 +7,26 @@
  * and each database and bucket holds its declared settings.
  */
 
-import type { AdoptedResources, LiveState } from "../../src/production-live";
+import type { AdoptedResources, LedgerCounts, LiveState } from "../../src/production-live";
 import { tierSecrets } from "../../src/secrets/inventory";
+
+/** A migrated database's ledger once converted and frozen, with nothing to apply. */
+export const CONVERTED_LEDGER: LedgerCounts = {
+  table: "__alchemy_migrations",
+  foreign: 0,
+  frozen: true,
+  rows: 12,
+  duplicates: 0,
+  matched: 12,
+  unmatched: 0,
+  rewritten: 0,
+  pending: 0,
+  skipped: 0,
+  late: 0,
+  wranglerRows: 11,
+  frozenMissing: 0,
+  thawed: false,
+};
 
 export function matchingLive(adopted: AdoptedResources): LiveState {
   return {
@@ -37,7 +55,11 @@ export function matchingLive(adopted: AdoptedResources): LiveState {
     databases: Object.fromEntries(
       Object.entries(adopted.databases).map(([id, database]) => [
         id,
-        { exists: true, readReplication: database.readReplication },
+        {
+          exists: true,
+          readReplication: database.readReplication,
+          ...(database.migrations === null ? {} : { ledger: CONVERTED_LEDGER }),
+        },
       ]),
     ),
     buckets: Object.fromEntries(

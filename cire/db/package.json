@@ -23,7 +23,6 @@
     "db:studio": "drizzle-kit studio",
     "db:push": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
     "db:migrate:local": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
-    "db:migrate:prod": "bun run ../../scripts/cire-db-migrate.ts cire-db --env production --remote",
     "db:seed": "bash ../../scripts/cire-db-seed.sh",
     "db:reset": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:push && bun run db:seed"
   },

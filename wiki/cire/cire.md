@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Cire
@@ -124,7 +124,8 @@ neither runs in the deployed Worker (entry `src/entry.ts`, which
 re-exports the handler in `src/index.ts` and the realtime hub class).
 
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
-`CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
+`CIRE_DATABASE_URL`; the hashed file name follows the local database id in
+`cire/api/wrangler.toml`, `local:cire-db`).
 
 ## Deployment — live on `cireweddings.com`
 

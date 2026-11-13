@@ -19,13 +19,12 @@ import * as Effect from "effect/Effect";
 import {
   API_LOGICAL_IDS,
   PRODUCTION_RESOURCE_KINDS,
+  ZAP_DB_MIGRATIONS,
+  ZAP_DB_PRODUCTION_MIGRATIONS,
   zapDeclaration,
   zapProductionApis,
   type BindingDescription,
 } from "./src/declaration";
-
-/** zap/db's Drizzle migrations, flattened for Alchemy on every run. */
-const ZAP_MIGRATIONS = "../db/drizzle";
 
 class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<{
   readonly binding: string;
@@ -57,19 +56,26 @@ function toBindings(
 
 /**
  * The zap stack on production: zap-api and its database, each adopted under
- * today's name. It reads no secret (production's stay on the Worker), writes
- * no file, and migrates nothing: Wrangler migrates zap-db-prod in the stack
- * job before the deploy. Anything else declared fails the scope check before
- * the plan.
+ * today's name. It reads no secret (production's stay on the Worker), and
+ * writes only zap-db-prod's migrations, which Alchemy applies in the stack
+ * job's migrate step, before the deploy. Anything else declared fails the
+ * scope check before the plan.
  */
 const zapProductionStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly stage: string;
+  readonly generatedDir: string;
 }) =>
   Effect.gen(function* () {
     const { stage } = input;
-    const apis = zapProductionApis({ hosts: hostsFor(stage, {}) });
+    const apis = zapProductionApis({
+      hosts: hostsFor(stage, {}),
+      generatedDir: input.generatedDir,
+    });
     const secrets = requireSecrets({ worker: "zap-api", stage, env: input.env });
+    flattenMigrations({ ...ZAP_DB_PRODUCTION_MIGRATIONS, target: apis.zapDb.migrations });
+    // Binding `db` makes zap-api wait for the database's reconcile, which
+    // applies its migrations.
     const db = yield* retainedD1("ZapDb", apis.zapDb);
     const zapApi = yield* apiWorker(API_LOGICAL_IDS.zap_api, {
       ...apis.zapApi,
@@ -101,12 +107,14 @@ export const zapStack = (input: {
     const { env, generatedDir } = input;
     refuseDotEnvFiles(input.workingDir);
     const stage = assertDeployTarget(yield* Alchemy.Stage, env);
-    if (tierOf(stage) === "production") return yield* zapProductionStack({ env, stage });
+    if (tierOf(stage) === "production") {
+      return yield* zapProductionStack({ env, stage, generatedDir });
+    }
     const hosts = hostsFor(stage, env);
     const declared = zapDeclaration({ stage, hosts, generatedDir });
     const secrets = requireSecrets({ worker: "zap-api", stage, env });
 
-    flattenMigrations({ source: ZAP_MIGRATIONS, target: declared.zapDb.migrations });
+    flattenMigrations({ ...ZAP_DB_MIGRATIONS, target: declared.zapDb.migrations });
 
     // Logical ids key the state rows, so they never change: a renamed id is a new resource.
     const db = yield* retainedD1("ZapDb", declared.zapDb);

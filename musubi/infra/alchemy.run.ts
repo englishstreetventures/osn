@@ -33,14 +33,13 @@ import {
   musubiDeclaration,
   musubiProductionApis,
   musubiProductionSites,
+  OSN_DB_MIGRATIONS,
+  OSN_DB_PRODUCTION_MIGRATIONS,
   productionResourceKinds,
   SITE_LOGICAL_IDS,
   type BindingDescription,
 } from "./src/declaration";
 import { osnSeedSql } from "./src/seeds";
-
-/** osn/db's Drizzle migrations, flattened for Alchemy on every run. */
-const OSN_MIGRATIONS = "../../osn/db/drizzle";
 
 class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<{
   readonly binding: string;
@@ -94,13 +93,14 @@ function writeSeed(path: string, sql: string): void {
  * under today's name, and each site `modes` does not turn off, built for
  * production and checked to be, with no custom domain while `holds` holds
  * its host. It reads no secret or seed value (production's secrets stay on
- * the Worker), writes no file, and migrates nothing: Wrangler migrates
- * osn-db-prod in the stack job before the deploy. Anything else declared
- * fails the scope check before the plan.
+ * the Worker), and writes only osn-db-prod's migrations, which Alchemy
+ * applies in the stack job's migrate step, before the deploy. Anything else
+ * declared fails the scope check before the plan.
  */
 const musubiProductionStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly stage: string;
+  readonly generatedDir: string;
   readonly workingDir: string;
   readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
   readonly holds: readonly HostHold[];
@@ -109,12 +109,16 @@ const musubiProductionStack = (input: {
     const { stage } = input;
     const hosts = hostsFor(stage, {});
     const declared = musubiProductionSites({ modes: input.modes, holds: input.holds, hosts });
-    const apis = musubiProductionApis({ hosts });
+    const apis = musubiProductionApis({ hosts, generatedDir: input.generatedDir });
     for (const site of declared.prebuilt) {
       assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
     }
     const secrets = requireSecrets({ worker: "osn-api", stage, env: input.env });
 
+    flattenMigrations({ ...OSN_DB_PRODUCTION_MIGRATIONS, target: apis.osnDb.migrations });
+
+    // Binding `db` makes osn-api wait for the database's reconcile, which
+    // applies its migrations.
     const db = yield* retainedD1("OsnDb", apis.osnDb);
     const osnApi = yield* apiWorker(API_LOGICAL_IDS.osn_api, {
       ...apis.osnApi,
@@ -165,6 +169,7 @@ export const musubiStack = (input: {
       return yield* musubiProductionStack({
         env,
         stage,
+        generatedDir,
         workingDir: input.workingDir,
         modes: input.modes ?? PRODUCTION_SITE_MODES,
         holds: input.holds ?? PRODUCTION_HOST_HOLDS,
@@ -184,7 +189,7 @@ export const musubiStack = (input: {
       arcPublicJwk: requireSeedValue(env, "CIRE_API_ARC_PUBLIC_JWK"),
     });
 
-    flattenMigrations({ source: OSN_MIGRATIONS, target: declared.osnDb.migrations });
+    flattenMigrations({ ...OSN_DB_MIGRATIONS, target: declared.osnDb.migrations });
     writeSeed(declared.seeds.osn, seed);
 
     // Logical ids key the state rows, so they never change: a renamed id is a new resource.

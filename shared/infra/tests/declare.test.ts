@@ -106,7 +106,7 @@ const database = (stage: string) =>
     readReplication: "disabled",
     jurisdiction: "default",
     locationHint: "oc",
-    migrations: null,
+    migrations: ".generated/migrations/cire-db",
     importFiles: [],
   });
 
@@ -147,7 +147,7 @@ describe("declared resources", () => {
       readReplication: "auto",
       jurisdiction: "default",
       locationHint: null,
-      migrations: null,
+      migrations: ".generated/migrations/cire-db",
       importFiles: [],
     });
     expect(await adoptOf("production", productionDb)).toBeUndefined();
