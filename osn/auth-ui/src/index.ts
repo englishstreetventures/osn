@@ -1,3 +1,4 @@
+export { AuthHeader, type AuthHeaderProps } from "./AuthHeader";
 export { ChangeEmailForm } from "./ChangeEmailForm";
 export { CheckEmailView, type CheckEmailPurpose, type CheckEmailStatus } from "./CheckEmailView";
 export { ConfirmLinkPage, type ConfirmLinkPurpose, type ConfirmOutcome } from "./ConfirmLinkPage";
