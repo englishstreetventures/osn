@@ -833,6 +833,42 @@ describe("LL: the live read of a database's migration ledger", () => {
       /0082_live|_late|_new|0002_two/,
     );
   });
+
+  test("LL8: a ledger row whose name is not text throws, naming the column and never the value", async () => {
+    const odd = scripted({}, (sql) =>
+      sql === 'SELECT name FROM "d1_migrations" ORDER BY id'
+        ? d1([{ name: "0001_initial.sql" }, { name: 4242424242 }])
+        : wranglerLedger(sql),
+    );
+    const error = await readProductionLive(migrated(migrationSources()), api(odd.fetch)).catch(
+      (e: unknown) => e,
+    );
+    expect(String(error)).toContain("a migration ledger row's name is not text");
+    expect(String(error)).not.toContain("4242424242");
+  });
+
+  // Alchemy flags a changed file only when the row records a hash
+  // (`AlchemyFormat.ts`, `row?.hash && …`); a converted row can hold an empty one.
+  test("LL9: an Alchemy row with an empty or null hash is never counted as rewritten", async () => {
+    const rows = converted(WRANGLER_LEDGER).map((row) =>
+      row.name === "0082_live.sql" ? { name: row.name, hash: "" } : row,
+    );
+    const read = scripted({}, (sql) =>
+      sql.includes("FROM sqlite_master")
+        ? d1([
+            { type: "table", name: "d1_migrations" },
+            { type: "table", name: "__alchemy_migrations" },
+          ])
+        : sql === 'SELECT name, hash FROM "__alchemy_migrations" ORDER BY id'
+          ? d1([...rows, { name: "0010_ten.sql", hash: null }])
+          : wranglerLedger(sql),
+    );
+    const live = await readProductionLive(migrated(migrationSources()), api(read.fetch));
+    expect(live.databases.CireDb?.ledger).toMatchObject({ rewritten: 0, duplicates: 1 });
+    expect(counted({ alchemy: [...rows, { name: "0002_two.sql", hash: null }] })).toMatchObject({
+      rewritten: 0,
+    });
+  });
 });
 
 describe("LJ: the guard's judgement of a migrated database's ledger", () => {
@@ -916,5 +952,32 @@ describe("LJ: the guard's judgement of a migrated database's ledger", () => {
     expect(
       judged(counted({ present: ["d1_migrations", "__drizzle_migrations"] })).refusals.join("\n"),
     ).toContain("cire-db holds 1 other migration ledger");
+  });
+
+  test("LJ17: an empty Wrangler ledger is refused; counts of more than one read in the plural; late files are listed", () => {
+    expect(judged(counted({ wrangler: [] })).refusals.join("\n")).toContain(
+      "cire-db's d1_migrations is empty, so the migrate step would apply every migration",
+    );
+    const twice = judged(
+      counted({
+        wrangler: [...WRANGLER_LEDGER, "0050_stray.sql", "0060_stray.sql"].filter(
+          (name) => name !== "0002_two.sql" && name !== "0010_ten.sql",
+        ),
+      }),
+    ).refusals.join("\n");
+    expect(twice).toContain("2 rows of cire-db's d1_migrations name no migration file");
+    expect(twice).toContain("2 migration files of cire-db are missing from its ledger");
+    const late = judged(
+      counted({
+        wrangler: [
+          ...WRANGLER_LEDGER.filter((name) => name !== "20261021132850_late.sql"),
+          "20261101000000_new.sql",
+        ],
+      }),
+    );
+    expect(late.refusals).toEqual([]);
+    expect(late.notices).toEqual([
+      "cire-db migration ledger (d1_migrations): 5 rows, 5 match a migration file, 0 match none; 2 to apply, 1 of them older than the newest applied; Wrangler's ledger not frozen",
+    ]);
   });
 });

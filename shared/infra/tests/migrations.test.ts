@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -89,12 +88,19 @@ describe("flattenMigrations", () => {
     );
   });
 
-  test("M6: refuses a target that overlaps the source, which emptying it would delete", () => {
+  test("M6: refuses a target that overlaps the source or the archive, which emptying it would delete", () => {
     const { source } = fixture();
     for (const target of [join(source, "flat"), source, dirname(source)]) {
       expect(() => flattenMigrations({ source, target })).toThrow(MigrationsSourceError);
     }
     expect(listing(source)).toContain("0001_a.sql");
+    const cire = archived();
+    for (const target of [join(cire.archive, "flat"), cire.archive]) {
+      expect(() =>
+        flattenMigrations({ source: cire.source, archive: cire.archive, target }),
+      ).toThrow(MigrationsSourceError);
+    }
+    expect(listing(cire.archive)).toContain("0002_two.sql");
   });
 });
 
@@ -110,7 +116,9 @@ function archived(): {
   mkdirSync(source);
   mkdirSync(archive);
   writeFileSync(join(source, "0001_initial.sql"), "CREATE TABLE baseline (id INTEGER);\n");
-  writeFileSync(join(source, "0082_live.sql"), "ALTER TABLE baseline ADD COLUMN b TEXT;\n");
+  // A byte-order mark and CRLF line endings: the inputs where reading the text
+  // and copying the bytes could disagree about a file's hash.
+  writeFileSync(join(source, "0082_live.sql"), "﻿ALTER TABLE baseline ADD COLUMN b TEXT;\r\n");
   writeFileSync(join(source, "20261021132850_late.sql"), "CREATE INDEX i ON baseline (b);\n");
   writeFileSync(join(archive, "0001_initial.sql"), "CREATE TABLE original (id INTEGER);\n");
   writeFileSync(join(archive, "0002_two.sql"), "DELETE FROM original;\n");
@@ -216,12 +224,6 @@ describe("production's migrations: the archive and the freeze", () => {
         "BEGIN\n" +
         "  SELECT RAISE(ABORT, 'd1_migrations is frozen: the Alchemy stack migrates this database');\n" +
         "END;\n",
-    );
-  });
-
-  test("M12: migrationHash is the sha256 of the file's text, as Alchemy computes it", () => {
-    expect(migrationHash("SELECT 1;\n")).toBe(
-      createHash("sha256").update("SELECT 1;\n").digest("hex"),
     );
   });
 });

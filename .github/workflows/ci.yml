@@ -575,6 +575,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # Each production database's move to Alchemy's migrator, proved on local
+      # D1 (shared/infra/tests/d1/ledger-conversion.test.ts): per database,
+      # the ledger counts before and after, and every write the move sent.
+      # On failure too; a cached run restores the file (shared/infra/turbo.json
+      # declares it as the task's output), and a rerun writes the same bytes.
+      - name: Upload the production ledger conversion record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledger-conversion
+          path: shared/infra/d1-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
         uses: actions/cache/save@v4

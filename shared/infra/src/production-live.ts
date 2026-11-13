@@ -565,11 +565,12 @@ export function countLedger(input: {
   const applied = new Set(rows);
   const byName = new Map(files.map((file) => [file.name, file]));
   const matched = [...applied].filter((name) => byName.has(name)).length;
-  // Alchemy keeps the last row of a name it reads (`appliedHistory`).
+  // Alchemy keeps the last row of a name it reads (`appliedHistory`), and
+  // checks a row's hash only when it records one (`row?.hash && …`).
   const recorded = new Map((input.alchemy ?? []).map((row) => [row.name, row.hash]));
   const rewritten = [...recorded].filter(([name, hash]) => {
     const file = byName.get(name);
-    return file !== undefined && hash !== null && hash !== migrationHash(file.sql);
+    return file !== undefined && hash !== null && hash !== "" && hash !== migrationHash(file.sql);
   }).length;
   const newest = files.findLastIndex((file) => applied.has(file.name));
   const pending = files.flatMap((file, index) => (applied.has(file.name) ? [] : [{ file, index }]));

@@ -129,6 +129,13 @@ const record = (target: Target, label: string, value: unknown) => {
   artifact[target.name] = { ...artifact[target.name], [label]: value };
 };
 
+/**
+ * SQL as the artifact keeps it: each timestamp Wrangler wrote, which the
+ * conversion copies, as `<applied_at>`, so a rerun writes the same file.
+ */
+const stable = (sql: readonly string[]) =>
+  sql.map((text) => text.replaceAll(/'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'/g, "'<applied_at>'"));
+
 /** A local D1 and the directory its Wrangler configs live in. */
 interface LocalDb {
   readonly target: Target;
@@ -525,7 +532,7 @@ describe.skipIf(!TIER)(
           api.sent.length = 0;
           const moved = value(await reconcile(api.fetch, news, adopted));
           const sent = writes(api.sent);
-          record(target, "writesOfTheMove", sent);
+          record(target, "writesOfTheMove", stable(sent));
           // Two writes: the ledger's conversion, and the freeze. No migration Wrangler applied.
           expect(sent).toHaveLength(2);
           const [conversion = "", freeze] = sent;
@@ -566,7 +573,7 @@ describe.skipIf(!TIER)(
           expect(await diffOf(api.fetch, news, moved)).toEqual({ action: "update" });
           api.sent.length = 0;
           const migrated = value(await reconcile(api.fetch, news, moved));
-          record(target, "writesOfANewMigration", writes(api.sent));
+          record(target, "writesOfANewMigration", stable(writes(api.sent)));
           expect(writes(api.sent)).toEqual([
             "CREATE TABLE conversion_probe (id INTEGER PRIMARY KEY, note TEXT NOT NULL);\n" +
               "INSERT INTO conversion_probe (note) VALUES ('applied once');\n" +
@@ -788,6 +795,33 @@ describe.skipIf(!TIER)(
         expect((await counted(DB, ZAP)).judged.refusals).toEqual([]);
       } finally {
         await local.dispose();
+      }
+    });
+
+    test("C9 zap-db-prod: a migration file changed after it applied is refused by the release check, and Alchemy refuses it before it writes anything", async () => {
+      const moved = await converted("rewritten-file");
+      try {
+        // A squash or a rewrite: the bytes of a file Alchemy recorded change.
+        const [first] = migrationFiles({ source: moved.migrations });
+        writeFileSync(join(moved.migrations, first!.name), `${first!.sql}-- rewritten\n`);
+        const ledger = await readLedger(
+          async (sql) => (await moved.DB.prepare(sql).all()).results as LedgerRow[],
+          migrationFiles({ source: moved.migrations }),
+        );
+        record(ZAP, "countsWithARewrittenFile", ledger);
+        expect(ledger).toMatchObject({ rewritten: 1, unmatched: 0, pending: 0 });
+        expect(judgeLedger(ZAP.name, ledger).refusals.join("\n")).toContain(
+          "1 migration file of zap-db-prod changed after it was applied",
+        );
+        const before = await snapshot(moved.DB);
+        const api = cloudflare(moved.DB, ZAP);
+        const refusal = failure(await reconcile(api.fetch, moved.news, moved.state));
+        expect(refusal).toContain("RewrittenMigrationHistoryError");
+        expect(refusal).toContain(first!.name);
+        expect(writes(api.sent)).toEqual([]);
+        expect(await snapshot(moved.DB)).toEqual(before);
+      } finally {
+        await moved.local.dispose();
       }
     });
 
