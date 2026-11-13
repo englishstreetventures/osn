@@ -611,7 +611,8 @@ async function securityPanelSurfaces(flow: Flow, page: Page, row: Locator): Prom
     `none ${await probed(summary, "ring-2 ring-ui-focus", "box-shadow")}`,
     `${await computed(summary, "outline-style")} ${await computed(summary, "box-shadow")}`,
   );
-  await page.keyboard.press("Shift+Tab");
+  // Focus leaves the page's controls, so the shots after this show no ring.
+  await summary.evaluate((el) => (el as HTMLElement).blur());
 }
 
 /**
