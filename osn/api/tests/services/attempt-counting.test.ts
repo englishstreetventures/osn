@@ -14,7 +14,8 @@ import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 import { latestLinkTo } from "../helpers/registration";
-import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
+import { confirmedEmailChange } from "../helpers/step-up-link";
+import { mintingSession, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * Every code-checking ceremony counts its guesses in the store, one atomic
@@ -132,7 +133,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     const auth = createAuthService({ ...base, ...bundle() });
     return Effect.gen(function* () {
       const profile = yield* auth.registerProfile("att-totp@example.com", "atttotp");
-      const token = () => auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = () => mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
       const first = yield* auth.beginTotpEnrollment(profile.accountId, yield* token());
       const right = yield* codeFor(first.totpSecret);
 
@@ -163,7 +164,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     const auth = createAuthService({ ...base, ...bundle() });
     return Effect.gen(function* () {
       const profile = yield* auth.registerProfile("att-totp2@example.com", "atttotp2");
-      const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
       const begun = yield* auth.beginTotpEnrollment(profile.accountId, token);
       const right = yield* codeFor(begun.totpSecret);
       const results = yield* Effect.all(
@@ -190,8 +191,12 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
       const auth = createAuthService({ ...base, ...bundle() });
       return Effect.gen(function* () {
         const profile = yield* auth.registerProfile("att-ec2@example.com", "attec2");
+        // Both tokens are the caller's device's, which the change spares: the
+        // winner sweeps every other session, and a token outlives no sweep of
+        // the session that minted it.
+        const device = yield* mintingSession(profile.accountId);
         const tokens = yield* Effect.all(
-          [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+          [0, 1].map(() => auth.issueStepUpToken(device, "otp", "email_change")),
         );
         const begun = yield* confirmedEmailChange(
           auth,
@@ -208,7 +213,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
                 begun.requestId,
                 begun.claimSecret,
                 token,
-                NO_LIVE_SESSION,
+                device.sessionHash,
               ),
             ),
           ),

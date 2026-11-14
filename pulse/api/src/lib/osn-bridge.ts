@@ -6,9 +6,10 @@ import { arcAuthHeader } from "./outbound-arc";
 /**
  * Pulse → OSN bridge for the leave-Pulse flow.
  *
- *   1. `verifyStepUp(accountId, token, purpose)` — calls the ARC-gated
+ *   1. `verifyStepUp(token, purpose, profileId)` — calls the ARC-gated
  *      `/internal/step-up/verify` endpoint to confirm a user-supplied
- *      step-up token is valid + matches the expected purpose. Pulse
+ *      step-up token is valid, matches the expected purpose and is of the
+ *      account owning the caller's profile. Pulse
  *      doesn't verify step-up signatures locally — osn-api remains the
  *      single source of truth (centralised jti consumption + AMR policy).
  *
@@ -32,10 +33,13 @@ if (process.env.NODE_ENV === "production" && !OSN_API_URL.startsWith("https://")
  * accountId from its `sub` claim. Pulse uses the returned accountId for
  * the rest of the leave-Pulse flow rather than trusting any client-
  * supplied value (an accountId must never be exposed to clients).
+ * `profileId` is the profile Pulse verified its caller as: osn-api refuses
+ * a token that is not of the account owning it.
  */
 export const verifyStepUp = (
   token: string,
   purpose: StepUpPurpose,
+  profileId: string,
 ): Effect.Effect<{ ok: true; accountId: string } | { ok: false }, OsnBridgeError> =>
   Effect.tryPromise({
     try: async () => {
@@ -45,7 +49,7 @@ export const verifyStepUp = (
           "content-type": "application/json",
           authorization: await arcAuthHeader("osn-api", "step-up:verify"),
         },
-        body: JSON.stringify({ token, purpose }),
+        body: JSON.stringify({ token, purpose, profile_id: profileId }),
       });
       if (!res.ok) throw new Error(`step-up verify returned ${res.status}`);
       const payload = (await res.json()) as

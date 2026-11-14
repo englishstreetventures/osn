@@ -10,6 +10,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 import { stepUpThroughService } from "../helpers/step-up-link";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * The security_events audit trail and its out-of-band notification.
@@ -537,7 +538,7 @@ describe("acknowledgement while another write lands", () => {
   }
 
   const ackToken = (auth: ReturnType<typeof createAuthService>, accountId: string) =>
-    auth.issueStepUpToken(accountId, "otp", "security_event_ack");
+    mintStepUpToken(auth, accountId, "otp", "security_event_ack");
 
   it.live("of two acks of one event, exactly one acknowledges it", () => {
     const { layer, hold } = makeHeld();
@@ -632,7 +633,7 @@ describe("the hold on an email_changed row", () => {
   }
 
   const ackToken = (auth: ReturnType<typeof createAuthService>, accountId: string) =>
-    auth.issueStepUpToken(accountId, "otp", "security_event_ack");
+    mintStepUpToken(auth, accountId, "otp", "security_event_ack");
 
   it.effect("no factor acknowledges a held row, and the refusal names when the hold ends", () => {
     const { layer, seed, acknowledged } = makeSeeded();
@@ -650,7 +651,8 @@ describe("the hold on an email_changed row", () => {
         ),
       );
       // A passkey the account has held for a year is refused too.
-      const oldPasskey = yield* auth.issueStepUpToken(
+      const oldPasskey = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "passkey",
         "security_event_ack",

@@ -31,6 +31,8 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll, vi } from "vitest";
 
+import { completePasskeyStepUp, mintStepUpToken } from "../helpers/step-up-session";
+
 // Both WebAuthn ceremonies are stubbed: a unit test cannot produce a real
 // attestation or assertion. `generateRegistrationOptions` /
 // `generateAuthenticationOptions` are left alone, so the challenges are real
@@ -159,7 +161,8 @@ const assertFor = (
 ) =>
   Effect.gen(function* () {
     yield* auth.beginStepUpPasskey(accountId);
-    const { stepUpToken } = yield* auth.completeStepUpPasskey(
+    const { stepUpToken } = yield* completePasskeyStepUp(
+      auth,
       accountId,
       fakeAssertion(credentialId),
       purpose,
@@ -210,7 +213,8 @@ describe("the register-then-assert pivot is refused at step 4", () => {
 
       // Steps 1-2: mint a `passkey_register` step-up on an emailed OTP and bind
       // the attacker's authenticator.
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -237,7 +241,8 @@ describe("the register-then-assert pivot is refused at step 4", () => {
   it.effect("totp: the same chain from an authenticator seed", () =>
     Effect.gen(function* () {
       const { profile, original } = yield* seedWithOldPasskey("prov-totp@example.com", "provtotp");
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "totp",
         "passkey_register",
@@ -260,7 +265,8 @@ describe("the register-then-assert pivot is refused at step 4", () => {
   it.effect("the same chain ending at email change is refused", () =>
     Effect.gen(function* () {
       const { profile } = yield* seedWithOldPasskey("prov-ec@example.com", "provec");
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "totp",
         "passkey_register",
@@ -294,7 +300,8 @@ describe("the register-then-assert pivot is refused at step 4", () => {
         "provchain",
       );
 
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -304,7 +311,8 @@ describe("the register-then-assert pivot is refused at step 4", () => {
       const secondRegister = yield* assertFor(profile.accountId, a.credentialId, "passkey_delete");
       // Same allow-list, different purpose: mint a register token by asserting A.
       yield* auth.beginStepUpPasskey(profile.accountId);
-      const { stepUpToken: registerViaA } = yield* auth.completeStepUpPasskey(
+      const { stepUpToken: registerViaA } = yield* completePasskeyStepUp(
+        auth,
         profile.accountId,
         fakeAssertion(a.credentialId),
         "passkey_register",
@@ -332,7 +340,8 @@ describe("what the rule must not break", () => {
       const { profile, original } = yield* seedWithOldPasskey("prov-rot@example.com", "provrot");
 
       yield* auth.beginStepUpPasskey(profile.accountId);
-      const { stepUpToken: registerToken } = yield* auth.completeStepUpPasskey(
+      const { stepUpToken: registerToken } = yield* completePasskeyStepUp(
+        auth,
         profile.accountId,
         fakeAssertion(original.credentialId),
         "passkey_register",
@@ -355,7 +364,8 @@ describe("what the rule must not break", () => {
   it.effect("past 72 hours the chain succeeds — a window, not a permanent lock", () =>
     Effect.gen(function* () {
       const { profile, original } = yield* seedWithOldPasskey("prov-exp@example.com", "provexp");
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -384,7 +394,8 @@ describe("what the rule must not break", () => {
       // reach. A parent free to do the deletion itself cannot be made safer by
       // restricting its children.
       const { profile, original } = yield* seedWithOldPasskey("prov-eff@example.com", "proveff");
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -393,7 +404,8 @@ describe("what the rule must not break", () => {
       yield* backdate(parent.id, RECOVERY_COOLDOWN_MS + 60_000);
 
       yield* auth.beginStepUpPasskey(profile.accountId);
-      const { stepUpToken: viaParent } = yield* auth.completeStepUpPasskey(
+      const { stepUpToken: viaParent } = yield* completePasskeyStepUp(
+        auth,
         profile.accountId,
         fakeAssertion(parent.credentialId),
         "passkey_register",
@@ -415,7 +427,8 @@ describe("what the rule must not break", () => {
       // the one the weak ceremony enrolled. Same second as its own target, so
       // this also pins the id guard that keeps `<=` from swallowing it.
       const { profile } = yield* seedWithOldPasskey("prov-self@example.com", "provself");
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -453,14 +466,14 @@ describe("fail-closed shapes", () => {
       // pinned because a rule that reads a missing claim as "unrestricted" is
       // one forgotten mint site away from being no rule at all.
       const { profile, original } = yield* seedWithOldPasskey("prov-bare@example.com", "provbare");
-      const bare = yield* auth.issueStepUpToken(profile.accountId, "passkey", "passkey_delete");
+      const bare = yield* mintStepUpToken(auth, profile.accountId, "passkey", "passkey_delete");
 
       const err = yield* Effect.flip(
         auth.verifyStepUpForPasskeyDelete(profile.accountId, bare, original.id),
       );
       expect(err._tag).toBe("AuthError");
 
-      const bareChange = yield* auth.issueStepUpToken(profile.accountId, "passkey", "email_change");
+      const bareChange = yield* mintStepUpToken(auth, profile.accountId, "passkey", "email_change");
       const changeErr = yield* Effect.flip(
         auth.verifyStepUpForEmailChange(profile.accountId, bareChange),
       );
@@ -475,7 +488,8 @@ describe("fail-closed shapes", () => {
       // refusal burnt their token — and one verification must reach the counter
       // once, not as both `ok` and `provenance_blocked`.
       const { profile, original } = yield* seedWithOldPasskey("prov-jti@example.com", "provjti");
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -509,9 +523,10 @@ describe("fail-closed shapes", () => {
       // agree.
       const { profile } = yield* seedWithOldPasskey("prov-tie@example.com", "provtie");
 
-      const firstToken = yield* auth.issueStepUpToken(profile.accountId, "otp", "passkey_register");
+      const firstToken = yield* mintStepUpToken(auth, profile.accountId, "otp", "passkey_register");
       const enrolled = yield* enrol(profile.accountId, firstToken);
-      const secondToken = yield* auth.issueStepUpToken(
+      const secondToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -610,7 +625,8 @@ describe("fail-closed shapes", () => {
       // refused against the same-second target whatever the recovery window
       // says, which is why the strict comparison above gives nothing away.
       yield* stampCreatedAt(target.id, recoveredAt);
-      const weakRegister = yield* auth.issueStepUpToken(
+      const weakRegister = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",
@@ -631,7 +647,8 @@ describe("fail-closed shapes", () => {
       // stops from deleting an older one could otherwise relabel it, which is
       // how a user is talked into confirming a delete on the wrong row.
       const { profile, original } = yield* seedWithOldPasskey("prov-ren@example.com", "provren");
-      const registerToken = yield* auth.issueStepUpToken(
+      const registerToken = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "otp",
         "passkey_register",

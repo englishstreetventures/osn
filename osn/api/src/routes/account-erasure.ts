@@ -17,6 +17,7 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountDeletionRequested, metricAuthRateLimited } from "../metrics";
 import * as accountErasure from "../services/account-erasure";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { isAuthError } from "../services/auth/errors";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   accountDeletionScheduledResponse,
@@ -177,6 +178,9 @@ export function createAccountErasureRoutes(
             try {
               await run(auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken));
             } catch (e) {
+              // A refused token asks for a fresh step-up; a database fault in
+              // the verifier is the route's 500, never "step up again".
+              if (!isAuthError(e)) throw e;
               set.status = 403;
               metricAccountDeletionRequested("step_up_failed");
               const { body: errBody } = handleError(e);

@@ -17,6 +17,7 @@ import {
   NO_LIVE_SESSION,
   stepUpThroughService,
 } from "../helpers/step-up-link";
+import { mintingSession, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * Build a fresh email recorder + test layer. Tests that need to capture
@@ -62,6 +63,7 @@ const completeSettled = (
   request: { readonly requestId: string; readonly claimSecret: string },
   stepUpToken: string,
   eventMeta?: { ip?: string; uaLabel?: string },
+  currentSessionHash: string = NO_LIVE_SESSION,
 ) =>
   settle(
     auth.completeEmailChange(
@@ -70,7 +72,7 @@ const completeSettled = (
       request.requestId,
       request.claimSecret,
       stepUpToken,
-      NO_LIVE_SESSION,
+      currentSessionHash,
       eventMeta,
     ),
   );
@@ -651,7 +653,7 @@ describe("the change notice", () => {
         // With a pepper configured, so the IP is stored hashed, not dropped.
         const auth = createAuthService({ ...baseConfig, sessionIpPepper: "x".repeat(32) });
         const profile = yield* auth.registerProfile("ec-ev@example.com", "ecev");
-        const token = yield* auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+        const token = yield* mintStepUpToken(auth, profile.accountId, "otp", "email_change");
         const request = yield* confirmedEmailChange(
           auth,
           profile.accountId,
@@ -760,7 +762,7 @@ describe("the change notice", () => {
     return Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
       const profile = yield* auth.registerProfile("ec-refuse@example.com", "ecrefuse");
-      const token = yield* auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+      const token = yield* mintStepUpToken(auth, profile.accountId, "otp", "email_change");
       const request = yield* confirmedEmailChange(
         auth,
         profile.accountId,
@@ -888,7 +890,7 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
       const profile = yield* auth.registerProfile("ec-edge@example.com", "ecedge");
       seedOneChange(sqlite, profile.accountId);
       const [tokenA, tokenB] = yield* Effect.all(
-        [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+        [0, 1].map(() => mintStepUpToken(auth, profile.accountId, "otp", "email_change")),
       );
 
       const codeA = yield* confirmedEmailChange(
@@ -951,7 +953,7 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
       const auth = createAuthService(baseConfig);
       const profile = yield* auth.registerProfile("ec-stale@example.com", "ecstale");
       const [tokenA, tokenB] = yield* Effect.all(
-        [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+        [0, 1].map(() => mintStepUpToken(auth, profile.accountId, "otp", "email_change")),
       );
 
       const codeA = yield* confirmedEmailChange(
@@ -992,8 +994,12 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
     return Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
       const profile = yield* auth.registerProfile("ec-later@example.com", "eclater");
+      // Both tokens are the caller's device's, which each change spares: a
+      // change sweeps every other session, and a token outlives no sweep of
+      // the session that minted it.
+      const device = yield* mintingSession(profile.accountId);
       const [tokenA, tokenB] = yield* Effect.all(
-        [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+        [0, 1].map(() => auth.issueStepUpToken(device, "otp", "email_change")),
       );
 
       const codeA = yield* confirmedEmailChange(
@@ -1005,7 +1011,9 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
       // A's change is on record; its security event waits.
       const eventA = hold(/^insert into "security_events"/);
       const a = yield* Effect.forkChild(
-        Effect.result(completeSettled(auth, profile, codeA, tokenA!)),
+        Effect.result(
+          completeSettled(auth, profile, codeA, tokenA!, undefined, device.sessionHash),
+        ),
       );
       yield* Effect.promise(() => eventA.reached);
 
@@ -1015,7 +1023,7 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
         "ec-later-b@example.com",
         recorded,
       );
-      yield* completeSettled(auth, profile, codeB, tokenB!);
+      yield* completeSettled(auth, profile, codeB, tokenB!, undefined, device.sessionHash);
 
       // A's event now fails, so A's commit reports a failure.
       sqlite.exec(
@@ -1040,7 +1048,7 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
         const profile = yield* auth.registerProfile("ec-weave@example.com", "ecweave");
         seedOneChange(sqlite, profile.accountId);
         const [tokenA, tokenB] = yield* Effect.all(
-          [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+          [0, 1].map(() => mintStepUpToken(auth, profile.accountId, "otp", "email_change")),
         );
 
         // A's address goes in; its audit row waits.

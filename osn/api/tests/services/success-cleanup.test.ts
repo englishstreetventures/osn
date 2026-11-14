@@ -21,6 +21,7 @@ import {
   confirmedEmailChange,
   NO_LIVE_SESSION,
 } from "../helpers/step-up-link";
+import { completeTotpStepUp, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * A success answers once the work that matters has committed. The store call
@@ -150,7 +151,7 @@ const wrongFor = (code: string) => (code === "000000" ? "000001" : "000000");
 const withTotp = (auth: ReturnType<typeof createAuthService>, handle: string) =>
   Effect.gen(function* () {
     const profile = yield* auth.registerProfile(`${handle}@example.com`, handle);
-    const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+    const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
     const { totpSecret } = yield* auth.beginTotpEnrollment(profile.accountId, token);
     const secret = base32Decode(totpSecret);
     const step = Math.floor(Date.now() / 1000 / STEP_SECONDS);
@@ -210,11 +211,11 @@ describe("success paths answer without waiting on their cleanup", () => {
     const h = harness((store, op) => store === "totp_lockout" && op === "remove");
     return Effect.gen(function* () {
       const { profile, next } = yield* withTotp(h.auth, "cleantotp");
-      yield* Effect.flip(h.auth.completeStepUpTotp(profile.accountId, "000000"));
+      yield* Effect.flip(completeTotpStepUp(h.auth, profile.accountId, "000000"));
 
-      const done = yield* h.auth
-        .completeStepUpTotp(profile.accountId, next)
-        .pipe(Effect.timeout(ANSWER_WITHIN));
+      const done = yield* completeTotpStepUp(h.auth, profile.accountId, next).pipe(
+        Effect.timeout(ANSWER_WITHIN),
+      );
       expect(done.stepUpToken).toBeTruthy();
       h.release();
       yield* h.landed("totp_lockout.remove");
@@ -228,9 +229,9 @@ describe("success paths answer without waiting on their cleanup", () => {
     const h = harness((store, op) => store === "totp_lockout" && op === "remove");
     return Effect.gen(function* () {
       const { profile, next } = yield* withTotp(h.auth, "cleantotp0");
-      const done = yield* h.auth
-        .completeStepUpTotp(profile.accountId, next)
-        .pipe(Effect.timeout(ANSWER_WITHIN));
+      const done = yield* completeTotpStepUp(h.auth, profile.accountId, next).pipe(
+        Effect.timeout(ANSWER_WITHIN),
+      );
       expect(done.stepUpToken).toBeTruthy();
       h.release();
       yield* h.landed("totp_lockout.remove");
@@ -268,7 +269,7 @@ describe("a cleanup leaves what another request wrote", () => {
     const h = harness((store, op) => store === "pending_email_change" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("keep-ec@example.com", "keepec");
-      const first = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+      const first = yield* mintStepUpToken(h.auth, profile.accountId, "otp", "email_change");
       yield* changeEmailThroughService(
         h.auth,
         profile.accountId,
@@ -286,7 +287,7 @@ describe("a cleanup leaves what another request wrote", () => {
       );
       h.release();
 
-      const second = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+      const second = yield* mintStepUpToken(h.auth, profile.accountId, "otp", "email_change");
       const done = yield* h.auth.completeEmailChange(
         profile.accountId,
         profile.id,
@@ -321,11 +322,11 @@ describe("a cleanup leaves what another request wrote", () => {
     const h = harness((store, op) => store === "totp_lockout" && op === "remove");
     return Effect.gen(function* () {
       const { profile, next } = yield* withTotp(h.auth, "keeptotp");
-      yield* Effect.flip(h.auth.completeStepUpTotp(profile.accountId, wrongFor(next)));
-      yield* h.auth.completeStepUpTotp(profile.accountId, next);
+      yield* Effect.flip(completeTotpStepUp(h.auth, profile.accountId, wrongFor(next)));
+      yield* completeTotpStepUp(h.auth, profile.accountId, next);
 
       // The reset is still held when the next attempt is counted.
-      yield* Effect.flip(h.auth.completeStepUpTotp(profile.accountId, wrongFor(next)));
+      yield* Effect.flip(completeTotpStepUp(h.auth, profile.accountId, wrongFor(next)));
       h.release();
       yield* h.landed("totp_lockout.remove");
       expect(
@@ -352,7 +353,7 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
     const h = harness((store, op) => store === "pending_totp_enroll" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("claim-totp@example.com", "claimtotp");
-      const token = () => h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = () => mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll");
       const first = yield* h.auth.beginTotpEnrollment(profile.accountId, yield* token());
       const old = yield* Effect.forkChild(
         Effect.result(
@@ -387,7 +388,7 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
     const h = harness((store, op) => store === "pending_totp_enroll" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("cap-totp@example.com", "captotp");
-      const token = () => h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = () => mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll");
       const first = yield* h.auth.beginTotpEnrollment(profile.accountId, yield* token());
       const wrong = wrongFor(yield* totpCodeFor(first.totpSecret));
       for (let i = 1; i < TOTP_MAX_ENROLL_ATTEMPTS; i++) {
@@ -419,7 +420,7 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
     const h = harness((store, op) => store === "email_link" && op === "remove");
     return Effect.gen(function* () {
       const profile = yield* h.auth.registerProfile("claim-ec@example.com", "claimec");
-      const first = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+      const first = yield* mintStepUpToken(h.auth, profile.accountId, "otp", "email_change");
       const old = yield* confirmedEmailChange(
         h.auth,
         profile.accountId,
@@ -447,7 +448,7 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
       h.release();
       expect((yield* Fiber.join(finishing)).email).toBe("claim-ec-1@example.com");
 
-      const second = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+      const second = yield* mintStepUpToken(h.auth, profile.accountId, "otp", "email_change");
       const done = yield* h.auth.completeEmailChange(
         profile.accountId,
         profile.id,
