@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-13
 ---
 
 # Component Lab
@@ -84,6 +84,7 @@ So far, in `tools/lab/src/stories/osn-auth-ui/`:
 | --- | --- | --- |
 | `osn/auth-ui/CheckEmailView` | `check-email-view.story.tsx` | One story per state in a `Card` the width of musubi's auth dialog, which paints the dialog's own `ui-surface`, with a stub Resend that settles after 600 ms: `WaitingBeforeResend` (the 30-second countdown), `WaitingResendReady` (press it for "Sending a new link…", then "We sent a new link"), `Expired`, `ErrorShown`; `EveryFlow` (sign-up, recovery's hedged sentence, step-up with no address and no "Use a different email", email change); `Phone` (two 320px frames with a long address); `WithPairingCode` (the number "47" under the line about the link, with "Pick this number…"); `TypedPairingCode` (recovery's and step-up's caption, "Type this number…"); `WithPairingCodeResendReady` (a host whose Resend begins a new request each time, settling with the next number from a fixed run, so the old number shows while sending and the new one after, with "Check the number again."); `PhoneWithPairingCode` (the six-digit number beside a long address, and recovery's error state keeping its number, in 320px frames); `Playground` (flow, status, address, wait, error, the change button, the number). Light and dark through the lab's own toggle, since musubi's mapping is the lab's |
 | `osn/auth-ui/ConfirmLinkPage` | `confirm-link-page.story.tsx` | One story per state in the host route's column, padded as `AuthorizePage`'s `<main>` is (`max-w-md px-6`, a 400px card), with fixed example numbers. The page keeps its own state, so each story past `Ready` taps the first number, or presses "I didn't ask for this", once after mount through an unexported wrapper; the confirm calls are stubs. `Ready` (three numbers; tap one for "You picked … Confirming…", then "Confirmed" after 600 ms), `ReadyFiveNumbers` (five of six digits), `Confirming` (never answers; every choice disabled, the slow line after 10 seconds), `Confirmed`, `ConfirmedWithContinue`, `Expired`, `ExpiredStepUp` (step-up's expired page with its warning to sign out the other sessions), `ErrorRetry` (the first call throws; Try again sends the same number and confirms, and "I didn't ask for this", still open, cancels instead), `Declined` (sign-up and step-up), `OpensConfirmed` (`initialOutcome` confirmed and expired, no numbers); `TypedNumber`, `TypedNumberConfirming`, `TypedNumberErrorRetry`, `TypedNumberExpired` and `TypedNumberPhone` (the `typeNumber` field recovery and step-up use, ready, while a call runs, after a throw with Try again, refused, and on a 320px phone; the states past ready type a number and press Confirm after mount); `EveryPurpose` (each flow before and after the tap); `Phone` (full screen: three cards in a 320px column padded as the host pads, five six-digit numbers beside a long address); `Playground` (flow, address, the list of numbers, typing instead of picking, what the call answers, continue here — only the last four start a fresh page). Light and dark through the lab's toggle |
+| `osn/auth-ui/SignIn` | `sign-in.story.tsx` | `SignIn` with the props musubi passes it, bar `turnstileSiteKey` and `onSuccess`, in a `Card` with no padding, as musubi's `DialogContent` has none. The session is `AuthContext.Provider` with a fixed signed-out value, and the login, recovery and registration clients and `runPasskeyRegistration` are stubs whose every call never answers. `Default`: what a signed-out person sees on opening "Sign in" at `md` and up, in a 384px card — the heading with Cancel, the `Email or @handle` field, Continue and "Lost your passkey?". Continue holds at "Verifying…"; "Lost your passkey?" opens the recovery chooser: a recovery code, an emailed link or an authenticator app. `Phone`: the same view in the sheet musubi opens below `md`, 320px wide under the dimmed page, top corners rounded and only its top edge drawn. Headless, with no WebAuthn, both render the view that says the browser lacks it. Light and dark through the lab's toggle |
 
 And in `tools/lab/src/stories/cire-ui/`:
 
@@ -149,10 +150,12 @@ Their fixtures stay out of app source, and cire's mutation run, which mutates
 every file under a cire package's `src/`, never sees them.
 
 - **Packages.** `tools/lab` depends on the workspace packages its stories
-  import: `@shared/ui`, `@cire/ui`, `@osn/auth-ui`, `@shared/color` and
-  `@shared/design-tokens` today. Add each new one a story imports with
-  `bun add '<package>@workspace:*' --cwd tools/lab`, `@osn/client` included for a
-  fixture. The quotes keep zsh from reading `*` as a file glob.
+  import: `@shared/ui`, `@cire/ui`, `@osn/auth-ui`, `@osn/client`,
+  `@shared/color` and `@shared/design-tokens` today. Add each new one a story
+  imports with `bun add '<package>@workspace:*' --cwd tools/lab`. The quotes keep
+  zsh from reading `*` as a file glob. `bun add` also rewrites any workspace
+  `version` line in `bun.lock` that lags its `package.json`; keep only the line
+  for the package you added.
 - **cire's colours.** Wrap the component in an element whose `style` is
   `cireStyle("dark")` or `cireStyle("light")`, from
   `tools/lab/src/stories/cire-ui/cire-mapping.ts`: one wrapper per ramp. That
@@ -162,7 +165,10 @@ every file under a cire package's `src/`, never sees them.
   such as cire's `font-body`, renders in the lab's defaults: judge it in the
   app.
 - **A session.** Pass stub client objects as props where the component takes
-  them: objects in the story file that return fixed data, never a real client.
+  them: objects in the story file, never a real client. A stub returns fixed
+  data where the story shows what comes after the answer, and a promise that
+  never settles where it shows the wait, or where the story never answers
+  that call at all.
   Every token a fixture carries is an obvious placeholder, such as
   `"fixture-access-token"`, never one copied from a real session: a story
   file is public, and nothing scans it for secrets.

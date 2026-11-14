@@ -696,7 +696,10 @@ As built:
   `osn/auth-ui/ConfirmLinkPage` in `confirm-link-page.story.tsx`: one per
   state, three and five numbers, the decline, step-up's expired page, an
   opening answer, every flow, a 320px phone, and the typed field ready, confirming, after an error,
-  refused and on a 320px phone. The other views get theirs in #2045.
+  refused and on a 320px phone; and for `SignIn`, `osn/auth-ui/SignIn` in
+  `sign-in.story.tsx`: the signed-out passkey form in musubi's 384px dialog
+  and in its 320px phone sheet, its "Verifying…" wait and the recovery
+  chooser. The other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
