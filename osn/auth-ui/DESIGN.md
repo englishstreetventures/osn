@@ -824,7 +824,8 @@ host a short-lived token through `onToken`.
 - **One outcome, after the exit.** The sheet closes itself and hands the host
   its one outcome, `onToken` or `onCancel`, once its exit has ended, so it
   leaves as every Musubi dialog does before the host removes it: below `md` it
-  slides down, from `md` the card fades. If the exit has not ended 300ms after
+  slides down (under reduced motion it fades, on the same pace), from `md` the
+  card fades. If the exit has not ended 300ms after
   the close (a tab the browser has hidden runs no animation), the outcome goes
   then; 300ms stays above both exits only while the host keeps
   `--ui-dur-base` and `--ui-dur-exit` under it. While it closes, its body is

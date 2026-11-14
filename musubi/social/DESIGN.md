@@ -449,11 +449,17 @@ across `md` while open (a phone turned, a window resized) does not slide:
 down across it, it sits on the bottom edge at once; up across it, the card
 fades in at its new place.
 
-Under reduced motion each one shows and hides at once (`tokens.css` sets the
-overlay animations and the sheet's transitions to `none`). Only cire's
-`accent` menu look closes at once, and Musubi draws none. On a browser older
+Under reduced motion a sheet does not slide: it fades in and out with its
+scrim, in place, on the same pace and curve (320ms in, 200ms out, on
+`--ui-ease-sheet`), with no transform on any frame. The owner chose it on
+2026-11-14: "you can do fade in and fade out for reduced motion right?
+Otherwise sure nothing moves". The card, Popover and menus show and hide at
+once (`tokens.css` sets their animations to `none`, and the sheet's
+transitions to `opacity` alone). Only cire's `accent` menu look closes at
+once, and Musubi draws none. On a browser older
 than Chrome 117, Firefox 129 or Safari 17.5, which cannot read
-`@starting-style`, a sheet appears at once and still slides out.
+`@starting-style`, a sheet appears at once and still slides out, or fades out
+under reduced motion.
 `tools/e2e/tests/support/musubi-surfaces.ts` holds the first frame of the
 account menu, the profile switcher and the create-organisation dialog, and
 the half-way frame of the menu and the switcher closing: the menu and the

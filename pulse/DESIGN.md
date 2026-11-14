@@ -376,9 +376,11 @@ These rules govern `pulse/web`. The landing site's motion is in
   `--ui-dur-base` (200ms), both on `--ui-ease-sheet`, at full opacity and with
   no scale, its scrim fading on the same pace. Closed part-way up it turns
   round from where it is. The owner chose it for every sheet ("B: slide up",
-  #2045, 2026-11-13). Under reduced motion it shows and hides at once; on a
-  browser older than Chrome 117, Firefox 129 or Safari 17.5 it appears at once
-  and still slides out.
+  #2045, 2026-11-13). Under reduced motion it does not slide: it fades in and
+  out with its scrim, in place, on the same pace and curve, the owner's
+  choice for every sheet (2026-11-14). On a browser older than Chrome 117,
+  Firefox 129 or Safari 17.5 it appears at once and still slides out, or fades
+  out under reduced motion.
 
 Where the app does not follow this yet: these controls fade their focus mark
 with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
@@ -392,7 +394,8 @@ at 390 and 1440px in both schemes, and holds those menus and "More filters"
 opening from 0.96.
 `pulse/web/tests/styles/share-sheet-motion.browser.test.tsx` holds the share sheet at
 390px under pulse's stylesheet: its first frame its own height below the
-edge, at full opacity and unscaled, over a clear scrim.
+edge, at full opacity and unscaled, over a clear scrim; under reduced motion,
+its first frame clear and in place with no transform, over a clear scrim.
 
 ## Future
 

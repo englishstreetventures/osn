@@ -59,8 +59,9 @@ const DialogPortal: ParentComponent = (props) => {
 /**
  * How the scrim comes and goes, by presentation. As a card it fades on the
  * card's keyframes. Behind a sheet below `md` it fades by an `opacity`
- * transition on the sheet's pace, so it darkens as the sheet rises and turns
- * round with it; the sheet's two motion utilities also run keyframes that
+ * transition on the sheet's pace, so it darkens as the sheet rises, or under
+ * reduced motion as the sheet fades in, and turns round with it; the sheet's
+ * two motion utilities also run keyframes that
  * move nothing, which tell Kobalte how long to keep it mounted
  * (`tokens.css`). Each width sets only its own properties, so neither
  * depends on Tailwind's order of `md:` and `max-md:`.
@@ -136,8 +137,9 @@ const DIALOG_PRESENTATION = {
  * reopened part-way turns round from where it is. It is on `transform`, not
  * `translate`: the card's centring and the sheet's reset of it are both on
  * `translate`, so a sheet carried across `md` while open would otherwise fly
- * in from the middle of the screen. Under reduced motion nothing moves
- * (`tokens.css`).
+ * in from the middle of the screen. Under reduced motion the sheet does not
+ * slide: it fades in and out with its scrim, on the same pace, and the card
+ * shows and hides at once (`tokens.css`).
  */
 const DIALOG_MOTION = {
   centred:
@@ -145,7 +147,7 @@ const DIALOG_MOTION = {
   sheet:
     "md:base:data-[expanded]:animate-in md:base:data-[closed]:animate-out md:base:data-[closed]:fade-out-0 md:base:data-[expanded]:fade-in-0 md:base:data-[closed]:zoom-out md:base:data-[expanded]:zoom-in " +
     "max-md:base:data-[expanded]:animate-sheet-in max-md:base:data-[closed]:animate-sheet-out " +
-    "max-md:base:data-[closed]:[transform:translateY(100%)] max-md:base:starting:[transform:translateY(100%)]",
+    "max-md:base:data-[closed]:sheet-hidden max-md:base:starting:sheet-hidden",
 } satisfies Readonly<Record<keyof typeof DIALOG_PRESENTATION, string>>;
 
 /**

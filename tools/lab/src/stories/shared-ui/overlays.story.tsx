@@ -176,7 +176,9 @@ export const DialogFadeOnly: Story<{ motion: string; presentation: string } & St
  * `--ui-dur-base` (200ms), both on `--ui-ease-sheet`, with its scrim fading
  * on the same pace; at `md` and up it is the card. Narrow the lab window, or
  * open it with `?bare` in a phone-sized window, to see the slide; close it
- * part-way up to see it turn round.
+ * part-way up to see it turn round. Turn on the system's reduce-motion
+ * setting, or emulate `prefers-reduced-motion: reduce` in DevTools, and it
+ * fades in and out in place with its scrim instead.
  */
 export const DialogSheetSlide = () => <LeaveDialog presentation="sheet" />;
 

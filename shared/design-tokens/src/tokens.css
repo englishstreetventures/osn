@@ -356,7 +356,9 @@
  * `--ui-enter-animation` and `--ui-exit-animation` to `none`, which the two
  * `animation-name`s read. Every overlay drawn with these utilities stops
  * moving with nothing written on its own class string. Kobalte then reads
- * `animation-name: none` on close and unmounts the panel at once.
+ * `animation-name: none` on close and unmounts the panel at once. A `Dialog`
+ * sheet below `md` is the one exception: the same block turns its slide into
+ * a fade (below).
  *
  * `Modal` does NOT use these. It is the platform `<dialog>` and animates
  * through `@starting-style` and the top layer — see
@@ -372,7 +374,9 @@
  * which move nothing: a run that wrote `transform` or `opacity` would beat the
  * transition on the same property in Chromium and WebKit. The two names must
  * differ, and neither may contain the other, because Kobalte unmounts on the
- * end of a run whose name the current `animation-name` contains.
+ * end of a run whose name the current `animation-name` contains. `sheet-hidden`
+ * is where a sheet comes from and goes to: its own height below the bottom
+ * edge, at full opacity.
  */
 @keyframes ui-enter {
   from {
@@ -436,7 +440,7 @@
 }
 
 @utility animate-sheet-in {
-  animation-name: var(--ui-enter-animation, ui-sheet-enter);
+  animation-name: ui-sheet-enter;
   animation-duration: var(--ui-dur-slow, 320ms);
   transition-property: var(--ui-sheet-transition, transform, opacity);
   transition-duration: var(--ui-dur-slow, 320ms);
@@ -444,11 +448,16 @@
 }
 
 @utility animate-sheet-out {
-  animation-name: var(--ui-exit-animation, ui-sheet-exit);
+  animation-name: ui-sheet-exit;
   animation-duration: var(--ui-dur-base, 200ms);
   transition-property: var(--ui-sheet-transition, transform, opacity);
   transition-duration: var(--ui-dur-base, 200ms);
   transition-timing-function: var(--ui-ease-sheet, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+@utility sheet-hidden {
+  transform: var(--ui-sheet-hidden-transform, translateY(100%));
+  opacity: var(--ui-sheet-hidden-opacity, 1);
 }
 
 /*
@@ -457,8 +466,12 @@
  * enter/exit animations with `fill-mode: both`: no animation leaves the
  * element at its natural state, which is what is wanted.
  *
- * `--ui-sheet-transition: none` stops a sheet's slide and its scrim's fade
- * the same way; with no run either, Kobalte unmounts a closing sheet at once.
+ * A `Dialog` sheet below `md` fades instead of sliding: no transform on any
+ * frame, the panel's opacity and its scrim's moving together on the sheet's
+ * pace. `--ui-sheet-transition: opacity` drops `transform` from
+ * its transitions, and `sheet-hidden` becomes in place and transparent. Its
+ * two runs read no variable, so they still run, move nothing, and keep a
+ * closing sheet mounted until its fade has ended.
  *
  * On the root, so a panel portalled to `<body>` inherits it. Flat rather than
  * nested in each `@utility`: Tailwind emits a nested `@media` as CSS nesting,
@@ -468,6 +481,8 @@
   :where(:root) {
     --ui-enter-animation: none;
     --ui-exit-animation: none;
-    --ui-sheet-transition: none;
+    --ui-sheet-transition: opacity;
+    --ui-sheet-hidden-transform: none;
+    --ui-sheet-hidden-opacity: 0;
   }
 }

@@ -112,9 +112,10 @@ const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a
 
 /**
  * How long after closing the sheet hands its outcome over even though its
- * exit has not ended. The exit is the host's: below `md` the sheet slides down
- * over `--ui-dur-base` (200ms unless the host retimes it), and from `md` the
- * card fades over `--ui-dur-exit` (80ms in Musubi). This must stay above the
+ * exit has not ended. The exit is the host's: below `md` the sheet slides down,
+ * or under reduced motion fades, over `--ui-dur-base` (200ms unless the host
+ * retimes it), and from `md` the card fades over `--ui-dur-exit` (80ms in
+ * Musubi). This must stay above the
  * longer of the two, or the outcome arrives while the sheet is still on its
  * way out. A tab the browser has hidden runs no animation, so its end never
  * comes; without this the token would wait for the person to come back.

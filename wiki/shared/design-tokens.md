@@ -309,11 +309,14 @@ open, it does not slide: down across it, it sits on the bottom edge at once;
 up across it, the card's entry runs again. `@starting-style` needs Chrome 117,
 Firefox 129 and Safari 17.5, above the floor in [[frontend-patterns]]
 §Supported browsers; on a browser between the floor and those versions a
-sheet appears at once and still slides out.
+sheet appears at once and still slides out (or fades out, under reduced
+motion, below).
 `Modal`, on the same rule, has the same gap. `overlay-motion.browser.test.tsx` holds the slide, its
-pace and curve, the scrim, the turn-rounds, the `md` crossing and reduced
-motion ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's profile
-switcher sliding on a real page.
+pace and curve, the scrim, the turn-rounds, the `md` crossing and the
+reduced-motion fade ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's
+profile switcher sliding on a real page, and pulse's
+`share-sheet-motion.browser.test.tsx` holds its share sheet's first frame,
+sliding and fading.
 
 **A fade with no scale is the two scale tokens at 1.** An app whose overlays
 should fade without moving sets `--ui-scale-enter` and `--ui-scale-exit` to 1
@@ -351,10 +354,19 @@ from `--ui-scale-enter` and `--ui-scale-exit`. Two pairs of names sit close:
 `--ui-enter-animation` and `--ui-exit-animation` to `none` on the root, and
 `animate-in` and `animate-out` read their `animation-name` from them. Every
 overlay drawn with those utilities stops moving, and a new one needs nothing
-on its class string. The same block sets `--ui-sheet-transition: none`, which
-`animate-sheet-in` and `animate-sheet-out` read as their
-`transition-property`, so a sheet neither slides nor fades its scrim, and with
-no run either Kobalte unmounts it at once. The accent menu's pop is its own `animation` shorthand,
+on its class string. A `Dialog` sheet below `md` is the one that still moves,
+and only in opacity: it fades in and out with its scrim, in place, on its
+usual pace and curve, with no transform on any frame. The owner chose the fade
+on 2026-11-14 ("you can do fade in and fade out for reduced motion right?
+Otherwise sure nothing moves"). The same block sets three more variables:
+`--ui-sheet-transition: opacity`, which `animate-sheet-in` and
+`animate-sheet-out` read as their `transition-property`, so the panel's
+`transform` no longer transitions; and `--ui-sheet-hidden-transform: none` and
+`--ui-sheet-hidden-opacity: 0`, which `sheet-hidden`, the state a sheet comes
+from and goes to, reads in place of its own height below the edge at full
+opacity. The scrim's fade is unchanged. The sheet's two runs read no variable,
+so they still run, move nothing, and keep a closing sheet mounted until its
+fade has ended. The accent menu's pop is its own `animation` shorthand,
 so it keeps its `motion-safe:` prefix. `Modal` is a transition, not these
 utilities: its own stylesheet drops every duration to 1ms
 ([[component-library]] §Overlays: `Modal`).

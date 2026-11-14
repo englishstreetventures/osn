@@ -15,7 +15,8 @@
  * instead: up from its own height on `--ui-dur-slow`, down on `--ui-dur-base`,
  * both on `--ui-ease-sheet`, its scrim fading on the same pace, turning round
  * from wherever it is when closed or reopened part-way, and still the card at
- * `md` and up. One guarantee depends on the values:
+ * `md` and up. Under reduced motion the sheet fades in and out with its scrim
+ * on that pace, with no transform on any frame. One guarantee depends on the values:
  * with nothing set, an exit runs the curve its entry does, which keeps the
  * two curve tokens' defaults equal. Only a real engine resolves a
  * computed style or runs an animation, so none of it can sit in the unit tier.
@@ -232,8 +233,8 @@ async function cycle(overlay: Overlay): Promise<{ enter?: Started; exit?: Starte
 /**
  * `Dialog` as the bottom sheet pulse's share dialog, Musubi's dialogs and
  * `@osn/auth-ui`'s step-up take, at a phone width so its `max-md:` classes
- * apply. It slides rather than fades, so it joins only the reduced-motion and
- * keyboard cases here; "a sheet's slide" below holds the rest.
+ * apply. It slides rather than fades, so "a sheet's slide" below holds its
+ * motion, its reduced-motion fade included.
  */
 const DIALOG_SHEET: Overlay = {
   ...OVERLAYS.dialog,
@@ -248,6 +249,13 @@ const DIALOG_SHEET: Overlay = {
       </DialogContent>
     </Dialog>
   )),
+};
+
+/** The same sheet at a desktop width, where it is the card and moves as the card does. */
+const DIALOG_SHEET_WIDE: Overlay = {
+  ...DIALOG_SHEET,
+  name: "Dialog, sheet at 1440px",
+  width: 1440,
 };
 
 const EXITING = [OVERLAYS.dialog, OVERLAYS.popover, OVERLAYS.menu];
@@ -460,7 +468,7 @@ describe("an anchored panel's origin", () => {
 });
 
 describe("reduced motion", () => {
-  for (const overlay of [...Object.values(OVERLAYS), DIALOG_SHEET]) {
+  for (const overlay of [...Object.values(OVERLAYS), DIALOG_SHEET_WIDE]) {
     it(`${overlay.name}: animates for a reader who has not asked for less`, async () => {
       // The control for the case below: its empty list means something only if
       // this one is not empty.
@@ -481,7 +489,8 @@ describe("reduced motion", () => {
       moved.stop();
       // Every element, not just the panel: `Dialog`'s overlay fades too.
       expect(watch.started.map((s) => s.name)).toEqual([]);
-      // A sheet's slide and its scrim's fade are transitions, not keyframes.
+      // A sheet's slide and its reduced-motion fade are transitions, not
+      // keyframes, and neither may reach the card.
       const slid = moved.ran.filter((r) =>
         ["transform", "translate", "opacity"].includes(r.property),
       );
@@ -922,5 +931,122 @@ describe("a sheet's slide", () => {
     );
     expect(slid).toEqual([]);
     expect(Math.abs(readSheet(panel).shift)).toBeLessThanOrEqual(0.5);
+  });
+
+  describe("under reduced motion", () => {
+    beforeEach(async () => {
+      await emulateMedia({ reducedMotion: "reduce" });
+    });
+
+    interface Painted {
+      transform: string;
+      shift: number;
+      opacity: number;
+      /** `NaN` on a frame where the scrim has already gone. */
+      scrim: number;
+    }
+
+    /** Read the sheet and its scrim on every frame drawn until `stop()`. */
+    function everyFrame(): { seen: Painted[]; stop: () => void } {
+      const seen: Painted[] = [];
+      let on = true;
+      const step = () => {
+        if (!on) return;
+        const panel = sheetPanel();
+        if (panel) {
+          const style = getComputedStyle(panel);
+          const scrim = panel.previousElementSibling;
+          seen.push({
+            transform: style.transform,
+            shift: panel.getBoundingClientRect().bottom - innerHeight,
+            opacity: Number(style.opacity),
+            scrim:
+              scrim instanceof HTMLElement ? Number(getComputedStyle(scrim).opacity) : Number.NaN,
+          });
+        }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+      return { seen, stop: () => (on = false) };
+    }
+
+    const partway = (value: number) => value > 0 && value < 1;
+
+    it("fades in and out with its scrim, with no transform on any frame", async () => {
+      const set = renderSheet();
+      const opening = everyFrame();
+      await openSheet(set);
+      opening.stop();
+      const closing = everyFrame();
+      set(false);
+      await gone();
+      closing.stop();
+      for (const [way, seen] of [
+        ["opening", opening.seen],
+        ["closing", closing.seen],
+      ] as const) {
+        expect(seen.length, `${way}: no frame read`).toBeGreaterThan(2);
+        expect(
+          seen.filter((f) => f.transform !== "none").map((f) => f.transform),
+          `${way}: a frame with a transform`,
+        ).toEqual([]);
+        expect(
+          seen.filter((f) => Math.abs(f.shift) > 0.5).map((f) => f.shift),
+          `${way}: a frame off the bottom edge`,
+        ).toEqual([]);
+        expect(
+          seen.some((f) => partway(f.opacity)),
+          `${way}: the sheet never part-faded`,
+        ).toBe(true);
+        expect(
+          seen.some((f) => partway(f.scrim)),
+          `${way}: the scrim never part-faded`,
+        ).toBe(true);
+      }
+    });
+
+    it("starts clear and in place, its scrim clear too", async () => {
+      const set = renderSheet();
+      const hold = holdSheet("ui-sheet-enter", fraction(0));
+      set(true);
+      const { panel, frame: seen, runs } = await hold.caught();
+      expect(Math.abs(seen.shift), `held ${seen.shift}px down`).toBeLessThanOrEqual(0.5);
+      expect(seen.opacity).toBe(0);
+      expect(seen.scrim).toBe(0);
+      release(runs);
+      await settled(panel);
+      expect(readSheet(panel).opacity).toBe(1);
+    });
+
+    it("fades on the sheet's pace, and moves nothing but opacity", async () => {
+      const set = renderSheet();
+      const moved = watchTransitions();
+      const runs = watchAnimations();
+      const panel = await openSheet(set);
+      const scrim = scrimOf(panel);
+      set(false);
+      await gone();
+      moved.stop();
+      runs.stop();
+      const mine = moved.ran.filter((r) => r.target === panel || r.target === scrim);
+      expect(mine.filter((r) => r.property !== "opacity").map((r) => r.property)).toEqual([]);
+      const curve = rootEasing("--ui-ease-sheet");
+      const sheetPace = [
+        [rootMs("--ui-dur-slow"), curve],
+        [rootMs("--ui-dur-base"), curve],
+      ];
+      const fade = (target: Element) =>
+        mine.filter((r) => r.target === target).map((r) => [r.duration, r.easing]);
+      expect(fade(panel)).toEqual(sheetPace);
+      expect(fade(scrim)).toEqual(sheetPace);
+      // Kobalte keeps the sheet mounted for these runs, which move nothing,
+      // so it is still there while it fades out.
+      expect(
+        runs.started.filter((s) => s.target === panel).map((s) => [s.name, s.duration]),
+      ).toEqual([
+        ["ui-sheet-enter", rootMs("--ui-dur-slow")],
+        ["ui-sheet-exit", rootMs("--ui-dur-base")],
+      ]);
+    });
   });
 });

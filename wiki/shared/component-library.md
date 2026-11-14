@@ -1249,12 +1249,17 @@ opacity and unscaled, and its scrim fades on the same pace: the owner's
 choice for every sheet ("B: slide up", #2045, 2026-11-13). It runs on CSS
 transitions, so a sheet closed part-way up, or reopened part-way down, turns
 round from where it is; focus goes back to the trigger only once it has
-slid out. From `md` the sheet is the card again and runs the card's motion,
+slid out. Under reduced motion it does not slide: it fades in and out with
+its scrim, in place, on the same pace and curve, with no transform on any
+frame, the owner's choice of 2026-11-14 ("you can do fade in and fade out
+for reduced motion right?"); the card shows and hides at once. From `md` the
+sheet is the card again and runs the card's motion,
 and `presentation="centred"` is unchanged at every width. `DialogContent`
 passes its `presentation` to `DialogOverlay`, which takes the same prop, so
 a hand-built `DialogOverlay` behind a sheet passes `presentation="sheet"`
-too. A call site adds no motion class, and none may set `transform` on a
-sheet below `md`: the slide is on `transform`. How it is built, and why the
+too. A call site adds no motion class, and none may set `transform` or
+`opacity` on a sheet below `md`: the slide is on `transform`, and the
+reduced-motion fade on `opacity`. How it is built, and why the
 slide is not on `translate`, is in [[design-tokens#Motion]];
 `shared/ui/tests/overlay-motion.browser.test.tsx` ("a sheet's slide") holds
 it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
@@ -1733,7 +1738,8 @@ is what holds that.
 `DialogContent` takes the same `sheet`, for the Kobalte-backed dialog. The
 two move differently: `Modal`'s sheet rises `--ui-distance-enter` as it fades
 in and sinks `--ui-distance-exit` as it fades out, like its card, while
-`Dialog`'s sheet slides its whole height up and back down at full opacity
+`Dialog`'s sheet slides its whole height up and back down at full opacity,
+and under reduced motion fades in place instead
 ([[#Kobalte components (Dialog, Popover, Tooltip, Tabs)]]).
 
 #### A dialog that only an answer closes
