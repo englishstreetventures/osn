@@ -22,7 +22,7 @@ import { afterEach, expect, it, vi } from "vitest";
 const reads = vi.hoisted(() => ({
   out: [] as { profile: string; resolve: () => void }[],
   /** Rows each profile's connections list answers with. */
-  rows: { prof_d: 3 } as Record<string, number>,
+  rows: { prof_d: 3, prof_d2: 3 } as Record<string, number>,
 }));
 
 /** The account and profile the fake runtime holds; `null` while signed out. */
@@ -57,7 +57,9 @@ vi.mock("../../src/components/ShellDialogs", () => ({
   useShellDialogs: () => ({ ready: () => true, open: () => {} }),
 }));
 
-import { PageCacheScope, placeholderRows } from "../../src/lib/page-cache";
+import { ShellNotices } from "../../src/components/ShellNotices";
+import { placeholderRows } from "../../src/lib/page-cache";
+import { connectionsList } from "../../src/lib/page-data";
 import { ConnectionsPage } from "../../src/pages/ConnectionsPage";
 
 let loads = 0;
@@ -118,7 +120,12 @@ function fakeRuntime() {
     world.profile = null;
     for (const listener of listeners) listener({ kind: "ended" });
   };
-  return { runtime, end };
+  /** What it does when the account no longer owns the active profile: fall back, then tell. */
+  const reset = (profileId: string) => {
+    world.profile = profileId;
+    for (const listener of listeners) listener({ kind: "profile-reset", profileId });
+  };
+  return { runtime, end, reset };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -142,16 +149,20 @@ afterEach(() => {
 it("F6: no profile or account is ever shown the rows of the one before it", async () => {
   world.account = "acc_a";
   world.profile = "prof_a";
-  const { runtime, end } = fakeRuntime();
+  const { runtime, end, reset } = fakeRuntime();
   let auth!: ReturnType<typeof useAuth>;
   const [pageShown, setPageShown] = createSignal(true);
+  const [shellShown, setShellShown] = createSignal(true);
   render(() => (
     <AuthProvider auth={runtime}>
       {(() => {
         auth = useAuth();
         return null;
       })()}
-      <PageCacheScope />
+      {/* The shell's own binder: `ShellNotices` mounts `PageCacheScope`. */}
+      <Show when={shellShown()}>
+        <ShellNotices />
+      </Show>
       <Show when={pageShown()}>
         <ConnectionsPage />
       </Show>
@@ -216,6 +227,13 @@ it("F6: no profile or account is ever shown the rows of the one before it", asyn
   expect(document.body.textContent).not.toMatch(/Friend of prof_c/);
   await answer("prof_d");
   await screen.findByText("Friend of prof_d 2");
+
+  begin("profile reset");
+  reset("prof_d2");
+  await settle();
+  expect(screen.queryByText("Friend of prof_d 0")).toBeNull();
+  await answer("prof_d2");
+  await screen.findByText("Friend of prof_d2 2");
   begin("done");
   observer.disconnect();
 
@@ -225,13 +243,23 @@ it("F6: no profile or account is ever shown the rows of the one before it", asyn
     "shown again": ["prof_b"],
     "another account": ["prof_c"],
     ended: ["prof_d"],
+    "profile reset": ["prof_d2"],
   });
 
-  // With no page mounted, the shell alone still clears: the count D's page
-  // last saw goes with D's session.
+  // With no page mounted, the shell alone still clears: the count the page
+  // last saw goes with the session that saw it.
   expect(placeholderRows("connections.all")).toBe(3);
   setPageShown(false);
   await auth.logout();
   await settle();
   expect(placeholderRows("connections.all")).toBe(1);
+
+  // The shell gone (a bare route) unbinds the cache: signed in or not,
+  // nothing reads.
+  await auth.adoptSession(sessionFor("acc_e", "prof_e"));
+  await settle();
+  setShellShown(false);
+  const out = reads.out.length;
+  connectionsList.preload();
+  expect(reads.out.length).toBe(out);
 });

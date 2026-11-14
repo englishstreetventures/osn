@@ -747,7 +747,10 @@ orb (§The orb).
 Uses in the app: the create-organisation dialog's Create ("Creating…"), the
 edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
 apps' Revoke ("Revoking…"), `/search`'s Connect ("Sending…") and Accept
-("Accepting…"), and Try again on a bare route's failed card ("Checking…"). The
+("Accepting…"), Connections' Accept ("Accepting…"), Decline ("Declining…"),
+Remove ("Removing…"), Cancel ("Cancelling…") and Unblock ("Unblocking…"), a
+roster's Remove ("Removing…"), and Try again on a bare route's failed card
+("Checking…"). The
 rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
 in `osn/auth-ui/DESIGN.md` §6.

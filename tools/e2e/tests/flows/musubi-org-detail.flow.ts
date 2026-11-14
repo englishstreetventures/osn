@@ -159,7 +159,14 @@ test("musubi-org-detail", async ({ page, flow }) => {
   // keep focus through the wait, which `disabled` would drop.
   const orgsUrl = `${ORIGINS.osnApi}/organisations`;
   const createHeld = holdMethod("POST");
+  // The list's read after the create is held too: the new row is drawn from
+  // the create's answer before the list is read again.
+  const createReread = holdMethod("GET");
+  await page.route(orgsUrl, createReread.handler);
   await page.route(orgsUrl, createHeld.handler);
+  const reread = page.waitForRequest(
+    (request) => request.url() === orgsUrl && request.method() === "GET",
+  );
   try {
     await flow.step("create the organisation: Create waits on the POST", async () => {
       await createDialog.getByRole("button", { name: "Create", exact: true }).click();
@@ -175,10 +182,23 @@ test("musubi-org-detail", async ({ page, flow }) => {
     createHeld.release();
     await page.unroute(orgsUrl, createHeld.handler);
   }
-  await flow.step("create the organisation", async () => {
-    await expect(page.getByText(`Created ${org.name}`)).toBeVisible();
-    await expect(orgLink).toBeVisible();
-  });
+  let createdWhileHeld = false;
+  try {
+    await flow.step("create the organisation", async () => {
+      await expect(page.getByText(`Created ${org.name}`)).toBeVisible();
+      await reread;
+      await expect(orgLink).toBeVisible();
+      createdWhileHeld = true;
+    });
+  } finally {
+    createReread.release();
+    await page.unroute(orgsUrl, createReread.handler);
+  }
+  flow.check(
+    "organisations: the new row drawn before the list is read again",
+    true,
+    createdWhileHeld,
+  );
   flow.check("organisation created", true, flow.saw("POST osn-api /organisations 201"));
   await orgListSurfaces(flow, page, orgLink);
 
@@ -297,6 +317,13 @@ test("musubi-org-detail", async ({ page, flow }) => {
   flow.check("the visit reads them again behind the hovered ones", 2, suggestionReads());
   const discoverHeld = holdMethod("POST");
   await page.route(connectUrl, discoverHeld.handler);
+  // The suggestions' read after the request is held: the card leaves at once.
+  const isSuggestions = (url: URL) => url.href.startsWith(suggestionsUrl);
+  const discoverReread = holdMethod("GET");
+  await page.route(isSuggestions, discoverReread.handler);
+  const suggestionsReread = page.waitForRequest(
+    (request) => request.url().startsWith(suggestionsUrl) && request.method() === "GET",
+  );
   try {
     await onPhone(page, async () => {
       await phoneTall(
@@ -316,9 +343,19 @@ test("musubi-org-detail", async ({ page, flow }) => {
     discoverHeld.release();
     await page.unroute(connectUrl, discoverHeld.handler);
   }
-  await flow.step("connect from Discover", async () => {
-    await expect(page.getByText(`Request sent to @${member.handle}`)).toBeVisible();
-  });
+  let cardsWhileHeld = -1;
+  try {
+    await flow.step("connect from Discover", async () => {
+      await expect(page.getByText(`Request sent to @${member.handle}`)).toBeVisible();
+      await suggestionsReread;
+      await expect(suggestion).toHaveCount(0);
+      cardsWhileHeld = await suggestion.count();
+    });
+  } finally {
+    discoverReread.release();
+    await page.unroute(isSuggestions, discoverReread.handler);
+  }
+  flow.check("discover: the card leaves before the suggestions are read again", 0, cardsWhileHeld);
   flow.check("Discover sent one request", 1, sentRequests());
 
   await flow.step("withdraw the request through the API", async () => {
@@ -375,6 +412,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
   const listHeld = holdMethod("GET");
   await page.route(orgsUrl, listHeld.handler);
   let drawnWhileHeld = false;
+  let busyWhileHeld = 0;
   try {
     await flow.step(
       "back to the organisations list: drawn at once, read again behind it",
@@ -386,6 +424,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
         await sent;
         await expect(page.getByRole("link", { name: new RegExp(org.renamed) })).toBeVisible();
         drawnWhileHeld = true;
+        busyWhileHeld = await page.locator('main [aria-busy="true"]').count();
         const shots = join(SCREENSHOT_DIR, "musubi-page-cache");
         mkdirSync(shots, { recursive: true });
         await page.screenshot({ path: join(shots, "organisations-return.png") });
@@ -396,7 +435,14 @@ test("musubi-org-detail", async ({ page, flow }) => {
     await page.unroute(orgsUrl, listHeld.handler);
   }
   await expect.poll(listReads).toBe(readsBefore + 1);
+  await expect(page.locator('main [aria-busy="true"]')).toHaveCount(0);
   flow.check("organisations: the list drawn while its read is held", true, drawnWhileHeld);
+  flow.check("organisations: the list marked busy while its read is held", 1, busyWhileHeld);
+  flow.check(
+    "organisations: not busy once the read lands",
+    0,
+    await page.locator('main [aria-busy="true"]').count(),
+  );
   flow.check("organisations: no placeholder on the return", false, await listWatch.seen());
   flow.check("organisations: the list read again behind it", 1, listReads() - readsBefore);
 

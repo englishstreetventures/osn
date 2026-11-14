@@ -165,7 +165,7 @@ The two delete shapes are deliberately different and must not be merged. `graph.
 
 ## Page data
 
-Every page's rows go through one cache, `src/lib/page-cache.ts`; how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
+The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, Settings' Security views, the shell's prompts and the bare routes read on their own); how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
 
 | Query | Page | Read |
 |---|---|---|
@@ -183,8 +183,8 @@ What each mutation writes, with the scope mark taken before its request:
 
 | Where | Mutation | Cache |
 |---|---|---|
-| Connections | remove, accept, decline, cancel, unblock | the row taken off its tab's list, the list read again; accept also reads All again; every one marks Discover's suggestions stale |
-| Discover | connect | the card taken off (osn-api suggests nobody with a request in flight), the suggestions and Sent read again |
+| Connections | remove, accept, decline, cancel, unblock | the row taken off its tab's list, the list read again; accept also marks All stale; every one marks Discover's suggestions stale |
+| Discover | connect | the card taken off (osn-api suggests nobody with a request in flight), the suggestions read again, Sent marked stale |
 | Search (rail and `/search`) | connect, accept | Sent, or Pending and All, and the suggestions marked stale |
 | Organisations | create | the answer appended, the list read again, suggestions stale |
 | An organisation | rename | its entry and its row in the list rewritten; the list reads itself again when next shown |

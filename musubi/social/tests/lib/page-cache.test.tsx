@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   bindScope,
   FRESH_MS,
+  invalidatePages,
   pageQuery,
   placeholderRows,
   scopeMark,
@@ -234,6 +235,38 @@ describe("reads", () => {
     calls[1]!.resolve(["bob", "carol"]);
     await settle();
     expect(reader.read()).toEqual(["carol", "dan"]);
+    reader.dispose();
+  });
+
+  it("F8: a read out for rows no page shows is dropped when they go out of date", async () => {
+    setSession({});
+    const { read, calls } = heldReads<string[]>();
+    const q = pageQuery(fresh(), read, (v) => v.length);
+    q.preload();
+    q.invalidate();
+    calls[0]!.resolve(["from before the mutation"]);
+    await settle();
+
+    const reader = mount(q, () => []);
+    expect(reader.read()).toBeUndefined();
+    expect(reader.read.state).toBe("pending");
+    expect(read).toHaveBeenCalledTimes(2);
+    reader.dispose();
+  });
+
+  it("F17: a page marked stale by name, from outside its queries, is read again", async () => {
+    setSession({});
+    const name = fresh();
+    const { read, calls } = heldReads<string[]>();
+    const reader = mount(
+      pageQuery(name, read, (v) => v.length),
+      () => [],
+    );
+    calls[0]!.resolve(["bob"]);
+    await settle();
+    invalidatePages(name, "never.registered");
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(reader.read()).toEqual(["bob"]);
     reader.dispose();
   });
 

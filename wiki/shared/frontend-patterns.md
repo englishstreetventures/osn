@@ -94,7 +94,7 @@ On a cold desktop load of `/discover` with the rail's chunk held back 400ms, the
 
 *Measured 2026-11-09 — `vite build` and `vite preview` of `@musubi/social`, Playwright Chromium at 1440×900 and 390×844, the shell chunk's request delayed 400ms by `page.route`, summing buffered `layout-shift` entries.*
 
-**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside a render-phase tracking scope (a `Show`'s `when`, a memo, JSX; not a `createEffect`), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels and Musubi's `ConnectedAppsSection` read this way (`osn/auth-ui/DESIGN.md` §6).
+**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside a render-phase tracking scope (a `Show`'s `when`, a memo, JSX; not a `createEffect`), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels read this way (`osn/auth-ui/DESIGN.md` §6); Musubi's page reads hold their rows in signals, which never suspend ([[#Page data: one cache, keyed by the session]]).
 
 **Group dialogs that load together into one dynamic import.** In `@musubi/social`, two `lazy()` dialogs imported from two modules made the bundler split the entry chunk in two and keep client code it otherwise drops. With the shell frames and the dialogs' provider added, the entry closure grew 2.0 KB gzipped that way, and 1.0 KB with both dialogs behind one module (`ShellDialogSet.tsx`).
 
@@ -887,9 +887,10 @@ follow it.
 
 ## Page data: one cache, keyed by the session
 
-`@musubi/social` reads every page's rows — Connections' tabs, Discover,
+`@musubi/social` reads its data pages' rows — Connections' tabs, Discover,
 Organisations, an organisation and its roster, Settings' Connected apps —
-through one module-level cache, `src/lib/page-cache.ts`, with the queries in
+through one module-level cache (search, Settings' Security views, the
+shell's prompts and the bare routes read on their own), `src/lib/page-cache.ts`, with the queries in
 `src/lib/page-data.ts`. A page shown again draws its last rows at once and
 reads them again behind them; a first load draws as many placeholders as that
 page last landed, one when nothing is known.

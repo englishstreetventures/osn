@@ -149,8 +149,9 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
       </Show>
       {/* Inside the scroll column, above the page: the layout is a row on
           desktop, so a sibling of `Content` would land beside the rail
-          rather than over the page. `ShellNotices` renders only once the
-          runtime has ended a session or the profile list has failed;
+          rather than over the page. `ShellNotices` draws only once the
+          runtime has ended a session or the profile list has failed, and
+          keeps the page cache bound to the session meanwhile;
           `AccountBanners` renders nothing until a session exists. Neither
           renders on a bare route. */}
       <Content padForMobileNav>
