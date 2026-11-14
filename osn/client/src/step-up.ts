@@ -16,8 +16,43 @@
  */
 
 import { OsnApiError } from "./api-error";
-import { reach, readJson } from "./auth-fetch";
+import { reach, readJson, withDeadline } from "./auth-fetch";
 import type { AuthFetch } from "./runtime";
+
+/**
+ * How long one `StepUpClient` call may wait, in milliseconds: 15 s. Past it
+ * the request is aborted and the call rejects with a `StepUpError` at status
+ * `0`, which reads as a failed connection, so a step-up screen that holds its
+ * ways out while a call runs gets them back.
+ *
+ * The bound is a timer, so it holds while the page runs its timers: about
+ * 15 s in the foreground, later in a hidden tab, whose timers the browser
+ * batches, and never in a frozen one until it resumes. On resume an answer
+ * that came in time can lose to the overdue deadline.
+ *
+ * The network sets the figure, not osn-api: in the E2E traces on the local
+ * stack (browser-seen, over loopback) the slowest step-up request took
+ * 15.4 ms from send to last byte; `wiki/osn/step-up.md` gives the method and
+ * date. A call can send up to ten requests: a token renewal of up to four
+ * `/token` attempts, with up to 0.85 s of pauses between them, then the call,
+ * and after a 401 another such renewal and the call again; then it reads the
+ * body. Most calls send one request, some a renewal first, and 15 s gives
+ * each several seconds on a slow mobile link. A call that needs every retry
+ * on such a link can still run out. `DEFAULT_AUTHORIZE_TIMEOUT_MS`
+ * (`./authorize.ts`) allows 10 s for one GET that renews nothing.
+ *
+ * Aborting does not un-send a request, so past the deadline the server may
+ * already have acted. A `passkeyBegin` leaves only a parked challenge, which
+ * the next begin replaces. A step-up token it minted reaches nobody and
+ * expires. An authenticator code it accepted is spent: the same code again is
+ * refused as a replay and counts toward the lockout, so a retry needs a new
+ * code, which `describeAuthError` asks for in its `code` context. An
+ * `emailBegin` may still mail its link and an `emailResend` another, each
+ * counting against the account's daily step-up links, a Resend against the
+ * mailbox's daily Resends as well; after a lost `complete` answer the next
+ * status poll finds the request `expired`.
+ */
+export const STEP_UP_DEADLINE_MS = 15_000;
 
 export interface StepUpClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
@@ -83,9 +118,9 @@ export type StepUpEmailStatus =
   | { readonly status: "complete"; readonly token: StepUpToken };
 
 /**
- * A rejection of `authFetch` about the session, or the caller's abort,
- * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is
- * a `StepUpError`.
+ * A rejection of `authFetch` about the session reaches the caller unchanged
+ * (`./auth-fetch.ts`); every other failure is a `StepUpError`. A call still
+ * waiting after {@link STEP_UP_DEADLINE_MS} is one, at status `0`.
  */
 export interface StepUpClient {
   /**
@@ -133,19 +168,35 @@ export interface StepUpClient {
   totpComplete(input: { code: string; purpose?: StepUpPurpose }): Promise<StepUpToken>;
 }
 
-async function postJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
-  const res = await reach(
-    StepUpError,
-    url,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(body),
-    },
-    authFetch,
-  );
-  return readJson<T>(StepUpError, res);
+/**
+ * POSTs `body` as JSON through `authFetch` and hands the response to `read`,
+ * the body read included, all inside {@link STEP_UP_DEADLINE_MS}.
+ */
+function post<T>(
+  authFetch: AuthFetch,
+  url: string,
+  body: unknown,
+  read: (res: Response) => Promise<T>,
+): Promise<T> {
+  return withDeadline(StepUpError, STEP_UP_DEADLINE_MS, async (signal) => {
+    const res = await reach(
+      StepUpError,
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+        signal,
+      },
+      authFetch,
+    );
+    return read(res);
+  });
+}
+
+function postJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
+  return post(authFetch, url, body, (res) => readJson<T>(StepUpError, res));
 }
 
 /** The fields the link routes answer with; anything else in the body is ignored. */
@@ -161,27 +212,18 @@ interface LinkAnswer {
  * than a rate limit); throws on a rate limit, a server error or no answer,
  * which a poll retries.
  */
-async function postLinkCall(
+function postLinkCall(
   authFetch: AuthFetch,
   url: string,
   body: unknown,
 ): Promise<LinkAnswer | null> {
-  const res = await reach(
-    StepUpError,
-    url,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(body),
-    },
-    authFetch,
-  );
-  if (res.status === 429 || res.status >= 500) {
-    throw new StepUpError(`Request failed: ${res.status}`, res.status);
-  }
-  if (!res.ok) return null;
-  return readJson<LinkAnswer>(StepUpError, res);
+  return post(authFetch, url, body, async (res) => {
+    if (res.status === 429 || res.status >= 500) {
+      throw new StepUpError(`Request failed: ${res.status}`, res.status);
+    }
+    if (!res.ok) return null;
+    return readJson<LinkAnswer>(StepUpError, res);
+  });
 }
 
 function toToken(raw: { step_up_token: string; expires_in: number }): StepUpToken {

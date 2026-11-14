@@ -8,7 +8,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-14
 ---
 
 # Step-up (sudo) tokens
@@ -125,6 +125,68 @@ TOTP has **no `begin`**: it is challenge-free, so there is nothing to mint, park
 or send. Whether the factor is available is what `GET /totp/status` answers. A
 TOTP code is single-use per RFC 6238 §5.2 and the step it matched is recorded
 against the credential — see [[totp]].
+
+### Request deadline
+
+Every `StepUpClient` call in `@osn/client` (`passkeyBegin`, `passkeyComplete`,
+`emailBegin`, `emailStatus`, `emailResend`, `totpComplete`) ends at
+`STEP_UP_DEADLINE_MS`, 15 s, while the page is in the foreground
+([step-up.ts](../../osn/client/src/step-up.ts)). The deadline covers the whole
+call: a token renewal `authFetch` makes first, the request, its 401 retry and
+the body read. Past it the client aborts the request and the call rejects with
+a `StepUpError` at status `0`, as a request that reached no server does, so
+`describeAuthError` gives the connection sentence; for an authenticator code
+its `code` sentence asks for a new code as well. `StepUpDialog` refuses
+Cancel, Escape, a press outside and going back while a passkey, link or code
+call it started runs. The deadline bounds each call in that wait, and each way
+out works again once the call fails. For a passkey, the browser's own prompt
+between begin and complete is not a call, and this client sets it no deadline.
+
+The `musubi-passkey` E2E flow leaves the step-up's first passkey begin
+unanswered, moves the page clock past the deadline, and checks that the page
+aborted the begin, that the line says it could not connect and that Cancel
+works again; `tools/e2e/tests/flows.test.ts` holds the flow's copy of
+`STEP_UP_DEADLINE_MS` equal to the client's.
+
+The deadline is a timer, so it runs late where the page's timers do: a hidden
+tab's timers are batched, and a frozen tab runs none until it resumes. On
+resume, an answer that came in time and the overdue deadline are both queued,
+in no fixed order, so the call can fail at status `0` for an answer the server
+already sent.
+
+15 s is a chosen figure, not a measured one. osn-api's own part is small: on
+the local stack the slowest step-up request the E2E suite sends took **15.4 ms**
+from send to last byte (`POST /step-up/passkey/begin`). The suite also calls
+`passkey/complete`, `email/begin` and `email/{id}/status`, but neither
+`totp/complete` nor `email/resend`. The figure is browser-seen over loopback,
+so it bounds osn-api's own time on that machine from above and says nothing
+about a deployed link.
+
+*Measured 2026-11-14 — HAR `time` of every `/step-up/*` POST that got a response, in the flow traces (`e2e-artifacts/traces/*/trace.zip`, the `*.network` entries) of a local `bun run test:e2e:repro` run, n=11*
+
+The network sets the bound. One call can send up to ten requests: a renewal of
+up to four `/token` attempts with up to 0.85 s of pauses between them
+([[sessions#Renewal in the browser]]), the call, and after a 401 a second such
+renewal and the call again. Most calls send one request. A call that needs
+every retry on a slow mobile link can still run out.
+
+Aborting does not un-send a request, so a call that failed at the deadline may
+already have acted on the server. A `passkeyBegin` leaves only a parked
+challenge, which the next begin replaces. The rest:
+
+| Call | What the server may have done | What the person does next |
+|---|---|---|
+| `passkeyComplete` | minted a step-up token that reaches nobody; it expires unused | runs the passkey again |
+| `totpComplete` | accepted the code and recorded its step | enters a new code: the same code again is refused as a replay and counts toward the five-attempt lockout ([[totp#Throttling, and the one place this repo fails closed differently]]), so `StepUpDialog` empties the code boxes and its line asks for a new code |
+| `emailBegin` | mailed the link, spending one of the account's 10 step-up links a day ([[email-links#Step-up]]) | asks again |
+| `emailResend` | mailed another link, spending one of the 10 links a day and one of the mailbox's 3 Resends a day ([[email-links#Step-up]]) | waits for the link already sent before pressing Resend again |
+| `emailStatus` | handed over the token in a `complete` answer the tab never read | finds the request `expired` on the next poll, and sends a new link |
+
+The deadline does not end a token renewal. Renewal is single-flight and sends
+without the call's signal, so while one renewal hangs, every step-up call that
+needs a renewal waits on it and fails at the deadline until the page loads
+again. A refusal that arrives after the call failed still ends the session
+through `onSessionChange`, but that call shows the connection sentence.
 
 ## Purpose binding
 

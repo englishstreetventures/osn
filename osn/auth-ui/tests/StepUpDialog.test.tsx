@@ -9,6 +9,7 @@ import { StepUpDialog, type StepUpDialogProps } from "../src/StepUpDialog";
 import { codeBoxes, enterCode, expectTied, findCodeBoxes } from "./helpers/code";
 import {
   CODE,
+  CODE_NO_ANSWER,
   PASSKEY_NOT_USED,
   WAIT,
   alertsText,
@@ -1153,6 +1154,25 @@ describe("StepUpDialog — the sheet", () => {
     const boxes = await findCodeBoxes("Code from your authenticator app");
     expect(boxes.map((box) => box.value).join("")).toBe("");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // The server may have taken a code whose answer never came, and it counts
+  // the same code again toward the lockout, so the sheet keeps no code to resend.
+  it("a code check that gets no answer empties the boxes and asks for a new code", async () => {
+    stub.totpComplete.mockRejectedValue(apiError("PLANTED-totp-offline", 0, ""));
+    renderSheet({ totpClient: enrolled() });
+    fireEvent.click(await screen.findByRole("button", { name: "Use your authenticator app" }));
+    await enterCode("Code from your authenticator app", "123456");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(CODE_NO_ANSWER);
+    expect(alertsText()).not.toContain("PLANTED");
+    const boxes = codeBoxes("Code from your authenticator app");
+    expect(boxes.map((box) => box.value).join("")).toBe("");
+    expectTied(boxes, alert.id, null);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Enter the 6-digit code.");
+    expect(stub.totpComplete).toHaveBeenCalledTimes(1);
   });
 
   // F6

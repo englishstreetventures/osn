@@ -522,6 +522,32 @@ describe("authFetch on the page's runtime", () => {
     expect(err).toBe(abort);
   });
 
+  it("the retry after a 401 sends with the caller's signal, so an abort ends it too", async () => {
+    let retry: Call | undefined;
+    const fetches = stubFetch({
+      api: (call) => {
+        if (fetches.api().length === 1) return json(401);
+        retry = call;
+        // As `fetch` does: pending until aborted, then the signal's reason.
+        return new Promise<Response>((_, reject) => {
+          call.init.signal?.addEventListener("abort", () => reject(call.init.signal?.reason), {
+            once: true,
+          });
+        });
+      },
+    });
+    const { runtime } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
+    const caller = new AbortController();
+
+    const pending = rejection(runtime.authFetch(API, { signal: caller.signal }));
+    await vi.waitFor(() => expect(retry).toBeDefined());
+    caller.abort(new DOMException("The deadline passed", "AbortError"));
+
+    expect(fetches.to("/token")).toHaveLength(1);
+    expect(retry?.init.signal?.aborted).toBe(true);
+    await pending;
+  });
+
   it("F43: a second runtime on the same storage never sends the first one's token", async () => {
     // Tokens stay in each page's memory, so another tab renews for itself.
     const fetches = stubFetch({});
