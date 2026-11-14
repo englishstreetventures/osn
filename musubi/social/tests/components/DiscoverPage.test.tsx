@@ -26,12 +26,14 @@ vi.mock("../../src/lib/api", () => ({
 import { DiscoverPage } from "../../src/pages/DiscoverPage";
 
 function authedProvider() {
+  // `latest` is the value, as a landed resource's is: the page cache keys on
+  // the session object, so each render's new one gives each test a fresh cache.
   const asResource = <T,>(value: T) =>
     Object.assign(() => value, {
       state: "ready",
       loading: false,
       error: undefined,
-      latest: null,
+      latest: value,
       refetch: () => {},
       mutate: () => {},
     });
@@ -64,10 +66,10 @@ const suggestion = (overrides: Record<string, unknown>) => ({
   ...overrides,
 });
 
-function renderDiscover() {
+function renderDiscover(auth = authedProvider()) {
   // The empty state links to /search, so the page needs a router in scope.
   return render(() => (
-    <AuthContext.Provider value={authedProvider()}>
+    <AuthContext.Provider value={auth}>
       <MemoryRouter>
         <Route path="/" component={DiscoverPage} />
       </MemoryRouter>
@@ -164,5 +166,33 @@ describe("<DiscoverPage />", () => {
     renderDiscover();
     fireEvent.click(await screen.findByText("Connect"));
     await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
+  });
+});
+
+describe("<DiscoverPage /> — a card the read in flight removes", () => {
+  // Shown again, the suggestions draw at once and are read again behind
+  // them. A Connect pressed meanwhile is busy, waits for that read, and sends
+  // nothing for a card it took off.
+  it("Connect waits for the read and sends no request for a card that has gone", async () => {
+    const auth = authedProvider();
+    mocks.suggestConnections.mockResolvedValueOnce({
+      suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 2 })],
+    });
+    const first = renderDiscover(auth);
+    await screen.findByText("Connect");
+    first.unmount();
+
+    let answer!: (value: unknown) => void;
+    mocks.suggestConnections.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    renderDiscover(auth);
+    fireEvent.click(screen.getByText("Connect"));
+    expect(await screen.findByText("Sending…")).toBeDefined();
+    answer({ suggestions: [] });
+    await screen.findByText("Search for someone");
+    expect(mocks.sendConnectionRequest).not.toHaveBeenCalled();
   });
 });

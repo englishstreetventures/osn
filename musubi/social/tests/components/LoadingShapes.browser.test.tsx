@@ -13,8 +13,9 @@ import "../../src/App.css";
  * while the read is out, holds at least one `aria-hidden` block, is exactly as
  * tall as the content that lands in it, and is no longer busy once it has
  * (`DESIGN.md` §Empty states and failed loads). Each fixture lands as many
- * rows as the page draws placeholders, so the region's height covers every
- * block, every row and the gaps between them. Run at a phone width and a
+ * rows as the page draws placeholders — one, since a first load with nothing
+ * known draws one (`PlaceholderRows.browser.test.tsx` holds the count a page
+ * last landed) — so the region's height covers every block and row. Run at a phone width and a
  * desktop width, since a row's buttons grow to the touch height below `md`.
  *
  * Each case shoots the page with its placeholders on screen, into
@@ -190,28 +191,22 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
     await page.viewport(width, 2400);
   });
 
-  it("Connections: three connection rows", async () => {
+  it("Connections: one connection row", async () => {
     renderAt("/connections", "/connections", ConnectionsPage);
-    const region = await busyRegion(3);
+    const region = await busyRegion(1);
     await page.screenshot({ path: `${SHOTS}/connections-${width}.png` });
     const height = await land(
       region,
       "connections",
-      {
-        connections: [
-          person("bob", "Bob Jones"),
-          person("carol", "Carol Smith"),
-          person("dan", "Dan Brown"),
-        ],
-      },
+      { connections: [person("bob", "Bob Jones")] },
       "Bob Jones",
     );
     expect(height.landed).toBeCloseTo(height.held, 0);
   });
 
-  it("Discover: four suggestion cards", async () => {
+  it("Discover: one suggestion card", async () => {
     renderAt("/discover", "/discover", DiscoverPage);
-    const region = await busyRegion(4);
+    const region = await busyRegion(1);
     await page.screenshot({ path: `${SHOTS}/discover-${width}.png` });
     const suggestion = (handle: string, displayName: string) => ({
       ...person(handle, displayName),
@@ -223,22 +218,15 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
     const height = await land(
       region,
       "suggestions",
-      {
-        suggestions: [
-          suggestion("bob", "Bob Jones"),
-          suggestion("carol", "Carol Smith"),
-          suggestion("dan", "Dan Brown"),
-          suggestion("eve", "Eve Green"),
-        ],
-      },
+      { suggestions: [suggestion("bob", "Bob Jones")] },
       "Bob Jones",
     );
     expect(height.landed).toBeCloseTo(height.held, 0);
   });
 
-  it("Organisations: two organisation cards", async () => {
+  it("Organisations: one organisation card", async () => {
     renderAt("/organisations", "/organisations", OrganisationsPage);
-    const region = await busyRegion(2);
+    const region = await busyRegion(1);
     await page.screenshot({ path: `${SHOTS}/organisations-${width}.png` });
     const org = (handle: string, name: string) => ({
       handle,
@@ -249,32 +237,27 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
     const height = await land(
       region,
       "orgs",
-      { organisations: [org("acme", "Acme Inc"), org("globex", "Globex")] },
+      { organisations: [org("acme", "Acme Inc")] },
       "Acme Inc",
     );
     expect(height.landed).toBeCloseTo(height.held, 0);
   });
 
-  it("an organisation: its head, then two member rows", async () => {
+  it("an organisation: its head, then one member row", async () => {
     renderAt("/organisations/acme", "/organisations/:handle", OrgDetailPage);
     await busyRegion(2);
     reads.release("org", {
       organisation: { handle: "acme", name: "Acme Inc", avatarUrl: null, description: null },
     });
     await screen.findByRole("heading", { name: "Acme Inc" });
-    // The roster's own region, now the page's only busy one. Its rows are the
-    // ones a person acts on, each with Remove.
-    const region = await busyRegion(2);
+    // The roster's own region, now the page's only busy one. Its row is one a
+    // person acts on, with Remove.
+    const region = await busyRegion(1);
     await page.screenshot({ path: `${SHOTS}/org-members-${width}.png` });
     const height = await land(
       region,
       "members",
-      {
-        members: [
-          { ...person("bob", "Bob Jones"), role: "member" },
-          { ...person("carol", "Carol Smith"), role: "member" },
-        ],
-      },
+      { members: [{ ...person("bob", "Bob Jones"), role: "member" }] },
       "Bob Jones",
     );
     expect(height.landed).toBeCloseTo(height.held, 0);

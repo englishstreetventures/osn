@@ -13,6 +13,8 @@ import { createSignal, Show } from "solid-js";
 
 import { describeActionError } from "../lib/action-error";
 import { graphClient } from "../lib/api";
+import { invalidatePages } from "../lib/page-cache";
+import { PAGE_DATA } from "../lib/page-names";
 import type { SearchController } from "../lib/search";
 import { safeAvatarUrl } from "../lib/utils";
 
@@ -43,6 +45,8 @@ export function useSearchActions(controller: SearchController) {
         await graphClient.sendConnectionRequest(handle);
         controller.setConnectionStatus(handle, "pending_sent");
         toast.success(`Request sent to @${handle}`);
+        // The pages these change, by name: the shell does not load their queries.
+        invalidatePages(PAGE_DATA.sentRequests, PAGE_DATA.suggestions);
       } catch (err) {
         toast.error(describeActionError(err, "Failed to send request"));
       }
@@ -55,6 +59,7 @@ export function useSearchActions(controller: SearchController) {
         await graphClient.acceptConnection(handle);
         controller.setConnectionStatus(handle, "connected");
         toast.success(`You and @${handle} are connected`);
+        invalidatePages(PAGE_DATA.pendingRequests, PAGE_DATA.connections, PAGE_DATA.suggestions);
       } catch (err) {
         toast.error(describeActionError(err, "Failed to accept request"));
       }

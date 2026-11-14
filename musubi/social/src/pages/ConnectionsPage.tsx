@@ -11,7 +11,7 @@ import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Dialog, DialogDescription } from "@shared/ui/ui/dialog";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
@@ -21,7 +21,15 @@ import { SignedOutNote } from "../components/SignedOutNote";
 import { describeActionError } from "../lib/action-error";
 import { graphClient } from "../lib/api";
 import { PRODUCT_NAME } from "../lib/auth";
+import {
+  blockedProfiles,
+  connectionsList,
+  pendingRequests,
+  sentRequests,
+  suggestions,
+} from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
+import { createRowActions } from "../lib/row-actions";
 
 type Tab = "all" | "pending" | "sent" | "blocked";
 
@@ -32,66 +40,31 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "blocked", label: "Blocked" },
 ];
 
+/** The route's preload: the tab a visit opens on. */
+export function preloadConnections(): void {
+  connectionsList.preload();
+}
+
 export function ConnectionsPage() {
   const { session } = useAuth();
   usePageTitle(() => "Connections");
   const [tab, setTab] = createSignal<Tab>("all");
 
-  // Single keyed resource for all four tabs. Rapid tab-switching
-  // produces a single in-flight request at a time thanks to Solid's
-  // source-change cancellation semantics, rather than firing one request
-  // per tab entered.
-  type TabPayload =
-    | { kind: "all"; data: Awaited<ReturnType<typeof graphClient.listConnections>> }
-    | { kind: "pending"; data: Awaited<ReturnType<typeof graphClient.listPendingRequests>> }
-    | { kind: "sent"; data: Awaited<ReturnType<typeof graphClient.listSentRequests>> }
-    | { kind: "blocked"; data: Awaited<ReturnType<typeof graphClient.listBlocks>> };
+  // Each tab reads its own list through the page cache, and only while it is
+  // shown: a tab seen before draws its last rows at once and is read again
+  // behind them.
+  const all = connectionsList.use(() => (tab() === "all" ? [] : undefined));
+  const pending = pendingRequests.use(() => (tab() === "pending" ? [] : undefined));
+  const sent = sentRequests.use(() => (tab() === "sent" ? [] : undefined));
+  const blocked = blockedProfiles.use(() => (tab() === "blocked" ? [] : undefined));
 
-  // Keyed on the session object, not its token: a new session (signed in,
-  // switched profile) refetches, a silent token renewal does not.
-  const [payload, { refetch: refetchPayload }] = createResource<
-    TabPayload | undefined,
-    { tab: Tab; session: object }
-  >(
-    () => {
-      const current = session();
-      return current ? { tab: tab(), session: current } : undefined;
-    },
-    async ({ tab: t }): Promise<TabPayload> => {
-      switch (t) {
-        case "all":
-          return { kind: "all", data: await graphClient.listConnections() };
-        case "pending":
-          return { kind: "pending", data: await graphClient.listPendingRequests() };
-        case "sent":
-          return { kind: "sent", data: await graphClient.listSentRequests() };
-        case "blocked":
-          return { kind: "blocked", data: await graphClient.listBlocks() };
-      }
-    },
-  );
-
-  // Narrowed accessors — each returns the tab's payload when active, else null.
-  const connections = () =>
-    payload()?.kind === "all"
-      ? (payload() as Extract<TabPayload, { kind: "all" }>).data
-      : undefined;
-  const pending = () =>
-    payload()?.kind === "pending"
-      ? (payload() as Extract<TabPayload, { kind: "pending" }>).data
-      : undefined;
-  const sent = () =>
-    payload()?.kind === "sent"
-      ? (payload() as Extract<TabPayload, { kind: "sent" }>).data
-      : undefined;
-  const blocked = () =>
-    payload()?.kind === "blocked"
-      ? (payload() as Extract<TabPayload, { kind: "blocked" }>).data
-      : undefined;
-
-  const refetchConnections = refetchPayload;
-  const refetchPending = refetchPayload;
-  const refetchSent = refetchPayload;
+  const actions = createRowActions();
+  const without =
+    <K extends string>(key: K, handle: string) =>
+    <V extends Record<K, { handle: string }[]>>(value: V): V => ({
+      ...value,
+      [key]: value[key].filter((row) => row.handle !== handle),
+    });
 
   // Two-step friend removal: clicking "Remove" on a row opens a confirmation
   // dialog rather than mutating immediately, guarding against accidental
@@ -103,56 +76,95 @@ export function ConnectionsPage() {
     setRemoveTarget(conn);
   }
 
-  async function confirmRemove() {
+  function confirmRemove() {
     const target = removeTarget();
     if (!target) return;
     setRemoveTarget(null);
-    try {
-      await graphClient.removeConnection(target.handle);
-      toast.success(`Removed @${target.handle}`);
-      refetchConnections();
-    } catch (err) {
-      toast.error(describeActionError(err, "Failed to remove connection"));
-    }
+    const { handle } = target;
+    return actions.run(
+      `remove:${handle}`,
+      all,
+      (rows) => rows.connections.some((row) => row.handle === handle),
+      async (mark) => {
+        try {
+          await graphClient.removeConnection(handle);
+          toast.success(`Removed @${handle}`);
+          connectionsList.update([], without("connections", handle), mark);
+          connectionsList.invalidate();
+          suggestions.invalidate();
+        } catch (err) {
+          toast.error(describeActionError(err, "Failed to remove connection"));
+        }
+      },
+    );
   }
 
-  async function acceptRequest(handle: string) {
-    try {
-      await graphClient.acceptConnection(handle);
-      toast.success(`Accepted @${handle}`);
-      refetchPending();
-      refetchConnections();
-    } catch (err) {
-      toast.error(describeActionError(err, "Failed to accept request"));
-    }
+  const hasPending = (handle: string) => (rows: { pending: PendingRequestEntry[] }) =>
+    rows.pending.some((row) => row.handle === handle);
+
+  function acceptRequest(handle: string) {
+    return actions.run(`accept:${handle}`, pending, hasPending(handle), async (mark) => {
+      try {
+        await graphClient.acceptConnection(handle);
+        toast.success(`Accepted @${handle}`);
+        pendingRequests.update([], without("pending", handle), mark);
+        pendingRequests.invalidate();
+        connectionsList.invalidate();
+        suggestions.invalidate();
+      } catch (err) {
+        toast.error(describeActionError(err, "Failed to accept request"));
+      }
+    });
   }
 
-  async function rejectRequest(handle: string) {
-    try {
-      await graphClient.rejectConnection(handle);
-      refetchPending();
-    } catch (err) {
-      toast.error(describeActionError(err, "Failed to reject request"));
-    }
+  function rejectRequest(handle: string) {
+    return actions.run(`decline:${handle}`, pending, hasPending(handle), async (mark) => {
+      try {
+        await graphClient.rejectConnection(handle);
+        pendingRequests.update([], without("pending", handle), mark);
+        pendingRequests.invalidate();
+        suggestions.invalidate();
+      } catch (err) {
+        toast.error(describeActionError(err, "Failed to reject request"));
+      }
+    });
   }
 
-  async function cancelSentRequest(handle: string) {
-    try {
-      await graphClient.removeConnection(handle);
-      toast.success(`Cancelled request to @${handle}`);
-      refetchSent();
-    } catch (err) {
-      toast.error(describeActionError(err, "Failed to cancel request"));
-    }
+  function cancelSentRequest(handle: string) {
+    return actions.run(
+      `cancel:${handle}`,
+      sent,
+      (rows) => rows.sent.some((row) => row.handle === handle),
+      async (mark) => {
+        try {
+          await graphClient.removeConnection(handle);
+          toast.success(`Cancelled request to @${handle}`);
+          sentRequests.update([], without("sent", handle), mark);
+          sentRequests.invalidate();
+          suggestions.invalidate();
+        } catch (err) {
+          toast.error(describeActionError(err, "Failed to cancel request"));
+        }
+      },
+    );
   }
 
-  async function unblock(handle: string) {
-    try {
-      await graphClient.unblockProfile(handle);
-      toast.success(`Unblocked @${handle}`);
-    } catch (err) {
-      toast.error(describeActionError(err, "Failed to unblock"));
-    }
+  function unblock(handle: string) {
+    return actions.run(
+      `unblock:${handle}`,
+      blocked,
+      (rows) => rows.blocks.some((row) => row.handle === handle),
+      async (mark) => {
+        try {
+          await graphClient.unblockProfile(handle);
+          toast.success(`Unblocked @${handle}`);
+          blockedProfiles.update([], without("blocks", handle), mark);
+          suggestions.invalidate();
+        } catch (err) {
+          toast.error(describeActionError(err, "Failed to unblock"));
+        }
+      },
+    );
   }
 
   return (
@@ -178,10 +190,10 @@ export function ConnectionsPage() {
 
         {/* All connections */}
         <Show when={tab() === "all"}>
-          <div aria-busy={payload.loading || undefined}>
-            <Show when={!payload.loading} fallback={<LoadingSkeleton count={3} />}>
+          <div aria-busy={all.busy || undefined}>
+            <Show when={all()} fallback={<LoadingSkeleton count={all.rows} />}>
               <Show
-                when={(connections()?.connections?.length ?? 0) > 0}
+                when={(all()?.connections.length ?? 0) > 0}
                 fallback={
                   <EmptyNote size="section">
                     No connections yet. Discover people to connect with.
@@ -189,18 +201,18 @@ export function ConnectionsPage() {
                 }
               >
                 <div class="flex flex-col gap-1">
-                  <For each={connections()?.connections}>
+                  <For each={all()?.connections}>
                     {(conn: ConnectionEntry) => (
                       <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                         <Avatar class="h-9 w-9">
                           <AvatarFallback>{conn.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
+                          <p class="text-foreground text-title truncate font-medium">
                             {conn.displayName || `@${conn.handle}`}
                           </p>
                           <Show when={conn.displayName}>
-                            <p class="text-muted-foreground text-meta">@{conn.handle}</p>
+                            <p class="text-muted-foreground text-meta truncate">@{conn.handle}</p>
                           </Show>
                         </div>
                         <div class="flex items-center gap-1.5">
@@ -208,9 +220,10 @@ export function ConnectionsPage() {
                             variant="ghostDanger"
                             size="sm"
                             class="h-7 max-md:h-10"
+                            busy={actions.busy(`remove:${conn.handle}`)}
                             onClick={() => requestRemove(conn)}
                           >
-                            Remove
+                            {actions.busy(`remove:${conn.handle}`) ? "Removing…" : "Remove"}
                           </Button>
                         </div>
                       </div>
@@ -224,8 +237,8 @@ export function ConnectionsPage() {
 
         {/* Pending requests */}
         <Show when={tab() === "pending"}>
-          <div aria-busy={payload.loading || undefined}>
-            <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
+          <div aria-busy={pending.busy || undefined}>
+            <Show when={pending()} fallback={<LoadingSkeleton count={pending.rows} />}>
               <Show
                 when={(pending()?.pending.length ?? 0) > 0}
                 fallback={<EmptyNote size="section">No pending connection requests.</EmptyNote>}
@@ -238,10 +251,10 @@ export function ConnectionsPage() {
                           <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
+                          <p class="text-foreground text-title truncate font-medium">
                             {req.displayName || `@${req.handle}`}
                           </p>
-                          <p class="text-muted-foreground text-meta">
+                          <p class="text-muted-foreground text-meta truncate">
                             Requested {new Date(req.requestedAt).toLocaleDateString()}
                           </p>
                         </div>
@@ -249,17 +262,27 @@ export function ConnectionsPage() {
                           <Button
                             size="sm"
                             class="h-7 max-md:h-10"
+                            busy={actions.busy(`accept:${req.handle}`)}
+                            disabled={
+                              !actions.busy(`accept:${req.handle}`) &&
+                              actions.busy(`decline:${req.handle}`)
+                            }
                             onClick={() => acceptRequest(req.handle)}
                           >
-                            Accept
+                            {actions.busy(`accept:${req.handle}`) ? "Accepting…" : "Accept"}
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             class="h-7 max-md:h-10"
+                            busy={actions.busy(`decline:${req.handle}`)}
+                            disabled={
+                              !actions.busy(`decline:${req.handle}`) &&
+                              actions.busy(`accept:${req.handle}`)
+                            }
                             onClick={() => rejectRequest(req.handle)}
                           >
-                            Decline
+                            {actions.busy(`decline:${req.handle}`) ? "Declining…" : "Decline"}
                           </Button>
                         </div>
                       </div>
@@ -273,8 +296,8 @@ export function ConnectionsPage() {
 
         {/* Sent requests */}
         <Show when={tab() === "sent"}>
-          <div aria-busy={payload.loading || undefined}>
-            <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
+          <div aria-busy={sent.busy || undefined}>
+            <Show when={sent()} fallback={<LoadingSkeleton count={sent.rows} />}>
               <Show
                 when={(sent()?.sent.length ?? 0) > 0}
                 fallback={<EmptyNote size="section">No outgoing connection requests.</EmptyNote>}
@@ -287,10 +310,10 @@ export function ConnectionsPage() {
                           <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
+                          <p class="text-foreground text-title truncate font-medium">
                             {req.displayName || `@${req.handle}`}
                           </p>
-                          <p class="text-muted-foreground text-meta">
+                          <p class="text-muted-foreground text-meta truncate">
                             Requested {new Date(req.requestedAt).toLocaleDateString()}
                           </p>
                         </div>
@@ -299,9 +322,10 @@ export function ConnectionsPage() {
                             variant="ghostDanger"
                             size="sm"
                             class="h-7 max-md:h-10"
+                            busy={actions.busy(`cancel:${req.handle}`)}
                             onClick={() => cancelSentRequest(req.handle)}
                           >
-                            Cancel
+                            {actions.busy(`cancel:${req.handle}`) ? "Cancelling…" : "Cancel"}
                           </Button>
                         </div>
                       </div>
@@ -348,8 +372,8 @@ export function ConnectionsPage() {
 
         {/* Blocked */}
         <Show when={tab() === "blocked"}>
-          <div aria-busy={payload.loading || undefined}>
-            <Show when={!payload.loading} fallback={<LoadingSkeleton count={1} />}>
+          <div aria-busy={blocked.busy || undefined}>
+            <Show when={blocked()} fallback={<LoadingSkeleton count={blocked.rows} />}>
               <Show
                 when={(blocked()?.blocks.length ?? 0) > 0}
                 fallback={<EmptyNote size="section">You haven't blocked anyone.</EmptyNote>}
@@ -364,15 +388,18 @@ export function ConnectionsPage() {
                           </AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">@{profile.handle}</p>
+                          <p class="text-foreground text-title truncate font-medium">
+                            @{profile.handle}
+                          </p>
                         </div>
                         <Button
                           variant="secondary"
                           size="sm"
                           class="h-7 max-md:h-10"
+                          busy={actions.busy(`unblock:${profile.handle}`)}
                           onClick={() => unblock(profile.handle)}
                         >
-                          Unblock
+                          {actions.busy(`unblock:${profile.handle}`) ? "Unblocking…" : "Unblock"}
                         </Button>
                       </div>
                     )}
@@ -388,8 +415,9 @@ export function ConnectionsPage() {
 }
 
 /**
- * `count` rows' placeholders, spaced as the list is. A row is 56px, and 60px
- * below `md`, where its buttons take the touch height.
+ * `count` rows' placeholders, spaced as the list is: as many as the tab last
+ * landed, one when nothing is known. A row is 56px, and 60px below `md`, where
+ * its buttons take the touch height.
  */
 function LoadingSkeleton(props: { count: number }) {
   return (

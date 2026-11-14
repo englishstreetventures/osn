@@ -52,21 +52,24 @@ const ShellNotices = lazy(() =>
   import("./components/ShellNotices").then((m) => ({ default: m.ShellNotices })),
 );
 
+// The data pages' modules are imported in one place each: the page and its
+// route's preload share the chunk, and no new import site splits the entry.
+const connectionsModule = () => import("./pages/ConnectionsPage");
+const discoverModule = () => import("./pages/DiscoverPage");
+const organisationsModule = () => import("./pages/OrganisationsPage");
+const orgDetailModule = () => import("./pages/OrgDetailPage");
+
 const ConnectionsPage = lazy(() =>
-  import("./pages/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })),
+  connectionsModule().then((m) => ({ default: m.ConnectionsPage })),
 );
-const DiscoverPage = lazy(() =>
-  import("./pages/DiscoverPage").then((m) => ({ default: m.DiscoverPage })),
-);
+const DiscoverPage = lazy(() => discoverModule().then((m) => ({ default: m.DiscoverPage })));
 const SearchPage = lazy(() =>
   import("./pages/SearchPage").then((m) => ({ default: m.SearchPage })),
 );
 const OrganisationsPage = lazy(() =>
-  import("./pages/OrganisationsPage").then((m) => ({ default: m.OrganisationsPage })),
+  organisationsModule().then((m) => ({ default: m.OrganisationsPage })),
 );
-const OrgDetailPage = lazy(() =>
-  import("./pages/OrgDetailPage").then((m) => ({ default: m.OrgDetailPage })),
-);
+const OrgDetailPage = lazy(() => orgDetailModule().then((m) => ({ default: m.OrgDetailPage })));
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
 );
@@ -146,8 +149,9 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
       </Show>
       {/* Inside the scroll column, above the page: the layout is a row on
           desktop, so a sibling of `Content` would land beside the rail
-          rather than over the page. `ShellNotices` renders only once the
-          runtime has ended a session or the profile list has failed;
+          rather than over the page. `ShellNotices` draws only once the
+          runtime has ended a session or the profile list has failed, and
+          keeps the page cache bound to the session meanwhile;
           `AccountBanners` renders nothing until a session exists. Neither
           renders on a bare route. */}
       <Content padForMobileNav>
@@ -221,15 +225,50 @@ function Content(props: { children?: JSX.Element; padForMobileNav?: boolean }) {
   );
 }
 
+/**
+ * Starts a page's reads on the page cache before the page shows, from the
+ * page's own module. The router calls a route's `preload` when a link to it is
+ * hovered (at rest 20ms), focused or touched, and as it is navigated to. A
+ * read starts only for rows not yet landed; signed out, none does. A module
+ * that fails to load starts nothing; the page's own load says so.
+ */
+function preloadFrom<M>(load: () => Promise<M>, start: (module: M) => void) {
+  load().then(start, () => undefined);
+}
+
 export default function App() {
   return (
     <Router root={Layout}>
-      <Route path="/" component={ConnectionsPage} />
-      <Route path="/connections" component={ConnectionsPage} />
+      <Route
+        path="/"
+        component={ConnectionsPage}
+        preload={() => preloadFrom(connectionsModule, (m) => m.preloadConnections())}
+      />
+      <Route
+        path="/connections"
+        component={ConnectionsPage}
+        preload={() => preloadFrom(connectionsModule, (m) => m.preloadConnections())}
+      />
       <Route path="/search" component={SearchPage} />
-      <Route path="/discover" component={DiscoverPage} />
-      <Route path="/organisations" component={OrganisationsPage} />
-      <Route path="/organisations/:handle" component={OrgDetailPage} />
+      <Route
+        path="/discover"
+        component={DiscoverPage}
+        preload={() => preloadFrom(discoverModule, (m) => m.preloadDiscover())}
+      />
+      <Route
+        path="/organisations"
+        component={OrganisationsPage}
+        preload={() => preloadFrom(organisationsModule, (m) => m.preloadOrganisations())}
+      />
+      <Route
+        path="/organisations/:handle"
+        component={OrgDetailPage}
+        preload={({ params }) => {
+          const handle = params.handle;
+          if (!handle) return;
+          preloadFrom(orgDetailModule, (m) => m.preloadOrganisation(handle));
+        }}
+      />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/authorize" component={AuthorizePage} />
       <Route path="/verify/:requestId" component={VerifyEmailLinkPage} />

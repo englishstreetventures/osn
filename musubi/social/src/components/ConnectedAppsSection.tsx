@@ -1,10 +1,11 @@
 import { describeAuthError } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { connectionsClient } from "../lib/authClients";
+import { connectedApps } from "../lib/page-data";
 import { safeAvatarUrl } from "../lib/utils";
 import { AppRowsLoading } from "./AppRowsLoading";
 import { EmptyNote } from "./EmptyNote";
@@ -19,18 +20,18 @@ import { EmptyNote } from "./EmptyNote";
  * page's (`SettingsPage`), so its words show while this section's code loads.
  */
 export function ConnectedAppsSection() {
-  const [connections, { refetch }] = createResource(() =>
-    connectionsClient.list().then((r) => r.connections),
-  );
+  // Through the page cache: the tab shown again draws its last list at once
+  // and reads it again behind it.
+  const connections = connectedApps.use(() => []);
   /**
    * The list once a read has landed, kept on screen while it is read again
-   * after a revoke (so the busy Revoke stays where it was), and nothing before
-   * the first read lands or after one fails. It reads `state` first: a failed
-   * resource throws when read, which would end the page in its error boundary.
+   * (so a busy Revoke stays where it was), and nothing before the first read
+   * lands or after one fails. It reads `state` first: a failed read throws
+   * when read, which would end the page in its error boundary.
    */
   const list = () => {
     const state = connections.state;
-    return state === "ready" || state === "refreshing" ? connections.latest : undefined;
+    return state === "ready" || state === "refreshing" ? connections() : undefined;
   };
   const [revoking, setRevoking] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
@@ -40,8 +41,11 @@ export function ConnectedAppsSection() {
     setError(null);
     setRevoking(clientId);
     try {
+      // Nothing is revoked for an app the read in flight has taken off.
+      const shown = await connections.settled();
+      if (!shown?.some((app) => app.clientId === clientId)) return;
       await connectionsClient.revoke({ clientId });
-      await refetch();
+      await connectedApps.refresh();
     } catch (e) {
       setError(`Couldn't revoke this app. ${describeAuthError(e)}`);
     } finally {
@@ -59,16 +63,16 @@ export function ConnectedAppsSection() {
         </Notice>
       </Show>
 
-      {/* The list's place: one app's placeholder until the first read lands,
-          the failure, or the list. */}
-      <div aria-busy={connections.loading || undefined}>
-        <Show when={!connections.loading && connections.error}>
+      {/* The list's place: as many apps' placeholders as it last landed until
+          the first read lands, the failure, or the list. */}
+      <div aria-busy={connections.busy || undefined}>
+        <Show when={connections.state === "errored"}>
           <Notice tone="danger" size="inline" alert>
             Couldn't load your connected apps. Reload and try again.
           </Notice>
         </Show>
-        <Show when={connections.loading && list() === undefined}>
-          <AppRowsLoading />
+        <Show when={connections.busy && list() === undefined && connections.state !== "errored"}>
+          <AppRowsLoading count={connections.rows} />
         </Show>
         <Show when={list()}>
           {(apps) => (
