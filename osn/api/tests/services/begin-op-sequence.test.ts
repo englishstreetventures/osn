@@ -301,11 +301,11 @@ describe("POST /register/begin", () => {
 });
 
 describe("POST /register/begin with `previous`", () => {
-  /** What begin's own calls are, after the one read a `previous` costs. */
+  /** A begin's own calls, after the one read a `previous` costs. */
   const AFTER_READ = ["email_link.read", "email_link.write", "pending_registration.swap"];
 
   it.live(
-    "makes the same calls for a wrong retire secret, an unknown request and the claim secret sent as one, whatever the address",
+    "retires nothing, and makes the same calls, for another address, a wrong secret, an unknown request or the claim secret, whatever the address",
     () => {
       const h = harness();
       return Effect.gen(function* () {
@@ -320,24 +320,50 @@ describe("POST /register/begin with `previous`", () => {
           "seqprevother",
           "1990-01-01",
         );
+        const bare = yield* h.auth.beginRegistration(
+          "seq-prev-bare@example.com",
+          "seqprevbare",
+          "1990-01-01",
+        );
         const tries = [
-          { requestId: live.requestId, retireSecret: "0".repeat(64) },
-          { requestId: decoy.requestId, retireSecret: "0".repeat(64) },
-          { requestId: "signup_0123456789ab", retireSecret: live.retireSecret },
-          { requestId: live.requestId, retireSecret: live.claimSecret },
-          { requestId: decoy.requestId, retireSecret: decoy.claimSecret },
-        ];
-        for (const [n, previous] of tries.entries()) {
+          // The right secret, from a begin for another address.
+          [
+            "seq-prev-elsewhere@example.com",
+            { requestId: live.requestId, retireSecret: live.retireSecret },
+          ],
+          [
+            "seq-prev-elsewhere2@example.com",
+            { requestId: decoy.requestId, retireSecret: decoy.retireSecret },
+          ],
+          // A begin for the request's own address, without its secret.
+          ["seq-prev@example.com", { requestId: live.requestId, retireSecret: "0".repeat(64) }],
+          [
+            "seq-prev-taken@example.com",
+            { requestId: decoy.requestId, retireSecret: "0".repeat(64) },
+          ],
+          [
+            "seq-prev@example.com",
+            { requestId: "signup_0123456789ab", retireSecret: live.retireSecret },
+          ],
+          ["seq-prev@example.com", { requestId: live.requestId, retireSecret: live.claimSecret }],
+          [
+            "seq-prev-taken@example.com",
+            { requestId: decoy.requestId, retireSecret: decoy.claimSecret },
+          ],
+        ] as const;
+        for (const [n, [address, previous]] of tries.entries()) {
           const run = yield* h.record(
-            h.auth.beginRegistration(
-              `seq-prev-${n}@example.com`,
-              `seqprev${n}`,
-              "1990-01-01",
-              undefined,
-              previous,
-            ),
+            h.auth.beginRegistration(address, `seqprev${n}`, "1990-01-01", undefined, previous),
           );
           expect(run).toEqual({ ops: AFTER_READ, outcome: "ok" });
+          const answered = yield* h.auth.beginRegistration(
+            address,
+            `seqprevagain${n}`,
+            "1990-01-01",
+            undefined,
+            previous,
+          );
+          expect(Object.keys(answered).toSorted()).toEqual(Object.keys(bare).toSorted());
         }
         // Nothing was retired: both requests are as they were.
         expect((yield* h.entry(live.requestId))?.status).toBe("pending");
@@ -347,7 +373,7 @@ describe("POST /register/begin with `previous`", () => {
   );
 
   it.live(
-    "makes the same calls retiring a free address's request, a taken one's and a held one's",
+    "retires a free address's request, a taken one's and a held one's for a begin for the same address, with the same calls",
     () => {
       const h = harness();
       return Effect.gen(function* () {
@@ -358,30 +384,41 @@ describe("POST /register/begin with `previous`", () => {
           "seqretother",
           "1990-01-01",
         );
+        const holder = yield* h.auth.beginRegistration(
+          "seq-held@example.com",
+          "seqheld",
+          "1990-01-01",
+        );
         const held = yield* h.auth.beginRegistration(
-          "seq-ret@example.com",
-          "seqretheld",
+          "seq-held@example.com",
+          "seqheldtwo",
           "1990-01-01",
         );
 
         const runs = [];
-        for (const [n, begun] of [held, taken, free].entries()) {
+        for (const [n, [address, begun]] of (
+          [
+            ["seq-held@example.com", held],
+            ["seq-ret-taken@example.com", taken],
+            ["seq-ret@example.com", free],
+          ] as const
+        ).entries()) {
           runs.push(
             yield* h.record(
-              h.auth.beginRegistration(
-                `seq-ret-${n}@example.com`,
-                `seqretnext${n}`,
-                "1990-01-01",
-                undefined,
-                { requestId: begun.requestId, retireSecret: begun.retireSecret },
-              ),
+              h.auth.beginRegistration(address, `seqretnext${n}`, "1990-01-01", undefined, {
+                requestId: begun.requestId,
+                retireSecret: begun.retireSecret,
+              }),
             ),
           );
         }
         expect(runs[1]).toEqual(runs[0]);
         expect(runs[2]).toEqual(runs[0]);
         expect(runs[0]!.outcome).toBe("ok");
+        expect(runs[0]!.ops).not.toEqual(AFTER_READ);
         for (const begun of [held, taken, free]) expect(yield* h.entry(begun.requestId)).toBeNull();
+        // Retiring the held request left the address with the sign-up holding it.
+        expect((yield* h.entry(holder.requestId))?.status).toBe("pending");
       }).pipe(Effect.provide(h.layer));
     },
   );

@@ -1146,17 +1146,20 @@ export function createEmailLinkModule(ctx: AuthContext) {
     });
 
   /**
-   * Ends the request for the holder of its retire secret, and frees the
+   * Ends the request for the holder of its retire secret, when `sameSubject`
+   * says it is about what the caller's own request is about, and frees the
    * flow's pending entry for it. Answers whether it ended the request. A
    * wrong flow, an unknown, expired or malformed request, a request that
-   * carries no retire digest and a wrong secret (the claim secret included)
-   * each cost the one read and touch nothing, alike; so does a claimed
-   * request, past the read, as {@link end} leaves it.
+   * carries no retire digest, a wrong secret (the claim secret included) and
+   * another subject each cost the one read and touch nothing, alike; so does
+   * a claimed request, past the read, as {@link end} leaves it. Both checks
+   * run whatever the first answers.
    */
   const retire = (
     flow: EmailLinkFlow,
     requestId: string,
     retireSecret: string,
+    sameSubject: (entry: EmailLinkChallenge) => boolean,
   ): Effect.Effect<boolean, CoordinationError> =>
     Effect.gen(function* () {
       if (!ANY_ID.test(requestId)) return false;
@@ -1165,7 +1168,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
       // A request with no retire digest compares against nothing, and never
       // matches.
       const stored = typeof entry.retireSecretHash === "string" ? entry.retireSecretHash : "";
-      if (!timingSafeEqualString(stored, sha256(retireSecret))) return false;
+      const holds = timingSafeEqualString(stored, sha256(retireSecret));
+      const same = sameSubject(entry);
+      if (!holds || !same) return false;
       return yield* end(requestId, entry);
     });
 

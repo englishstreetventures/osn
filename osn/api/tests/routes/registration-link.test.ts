@@ -428,12 +428,14 @@ describe("resend", () => {
     expect(await whileHeld.json()).toEqual({ status: "sent" });
     expect(linksTo(h.recorded(), email)).toHaveLength(1);
 
-    // The first tab goes back and begins for another address, which retires it.
-    await beginThroughRoutes(h.app, {
-      email: "parks-later-2@example.com",
-      handle: "parksfirst",
-      previous: { requestId: first.requestId, retireSecret: first.retireSecret },
-    });
+    // The first link's reader says they did not ask, which ends the first.
+    const declined = await confirmThroughRoutes(
+      h.app,
+      first.requestId,
+      first.link.linkSecret,
+      "none",
+    );
+    expect(await declined.json()).toEqual({ status: "declined" });
 
     const resent = await resendThroughRoutes(h.app, second.body.requestId, second.body.claimSecret);
     expect(await resent.json()).toEqual({ status: "sent" });
@@ -595,6 +597,11 @@ describe("previous on begin", () => {
       { requestId: "signup_0123456789ab", retireSecret: first.retireSecret },
       { requestId: first.requestId, retireSecret: first.claimSecret },
     ];
+    const bare = await beginThroughRoutes(
+      h.app,
+      { email, handle: "previous" },
+      { "x-forwarded-for": "10.0.8.7" },
+    );
     for (const [n, previous] of tries.entries()) {
       // eslint-disable-next-line no-await-in-loop -- each refusal is checked before the next
       const refused = await beginThroughRoutes(
@@ -602,15 +609,22 @@ describe("previous on begin", () => {
         { email, handle: "previous", previous },
         { "x-forwarded-for": `10.0.8.${n}` },
       );
-      expect(refused.res.status).toBe(200);
-      expect(Object.keys(refused.body).toSorted()).toEqual([
-        "claimSecret",
-        "expiresAt",
-        "pairingCode",
-        "requestId",
-        "retireSecret",
-      ]);
+      expect(refused.res.status).toBe(bare.res.status);
+      expect(Object.keys(refused.body).toSorted()).toEqual(Object.keys(bare.body).toSorted());
     }
+    // The right secret with a begin for another address: that begin goes on
+    // as any begin for a free address, and the first request is left alone.
+    const elsewhere = "previous-elsewhere@example.com";
+    await beginThroughRoutes(
+      h.app,
+      {
+        email: elsewhere,
+        handle: "previouselse",
+        previous: { requestId: first.requestId, retireSecret: first.retireSecret },
+      },
+      { "x-forwarded-for": "10.0.8.8" },
+    );
+    expect(linksTo(h.recorded(), elsewhere)).toHaveLength(1);
     expect(linksTo(h.recorded(), email)).toHaveLength(1);
     const stillLive = await statusThroughRoutes(h.app, first.requestId, first.claimSecret);
     expect(await stillLive.json()).toEqual({ status: "pending", pairingCode: first.pairingCode });
@@ -738,7 +752,7 @@ describe("the retire secret", () => {
     const a = await beginThroughRoutes(
       h.app,
       {
-        email: "retire-next-a@example.com",
+        email: "retire-free@example.com",
         handle: "retirenexta",
         previous: { requestId: free.requestId, retireSecret: free.retireSecret },
       },
@@ -747,7 +761,7 @@ describe("the retire secret", () => {
     const b = await beginThroughRoutes(
       h.app,
       {
-        email: "retire-next-b@example.com",
+        email: "retire-taken@example.com",
         handle: "retirenextb",
         previous: { requestId: taken.body.requestId, retireSecret: taken.body.retireSecret },
       },

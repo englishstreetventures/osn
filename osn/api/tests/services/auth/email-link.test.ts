@@ -391,15 +391,12 @@ describe("retiring a request that did not park", () => {
       const second = yield* settle(
         h.auth.beginRegistration(address, "releasesecond", "1990-01-01"),
       );
-      // The tab that began the second goes back and begins for another address.
+      // The tab that began the second starts again for the same address.
       yield* settle(
-        h.auth.beginRegistration(
-          "release-other-2@example.com",
-          "releasesecond",
-          "1990-01-01",
-          undefined,
-          { requestId: second.requestId, retireSecret: second.retireSecret },
-        ),
+        h.auth.beginRegistration(address, "releasesecond", "1990-01-01", undefined, {
+          requestId: second.requestId,
+          retireSecret: second.retireSecret,
+        }),
       );
 
       expect(yield* h.entry(second.requestId)).toBeNull();

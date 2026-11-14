@@ -6,6 +6,7 @@
 
 import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
 import { and, eq, sql } from "drizzle-orm";
@@ -327,16 +328,18 @@ export function createRegistrationModule(
    *    begins at once, one parks and the other sends nothing until a Resend
    *    finds the address free.
    *  - `previous`, the request and retire secret of a sign-up begun before in
-   *    this browser, retires that request and frees its address first, so a
-   *    person who goes back to fix their handle, or starts again from another
-   *    tab, can begin again at once. The browser keeps the retire secret where
-   *    every tab can read it, so whoever uses that browser while the request
-   *    lives and types its address can end it and have a new link mailed at
-   *    once; the link still needs the new request's number picked, and wrong
-   *    picks count against the address. A wrong retire secret, the claim
-   *    secret in its place, or an unknown request retires nothing and costs
-   *    the one read, alike. Its first link counts against the mailbox's
-   *    first-link window as every begin's does.
+   *    this browser, retires that request and frees its address first when
+   *    it is for the address this begin is for, so a person who goes back to
+   *    fix their handle, or starts again from another tab, can begin again
+   *    at once. The browser keeps the retire secret where every tab can read
+   *    it, so whoever uses that browser while the request lives and types its
+   *    address can end it and have a new link mailed at once; the link still
+   *    needs the new request's number picked, and wrong picks count against
+   *    the address. A wrong retire secret, the claim secret in its place, an
+   *    unknown request or one for another address retires nothing, costs the
+   *    one read and answers as a begin with no `previous` does, alike. Its
+   *    first link counts against the mailbox's first-link window as every
+   *    begin's does.
    *  - The pending store is self-bounding (CEREMONY_STORE_MAX in memory,
    *    per-entry TTL on the Durable Object store).
    *  - The local-only debug line with the link is gated on `OSN_ENV` being
@@ -403,7 +406,14 @@ export function createRegistrationModule(
       const normalisedEmail = email.toLowerCase();
 
       if (previous) {
-        yield* links.retire("registration", previous.requestId, previous.retireSecret);
+        // Only a request for the address typed now is retired: its parked
+        // address, or a taken address's probe key, keyed as this begin's.
+        const typedKey = serverMac.probeKey(normalisedEmail);
+        yield* links.retire("registration", previous.requestId, previous.retireSecret, (entry) => {
+          const parked = entry.signUp?.email ?? "";
+          const parkedKey = serverMac.probeKey(parked);
+          return timingSafeEqualString(parked === "" ? entry.subject : parkedKey, typedKey);
+        });
       }
 
       // A browser's proof that the person controls the address, checked
