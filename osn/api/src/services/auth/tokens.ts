@@ -6,7 +6,20 @@
 import { accounts, rotatedSessions, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { Clock, Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
@@ -695,6 +708,40 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   // -------------------------------------------------------------------------
 
   /**
+   * True when `accountId` is scheduled for deletion and owns no profile
+   * `profileId`. A tombstoned account's profiles are hidden from
+   * `findProfileById`, so ownership is read from `users` directly.
+   */
+  const foreignProfileOfScheduledDeletion = (
+    accountId: string,
+    profileId: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ one: sql`1` })
+            .from(accounts)
+            .where(
+              and(
+                eq(accounts.id, accountId),
+                isNotNull(accounts.deletedAt),
+                notExists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(users)
+                    .where(and(eq(users.id, profileId), eq(users.accountId, accountId))),
+                ),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows.length > 0;
+    });
+
+  /**
    * True when `profileId` is one of `accountId`'s profiles. Read from `users`
    * directly: `findProfileById` hides the profiles of an account scheduled
    * for deletion.
@@ -860,8 +907,21 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       ) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
-      const profile =
-        named && named.accountId === accountId ? named : yield* findDefaultProfile(accountId);
+      // Unmarked, a session of an account scheduled for deletion (a row from
+      // before the mark existed, or a handle no sign-in has replaced) is still
+      // refused a named profile its account does not own. Read only when the
+      // named profile is not a live account's own.
+      const namedOwnLive = named !== null && named.accountId === accountId;
+      if (
+        replacedAt === null &&
+        profileId !== undefined &&
+        restrictedUntil === null &&
+        !namedOwnLive &&
+        (yield* foreignProfileOfScheduledDeletion(accountId, profileId))
+      ) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      }
+      const profile = namedOwnLive ? named : yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
@@ -897,6 +957,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const { db } = yield* Db;
       const oldRow = eq(sessions.id, oldSessionId);
       const newRow = eq(sessions.id, newSessionId);
+      // Unmarked at the read, and naming no live profile of its own account:
+      // the mark would refuse this grant.
+      const refusedOnceMarked = replacedAt === null && !namedOwnLive;
 
       // 1. The new session, written only while the old one stands. It copies
       //    the device from the old row as that row stands when the insert
@@ -937,7 +1000,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
               replacedAt: sessions.replacedAt,
             })
             .from(sessions)
-            .where(oldRow),
+            // A grant the mark would have refused, read before a sign-in marked
+            // the family, rotates nothing once the mark is on the old row: the
+            // swap then fails as a rotation race, and the retry reads the mark.
+            .where(refusedOnceMarked ? and(oldRow, isNull(sessions.replacedAt)) : oldRow),
         );
       // 2. The record of the rotated-out token, only once this request's new
       //    session is in, so reuse detection sees the old token replayed. Its
