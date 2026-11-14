@@ -60,6 +60,7 @@ const { createAuthService } = await import("../../src/services/auth");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createAuthRoutes } = await import("../helpers/routes");
 const { holdQueries } = await import("../helpers/held-query");
+const { cancelErasure, requestErasure } = await import("../../src/services/account-erasure");
 const { beginThroughRoutes, confirmThroughRoutes, latestLinkTo, statusThroughRoutes } =
   await import("../helpers/registration");
 const { beginRecoveryThroughRoutes, latestRecoveryLinkTo, recoveryStatusThroughRoutes } =
@@ -562,6 +563,189 @@ describe("a passkey sign-in and the session the request carried", () => {
     ]) {
       expect(written).not.toContain(secret);
     }
+  });
+});
+
+describe("a sign-in on a browser holding the cancel handle of an account scheduled for deletion", () => {
+  /**
+   * Account A asks to be deleted from the session `token`, which the deletion
+   * keeps as its cancel handle: a tombstoned account cannot sign in again, so
+   * that session is the only way to cancel within the grace window.
+   */
+  async function scheduledForDeletion(h: Harness) {
+    const old = await h.signedIn("leaving");
+    await h.svc(
+      requestErasure({
+        accountId: old.profile.accountId,
+        cancel: { sessionId: h.auth.hashSessionToken(old.token), familyId: old.familyId! },
+      }),
+    );
+    return old;
+  }
+
+  /** `POST /token` with `token` as the cookie, naming `profileId`. */
+  const grantFor = (h: Harness, token: string, profileId: string) =>
+    h.request(
+      "/token",
+      { grant_type: "refresh_token", profile_id: profileId },
+      h.withCookie(token),
+    );
+
+  it("leaves the cancel handle live", async () => {
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+
+    const res = await passkeySignIn(h, await withPasskey(h, "newcomer"), leaving.token);
+
+    expect(res.status).toBe(200);
+    expect(h.familyRows(leaving.familyId!)).toBe(1);
+    expect((await h.grant(sessionCookieOf(res)!)).status).toBe(200);
+    // The account's own page renews it, naming its own profile, and so can
+    // still cancel the deletion.
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("ends the handle as reuse when the cookie was rotated out past the grace window", async () => {
+    // A token the handle's own renewals moved on from long ago is a replay,
+    // whatever request carries it: reuse detection ends the family here as
+    // `/token` would.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const renewed = await grantFor(h, leaving.token, leaving.profile.id);
+    expect(renewed.status).toBe(200);
+    h.sqlite
+      .query("UPDATE rotated_sessions SET rotated_at = ? WHERE account_id = ?")
+      .run(Date.now() - 60_000, leaving.profile.accountId);
+
+    const res = await passkeySignIn(h, await withPasskey(h, "newcomer"), leaving.token);
+
+    expect(res.status).toBe(200);
+    expect(h.familyRows(leaving.familyId!)).toBe(0);
+    expect((await grantFor(h, sessionCookieOf(renewed)!, leaving.profile.id)).status).toBe(400);
+  });
+
+  it("refuses the spared handle a renewal that names no profile, and OpenID Connect sees no session", async () => {
+    // A page with no stored account names no profile: it would take the
+    // handle as its own sign-in on the browser another account signed in on.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    expect((await passkeySignIn(h, await withPasskey(h, "newcomer"), leaving.token)).status).toBe(
+      200,
+    );
+
+    expect((await h.grant(leaving.token)).status).toBe(400);
+    const authorize = await h.svc(Effect.result(h.auth.verifyRefreshToken(leaving.token)));
+    expect(authorize._tag).toBe("Failure");
+  });
+
+  it("keeps refusing the spared handle another profile once the deletion is cancelled", async () => {
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+    // The account's own page renews, then cancels; the rotated cookie keeps
+    // the mark.
+    const own = await grantFor(h, leaving.token, leaving.profile.id);
+    expect(own.status).toBe(200);
+    expect(await h.svc(cancelErasure(leaving.profile.accountId))).toEqual({ cancelled: true });
+
+    const rotated = sessionCookieOf(own)!;
+    expect((await grantFor(h, rotated, newcomer.profile.id)).status).toBe(400);
+    expect((await h.grant(rotated)).status).toBe(400);
+    expect((await grantFor(h, rotated, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("refuses a handle no sign-in marked a renewal for a profile its account does not own", async () => {
+    // A row written before the mark existed, or one no sign-in has replaced
+    // yet, is still refused another account's profile.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    expect((await grantFor(h, leaving.token, newcomer.profile.id)).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("fails a renewal the mark would refuse when the mark lands while it rotates", async () => {
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    const mint = h.held.hold(/^insert into "sessions"/);
+    const renewal = h.grant(leaving.token);
+    await mint.reached;
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+    mint.release();
+    const answer = await renewal;
+
+    expect(answer.status).toBe(400);
+    expect(sessionCookieOf(answer)).toBeNull();
+    // The handle is untouched: still live, marked, and renewing as itself.
+    expect((await h.grant(leaving.token)).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("marks the handle's renewed session when the sign-in carries the cookie it just rotated", async () => {
+    // The handle renewed a moment before the sign-in, which still carries the
+    // old cookie: the mark reaches the family through the rotation record.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+    const renewed = await grantFor(h, leaving.token, leaving.profile.id);
+    expect(renewed.status).toBe(200);
+    const late = sessionCookieOf(renewed)!;
+
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+
+    expect(h.familyRows(leaving.familyId!)).toBe(1);
+    expect((await grantFor(h, late, newcomer.profile.id)).status).toBe(400);
+    expect((await h.grant(late)).status).toBe(400);
+  });
+
+  it("fails the handle's own renewal as a rotation race when the mark lands while it rotates", async () => {
+    // The guard cannot tell the account's own profile from another's while
+    // the account is scheduled for deletion, so its own renewal loses the
+    // race too; the retry, naming its own profile, renews.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    const mint = h.held.hold(/^insert into "sessions"/);
+    const renewal = grantFor(h, leaving.token, leaving.profile.id);
+    await mint.reached;
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+    mint.release();
+
+    expect((await renewal).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("leaves a handle no sign-in replaced to renew naming no profile", async () => {
+    // The account's own cold start, on its own browser: the refusals above
+    // follow the sign-in, not the deletion.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+
+    expect((await h.grant(leaving.token)).status).toBe(200);
+  });
+
+  it("refuses the handle's cookie a renewal for the profile the new sign-in holds", async () => {
+    // The handle's cookie can land after the sign-in's (a renewal of it was
+    // in flight); the page that signed in then renews with it, naming its own
+    // profile. The grant is refused, so the page is signed out rather than
+    // acting as the account scheduled for deletion.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+    const res = await passkeySignIn(h, newcomer, leaving.token);
+    expect(res.status).toBe(200);
+
+    const swapped = await grantFor(h, leaving.token, newcomer.profile.id);
+
+    expect(swapped.status).toBe(400);
+    expect(sessionCookieOf(swapped)).toBeNull();
+    // The refusal changes nothing: the handle still renews for its own profile.
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
   });
 });
 
