@@ -366,6 +366,16 @@ holds at 3:1. A focus mark appears at once, never animated.
   `focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden`;
   the profile choice on `/authorize`'s account screen does
   (`AuthorizePage.tsx`, in the contract's `ring-ui-focus`, the same colour).
+- **Where focus goes when a dialog opens.** To its first control, Kobalte's
+  default, which a footer's Cancel never is unless the dialog has nothing
+  before it ("Generate a new set?", the remove-friend dialog): the profile
+  switcher opens on its first row, a form dialog on its first field. The
+  step-up sheet puts it on "Use passkey" itself (`onOpenAutoFocus`), since its
+  other factors come first in the page. The sign-in and create-account dialogs open
+  with focus on the dialog itself (`AuthDialogs`, `onOpenAutoFocus`): their
+  first control is a text field, which would raise a phone's keyboard over
+  the sheet, or the "i" beside Email. A screen reader hears the dialog's
+  name, and Tab reaches the first field.
 - **Where focus goes when a dialog closes.** Back to the element that had it
   when the dialog opened, if it is still in the page: `ResponsiveDialogContent`
   does this for every app dialog. No app dialog has a `Dialog.Trigger`, so
@@ -534,17 +544,38 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   profile switcher takes. The component takes no `class`, `classList` or
   `style`: the sheet's rules sit behind `base:`, so a call-site `max-w-*` would
   cap the sheet too and pin a narrow sheet to a phone's left edge. A dialog's
-  padding and layout go on the children it wraps. Every dialog has a name: a
-  `DialogTitle` in a `DialogHeader`, or, where the view inside draws its own
-  heading (`@osn/auth-ui`'s `SignIn` and `Register`), an `aria-label` on
-  `ResponsiveDialogContent`.
-- **A form dialog** (create and edit organisation) = `DialogHeader` ›
-  `DialogTitle`, then the `<form>`: its fields in a body `div` padded 16px
-  (`flex flex-col gap-4 p-4`), its actions in `DialogFooter` (16px padding, a
-  hairline above, right-aligned; Cancel `secondary`, then the commit). The
-  footer sits inside the form, so Enter in a field submits. A confirmation
-  dialog has the same shape with its words in the body (`ConnectionsPage`'s
-  remove dialog).
+  padding and layout go on the children it wraps. Every dialog has a name: its
+  title, a `DialogTitle`, drawn by `@osn/auth-ui`'s `AuthHeader` in the app's
+  dialogs and the auth views' alike; `ResponsiveDialogContent` takes no
+  `aria-label`.
+- **Every dialog has one shape**, the app's and `@osn/auth-ui`'s alike ([the
+  owner's
+  call](https://github.com/englishstreetventures/osn/issues/2045#issuecomment-6843934504),
+  2026-11-13: "cancel in footer", "consistent across the board"): a header
+  holding the title alone, centred, its lines centred as it wraps and
+  breaking anywhere, over a hairline (`AuthHeader` with `host="dialog"`, from
+  `@osn/auth-ui`); the body, padded 16px; then `DialogActions`, also from
+  `@osn/auth-ui`: a `DialogFooter` (16px padding, a hairline above,
+  right-aligned, `gap-2`, wrapping rather than scrolling sideways) holding
+  Cancel (`secondary`) first, then the commit, both `size="sm"` and 40px tall
+  below `md` (`max-md:h-10`): 32px from `md`. One part draws each, so the
+  app's dialogs and the auth views' cannot drift apart. No dialog puts a button in its header. At `sm` every footer pair the
+  app and the auth views draw fits a 320px sheet's 288px on one line
+  (`osn/auth-ui/DESIGN.md` §4 has the measure). A dialog that commits nothing
+  of its own has Cancel alone: the profile switcher, whose rows are the
+  choice, puts it after them. Below `md` a tall sheet scrolls, footer
+  included; the scrim above the sheet and Escape stay as ways out.
+  `tools/e2e` holds the shape (`musubi-surfaces.ts`): `dialogTitle` and
+  `formDialog` read the create and edit organisation dialogs' centred title
+  and footer order, `signInLinkSurfaces` the sign-in dialog's,
+  `removalSheetSurfaces` the step-up sheet's, and the switcher check its
+  centred title, Cancel alone, focus on its row and Tab to Cancel.
+- **A form dialog** (create and edit organisation) = `AuthHeader`, then the
+  `<form>`: its fields in a body `div` padded 16px (`flex flex-col gap-4
+  p-4`), its actions in `DialogActions`. The footer sits inside the form, so
+  Enter in a field submits. A confirmation dialog has the same shape with its
+  words in the body (`ConnectionsPage`'s remove dialog, whose commit is
+  `destructive`).
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
@@ -700,8 +731,12 @@ apart by its underline or by standing alone at 500.
   the address.
 - **A link standing alone** is `variant="link" size="sm"`: 13px at 500 in a
   32px box with 12px sides, underlined only under the pointer. It sits centred
-  under the action it follows (`self-center`), so no column edge sits 12px off
-  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue.
+  (`self-center`), so no column edge sits 12px off its words: under the
+  action it follows on a page, and at the foot of a dialog's body, above the
+  footer, 40px tall below `md`, since a dialog's action is its footer's. Uses:
+  `@osn/auth-ui`'s "Lost your passkey?", under the field in the sign-in
+  dialog and under Continue on `/authorize`; its recovery steps' "Back";
+  the step-up sheet's "Use another method".
 - **The action that ends an error line is neither.** It keeps the line's ink
   and is underlined at rest: `@osn/auth-ui`'s `InlineAction`, and "Try again"
   in `ShellNotices` and `PageErrorBoundary`. `link` would paint it the accent
@@ -719,8 +754,10 @@ orb (§The orb).
 - **Only the button that started the wait.** Every other action in the same
   form or dialog is `disabled` while it runs, its Cancel, Back and links among
   them, so nothing leaves it mid-call: the organisation dialogs' Cancel while
-  Create or Save runs, and `@osn/auth-ui`'s sign-up Cancel while its link is
-  sent or resent. A row's action leaves the other rows alone.
+  Create or Save runs, `@osn/auth-ui`'s sign-up Cancel while its link is
+  sent or resent, and the profile switcher's Cancel while a switch runs,
+  where Escape and a press outside are refused too, as on the step-up sheet.
+  A row's action leaves the other rows alone.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -778,10 +815,11 @@ contract block in `App.css` maps onto this file's scale (§Token contract): a
 panel heading is `text-title` at 500, body lines `text-body` in the secondary
 ink, meta lines `text-meta`, names in a row 14px at 500. Their form fields,
 links and busy buttons follow this file too: §Form fields, §Links and §Busy
-buttons. A view's title in a dialog is the dialog's `DialogTitle`, so the
-sign-in and create-account dialogs are named "Sign in to Musubi" and
+buttons. A view's title in a dialog is the dialog's `DialogTitle`, centred, so
+the sign-in and create-account dialogs are named "Sign in to Musubi" and
 "Create your Musubi account" by the view; `ResponsiveDialogContent` takes no
-`aria-label` there.
+`aria-label` there. Their Cancel is the footer's, as every dialog's is
+(§Responsive layout, Dialogs).
 
 Every control the views draw by hand takes Button's focus ring, not the base
 outline (§Focus). Every text field in the views is `@shared/ui`'s `Input` (or

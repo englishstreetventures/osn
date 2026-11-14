@@ -75,9 +75,21 @@ function formatTs(ts: number | null): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
-/** The passkey a pending removal names. */
-function removing(action: PendingAction): string {
-  return action.kind === "delete" ? action.name : "";
+/** The step-up sheet's title: a removal names it; the rest take the sheet's own. */
+function stepUpTitle(action: PendingAction): string | undefined {
+  return action.kind === "delete" ? `Remove ${action.name}?` : undefined;
+}
+
+/** The one line the step-up sheet shows under its title for `action`. */
+function stepUpLine(action: PendingAction): string {
+  switch (action.kind) {
+    case "add":
+      return "To add a passkey, confirm it's you.";
+    case "rename":
+      return `To rename ${action.name}, confirm it's you.`;
+    case "delete":
+      return "You'll need another credential to sign in. Confirm it's you to remove it.";
+  }
 }
 
 function friendlyLabel(p: PasskeySummary): string {
@@ -87,7 +99,9 @@ function friendlyLabel(p: PasskeySummary): string {
 }
 
 type PendingAction =
-  | { kind: "rename"; id: string; label: string }
+  // `name` is the passkey as it is named now, for the sheet's line; `label`
+  // the name it is about to take.
+  | { kind: "rename"; id: string; label: string; name: string }
   | { kind: "delete"; id: string; name: string }
   | { kind: "add" };
 
@@ -138,12 +152,12 @@ export function PasskeysView(props: PasskeysViewProps) {
   // nothing. Not on the first read, when there is no row to act on.
   const locked = () => busy() || pending() !== null || passkeys.state === "refreshing";
 
-  function requestRename(id: string) {
+  function requestRename(p: PasskeySummary) {
     if (locked()) return;
     const label = draftLabel().trim();
     if (label.length === 0) return;
     setError(null);
-    setPending({ kind: "rename", id, label });
+    setPending({ kind: "rename", id: p.id, label, name: friendlyLabel(p) });
   }
 
   function requestDelete(p: PasskeySummary) {
@@ -279,7 +293,7 @@ export function PasskeysView(props: PasskeysViewProps) {
                               variant="outline"
                               size="sm"
                               class="shrink-0 max-md:h-10"
-                              onClick={() => requestRename(p.id)}
+                              onClick={() => requestRename(p)}
                               disabled={locked() || draftLabel().trim().length === 0}
                             >
                               Save
@@ -377,12 +391,10 @@ export function PasskeysView(props: PasskeysViewProps) {
             runPasskeyCeremony={props.runPasskeyCeremony}
             passkeyOnly={props.passkeyOnly}
             totpClient={props.totpClient}
-            title={action().kind === "delete" ? `Remove ${removing(action())}?` : undefined}
-            warning={
-              action().kind === "delete"
-                ? "You'll need another credential to sign in. Confirm it's you to remove it."
-                : undefined
-            }
+            title={stepUpTitle(action())}
+            // A removal's line says what it costs; the others say why.
+            warning={action().kind === "delete" ? stepUpLine(action()) : undefined}
+            reason={action().kind === "delete" ? undefined : stepUpLine(action())}
             // Bind the minted token to the exact ceremony. Enrolment mints
             // `passkey_register`; rename and delete share the delete gate and
             // both mint `passkey_delete`. The server rejects a token minted for

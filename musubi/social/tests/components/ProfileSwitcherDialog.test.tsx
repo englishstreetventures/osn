@@ -101,6 +101,49 @@ describe("<ProfileSwitcherDialog />", () => {
     expect(switchProfile).not.toHaveBeenCalled();
   });
 
+  // A way out besides Escape, in the footer, after the rows.
+  it("closes from its footer's Cancel", () => {
+    const onOpenChange = vi.fn();
+    renderSwitcher(
+      makeAuth(() => Promise.reject(new Error("unused"))),
+      onOpenChange,
+    );
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const title = screen.getByRole("heading", { name: "Switch profile" });
+    expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+    // After the rows, so the first row stays the first thing Tab reaches.
+    expect(screen.getAllByRole("button").at(-1)).toBe(cancel);
+    fireEvent.click(cancel);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // Escape closes the switcher when nothing runs, so the refusal below is a
+  // refusal and not an Escape that never arrives.
+  it("closes on Escape while idle", () => {
+    const onOpenChange = vi.fn();
+    renderSwitcher(
+      makeAuth(() => Promise.reject(new Error("unused"))),
+      onOpenChange,
+    );
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // Nothing closes the switcher while a switch runs.
+  it("holds Cancel and Escape while a switch runs", async () => {
+    const switchProfile = vi.fn(() => new Promise(() => {}));
+    const onOpenChange = vi.fn();
+    renderSwitcher(makeAuth(switchProfile), onOpenChange);
+    fireEvent.click(profileRow("bob"));
+    await waitFor(() => expect(switchProfile).toHaveBeenCalled());
+    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(cancel);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("words an ended session as a sentence in the toast", async () => {
     const spy = vi.spyOn(toast, "error");
     renderSwitcher(

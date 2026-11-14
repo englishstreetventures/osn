@@ -1,10 +1,12 @@
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { DialogActions } from "@osn/auth-ui/DialogActions";
 import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Chip } from "@shared/ui/ui/chip";
-import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Dialog } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -283,9 +285,7 @@ export function OrgDetailPage() {
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
         <ResponsiveDialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit organisation</DialogTitle>
-          </DialogHeader>
+          <AuthHeader host="dialog" title="Edit organisation" />
           {/* The footer sits inside the form, so Enter in a field still submits. */}
           <form onSubmit={handleSave}>
             <div class="flex flex-col gap-4 p-4">
@@ -310,21 +310,11 @@ export function OrgDetailPage() {
                 )}
               </Field>
             </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                class="max-md:h-10"
-                onClick={() => setShowEdit(false)}
-                disabled={saving()}
-              >
-                Cancel
-              </Button>
+            <DialogActions onCancel={() => setShowEdit(false)} cancelDisabled={saving()}>
               <Button type="submit" size="sm" class="max-md:h-10" busy={saving()}>
                 {saving() ? "Saving…" : "Save"}
               </Button>
-            </DialogFooter>
+            </DialogActions>
           </form>
         </ResponsiveDialogContent>
       </Dialog>

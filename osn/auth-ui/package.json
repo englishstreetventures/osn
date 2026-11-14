@@ -16,6 +16,7 @@
     "./CheckEmailView": "./src/CheckEmailView.tsx",
     "./ConfirmLinkPage": "./src/ConfirmLinkPage.tsx",
     "./CreateProfileForm": "./src/CreateProfileForm.tsx",
+    "./DialogActions": "./src/DialogActions.tsx",
     "./PasskeysView": "./src/PasskeysView.tsx",
     "./pending-recovery": "./src/pending-recovery.ts",
     "./pending-sign-up": "./src/pending-sign-up.ts",

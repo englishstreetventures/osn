@@ -120,11 +120,14 @@ describe("the profile switcher", () => {
 
     const switcher = await waitFor(() => screen.getByRole("dialog", { name: "Switch profile" }));
     expect(dialogs()).toHaveLength(1);
-    const rows = within(switcher).getAllByRole("button");
-    expect(rows.map((row) => row.textContent)).toEqual([
+    // The rows, then the footer's Cancel.
+    const buttons = within(switcher).getAllByRole("button");
+    expect(buttons.map((button) => button.textContent)).toEqual([
       expect.stringContaining("@alice(Alice)"),
       expect.stringContaining("@alice_work"),
+      "Cancel",
     ]);
+    const rows = buttons.slice(0, 2);
     // The active profile says so in words, not only in its fill and tick.
     expect(rows.map((row) => row.getAttribute("aria-current"))).toEqual(["true", null]);
     expect(switcher.offsetWidth).toBe(320);
@@ -135,7 +138,7 @@ describe("the profile switcher", () => {
     await waitFor(() => expect(accountTrigger("header")).not.toBeNull());
     expect(dialogs()).toHaveLength(1);
     const sheet = screen.getByRole("dialog", { name: "Switch profile" });
-    expect(within(sheet).getAllByRole("button")).toHaveLength(2);
+    expect(within(sheet).getAllByRole("button")).toHaveLength(3);
     expect(sheet.offsetWidth).toBe(390);
     document.documentElement.classList.add("dark");
     await page.screenshot({ path: `${SHOTS}/switcher-390-dark.png` });

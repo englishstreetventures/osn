@@ -114,6 +114,22 @@ describe("SignIn component", () => {
     expect(screen.getByLabelText(/Email or @handle/).getAttribute("autocapitalize")).toBe("none");
   });
 
+  // On a page nothing moves — Continue spans the column and "Lost your
+  // passkey?" sits under it, as `/authorize`'s placeholder draws them.
+  it("puts Lost your passkey? under Continue on a page", () => {
+    render(() => (
+      <SignIn
+        host="page"
+        client={asLogin(login)}
+        recoveryClient={asRecovery(recovery)}
+        productName="Musubi"
+      />
+    ));
+    const proceed = screen.getByRole("button", { name: /^Continue$/ });
+    const link = screen.getByRole("button", { name: "Lost your passkey?" });
+    expect(proceed.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   describe("WebAuthn login (passkey or security key)", () => {
     it("happy path: begin → WebAuthn → complete → adoptSession", async () => {
       login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
@@ -646,6 +662,101 @@ describe("SignIn component", () => {
       fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
       await waitFor(() => dialogNamedOnce("Sign in to Musubi"));
       expect(screen.getByLabelText(/Email or @handle/)).toBeTruthy();
+    });
+
+    /**
+     * The view in an open sheet, as musubi's sign-in dialog holds it. Like
+     * every real host it passes `onOpenChange`, so a test can show that Cancel
+     * never asks the dialog to close: only the view's handler decides that.
+     */
+    function renderInDialog(onCancel = vi.fn(), onOpenChange = vi.fn()) {
+      render(() => (
+        <Dialog open onOpenChange={onOpenChange}>
+          <DialogContent presentation="sheet">
+            <SignIn
+              host="dialog"
+              client={asLogin(login)}
+              recoveryClient={asRecovery(recovery)}
+              productName="Musubi"
+              onCancel={onCancel}
+            />
+          </DialogContent>
+        </Dialog>
+      ));
+      return { onCancel, onOpenChange };
+    }
+
+    /** The buttons in the footer Cancel sits in, by name, in order. */
+    function footer(): string[] {
+      const cancel = screen.getByRole("button", { name: "Cancel" });
+      return [...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent ?? "");
+    }
+
+    // The header holds the title alone; Cancel leads the footer pair,
+    // calls the view's handler once and leaves closing to it.
+    it("puts Cancel first in the footer, beside Continue, with no button in the header", () => {
+      const { onCancel, onOpenChange } = renderInDialog();
+      const title = screen.getByRole("heading", { name: "Sign in to Musubi" });
+      expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+      expect(footer()).toEqual(["Cancel", "Continue"]);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    // The footer sits inside the form, so Enter in the field submits.
+    it("keeps Continue the form's submit, so Enter in the field sends it", () => {
+      renderInDialog();
+      const field = screen.getByLabelText(/Email or @handle/) as HTMLInputElement;
+      const proceed = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+      expect(proceed.type).toBe("submit");
+      expect(proceed.form).not.toBeNull();
+      expect(proceed.form).toBe(field.form);
+    });
+
+    it("puts Cancel beside the recovery chooser's own action, and it still leaves the dialog", async () => {
+      const { onCancel, onOpenChange } = renderInDialog();
+      fireEvent.click(screen.getByRole("button", { name: "Lost your passkey?" }));
+      await screen.findByRole("heading", { name: "Recover your account" });
+      expect(footer()).toEqual(["Cancel", "Use a recovery code"]);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).not.toHaveBeenCalled();
+      // Cancel leaves the dialog; it does not go back to sign-in.
+      expect(screen.getByRole("heading", { name: "Recover your account" })).toBeTruthy();
+    });
+
+    // The footer's Cancel is the dialog's way out, so it holds while the
+    // passkey call runs.
+    it("holds the footer's Cancel while the passkey call runs", async () => {
+      login.passkeyBegin.mockReturnValue(new Promise(() => {}));
+      const { onCancel } = renderInDialog();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+      await screen.findByRole("button", { name: "Verifying…" });
+      const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      fireEvent.click(cancel);
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it("takes no Cancel words in a dialog", () => {
+      render(() => (
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent presentation="sheet">
+            <SignIn
+              host="dialog"
+              client={asLogin(login)}
+              recoveryClient={asRecovery(recovery)}
+              productName="Musubi"
+              onCancel={() => {}}
+              // @ts-expect-error A dialog's Cancel always reads "Cancel".
+              cancelLabel="Sign in instead"
+            />
+          </DialogContent>
+        </Dialog>
+      ));
+      expect(screen.queryByRole("button", { name: "Sign in instead" })).toBeNull();
     });
   });
 });

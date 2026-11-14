@@ -1,9 +1,10 @@
 import { useAuth } from "@osn/client/solid";
 import { Button } from "@shared/ui/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@shared/ui/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 import { createSignal, Show } from "solid-js";
 
+import { AuthHeader } from "./AuthHeader";
 import { CreateProfileForm } from "./CreateProfileForm";
 
 /**
@@ -58,16 +59,13 @@ export function ProfileOnboarding(props: ProfileOnboardingProps) {
 
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
         <DialogContent presentation="sheet" class="md:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Create a new profile</DialogTitle>
-          </DialogHeader>
-          <div class="p-4">
-            <CreateProfileForm
-              checkHandle={props.checkHandle}
-              onSuccess={() => setShowCreate(false)}
-              onCancel={() => setShowCreate(false)}
-            />
-          </div>
+          <AuthHeader host="dialog" title="Create a new profile" />
+          {/* The form draws its own padded body and its footer. */}
+          <CreateProfileForm
+            checkHandle={props.checkHandle}
+            onSuccess={() => setShowCreate(false)}
+            onCancel={() => setShowCreate(false)}
+          />
         </DialogContent>
       </Dialog>
     </Show>

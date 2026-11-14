@@ -9,6 +9,7 @@ import { UsernameInput } from "@shared/ui/ui/username-input";
 import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
 import { describedBy, fieldError, type FieldError } from "./error-lines";
+import { stepAction, ViewStep } from "./ViewParts";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 
@@ -100,55 +101,61 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
   }
 
   return (
-    <form onSubmit={submit} class="flex flex-col gap-4">
-      <Field labelTreatment="plain" label="Handle">
-        {(field) => (
-          <UsernameInput
-            id={field.id}
-            required
-            spellcheck={false}
-            value={handle()}
-            onInput={onHandleInput}
-            status={handleStatus()}
-            placeholder="lowercase, numbers, _"
-            invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
-            aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
-            aria-invalid={error()?.invalid || undefined}
-          />
-        )}
-      </Field>
-
-      <Field labelTreatment="plain" label="Display name (optional)">
-        {(field) => (
-          <Input
-            {...field}
-            type="text"
-            value={displayName()}
-            onInput={(e) => setDisplayName(e.currentTarget.value)}
-          />
-        )}
-      </Field>
-
-      <Show when={error()}>
-        {(line) => (
-          <Notice tone="danger" size="inline" alert id={errorId}>
-            {line().text}
-          </Notice>
-        )}
-      </Show>
-
-      <div class="flex gap-2">
-        <Button type="submit" busy={busy()} disabled={!busy() && !canSubmit()} class="flex-1">
-          {busy() ? "Creating…" : "Create profile"}
-        </Button>
-        {/* `secondary`: its one host, `ProfileOnboarding`, draws it in a
-            dialog, whose dismiss button is `secondary`. */}
-        {props.onCancel && (
-          <Button type="button" variant="secondary" onClick={props.onCancel} disabled={busy()}>
-            Cancel
+    // Its one host, `ProfileOnboarding`, draws it in a dialog: the body, then
+    // the footer's Cancel and Create profile. The step sits inside the form,
+    // footer and all, so Enter in a field submits.
+    <form onSubmit={submit} class="flex flex-col">
+      <ViewStep
+        host="dialog"
+        onCancel={props.onCancel}
+        cancelDisabled={busy()}
+        action={
+          <Button
+            type="submit"
+            {...stepAction("dialog")}
+            busy={busy()}
+            disabled={!busy() && !canSubmit()}
+          >
+            {busy() ? "Creating…" : "Create profile"}
           </Button>
-        )}
-      </div>
+        }
+      >
+        <Field labelTreatment="plain" label="Handle">
+          {(field) => (
+            <UsernameInput
+              id={field.id}
+              required
+              spellcheck={false}
+              value={handle()}
+              onInput={onHandleInput}
+              status={handleStatus()}
+              placeholder="lowercase, numbers, _"
+              invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
+              aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
+              aria-invalid={error()?.invalid || undefined}
+            />
+          )}
+        </Field>
+
+        <Field labelTreatment="plain" label="Display name (optional)">
+          {(field) => (
+            <Input
+              {...field}
+              type="text"
+              value={displayName()}
+              onInput={(e) => setDisplayName(e.currentTarget.value)}
+            />
+          )}
+        </Field>
+
+        <Show when={error()}>
+          {(line) => (
+            <Notice tone="danger" size="inline" alert id={errorId}>
+              {line().text}
+            </Notice>
+          )}
+        </Show>
+      </ViewStep>
     </form>
   );
 }
