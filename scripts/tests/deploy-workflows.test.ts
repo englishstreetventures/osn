@@ -1345,14 +1345,14 @@ describe("CI's E2E job runs the suite once and retries the whole run only when i
   // of one job, CI's E2E, and never twice by design: a second run happens only
   // when e2e-with-retry.sh retries a failed one.
   test("on a pull request, a push or a merge-queue group, only CI's E2E step runs the suite, and nothing runs test:e2e:repro", () => {
-    const CHANGE_EVENTS = ["pull_request", "pull_request_target", "push", "merge_group"];
+    const CHANGE_EVENTS = new Set(["pull_request", "pull_request_target", "push", "merge_group"]);
     const workflows = Array.from(
       new Bun.Glob(".github/workflows/*.{yml,yaml}").scanSync({ cwd: root }),
     ).toSorted();
     expect(workflows).toContain(".github/workflows/e2e-repro.yml");
     const suiteSteps = workflows.flatMap((path) => {
       const workflow = load(path);
-      if (!Object.keys(workflow.on).some((event) => CHANGE_EVENTS.includes(event))) return [];
+      if (!Object.keys(workflow.on).some((event) => CHANGE_EVENTS.has(event))) return [];
       return Object.entries(workflow.jobs).flatMap(([id, job]) =>
         stepsOf(job)
           .filter((step) =>
