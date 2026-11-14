@@ -210,7 +210,9 @@ of the account, named by its session cookie or its token's `osn_sid`, or the
 answer is `409 session_stale` before the account's one parked registration
 challenge is touched ([[sessions#Access-token session binding (`osn_sid`)]]).
 A restricted recovery session is checked by `classifyCallerSession` instead,
-on both routes, since the live-session check refuses restricted sessions.
+on both routes, since the live-session check refuses restricted sessions; on
+begin, one that lookup does not resolve is refused `409 session_stale` before
+its step-up token is read.
 
 Since the credential-provenance work, `/passkey/register/begin` also decides
 what the credential it is about to create will be **stamped** with — the

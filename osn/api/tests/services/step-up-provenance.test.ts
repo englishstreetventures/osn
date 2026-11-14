@@ -70,6 +70,7 @@ const { createAuthService } = await import("../../src/services/auth");
 const { RECOVERY_COOLDOWN_MS } = await import("../../src/services/auth/constants");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createTestLayer } = await import("../helpers/db");
+const { NO_LIVE_SESSION } = await import("../helpers/step-up-link");
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
@@ -661,7 +662,9 @@ describe("fail-closed shapes", () => {
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("prov-last@example.com", "provlast");
       const only = yield* enrol(profile.accountId);
-      const err = yield* Effect.flip(auth.deletePasskey(profile.accountId, only.id, null));
+      const err = yield* Effect.flip(
+        auth.deletePasskey(profile.accountId, only.id, NO_LIVE_SESSION),
+      );
       expect(err._tag).toBe("AuthError");
       const { db } = yield* Db;
       const remaining = yield* Effect.promise(() =>

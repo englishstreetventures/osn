@@ -180,6 +180,18 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
             set.status = 401;
             return { error: "unauthorized" };
           }
+          // Before the step-up token is read: one minted while the session was live
+          // is not spent once it has ended.
+          const staleErr = await ctx.liveSessionGate(
+            "totp_disable",
+            profile.accountId,
+            claims,
+            headers.cookie,
+          );
+          if (staleErr) {
+            set.status = 409;
+            return staleErr;
+          }
           const headerToken = headers["x-step-up-token"];
           const stepUpToken = body?.step_up_token ?? headerToken;
           if (!stepUpToken) {
@@ -206,6 +218,8 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           400: errorResponse,
           401: errorResponse,
           403: errorResponse,
+          // `session_stale`: the access token's session has ended.
+          409: errorResponse,
           429: errorResponse,
           500: errorResponse,
         },

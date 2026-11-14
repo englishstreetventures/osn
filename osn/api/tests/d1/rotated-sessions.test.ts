@@ -362,7 +362,15 @@ describe("account erasure on D1", () => {
     await run(
       requestErasure({
         accountId: profile.accountId,
-        cancelSessionId: hashSessionToken(kept.refreshToken),
+        cancel: {
+          sessionId: hashSessionToken(kept.refreshToken),
+          familyId: (
+            await db
+              .select({ familyId: sessions.familyId })
+              .from(sessions)
+              .where(eq(sessions.id, hashSessionToken(kept.refreshToken)))
+          )[0]!.familyId,
+        },
       }),
     );
 

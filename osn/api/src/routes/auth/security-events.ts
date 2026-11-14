@@ -101,6 +101,18 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before the step-up token is read: one minted while the session was live
+            // is not spent once it has ended.
+            const staleErr = await ctx.liveSessionGate(
+              "security_event_ack",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             // Step-up gate. Access token alone is insufficient — an
             // XSS-captured token must not be able to silently dismiss the
             // banner that exists precisely to notice that compromise.
@@ -139,6 +151,8 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
             // inside its hold. A presented-but-invalid token fails inside the
             // service as an `AuthError` → 400.
             403: t.Union([emailChangeHeldResponse, errorResponse]),
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },
@@ -169,6 +183,18 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Before the step-up token is read: one minted while the session was live
+            // is not spent once it has ended.
+            const staleErr = await ctx.liveSessionGate(
+              "security_event_ack_all",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             const headerToken = headers["x-step-up-token"];
             const stepUpToken = body.step_up_token ?? headerToken;
             if (!stepUpToken) {
@@ -194,6 +220,8 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
             400: errorResponse,
             401: errorResponse,
             403: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },

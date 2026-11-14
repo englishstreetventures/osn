@@ -63,7 +63,9 @@ const seedAccountAndProfile = (
 /**
  * Helper — seed a passkey, recovery code, and 2 sessions for an account.
  */
-const seedCredentials = (accountId: string): Effect.Effect<{ aliveSessionId: string }, never, Db> =>
+const seedCredentials = (
+  accountId: string,
+): Effect.Effect<{ aliveSessionId: string; aliveFamilyId: string }, never, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const now = Math.floor(Date.now() / 1_000);
@@ -86,13 +88,14 @@ const seedCredentials = (accountId: string): Effect.Effect<{ aliveSessionId: str
       }),
     );
     const aliveSessionId = "sha_" + crypto.randomUUID().replace(/-/g, "");
+    const aliveFamilyId = "sfam_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const otherSessionId = "sha_" + crypto.randomUUID().replace(/-/g, "");
     yield* Effect.promise(() =>
       db.insert(sessions).values([
         {
           id: aliveSessionId,
           accountId,
-          familyId: "sfam_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+          familyId: aliveFamilyId,
           expiresAt: now + 86_400,
           createdAt: now,
         },
@@ -105,7 +108,7 @@ const seedCredentials = (accountId: string): Effect.Effect<{ aliveSessionId: str
         },
       ]),
     );
-    return { aliveSessionId };
+    return { aliveSessionId, aliveFamilyId };
   });
 
 /** Helper — one live rotation record for `accountId` in `familyId`, hash `<prefix>1`. */
@@ -133,12 +136,12 @@ describe("account-erasure: requestErasure", () => {
     () =>
       Effect.gen(function* () {
         const { accountId, profileId } = yield* seedAccountAndProfile();
-        const { aliveSessionId } = yield* seedCredentials(accountId);
+        const { aliveSessionId, aliveFamilyId } = yield* seedCredentials(accountId);
         yield* appEnroll.joinApp(accountId, "pulse");
 
         const result = yield* accountErasure.requestErasure({
           accountId,
-          cancelSessionId: aliveSessionId,
+          cancel: { sessionId: aliveSessionId, familyId: aliveFamilyId },
         });
 
         expect(result.newlyScheduled).toBe(true);
@@ -205,7 +208,7 @@ describe("account-erasure: requestErasure", () => {
     () =>
       Effect.gen(function* () {
         const { accountId } = yield* seedAccountAndProfile();
-        const { aliveSessionId } = yield* seedCredentials(accountId);
+        const { aliveSessionId, aliveFamilyId } = yield* seedCredentials(accountId);
         const { accountId: otherAccountId } = yield* seedAccountAndProfile(
           "bob@example.com",
           "bob",
@@ -218,10 +221,50 @@ describe("account-erasure: requestErasure", () => {
         yield* seedRotated(accountId, "sfam_revoked", "gone_");
         yield* seedRotated(otherAccountId, "sfam_bob", "bob_");
 
-        yield* accountErasure.requestErasure({ accountId, cancelSessionId: aliveSessionId });
+        yield* accountErasure.requestErasure({
+          accountId,
+          cancel: { sessionId: aliveSessionId, familyId: aliveFamilyId },
+        });
 
         const left = yield* Effect.promise(() => db.select().from(rotatedSessions));
         expect(left.map((r) => r.tokenHash).toSorted()).toEqual(["bob_1", "kept_1"]);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "keeps the cancel handle's device when its session was renewed after the route's check",
+    () =>
+      // Red on sparing by the handle's hash at the delete: another tab's
+      // renewal between the check and the sweep leaves that hash naming no row,
+      // the sweep spares nothing, and the tombstoned account is left with no
+      // session that could cancel the deletion.
+      Effect.gen(function* () {
+        const { accountId } = yield* seedAccountAndProfile("renewed@example.com", "renewed");
+        const { aliveSessionId, aliveFamilyId } = yield* seedCredentials(accountId);
+        const { db } = yield* Db;
+        const now = Math.floor(Date.now() / 1_000);
+        // The renewal: a new row in the same family replaces the checked one.
+        const renewedId = "sha_" + crypto.randomUUID().replace(/-/g, "");
+        yield* Effect.promise(() =>
+          db.insert(sessions).values({
+            id: renewedId,
+            accountId,
+            familyId: aliveFamilyId,
+            expiresAt: now + 86_400,
+            createdAt: now,
+          }),
+        );
+        yield* Effect.promise(() => db.delete(sessions).where(eq(sessions.id, aliveSessionId)));
+
+        yield* accountErasure.requestErasure({
+          accountId,
+          cancel: { sessionId: aliveSessionId, familyId: aliveFamilyId },
+        });
+
+        const left = yield* Effect.promise(() =>
+          db.select({ id: sessions.id }).from(sessions).where(eq(sessions.accountId, accountId)),
+        );
+        expect(left.map((r) => r.id)).toEqual([renewedId]);
       }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -232,7 +275,7 @@ describe("account-erasure: requestErasure", () => {
       yield* seedRotated(accountId, "sfam_a", "a_");
       yield* seedRotated(accountId, "sfam_b", "b_");
 
-      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+      yield* accountErasure.requestErasure({ accountId, cancel: null });
 
       const { db } = yield* Db;
       const left = yield* Effect.promise(() => db.select().from(rotatedSessions));
@@ -245,11 +288,11 @@ describe("account-erasure: requestErasure", () => {
       const { accountId } = yield* seedAccountAndProfile();
       const first = yield* accountErasure.requestErasure({
         accountId,
-        cancelSessionId: null,
+        cancel: null,
       });
       const second = yield* accountErasure.requestErasure({
         accountId,
-        cancelSessionId: null,
+        cancel: null,
       });
       expect(second.newlyScheduled).toBe(false);
       expect(second.scheduledFor).toBe(first.scheduledFor);
@@ -259,7 +302,7 @@ describe("account-erasure: requestErasure", () => {
   it.effect("fails AccountNotFoundError when the account does not exist", () =>
     Effect.gen(function* () {
       const err = yield* Effect.flip(
-        accountErasure.requestErasure({ accountId: "acc_nonexistent", cancelSessionId: null }),
+        accountErasure.requestErasure({ accountId: "acc_nonexistent", cancel: null }),
       );
       expect(err._tag).toBe("AccountNotFoundError");
     }).pipe(Effect.provide(createTestLayer())),
@@ -270,7 +313,7 @@ describe("account-erasure: cancelErasure", () => {
   it.effect("clears the deletion job and accounts.deletedAt", () =>
     Effect.gen(function* () {
       const { accountId } = yield* seedAccountAndProfile();
-      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+      yield* accountErasure.requestErasure({ accountId, cancel: null });
 
       const result = yield* accountErasure.cancelErasure(accountId);
       expect(result.cancelled).toBe(true);
@@ -334,7 +377,7 @@ describe("account-erasure: getDeletionStatus", () => {
   it.effect("returns scheduled true with the hard-delete deadline", () =>
     Effect.gen(function* () {
       const { accountId } = yield* seedAccountAndProfile();
-      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+      yield* accountErasure.requestErasure({ accountId, cancel: null });
       const status = yield* accountErasure.getDeletionStatus(accountId);
       expect(status.scheduled).toBe(true);
       if (status.scheduled) {
@@ -686,7 +729,7 @@ describe("account-erasure: a cancel and a purge", () => {
       }
       const { scheduledFor } = yield* accountErasure.requestErasure({
         accountId,
-        cancelSessionId: null,
+        cancel: null,
       });
       return { accountId, pastWindowMs: (scheduledFor + 1) * 1_000 };
     });
@@ -861,7 +904,7 @@ describe("account-erasure: a cancel and a purge", () => {
       const stale = yield* Effect.forkChild(Effect.result(accountErasure.cancelErasure(accountId)));
       yield* Effect.promise(() => remove.reached);
       expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
-      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+      yield* accountErasure.requestErasure({ accountId, cancel: null });
       yield* asIfRequestedLater(accountId);
       remove.release();
 
@@ -880,7 +923,7 @@ describe("account-erasure: a cancel and a purge", () => {
     return Effect.gen(function* () {
       const { accountId } = yield* scheduled("ce7", false);
       expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
-      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+      yield* accountErasure.requestErasure({ accountId, cancel: null });
       yield* asIfRequestedLater(accountId);
       expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
 
