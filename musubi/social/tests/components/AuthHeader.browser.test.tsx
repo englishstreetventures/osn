@@ -70,6 +70,13 @@ function PageHost(props: { title: string }) {
   );
 }
 
+/** The box the words of `element` take, line boxes and all, not the element's. */
+function textBox(element: Element): DOMRect {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return range.getBoundingClientRect();
+}
+
 const THEMES = ["light", "dark"] as const;
 
 function setTheme(theme: (typeof THEMES)[number]) {
@@ -98,7 +105,7 @@ describe("AuthHeader in Musubi's sheet", () => {
       expect(getComputedStyle(heading).textAlign).toBe("center");
       // The title breaks onto more lines inside the header's 16px padding,
       // and its lines sit centred in the sheet.
-      const text = heading.firstElementChild!.getBoundingClientRect();
+      const text = textBox(heading);
       expect(text.left).toBeGreaterThanOrEqual(box.left + 16 - 0.5);
       expect(text.right).toBeLessThanOrEqual(box.right - 16 + 0.5);
       expect(text.height).toBeGreaterThan(Number.parseFloat(getComputedStyle(heading).lineHeight));

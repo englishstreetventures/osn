@@ -118,7 +118,7 @@ function expectLayout(sheet: HTMLElement, width: number) {
   expect(header.querySelectorAll("button")).toHaveLength(0);
   expect(getComputedStyle(title).textAlign).toBe("center");
   const box = sheet.getBoundingClientRect();
-  const span = title.firstElementChild!.getBoundingClientRect();
+  const span = textBox(title);
   expect(Math.abs(span.left + span.width / 2 - (box.left + box.width / 2))).toBeLessThanOrEqual(1);
 
   const cancel = within(sheet).getByRole("button", { name: "Cancel" });
@@ -136,6 +136,13 @@ function expectLayout(sheet: HTMLElement, width: number) {
     expect(button.scrollWidth).toBeLessThanOrEqual(button.clientWidth);
   }
   expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+}
+
+/** The box the words of `element` take, line boxes and all, not the element's. */
+function textBox(element: Element): DOMRect {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return range.getBoundingClientRect();
 }
 
 afterEach(() => {

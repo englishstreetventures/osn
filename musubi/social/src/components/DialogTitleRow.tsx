@@ -8,13 +8,14 @@ import type { JSX } from "solid-js";
  *
  * The classes match `@osn/auth-ui`'s `AuthHeader` in a dialog, so the
  * sign-in, step-up and app dialogs read alike. The title breaks anywhere,
- * so a long handle in it never widens the sheet.
+ * so a long handle in it never widens the sheet, and a title that wraps
+ * balances its centred lines.
  */
 export function DialogTitleRow(props: { children: JSX.Element }) {
   return (
     <DialogHeader class="justify-center">
       <DialogTitle class="text-center">
-        <span class="wrap-anywhere">{props.children}</span>
+        <span class="block text-balance wrap-anywhere">{props.children}</span>
       </DialogTitle>
     </DialogHeader>
   );

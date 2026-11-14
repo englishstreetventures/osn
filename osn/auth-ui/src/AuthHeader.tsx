@@ -62,9 +62,10 @@ export function AuthHeader(props: AuthHeaderProps) {
       fallback={
         <DialogHeader class="justify-center">
           {/* The host's product name, or a passkey's 64-character name, sits
-              in the title, so it breaks anywhere rather than widen the sheet. */}
+              in the title, so it breaks anywhere rather than widen the sheet,
+              and a title that wraps balances its centred lines. */}
           <DialogTitle class="text-center">
-            <span class="wrap-anywhere">{props.title}</span>
+            <span class="block text-balance wrap-anywhere">{props.title}</span>
           </DialogTitle>
         </DialogHeader>
       }

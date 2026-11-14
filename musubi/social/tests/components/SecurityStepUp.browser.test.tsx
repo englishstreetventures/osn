@@ -226,7 +226,7 @@ function expectSheetLayout(sheet: HTMLElement, tall: number) {
   expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
   expect(getComputedStyle(title).textAlign).toBe("center");
   const box = sheet.getBoundingClientRect();
-  const text = title.firstElementChild!.getBoundingClientRect();
+  const text = textBox(title);
   expect(Math.abs(text.left + text.width / 2 - (box.left + box.width / 2))).toBeLessThanOrEqual(1);
   const described = (sheet.getAttribute("aria-describedby") ?? "")
     .split(" ")
@@ -244,6 +244,13 @@ function expectSheetLayout(sheet: HTMLElement, tall: number) {
     expect(rect.right).toBeLessThanOrEqual(box.right - 16 + 0.5);
   }
   expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+}
+
+/** The box the words of `element` take, line boxes and all, not the element's. */
+function textBox(element: Element): DOMRect {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return range.getBoundingClientRect();
 }
 
 describe("the step-up sheet in Settings → Security", () => {

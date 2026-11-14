@@ -94,11 +94,13 @@ async function titleCentred(dialog: Locator, title: Locator): Promise<boolean> {
     title.evaluate((el) => ({
       align: getComputedStyle(el).textAlign,
       buttons: el.parentElement?.querySelectorAll("button").length ?? -1,
-      // The title's own text: the span inside it where there is one.
-      box: (el.firstElementChild ?? el).getBoundingClientRect().toJSON() as {
-        left: number;
-        width: number;
-      },
+      // The words' own box, line boxes and all, not the title element's.
+      box: (() => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const rect = range.getBoundingClientRect();
+        return { left: rect.left, width: rect.width };
+      })(),
     })),
   ]);
   return (
