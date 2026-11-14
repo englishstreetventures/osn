@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Component Lab
@@ -39,7 +39,7 @@ carry the variants and states, and all eight story files live together in
 | Sidebar title | File | Covers |
 | --- | --- | --- |
 | `shared/ui` | `overview.story.tsx` | Everything, one state each |
-| `shared/ui/Button` | `button.story.tsx` | `Variants`; `Inline` (a link inside a sentence at two type sizes, beside a standalone link, and a narrow paragraph whose `<a>` wraps, to Tab onto); `Busy` (every labelled variant and size busy, and a button that starts a two-second wait when pressed: from the keyboard it stays at full strength, ring and all, while it waits); `Playground` (label, variant, size, disabled, busy — busy only at a size that takes it) |
+| `shared/ui/Button` | `button.story.tsx` | `Variants`; `Inline` (a link inside a sentence at two type sizes, beside a standalone link, and a narrow paragraph whose `<a>` wraps, to Tab onto); `Busy` (every labelled variant and size busy, and a button that starts a two-second wait when pressed: from the keyboard it stays at full strength, ring and all, while it waits); `Press` (hold the mouse or Space on a button: every variant, `sm`, `lg`, `icon` and a link wearing `buttonVariants` scale to 0.97, while disabled, busy, `aria-disabled` and a link inside a sentence do not); `Playground` (label, variant, size, disabled, busy — busy only at a size that takes it) |
 | `shared/ui/display` | `display.story.tsx` | Badge (`Badges`, every variant in both treatments, with a playground; `BadgeWeights`, every badge with `--ui-weight-title: initial` on its column, the contract default whatever the lab's stylesheet maps, and under `--ui-weight-title: 500`, each column captioned with the weight the browser computed), Avatar, Card (`CardTitleWeights`: a card with `--ui-weight-title: initial` on its wrapper, the contract default whatever the lab's stylesheet maps, beside one at 500, each captioned with the weight the browser computed) |
 | `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field (`Fields` in the default label; `PlainLabels`, the sign-up form in the plain label beside the default; `FieldPlayground`, every combination of treatment, hint, errors and hidden label), Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput (`Otp` with a column, label and autofocus to set; `OtpStates`, each state named by its label, the error described by an inline alert; `OtpNarrow`, 212, 260, 300 and 400px columns) |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat, Skeleton (`Skeletons`, each `standsFor` value at its sizes; `SkeletonGrounds`, each one on the page and inside a `Card`, to judge in both themes; `SkeletonInPlace`, Musubi's placeholders inside `aria-busy` regions; `SkeletonPlayground`) |

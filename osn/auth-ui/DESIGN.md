@@ -1059,17 +1059,21 @@ As built:
 ## 12. Motion
 
 The package has no motion of its own. A view takes its host's: in Musubi, colour
-and opacity transitions only (`musubi/social/DESIGN.md` §Motion). The host's
+and opacity transitions only, beside the two `Button` draws, the orb and the
+press (`musubi/social/DESIGN.md` §Motion). The host's
 `transition-ui-colors` utility fades colours and leaves the outline out, so a
-control's focus mark lands at once (§9). A view draws four motions, all from
-`@shared/ui` parts: a busy button's `Orb`; `Skeleton`, the loading
+control's focus mark lands at once (§9). A view draws five motions, all from
+`@shared/ui` parts: the press, which scales a `Button` to 0.97 while it is
+held (not while disabled or busy, nor a link inside a sentence); a busy
+button's `Orb`; `Skeleton`, the loading
 placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
 `RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
 in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`, all three sheets; and the open and close of a
 popover, `Register`'s `InfoPopover` beside the email field. The last two fade
 with no scale in Musubi, which maps both scale tokens to 1
-(`musubi/social/DESIGN.md` §Motion). The `Orb` and `Skeleton` stand still
-under reduced motion, and the overlays show and hide at once. `StepUpDialog`
+(`musubi/social/DESIGN.md` §Motion); the press does not read those tokens and
+scales in Musubi too. Under reduced motion no button scales, the `Orb` and
+`Skeleton` stand still, and the overlays show and hide at once. `StepUpDialog`
 hands its host the outcome once its fade out has ended (§8), so the host's
 removal never cuts the fade short. `AuthHeader` adds no motion: a title it
 is given arrives at once, and it shows and hides with the dialog around it. What a skeleton
