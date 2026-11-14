@@ -1,7 +1,6 @@
 import {
   describeAuthError,
   type EmailVerificationNonce,
-  type PreviousRegistration,
   type RegistrationClient,
   type RegistrationStatus,
   type Session,
@@ -23,10 +22,16 @@ import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy } from "./error-lines";
 import { describePasskeyError } from "./passkey-errors";
 import {
+  addressDigest,
+  clearLive,
+  forgetPrevious,
+  keepPrevious,
   PENDING_KEY,
   PREVIOUS_KEY,
-  readStored,
+  readLive,
+  storedPrevious,
   storedWaiting,
+  writeLive,
   writeStored,
   type Waiting,
 } from "./pending-sign-up";
@@ -54,6 +59,15 @@ const BIRTHDATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // (COPPA) Mirrors the server's under-13 gate for immediate feedback. The
 // server remains authoritative — it re-checks and returns 422 for under-13.
 const MIN_AGE_YEARS = 13;
+
+/**
+ * Whether a call was answered with a refusal: a 4xx other than a rate limit.
+ * No answer, a rate limit and a server error are not.
+ */
+function refused(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 429;
+}
 
 /** Whole years from a `YYYY-MM-DD` birthdate to now (UTC), birthday-aware. */
 function ageInYears(birthdate: string): number {
@@ -296,8 +310,8 @@ export function Register(props: RegisterProps) {
     // view takes it to the passkey step, and once the view is gone it is
     // handed over without one.
     if (answer?.status === "complete") {
-      if (disposed) void handOver(answer);
-      else finish(answer);
+      if (disposed) void handOver(answer, request.requestId);
+      else finish(answer, request.requestId);
       return;
     }
     if (disposed) return;
@@ -312,6 +326,7 @@ export function Register(props: RegisterProps) {
       schedulePoll(pollDelay);
     } else if (answer.status === "expired") {
       writeStored(PENDING_KEY, null);
+      unshare(request.requestId);
       setLinkError(undefined);
       setLinkStatus("expired");
     } else {
@@ -319,6 +334,7 @@ export function Register(props: RegisterProps) {
       // is spent; the details step offers the handle check again, reads the
       // reason out, and puts focus where the person picks another handle.
       writeStored(PENDING_KEY, null);
+      unshare(request.requestId);
       setWaiting(null);
       setDetailsError(null);
       setHandleTaken(true);
@@ -336,6 +352,8 @@ export function Register(props: RegisterProps) {
   }
 
   onMount(() => {
+    // An entry left by a request that has expired goes as the view opens.
+    readLive();
     window.addEventListener("focus", pollOnReturn);
     document.addEventListener("visibilitychange", pollOnReturn);
     // A resumed wait polls at once: its number is not kept, and the link may
@@ -345,9 +363,69 @@ export function Register(props: RegisterProps) {
   onCleanup(() => {
     disposed = true;
     stopPolling();
+    stopLiveTimer();
     window.removeEventListener("focus", pollOnReturn);
     document.removeEventListener("visibilitychange", pollOnReturn);
   });
+
+  // ---------------------------------------------------------------------------
+  // The entry the browser's other tabs read
+  //
+  // While this tab's request lives, the browser keeps its request id, retire
+  // secret, expiry and a digest of the address in `localStorage`
+  // (`osn.signup.live`), so a tab that begins again for the same address
+  // retires it and its own link goes at once. The retire secret can only end
+  // the request; the claim secret never leaves this tab's `sessionStorage`.
+  // Every removal names the request it is for, so this tab never removes an
+  // entry another tab wrote since.
+  // ---------------------------------------------------------------------------
+
+  let liveTimer: ReturnType<typeof setTimeout> | undefined;
+  let liveTimerFor: string | undefined;
+
+  function stopLiveTimer() {
+    if (liveTimer !== undefined) clearTimeout(liveTimer);
+    liveTimer = undefined;
+    liveTimerFor = undefined;
+  }
+
+  /**
+   * Shares `request` with the browser's other tabs, `over` as `writeLive`
+   * takes it, while this view still waits on it, and removes it when it
+   * expires while this view is open.
+   */
+  async function shareLive(request: Waiting, over: "any" | "own") {
+    const retireSecret = request.retireSecret;
+    if (!retireSecret) return;
+    const digest = await addressDigest(request.requestId, request.email);
+    if (!digest || waiting()?.requestId !== request.requestId) return;
+    const written = writeLive(
+      {
+        requestId: request.requestId,
+        retireSecret,
+        expiresAt: request.expiresAt,
+        addressDigest: digest,
+      },
+      over,
+    );
+    if (!written || disposed) return;
+    stopLiveTimer();
+    liveTimerFor = request.requestId;
+    liveTimer = setTimeout(
+      () => {
+        liveTimer = undefined;
+        liveTimerFor = undefined;
+        clearLive(request.requestId);
+      },
+      Math.max(0, request.expiresAt * 1000 - Date.now()),
+    );
+  }
+
+  /** Takes `requestId`, which has ended, out of the shared entry. */
+  function unshare(requestId: string) {
+    if (liveTimerFor === requestId) stopLiveTimer();
+    clearLive(requestId);
+  }
 
   /** Waits on `request`, in this tab and in its storage; its number in memory only. */
   function waitOn(request: Waiting, code: string) {
@@ -362,7 +440,9 @@ export function Register(props: RegisterProps) {
 
   /**
    * Stops waiting on the current request and keeps it as the one the next
-   * begin retires, so the address is free again at once.
+   * begin retires, so the address is free again at once. The shared entry
+   * stays: the request still holds the address until a begin retires it, and
+   * a tab opened after this one closes can do that.
    */
   function leaveRequest() {
     const request = waiting();
@@ -370,13 +450,7 @@ export function Register(props: RegisterProps) {
     setWaiting(null);
     setPairingCode(undefined);
     writeStored(PENDING_KEY, null);
-    if (request) {
-      const previous: PreviousRegistration = {
-        requestId: request.requestId,
-        claimSecret: request.claimSecret,
-      };
-      writeStored(PREVIOUS_KEY, previous);
-    }
+    if (request) keepPrevious(request);
   }
 
   function backToDetails() {
@@ -396,15 +470,24 @@ export function Register(props: RegisterProps) {
     if (!detailsValid() || sending()) return;
     setSending(true);
     setDetailsError(null);
+    const typed = email();
+    // The browser's live sign-up, when it is for the address typed here
+    // (another tab's, or this one's): retiring it lets this begin's link go
+    // at once. Otherwise the request this tab left, whatever its address.
+    const live = readLive();
+    const sameAddress =
+      live !== null && (await addressDigest(live.requestId, typed)) === live.addressDigest;
+    const previous = sameAddress
+      ? { requestId: live.requestId, retireSecret: live.retireSecret }
+      : storedPrevious();
     try {
       const input: Parameters<RegistrationClient["beginRegistration"]>[0] = {
-        email: email(),
+        email: typed,
         handle: handle(),
         birthdate: birthdate(),
         displayName: displayName().trim() || undefined,
         turnstileToken: turnstileToken() ?? undefined,
       };
-      const previous = readStored<PreviousRegistration>(PREVIOUS_KEY);
       if (previous) input.previous = previous;
       // What the browser put in the hidden field, if it has the API.
       const nonce = verificationNonce();
@@ -420,7 +503,11 @@ export function Register(props: RegisterProps) {
         // A nonce is good for one begin, refused or not.
         if (input.emailVerificationToken) void loadVerificationNonce();
       }
-      writeStored(PREVIOUS_KEY, null);
+      // The request `previous` named is retired, or was never there to retire.
+      if (previous) {
+        forgetPrevious(previous.requestId);
+        clearLive(previous.requestId);
+      }
       // A browser token that verified has confirmed the address already: the
       // first poll makes the account, and the person goes straight to the
       // passkey step without a "check your email" screen. Any other answer
@@ -430,21 +517,28 @@ export function Register(props: RegisterProps) {
           .registrationStatus({ requestId: begun.requestId, claimSecret: begun.claimSecret })
           .catch(() => null);
         if (first?.status === "complete") {
-          finish(first);
+          finish(first, begun.requestId);
           return;
         }
       }
-      waitOn(
-        {
-          requestId: begun.requestId,
-          claimSecret: begun.claimSecret,
-          expiresAt: begun.expiresAt,
-          email: email(),
-          handle: handle(),
-        },
-        begun.pairingCode,
-      );
+      const request: Waiting = {
+        requestId: begun.requestId,
+        claimSecret: begun.claimSecret,
+        retireSecret: begun.retireSecret,
+        expiresAt: begun.expiresAt,
+        email: typed,
+        handle: handle(),
+      };
+      waitOn(request, begun.pairingCode);
+      void shareLive(request, "any");
     } catch (err) {
+      // A refusal may be of `previous` itself, as an osn-api of another
+      // version reads it, so it is dropped and the next try goes without it.
+      // A rate limit or no answer keeps it.
+      if (previous && refused(err)) {
+        forgetPrevious(previous.requestId);
+        clearLive(previous.requestId);
+      }
       // The server answers a taken email or handle the same as a free one, so
       // this never says which; a 422 is the age gate, a 429 says to wait.
       setDetailsError(describeAuthError(err, "details"));
@@ -502,6 +596,8 @@ export function Register(props: RegisterProps) {
     }
     if (answer.status === "sent") {
       startPolling();
+      // Back into the shared entry if it has gone, never over another tab's.
+      void shareLive(request, "own");
       return;
     }
     if (answer.status === "limit") {
@@ -511,6 +607,7 @@ export function Register(props: RegisterProps) {
     }
     stopPolling();
     writeStored(PENDING_KEY, null);
+    unshare(request.requestId);
     setLinkStatus("expired");
     throw new Error("The link expired");
   }
@@ -527,12 +624,13 @@ export function Register(props: RegisterProps) {
    * guard on `DELETE /passkeys/:id`, is what holds up the "every account has
    * ≥1 passkey" invariant.
    */
-  function finish(done: Extract<RegistrationStatus, { status: "complete" }>) {
+  function finish(done: Extract<RegistrationStatus, { status: "complete" }>, requestId: string) {
     stopPolling();
     setWaiting(null);
     setPairingCode(undefined);
     writeStored(PENDING_KEY, null);
     writeStored(PREVIOUS_KEY, null);
+    unshare(requestId);
     setProfileId(done.profileId);
     setAccessToken(done.session.accessToken);
     setSession(done.session);
@@ -545,13 +643,17 @@ export function Register(props: RegisterProps) {
    * A completing answer that lands after the view is gone — the dialog was
    * closed while the poll was out. There is no passkey step left to hold the
    * session for, so it is published at once, as the cookie the answer set
-   * would publish it on the next load, and the stored wait and the request
-   * left for retiring are cleared so no later dialog resumes or retires it.
-   * Nothing here touches the view.
+   * would publish it on the next load, and the stored wait, the request left
+   * for retiring and the shared entry for `requestId` are cleared so no later
+   * dialog or tab resumes or retires it. Nothing here touches the view.
    */
-  async function handOver(done: Extract<RegistrationStatus, { status: "complete" }>) {
+  async function handOver(
+    done: Extract<RegistrationStatus, { status: "complete" }>,
+    requestId: string,
+  ) {
     writeStored(PENDING_KEY, null);
     writeStored(PREVIOUS_KEY, null);
+    clearLive(requestId);
     try {
       await adoptSession(done.session);
     } catch {
