@@ -28,7 +28,7 @@ vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import type { LoginClient, RecoveryClient } from "@osn/client";
+import type { LoginClient, RecoveryClient, RegistrationClient } from "@osn/client";
 import { toast } from "@shared/toast";
 
 import { SignIn } from "../src/SignIn";
@@ -344,6 +344,29 @@ describe("SignIn component", () => {
       delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
     });
 
+    it("names the recovery code as the way round a challenge that cannot load", async () => {
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { "error-callback"?: () => void }) => {
+          opts["error-callback"]?.();
+          return "widget-err";
+        }),
+        reset: vi.fn(),
+        remove: vi.fn(),
+      };
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+          productName="Musubi"
+        />
+      ));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        "Signing in with a recovery code doesn't need this challenge.",
+      );
+    });
+
     it("retries with a FRESH token after a failed ceremony — never replays the redeemed one", async () => {
       const { reset } = installTurnstileStub();
 
@@ -485,6 +508,47 @@ describe("SignIn component", () => {
   });
 
   describe("Lost your passkey? escape hatch", () => {
+    it("names the product on the emailed recovery link's wait, as the junk-mail line", async () => {
+      vi.useFakeTimers();
+      try {
+        sessionStorage.clear();
+        const emailed = {
+          ...recovery,
+          emailRecoveryBegin: vi.fn().mockResolvedValue({
+            requestId: "recovery_0123456789ab",
+            claimSecret: "c".repeat(64),
+            pairingCode: "42",
+            expiresAt: Math.floor(Date.now() / 1000) + 600,
+          }),
+          emailRecoveryStatus: vi.fn().mockResolvedValue({ status: "pending" }),
+        };
+        render(() => (
+          <SignIn
+            client={asLogin(login)}
+            recoveryClient={asRecovery(emailed)}
+            registrationClient={{} as unknown as RegistrationClient}
+            runPasskeyRegistration={vi.fn()}
+            productName="Musubi"
+          />
+        ));
+        fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
+        fireEvent.click(await screen.findByRole("button", { name: /Email me a link/i }));
+        fireEvent.input(screen.getByLabelText(/Email address on the account/i), {
+          target: { value: "alice@example.com" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(screen.getByRole("heading", { name: "Check your email" })).toBeTruthy();
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(screen.getByText(/^Can't find it\?/).textContent).toBe(
+          "Can't find it? Look in your junk or spam folder for an email about Musubi.",
+        );
+      } finally {
+        vi.useRealTimers();
+        sessionStorage.clear();
+      }
+    });
+
     it("surfaces the recovery form when the user clicks it", async () => {
       render(() => (
         <SignIn

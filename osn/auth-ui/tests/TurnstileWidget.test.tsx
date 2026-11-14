@@ -217,6 +217,42 @@ describe("TurnstileWidget — a challenge that fails to load", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("removes a failed script from the page, so Try again appends a new one rather than waiting on it", async () => {
+    // A script element already in the page, as an earlier load left it: inert
+    // here (no `src`), so nothing is fetched.
+    const stale = document.createElement("script");
+    stale.id = "cf-turnstile-script";
+    document.head.append(stale);
+    const scripts = heldScripts();
+    render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={() => {}} />);
+    expect(scripts).toHaveLength(0);
+
+    stale.dispatchEvent(new Event("error"));
+    await screen.findByRole("alert");
+    expect(stale.isConnected).toBe(false);
+    expect(document.getElementById("cf-turnstile-script")).toBeNull();
+
+    tryAgain().click();
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0]).not.toBe(stale);
+    scripts[0]!.dispatchEvent(new Event("error"));
+    await screen.findByRole("alert");
+  });
+
+  it("renders nothing for a load that lands after the widget has gone", async () => {
+    const scripts = heldScripts();
+    const onToken = vi.fn();
+    const { unmount } = render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
+    unmount();
+
+    const api = workingApi();
+    setApi(api);
+    scripts[0]!.dispatchEvent(new Event("load"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(api.render).not.toHaveBeenCalled();
+    expect(onToken).not.toHaveBeenCalled();
+  });
+
   it("adds the host's way on that needs no challenge, when it gives one", async () => {
     const scripts = heldScripts();
     render(() => (

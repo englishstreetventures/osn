@@ -65,7 +65,12 @@ export function sharedSignUp(): SharedSignUp | null {
   try {
     const raw = localStorage.getItem(SHARED_KEY);
     if (raw === null) return null;
-    const stored = JSON.parse(raw) as Partial<SharedSignUp> | null;
+    let stored: Partial<SharedSignUp> | null = null;
+    try {
+      stored = JSON.parse(raw) as Partial<SharedSignUp> | null;
+    } catch {
+      // Not JSON: removed below, as any entry it cannot read is.
+    }
     if (
       !stored ||
       typeof stored.requestId !== "string" ||
@@ -84,7 +89,7 @@ export function sharedSignUp(): SharedSignUp | null {
       email: stored.email,
     };
   } catch {
-    // Storage disabled, or the entry unreadable: there is nothing to share.
+    // Storage disabled: there is nothing to share.
     return null;
   }
 }

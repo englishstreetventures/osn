@@ -464,6 +464,38 @@ describe("Register component", () => {
       expect(localStorage.getItem(SHARED_KEY)).toBeNull();
     });
 
+    it("removes an entry that is not a sign-up it can read", () => {
+      localStorage.setItem(SHARED_KEY, "{not json");
+      newTab();
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+      localStorage.setItem(SHARED_KEY, JSON.stringify({ requestId: 7 }));
+      expect(hasPendingSignUp()).toBe(false);
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+    });
+
+    it("removes the entry when the handle went while it waited", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(shared()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+    });
+
+    it("removes the entry when Resend answers that the request is gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockResolvedValueOnce({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+    });
+
     it("removes the entry once the account is made", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       stub.registrationStatus.mockResolvedValue(completed());

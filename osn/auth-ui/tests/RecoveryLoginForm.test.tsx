@@ -133,6 +133,7 @@ function mountFull(
     onCancel?: () => void;
     runPasskeyRegistration?: () => Promise<never>;
     turnstileSiteKey?: string;
+    productName?: string;
   } = {},
 ) {
   render(() => (
@@ -143,6 +144,7 @@ function mountFull(
         overrides.runPasskeyRegistration ?? (async () => attestation as never)
       }
       turnstileSiteKey={overrides.turnstileSiteKey}
+      productName={overrides.productName}
       onSuccess={overrides.onSuccess}
       onCancel={overrides.onCancel}
     />
@@ -354,6 +356,26 @@ describe("RecoveryLoginForm — error lines", () => {
       delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
     });
 
+    it("names the recovery code as the way round a challenge that cannot load", async () => {
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { "error-callback"?: () => void }) => {
+          opts["error-callback"]?.();
+          return "widget-err";
+        }),
+        reset: vi.fn(),
+        remove: vi.fn(),
+      };
+      mountFull({ turnstileSiteKey: "0x4AAAAAADnA2piUnbgG_kVw" });
+      fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        "A recovery code doesn't need this challenge: go back and choose Use a recovery code.",
+      );
+      expect(
+        (screen.getByRole("button", { name: /Send the link/i }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+    });
+
     it("asks for a fresh token when the send is refused, and waits for it", async () => {
       let deliver: ((token: string) => void) | undefined;
       const reset = vi.fn();
@@ -466,6 +488,25 @@ describe("RecoveryLoginForm — email recovery", () => {
       expect(sessionStorage.getItem(key)).not.toContain("pairingCode");
     }
     sessionStorage.clear();
+  });
+
+  it("names the product where its wait says to look in the junk folder, once Resend unlocks", async () => {
+    vi.useFakeTimers();
+    try {
+      stub.emailRecoveryBegin.mockResolvedValue(begun);
+      stub.emailRecoveryStatus.mockResolvedValue({ status: "pending" });
+      sessionStorage.clear();
+      mountFull({ productName: "Musubi" });
+      await sendLinkTo("alice@example.com");
+      expect(screen.queryByText(/^Can't find it\?/)).toBeNull();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(screen.getByText(/^Can't find it\?/).textContent).toBe(
+        "Can't find it? Look in your junk or spam folder for an email about Musubi.",
+      );
+    } finally {
+      vi.useRealTimers();
+      sessionStorage.clear();
+    }
   });
 
   it("stops polling when the view goes away", async () => {
