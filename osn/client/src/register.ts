@@ -199,9 +199,9 @@ export interface RegistrationClient {
      */
     turnstileToken?: string;
     /**
-     * A sign-up begun before in this browser: retired first, so its address
-     * is free again. Nothing is retired for a wrong secret, and the answer is
-     * the same.
+     * A sign-up begun before in this browser: retired first when it is for
+     * the same address, so that address is free again. Nothing is retired
+     * for a wrong secret or another address, and the answer is the same.
      */
     previous?: PreviousRegistration;
     /**

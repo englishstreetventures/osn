@@ -42,9 +42,9 @@
  * address nobody was mailed. Then a new tab of the same browser starts again
  * for the same address: it has none of the first tab's `sessionStorage`, so
  * the `previous` its begin sends comes from the entry the browser keeps for
- * its tabs in `localStorage` (the request, a secret that can only retire it,
- * the expiry and a digest of the address — never the address or the claim
- * secret), and the first request is retired. The new link, with a new
+ * its tabs in `localStorage` (the request, a secret that can only retire it
+ * and the expiry — nothing about the address, and never the claim secret),
+ * and osn-api retires the first request since the address is the same. The new link, with a new
  * number, is the one confirmed, after its page's first read fails once, and
  * the entry goes once the account is made.
  *
@@ -252,8 +252,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   const firstClaim = (JSON.parse(ownWait) as { claimSecret?: string }).claimSecret ?? "";
   flow.check("this tab keeps its claim secret", true, /^[a-f0-9]{64}$/.test(firstClaim));
   flow.check(
-    "the shared entry holds the request, its retire secret, its expiry and a digest",
-    "addressDigest,expiresAt,requestId,retireSecret",
+    "the shared entry holds the request, its retire secret and its expiry",
+    "expiresAt,requestId,retireSecret",
     Object.keys(JSON.parse(shared) as object)
       .toSorted()
       .join(","),
