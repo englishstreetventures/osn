@@ -16,7 +16,7 @@ related:
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1171,6 +1171,18 @@ included:
    `gh secret delete <NAME> --env <env>`). No workflow reads them, and the dev
    Worker lost them at its first Alchemy deploy without them in the inventory.
 3. Cancel the Upstash plan and delete both of its databases.
+
+> [!warning]
+> **Rolling osn-api back past `sessions.replaced_at` lifts the limit on a replaced
+> cancel handle.** A sign-in on the browser holding the cancel handle of an account
+> scheduled for deletion keeps that family live and marks it `replaced_at`; the
+> Worker from that release on renews it only for its own account's profiles and
+> `/authorize` reads it as no session. A Worker built before it ignores the column,
+> so a marked handle renews as any session does again. The risk is accepted. Before
+> a hand rollback past that release, the owner counts the marked rows (`bunx wrangler
+> d1 execute osn-db-prod --env production --remote --command "SELECT count(*) FROM
+> sessions WHERE replaced_at IS NOT NULL"`, counts only) and, when any is left,
+> rolls forward instead unless the rollback cannot wait. See [[sessions#Endpoints]].
 
 ### 5.2 cire-api (Worker)
 
