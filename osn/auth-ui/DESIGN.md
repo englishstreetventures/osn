@@ -725,16 +725,18 @@ host a short-lived token through `onToken`.
   link's wait every way out stays open while a Resend runs: leaving ends the
   request on this side, and the late answer is dropped.
 - **One outcome, after the exit.** The sheet closes itself and hands the host
-  its one outcome, `onToken` or `onCancel`, once its exit fade has ended, so
-  the sheet fades out as every Musubi dialog does before the host removes it.
-  If the fade has not ended 300ms after the close (a tab the browser has
-  hidden runs no animation), the outcome goes then. While it closes, its
-  body is `inert` and every action returns early. A host that removes the
-  sheet itself gets neither callback. The cost is the fade: the host's next
-  request starts `--ui-dur-exit` (80ms in Musubi) after the token, or up to
-  300ms in a hidden tab, rather than at once. That is the price of the host's
-  `<Show>` not cutting the fade short and of focus going back only once the
-  sheet has gone.
+  its one outcome, `onToken` or `onCancel`, once its exit has ended, so it
+  leaves as every Musubi dialog does before the host removes it: below `md` it
+  slides down, from `md` the card fades. If the exit has not ended 300ms after
+  the close (a tab the browser has hidden runs no animation), the outcome goes
+  then; 300ms stays above both exits only while the host keeps
+  `--ui-dur-base` and `--ui-dur-exit` under it. While it closes, its body is
+  `inert` and every action returns early. A host that removes the sheet
+  itself gets neither callback. The cost is the exit: the host's next request
+  starts `--ui-dur-base` (200ms) after the token below `md`, `--ui-dur-exit`
+  (80ms in Musubi) from it, or up to 300ms in a hidden tab, rather than at
+  once. That is the price of the host's `<Show>` not cutting the exit short
+  and of focus going back only once the sheet has gone.
 - **The claim secret and the number** live in memory only, and every answer
   about the emailed link is checked against the wait it was for, so nothing
   reaches `onToken` after the person closed the sheet or went back. A status
@@ -1066,16 +1068,18 @@ control's focus mark lands at once (§9). A view draws four motions, all from
 placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
 `RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
 in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`, all three sheets; and the open and close of a
-popover, `Register`'s `InfoPopover` beside the email field. The last two fade
-with no scale in Musubi, which maps both scale tokens to 1
-(`musubi/social/DESIGN.md` §Motion). The `Orb` and `Skeleton` stand still
-under reduced motion, and the overlays show and hide at once. `StepUpDialog`
-hands its host the outcome once its fade out has ended (§8), so the host's
-removal never cuts the fade short. `AuthHeader` adds no motion: a title it
+popover, `Register`'s `InfoPopover` beside the email field. Below `md` the
+three sheets slide up from the bottom edge and back down, as every
+`@shared/ui` sheet does (`musubi/social/DESIGN.md` §Motion, the owner's
+"B: slide up" on #2045); from `md` they are cards, and the cards and the
+popover fade with no scale in Musubi, which maps both scale tokens to 1. The
+`Orb` and `Skeleton` stand still under reduced motion, and the overlays show
+and hide at once. `StepUpDialog` hands its host the outcome once its exit has
+ended (§8), so the host's removal never cuts the slide or the fade short. `AuthHeader` adds no motion: a title it
 is given arrives at once, and it shows and hides with the dialog around it. What a skeleton
 stands for, a refused code's line and a step that replaces another arrive at
 once, with no fade (`musubi/social/DESIGN.md` §Motion), and so does a list
-that lands in place of its placeholder. A view never moves
-a panel, a field or an error across the screen, and never loads an
+that lands in place of its placeholder. Beyond the shared sheet's slide, a
+view never moves a panel, a field or an error across the screen, and never loads an
 animation library. A motion a view needs that the host does not have goes into
 the host's `DESIGN.md` first.

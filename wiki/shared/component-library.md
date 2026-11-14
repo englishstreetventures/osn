@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Component Library (Zaidan)
@@ -1197,6 +1197,23 @@ query after the `max-md` ones, so it would round the sheet's bottom corners.
 `shared/ui/tests/dialog.browser.test.tsx` holds the shadow and the scrim,
 mapped and unmapped, and the sheet's corners at 390, 700, 767, 768 and 1440px.
 
+**A sheet slides; a card fades.** Below `md`, `presentation="sheet"` rises
+from its own height below the bottom edge over `--ui-dur-slow` (320ms) and
+falls back over `--ui-dur-base` (200ms), both on `--ui-ease-sheet`, at full
+opacity and unscaled, and its scrim fades on the same pace: the owner's
+choice for every sheet ("B: slide up", #2045, 2026-11-13). It runs on CSS
+transitions, so a sheet closed part-way up, or reopened part-way down, turns
+round from where it is; focus goes back to the trigger only once it has
+slid out. From `md` the sheet is the card again and runs the card's motion,
+and `presentation="centred"` is unchanged at every width. `DialogContent`
+passes its `presentation` to `DialogOverlay`, which takes the same prop, so
+a hand-built `DialogOverlay` behind a sheet passes `presentation="sheet"`
+too. A call site adds no motion class, and none may set `transform` on a
+sheet below `md`: the slide is on `transform`. How it is built, and why the
+slide is not on `translate`, is in [[design-tokens#Motion]];
+`shared/ui/tests/overlay-motion.browser.test.tsx` ("a sheet's slide") holds
+it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
+
 ### Checkbox and RadioGroup — native, in two boxes
 
 `Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
@@ -1668,7 +1685,11 @@ has to sit _below_ them or the rows stop reading as rows, and
 `cire/invites/tests/components/consent/consent-dialog-surface.browser.test.tsx`
 is what holds that.
 
-`DialogContent` takes the same `sheet`, for the Kobalte-backed dialog.
+`DialogContent` takes the same `sheet`, for the Kobalte-backed dialog. The
+two move differently: `Modal`'s sheet rises `--ui-distance-enter` as it fades
+in and sinks `--ui-distance-exit` as it fades out, like its card, while
+`Dialog`'s sheet slides its whole height up and back down at full opacity
+([[#Kobalte components (Dialog, Popover, Tooltip, Tabs)]]).
 
 #### A dialog that only an answer closes
 

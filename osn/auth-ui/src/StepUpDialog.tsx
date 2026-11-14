@@ -113,9 +113,12 @@ const LIMIT_LINE =
 const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 
 /**
- * How long after closing the sheet hands its outcome over even though the
- * exit fade has not ended. The fade is the host's `--ui-dur-exit` (80ms in
- * Musubi). A tab the browser has hidden runs no animation, so its end never
+ * How long after closing the sheet hands its outcome over even though its
+ * exit has not ended. The exit is the host's: below `md` the sheet slides down
+ * over `--ui-dur-base` (200ms unless the host retimes it), and from `md` the
+ * card fades over `--ui-dur-exit` (80ms in Musubi). This must stay above the
+ * longer of the two, or the outcome arrives while the sheet is still on its
+ * way out. A tab the browser has hidden runs no animation, so its end never
  * comes; without this the token would wait for the person to come back.
  */
 const EXIT_FALLBACK_MS = 300;
@@ -217,7 +220,7 @@ export interface StepUpDialogProps {
 
 type Mode = "choose" | "passkey" | "email" | "totp";
 
-/** Runs `onGone` when the sheet's content unmounts, its exit fade over. */
+/** Runs `onGone` when the sheet's content unmounts, its exit over. */
 function OnUnmount(props: { onGone: () => void }): JSX.Element {
   onCleanup(() => props.onGone());
   return null;
@@ -262,7 +265,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
   let emailRun = 0;
 
   // The sheet is open until it closes itself, once, with one outcome. The
-  // outcome goes to the host when the content unmounts (its exit fade over),
+  // outcome goes to the host when the content unmounts (its exit over),
   // or after EXIT_FALLBACK_MS if that never comes, and never to a host that
   // has already removed the sheet.
   const [open, setOpen] = createSignal(true);

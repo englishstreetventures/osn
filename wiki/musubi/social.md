@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Social
@@ -370,9 +370,12 @@ Both flows also read what Musubi's contract block maps onto the shared
 overlays and titles (§Typography, §Borders and §Motion there).
 `musubi-passkey` opens the account menu from the rail at 1440 px and from the
 top bar at 390 px and reads its separator as a 1px `--ui-hairline` fill with
-no border, in both schemes; it holds the first frame of that menu, of the
-profile switcher (a sheet at 390 px) and of the create-account dialog's email
-popover, and the half-way frame of each closing, and finds no transform. It
+no border, in both schemes; it holds the first frame of that menu and of the
+create-account dialog's email popover, and the half-way frame of each
+closing, and finds no transform. It holds the profile switcher, a sheet at
+390 px, the same way and finds it sliding: its own height below the bottom
+edge as it opens and part-way down half-way out, at full opacity and
+unscaled. It
 reads the switcher's title and the add-a-profile card's `CardTitle` against a
 `text-title font-medium` probe, and the authenticator setup's first code box
 ("Code from the app Digit 1") at the probe's size at the flow's own width and

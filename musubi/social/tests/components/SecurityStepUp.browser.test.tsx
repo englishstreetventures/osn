@@ -180,8 +180,10 @@ afterEach(() => {
  * Each shot is taken in its own render with the theme set before it, never by
  * flipping the theme on a drawn page: the buttons' colour transitions would be
  * caught half way. Shots wait for every animation on the page that ends: the
- * sheet's entry fade (`--ui-dur-fast`) and its scrim's. One that never ends,
- * such as a busy button's orb, is left running.
+ * card's entry fade (`--ui-dur-fast`) or, below `md`, the sheet's rise
+ * (`--ui-dur-slow`), and its scrim's. One that never ends, such as a busy
+ * button's orb, is left running. A read of where a sheet sits waits too, since
+ * below `md` it starts its own height below the bottom edge.
  */
 async function settle() {
   const ending = document
@@ -216,6 +218,7 @@ describe("the step-up sheet in Settings → Security", () => {
       document.documentElement.classList.toggle("dark", theme === "dark");
       await page.viewport(390, 844);
       const { sheet, opener } = await openSheet();
+      await settle();
       const box = sheet.getBoundingClientRect();
       expect(box.left).toBeCloseTo(0, 1);
       expect(box.width).toBeCloseTo(390, 1);
@@ -531,6 +534,7 @@ describe("recovery codes in Settings → Security", () => {
     "ask before a new set in a bottom sheet at 390px, dismissed by a secondary Cancel (%s)",
     async (theme) => {
       const sheet = await openRotate(390, theme);
+      await settle();
       const box = sheet.getBoundingClientRect();
       expect(box.left).toBeCloseTo(0, 1);
       expect(box.width).toBeCloseTo(390, 1);

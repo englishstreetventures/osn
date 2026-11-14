@@ -8,7 +8,9 @@
  * pulse draws this Dialog for its guest list, its share sheet and its
  * discovery filters, and maps neither the title weight nor the motion tokens,
  * so this file is what lets a change to Dialog claim that pulse's dialogs do
- * not move. It imports only what Dialog exported before the title read a
+ * not move. The one exception is the share sheet below `md`, which slides up
+ * and down (`overlay-motion.browser.test.tsx`, "a sheet's slide"); its title
+ * is still held here. It imports only what Dialog exported before the title read a
  * token, so it runs on the code before such a change as well as after it, and
  * the snapshot beside it was written by the code before. Rewriting that
  * snapshot with `-u` changes how pulse draws a dialog title: do it only in a

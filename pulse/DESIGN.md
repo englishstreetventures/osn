@@ -328,10 +328,13 @@ These rules govern `pulse/web`. The landing site's motion is in
 - **Durations and easing come from the shared tokens, by job**
   (`wiki/shared/design-tokens.md` §Motion): `--ui-dur-fast` (120ms) for a hover,
   a press or a small panel arriving; `--ui-dur-base` (200ms) for a panel swap,
-  such as the onboarding step; `--ui-dur-slow` (320ms) for something crossing
-  the screen; `--ui-dur-exit` for an overlay closing. `--ui-ease-out` is for an
-  arrival, `--ui-ease-in-out` for a move between two places, `--ui-ease-exit`
-  for an overlay closing. A literal duration,
+  such as the onboarding step, and the share sheet leaving; `--ui-dur-slow`
+  (320ms) for something crossing the screen, such as the share sheet rising;
+  `--ui-dur-exit` for an overlay closing, other than the share sheet below
+  `md`. `--ui-ease-out` is for an arrival, `--ui-ease-in-out` for a move
+  between two places, `--ui-ease-exit` for an overlay closing, other than the
+  share sheet below `md`, and `--ui-ease-sheet` for that sheet rising and
+  leaving. A literal duration,
   delay or curve fails `house/no-literal-motion` unless it carries a
   `motion-literal:` comment giving its reason. Loops and choreographed
   illustrations, such as the onboarding rings and the pin drop, are the cases
@@ -344,7 +347,8 @@ These rules govern `pulse/web`. The landing site's motion is in
   ring. The explore tabs fade `color` and `background-color`, and the search
   box fades its `border-color` while its focus outline shows at once.
 - **Entrances are short and quiet**: opacity with an 8px rise, as the onboarding
-  step does (`onb-step-in`).
+  step does (`onb-step-in`). The share sheet below `md` is the exception
+  ("The share sheet slides", below).
 - **Only illustrations loop**: the onboarding illustrations, the brand mark's
   pulsing dot (§Navigation) and the live dot beside the hero's greeting and on a
   live card. A looping animation is illustration, never a control or a loading
@@ -356,6 +360,15 @@ These rules govern `pulse/web`. The landing site's motion is in
   (`wiki/shared/design-tokens.md` §Motion), and under reduced motion show and
   hide at once. The menus are the shared default look: a menu's separator is a
   1px `--ui-hairline` fill with no border.
+- **The share sheet slides.** Up to 640px the share dialog is a `Dialog`
+  sheet, and below `md` `@shared/ui` slides every sheet: up from its own
+  height below the bottom edge over `--ui-dur-slow` (320ms), back down over
+  `--ui-dur-base` (200ms), both on `--ui-ease-sheet`, at full opacity and with
+  no scale, its scrim fading on the same pace. Closed part-way up it turns
+  round from where it is. The owner chose it for every sheet ("B: slide up",
+  #2045, 2026-11-13). Under reduced motion it shows and hides at once; on a
+  browser older than Chrome 117 or Safari 17.5 it appears at once and still
+  slides out.
 
 Where the app does not follow this yet: these controls fade their focus mark
 with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
@@ -367,6 +380,9 @@ reduced motion.
 `tools/e2e/tests/support/pulse-menus.ts` holds both avatar menus' separators
 at 390 and 1440px in both schemes, and holds those menus and "More filters"
 opening from 0.96.
+`tests/styles/share-sheet-motion.browser.test.tsx` holds the share sheet at
+390px under pulse's stylesheet: its first frame its own height below the
+edge, at full opacity and unscaled, over a clear scrim.
 
 ## Future
 
