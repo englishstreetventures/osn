@@ -9,6 +9,7 @@ import { selectEmailLayer } from "./lib/email-layer";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
 import { safeErrorSummary } from "./metrics";
 import * as accountErasure from "./services/account-erasure";
+import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
 import { runRotatedSessionSweep } from "./services/auth/tokens";
 import {
   runEmailChangeSweep,
@@ -130,7 +131,7 @@ export function startBunServer(
     osnEnv: process.env.OSN_ENV,
   }).catch(() => undefined);
 
-  // Fan-out retry, hard-delete, rotated-session and retention sweeper.
+  // Fan-out retry, hard-delete, OIDC code, rotated-session and retention sweeper.
   // Single-instance — a multi-instance deploy would need a lock; for now the
   // fixed 6-hour cadence + idempotent per-row writes keep multi-instance safe
   // enough that a stray double-pass is a non-event. (The Workers entry runs the
@@ -156,6 +157,7 @@ export function startBunServer(
           accountErasure.runFanOutRetrySweep(fanoutUrls),
         );
         yield* isolated("hard-delete sweep failed", accountErasure.runHardDeleteSweep());
+        yield* isolated("OIDC code sweep failed", runExpiredAuthCodeSweep());
         yield* isolated("rotated-session sweep failed", runRotatedSessionSweep());
         yield* isolated("security-event sweep failed", runSecurityEventSweep());
         yield* isolated("email-change sweep failed", runEmailChangeSweep());
