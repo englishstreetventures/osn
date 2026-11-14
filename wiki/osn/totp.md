@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-15
 ---
 
 # TOTP (RFC 6238) second factor
@@ -306,12 +306,12 @@ a TOTP seed does not.
 
 ## Lifecycle
 
-- **Account deletion.** The credential is removed in the same batch as passkeys
-  and recovery codes, on **both** soft delete and hard delete
-  (`services/account-erasure.ts`). The foreign key cascades only when the
-  `accounts` row itself goes, which is seven days after a soft delete — without
-  the explicit delete a tombstoned account would keep a working second factor
-  through the whole grace window.
+- **Account deletion.** The credential stays through the seven-day deletion
+  window, so the person can sign in and cancel: a session of the account in
+  that window reaches only the deletion status, the export and the cancel
+  ([[sessions#The pending-deletion session]]). The hard delete removes it in
+  the same batch as passkeys and recovery codes
+  (`services/account-erasure.ts`).
 - **DSAR export.** `services/account-export.ts` emits a `totp` section with the
   label and timestamps, on the same footing as the `passkeys` section. Never the
   secret or its ciphertext: an export is a document the subject may forward

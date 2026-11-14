@@ -10,7 +10,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-15
 ---
 
 # Data Map (Article 30 Records of Processing)
@@ -32,7 +32,7 @@ the compliance checklist.
 - **Recipients** — internal services + named third parties.
 - **System page** — wiki link.
 
-## Identity (`@osn/api` — `accounts`, `users`, `passkeys`, `sessions`, `security_events`, `recovery_codes`, `email_changes`)
+## Identity (`@osn/api` — `accounts`, `users`, `passkeys`, `sessions`, `security_events`, `recovery_codes`, `email_changes`, `deletion_jobs`, `handle_holds`)
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
@@ -40,7 +40,7 @@ the compliance checklist.
 | `accounts.passkeyUserId` | WebAuthn `user.id` opaque to prevent cross-profile correlation | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.maxProfiles` | Per-account profile cap | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.last_recovered_at` | Security — timestamp of the most recent account recovery, opening a 72-hour window in which an emailed-link step-up cannot change the account email and a second factor-recovery is refused | Art. 6(1)(f) — legitimate interest in preventing account takeover | While account active; cleared by an accepted `POST /recovery/disown` of the recovery that wrote it | `@osn/api` only | [[recovery-codes]], [[step-up]] |
-| `users.handle` | Public identifier | Art. 6(1)(b) | While profile active; tombstoned on delete (30 d) | All services + public web | [[identity-model]] |
+| `users.handle` | Public identifier | Art. 6(1)(b) | While profile active; redacted to `deleted_<id>` at an account's soft delete, put back by a cancel inside the 7-day window, deleted at the hard delete. A keyed hash of it is held 30 days more (`handle_holds`, below) | All services + public web | [[identity-model]] |
 | `users.displayName` | Public name | Art. 6(1)(b) | Same | Same | [[identity-model]] |
 | `users.avatarUrl` | Public avatar | Art. 6(1)(b) | Same | Same | [[identity-model]] |
 | `passkeys.credentialId` | WebAuthn credential lookup | Art. 6(1)(b) | While passkey enrolled | `@osn/api` only | [[passkey-primary]] |
@@ -49,7 +49,7 @@ the compliance checklist.
 | `passkeys.aaguid`, `backup_eligible`, `backup_state` | UX — show "synced" badge | Art. 6(1)(f) — legit interest in helpful UX | Same | `@osn/api` only | [[passkey-primary]] |
 | `passkeys.last_used_at` | UX — "Last used 2 days ago" | Art. 6(1)(f) | Same | `@osn/api` only | [[passkey-primary]] |
 | `passkeys.provenance_amr` | Security — records which kind of ceremony enrolled this credential (`webauthn`/`otp`/`totp`/`recovery`), so a credential registered under a weaker factor cannot immediately remove an older one or change the account email | Art. 6(1)(f) — legitimate interest in preventing account takeover | Same | `@osn/api` only | [[step-up]], [[passkey-primary]] |
-| `totp_credentials.secret_ciphertext` + `.iv` | The RFC 6238 shared secret, AES-256-GCM encrypted — a second authentication factor. Cannot be hashed: verification needs the raw HMAC key | Art. 6(1)(b) — contract | While the credential exists; deleted on disable, soft delete and account delete | `@osn/api` only. **Never exported and never logged** | [[totp]] |
+| `totp_credentials.secret_ciphertext` + `.iv` | The RFC 6238 shared secret, AES-256-GCM encrypted — a second authentication factor. Cannot be hashed: verification needs the raw HMAC key | Art. 6(1)(b) — contract | While the credential exists; deleted on disable and at the account's hard delete, kept through the 7-day deletion window | `@osn/api` only. **Never exported and never logged** | [[totp]] |
 | `totp_credentials.label` | UX — "Pixel", so the owner can tell one authenticator from another | Art. 6(1)(b) | Same | `@osn/api` only | [[totp]] |
 | `totp_credentials.last_used_at` | UX — "Last used 2 days ago", same footing as `passkeys.last_used_at` | Art. 6(1)(f) | Same | `@osn/api` only | [[totp]] |
 | `sessions.id` (= SHA-256 of token) | Session validation | Art. 6(1)(b) | 30 d sliding | `@osn/api` only | [[sessions]] |
@@ -69,6 +69,8 @@ the compliance checklist.
 | `recovery_codes.code_hash` | Account recovery | Art. 6(1)(b) | While account active | `@osn/api` only — the raw code is shown to the owner once, at generation, and never stored | [[recovery-codes]] |
 | `recovery_codes.used_at` | Single-use enforcement; security-event reasoning | Art. 6(1)(c)+(f) | While account active | `@osn/api`; the owner sees a derived unused **count** via `GET /recovery/status` | [[recovery-codes]] |
 | `recovery_codes.created_at` | Tells the owner how old their set is, so a stale one can be rotated | Art. 6(1)(b) | While account active | `@osn/api`; the owner sees the newest value via `GET /recovery/status` | [[recovery-codes]] |
+| `deletion_jobs.restore` + `.choices` | What a cancel of an account deletion puts back (each profile's handle, display name and avatar as they stood, and the ids of the app enrolments the soft delete closed), and the person's answers for the organisations they own | Art. 6(1)(b) — the person asked for a deletion they can undo for seven days, and for their organisations to be handled as they chose | Until a cancel or the hard delete deletes the row: 7 days, longer while an app has not confirmed its purge ([[retention]]) | `@osn/api` only; the export of an account whose deletion is pending shows its profiles from the restore record | [[dsar]] |
+| `handle_holds.handle` (HMAC-SHA256 of a deleted account's handle under `OSN_SESSION_IP_PEPPER`, never the handle) + `account_id` while the deletion is pending | Stops anyone else taking a deleted account's handle while its deletion is pending and soon after | Art. 6(1)(f) — legitimate interest in preventing impersonation of a person who deleted their account, balanced by keeping only a keyed hash and no account id once erased | The 7-day window, then 30 days from the hard delete; a cancel deletes it at once ([[retention]]) | `@osn/api` only | [[dsar]] |
 | `email_changes` audit | Anti-abuse cap (2/7d) + audit | Art. 6(1)(c)+(f) | 90 d | `@osn/api` only | [[identity-model]] |
 | `cdl_requests.cdl_secret_hash` | Cross-device login secret | Art. 6(1)(b) | 5 min TTL | `@osn/api` only | [[sessions]] |
 | Sign-up address's domain, in a DNS query (`_email-verification.<domain>` TXT), and the host names of the issuer and its key server (A and AAAA). Sent only while `OSN_EMAIL_VERIFICATION_API` is on, and only for a begin that carries an Email Verification API token. Never the local part, the token, or the person's IP: the query leaves from the Worker | Finds the mail provider that vouches for the address, so a sign-up can skip the emailed link | Art. 6(1)(b) — contract (the sign-up the person started; their browser added the token) | Not kept by OSN: nothing is written. The resolver deletes its logs within 25 hours and keeps no source IP on disk (Cloudflare's 1.1.1.1 privacy commitments, page updated 2026-05-06) | Cloudflare's public DNS resolver (`cloudflare-dns.com`), outside our Cloudflare account and its DPA; transfer basis to be confirmed before the flag goes on ([[subprocessors#Outbound lookups (not processors)]]) | [[email-verification-api]] |

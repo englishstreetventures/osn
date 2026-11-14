@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-15
 ---
 
 # DSAR Runbook
@@ -94,29 +94,90 @@ Most fields are user-editable in `@musubi/social` (handle change, displayName, a
 
 Status: **shipped**. Two flows:
 
-- **Flow A — full OSN account delete.** `DELETE /account` on osn-api. Soft-deletes the account, fans out to currently-enrolled apps via ARC, hard-deletes after the 7-day grace window via `account-erasure.runHardDeleteSweep`.
+- **Flow A — full OSN account delete.** `DELETE /account` on osn-api. Soft-deletes the account at once. Once the 7-day grace window has passed, the six-hourly cron calls the apps the account was enrolled in over ARC (`runFanOutRetrySweep`), then hard-deletes it (`account-erasure.runHardDeleteSweep`).
 - **Flow B — per-app delete (leave Pulse).** `DELETE /account` on pulse-api. Soft-deletes the user's Pulse-scoped data; hosted public events get a 14-day public-cancellation window (audience-commitment, independent of the account grace) before being hard-deleted. Pulse calls back to osn-api `/internal/app-enrollment/leave` to flip `app_enrollments.left_at`. The OSN account stays alive — the user can keep using Zap / OSN identity.
 
-Use `DELETE /account`. Two-phase:
+Use `DELETE /account` ([`routes/account-erasure.ts`](../../osn/api/src/routes/account-erasure.ts), [`services/account-erasure.ts`](../../osn/api/src/services/account-erasure.ts)). The request needs the profile's handle typed (`confirm_handle`), a live session, an answer for each owned organisation that needs one (below), and a step-up token for `account_delete`, read last, so a refused request spends no token. Three stages:
 
-1. **Soft delete** — sets `accounts.deleted_at`, immediately invalidates all sessions, redacts handles to `deleted_<id>`, blocks new logins. Returns 202.
-2. **Hard delete** after 7 days unless the user re-authenticates (recovery flow). Cascade includes:
-   - All rows in `osn/db` referencing the account (via existing FK cascade or explicit deletes in the deletion service).
-   - ARC fan-out to `@pulse/api/internal/account-deleted` and `@zap/api/internal/account-deleted` — Pulse hard-deletes RSVPs / events / close-friends entries; Zap revokes chat memberships, replaces sender_id with a deletion sentinel in retained ciphertext (we cannot decrypt, but participants can still read).
+1. **Soft delete** (`requestErasure`), one batch, answering 202 with `scheduled_for`:
+   - writes the `deletion_jobs` row, with its restore record (`restore`: each profile's handle, display name and avatar as they stood, and the ids of the open app enrolments) and the person's organisation choices (`choices`);
+   - sets `accounts.deleted_at`;
+   - redacts every profile: handle `deleted_<id>`, display name and avatar cleared;
+   - holds each profile's handle in `handle_holds`, as a keyed hash ([[#Handle holds]]);
+   - deletes every session and rotation record of the account but those of the requesting device's family;
+   - writes an `account_deletion_scheduled` security event;
+   - closes every open app enrolment.
+
+   Passkeys, recovery codes and TOTP stay until the hard delete, so a person who can still sign in can cancel. The soft delete ends OSN sessions only: Pulse's own web-session cookie and cire's organiser sessions are not OSN sessions, and they last until they expire or the person signs out there. A new sign-in to any relying party is refused, since `/authorize` answers `access_denied` for an account whose deletion is pending, before it records a consent or mints a code (`osn/api/tests/routes/oidc.test.ts`, "GET /authorize for an account whose deletion is pending").
+
+   Two deletes at once answer one 202 scheduled and one 202 `already_pending`, never a 500. A repeat during the window answers `already_pending` with the date, before the handle check, since the handle is redacted by then; it needs no step-up. Tests: `osn/api/tests/routes/account-erasure.test.ts` ("two deletions at once…", "DELETE /account returns 202 with both scheduling fields, and is idempotent") and `osn/api/tests/d1/account-hard-delete.test.ts` ("two deletions of one account at once on D1"); credentials kept and the restore record written: `osn/api/tests/services/account-erasure.test.ts` ("soft-deletes the account, redacts identity, keeps credentials and the cancel session", "holds every profile's handle and records each in the restore record").
+
+2. **The window**, seven days. Any sign-in of the account, from any device, mints a **pending-deletion session**: its access tokens carry the audience `osn-pending-deletion` ([[sessions#The pending-deletion session]]). The device that asked keeps its session, which mints the same audience from its next refresh. Such a token reaches only:
+   - `GET /account/deletion-status`;
+   - `GET /account/export`, with an `account_export` step-up. Its profiles section shows each handle, display name and avatar as the restore record holds them;
+   - `POST /account/restore`, with an `account_restore` step-up ([[step-up#Purpose binding]]);
+   - `DELETE /account`, for the `already_pending` answer only;
+   - the step-up routes, for those two purposes only.
+
+   Every other route, and Pulse, Zap and cire, refuse it, since they pin `osn-access`. A passkey, a recovery code, or email or TOTP recovery each lead here. Recovery ends in a passkey enrolment, which a restricted recovery session of such an account may make, and the session's next refresh is pending-deletion ([[account-recovery-factors#Recovery of an account whose deletion is pending]]). So **mailbox access alone is enough to cancel an erasure**: email recovery, enrol a passkey, step up with it or with an emailed link, cancel. Every notice about the account goes to that mailbox. Sign-in by the handle the person had does not find the account during the window, since every handle is redacted; sign-in by email, or with a discoverable passkey, does. Tests: `osn/api/tests/routes/pending-deletion-session.test.ts`.
+
+   **Cancel** (`POST /account/restore`, `cancelErasure`) needs any live session of the account and an `account_restore` step-up token, from the body's `step_up_token` or the `x-step-up-token` header. In one batch it deletes the job, clears `accounts.deleted_at`, records an `account_deletion_cancelled` event, and, from the restore record: puts back each profile's handle, display name and avatar; reopens the enrolments the deletion closed, where the account has no other open enrolment in that app; and releases the account's handle holds. A profile whose handle someone else holds by then, as a profile or an organisation, keeps its `deleted_<id>` handle. A job written before the restore record existed cancels with none of the putting back. Tests: `osn/api/tests/services/account-erasure.test.ts` ("puts back each profile's handle, display name and avatar…", "a handle taken by a profile or an organisation since stays redacted…", "a job written before the restore record existed cancels as before") and `osn/api/tests/routes/account-erasure.test.ts` ("POST /account/restore asks for an account_restore step-up").
+
+3. **Hard delete** (`hardDeleteAccount`), once the window has passed and every app the account was enrolled in has confirmed. One batch, with no read before it:
+   - each organisation a profile of the account owns passes on or goes ([[#Organisations the person owns]]);
+   - deleted: connections, blocks, the account's memberships, OIDC consents and authorization codes, the profiles, sessions, rotation records, passkeys, recovery codes, TOTP, every `app_enrollments` row of the account, open or closed, the `deletion_jobs` row, and the `accounts` row;
+   - OIDC clients the account registered are disabled and unlinked;
+   - the handle holds lose their account id and are released 30 days on;
+   - kept, as legal-obligation records (Art. 6(1)(c)): `security_events` (12 months) and `email_changes` (90 days), with the account id they name.
+
+   Outside osn-api's database:
+   - ARC fan-out to `@pulse/api/internal/account-deleted`, before the hard delete — Pulse hard-deletes RSVPs / events / close-friends entries.
+   - Zap has no `/internal/account-deleted` receiver, and nothing enrols an account in Zap, so every job marks Zap done (`zap_done_at = -1`) at the soft delete and no call goes to Zap.
    - Backups remain until next rotation cycle (document in privacy notice).
    - Grafana logs: redacted at write time, no PII to scrub. Trace and metric retention windows handle the rest.
 
-Tombstone (deletion sentinel) retained 30 days then purged.
+Nothing of the account outlives the hard delete in osn-api's database but its `security_events` and `email_changes` rows, kept for their windows, and its handle holds: keyed hashes with no account id, which the retention sweep deletes 30 days later ([[retention]]).
 
 **Fan-out reliability:**
 
-- **`deletion_jobs` table** — one row per soft-delete, with columns `account_id`, `soft_deleted_at`, `hard_delete_at` (= `soft_deleted_at + 7 d`), `pulse_done_at`, `zap_done_at` (`-1` for an app the account was not enrolled in), `reason`, `cancel_session_id` and `purge_started_at`. The hard-delete sweeper refuses to fire until both `*_done_at` columns are non-null.
+- **`deletion_jobs` table** — one row per soft-delete, with columns `account_id`, `soft_deleted_at`, `hard_delete_at` (= `soft_deleted_at + 7 d`), `pulse_done_at`, `zap_done_at` (`-1` for an app the account was not enrolled in), `reason`, `cancel_session_id`, `purge_started_at`, `restore` (what a cancel puts back), `choices` (the person's organisation answers, JSON keyed by action id) and `hard_delete_failed_at` ([[#Hard-delete sweep isolation]]). The hard-delete sweeper refuses to fire until both `*_done_at` columns are non-null.
 - **A cancel never restores an account a purge has begun on.** `POST /account/restore` cancels only inside the grace window. Before a sweep sends its first bridge call, or the hard delete runs, it stamps `purge_started_at`, and only while the job row still exists. The cancel deletes the job it read (the one with the `soft_deleted_at` it read) only while `purge_started_at` is NULL and the window is open, in the same statement, then restores the account and writes its audit event only once no job stands. So a cancel and a purge that meet at the end of the window settle one way: the cancel lands first and the sweep finds no job to purge, or the sweep claims first and the cancel answers `{ cancelled: false }`, as one past the window does. The `account_deletion_cancelled` event's id is derived from the account and the job's `soft_deleted_at`, so a job's cancellation is recorded once: of two cancels of the same job, the second answers `{ cancelled: false }` and writes nothing, and a cancel that read a job the user has since cancelled and asked for again leaves the new job standing. Tests: `osn/api/tests/services/account-erasure.test.ts` (both orders, fan-out and hard delete; two cancels of one job; a cancel of a replaced job) and `osn/api/tests/d1/conditional-writes.test.ts` (both orders of the fan-out, and two cancels of one job, on D1).
-- **Idempotent per-bridge** — `@pulse/api/internal/account-deleted` and `@zap/api/internal/account-deleted` accept the same `accountId` repeatedly; second call is a no-op. The sweeper retries failed bridges every cycle until the row clears.
+- **Idempotent per-bridge** — `@pulse/api/internal/account-deleted` accepts the same `accountId` repeatedly; second call is a no-op. The sweeper retries failed bridges every cycle until the row clears.
 - **Parallel fan-out** — `Effect.all([pulseCall, zapCall], { concurrency: "unbounded" })` with a per-bridge timeout of 10 s. A failing bridge does not block the soft-delete (which already returned 202); it just leaves the job row partially complete for the sweeper to retry.
 - **Per-bridge ARC rate-limit budget** — the deletion endpoints must be exempted from the standard ARC rate limit, OR sized to absorb a mass-deletion event without throttling. Pre-merge: agree on a 100 req/s ceiling per bridge with ARC token tagged `scope: "account-deletion"`.
 
 The export path uses the same `Effect.all` parallelism + 10 s per-bridge timeout. A failing bridge during export emits a partial bundle with a `{"degraded":"pulse|zap","reason":"..."}` line so the user can see the gap and re-request later.
+
+#### Organisations the person owns
+
+One profile owns each organisation (`organisations.owner_id`). `GET /account/deletion-preview` lists each organisation a profile of the account owns as an open action with the id `osn:organisation:<orgId>`, the member it would pass to (`successor`), the choices it allows and its default:
+
+| The organisation has | Choices | Default |
+|---|---|---|
+| another admin, from another account | `transfer`, `successor`, `delete` | `transfer`: needs no answer |
+| no other admin, but a member from another account | `transfer`, `successor`, `delete` | none: the person must answer |
+| no member from another account | `delete` | none: the person must answer |
+
+`DELETE /account` takes the answers as `choices: [{ action, choice, successor_profile_id? }]`, at most 200, and stores them on the job. It answers 409 `{ error: "open_actions", open_actions }` while an organisation with no default has no answer, and 400 `{ error: "invalid_choice", action }` for an action answered twice, a choice the organisation does not offer, or a successor who is not a member from another account. Both answers come before the step-up token is read. An answer for an action the account does not have is ignored.
+
+At the hard delete, in its batch and before the profiles go, each owned organisation passes to:
+
+1. the successor the person named, while that profile is still a member from another account;
+2. else the longest-standing admin from another account;
+3. else the longest-standing member from another account, who is made admin;
+4. else, or where the person chose `delete`, no one: the organisation and its memberships are deleted.
+
+Longest-standing means the earliest `organisation_members.created_at`, then the lowest id. The account's own other profiles are never chosen. The rules run on the rows as they stand at the hard delete, not as the preview showed them, so an organisation whose other admins all left during the window falls to rule 3 or 4 with no further question. No email tells the new owner. `osn.account.deletion.organisation` (`outcome`: `transferred` or `deleted`) counts each. Tests: `osn/api/tests/services/account-erasure.test.ts` ("account-erasure: owned organisations at hard delete"), `osn/api/tests/d1/account-hard-delete.test.ts` (the same rules on D1 with foreign keys enforced) and `osn/api/tests/routes/account-erasure.test.ts` ("the organisations an account owns").
+
+#### Handle holds
+
+A deleted account's handles cannot be taken while its deletion is pending, or for 30 days after the hard delete ([`lib/handle-hold.ts`](../../osn/api/src/lib/handle-hold.ts)). `handle_holds` stores an HMAC-SHA256 of each handle under the server pepper (`OSN_SESSION_IP_PEPPER`), never the handle itself. During the window the plain handle is only in the job's restore record, which the hard delete deletes with the job. Registration, sign-up finish, the handle check, profile creation and organisation creation refuse a held handle with the answer they give a taken one. Every check that creates or offers a handle also refuses one that starts with `deleted_`, the form the soft delete gives a profile.
+
+A cancel deletes the account's holds. The hard delete clears their account id and sets `release_at` 30 days ahead; from that second a hold refuses nothing, and the retention sweep deletes it. Rotating the pepper makes every hold stop matching its handle, so each held handle comes free early. With no pepper (local dev and tests) the key is random for the life of the process. Tests: `osn/api/tests/routes/account-erasure.test.ts` ("a handle held through the erasure routes"), `osn/api/tests/lib/handle-hold.test.ts`.
+
+#### Hard-delete sweep isolation
+
+Each pass reads up to 100 due jobs: those that have never failed first (`hard_delete_failed_at` NULL), then the least recently failed, each group by `hard_delete_at`. One account's failure, a defect included, is caught: it is logged as `account.deletion hard delete failed` with the error's tag and no ids, counted as `osn.account.deletion.completed` with `result` `hard_failed`, and stamped on the job's `hard_delete_failed_at`, so the next pass reads it last. The pass goes on to the next account. A failed stamp is logged and changes nothing else. Test: `osn/api/tests/services/account-erasure.test.ts` ("account-erasure: hard-delete sweep isolation").
 
 #### Cire (wedding-invite) data — cross-DB, no fan-out yet
 

@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-15
 ---
 # Recovery Codes
 
@@ -191,18 +191,17 @@ GET /recovery/status
 
 **No step-up.** The response carries counts only, never a code, and gating it would be circular — this answer is what tells a user whether starting a ceremony is worth it. It is still account-scoped, so an anonymous read returns 401. `generatedAt` is `max(created_at)` over the set (unix seconds); generation replaces the whole set atomically, so the newest row dates the set as a whole.
 
-> [!warning] `generatedAt` is not monotonic — never cache "this account has codes"
-> It is `null` whenever the account has **zero rows**, however it got there, and
-> generation is not the only thing that deletes them. Scheduling an account
-> deletion wipes every recovery code at the start of the seven-day grace window
-> (`osn/api/src/services/account-erasure.ts`, alongside passkeys and TOTP), and
-> cancelling inside that window restores the account without re-minting them. A
-> live account can therefore go from a timestamp back to `null`, and it does so
-> on exactly the account that most needs prompting. A client that latches "has
-> codes" on a first non-null read silences itself there forever.
+> [!warning] Never cache "this account has codes"
+> `generatedAt` is `null` whenever the account has **zero rows**. Only
+> generation deletes the rows of a live account, and it inserts the new set in
+> the same batch. Scheduling an account deletion keeps every code through the
+> seven-day window, so the person can sign in with one and cancel; the hard
+> delete deletes them with the account
+> (`osn/api/src/services/account-erasure.ts`, with passkeys and TOTP).
 >
-> Separately, `active` can be `0` while `generatedAt` is set: nothing re-mints
-> after the tenth code is consumed.
+> `active` can be `0` while `generatedAt` is set: nothing re-mints after the
+> tenth code is consumed. Another device can use a code or replace the set at
+> any time, so a client that latches "has codes" on one read goes stale.
 
 Both `/recovery/generate` and `/recovery/status` set `Cache-Control: no-store` as the first statement of the handler (RFC 6749 §5.1, RFC 6750 §5.3) — for `/recovery/status` this used to run after the DB read, so the 401/429 paths never got it; it now runs first (tracker#467, tracker#469). See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes.
 

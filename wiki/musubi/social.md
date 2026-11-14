@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-15
 ---
 
 # Social
@@ -107,10 +107,9 @@ email is the only account-wide identifier available, and a key built from it
 would leave one person's address in storage for the next person on a shared
 device. A dismissed prompt makes no request at all.
 
-Nothing caches "this account has codes". `generatedAt` looks monotonic and is
-not: scheduling an account deletion erases every recovery code, and cancelling
-inside the grace window restores the account without re-minting them, so a live
-account can go from a timestamp back to `null`. See [[recovery-codes]].
+Nothing caches "this account has codes". Another device can use a code or
+replace the set at any time, and `active` drops to `0` once the last code is
+used, so one read goes stale. See [[recovery-codes]].
 
 `AccountBanners` wraps the pair in an `ErrorBoundary` that renders nothing. Both
 banners read endpoints limited to 30 requests a minute **per IP**, a Solid

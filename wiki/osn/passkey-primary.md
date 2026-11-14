@@ -14,7 +14,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-15
 ---
 
 # Passkey-Primary Login
@@ -142,7 +142,7 @@ it was minted for fails.
 | Ceremony | Passkey | Emailed link | Authenticator |
 |---|---|---|---|
 | `passkey_register`, `totp_enroll`, `totp_disable` | yes | yes | yes |
-| `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `pulse_app_delete`, `zap_app_delete` | yes | yes | yes |
+| `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `account_restore`, `pulse_app_delete`, `zap_app_delete` | yes | yes | yes |
 | `passkey_delete` (gates rename too) | yes | **no** | **no** |
 | `email_change` | yes | yes | **no** |
 
