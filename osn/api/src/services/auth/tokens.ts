@@ -20,19 +20,19 @@ import {
   notExists,
   sql,
 } from "drizzle-orm";
-import { Clock, Effect } from "effect";
+import { Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
 import { bound } from "../../lib/bound";
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
 import {
-  metricRetentionSweep,
   metricSessionFamilyRevoked,
   metricSessionReuseDetected,
   metricSessionRotationRace,
   withAuthTokenRefresh,
   withSessionRotation,
 } from "../../metrics";
+import { expiredChunk, runRetentionSweep } from "../retention";
 import {
   ACCESS_TOKEN_AUDIENCE,
   LAST_USED_AT_COALESCE_MS,
@@ -68,7 +68,7 @@ export const ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING = 200;
  * (`osn/api/wrangler.toml` sets it for staging and production; the Worker's
  * `scheduled` handler reads it). Unset: {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS},
  * which keeps a Workers Free tier inside its 50 D1 queries per invocation,
- * shared by the four sweeps of one cron tick. A whole number from 1 to
+ * shared by every sweep of one cron tick. A whole number from 1 to
  * {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING}: that number, which keeps a
  * Workers Paid tier well inside its 1,000. Anything else is `"invalid"`, for
  * the caller to log and replace with the default.
@@ -81,23 +81,15 @@ export function rotatedSweepMaxChunks(raw: string | undefined): number | "invali
 }
 
 /**
- * Deletes expired `rotated_sessions` rows, in chunks of
- * {@link ROTATED_SESSION_SWEEP_CHUNK} and at most `maxChunks` of them (the
- * tier's cap, {@link rotatedSweepMaxChunks}), so one run's writes and
- * statements stay bounded however far behind the table is. A pass that ends
- * on a full chunk has left expired rows behind, and says so in a warning, so
- * a backlog shows in the Worker's logs. A row is expired once
- * `expires_at <= now`: past that, reuse detection ignores it.
- *
- * Each chunk is `DELETE … WHERE rowid IN (SELECT rowid … LIMIT n)`: the
- * subquery binds the same few values whatever the chunk size, never one per
- * row, and its `expires_at` range can use `rotated_sessions_expires_idx`.
- * Between two chunks it waits {@link ROTATED_SESSION_SWEEP_PAUSE_MS}, so
- * requests waiting to write run in between; it never waits after the last.
- * Each pass, failed or not, adds the rows it deleted to
- * `osn.retention.rows_deleted` and its time to `osn.retention.cycle.duration`,
- * both under `table: "rotated_sessions"` (the sweeper design contract in
- * `wiki/compliance/retention.md`).
+ * Deletes expired `rotated_sessions` rows through `runRetentionSweep`, in
+ * chunks of {@link ROTATED_SESSION_SWEEP_CHUNK} with a
+ * {@link ROTATED_SESSION_SWEEP_PAUSE_MS} pause between two, and at most
+ * `maxChunks` of them (the tier's cap, {@link rotatedSweepMaxChunks}). A pass
+ * that ends on a full chunk logs `auth.session.rotated_sweep ended on a full
+ * chunk`. A row is expired once `expires_at <= now`: past that, reuse
+ * detection ignores it. The chunk's `expires_at` range can use
+ * `rotated_sessions_expires_idx`. Each pass, failed or not, is counted under
+ * `table: "rotated_sessions"`.
  *
  * Standalone so the Workers `scheduled` handler and the Bun sweeper can run it
  * beside the account-deletion sweeps.
@@ -105,47 +97,20 @@ export function rotatedSweepMaxChunks(raw: string | undefined): number | "invali
 export const runRotatedSessionSweep = (
   opts: { nowMs?: number; maxChunks?: number } = {},
 ): Effect.Effect<{ deleted: number }, DatabaseError, Db> =>
-  Effect.gen(function* () {
-    const { db } = yield* Db;
-    const nowMs = opts.nowMs ?? Date.now();
-    const maxChunks = opts.maxChunks ?? ROTATED_SESSION_SWEEP_MAX_CHUNKS;
-    const startedAt = yield* Clock.currentTimeMillis;
-    let deleted = 0;
-    const deleteChunk = Effect.tryPromise({
-      try: () =>
-        db.delete(rotatedSessions).where(
-          inArray(
-            sql`rowid`,
-            db
-              .select({ rowid: sql<number>`rowid` })
-              .from(rotatedSessions)
-              .where(lte(rotatedSessions.expiresAt, nowMs))
-              .limit(ROTATED_SESSION_SWEEP_CHUNK),
-          ),
-        ),
-      catch: (cause) => new DatabaseError({ cause }),
-    });
-    yield* Effect.gen(function* () {
-      for (let chunk = 0; chunk < maxChunks; chunk++) {
-        if (chunk > 0) yield* Effect.sleep(ROTATED_SESSION_SWEEP_PAUSE_MS);
-        const changed = rowsChanged(yield* deleteChunk);
-        deleted += changed;
-        if (changed < ROTATED_SESSION_SWEEP_CHUNK) return;
-      }
-      // Every chunk came back full, so expired rows are likely still there.
-      yield* Effect.logWarning("auth.session.rotated_sweep ended on a full chunk").pipe(
-        Effect.annotateLogs({ chunks: maxChunks, deleted }),
-      );
-    }).pipe(
-      Effect.ensuring(
-        Effect.gen(function* () {
-          const endedAt = yield* Clock.currentTimeMillis;
-          metricRetentionSweep("rotated_sessions", deleted, (endedAt - startedAt) / 1000);
-        }),
+  Effect.suspend(() =>
+    runRetentionSweep({
+      table: "rotated_sessions",
+      chunk: expiredChunk(
+        rotatedSessions,
+        lte(rotatedSessions.expiresAt, opts.nowMs ?? Date.now()),
       ),
-    );
-    return { deleted };
-  }).pipe(Effect.withSpan("auth.session.rotated_sweep"));
+      chunkSize: ROTATED_SESSION_SWEEP_CHUNK,
+      maxChunks: opts.maxChunks ?? ROTATED_SESSION_SWEEP_MAX_CHUNKS,
+      pauseMs: ROTATED_SESSION_SWEEP_PAUSE_MS,
+      span: "auth.session.rotated_sweep",
+      fullChunkWarning: "auth.session.rotated_sweep ended on a full chunk",
+    }),
+  );
 
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;

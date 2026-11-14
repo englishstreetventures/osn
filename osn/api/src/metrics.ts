@@ -754,7 +754,11 @@ export const metricCoordinationStoreOp = (attrs: CoordinationStoreOpAttrs): void
 // ---------------------------------------------------------------------------
 
 /** A table a retention sweep deletes expired rows from. */
-export type RetentionTable = "rotated_sessions";
+export type RetentionTable =
+  | "rotated_sessions"
+  | "security_events"
+  | "email_changes"
+  | "handle_holds";
 
 type RetentionAttrs = { table: RetentionTable };
 

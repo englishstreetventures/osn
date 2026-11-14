@@ -1,14 +1,20 @@
-import { DbLive } from "@osn/db/service";
+import { type Db, DbLive } from "@osn/db/service";
 import { initObservability, PrettyLoggerLive } from "@shared/observability";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
 import { createInMemoryCoordination } from "./lib/coordination/memory";
 import { selectEmailLayer } from "./lib/email-layer";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
+import { safeErrorSummary } from "./metrics";
 import * as accountErasure from "./services/account-erasure";
 import { runRotatedSessionSweep } from "./services/auth/tokens";
+import {
+  runEmailChangeSweep,
+  runHandleHoldSweep,
+  runSecurityEventSweep,
+} from "./services/retention";
 
 export { SERVICE_NAME };
 export const port = Number(process.env.PORT) || 4000;
@@ -124,28 +130,37 @@ export function startBunServer(
     osnEnv: process.env.OSN_ENV,
   }).catch(() => undefined);
 
-  // Hard-delete + fan-out retry + rotated-session sweeper. Single-instance —
-  // a multi-instance deploy would need a lock; for now the fixed 6-hour cadence
-  // + idempotent per-row writes keep multi-instance safe enough that a stray
-  // double-pass is a non-event. (The Workers entry runs the same sweeps on a
-  // cron.)
+  // Fan-out retry, hard-delete, rotated-session and retention sweeper.
+  // Single-instance — a multi-instance deploy would need a lock; for now the
+  // fixed 6-hour cadence + idempotent per-row writes keep multi-instance safe
+  // enough that a stray double-pass is a non-event. (The Workers entry runs the
+  // same sweeps on a cron.)
   const SWEEPER_INTERVAL_MS =
     Number(process.env.OSN_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
   const fanoutUrls = {
     pulseApiUrl: process.env.PULSE_API_URL,
     zapApiUrl: process.env.ZAP_API_URL,
   };
+  // Each sweep's failure, a defect included, is logged and the next sweep
+  // still runs.
+  const isolated = <A, E>(failed: string, sweep: Effect.Effect<A, E, Db>) =>
+    sweep.pipe(
+      Effect.asVoid,
+      Effect.catchCause((cause) => Effect.logError(failed, safeErrorSummary(Cause.squash(cause)))),
+    );
   const runSweep = (): void => {
     void Effect.runPromise(
       Effect.gen(function* () {
-        yield* accountErasure.runFanOutRetrySweep(fanoutUrls);
-        yield* accountErasure.runHardDeleteSweep();
-        yield* runRotatedSessionSweep();
-      }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)) as Effect.Effect<
-        unknown,
-        never,
-        never
-      >,
+        yield* isolated(
+          "fan-out retry sweep failed",
+          accountErasure.runFanOutRetrySweep(fanoutUrls),
+        );
+        yield* isolated("hard-delete sweep failed", accountErasure.runHardDeleteSweep());
+        yield* isolated("rotated-session sweep failed", runRotatedSessionSweep());
+        yield* isolated("security-event sweep failed", runSecurityEventSweep());
+        yield* isolated("email-change sweep failed", runEmailChangeSweep());
+        yield* isolated("handle-hold sweep failed", runHandleHoldSweep());
+      }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)),
     ).catch(() => undefined);
   };
   setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
