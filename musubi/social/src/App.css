@@ -247,10 +247,12 @@
      400 and 500 only (DESIGN.md §Typography). */
   --ui-weight-title: 500;
 
-  /* Overlays fade and do not scale (DESIGN.md §Motion). At 1 the shared
-     `zoom-in` and `zoom-out` scale nothing, so every Kobalte overlay changes
-     its opacity alone, except a `Dialog` sheet below `md`, which `@shared/ui`
-     slides up and down whatever these hold. */
+  /* Overlays fade and do not scale: the app's spatial motion is `Button`'s,
+     its orb and its press, and a `Dialog` sheet's slide (DESIGN.md §Motion).
+     At 1 the shared `zoom-in` and `zoom-out` scale nothing, so every Kobalte
+     overlay changes its opacity alone, except a `Dialog` sheet below `md`,
+     which `@shared/ui` slides up and down whatever these hold; `Button`'s
+     press does not read these tokens. */
   --ui-scale-enter: 1;
   --ui-scale-exit: 1;
 

@@ -4,6 +4,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { ChangeEmailForm } from "../src/ChangeEmailForm";
+import { dialogDescription } from "./helpers/dialog";
 import { DETAILS, WAIT, alertsText, apiError } from "./helpers/errors";
 import { withoutAnimations } from "./helpers/motion";
 
@@ -88,6 +89,20 @@ describe("ChangeEmailForm", () => {
     await screen.findByText("47");
     window.dispatchEvent(new Event("focus"));
   }
+
+  // The sheet says why, in one line under its title.
+  it("says why on the step-up sheet once the new address is confirmed", async () => {
+    account.changeEmailBegin.mockResolvedValue(CHANGE_REQUEST);
+    account.changeEmailStatus.mockResolvedValue({ status: "confirmed" });
+    mount();
+    fireEvent.input(screen.getByLabelText("New email"), { target: { value: "next@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send a link/ }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    window.dispatchEvent(new Event("focus"));
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To change your email, confirm it's you.",
+    );
+  });
 
   it("runs the full begin → confirmed link → step-up → complete happy path", async () => {
     account.changeEmailComplete.mockResolvedValue({ email: "next@example.com" });

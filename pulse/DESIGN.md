@@ -355,6 +355,15 @@ These rules govern `pulse/web`. The landing site's motion is in
   state, and it stops under `prefers-reduced-motion: reduce`, holding a still
   frame (`onboarding.css` and `explore/explore.css` hold the rule).
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
+- **A button presses.** While a pointer or a held Space presses one of
+  `@shared/ui`'s `Button`s, it scales to 0.97 over `--ui-dur-fast` on
+  `--ui-ease-out` and eases back when let go, the owner's decision on #2034
+  (2026-11-14). It is the button's own: a call site adds no class for it and
+  sets no `transition-*`, `duration-*` or `ease-*` on a `Button`, which would
+  replace its timing. No press while a button is disabled, busy or
+  `aria-disabled`, nor at `size="inline"`, and under reduced motion no scale
+  at all (`wiki/shared/component-library.md` §Press). The app's own controls,
+  such as the filter chips and the explore tabs, do not scale.
 - **Overlays grow and shrink.** Pulse maps no scale token, so `@shared/ui`'s
   Dialog (but the share sheet, below), Popover and menus open from the
   contract's 0.96 and close to 0.98

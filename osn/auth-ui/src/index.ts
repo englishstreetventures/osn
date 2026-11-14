@@ -3,6 +3,7 @@ export { ChangeEmailForm } from "./ChangeEmailForm";
 export { CheckEmailView, type CheckEmailPurpose, type CheckEmailStatus } from "./CheckEmailView";
 export { ConfirmLinkPage, type ConfirmLinkPurpose, type ConfirmOutcome } from "./ConfirmLinkPage";
 export { CreateProfileForm } from "./CreateProfileForm";
+export { DialogActions, type DialogActionsProps } from "./DialogActions";
 export { PasskeysView } from "./PasskeysView";
 export { describePasskeyError, type PasskeyCeremony } from "./passkey-errors";
 export { ProfileOnboarding } from "./ProfileOnboarding";

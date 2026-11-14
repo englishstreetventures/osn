@@ -10,6 +10,7 @@ import { Suspense } from "solid-js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { PasskeysView } from "../src/PasskeysView";
+import { dialogDescription } from "./helpers/dialog";
 import {
   INPUT,
   PASSKEY_NOT_ADDED,
@@ -652,5 +653,30 @@ describe("PasskeysView", () => {
     for (const b of [...renameButtons, ...deleteButtons]) {
       expect((b as HTMLButtonElement).disabled).toBe(true);
     }
+  });
+  // Every sheet the view opens says why, in one line under its title.
+  it("says why on the sheet: adding a passkey, and renaming the one being renamed", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        profileId="prof_123"
+        runPasskeyRegistration={vi.fn()}
+      />
+    ));
+    await waitFor(() => screen.getByRole("button", { name: "Add a passkey" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a passkey" }));
+    expect(await dialogDescription("Confirm it's you")).toBe("To add a passkey, confirm it's you.");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename Work laptop" }));
+    fireEvent.input(screen.getByDisplayValue("Work laptop"), { target: { value: "Primary" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    // The passkey as it is named now, not the name just typed.
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To rename Work laptop, confirm it's you.",
+    );
   });
 });

@@ -56,6 +56,13 @@ import { isPairingCode } from "./pairing-code";
  * - **Recovery promises nothing.** Recovery answers every address the same way,
  *   so its sentences say a link is on its way only if the address has an
  *   account.
+ * - **Where a missing email may be.** For sign-up and recovery, once the first
+ *   wait ends, a line above Resend says to look in the junk or spam folder for
+ *   an email about the product, so a person checks there before spending a
+ *   link. It stays for the rest of the wait, reads the same whatever the
+ *   address, sits outside the live region and moves no focus. Above Resend,
+ *   not under the buttons: a tap aimed at Resend as it unlocks lands on the
+ *   line, never on "Start again", in a sheet anchored to the bottom too.
  */
 
 export type CheckEmailPurpose = "sign-up" | "recovery" | "step-up" | "email-change";
@@ -105,6 +112,12 @@ export interface CheckEmailViewProps {
    * the new number before it resolves.
    */
   pairingCode?: string;
+  /**
+   * The product the email is about, named in the junk-mail line sign-up and
+   * recovery show once Resend unlocks. Every link email's subject carries it.
+   * Absent, the line names no product.
+   */
+  productName?: string;
 }
 
 const DEFAULT_WAIT_SECONDS = 30;
@@ -128,6 +141,14 @@ const PAIRING_MODE = {
   "email-change": "pick",
 } as const satisfies Record<CheckEmailPurpose, "pick" | "type">;
 
+/** The flows whose waiting screen says where a missing email may be. */
+const SAYS_JUNK = {
+  "sign-up": true,
+  recovery: true,
+  "step-up": false,
+  "email-change": false,
+} as const satisfies Record<CheckEmailPurpose, boolean>;
+
 const NUMBER_CAPTION = {
   pick: "Pick this number on the page the link opens.",
   type: "Type this number on the page the link opens.",
@@ -146,6 +167,9 @@ export function CheckEmailView(props: CheckEmailViewProps) {
   const [remaining, setRemaining] = createSignal(0);
   const [pending, setPending] = createSignal(false);
   const [resent, setResent] = createSignal(false);
+  // Set once the first wait ends and never cleared: the junk-mail line stays
+  // through every Resend after it.
+  const [waited, setWaited] = createSignal(false);
 
   let deadline = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -159,7 +183,10 @@ export function CheckEmailView(props: CheckEmailViewProps) {
   function tick() {
     const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
     setRemaining(left);
-    if (left === 0) stopWait();
+    if (left === 0) {
+      setWaited(true);
+      stopWait();
+    }
   }
 
   function startWait() {
@@ -238,6 +265,11 @@ export function CheckEmailView(props: CheckEmailViewProps) {
   // never says the number is new: two requests can draw the same one.
   const checkNumber = () => (resent() && code() ? " Check the number again." : "");
 
+  const junkLine = () =>
+    props.productName
+      ? `Can't find it? Look in your junk or spam folder for an email about ${props.productName}.`
+      : "Can't find it? Look in your junk or spam folder.";
+
   return (
     <div class="font-ui-body flex flex-col gap-4">
       <h3
@@ -300,6 +332,12 @@ export function CheckEmailView(props: CheckEmailViewProps) {
             </p>
           </div>
         )}
+      </Show>
+
+      {/* Outside the live region, like the countdown: it appears as Resend
+          unlocks and is found in the page's order, never read out. */}
+      <Show when={SAYS_JUNK[props.purpose] && waited() && !expired()}>
+        <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{junkLine()}</p>
       </Show>
 
       <div class="flex flex-col gap-1">

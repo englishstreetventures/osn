@@ -357,7 +357,9 @@ export function TotpView(props: TotpViewProps) {
                 ? "You'll lose it as a way back into your account. Confirm it's you to remove it."
                 : undefined
             }
-            reason={action() === "enroll" ? "to add an authenticator app" : undefined}
+            reason={
+              action() === "enroll" ? "To add an authenticator app, confirm it's you." : undefined
+            }
             purpose={action() === "enroll" ? "totp_enroll" : "totp_disable"}
           />
         )}

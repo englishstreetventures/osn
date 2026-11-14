@@ -1,6 +1,5 @@
 import { Elysia, t } from "elysia";
 
-import { buildSessionCookies } from "../../lib/cookie-session";
 import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
 import { EMAIL_VERIFICATION_TOKEN_MAX } from "../../services/auth/email-verification-token";
 import type { AuthRouteContext } from "./context";
@@ -17,7 +16,7 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
     socketIpOf,
     sessionMetaFrom,
     rl,
-    cookieConfig,
+    replaceSession,
   } = ctx;
   return (
     new Elysia()
@@ -217,7 +216,7 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
             );
             if (result.status !== "complete") return result;
             set.status = 201;
-            set.headers["set-cookie"] = buildSessionCookies(result.refreshToken, cookieConfig);
+            set.headers["set-cookie"] = await replaceSession(headers.cookie, result.refreshToken);
             return {
               status: result.status,
               profileId: result.profileId,

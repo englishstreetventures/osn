@@ -8,7 +8,7 @@ import type {
   Session,
 } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
-import { createResource, type ComponentProps } from "solid-js";
+import { createResource, Show, type ComponentProps } from "solid-js";
 
 import type { Story } from "../../lab/types.ts";
 import { Gallery, Mono } from "../design-system/chrome.tsx";
@@ -93,17 +93,20 @@ function signedOut(): AuthValue {
 
 /** `SignIn` as musubi mounts it in `host`, signed out. */
 function MusubiSignIn(props: { host: "dialog" | "page" }) {
+  const shared = {
+    client: loginClient,
+    recoveryClient,
+    registrationClient,
+    runPasskeyRegistration,
+    productName: "Musubi",
+  };
   return (
     <AuthContext.Provider value={signedOut()}>
-      <SignIn
-        host={props.host}
-        client={loginClient}
-        recoveryClient={recoveryClient}
-        registrationClient={registrationClient}
-        runPasskeyRegistration={runPasskeyRegistration}
-        productName="Musubi"
-        onCancel={props.host === "dialog" ? () => {} : undefined}
-      />
+      {/* A dialog's Cancel is its footer's, and does nothing here; the page's
+          way out is "Create one" under the panel, which the host draws. */}
+      <Show when={props.host === "dialog"} fallback={<SignIn host="page" {...shared} />}>
+        <SignIn host="dialog" {...shared} onCancel={() => {}} />
+      </Show>
     </AuthContext.Provider>
   );
 }
@@ -114,11 +117,11 @@ export const Default: Story = {
       title="osn/auth-ui SignIn — in the dialog"
       intro={
         <>
-          What a signed-out person sees on opening "Sign in": the sheet named by its title, Cancel,
-          the <Mono>Email or @handle</Mono> field, Continue and "Lost your passkey?". Type a handle
-          and press Continue to see "Verifying…" hold, since the passkey call never answers. "Lost
-          your passkey?" renames the sheet "Recover your account" and opens the recovery chooser.
-          Escape closes it; the button opens it again.
+          What a signed-out person sees on opening "Sign in": the sheet named by its centred title,
+          the <Mono>Email or @handle</Mono> field with "Lost your passkey?" under it, then the
+          footer's Cancel and Continue. Type a handle and press Continue to see "Verifying…" hold,
+          since the passkey call never answers. "Lost your passkey?" renames the sheet "Recover your
+          account" and opens the recovery chooser. Escape closes it; the button opens it again.
         </>
       }
     >

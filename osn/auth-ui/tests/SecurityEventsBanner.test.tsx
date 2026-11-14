@@ -4,6 +4,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
+import { dialogDescription } from "./helpers/dialog";
 import { SERVER, alertsText, apiError } from "./helpers/errors";
 import { withoutAnimations } from "./helpers/motion";
 
@@ -153,6 +154,22 @@ describe("SecurityEventsBanner", () => {
     await waitFor(() => {
       expect(screen.getByText(/Security event on your account/i)).toBeTruthy();
     });
+  });
+
+  // The sheet says why, in one line under its title.
+  it("says why on the step-up sheet before the alerts are acknowledged", async () => {
+    stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
+    render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        productName="Musubi"
+      />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /Acknowledge/ }));
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To acknowledge these alerts, confirm it's you.",
+    );
   });
 
   // Clicking "Acknowledge" must NOT hit the ack endpoint with the raw

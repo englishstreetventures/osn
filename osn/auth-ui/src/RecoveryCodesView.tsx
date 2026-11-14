@@ -8,19 +8,15 @@ import {
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Checkbox } from "@shared/ui/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@shared/ui/ui/dialog";
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
+import { AuthHeader } from "./AuthHeader";
 import { LoadFailed } from "./LoadFailed";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
+import { stepAction, ViewStep } from "./ViewParts";
 
 /**
  * Settings-panel surface for generating and displaying recovery codes
@@ -383,25 +379,26 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
       </Show>
       <Dialog open={confirmRotate()} onOpenChange={setConfirmRotate}>
         <DialogContent presentation="sheet" class="md:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Generate a new set?</DialogTitle>
-          </DialogHeader>
-          <div class="flex flex-col gap-2 p-4">
-            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-              Your existing recovery codes stop working immediately — any copy you've saved
-              elsewhere becomes useless.
-            </p>
-            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-              You'll be asked to confirm with your passkey before the new codes are generated.
-            </p>
-          </div>
-          <DialogFooter>
-            {/* A dialog's dismiss button is `secondary`. */}
-            <Button variant="secondary" onClick={() => setConfirmRotate(false)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmRotation}>Generate new set</Button>
-          </DialogFooter>
+          <AuthHeader host="dialog" title="Generate a new set?" />
+          <ViewStep
+            host="dialog"
+            onCancel={() => setConfirmRotate(false)}
+            action={
+              <Button {...stepAction("dialog")} onClick={confirmRotation}>
+                Generate new set
+              </Button>
+            }
+          >
+            <div class="flex flex-col gap-2">
+              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+                Your existing recovery codes stop working immediately — any copy you've saved
+                elsewhere becomes useless.
+              </p>
+              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+                You'll be asked to confirm with your passkey before the new codes are generated.
+              </p>
+            </div>
+          </ViewStep>
         </DialogContent>
       </Dialog>
       <Show when={pending()}>
@@ -412,7 +409,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           runPasskeyCeremony={props.runPasskeyCeremony}
           passkeyOnly={props.passkeyOnly}
           totpClient={props.totpClient}
-          reason="to generate recovery codes"
+          reason="To generate recovery codes, confirm it's you."
           purpose="recovery_generate"
         />
       </Show>

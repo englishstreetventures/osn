@@ -50,6 +50,8 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
             // `profile_id` names the profile the caller is acting as; the
             // service mints for it only when the session's account owns it.
             const tokens = await run(auth.refreshTokens(refresh_token, profile_id));
+            // The rotated cookie of the same family, so not `replaceSession`,
+            // which would end the family this grant has just rotated.
             set.headers["set-cookie"] = buildSessionCookies(tokens.refreshToken, cookieConfig);
             return toTokenResponseCookieOnly(tokens);
           } catch (e) {

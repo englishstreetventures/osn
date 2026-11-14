@@ -11,7 +11,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[step-up]]"
   - "[[email-verification-api]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Emailed links
@@ -156,7 +156,11 @@ before it mails, reads, replaces or spends anything
   exactly as typed, lowercased: three in 24 hours and no more sign-up links go
   to that address until the window passes, while begin answers as ever.
   Another `+tag` variant, or another of Gmail's forms, keeps its own count.
-  Recovery counts per account ([[#Recovery]]).
+  Recovery counts per account ([[#Recovery]]). The tab that began is never
+  told; the link's page, which only the link's holder sees, states each flow's
+  rule as fixed copy ("After 3 wrong numbers in a day, links to this address
+  stop for up to a day.") under its instruction and on every expired page,
+  never whether it was met ([[component-library]] §ConfirmLinkPage).
 - **"I didn't ask for this"** (`pairingPick: "none"`) ends the request too,
   confirmed or not, counts nothing against the reader, and answers
   `declined`. The entry stays, marked `declined`, until it expires, so the same
@@ -384,8 +388,8 @@ before it mails, reads, replaces or spends anything
   Resends a day per mailbox (`linkResendCap`, counted apart from email
   change's, so neither flow's Resends spend the other's). Begin: 5 a minute
   per client address.
-- **The UI** is `StepUpDialog`, a sheet: "Email me a link", under the
-  passkey, swaps the factors for `CheckEmailView` in the sheet; the sheet
+- **The UI** is `StepUpDialog`, a sheet: "Email me a link", an `outline`
+  Button above the footer's "Use passkey", swaps the factors for `CheckEmailView` in the sheet; the sheet
   polls and hands the token to `onToken`, unless the person closed the sheet
   or pressed "Use another method", or the sheet has gone, in which case a
   token that arrives is dropped. "Use another method" ends the wait on this

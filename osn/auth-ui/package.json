@@ -1,6 +1,6 @@
 {
   "name": "@osn/auth-ui",
-  "version": "5.0.0",
+  "version": "6.0.1",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -16,6 +16,7 @@
     "./CheckEmailView": "./src/CheckEmailView.tsx",
     "./ConfirmLinkPage": "./src/ConfirmLinkPage.tsx",
     "./CreateProfileForm": "./src/CreateProfileForm.tsx",
+    "./DialogActions": "./src/DialogActions.tsx",
     "./PasskeysView": "./src/PasskeysView.tsx",
     "./pending-recovery": "./src/pending-recovery.ts",
     "./pending-sign-up": "./src/pending-sign-up.ts",
@@ -26,11 +27,13 @@
     "./SessionsView": "./src/SessionsView.tsx",
     "./SignIn": "./src/SignIn.tsx",
     "./StepUpDialog": "./src/StepUpDialog.tsx",
-    "./TotpView": "./src/TotpView.tsx"
+    "./TotpView": "./src/TotpView.tsx",
+    "./TurnstileWidget": "./src/TurnstileWidget.tsx"
   },
   "scripts": {
     "typecheck": "bun check --no-script",
-    "test": "bunx --bun vitest",
+    "test": "bunx --bun vitest --project package",
+    "test:repo": "bunx --bun vitest run --project repo",
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
