@@ -31,9 +31,6 @@ import {
 // The queries themselves are in `page-data.ts`, which loads on demand; this
 // module holds no client.
 
-/** A preload sends no second read for an entry with nothing landed within this long of the last. */
-export const FRESH_MS = 10_000;
-
 type Status = "idle" | "pending" | "ready" | "refreshing" | "errored";
 
 interface Entry<T> {
@@ -46,13 +43,8 @@ interface Entry<T> {
   readonly setStatus: Setter<Status>;
   readonly error: Accessor<unknown>;
   readonly setError: Setter<unknown>;
-  /** A read of this entry is out. */
-  readonly out: Accessor<boolean>;
-  readonly setOut: Setter<boolean>;
   /** The last read sent; only its answer may land. */
   seq: number;
-  /** When the last read went out; 0 for never, or forgotten. */
-  sentAt: number;
   /** Settles (never rejects) when the last read sent answers. */
   inFlight: Promise<void> | null;
   /** Mounted pages reading this entry. */
@@ -165,20 +157,40 @@ const landed = <T>(entry: Entry<T>) => {
 function forget<T>(entry: Entry<T>): void {
   entry.seq += 1;
   entry.inFlight = null;
-  entry.sentAt = 0;
   entry.setValue(undefined);
   entry.setError(undefined);
   entry.setStatus("idle");
-  entry.setOut(false);
+}
+
+/**
+ * `next`, with every object or list in it that equals one in `prev` (by its
+ * JSON) taken from `prev` instead. A list read again that answers the same
+ * rows keeps the same row objects, so `<For>` keeps their elements: no avatar
+ * reloads, and focus stays on a row's button. Answers are parsed JSON, so
+ * JSON equality is equality, and the round trip loses nothing.
+ */
+function keepSame<T>(prev: T | undefined, next: T): T {
+  if (prev === undefined) return next;
+  const held = new Map<string, object>();
+  JSON.stringify(prev, (_key, value: unknown) => {
+    if (value !== null && typeof value === "object") held.set(JSON.stringify(value), value);
+    return value;
+  });
+  if (held.size === 0) return next;
+  return JSON.parse(JSON.stringify(next), (_key, value: unknown) =>
+    value !== null && typeof value === "object"
+      ? (held.get(JSON.stringify(value)) ?? value)
+      : value,
+  ) as T;
 }
 
 /** Writes an answer into the entry and counts its rows for the next first load. */
-function land<T>(entry: Entry<T>, value: T): void {
+function land<T>(entry: Entry<T>, answer: T): void {
+  const value = keepSame(untrack(entry.value), answer);
   batch(() => {
     entry.setValue(() => value);
     entry.setError(undefined);
     entry.setStatus("ready");
-    entry.setOut(false);
   });
   rowsSeen.set(entry.name, entry.countRows(value));
 }
@@ -187,7 +199,6 @@ function send<T>(entry: Entry<T>, refreshing = false): Promise<void> {
   entry.seq += 1;
   const seq = entry.seq;
   const sentUnder = generation;
-  entry.sentAt = Date.now();
   batch(() => {
     if (!landed(entry)) {
       entry.setError(undefined);
@@ -195,7 +206,6 @@ function send<T>(entry: Entry<T>, refreshing = false): Promise<void> {
     } else if (refreshing) {
       entry.setStatus("refreshing");
     }
-    entry.setOut(true);
   });
   const current = () => sentUnder === generation && seq === entry.seq;
   let answer: Promise<T>;
@@ -213,7 +223,6 @@ function send<T>(entry: Entry<T>, refreshing = false): Promise<void> {
         if (isAuthExpiredError(err)) {
           batch(() => {
             if (entry.status() === "refreshing") entry.setStatus("ready");
-            entry.setOut(false);
           });
           return;
         }
@@ -222,7 +231,6 @@ function send<T>(entry: Entry<T>, refreshing = false): Promise<void> {
           entry.setValue(undefined);
           entry.setError(err);
           entry.setStatus("errored");
-          entry.setOut(false);
         });
       },
     )
@@ -255,7 +263,11 @@ export interface PageRead<T> {
    * page shows again leaves the state `ready`.
    */
   readonly state: "unresolved" | "pending" | "ready" | "refreshing" | "errored";
-  /** No rows yet, or a read of them is out: the region's `aria-busy`. */
+  /**
+   * No rows yet, or a read the page asked for with `refresh` is out: the
+   * region's `aria-busy`. A read behind rows already on screen marks nothing:
+   * the rows are whole, and a screen reader may pass over a busy region.
+   */
   readonly busy: boolean;
   readonly error: unknown;
   /** Placeholder rows to draw for a first load. */
@@ -277,8 +289,9 @@ export interface PageQuery<A extends unknown[], T> {
    */
   use(args: () => A | undefined): PageRead<T>;
   /**
-   * Starts a read for a link about to be followed, only when nothing has
-   * landed, none is out and none went out within `FRESH_MS`. Signed out it
+   * Starts a read for a link about to be followed, only for rows never read
+   * (or forgotten) with none out: landed rows are read again when shown, and a
+   * failed read is tried again when shown, not on every hover. Signed out it
    * sends nothing.
    */
   preload(...args: A): void;
@@ -329,7 +342,6 @@ export function pageQuery<A extends unknown[], T>(
     const [value, setValue] = createSignal<T | undefined>(undefined);
     const [status, setStatus] = createSignal<Status>("idle");
     const [error, setError] = createSignal<unknown>(undefined);
-    const [out, setOut] = createSignal(false);
     const entry: Entry<T> = {
       name,
       read: () => read(...args),
@@ -340,10 +352,7 @@ export function pageQuery<A extends unknown[], T>(
       setStatus,
       error,
       setError,
-      out,
-      setOut,
       seq: 0,
-      sentAt: 0,
       inFlight: null,
       readers: 0,
     };
@@ -359,11 +368,9 @@ export function pageQuery<A extends unknown[], T>(
     }
     entry.seq += 1;
     entry.inFlight = null;
-    entry.sentAt = 0;
     batch(() => {
       if (entry.status() === "pending") entry.setStatus("idle");
       if (entry.status() === "refreshing") entry.setStatus("ready");
-      entry.setOut(false);
     });
   }
 
@@ -416,7 +423,7 @@ export function pageQuery<A extends unknown[], T>(
           const shown = entry();
           if (!shown) return true;
           const status = shown.status();
-          return shown.out() || status === "idle" || status === "pending";
+          return status === "idle" || status === "pending" || status === "refreshing";
         },
       },
       error: { get: () => entry()?.error() },
@@ -436,8 +443,7 @@ export function pageQuery<A extends unknown[], T>(
     use,
     preload(...args) {
       const entry = entryFor(args);
-      if (!entry || entry.inFlight || landed(entry)) return;
-      if (entry.sentAt !== 0 && Date.now() - entry.sentAt < FRESH_MS) return;
+      if (!entry || entry.inFlight || entry.status() !== "idle") return;
       void send(entry);
     },
     refresh(...args) {

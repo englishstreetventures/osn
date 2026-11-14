@@ -628,8 +628,9 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   Discover, Organisations, an organisation's page and Settings' Connected
   apps read through one page cache (`src/lib/page-cache.ts`). Shown again,
   a page draws the rows it last had at once and reads them again behind
-  them; the region carries `aria-busy` while that read is out and nothing
-  else changes on screen. A row action pressed meanwhile is busy from the
+  them, with no busy mark: the rows on screen are whole, and a screen reader
+  may pass over a region marked `aria-busy`. Rows that come back unchanged
+  keep their elements, so focus stays where it was. A row action pressed meanwhile is busy from the
   press with its own label ("Accepting…", "Declining…", "Removing…",
   "Cancelling…", "Unblocking…", "Sending…", "Revoking…"), waits for the read,
   and acts only if its row is still there. A first load draws as many

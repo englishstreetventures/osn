@@ -910,7 +910,10 @@ page last landed, one when nothing is known.
   moment after every sign-in.
 - **Plain signals, not a resource.** A read never raises a `Suspense`
   boundary (see [[#Lazy Loading]] on resources under `Suspense`), so a cached
-  page paints with the navigation's own commit.
+  page paints with the navigation's own commit. An answer that repeats rows
+  already held keeps those row objects (`keepSame`), so `<For>` keeps their
+  elements and focus. A read behind rows on screen sets no `aria-busy`; a
+  first load and a `refresh` do.
 - **When it reads.** A show — the page mounts, its arguments change, or the
   scope changes — joins a read already out, or sends one: a first read with a
   placeholder when nothing has landed, a read behind the rows otherwise. A
@@ -918,7 +921,8 @@ page last landed, one when nothing is known.
   again by itself. Each visit costs one read, as a mount-time resource did.
   A route's `preload` (hover at rest 20 ms, focus or touch of a link, and
   navigation, through `@solidjs/router`'s anchor listeners) sends a read only
-  for rows not yet landed, at most once in `FRESH_MS`. The preload lives in
+  for rows never read: landed rows are read again when shown, and a failed
+  read is tried again when shown, not on every hover. The preload lives in
   the page's own module and `App.tsx` imports it through the same
   `import()` as the page: a new dynamic-import site from the entry splits the
   entry chunk, as [[#Lazy Loading]] records for the dialogs.

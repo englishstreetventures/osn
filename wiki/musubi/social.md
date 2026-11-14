@@ -183,13 +183,13 @@ What each mutation writes, with the scope mark taken before its request:
 
 | Where | Mutation | Cache |
 |---|---|---|
-| Connections | remove, accept, decline, cancel, unblock | the row taken off its tab's list, the list read again; accept also marks All stale; every one marks Discover's suggestions stale |
+| Connections | remove, accept, decline, cancel, unblock | the row taken off its tab's list, the list read again (not after unblock, whose answer leaves nothing to learn); accept also marks All stale; every one marks Discover's suggestions stale |
 | Discover | connect | the card taken off (osn-api suggests nobody with a request in flight), the suggestions read again, Sent marked stale |
 | Search (rail and `/search`) | connect, accept | Sent, or Pending and All, and the suggestions marked stale |
 | Organisations | create | the answer appended, the list read again, suggestions stale |
 | An organisation | rename | its entry and its row in the list rewritten; the list reads itself again when next shown |
 | An organisation | delete | its entry and roster forgotten, so a stale link is a first load that answers "not found"; its row taken off the list |
-| An organisation | remove member | the row taken off, the roster read again, suggestions stale |
+| An organisation | remove member | the row taken off, suggestions stale |
 | Connected apps | revoke | the list read again, Revoke busy until it lands |
 
 Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`). `tests/lib/page-cache.test.tsx` holds each way the cache can fail; `tests/components/PageCacheScope.test.tsx` holds, through the real `AuthProvider` (with a fake runtime, hence `effect` among the dev dependencies), that a profile switch, a sign-out then another account, and a session end then another account each show none of the rows before; `tests/components/PlaceholderRows.browser.test.tsx` holds the placeholder count. `musubi-org-detail` hovers Discover and finds its suggestions read before the click, comes back to the organisations list with its read held and finds the renamed row drawn and no placeholder, and finds a deleted organisation's stale link drawing one.

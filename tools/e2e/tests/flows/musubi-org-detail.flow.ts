@@ -435,14 +435,10 @@ test("musubi-org-detail", async ({ page, flow }) => {
     await page.unroute(orgsUrl, listHeld.handler);
   }
   await expect.poll(listReads).toBe(readsBefore + 1);
-  await expect(page.locator('main [aria-busy="true"]')).toHaveCount(0);
   flow.check("organisations: the list drawn while its read is held", true, drawnWhileHeld);
-  flow.check("organisations: the list marked busy while its read is held", 1, busyWhileHeld);
-  flow.check(
-    "organisations: not busy once the read lands",
-    0,
-    await page.locator('main [aria-busy="true"]').count(),
-  );
+  // Rows already on screen are whole: the read behind them marks nothing busy,
+  // which a screen reader could take as a cue to pass the region by.
+  flow.check("organisations: nothing marked busy while its read is held", 0, busyWhileHeld);
   flow.check("organisations: no placeholder on the return", false, await listWatch.seen());
   flow.check("organisations: the list read again behind it", 1, listReads() - readsBefore);
 

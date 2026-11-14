@@ -167,7 +167,6 @@ export function OrgDetailPage() {
             }),
             mark,
           );
-          organisationMembers.invalidate(handle);
           suggestions.invalidate();
         } catch (err) {
           toast.error(`Couldn't remove @${profileHandle}. ${describeAuthError(err)}`);
@@ -302,7 +301,7 @@ export function OrgDetailPage() {
                               </Chip>
                               <Show when={member.role !== "admin"}>
                                 <Button
-                                  variant="ghost"
+                                  variant="ghostDanger"
                                   size="sm"
                                   class="h-7 max-md:h-10"
                                   aria-label={`${actions.busy(`remove:${member.handle}`) ? "Removing" : "Remove"} @${member.handle}`}

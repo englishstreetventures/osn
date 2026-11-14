@@ -162,7 +162,6 @@ export function ConnectionsPage() {
           await graphClient.unblockProfile(handle);
           toast.success(`Unblocked @${handle}`);
           blockedProfiles.update([], without("blocks", handle), mark);
-          blockedProfiles.invalidate();
           suggestions.invalidate();
         } catch {
           toast.error("Failed to unblock");
@@ -212,11 +211,11 @@ export function ConnectionsPage() {
                           <AvatarFallback>{conn.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
+                          <p class="text-foreground text-title truncate font-medium">
                             {conn.displayName || `@${conn.handle}`}
                           </p>
                           <Show when={conn.displayName}>
-                            <p class="text-muted-foreground text-meta">@{conn.handle}</p>
+                            <p class="text-muted-foreground text-meta truncate">@{conn.handle}</p>
                           </Show>
                         </div>
                         <div class="flex items-center gap-1.5">
@@ -255,10 +254,10 @@ export function ConnectionsPage() {
                           <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
+                          <p class="text-foreground text-title truncate font-medium">
                             {req.displayName || `@${req.handle}`}
                           </p>
-                          <p class="text-muted-foreground text-meta">
+                          <p class="text-muted-foreground text-meta truncate">
                             Requested {new Date(req.requestedAt).toLocaleDateString()}
                           </p>
                         </div>
@@ -314,10 +313,10 @@ export function ConnectionsPage() {
                           <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
+                          <p class="text-foreground text-title truncate font-medium">
                             {req.displayName || `@${req.handle}`}
                           </p>
-                          <p class="text-muted-foreground text-meta">
+                          <p class="text-muted-foreground text-meta truncate">
                             Requested {new Date(req.requestedAt).toLocaleDateString()}
                           </p>
                         </div>
@@ -402,7 +401,9 @@ export function ConnectionsPage() {
                           </AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">@{profile.handle}</p>
+                          <p class="text-foreground text-title truncate font-medium">
+                            @{profile.handle}
+                          </p>
                         </div>
                         <Button
                           variant="secondary"

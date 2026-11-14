@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   bindScope,
-  FRESH_MS,
   invalidatePages,
   pageQuery,
   placeholderRows,
@@ -291,18 +290,42 @@ describe("reads", () => {
     q.preload();
     expect(read).toHaveBeenCalledTimes(2);
 
-    // Nothing landed: a preload reads, and no second one within FRESH_MS.
+    // Rows never read: a preload reads once, not again while it is out, and
+    // not again once it failed (that waits for the page to be shown).
     const other = heldReads<string[]>();
     const p = pageQuery(fresh(), other.read, (v) => v.length);
     p.preload();
+    p.preload();
     expect(other.read).toHaveBeenCalledTimes(1);
-    other.calls[0]!.reject(new Error("boom"));
+    other.calls[0]!.reject(new Error("refused"));
     await settle();
     p.preload();
     expect(other.read).toHaveBeenCalledTimes(1);
-    vi.setSystemTime(1_000_000 + FRESH_MS);
-    p.preload();
-    expect(other.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("F18: a read that answers the same rows keeps the same row objects", async () => {
+    setSession({});
+    type Row = { handle: string };
+    const { read, calls } = heldReads<{ rows: Row[] }>();
+    const q = pageQuery(fresh(), read, (v) => v.rows.length);
+    const first = mount(q, () => []);
+    calls[0]!.resolve({ rows: [{ handle: "bob" }, { handle: "carol" }] });
+    await settle();
+    const before = first.read()!;
+    first.dispose();
+
+    const same = mount(q, () => []);
+    calls[1]!.resolve({ rows: [{ handle: "bob" }, { handle: "carol" }] });
+    await settle();
+    expect(same.read()).toBe(before);
+    same.dispose();
+
+    const changed = mount(q, () => []);
+    calls[2]!.resolve({ rows: [{ handle: "dan" }, { handle: "bob" }] });
+    await settle();
+    expect(changed.read()!.rows[1]).toBe(before.rows[0]);
+    expect(changed.read()!.rows).toHaveLength(2);
+    changed.dispose();
   });
 
   it("F10: a read that fails takes the old rows with it", async () => {
