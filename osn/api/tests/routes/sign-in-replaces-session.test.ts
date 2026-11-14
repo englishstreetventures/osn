@@ -655,6 +655,36 @@ describe("a sign-in on a browser holding the cancel handle of an account schedul
     expect((await grantFor(h, rotated, leaving.profile.id)).status).toBe(200);
   });
 
+  it("refuses a handle no sign-in marked a renewal for a profile its account does not own", async () => {
+    // A row written before the mark existed, or one no sign-in has replaced
+    // yet, is still refused another account's profile.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    expect((await grantFor(h, leaving.token, newcomer.profile.id)).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("fails a renewal the mark would refuse when the mark lands while it rotates", async () => {
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    const mint = h.held.hold(/^insert into "sessions"/);
+    const renewal = h.grant(leaving.token);
+    await mint.reached;
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+    mint.release();
+    const answer = await renewal;
+
+    expect(answer.status).toBe(400);
+    expect(sessionCookieOf(answer)).toBeNull();
+    // The handle is untouched: still live, marked, and renewing as itself.
+    expect((await h.grant(leaving.token)).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
   it("leaves a handle no sign-in replaced to renew naming no profile", async () => {
     // The account's own cold start, on its own browser: the refusals above
     // follow the sign-in, not the deletion.
