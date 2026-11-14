@@ -297,12 +297,12 @@ everything else on the dev account. A run that ends on a full chunk logs
 | Sweep | D1 calls a run |
 |---|---|
 | Deletion fan-out (`runFanOutRetrySweep`) | 1 read, plus up to 4 per job due: its profile read, its claim, and one mark per app |
-| Hard delete (`runHardDeleteSweep`) | 1 read, plus 2 per account (its claim and its batch), plus 1 per account whose hard delete fails (the stamp) |
+| Hard delete (`runHardDeleteSweep`) | 1 read, plus 2 per account (its claim and its batch), plus 1 per account whose hard delete fails (the stamp). A pass stops after three failures in a row, so a cap or an outage costs it at most three more claims and three stamps |
 | OIDC codes (`runExpiredAuthCodeSweep`) | 1 |
 | `rotated_sessions` (`runRotatedSessionSweep`) | 1 up to the tier's cap: 10 where `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS` is unset (dev), 100 where it is set to 100 |
 | `security_events`, `email_changes`, `handle_holds` (`services/retention.ts`) | 1 or 2 each |
 
-A quiet run costs 7 calls. With F fan-out jobs due and H accounts hard-deleted, the worst case on dev is 19 + 4F + 2H calls, plus 1 per failed hard delete; with the rotated-session cap at 100 it is 109 + 4F + 2H. Each deletion sweep reads at most 100 jobs, so a tick with several deletions due can pass dev's 50. Registering the outbound ARC key makes subrequests, not D1 calls.
+A quiet run costs 7 calls. With F fan-out jobs due and H accounts hard-deleted, the worst case on dev is 19 + 4F + 2H calls, plus 1 per failed hard delete; with the rotated-session cap at 100 it is 109 + 4F + 2H. Each deletion sweep reads at most 100 jobs, so a tick with several deletions due can pass dev's 50; past it every call fails, and the hard delete stops after three of its accounts fail in a row rather than counting a failure for every job left. Registering the outbound ARC key makes subrequests, not D1 calls.
 
 *Counted from the code on 2026-11-15, a batch as one call; not measured. Whether D1 counts a batch as one query or one per statement is to re-check.*
 

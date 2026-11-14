@@ -60,7 +60,7 @@ high-impact ones, in priority order:
 
 1. **Account-level data export endpoint** — `GET /account/export` (auth + step-up gated). JSON bundle including: account row, all profiles, social-graph edges, blocks, RSVPs (via Pulse ARC fan-out), chat membership (via Zap ARC fan-out), security events, sessions metadata, recovery-code usage history. Streaming JSON (multi-MB plausible). Rate-limited 1/day/account. Owner: Identity team.
 
-2. **Account-level erasure endpoint** — `DELETE /account` (auth + step-up gated, second confirmation, 7-day soft-delete window, then hard delete). Cascades via ARC to Pulse + Zap. Redacts each profile at the soft delete (handle `deleted_<id>`, display name and avatar cleared) and deletes it at the hard delete; the flow is in [[dsar]].
+2. **Account-level erasure endpoint** — `DELETE /account` (auth + step-up gated, second confirmation, 7-day soft-delete window, then hard delete). Cascades via ARC to Pulse; Zap has no receiver and is never called ([[dsar]]). Redacts each profile at the soft delete (handle `deleted_<id>`, display name and avatar cleared) and deletes it at the hard delete; the flow is in [[dsar]].
 
 3. **Photon geocoder keystroke leak** — proxy through `@pulse/api` so Photon never sees the user IP, debounce server-side, and add a one-time consent dialog on first use ("Location lookups are sent to Photon, an open-source geocoder, to convert what you type into coordinates").
 

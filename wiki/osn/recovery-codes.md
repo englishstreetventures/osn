@@ -203,7 +203,7 @@ GET /recovery/status
 > tenth code is consumed. Another device can use a code or replace the set at
 > any time, so a client that latches "has codes" on one read goes stale.
 
-Both `/recovery/generate` and `/recovery/status` set `Cache-Control: no-store` as the first statement of the handler (RFC 6749 §5.1, RFC 6750 §5.3) — for `/recovery/status` this used to run after the DB read, so the 401/429 paths never got it; it now runs first (tracker#467, tracker#469). See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes.
+Both `/recovery/generate` and `/recovery/status` set `Cache-Control: no-store` as the first statement of the handler (RFC 6749 §5.1, RFC 6750 §5.3), so the 401 and 429 answers carry it too. See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes.
 
 ```
 POST /login/recovery/complete

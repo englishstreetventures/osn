@@ -150,7 +150,7 @@ Never rewrite the file to recover. By then `osn-db-dev` has almost always applie
 |---|---|---|
 | `osn-access` | login, `/token` refresh, `/profiles/switch`, for an account whose deletion is not pending | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
 | `osn-recovery` | a restricted recovery session | `resolvePasskeyEnrollPrincipal` **only** — i.e. `/passkey/register/begin` and `/complete`, and nothing else anywhere |
-| `osn-pending-deletion` | login and `/token` refresh, for an account whose deletion is pending (`accounts.deleted_at` set) | `resolveAccountWindowPrincipal` **only** — `GET /account/deletion-status`, `GET /account/export`, `POST /account/restore`, the `already_pending` answer of `DELETE /account`, and the step-up routes for `account_export` and `account_restore`. See [[sessions#The pending-deletion session]] |
+| `osn-pending-deletion` | login and `/token` refresh, for an account whose deletion is pending (`accounts.deleted_at` set) | `resolveAccountWindowPrincipal` **only** — `GET /account/deletion-status`, `GET /account/export`, `POST /account/restore`, the `already_pending` answer of `DELETE /account`, `GET /totp/status`, and the step-up routes for `account_export` and `account_restore`. See [[sessions#The pending-deletion session]] |
 | `osn-step-up` | `/step-up/*/complete` | the step-up verifiers, purpose-bound — see [[step-up]] |
 | a relying party's `client_id` | the OIDC token endpoint (`typ: at+jwt`) | that relying party. Never a first-party route |
 

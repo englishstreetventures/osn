@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/coordination"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-15
 ---
 # Rate Limiting
 
@@ -68,7 +68,7 @@ osn-api runs on Cloudflare Workers. Its **one-minute limiters** run on the **Clo
 |---|---|---|
 | One-minute per-IP auth limiters (register, login, passkey, step-up, session, security-event, passkey management, cross-device, recovery status and code entry, TOTP, OIDC) | **Native binding**, `RL_AUTH_IP_*` | Brute-force-facing throttles; the binding is atomic at the edge and costs no store call |
 | Graph and organisation writes, recommendation suggest and search (per user) | **Native binding**, `RL_USER_20_60` / `RL_USER_60_60` | Search fires once per keystroke; a binding costs nothing per call |
-| Profile create, delete and set-default, `GET /health/coordination`, the account export's per-IP guard and `GET /account/deletion-status` (per IP) | **Native binding**, the `RL_AUTH_IP_*` tiers under their own key prefix | One-minute windows |
+| Profile create, delete and set-default, `GET /health/coordination`, the account export's per-IP guard and `GET /account/deletion-status` (per IP; `GET /account/deletion-preview` spends the same limiter) | **Native binding**, the `RL_AUTH_IP_*` tiers under their own key prefix | One-minute windows |
 | Hour-window per-IP auth limiters (`recoveryGenerate`, `recoveryComplete`, `recoveryEmailBegin`, `emailChangeBegin`, `oidcClientCreate`) | **Coordination store** | The native binding supports only `period` 10 or 60 s |
 | Per-account caps (`profileSwitchCap`, `emailChangeBeginCap`), the recovery link caps (`recoveryLinkAddressCap`, three a day per account and client network, an IPv6 client counted by its /64 (`clientNetwork` in `@shared/rate-limit`); `recoveryResendCap`, three Resends a day per account; `recoveryLinkCeiling`, twenty links a day per account — [[email-links]] §Recovery), the cap on resent sign-up links per mailbox key (`registrationSendCap`, six an hour; [[email-links]]), the cap on first sign-up links per mailbox key (`registrationFirstLinkCap`, ten an hour, the mailbox's first always admitted; [[email-links#Sign-up]]), the account export limiter (one a day per account) and the account deletion and restore limiters (per IP, an hour) | **Coordination store** | Windows of an hour or a day |
 

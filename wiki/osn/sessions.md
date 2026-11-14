@@ -114,7 +114,7 @@ cire's organiser portal keeps its own 7-day session, minted from an OSN sign-in 
 
 The code is [`services/cire-organiser-revoke.ts`](../../osn/api/src/services/cire-organiser-revoke.ts); route tests are in [`tests/routes/cire-organiser-revoke.test.ts`](../../osn/api/tests/routes/cire-organiser-revoke.test.ts), and the E2E flow `cire-registry-money` ends by driving it against the real cire-api ([[testing-patterns#The end-to-end suite]]).
 
-`GET /sessions` sets `Cache-Control: private, no-store` as the first statement of the handler, so even a rejection carries it (tracker#468). See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes for the rule and why it sits above the guards.
+`GET /sessions` sets `Cache-Control: private, no-store` as the first statement of the handler, so even a rejection carries it. See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes for the rule and why it sits above the guards.
 
 ### Cross-device login
 
@@ -250,11 +250,12 @@ A session of an account whose deletion is pending (`accounts.deleted_at` set) mi
 - `GET /account/export`, with an `account_export` step-up;
 - `POST /account/restore`, with an `account_restore` step-up;
 - `DELETE /account`, for its `already_pending` answer only;
+- `GET /totp/status`, which the step-up sheet reads before it offers the authenticator; enrolling or removing one still refuses the token ([[totp]]);
 - the step-up routes, which mint for such a caller only for `account_export` or `account_restore` ([[step-up#Purpose binding]]).
 
 Every other verifier pins `osn-access`, here and in Pulse, Zap and cire over JWKS, so each refuses the token with no change, as with `osn-recovery`. The audience is on the reserved OIDC client-id deny-list. `GET /authorize` resolves the session cookie rather than a token, so it reads the account itself and answers `access_denied` ([[oidc-provider]]). The session counts against `MAX_SESSIONS_PER_ACCOUNT` like any other, and it slides like an ordinary one.
 
-**How a cancel ends it.** A cancel clears `deleted_at` and writes no session. The next refresh mints `osn-access`. A pending-deletion token minted before the cancel is refused (401) at the deletion status, the export and the restore once the account is no longer pending, so the client renews into an ordinary token.
+**How a cancel ends it.** A cancel clears `deleted_at` and writes no session. The next refresh mints `osn-access`. A pending-deletion token minted before the cancel is refused (401) at the deletion status, the export, the restore and the TOTP status once the account is no longer pending, so the client renews into an ordinary token.
 
 **How a client knows.** The access token's `aud` is `osn-pending-deletion`, or `GET /account/deletion-status` answers `scheduled: true`. Nothing else in a response says so. A client that checks neither gets a 401 from the first ordinary route; `@osn/client`'s `authFetch` renews once, gets the same audience, and ends the session ([[#Renewal in the browser]]).
 
