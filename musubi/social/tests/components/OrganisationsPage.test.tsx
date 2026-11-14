@@ -69,6 +69,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup();
   vi.clearAllMocks();
 });
@@ -79,7 +80,6 @@ describe("<OrganisationsPage /> create failure", () => {
     const spy = vi.spyOn(toast, "error");
     await submitCreate();
     await waitFor(() => expect(spy).toHaveBeenCalledWith("Your session has ended. Sign in again."));
-    spy.mockRestore();
   });
 
   it("words an ordinary failure as a non-empty sentence in the toast", async () => {
@@ -89,6 +89,5 @@ describe("<OrganisationsPage /> create failure", () => {
     await waitFor(() => expect(spy).toHaveBeenCalled());
     const shown = spy.mock.calls[0]![0];
     expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
-    spy.mockRestore();
   });
 });

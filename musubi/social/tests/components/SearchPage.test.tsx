@@ -93,6 +93,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   cleanup();
   vi.clearAllMocks();
@@ -246,7 +247,6 @@ describe("<SearchPage />", () => {
       const shown = spy.mock.lastCall![0];
       expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
       expect(shown).not.toBe("Your session has ended. Sign in again.");
-      spy.mockRestore();
     },
   );
 });
