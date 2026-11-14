@@ -1743,6 +1743,53 @@ describe("app-enrollments service", () => {
       expect(rows).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  it.effect("a join refused during the window puts that app's purge back on the job", () =>
+    // Red on leaving the job's mark alone: the app may hold data written
+    // during the window, through its own session, that the fan-out would
+    // then never ask it to erase.
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+      yield* accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest });
+      const { db } = yield* Db;
+      const marks = () =>
+        Effect.promise(() =>
+          db
+            .select({ pulse: deletionJobs.pulseDoneAt, zap: deletionJobs.zapDoneAt })
+            .from(deletionJobs)
+            .where(eq(deletionJobs.accountId, accountId)),
+        );
+      expect(yield* marks()).toEqual([{ pulse: -1, zap: -1 }]);
+
+      expect(yield* appEnroll.joinApp(accountId, "pulse")).toEqual({ enrolled: false });
+
+      expect(yield* marks()).toEqual([{ pulse: null, zap: -1 }]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a refused join leaves a bridge the fan-out has already finished as it is", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+      yield* accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest });
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db
+          .update(deletionJobs)
+          .set({ pulseDoneAt: 1_700_000_000 })
+          .where(eq(deletionJobs.accountId, accountId)),
+      );
+
+      yield* appEnroll.joinApp(accountId, "pulse");
+
+      const [row] = yield* Effect.promise(() =>
+        db
+          .select({ pulse: deletionJobs.pulseDoneAt })
+          .from(deletionJobs)
+          .where(eq(deletionJobs.accountId, accountId)),
+      );
+      expect(row?.pulse).toBe(1_700_000_000);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
 });
 
 /**
