@@ -1383,8 +1383,18 @@ const GATED: readonly GatedCall[] = [
         },
       });
       expect(scheduled.status).toBe(202);
-      // `cancelled: true` only if the refused call cancelled nothing.
-      return { path: "/account/restore", ok: 200, served: { cancelled: true } };
+      // `cancelled: true` only if the refused call cancelled nothing; served
+      // with the same step-up token, so the refusal spent none.
+      return {
+        path: "/account/restore",
+        body: {
+          step_up_token: await h.svc(
+            mintStepUpToken(h.auth, profile.accountId, "otp", "account_restore"),
+          ),
+        },
+        ok: 200,
+        served: { cancelled: true },
+      };
     },
   },
   {

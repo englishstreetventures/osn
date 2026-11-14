@@ -133,6 +133,7 @@ export const OSN_METRICS = {
   accountDeletionDuration: "osn.account.deletion.duration",
   accountDeletionFanout: "osn.account.deletion.fanout",
   accountDeletionFanoutPendingAge: "osn.account.deletion.fanout_pending_age",
+  accountDeletionOrganisation: "osn.account.deletion.organisation",
   // App enrollments
   appEnrollmentJoined: "osn.account.app_enrollment.joined",
   appEnrollmentLeft: "osn.account.app_enrollment.left",
@@ -296,7 +297,7 @@ type SafeErrorSummary = {
  * annotations. Only `_tag` and `message` are kept — both are hardcoded
  * strings in the codebase, never user input.
  */
-const safeErrorSummary = (err: unknown): SafeErrorSummary => {
+export const safeErrorSummary = (err: unknown): SafeErrorSummary => {
   if (!err || typeof err !== "object") return { error: String(err) };
   const tag = (err as { _tag?: unknown })._tag;
   const msg = (err as { message?: unknown }).message;
@@ -1335,6 +1336,12 @@ type DeletionCompletedAttrs = {
 type DeletionDurationAttrs = { phase: DeletionPhase; result: "ok" | "error" };
 type DeletionFanoutAttrs = { service: DeletionFanoutService; result: DeletionFanoutResult };
 type DeletionFanoutPendingAgeAttrs = { service: DeletionFanoutService };
+/**
+ * What a hard delete did with an organisation the erased account owned:
+ * passed it to another member, or deleted it.
+ */
+export type DeletionOrganisationOutcome = "transferred" | "deleted";
+type DeletionOrganisationAttrs = { outcome: DeletionOrganisationOutcome };
 type AppEnrollmentJoinedAttrs = { app: AppEnrollmentApp };
 type AppEnrollmentLeftAttrs = { app: AppEnrollmentApp; result: Result };
 
@@ -1370,6 +1377,12 @@ const accountDeletionFanoutPendingAge = createHistogram<DeletionFanoutPendingAge
   unit: "s",
   // Minute-scale buckets — these jobs are background-retried, not request-path latency.
   boundaries: [60, 300, 900, 1800, 3600, 7200, 14400, 43200, 86400],
+});
+
+const accountDeletionOrganisation = createCounter<DeletionOrganisationAttrs>({
+  name: OSN_METRICS.accountDeletionOrganisation,
+  description: "Organisations an erased account owned, passed on or deleted at its hard delete",
+  unit: "{organisation}",
 });
 
 const appEnrollmentJoined = createCounter<AppEnrollmentJoinedAttrs>({
@@ -1410,6 +1423,11 @@ export const metricAccountDeletionFanoutPendingAge = (
   service: DeletionFanoutService,
   ageSeconds: number,
 ): void => accountDeletionFanoutPendingAge.record(ageSeconds, { service });
+
+export const metricAccountDeletionOrganisation = (
+  outcome: DeletionOrganisationOutcome,
+  count: number,
+): void => accountDeletionOrganisation.add(count, { outcome });
 
 export const metricAppEnrollmentJoined = (app: AppEnrollmentApp): void =>
   appEnrollmentJoined.inc({ app });

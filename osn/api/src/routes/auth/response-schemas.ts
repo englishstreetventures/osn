@@ -300,6 +300,68 @@ export const accountDeletionStatusResponse = t.Union([
 ]);
 
 /**
+ * One thing the person must know about, or answer, before their account is
+ * deleted: today, an organisation one of their profiles owns. `id` is the
+ * action id a `DELETE /account` choice names (`osn:organisation:<orgId>`).
+ * `choices` lists what the person may answer, each with a plain sentence;
+ * `default_choice` is what the hard delete does with no answer, and null means
+ * the deletion waits for one. `successor` is the member the organisation
+ * passes to with no successor named, null when no one from another account
+ * is a member. `erased_on` and `link` are null for an organisation.
+ */
+export const accountDeletionOpenAction = t.Object({
+  id: t.String(),
+  app: t.String(),
+  kind: t.String(),
+  label: t.String(),
+  choices: t.Array(
+    t.Object({
+      choice: t.Union([t.Literal("transfer"), t.Literal("successor"), t.Literal("delete")]),
+      description: t.String(),
+    }),
+  ),
+  default_choice: t.Union([t.Literal("transfer"), t.Null()]),
+  erased_on: t.Null(),
+  link: t.Null(),
+  organisation: t.Object({ id: t.String(), handle: t.String(), name: t.String() }),
+  successor: t.Union([
+    t.Object({
+      profile_id: t.String(),
+      handle: t.String(),
+      display_name: t.Union([t.String(), t.Null()]),
+      role: t.Union([t.Literal("admin"), t.Literal("member")]),
+    }),
+    t.Null(),
+  ]),
+});
+
+/** `GET /account/deletion-preview`: every open action of the account, oldest organisation first. */
+export const accountDeletionPreviewResponse = t.Object({
+  open_actions: t.Array(accountDeletionOpenAction),
+});
+
+/**
+ * `DELETE /account` at 409: `session_stale` (the access token's session has
+ * ended), or `open_actions` with the actions that still need an answer.
+ */
+export const accountDeletionConflictResponse = t.Object({
+  error: t.String(),
+  message: t.Optional(t.String()),
+  open_actions: t.Optional(t.Array(accountDeletionOpenAction)),
+});
+
+/**
+ * `DELETE /account` at 400: `handle_mismatch`, `invalid_choice` with the
+ * `action` whose answer was refused, or whatever `publicError` maps a service
+ * failure to.
+ */
+export const accountDeletionBadRequestResponse = t.Object({
+  error: t.String(),
+  message: t.Optional(t.String()),
+  action: t.Optional(t.String()),
+});
+
+/**
  * `POST /account/restore`. A 200 with `cancelled: false` is a real outcome, not
  * an error: there was no pending deletion, or — the case that matters — the
  * grace window had already closed, so the downstream purge may be under way and

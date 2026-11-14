@@ -99,7 +99,7 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
       return yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: organisations.id })
+            .select({ id: organisations.id, ownerId: organisations.ownerId })
             .from(organisations)
             .where(eq(organisations.id, orgId))
             .limit(1),
@@ -716,9 +716,10 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
         return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
       }
 
-      // Changes the membership only while it is the one read. The owner check
-      // above reads `ownerId`, which changes only in the hard delete of the
-      // owner's account.
+      // Changes the membership only while it is the one read and the caller
+      // still owns the organisation. The owner changes in the hard delete of
+      // the owner's account, which can pass the organisation on between the
+      // check above and this write.
       const changed = yield* Effect.tryPromise({
         try: () =>
           db
@@ -729,14 +730,27 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
                 eq(organisationMembers.id, targetMember[0].id),
                 eq(organisationMembers.organisationId, orgId),
                 eq(organisationMembers.profileId, targetProfileId),
+                exists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(organisations)
+                    .where(and(eq(organisations.id, orgId), eq(organisations.ownerId, callerId))),
+                ),
               ),
             ),
         catch: (cause) => new DatabaseError({ cause }),
       });
       if (rowsChanged(changed) === 0) {
-        // The organisation or the membership is gone since the read.
-        if ((yield* readOrganisation(orgId)).length === 0) {
+        // Refused as the checks would refuse now, in their order.
+        const [orgNow] = yield* readOrganisation(orgId);
+        if (!orgNow) {
           return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+        }
+        if (orgNow.ownerId === targetProfileId) {
+          return yield* Effect.fail(new OrgError({ message: "Cannot change the owner's role" }));
+        }
+        if (orgNow.ownerId !== callerId) {
+          return yield* Effect.fail(new OrgError({ message: "Only the owner can change roles" }));
         }
         return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
       }

@@ -6,7 +6,7 @@ import {
   type ClientIpOptions,
   type RateLimiterBackend,
 } from "@shared/rate-limit";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal, resolveAccountWindowPrincipal } from "../lib/auth-derive";
@@ -20,6 +20,9 @@ import { createAuthService, type AuthConfig } from "../services/auth";
 import { isAuthError } from "../services/auth/errors";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
+  accountDeletionBadRequestResponse,
+  accountDeletionConflictResponse,
+  accountDeletionPreviewResponse,
   accountDeletionScheduledResponse,
   accountDeletionStatusResponse,
   accountRestoreResponse,
@@ -30,7 +33,8 @@ import {
 /**
  * Per-account rate limits for the deletion endpoints. Tighter than the
  * normal auth surface because each call is a destructive ceremony — the
- * step-up gate is the primary defence; the limiter just curbs noise.
+ * step-up gate is the primary defence; the limiter just curbs noise. The
+ * deletion preview spends `accountDeletionStatus`.
  */
 export interface AccountErasureRateLimiters {
   readonly accountDelete: RateLimiterBackend;
@@ -50,8 +54,8 @@ export function createDefaultAccountErasureRateLimiters(): AccountErasureRateLim
 /**
  * Flow A — full OSN account erasure. The user holds an OSN access token
  * + a fresh step-up token. After verification the service tombstones the
- * account; the route fires the cross-service fan-out as a daemon Effect
- * so the 202 response stays under the per-bridge timeout.
+ * account; the cross-service fan-out runs from the sweeper once the grace
+ * window closes. Restore cancels a pending deletion with its own step-up.
  */
 export function createAccountErasureRoutes(
   authConfig: AuthConfig,
@@ -86,7 +90,11 @@ export function createAccountErasureRoutes(
   async function rateLimit(
     headers: Record<string, string | undefined>,
     socketIp: string | null,
-    endpoint: "account_delete" | "account_restore" | "account_deletion_status",
+    endpoint:
+      | "account_delete"
+      | "account_restore"
+      | "account_deletion_status"
+      | "account_deletion_preview",
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
     const ip = getClientIp(headers, { ...clientIpConfig, socketIp });
@@ -109,14 +117,100 @@ export function createAccountErasureRoutes(
     return null;
   }
 
+  /** An owned organisation as the open action the preview and a 409 show. */
+  const toOpenAction = (org: accountErasure.OwnedOrganisation) => ({
+    id: accountErasure.organisationActionId(org.orgId),
+    app: "osn",
+    kind: "organisation_owned",
+    label: `You own ${org.name} (@${org.handle}).`,
+    choices: accountErasure.organisationChoices(org).map((choice) => ({
+      choice,
+      description:
+        choice === "transfer"
+          ? `@${org.successor?.handle ?? ""} becomes the owner.`
+          : choice === "successor"
+            ? "The member you name becomes the owner."
+            : "The organisation and its memberships are deleted.",
+    })),
+    default_choice: accountErasure.organisationDefaultChoice(org),
+    erased_on: null,
+    link: null,
+    organisation: { id: org.orgId, handle: org.handle, name: org.name },
+    successor: org.successor
+      ? {
+          profile_id: org.successor.profileId,
+          handle: org.successor.handle,
+          display_name: org.successor.displayName,
+          role: org.successor.role,
+        }
+      : null,
+  });
+
   return (
     new Elysia({ prefix: "/account" })
+      // ---------------------------------------------------------------------
+      // GET /account/deletion-preview — what deleting the account would
+      // leave open: each organisation a profile of it owns, who would take it
+      // over, and the choices the person may make.
+      // ---------------------------------------------------------------------
+      .get(
+        "/deletion-preview",
+        async ({ headers, set, server, request }) => {
+          // Per-user content — never cached or stored.
+          set.headers["cache-control"] = "private, no-store";
+
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "account_deletion_preview",
+            rl.accountDeletionStatus,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const owned = await run(
+              accountErasure
+                .listOwnedOrganisations(profile.accountId)
+                .pipe(Effect.withSpan("account.deletion.preview")),
+            );
+            return { open_actions: owned.map(toOpenAction) };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          response: {
+            200: accountDeletionPreviewResponse,
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "getAccountDeletionPreview", security: [{ bearerAuth: [] }] },
+        },
+      )
       // ---------------------------------------------------------------------
       // DELETE /account — Flow A: full OSN account deletion (soft delete).
       //
       // Requires: bearer access token, step-up token, body confirmation
-      // (handle typed verbatim by the user). Returns 202 with `scheduled_for`.
-      // Idempotent for an already-pending deletion.
+      // (handle typed verbatim by the user), and an answer for every owned
+      // organisation no other admin could take over. Returns 202 with
+      // `scheduled_for`. A deletion already pending is answered first, to
+      // either audience, with no confirmation or step-up.
       // ---------------------------------------------------------------------
       .delete(
         "",
@@ -133,7 +227,7 @@ export function createAccountErasureRoutes(
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            const claims = await resolveAccountWindowPrincipal(auth, headers.authorization);
             if (!claims) {
               set.status = 401;
               metricAccountDeletionRequested("error");
@@ -141,6 +235,22 @@ export function createAccountErasureRoutes(
             }
             const profile = await run(auth.findProfileByIdIncludingTombstoned(claims.profileId));
             if (!profile) {
+              set.status = 401;
+              metricAccountDeletionRequested("error");
+              return { error: "unauthorized" };
+            }
+
+            // A retry of a deletion already requested: its handle is
+            // redacted by now, and a retry needs neither the confirmation nor
+            // a step-up to learn its date.
+            const pending = await run(accountErasure.getDeletionStatus(profile.accountId));
+            if (pending.scheduled) {
+              metricAccountDeletionRequested("already_pending");
+              set.status = 202;
+              return { scheduled_for: pending.scheduledFor, already_pending: true };
+            }
+            // A pending-deletion token reaches this route only for that answer.
+            if (claims.pendingDeletion) {
               set.status = 401;
               metricAccountDeletionRequested("error");
               return { error: "unauthorized" };
@@ -156,7 +266,7 @@ export function createAccountErasureRoutes(
 
             // Before the step-up token is read: one minted while the session
             // was live is not spent once it has ended. The session found here
-            // is the cancel handle the sweep below spares.
+            // is the device the soft delete keeps signed in.
             const live = await liveSession(
               "account_delete",
               profile.accountId,
@@ -167,6 +277,31 @@ export function createAccountErasureRoutes(
               set.status = 409;
               metricAccountDeletionRequested("error");
               return live.refusal;
+            }
+
+            // The owned organisations, before the step-up token is read, so a
+            // missing or refused answer spends nothing.
+            const owned = await run(accountErasure.listOwnedOrganisations(profile.accountId));
+            const checked = await run(
+              accountErasure.checkErasureChoices(
+                profile.accountId,
+                owned,
+                (body.choices ?? []).map((c) => ({
+                  action: c.action,
+                  choice: c.choice,
+                  successorProfileId: c.successor_profile_id,
+                })),
+              ),
+            );
+            if (checked.kind === "invalid") {
+              set.status = 400;
+              metricAccountDeletionRequested("error");
+              return { error: "invalid_choice", action: checked.action };
+            }
+            if (checked.kind === "open") {
+              set.status = 409;
+              metricAccountDeletionRequested("error");
+              return { error: "open_actions", open_actions: checked.open.map(toOpenAction) };
             }
 
             const stepUpToken = body.step_up_token ?? headers["x-step-up-token"];
@@ -187,14 +322,12 @@ export function createAccountErasureRoutes(
               return { error: "step_up_required", detail: errBody };
             }
 
-            // Cancellation handle = the caller's live session, whose device the
-            // deletion's sweep spares, so the user can cancel during the grace
-            // window without further auth.
-
             const result = await run(
               accountErasure.requestErasure({
                 accountId: profile.accountId,
                 cancel: { sessionId: live.sessionHash, familyId: live.familyId },
+                heldHandleDigest: auth.heldHandleDigest,
+                choices: checked.choices,
               }),
             );
 
@@ -203,7 +336,7 @@ export function createAccountErasureRoutes(
             // No fan-out here: cross-service purges only fire from
             // the sweeper AFTER the 7-day grace window elapses, so a
             // restore during the window loses nothing on Pulse / Zap.
-            // See `runFanOutSweep` in services/account-erasure.ts.
+            // See `runFanOutRetrySweep` in services/account-erasure.ts.
 
             set.status = 202;
             return {
@@ -221,18 +354,31 @@ export function createAccountErasureRoutes(
           body: t.Object({
             confirm_handle: t.String({ minLength: 1, maxLength: 64 }),
             step_up_token: t.Optional(t.String()),
+            // Answers to the open actions `GET /account/deletion-preview`
+            // lists, by action id. An id the account does not have is ignored.
+            choices: t.Optional(
+              t.Array(
+                t.Object({
+                  action: t.String({ maxLength: 128 }),
+                  choice: t.String({ maxLength: 32 }),
+                  successor_profile_id: t.Optional(t.String({ maxLength: 64 })),
+                }),
+                { maxItems: 200 },
+              ),
+            ),
           }),
           response: {
             // 202, not 200: nothing is erased yet. The account is tombstoned
             // and the hard delete becomes eligible when the grace window
             // closes at `scheduled_for`.
             202: accountDeletionScheduledResponse,
-            // `handle_mismatch` — the typed confirmation did not match — plus
-            // whatever `publicError` maps a service failure to.
-            400: errorResponse,
+            // `handle_mismatch` — the typed confirmation did not match —
+            // `invalid_choice`, plus whatever `publicError` maps a service
+            // failure to.
+            400: accountDeletionBadRequestResponse,
             401: errorResponse,
-            // `session_stale`: the access token's session has ended.
-            409: errorResponse,
+            // `session_stale`, or `open_actions` waiting for an answer.
+            409: accountDeletionConflictResponse,
             // Missing or rejected step-up. The only status in this group that
             // carries a `detail`; see `stepUpRequiredResponse`.
             403: stepUpRequiredResponse,
@@ -245,15 +391,14 @@ export function createAccountErasureRoutes(
       // ---------------------------------------------------------------------
       // POST /account/restore — cancellation flow during the grace window.
       //
-      // The caller must hold a live session of the account. At soft-delete
-      // time the deletion spared only the cancellation handle's family, so
-      // during the grace window that is the only device that can. We don't
-      // require step-up here — the session itself is a fresh-enough
-      // authenticator within the 7-day window.
+      // The caller holds a live session of the account, either audience, and
+      // a step-up token for `account_restore`, from the body's
+      // `step_up_token` or the `x-step-up-token` header. With nothing pending
+      // it answers `cancelled: false` before asking for the step-up.
       // ---------------------------------------------------------------------
       .post(
         "/restore",
-        async ({ headers, set, server, request }) => {
+        async ({ body, headers, set, server, request }) => {
           const rlErr = await rateLimit(
             headers,
             socketIpOf({ server, request }),
@@ -265,18 +410,23 @@ export function createAccountErasureRoutes(
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            const claims = await resolveAccountWindowPrincipal(auth, headers.authorization);
             if (!claims) {
               set.status = 401;
               return { error: "unauthorized" };
             }
             const profile = await run(auth.findProfileByIdIncludingTombstoned(claims.profileId));
-            if (!profile) {
+            // A pending-deletion token answers only while the deletion is
+            // pending; after a cancel the client renews into an ordinary one.
+            if (
+              !profile ||
+              (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null)
+            ) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // Only a live session cancels: a token whose session the
-            // deletion's sweep ended does not.
+            // Only a live session cancels: a token whose session has ended
+            // does not.
             const staleErr = await liveSessionGate(
               "account_restore",
               profile.accountId,
@@ -287,6 +437,23 @@ export function createAccountErasureRoutes(
               set.status = 409;
               return staleErr;
             }
+
+            const pending = await run(accountErasure.getDeletionStatus(profile.accountId));
+            if (!pending.scheduled) return { cancelled: false };
+
+            const stepUpToken = body?.step_up_token ?? headers["x-step-up-token"];
+            if (!stepUpToken) {
+              set.status = 403;
+              return { error: "step_up_required" };
+            }
+            try {
+              await run(auth.verifyStepUpForAccountRestore(profile.accountId, stepUpToken));
+            } catch (e) {
+              set.status = 403;
+              const { body: errBody } = handleError(e);
+              return { error: "step_up_required", detail: errBody };
+            }
+
             const result = await run(accountErasure.cancelErasure(profile.accountId));
             return { cancelled: result.cancelled };
           } catch (e) {
@@ -296,13 +463,14 @@ export function createAccountErasureRoutes(
           }
         },
         {
+          body: t.Optional(t.Object({ step_up_token: t.Optional(t.String()) })),
           response: {
-            // `cancelled: false` is a 200, not an error — read the flag. No
-            // step-up here: the surviving cancellation session is itself a
-            // fresh-enough authenticator inside the grace window.
+            // `cancelled: false` is a 200, not an error — read the flag.
             200: accountRestoreResponse,
             400: errorResponse,
             401: errorResponse,
+            // Missing or rejected `account_restore` step-up.
+            403: stepUpRequiredResponse,
             // `session_stale`: the access token's session has ended.
             409: errorResponse,
             429: errorResponse,

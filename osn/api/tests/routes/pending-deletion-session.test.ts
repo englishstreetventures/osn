@@ -592,6 +592,95 @@ describe("the export and status a pending-deletion token reaches", () => {
   });
 });
 
+describe("the restore and the repeat deletion a pending-deletion token reaches", () => {
+  const erasure = (h: Harness, method: string, path: string, token: string, body?: unknown) =>
+    h.erasureApp.handle(
+      new Request(`http://localhost${path}`, {
+        method,
+        headers: {
+          ...IP_HEADERS,
+          ...bearer(token),
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    );
+
+  it("cancels with an account_restore step-up, putting the profile back", async () => {
+    const h = harness();
+    const { profile, pending } = await pendingDeletionAccount(h, "pdrestore", {
+      displayName: "Restore Me",
+      restore: (p) => ({
+        profiles: [{ id: p.id, handle: p.handle, displayName: p.displayName, avatarUrl: null }],
+        enrollments: [],
+      }),
+    });
+
+    const refused = await erasure(h, "POST", "/account/restore", pending, {});
+    expect(refused.status).toBe(403);
+
+    const stepUp = await h.svc(
+      mintStepUpToken(h.auth, profile.accountId, "otp", "account_restore"),
+    );
+    const res = await erasure(h, "POST", "/account/restore", pending, { step_up_token: stepUp });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ cancelled: true });
+    expect(await h.svc(h.auth.findProfileById(profile.id))).toMatchObject({
+      handle: "pdrestore",
+      displayName: "Restore Me",
+    });
+  });
+
+  it("refuses at restore once the account is no longer pending deletion", async () => {
+    const h = harness();
+    const { profile, pending, cookie } = await pendingDeletionAccount(h, "pdrestorestale");
+    untombstone(h, profile.accountId);
+    const stepUp = await h.svc(
+      mintStepUpToken(h.auth, profile.accountId, "otp", "account_restore"),
+    );
+
+    const refused = await erasure(h, "POST", "/account/restore", pending, {
+      step_up_token: stepUp,
+    });
+    expect(refused.status).toBe(401);
+
+    // Control: the ordinary token the session renews into reaches it, and
+    // finds nothing to cancel.
+    const { accessToken } = await refresh(h, cookie);
+    const allowed = await erasure(h, "POST", "/account/restore", accessToken, {});
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({ cancelled: false });
+  });
+
+  it("a repeat deletion answers that it is already pending, and nothing once it is not", async () => {
+    const h = harness();
+    const { profile, pending } = await pendingDeletionAccount(h, "pdrepeat");
+
+    const repeat = await erasure(h, "DELETE", "/account", pending, { confirm_handle: "anything" });
+    expect(repeat.status).toBe(202);
+    expect(await repeat.json()).toMatchObject({ already_pending: true });
+
+    untombstone(h, profile.accountId);
+    const refused = await erasure(h, "DELETE", "/account", pending, { confirm_handle: "pdrepeat" });
+    expect(refused.status).toBe(401);
+  });
+
+  it("the deletion preview refuses it", async () => {
+    const h = harness();
+    const { pending } = await pendingDeletionAccount(h, "pdpreview");
+    const { session } = await liveAccount(h, "pdpreviewok");
+    const preview = (token: string) =>
+      h.erasureApp.handle(
+        new Request("http://localhost/account/deletion-preview", {
+          headers: { ...IP_HEADERS, ...bearer(token) },
+        }),
+      );
+
+    expect((await preview(pending)).status).toBe(401);
+    expect((await preview(session.accessToken)).status).toBe(200);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Recovery during the window
 // ---------------------------------------------------------------------------

@@ -1,14 +1,20 @@
+import { deletionJobs, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 
+import * as metrics from "../../src/metrics";
 import {
   createAccountErasureRoutes,
   type AccountErasureRateLimiters,
 } from "../../src/routes/account-erasure";
+import { runHardDeleteSweep } from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
+import { createOrganisationService } from "../../src/services/organisation";
+import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
@@ -101,6 +107,28 @@ describe("account-erasure routes — client-IP keying (S-M5)", () => {
     expect(keys).toEqual([]);
   });
 
+  it("GET /account/deletion-preview spends the deletion-status limiter and counts under its own name", async () => {
+    const rateLimited = vi.spyOn(metrics, "metricAuthRateLimited");
+    const allow = { check: async () => true } as RateLimiterBackend;
+    const denyAll = { check: async () => false } as RateLimiterBackend;
+    const app = createAccountErasureRoutes(
+      config,
+      createTestLayer(),
+      undefined,
+      { accountDelete: allow, accountRestore: allow, accountDeletionStatus: denyAll },
+      { secure: false },
+      { trustedProxyCount: 1 },
+    );
+    const res = await app.handle(
+      new Request("http://localhost/account/deletion-preview", {
+        headers: { "x-forwarded-for": "1.2.3.4" },
+      }),
+    );
+    expect(res.status).toBe(429);
+    expect(rateLimited).toHaveBeenCalledWith("account_deletion_preview");
+    rateLimited.mockRestore();
+  });
+
   it("returns 429 when the per-IP limiter is exhausted", async () => {
     const denyAll: RateLimiterBackend = {
       check: async () => false,
@@ -124,6 +152,60 @@ describe("account-erasure routes — client-IP keying (S-M5)", () => {
   });
 });
 
+const allowAll = (): AccountErasureRateLimiters => {
+  const backend = { check: async () => true } as RateLimiterBackend;
+  return {
+    accountDelete: backend,
+    accountRestore: backend,
+    accountDeletionStatus: backend,
+  };
+};
+
+/** Direct-mode client-IP resolution needs a trusted XFF hop under app.handle. */
+const IP_HEADERS = { "x-forwarded-for": "1.2.3.4" };
+
+/** A live account, "eraser", signed in, and the erasure routes on `layer`. */
+async function seed(layer: Layer.Layer<Db | EmailService>) {
+  const auth = createAuthService(config);
+  const profile = await Effect.runPromise(
+    auth.registerProfile("eraser@example.com", "eraser", "Erase Me").pipe(Effect.provide(layer)),
+  );
+  const tokens = await Effect.runPromise(
+    auth
+      .issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      )
+      .pipe(Effect.provide(layer)),
+  );
+  const app = createAccountErasureRoutes(
+    config,
+    layer,
+    undefined,
+    allowAll(),
+    { secure: false },
+    { trustedProxyCount: 1 },
+  );
+  const authed = { ...IP_HEADERS, Authorization: `Bearer ${tokens.accessToken}` };
+  return { auth, profile, app, authed };
+}
+
+const requestDeletion = (
+  app: Awaited<ReturnType<typeof seed>>["app"],
+  authed: Record<string, string>,
+  body: Record<string, unknown>,
+) =>
+  app.handle(
+    new Request("http://localhost/account", {
+      method: "DELETE",
+      headers: { ...authed, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+
 /**
  * The wire shapes of the success paths.
  *
@@ -133,59 +215,6 @@ describe("account-erasure routes — client-IP keying (S-M5)", () => {
  * each one asserts that a real handler's body survives the schema intact.
  */
 describe("account-erasure routes — response bodies", () => {
-  const allowAll = (): AccountErasureRateLimiters => {
-    const backend = { check: async () => true } as RateLimiterBackend;
-    return {
-      accountDelete: backend,
-      accountRestore: backend,
-      accountDeletionStatus: backend,
-    };
-  };
-
-  /** Direct-mode client-IP resolution needs a trusted XFF hop under app.handle. */
-  const IP_HEADERS = { "x-forwarded-for": "1.2.3.4" };
-
-  async function seed(layer: Layer.Layer<Db | EmailService>) {
-    const auth = createAuthService(config);
-    const profile = await Effect.runPromise(
-      auth.registerProfile("eraser@example.com", "eraser", "Erase Me").pipe(Effect.provide(layer)),
-    );
-    const tokens = await Effect.runPromise(
-      auth
-        .issueTokens(
-          profile.id,
-          profile.accountId,
-          profile.email,
-          profile.handle,
-          profile.displayName,
-        )
-        .pipe(Effect.provide(layer)),
-    );
-    const app = createAccountErasureRoutes(
-      config,
-      layer,
-      undefined,
-      allowAll(),
-      { secure: false },
-      { trustedProxyCount: 1 },
-    );
-    const authed = { ...IP_HEADERS, Authorization: `Bearer ${tokens.accessToken}` };
-    return { auth, profile, app, authed };
-  }
-
-  const requestDeletion = (
-    app: Awaited<ReturnType<typeof seed>>["app"],
-    authed: Record<string, string>,
-    body: Record<string, unknown>,
-  ) =>
-    app.handle(
-      new Request("http://localhost/account", {
-        method: "DELETE",
-        headers: { ...authed, "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    );
-
   it("DELETE /account returns 202 with both scheduling fields, and is idempotent", async () => {
     const layer = createTestLayer();
     const { auth, profile, app, authed } = await seed(layer);
@@ -193,9 +222,7 @@ describe("account-erasure routes — response bodies", () => {
     const first = await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
-          Effect.provide(layer),
-        ),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
       ),
     });
     expect(first.status).toBe(202);
@@ -206,48 +233,53 @@ describe("account-erasure routes — response bodies", () => {
     expect(firstBody.scheduled_for).toBeLessThan(1e12);
     expect(firstBody.already_pending).toBe(false);
 
-    // Second call inside the window: same schedule, flag flipped. The date
-    // must not move — that is what makes the endpoint safe to retry.
-    //
-    // Note the handle: soft-delete redacts every profile handle to
-    // `deleted_<usr-suffix>`, and the route checks the confirmation BEFORE it
-    // reaches the idempotent service path. So a client retrying with the
-    // handle the user actually typed gets 400 `handle_mismatch`, not the
-    // `already_pending` body below. Worth settling, but it is a behaviour
-    // change, not a schema one — recorded here rather than fixed in this PR.
-    const second = await requestDeletion(app, authed, {
-      confirm_handle: `deleted_${profile.id.replace("usr_", "")}`,
-      step_up_token: await Effect.runPromise(
-        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
-          Effect.provide(layer),
-        ),
-      ),
-    });
-    expect(second.status).toBe(202);
-    expect(await second.json()).toEqual({
-      scheduled_for: firstBody.scheduled_for,
-      already_pending: true,
-    });
+    // A repeat inside the window: same schedule, flag flipped, and the date
+    // does not move — that is what makes the endpoint safe to retry. A
+    // pending deletion is answered before the handle check and the step-up,
+    // so the handle the user typed and the redacted one both get it, with
+    // no step-up token.
+    for (const confirm_handle of [profile.handle, `deleted_${profile.id.replace("usr_", "")}`]) {
+      const again = await requestDeletion(app, authed, { confirm_handle });
+      expect(again.status).toBe(202);
+      expect(await again.json()).toEqual({
+        scheduled_for: firstBody.scheduled_for,
+        already_pending: true,
+      });
+    }
   });
 
-  it("a rejected step-up 403s with its `detail` envelope intact", async () => {
-    const layer = createTestLayer();
+  it("two deletions at once: one is scheduled, the other answers that it already is", async () => {
+    // The second request reads no job and goes on to the soft delete, whose
+    // job insert then meets the first one's row. It answers what is stored.
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
     const { auth, profile, app, authed } = await seed(layer);
-    // An export-purpose token must not authorise a deletion.
-    const wrongPurpose = await Effect.runPromise(
-      mintStepUpToken(auth, profile.accountId, "otp", "account_export").pipe(Effect.provide(layer)),
-    );
-    const res = await requestDeletion(app, authed, {
+    const stepUp = () =>
+      Effect.runPromise(mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)));
+    const [heldToken, otherToken] = [await stepUp(), await stepUp()];
+
+    const insert = queries.hold(/^insert into "deletion_jobs"/);
+    const heldRequest = requestDeletion(app, authed, {
       confirm_handle: profile.handle,
-      step_up_token: wrongPurpose,
+      step_up_token: heldToken,
     });
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: string; detail?: { error: string } };
-    expect(body.error).toBe("step_up_required");
-    // `detail` only exists on the rejected-token branch, and only survives
-    // because the route declares `stepUpRequiredResponse` rather than the
-    // shared `errorResponse` — see the schema's own note.
-    expect(typeof body.detail?.error).toBe("string");
+    await insert.reached;
+    const other = await requestDeletion(app, authed, {
+      confirm_handle: profile.handle,
+      step_up_token: otherToken,
+    });
+    insert.release();
+    const held = await heldRequest;
+
+    expect(other.status).toBe(202);
+    const otherBody = (await other.json()) as { scheduled_for: number; already_pending: boolean };
+    expect(otherBody.already_pending).toBe(false);
+    expect(held.status).toBe(202);
+    expect(await held.json()).toEqual({
+      scheduled_for: otherBody.scheduled_for,
+      already_pending: true,
+    });
   });
 
   it("a database fault while the step-up token's session is checked is a 500, not a step-up refusal", async () => {
@@ -277,6 +309,26 @@ describe("account-erasure routes — response bodies", () => {
     });
   });
 
+  it("a rejected step-up 403s with its `detail` envelope intact", async () => {
+    const layer = createTestLayer();
+    const { auth, profile, app, authed } = await seed(layer);
+    // An export-purpose token must not authorise a deletion.
+    const wrongPurpose = await Effect.runPromise(
+      mintStepUpToken(auth, profile.accountId, "otp", "account_export").pipe(Effect.provide(layer)),
+    );
+    const res = await requestDeletion(app, authed, {
+      confirm_handle: profile.handle,
+      step_up_token: wrongPurpose,
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string; detail?: { error: string } };
+    expect(body.error).toBe("step_up_required");
+    // `detail` only exists on the rejected-token branch, and only survives
+    // because the route declares `stepUpRequiredResponse` rather than the
+    // shared `errorResponse` — see the schema's own note.
+    expect(typeof body.detail?.error).toBe("string");
+  });
+
   it("GET /account/deletion-status answers both arms of the union", async () => {
     const layer = createTestLayer();
     const { auth, profile, app, authed } = await seed(layer);
@@ -292,9 +344,7 @@ describe("account-erasure routes — response bodies", () => {
     await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
-          Effect.provide(layer),
-        ),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
       ),
     });
 
@@ -332,14 +382,20 @@ describe("account-erasure routes — response bodies", () => {
     await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
-          Effect.provide(layer),
-        ),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
       ),
     });
 
     const restored = await app.handle(
-      new Request("http://localhost/account/restore", { method: "POST", headers: authed }),
+      new Request("http://localhost/account/restore", {
+        method: "POST",
+        headers: {
+          ...authed,
+          "x-step-up-token": await Effect.runPromise(
+            mintStepUpToken(auth, profile.accountId, "otp", "account_restore").pipe(Effect.provide(layer)),
+          ),
+        },
+      }),
     );
     expect(restored.status).toBe(200);
     expect(await restored.json()).toEqual({ cancelled: true });
@@ -358,5 +414,309 @@ describe("account-erasure routes — response bodies", () => {
     );
     expect(again.status).toBe(200);
     expect(await again.json()).toEqual({ cancelled: false });
+  });
+});
+
+/** Runs a service effect on `layer`. */
+const runOn = <A, E, R>(
+  layer: Layer.Layer<Db | EmailService>,
+  effect: Effect.Effect<A, E, R>,
+) => Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
+
+const stepUpFor = (
+  auth: ReturnType<typeof createAuthService>,
+  accountId: string,
+  purpose: "account_delete" | "account_restore",
+  layer: Layer.Layer<Db | EmailService>,
+) => runOn(layer, mintStepUpToken(auth, accountId, "otp", purpose));
+
+describe("POST /account/restore asks for an account_restore step-up", () => {
+  const restore = (
+    app: Awaited<ReturnType<typeof seed>>["app"],
+    authed: Record<string, string>,
+    body?: Record<string, unknown>,
+  ) =>
+    app.handle(
+      new Request("http://localhost/account/restore", {
+        method: "POST",
+        headers: body ? { ...authed, "content-type": "application/json" } : authed,
+        body: body ? JSON.stringify(body) : undefined,
+      }),
+    );
+
+  it("refuses without one, and with one for another purpose, and cancels with one", async () => {
+    const layer = createTestLayer();
+    const { auth, profile, app, authed } = await seed(layer);
+    await requestDeletion(app, authed, {
+      confirm_handle: profile.handle,
+      step_up_token: await stepUpFor(auth, profile.accountId, "account_delete", layer),
+    });
+
+    const missing = await restore(app, authed);
+    expect(missing.status).toBe(403);
+    expect(await missing.json()).toEqual({ error: "step_up_required" });
+
+    const wrongPurpose = await restore(app, authed, {
+      step_up_token: await stepUpFor(auth, profile.accountId, "account_delete", layer),
+    });
+    expect(wrongPurpose.status).toBe(403);
+    const refused = (await wrongPurpose.json()) as { error: string; detail?: { error: string } };
+    expect(refused.error).toBe("step_up_required");
+    expect(typeof refused.detail?.error).toBe("string");
+
+    // Still pending after both refusals.
+    const status = await app.handle(
+      new Request("http://localhost/account/deletion-status", { headers: authed }),
+    );
+    expect(((await status.json()) as { scheduled: boolean }).scheduled).toBe(true);
+
+    const cancelled = await restore(app, authed, {
+      step_up_token: await stepUpFor(auth, profile.accountId, "account_restore", layer),
+    });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toEqual({ cancelled: true });
+  });
+});
+
+describe("a handle held through the erasure routes", () => {
+  it("is refused by registration, the handle check, profile and organisation creation, pending and erased", async () => {
+    const layer = createTestLayer();
+    const { auth, profile, app, authed } = await seed(layer);
+    const other = await runOn(layer, auth.registerProfile("other@example.com", "other"));
+    const deleted = await requestDeletion(app, authed, {
+      confirm_handle: profile.handle,
+      step_up_token: await stepUpFor(auth, profile.accountId, "account_delete", layer),
+    });
+    expect(deleted.status).toBe(202);
+
+    // Each site built as its own route factory builds it, with its own auth service.
+    const attempts = async (handle: string) => ({
+      register: (
+        await runOn(
+          layer,
+          Effect.result(createAuthService(config).registerProfile("new@example.com", handle)),
+        )
+      )._tag,
+      available: (await runOn(layer, createAuthService(config).checkHandle(handle))).available,
+      profile: (
+        await runOn(
+          layer,
+          Effect.result(
+            createProfileService(createAuthService(config)).createProfile(other.accountId, handle),
+          ),
+        )
+      )._tag,
+      organisation: (
+        await runOn(
+          layer,
+          Effect.result(
+            createOrganisationService({
+              heldHandleDigest: createAuthService(config).heldHandleDigest,
+            }).createOrganisation(other.id, handle, "Someone"),
+          ),
+        )
+      )._tag,
+    });
+    const refusedEverywhere = {
+      register: "Failure",
+      available: false,
+      profile: "Failure",
+      organisation: "Failure",
+    };
+
+    expect(await attempts("eraser")).toEqual(refusedEverywhere);
+
+    const [job] = await runOn(
+      layer,
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.promise(() =>
+          db.select().from(deletionJobs).where(eq(deletionJobs.accountId, profile.accountId)),
+        );
+      }),
+    );
+    expect(
+      await runOn(layer, runHardDeleteSweep({ nowMs: (job!.hardDeleteAt + 1) * 1_000 })),
+    ).toEqual({ purged: 1 });
+    // No profile has the handle any more; the hold alone refuses it.
+    const left = await runOn(
+      layer,
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.promise(() => db.select().from(users).where(eq(users.id, profile.id)));
+      }),
+    );
+    expect(left).toEqual([]);
+
+    expect(await attempts("eraser")).toEqual(refusedEverywhere);
+  });
+});
+
+/**
+ * An account that owns organisations: the preview lists one open action per
+ * organisation, and the deletion waits for a choice where no other admin
+ * could take it over. A choice is checked before the step-up token is spent.
+ */
+describe("the organisations an account owns", () => {
+  async function owner() {
+    const layer = createTestLayer();
+    const seeded = await seed(layer);
+    const orgs = createOrganisationService({ heldHandleDigest: seeded.auth.heldHandleDigest });
+    const bob = await runOn(layer, seeded.auth.registerProfile("bob@example.com", "bob"));
+    const acme = await runOn(layer, orgs.createOrganisation(seeded.profile.id, "acme", "Acme"));
+    await runOn(layer, orgs.addMember(acme.id, seeded.profile.id, bob.id, "member"));
+    return { ...seeded, layer, orgs, bob, acme };
+  }
+
+  const preview = (app: Awaited<ReturnType<typeof seed>>["app"], authed: Record<string, string>) =>
+    app.handle(new Request("http://localhost/account/deletion-preview", { headers: authed }));
+
+  type OpenAction = {
+    id: string;
+    default_choice: string | null;
+    organisation: { id: string };
+    choices: { choice: string; description: string }[];
+    successor: { profile_id: string; role: string } | null;
+  };
+
+  it("GET /account/deletion-preview lists each with its successor and the choices it allows", async () => {
+    const h = await owner();
+    const carol = await runOn(h.layer, h.auth.registerProfile("carol@example.com", "carol"));
+    const dave = await runOn(h.layer, h.auth.registerProfile("dave@example.com", "dave"));
+    const withAdmin = await runOn(
+      h.layer,
+      h.orgs.createOrganisation(h.profile.id, "withadmin", "With Admin"),
+    );
+    await runOn(h.layer, h.orgs.addMember(withAdmin.id, h.profile.id, dave.id, "member"));
+    await runOn(h.layer, h.orgs.addMember(withAdmin.id, h.profile.id, carol.id, "admin"));
+    const alone = await runOn(h.layer, h.orgs.createOrganisation(h.profile.id, "alone", "Alone"));
+
+    const res = await preview(h.app, h.authed);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    const { open_actions } = (await res.json()) as { open_actions: OpenAction[] };
+    const of = (orgId: string) => open_actions.find((a) => a.organisation.id === orgId);
+    expect(open_actions).toHaveLength(3);
+    expect(of(withAdmin.id)).toEqual({
+      id: `osn:organisation:${withAdmin.id}`,
+      app: "osn",
+      kind: "organisation_owned",
+      label: "You own With Admin (@withadmin).",
+      choices: [
+        { choice: "transfer", description: "@carol becomes the owner." },
+        { choice: "successor", description: "The member you name becomes the owner." },
+        { choice: "delete", description: "The organisation and its memberships are deleted." },
+      ],
+      default_choice: "transfer",
+      erased_on: null,
+      link: null,
+      organisation: { id: withAdmin.id, handle: "withadmin", name: "With Admin" },
+      successor: { profile_id: carol.id, handle: "carol", display_name: null, role: "admin" },
+    });
+    // No other admin: the same choices, and none taken for the person.
+    expect(of(h.acme.id)).toMatchObject({
+      default_choice: null,
+      choices: [
+        { choice: "transfer", description: "@bob becomes the owner." },
+        { choice: "successor" },
+        { choice: "delete" },
+      ],
+      successor: { profile_id: h.bob.id, role: "member" },
+    });
+    // No other member: it can only be deleted.
+    expect(of(alone.id)).toMatchObject({
+      default_choice: null,
+      choices: [{ choice: "delete" }],
+      successor: null,
+    });
+  });
+
+  it("GET /account/deletion-preview refuses the token of an account whose deletion is pending", async () => {
+    const h = await owner();
+    expect((await preview(h.app, h.authed)).status).toBe(200);
+    await requestDeletion(h.app, h.authed, {
+      confirm_handle: h.profile.handle,
+      step_up_token: await stepUpFor(h.auth, h.profile.accountId, "account_delete", h.layer),
+      choices: [{ action: `osn:organisation:${h.acme.id}`, choice: "delete" }],
+    });
+
+    expect((await preview(h.app, h.authed)).status).toBe(401);
+  });
+
+  it("DELETE /account waits for a choice, refuses a bad one, and spends the step-up only on success", async () => {
+    const h = await owner();
+    const action = `osn:organisation:${h.acme.id}`;
+    const carol = await runOn(h.layer, h.auth.registerProfile("carol@example.com", "carol"));
+    const ownOther = await runOn(
+      h.layer,
+      createProfileService(h.auth).createProfile(h.profile.accountId, "erasertwo"),
+    );
+    await runOn(h.layer, h.orgs.addMember(h.acme.id, h.profile.id, ownOther.id, "admin"));
+    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete", h.layer);
+    const attempt = (choices?: unknown[]) =>
+      requestDeletion(h.app, h.authed, {
+        confirm_handle: h.profile.handle,
+        step_up_token: token,
+        ...(choices ? { choices } : {}),
+      });
+
+    const waiting = await attempt();
+    expect(waiting.status).toBe(409);
+    const open = (await waiting.json()) as { error: string; open_actions: OpenAction[] };
+    expect(open.error).toBe("open_actions");
+    expect(open.open_actions.map((a) => a.id)).toEqual([action]);
+
+    for (const choices of [
+      // Not one of its choices.
+      [{ action, choice: "archive" }],
+      // A successor who is not a member.
+      [{ action, choice: "successor", successor_profile_id: carol.id }],
+      // A member, but a profile of the same account.
+      [{ action, choice: "successor", successor_profile_id: ownOther.id }],
+      // No successor named.
+      [{ action, choice: "successor" }],
+      // Two answers to one action.
+      [
+        { action, choice: "transfer" },
+        { action, choice: "delete" },
+      ],
+    ]) {
+      const refused = await attempt(choices);
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toEqual({ error: "invalid_choice", action });
+    }
+
+    // The same step-up token, so every refusal above left it unspent. An
+    // action id the account does not have is ignored.
+    const scheduled = await attempt([
+      { action: "osn:organisation:org_000000000000", choice: "delete" },
+      { action, choice: "successor", successor_profile_id: h.bob.id },
+    ]);
+    expect(scheduled.status).toBe(202);
+    const [job] = await runOn(
+      h.layer,
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.promise(() =>
+          db.select().from(deletionJobs).where(eq(deletionJobs.accountId, h.profile.accountId)),
+        );
+      }),
+    );
+    expect(JSON.parse(job!.choices!)).toEqual({
+      [action]: { choice: "successor", successorProfileId: h.bob.id },
+    });
+  });
+
+  it("DELETE /account needs no choice for an organisation another admin can take over", async () => {
+    const h = await owner();
+    await runOn(h.layer, h.orgs.updateMemberRole(h.acme.id, h.profile.id, h.bob.id, "admin"));
+
+    const res = await requestDeletion(h.app, h.authed, {
+      confirm_handle: h.profile.handle,
+      step_up_token: await stepUpFor(h.auth, h.profile.accountId, "account_delete", h.layer),
+    });
+
+    expect(res.status).toBe(202);
   });
 });

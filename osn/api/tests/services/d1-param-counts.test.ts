@@ -184,31 +184,50 @@ describe("lookupProfileEmails", () => {
 });
 
 describe("account erasure and export", () => {
-  it.effect("the hard-delete sweep binds an account's profile ids once per list", () => {
+  it.effect("the hard-delete sweep binds the same parameters whatever the profile count", () => {
     const { layer, captured } = createCapturingTestLayer();
     return Effect.gen(function* () {
-      const { accountId } = yield* seedAccountWithProfiles(3);
-      const { db } = yield* Db;
-      yield* Effect.promise(() =>
-        db.insert(deletionJobs).values({
-          accountId,
-          softDeletedAt: 1_000,
-          hardDeleteAt: 2_000,
-          pulseDoneAt: 1_500,
-          zapDoneAt: 1_500,
-          reason: "user_request",
-          cancelSessionId: null,
-        }),
-      );
-      captured.length = 0;
+      // Every statement names the account's profiles by a subquery on the
+      // account id, so 3 profiles and 40 bind the same parameters.
+      const statementsFor = (profiles: number) =>
+        Effect.gen(function* () {
+          const { accountId } = yield* seedAccountWithProfiles(profiles);
+          const { db } = yield* Db;
+          yield* Effect.promise(() =>
+            db.insert(deletionJobs).values({
+              accountId,
+              softDeletedAt: 1_000,
+              hardDeleteAt: 2_000,
+              pulseDoneAt: 1_500,
+              zapDoneAt: 1_500,
+              reason: "user_request",
+              cancelSessionId: null,
+              choices: JSON.stringify({
+                "osn:organisation:org_named": {
+                  choice: "successor",
+                  successorProfileId: "usr_named",
+                },
+                "osn:organisation:org_gone": { choice: "delete" },
+              }),
+            }),
+          );
+          captured.length = 0;
+          const result = yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
+          expect(result.purged).toBe(1);
+          return captured.map((c) => [c.sql, c.params.length] as const);
+        });
 
-      const result = yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
+      const few = yield* statementsFor(3);
+      const many = yield* statementsFor(40);
 
-      expect(result.purged).toBe(1);
-      // The list twice, as two JSON parameters.
+      expect(many).toEqual(few);
+      // The read, the claim and the batch: the largest, the ownership
+      // transfer, is far under D1's 100.
+      expect(Math.max(...few.map(([, n]) => n))).toBeLessThan(20);
+      // The connections and blocks deletes name the profile set twice, by
+      // the account id each time.
       expect(paramCounts(captured, 'delete from "connections"')).toEqual([2]);
       expect(paramCounts(captured, 'delete from "blocks"')).toEqual([2]);
-      expect(paramCounts(captured, 'delete from "organisation_members"')).toEqual([1]);
     }).pipe(Effect.provide(layer));
   });
 

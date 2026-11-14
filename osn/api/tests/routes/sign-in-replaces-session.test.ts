@@ -62,6 +62,7 @@ const { createAuthRoutes } = await import("../helpers/routes");
 const { holdQueries } = await import("../helpers/held-query");
 const { mintStepUpToken } = await import("../helpers/step-up-session");
 const { cancelErasure, requestErasure } = await import("../../src/services/account-erasure");
+const { makeHeldHandleDigest } = await import("../../src/lib/handle-hold");
 const { beginThroughRoutes, confirmThroughRoutes, latestLinkTo, statusThroughRoutes } =
   await import("../helpers/registration");
 const { beginRecoveryThroughRoutes, latestRecoveryLinkTo, recoveryStatusThroughRoutes } =
@@ -579,6 +580,7 @@ describe("a sign-in on a browser holding the cancel handle of an account schedul
       requestErasure({
         accountId: old.profile.accountId,
         cancel: { sessionId: h.auth.hashSessionToken(old.token), familyId: old.familyId! },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
       }),
     );
     return old;

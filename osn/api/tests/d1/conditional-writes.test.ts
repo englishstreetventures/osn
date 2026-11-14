@@ -451,7 +451,11 @@ describe("erasure cancel and purge on D1", () => {
     await run(joinApp(profile.accountId, "pulse"));
     await run(joinApp(profile.accountId, "zap"));
     const { scheduledFor } = await run(
-      requestErasure({ accountId: profile.accountId, cancel: null }),
+      requestErasure({
+        accountId: profile.accountId,
+        cancel: null,
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      }),
     );
     return { accountId: profile.accountId, pastWindowMs: (scheduledFor + 1) * 1_000 };
   };

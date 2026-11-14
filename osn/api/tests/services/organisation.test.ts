@@ -1,5 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
+import { organisations } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer, type Result } from "effect";
 import { beforeAll } from "vitest";
 
@@ -805,6 +807,31 @@ describe("a membership write holds only while what it checked still holds", () =
       expect(changed).toBe("Organisation not found");
     }).pipe(Effect.provide(h.layer));
   });
+
+  it.live(
+    "a role change by an owner who has since passed the organisation on changes nothing",
+    () => {
+      // The owner moves only in the hard delete of the owner's account, which
+      // hands the organisation to another member in one batch.
+      const h = held();
+      return Effect.gen(function* () {
+        const { alice, bob, carol, orgId } = yield* setupTeam;
+        const changed = yield* across(
+          h,
+          /^update "organisation_members"/,
+          org.updateMemberRole(orgId, alice.id, carol.id, "admin"),
+          Effect.gen(function* () {
+            const { db } = yield* Db;
+            yield* Effect.promise(() =>
+              db.update(organisations).set({ ownerId: bob.id }).where(eq(organisations.id, orgId)),
+            );
+          }),
+        );
+        expect(changed).toBe("Only the owner can change roles");
+        expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
 
   it.live("an admin demoted since its check leaves the organisation as it was", () => {
     const h = held();
