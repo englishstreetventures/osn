@@ -710,6 +710,16 @@ suite failed in file order and under two of three seeds.
 
 *Measured 2026-10-02 — drain removed, in `cire/host`: `bunx --bun vitest run --project unit tests/components/OrganiserApp.test.tsx --sequence.shuffle --sequence.seed=<1|7|42>`; seeds 1 and 7 failed, 42 passed*
 
+A closed overlay also stays mounted under happy-dom. Kobalte keeps a closing
+panel in the page until its exit animation ends, and solid-presence reads
+happy-dom's `animationName`, which is `""` rather than `none`, as an animation
+still running, so the panel stays in `data-closed` for the rest of the test.
+A component that acts once its panel has gone (`@osn/auth-ui`'s
+`StepUpDialog` hands its host the outcome then) never gets there. A rule that
+sets every animation to `none` is the reduced-motion path, where the panel
+unmounts at once: `osn/auth-ui/tests/helpers/motion.ts` adds one in a
+`beforeEach` and removes it after.
+
 ## A `lazy()` component's first render in a test
 
 A component loaded through Solid's `lazy()` renders once its chunk has loaded.

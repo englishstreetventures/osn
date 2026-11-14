@@ -13,6 +13,11 @@ import { Suspense } from "solid-js";
 import { TotpView } from "../src/TotpView";
 import { enterCode, expectTied } from "./helpers/code";
 import { CODE, WAIT, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Settings → Authenticator app. The orchestration is what is covered here:

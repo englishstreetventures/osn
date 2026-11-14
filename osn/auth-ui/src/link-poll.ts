@@ -27,7 +27,9 @@ export interface LinkPoll {
  * it found; a throw counts as `retry`.
  *
  * One poll at a time: a poll that would start while one is out is merged into
- * it. The first waits two seconds, each later one half as long again, up to
+ * it. A poll still out when `start`, `now` or `stop` begins a new wait or ends
+ * this one is ignored when it answers, so it cannot stop or reschedule the
+ * wait that follows. The first waits two seconds, each later one half as long again, up to
  * ten. Coming back to the tab (focus, or the page becoming visible) polls at
  * once and starts the waits again from two seconds, since that is when the
  * person has most likely just confirmed. Everything stops when the component
@@ -42,6 +44,9 @@ export function createLinkPoll(poll: () => Promise<LinkPollStep>): LinkPoll {
   let active = false;
   let polling = false;
   let disposed = false;
+  // Which wait is current. `start`, `now` and `stop` each move it on, so a poll
+  // that answers after the wait it was for has ended changes nothing.
+  let generation = 0;
 
   function clear() {
     if (timer !== undefined) clearTimeout(timer);
@@ -61,6 +66,7 @@ export function createLinkPoll(poll: () => Promise<LinkPollStep>): LinkPoll {
     if (disposed || !active || polling) return;
     clear();
     polling = true;
+    const asked = generation;
     let step: LinkPollStep;
     try {
       step = await poll();
@@ -70,6 +76,13 @@ export function createLinkPoll(poll: () => Promise<LinkPollStep>): LinkPoll {
       polling = false;
     }
     if (disposed || !active) return;
+    if (asked !== generation) {
+      // The answer is about a wait that has since ended. The wait now running
+      // keeps its own clock; if its first poll fell due while this one was
+      // out, it was merged into this one, so it is due again.
+      if (timer === undefined) schedule(delay);
+      return;
+    }
     if (step === "stop") {
       active = false;
       return;
@@ -99,16 +112,19 @@ export function createLinkPoll(poll: () => Promise<LinkPollStep>): LinkPoll {
 
   return {
     start() {
+      generation += 1;
       active = true;
       delay = LINK_POLL_FIRST_MS;
       schedule(delay);
     },
     now() {
+      generation += 1;
       active = true;
       delay = LINK_POLL_FIRST_MS;
       void run();
     },
     stop() {
+      generation += 1;
       active = false;
       clear();
     },

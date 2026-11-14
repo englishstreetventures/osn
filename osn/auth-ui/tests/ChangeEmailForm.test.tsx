@@ -5,6 +5,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { ChangeEmailForm } from "../src/ChangeEmailForm";
 import { DETAILS, WAIT, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 interface AccountStub {
   changeEmailBegin: ReturnType<typeof vi.fn>;

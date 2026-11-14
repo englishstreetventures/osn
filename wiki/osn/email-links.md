@@ -384,12 +384,14 @@ before it mails, reads, replaces or spends anything
   Resends a day per mailbox (`linkResendCap`, counted apart from email
   change's, so neither flow's Resends spend the other's). Begin: 5 a minute
   per client address.
-- **The UI** is `StepUpDialog`: "Use email instead", under the passkey,
-  swaps the factors for `CheckEmailView` in the panel; the panel polls and
-  hands the token to `onToken`, unless Cancel was pressed or the panel has
-  gone, in which case a token that arrives is dropped. The claim secret and
-  number live in memory only, and without a `purpose` the dialog does not
-  offer the factor.
+- **The UI** is `StepUpDialog`, a sheet: "Use email instead", under the
+  passkey, swaps the factors for `CheckEmailView` in the sheet; the sheet
+  polls and hands the token to `onToken`, unless the person closed the sheet
+  or pressed "Use another method", or the sheet has gone, in which case a
+  token that arrives is dropped. "Use another method" ends the wait on this
+  side as closing does: the poll stops and the claim secret and number go, so
+  choosing the link again sends a new one. The claim secret and number live in
+  memory only, and without a `purpose` the sheet does not offer the factor.
 
 ## Email change
 

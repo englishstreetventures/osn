@@ -35,6 +35,8 @@ Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 - A `Toaster` from `@shared/toast`, for the views that call `toast`.
 - `AuthProvider` from `@osn/client/solid`, for the views that call `useAuth`.
 - The `Dialog` that frames `SignIn` and `Register`; neither draws one.
+  `StepUpDialog` draws its own (§8): a host mounts it when an action needs it
+  and removes it on `onToken` or `onCancel`.
 - Per view:
 
 | View | Props a host passes | Context it reads |
@@ -50,7 +52,7 @@ Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
 | `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
 | `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
-| `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
+| `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `warning`, `purpose` | — |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
 | `ProfileSwitcher` | `checkHandle`, `onSwitch`, `onCreate` | `AuthProvider`, `Toaster` |
@@ -74,8 +76,8 @@ never names a host's own vocabulary, a raw palette colour or an arbitrary
 value.
 
 **As it stands.** The `@shared/ui` parts the views are built from render
-through the contract, and so do `CheckEmailView`'s and `ConfirmLinkPage`'s own
-classes, which are `ui-*` utilities alone. The other views' own classes do not yet (#2045). They name the
+through the contract, and so do `CheckEmailView`'s, `ConfirmLinkPage`'s and
+`StepUpDialog`'s own classes, which are `ui-*` utilities alone. The other views' own classes do not yet (#2045). They name the
 shadcn colour vocabulary — `text-foreground`, `text-muted-foreground`,
 `text-destructive`, `text-primary`, `text-accent-foreground`, `bg-muted`,
 `bg-accent`, `border-border` — Tailwind's default type steps and
@@ -107,7 +109,7 @@ paints `ui-danger` through the contract (§7).
 | Role | Classes today | Where |
 | --- | --- | --- |
 | Heading of a dialog view | `text-2xl font-bold` | `SignIn`, `Register` |
-| Heading of a panel | `text-lg font-semibold` | `PasskeysView`, `TotpView`, `SessionsView`, `ChangeEmailForm`, `StepUpDialog`; the `enrol`, `enrolled` and `expired` steps of `RecoveryLoginForm` |
+| Heading of a panel | `text-lg font-semibold` | `PasskeysView`, `TotpView`, `SessionsView`, `ChangeEmailForm`; the `enrol`, `enrolled` and `expired` steps of `RecoveryLoginForm` |
 | Body copy | `text-sm` | the views' own paragraphs and lines |
 | Meta lines (dates, "(synced)") | `text-xs` | the list rows, the banner |
 | Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
@@ -116,6 +118,12 @@ paints `ui-danger` through the contract (§7).
 
 The `@shared/ui` parts inside the views (Button, Field, Input, Label,
 OtpInput, Card and Dialog titles) take the contract steps.
+
+`StepUpDialog` follows the rule. Its title is `DialogTitle` (`text-ui-md` at
+the contract's title weight); its warning or reason is `DialogDescription`, and
+its other lines take `DialogDescription`'s look, `text-ui-base` in the
+secondary ink, so every line above the step reads as one. A call site may not
+restyle `DialogDescription` (`shadcn/no-restyle`).
 
 `CheckEmailView` follows the rule. Its heading is `text-ui-base font-medium`,
 its lines `text-ui-sm` with `leading-ui-snug`, and the number a host passes as
@@ -177,8 +185,8 @@ As built:
   rule draws the hairline, `--border`.
 - **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
   one phase at a time. The email phase is a `Field` over a full-width
-  Button; the wait is `CheckEmailView`; the step-up phase is
-  `StepUpDialog`'s panel; finishing and done are a single line each.
+  Button; the wait is `CheckEmailView`; the step-up phase opens
+  `StepUpDialog`'s sheet; finishing and done are a single line each.
 - **`CheckEmailView`** is a `flex-col gap-4` column for a step inside a dialog:
   its `h3`; the sentence in its live region, with any error line 8px under
   it (`flex-col gap-2`); the line about opening the link; when there is one, the number over its caption
@@ -200,11 +208,20 @@ As built:
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
   and Acknowledge (`outline`, `sm`) at the right.
-- **Step-up** (`StepUpDialog`) is a `p-4` panel drawn in place inside the view
-  that opened it (§8). It draws no edge, so below `md` it drops its side
-  padding and its code boxes take the host's whole column: 246px at 320px in
-  Musubi's Settings, not 214px (`musubi/social/DESIGN.md` §Responsive
-  layout).
+- **Step-up** (`StepUpDialog`) is `@shared/ui`'s `Dialog` with
+  `DialogContent presentation="sheet"` (§8): a bottom sheet as wide as the
+  screen below `md`, a centred card capped at 384px (`md:max-w-sm`) from `md`,
+  the default cap of Musubi's dialogs (`ResponsiveDialogContent`'s
+  `width="sm"`). A `DialogHeader` holds the `DialogTitle`, whose text breaks
+  anywhere (`wrap-anywhere`), since it may carry a passkey's name of up to 64
+  characters with no space;
+  under it a `flex-col gap-3 p-4` body: the warning, the reason, the
+  choose-a-method line, the error line, then the step as a `flex-col gap-2`
+  column of full-width Buttons. Its code boxes take the body's column: 288px
+  at a 320px viewport, so each box is at least 40px (`musubi/social/DESIGN.md`
+  §Responsive layout, Code boxes). Every button is 40px tall below `md`
+  (`max-md:h-10`). "Use another method" is a standalone link, centred under
+  the step's own action (§5).
 - **Dialogs a view opens itself** — `ProfileOnboarding`'s "Create a new
   profile", `RecoveryCodesView`'s "Generate a new set?" and `ProfileSwitcher`'s
   two — use `@shared/ui`'s `DialogContent` with its default, centred
@@ -222,7 +239,7 @@ besides the default:
 | `SignIn` | Button, Field, Input, Notice | `ghost`, `secondary`, `link` |
 | `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `CheckEmailView` for the wait | `ghost` |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `ghost` |
-| `StepUpDialog` | Button, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `ghost` |
+| `StepUpDialog` | Button, Dialog, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `secondary`, `link` |
 | `PasskeysView` | Button, Input, Notice, Skeleton | `outline`, `ghost` |
 | `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
 | `RecoveryCodesView` | Button, Checkbox, Dialog, Notice, Skeleton | `outline`, `ghost` |
@@ -258,7 +275,9 @@ themselves:
 in Musubi) at 500 in the accent ink, a 32px box with 12px sides, underlined
 only under the pointer,
 centred under the action it follows (`self-center`) so no column edge sits
-12px off its words. One: "Lost your passkey?" under `SignIn`'s Continue.
+12px off its words. Two: "Lost your passkey?" under `SignIn`'s Continue, and
+"Use another method" under the step-up's emailed-link wait and its Confirm,
+40px tall below `md` there as every button in the sheet is.
 `InlineAction`, above, is the
 link that ends an error line. Musubi's rules for both, and for a link inside a
 sentence, are `musubi/social/DESIGN.md` §Links.
@@ -491,8 +510,8 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   the page's ground. Never on the warn wash: danger ink there measures 4.16:1
   in light, under the 4.5:1 text floor (`musubi/social/DESIGN.md` §Status
   colours).
-- **Under the code boxes** for a refused code in `RecoveryLoginForm` (both code steps), `TotpView`, `StepUpDialog` (both code
-  steps) and `ChangeEmailForm`, tied to the row the same way: the line's id
+- **Under the code boxes** for a refused code in `RecoveryLoginForm` (both code steps), `TotpView`, `StepUpDialog` (its
+  authenticator step) and `ChangeEmailForm`, tied to the row the same way: the line's id
   goes to `OtpInput`'s `aria-describedby`, which sets it on every box. The
   boxes' `aria-invalid` comes from `OtpInput`'s `status`: each view passes
   `error` only when the line's `FieldError` is `invalid`, so a wait or an
@@ -563,46 +582,86 @@ A recovery session that runs out is its own state in `RecoveryLoginForm`
 `StepUpDialog` asks for a fresh factor before a gated action and hands the
 host a short-lived token through `onToken`.
 
-- **Structure.** A panel, not a `Dialog`: it renders in place, inside the view
-  that opened it, as a `p-4` column (no side padding below `md`, §4) — the heading ("Confirm it's you", or
-  `title`), "Re-authenticate {reason}." when `reason` is given, the line "This
-  action needs a fresh authentication. Choose a method below." (left out with
-  `passkeyOnly`), the error line, then the factors as full-width Buttons, the
-  passkey first.
+- **Structure.** A sheet: `@shared/ui`'s `Dialog`, open while mounted, with
+  `DialogContent presentation="sheet"` (§4). The title ("Confirm it's you",
+  or `title`), then the warning when `warning` is given, "Re-authenticate
+  {reason}." when `reason` is given, the line "This action needs a fresh
+  authentication. Choose a method below." (on the factor list only, so not
+  with `passkeyOnly`), the error line, then the step. It is named by its title
+  and described by the warning, or, without one, by the reason line, so a
+  screen reader hears what the action costs as the sheet opens.
+- **A destructive action** that leads here: the title
+  names the action ("Remove Device passkey?"), `warning` says what it costs
+  ("You'll need another credential to sign in. Confirm it's you to remove
+  it."), and the factor the person picks commits it. No red button.
 - **Factors.** A passkey always ("Use passkey"), the one primary Button. A link
   to the account's own address ("Use email instead", `outline`) where the
   ceremony's `purpose` admits it and `passkeyOnly` is not set; with no
   `purpose` it is not offered, since the link is fixed to one purpose when it
-  is sent. An authenticator app ("Use your authenticator app") where the `purpose`
+  is sent. An authenticator app ("Use your authenticator app", `outline`) where the `purpose`
   admits it, the host passes `totpClient`, and the account has one
   (`GET /totp/status`; a failed read hides the factor, and so does one still
-  out, read by `state` so the panel never joins its host's `Suspense`). By `purpose`:
+  out, read by `state` so the sheet never joins its host's `Suspense`). By `purpose`:
   `passkey_delete` admits the passkey only; `email_change` the passkey and the
   emailed link; every other purpose all three; no purpose, the passkey and the
-  authenticator.
+  authenticator. Cancel (`secondary`, as every dialog's dismiss button) is last.
 - **`passkeyOnly`** means the host cannot deliver mail: it removes the emailed
-  link and nothing else, and starts the passkey ceremony as the panel mounts.
+  link and nothing else, and starts the passkey ceremony as the sheet opens.
   Its full meaning is in
   [passkey-primary §What `passkeyOnly` means](../../wiki/osn/passkey-primary.md).
 - **States.** Choosing a factor ("Use passkey" ("Waiting for your passkey…"),
   "Use email instead" ("Sending…")); waiting for the passkey with
-  `passkeyOnly` (the line "Waiting for your passkey…" in place of the button,
-  then "Try again" after an error); waiting on the emailed link
-  (`CheckEmailView` for step-up, mounted in the open panel: "We sent a link to
-  your email address.", the number to type on the link's page, Resend after
-  120 seconds, then Cancel; the choose-a-method line goes; a link that cannot
-  be sent leaves the factors up with the error's plain sentence); entering an
-  authenticator code ("Code from your authenticator app" and its code boxes,
-  Confirm ("Checking…")). The authenticator step puts focus in its first box
-  as it opens. Confirm is not disabled for a short code: it answers "Enter the
-  6-digit code.", marked invalid. Cancel is `disabled` while any of these
-  calls runs (§6), except on the emailed link's wait, where it stops the
-  wait.
+  `passkeyOnly`, the same busy passkey button, then "Try again" after an
+  error; waiting on the emailed link (`CheckEmailView` for step-up, mounted
+  in the open sheet: "We sent a link to your email address.", the number to
+  type on the link's page, "Resend in {n}s", disabled for 120 seconds, then
+  "Resend link"; then "Use another method" and Cancel; the choose-a-method
+  line goes; a link that cannot be sent leaves the factors up with the
+  error's plain sentence); entering an authenticator code ("Code from your
+  authenticator app" and its code boxes, Confirm ("Checking…"), "Use another
+  method", Cancel). The authenticator step puts focus in its first box as it
+  opens. Confirm is not disabled for a short code: it answers "Enter the
+  6-digit code.", marked invalid.
+- **Resend keeps the server's limit.** The 120-second wait is the client's,
+  set because a mailbox gets three resent step-up links a day
+  (`LINK_RESENDS_PER_MAILBOX_MAX`, `osn/api/src/services/auth/constants.ts`)
+  and an account ten step-up links a day. The sheet changes neither.
+- **"Use another method"** goes back to the factor list (with `passkeyOnly`,
+  to the passkey step, without starting the ceremony again), with focus on
+  the factor just left. On the emailed-link wait it ends the request on this
+  side: the poll stops, the claim secret and the number go, and any answer
+  still in flight is dropped; choosing the link again sends a new one, which
+  the server counts. On the code step it clears the code and its error line.
+  It is `disabled` while the code is checked.
+- **Closing.** Cancel, Escape and a press outside the sheet are one action.
+  It is refused while a call the sheet started runs — the passkey, the email
+  send, the code check — as Cancel is `disabled` then (§6). On the emailed
+  link's wait every way out stays open while a Resend runs: leaving ends the
+  request on this side, and the late answer is dropped.
+- **One outcome, after the exit.** The sheet closes itself and hands the host
+  its one outcome, `onToken` or `onCancel`, once its exit fade has ended, so
+  the sheet fades out as every Musubi dialog does before the host removes it.
+  If the fade has not ended 300ms after the close (a tab the browser has
+  hidden runs no animation), the outcome goes then. While it closes, its
+  body is `inert` and every action returns early. A host that removes the
+  sheet itself gets neither callback. The cost is the fade: the host's next
+  request starts `--ui-dur-exit` (80ms in Musubi) after the token, or up to
+  300ms in a hidden tab, rather than at once. That is the price of the host's
+  `<Show>` not cutting the fade short and of focus going back only once the
+  sheet has gone.
+- **The claim secret and the number** live in memory only, and every answer
+  about the emailed link is checked against the wait it was for, so nothing
+  reaches `onToken` after the person closed the sheet or went back. A status
+  poll still out when the person goes back neither stops nor delays the poll
+  of the wait that follows (`link-poll.ts`).
 - **Who opens it.** `PasskeysView` (`passkey_register` to add,
   `passkey_delete` to rename or delete), `TotpView` (`totp_enroll`,
   `totp_disable`), `RecoveryCodesView` (`recovery_generate`, "to generate
   recovery codes"), `SecurityEventsBanner` (`security_event_ack`) and
-  `ChangeEmailForm` (`email_change`).
+  `ChangeEmailForm` (`email_change`). `PasskeysView` and `TotpView` still ask
+  the browser's `window.confirm` before a removal and pass no `warning`; they
+  move to the title-and-warning form above with the rest of the Security
+  section (#2045).
 
 ## 9. Focus
 
@@ -624,6 +683,15 @@ the "Signing in somewhere new?" summary in `PasskeysView` (#2045).
 `ProfileSwitcher`'s rows fade their colours with `transition-ui-colors`, the
 host's utility (`musubi/social/src/App.css`), which leaves the outline out, so
 their focus mark lands at once.
+
+**The step-up sheet.** As it opens, focus moves to its first control, the
+first factor (with `passkeyOnly`, the busy passkey button, which keeps focus
+through the wait). Focus stays inside it while it is open. As it closes, focus
+goes back to the control that had it when the sheet mounted, read before the
+host disables that control, if it is still in the page and focus has not
+already moved to something the host put it on (its next step). After a
+removal the host decides where focus goes: a deleted passkey's row is gone, and
+`RecoveryCodesView`'s "Generate new set" goes with its closing dialog (#2045).
 
 `CheckEmailView` draws no control by hand. Its heading takes focus from code
 when the view appears, and when a send ends with Resend holding focus and the
@@ -673,7 +741,8 @@ no product.
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
 - Going back: Cancel, Back, "Back to sign in", "Start again"
-  (`CheckEmailView`, `RecoveryLoginForm`).
+  (`CheckEmailView`, `RecoveryLoginForm`), "Use another method"
+  (`StepUpDialog`, back to its factors).
 - Saying no: "I didn't ask for this" (`ConfirmLinkPage`), answered by
   "Cancelled".
 
@@ -699,7 +768,16 @@ As built:
   refused and on a 320px phone; and for `SignIn`, `osn/auth-ui/SignIn` in
   `sign-in.story.tsx`: the signed-out passkey form in musubi's 384px dialog
   and in its 320px phone sheet, its "Verifying…" wait and the recovery
-  chooser. The other views get theirs in #2045.
+  chooser; and for `StepUpDialog`, `osn/auth-ui/StepUpDialog` in
+  `step-up-dialog.story.tsx`: the real sheet, one story per state (the
+  factors, a reason, a destructive action's warning, the passkey wait and
+  failure, no ceremony runner, `passkeyOnly` waiting and after a failure, with
+  and without an authenticator, the emailed link sending, refused, waiting,
+  expired, replaced, not replaced and at the server's limit, the code step,
+  checking, refused and rate-limited, and a title naming a 64-character
+  passkey), a `Phone` story that frames four of them at 320px, and a
+  playground. A story that cannot find a button it presses says so on the
+  page. The other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
@@ -765,6 +843,21 @@ As built:
   the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as the
   authenticator step opens, and on the wait's heading as the emailed link's
   wait opens.
+- **The step-up sheet in the package tests** (`StepUpDialog.test.tsx`, one
+  case per way it can fail): named by its title and described by its warning
+  or reason; the `passkeyOnly` wait a busy button; Escape refused while the
+  passkey or the code check runs, and Escape on the emailed link's wait
+  dropping a later confirmation; "Use another method" dropping a later
+  confirmation, a late Resend answer and a late new link for an expired one,
+  clearing a refused code, held while the code is checked, and not starting
+  the passkey again with `passkeyOnly`; focus left where the host put it after
+  the token; and, with an exit that never ends, the token handed over within
+  300ms, no second outcome while it closes, and nothing for a host that
+  removed it. happy-dom never ends a Kobalte exit (it reports
+  `animationName` as `""`), so the views' tests that open the sheet set every
+  animation to `none` first, the reduced-motion path (`tests/helpers/motion.ts`).
+  `RecoveryCodesView.test.tsx` opens the sheet from its closing rotation
+  dialog and closes it with Escape.
 - **Loading in the package tests.** `PasskeysView`, `TotpView`,
   `RecoveryCodesView` and `SessionsView` mounted under a `Suspense` whose
   fallback is the host's show their own placeholder, never the host's, while a
@@ -775,11 +868,17 @@ As built:
   while the list is read again after a delete or a revoke.
 - **Layout in Musubi's browser tests.**
   `musubi/social/tests/components/SecurityStepUp.browser.test.tsx` opens the
-  step-up's authenticator-code step in Settings → Security: at 320px its row of code
-  boxes is the card's whole column (246px) with no box under 37px, and every
-  button in the card stays inside it; at 1440px the row sits inside the
-  panel's 16px padding. Shots at both widths, light and dark, in
-  `e2e-artifacts/musubi-settings/`.
+  step-up sheet from "Add passkey" in Settings → Security: at 390px a bottom
+  sheet as wide as the screen with 16px top corners and square bottom ones,
+  focus on its first factor, and Escape closing it with focus back on "Add
+  passkey"; Resend disabled while the emailed link's wait runs; at 320px the
+  authenticator step's row of code boxes 288px wide with no box under 40px,
+  and every button inside the sheet's padding and at least 40px tall; at
+  1440px a centred 384px card with the row inside its padding, closed by a
+  press on the scrim with focus back on "Add passkey", and kept open by the
+  same press while the passkey call runs. A sheet whose title names a
+  64-character passkey scrolls nothing sideways at 320 and 1440px. Shots at
+  320, 390 and 1440px, light and dark, in `e2e-artifacts/musubi-settings/`.
   `musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx`
   renders `CheckEmailView` in Musubi's auth sheet
   and holds its layout at 320px and 1280px (the long address, the countdown on
@@ -807,11 +906,13 @@ control's focus mark lands at once (§9). A view draws four motions, all from
 `@shared/ui` parts: a busy button's `Orb`; `Skeleton`, the loading
 placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
 `RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
-in `ProfileOnboarding` and `RecoveryCodesView`; and the open and close of a
+in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`; and the open and close of a
 popover, `Register`'s `InfoPopover` beside the email field. The last two fade
 with no scale in Musubi, which maps both scale tokens to 1
 (`musubi/social/DESIGN.md` §Motion). The `Orb` and `Skeleton` stand still
-under reduced motion, and the overlays show and hide at once. What a skeleton
+under reduced motion, and the overlays show and hide at once. `StepUpDialog`
+hands its host the outcome once its fade out has ended (§8), so the host's
+removal never cuts the fade short. What a skeleton
 stands for, a refused code's line and a step that replaces another arrive at
 once, with no fade (`musubi/social/DESIGN.md` §Motion). `ProfileSwitcher`
 opens a `Dialog` and a `Popover` too, but no host draws it. A view never moves

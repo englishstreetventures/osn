@@ -5,6 +5,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
 import { SERVER, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Settings banner for out-of-band security events (M-PK1b). Tests cover:
