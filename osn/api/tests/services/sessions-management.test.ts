@@ -1004,6 +1004,14 @@ describe("logout of a rotated-out token", () => {
       expect(reuse).toHaveBeenCalledTimes(1);
       expect(revoked).toHaveBeenCalledTimes(1);
       expect(yield* dead(current)).toBe(true);
+      // One line from each: the sign-in removed the sessions, the logout the
+      // records.
+      expect(log.reuseLines("WARN").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at sign-in — family revoked",
+      ]);
+      expect(log.reuseLines("INFO").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at logout — no session of the family was left",
+      ]);
     }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
   });
 
