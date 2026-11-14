@@ -218,6 +218,7 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
             }
           },
         });
+        return;
       })
       .catch(() => {
         if (current()) fail();
@@ -255,6 +256,7 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
             mark, since it is where focus is put, not a control. */}
         <div
           ref={container}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<fieldset>`: Cloudflare renders its widget into this element, and a fieldset brings its own border, padding and minimum width.
           role="group"
           aria-labelledby={labelId}
           tabindex="-1"
