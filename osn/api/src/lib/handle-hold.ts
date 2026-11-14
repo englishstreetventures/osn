@@ -5,13 +5,13 @@
  *
  * The soft delete writes the digests; registration (`registerProfile`, the
  * sign-up probe, `checkHandle`), profile creation and organisation creation
- * read them through {@link heldHandleRow}, and refuse a held handle with the
- * answer they give a taken one.
+ * read them through {@link heldHandleRow}, most through {@link handleArms},
+ * and refuse a held handle with the answer they give a taken one.
  */
 
 import { createHmac } from "node:crypto";
 
-import { handleHolds } from "@osn/db/schema";
+import { handleHolds, organisations, users } from "@osn/db/schema";
 import type { DbService } from "@osn/db/service";
 import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 
@@ -72,3 +72,30 @@ export const heldHandleRow = (
         or(isNull(handleHolds.releaseAt), gt(handleHolds.releaseAt, nowSec)),
       ),
     );
+
+/**
+ * One `'handle'` row for each place `handle` is already spoken for: a
+ * profile, an organisation (the two share one namespace), and a live hold
+ * left by a deleted account. Separate single-table arms, each a seek on its
+ * unique index, rather than an OR across a join, which SQLite plans as a
+ * full scan, for one `unionAll` of three terms (D1 allows five). No per-arm
+ * LIMIT: SQLite refuses LIMIT inside a compound select's arms, and each arm
+ * yields at most one row anyway.
+ */
+export const handleArms = (
+  db: DbService["db"],
+  digest: HeldHandleDigest,
+  handle: string,
+  nowSec: number = Math.floor(Date.now() / 1000),
+) =>
+  [
+    db
+      .select({ field: sql<string>`'handle'`.as("field") })
+      .from(users)
+      .where(eq(users.handle, handle)),
+    db
+      .select({ field: sql<string>`'handle'`.as("field") })
+      .from(organisations)
+      .where(eq(organisations.handle, handle)),
+    heldHandleRow(db, digest, handle, nowSec),
+  ] as const;

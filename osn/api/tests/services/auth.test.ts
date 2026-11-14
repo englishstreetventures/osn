@@ -5,10 +5,11 @@ import { handleHolds, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Deferred, Effect, Layer, Logger, References } from "effect";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
 import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
+import * as authConstants from "../../src/services/auth/constants";
 import { createServerMac } from "../../src/services/auth/server-mac";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { createOrganisationService } from "../../src/services/organisation";
@@ -628,6 +629,22 @@ describe("sign-up through the emailed link", () => {
       );
       expect(outcome).toEqual({ done: { status: "conflict" }, accounts: 0, profiles: 0 });
     }),
+  );
+
+  it.effect(
+    "a sign-up begun on a handle reserved since answers conflict and writes nothing",
+    () => {
+      // Red on finishing with no look at the reserved names: a sign-up begun
+      // before a name was reserved creates a profile no one may now have,
+      // and a `deleted_` one would make another profile's deletion fail.
+      const notYetReserved = vi.spyOn(authConstants, "isReservedHandle").mockReturnValue(false);
+      return Effect.gen(function* () {
+        const outcome = yield* finishAfter("parked@example.com", "deleted_0123456789ab", () =>
+          Effect.sync(() => notYetReserved.mockRestore()),
+        );
+        expect(outcome).toEqual({ done: { status: "conflict" }, accounts: 0, profiles: 0 });
+      }).pipe(Effect.ensuring(Effect.sync(() => notYetReserved.mockRestore())));
+    },
   );
 
   it.effect(

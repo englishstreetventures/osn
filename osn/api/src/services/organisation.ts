@@ -2,11 +2,11 @@ import { organisations, organisationMembers, users } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
 import { and, eq, exists, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { bound } from "../lib/bound";
-import { type HeldHandleDigest, heldHandleRow } from "../lib/handle-hold";
+import { handleArms, type HeldHandleDigest } from "../lib/handle-hold";
 import { withOrgMemberOp, withOrgOp } from "../metrics";
 import { isReservedHandle } from "./auth/constants";
 
@@ -173,25 +173,22 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
         return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
       }
 
-      // Parallelise all pre-insert checks (handle profile, handle org, handle
-      // held by a deleted account, owner exists)
-      const [existingProfile, existingOrg, heldHandle, ownerRows] = yield* Effect.tryPromise({
-        try: () =>
-          Promise.all([
-            db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
-            db
-              .select({ id: organisations.id })
-              .from(organisations)
-              .where(eq(organisations.handle, handle))
-              .limit(1),
-            heldHandleRow(db, heldHandleDigest, handle, Math.floor(Date.now() / 1000)),
+      // Both pre-insert checks at once: whether the handle is spoken for (a
+      // profile, an organisation, or a hold left by a deleted account, in one
+      // statement) and whether the owner exists.
+      const [spokenFor, ownerRows] = yield* Effect.tryPromise({
+        try: () => {
+          const [profile, organisation, hold] = handleArms(db, heldHandleDigest, handle);
+          return Promise.all([
+            unionAll(profile, organisation, hold),
             db.select({ id: users.id }).from(users).where(eq(users.id, ownerId)).limit(1),
-          ]),
+          ]);
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
 
       // Use generic message to avoid confirming handle existence
-      if (existingProfile.length > 0 || existingOrg.length > 0 || heldHandle.length > 0) {
+      if (spokenFor.length > 0) {
         return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
       }
 

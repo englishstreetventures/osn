@@ -16,7 +16,7 @@ import { Effect, Schema } from "effect";
 import { forkBackground } from "../../lib/background";
 import { canBatch } from "../../lib/batch";
 import { bound } from "../../lib/bound";
-import { heldHandleRow } from "../../lib/handle-hold";
+import { handleArms, heldHandleRow } from "../../lib/handle-hold";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricEmailLinkSend, withAuthRegister } from "../../metrics";
 import { spendEntry } from "./attempts";
@@ -102,27 +102,6 @@ export function createRegistrationModule(
   const { issueTokens } = tokens;
 
   /**
-   * One `'handle'` row for each place `handle` is already spoken for: a
-   * profile, an organisation (the two share one namespace), and a live hold
-   * left by a deleted account. Separate single-table arms, each a seek on its
-   * unique index, rather than an OR across a join, which SQLite plans as a
-   * full scan. No per-arm LIMIT: SQLite refuses LIMIT inside a compound
-   * select's arms, and each arm yields at most one row anyway.
-   */
-  const handleArms = (db: DbService["db"], handle: string) =>
-    [
-      db
-        .select({ field: sql<string>`'handle'`.as("field") })
-        .from(users)
-        .where(eq(users.handle, handle)),
-      db
-        .select({ field: sql<string>`'handle'`.as("field") })
-        .from(organisations)
-        .where(eq(organisations.handle, handle)),
-      heldHandleRow(db, heldHandleDigest, handle, Math.floor(Date.now() / 1000)),
-    ] as const;
-
-  /**
    * An `'email'` row if an account has `email`, and a `'handle'` row for each
    * of {@link handleArms}: one UNION ALL of four terms, within D1's limit of
    * five (`wiki/shared/d1-limits.md`).
@@ -133,7 +112,7 @@ export function createRegistrationModule(
         .select({ field: sql<string>`'email'`.as("field") })
         .from(accounts)
         .where(eq(accounts.email, email)),
-      ...handleArms(db, handle),
+      ...handleArms(db, heldHandleDigest, handle),
     );
 
   /**
@@ -562,8 +541,9 @@ export function createRegistrationModule(
    * already committed by an earlier try for the same claim. False when they
    * are not this claim's own and either a UNIQUE index refused them for
    * someone else's account, or the guard below wrote nothing because the
-   * handle is held or an organisation has it. Any other failure is a
-   * DatabaseError.
+   * handle is held or an organisation has it. False, writing nothing, for a
+   * reserved handle: a sign-up begun before a name was reserved is refused
+   * here. Any other failure is a DatabaseError.
    *
    * Both inserts are `INSERT … SELECT` under the same guard: no live hold on
    * the handle and no organisation with it. `users.handle` is UNIQUE, but
@@ -578,6 +558,7 @@ export function createRegistrationModule(
     signUp: PendingSignUp,
   ): Effect.Effect<boolean, DatabaseError, Db> =>
     Effect.gen(function* () {
+      if (isReservedHandle(signUp.handle)) return false;
       const { db } = yield* Db;
       const ts = now();
       const handleFree = and(
@@ -798,7 +779,7 @@ export function createRegistrationModule(
       // debounced endpoint as light as possible.
       const { db } = yield* Db;
       const existing = yield* Effect.tryPromise({
-        try: () => unionAll(...handleArms(db, handle)),
+        try: () => unionAll(...handleArms(db, heldHandleDigest, handle)),
         catch: (cause) => new DatabaseError({ cause }),
       });
       const taken = existing.length > 0;
