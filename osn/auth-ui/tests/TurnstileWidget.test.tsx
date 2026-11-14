@@ -239,6 +239,19 @@ describe("TurnstileWidget — a challenge that fails to load", () => {
     await screen.findByRole("alert");
   });
 
+  it("stops looking for the challenge once a load has failed, even after a late load event", async () => {
+    vi.useFakeTimers();
+    const stale = document.createElement("script");
+    stale.id = "cf-turnstile-script";
+    document.head.append(stale);
+    heldScripts();
+    render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={() => {}} />);
+    stale.dispatchEvent(new Event("load"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("renders nothing for a load that lands after the widget has gone", async () => {
     const scripts = heldScripts();
     const onToken = vi.fn();

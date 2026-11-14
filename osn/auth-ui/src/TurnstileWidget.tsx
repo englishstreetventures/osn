@@ -76,12 +76,14 @@ function loadTurnstileScript(): Promise<void> {
   let script = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
   const attempt = new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let done = false;
     const onError = () => finish(new Error("turnstile script error"));
     const deadline = setTimeout(
       () => finish(new Error("turnstile load timeout")),
       LOAD_DEADLINE_MS,
     );
     function finish(error?: Error) {
+      done = true;
       clearTimeout(timer);
       clearTimeout(deadline);
       script?.removeEventListener("error", onError);
@@ -90,8 +92,12 @@ function loadTurnstileScript(): Promise<void> {
       else resolve();
     }
     // Looks for `window.turnstile` once the script has run, and again every
-    // 50 ms until it appears or the deadline passes.
+    // 50 ms until it appears or the deadline passes. One loop at a time: an
+    // element already in the page starts it at once, and its `load` event, if
+    // it comes, restarts it rather than starting a second.
     function look() {
+      if (done) return;
+      clearTimeout(timer);
       if (getTurnstile()) return finish();
       timer = setTimeout(look, LOAD_POLL_MS);
     }
