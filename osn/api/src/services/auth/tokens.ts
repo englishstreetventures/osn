@@ -6,7 +6,20 @@
 import { accounts, rotatedSessions, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { Clock, Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
@@ -685,6 +698,40 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   // it, so a replayed old token finds its record and revokes the family.
   // -------------------------------------------------------------------------
 
+  /**
+   * True when `accountId` is scheduled for deletion and owns no profile
+   * `profileId`. A tombstoned account's profiles are hidden from
+   * `findProfileById`, so ownership is read from `users` directly.
+   */
+  const foreignProfileOfScheduledDeletion = (
+    accountId: string,
+    profileId: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ one: sql`1` })
+            .from(accounts)
+            .where(
+              and(
+                eq(accounts.id, accountId),
+                isNotNull(accounts.deletedAt),
+                notExists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(users)
+                    .where(and(eq(users.id, profileId), eq(users.accountId, accountId))),
+                ),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows.length > 0;
+    });
+
   /** How long a rotation record proves reuse: the life of the token it records. */
   const rotatedRecordTtlMs = refreshTokenTtl * 1000;
 
@@ -814,6 +861,20 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         profileId !== undefined && restrictedUntil === null
           ? yield* findProfileById(profileId)
           : null;
+      // A session of an account scheduled for deletion is the deletion's cancel
+      // handle, and a sign-in on its browser leaves it live. A grant naming a
+      // profile that account does not own comes from the page another account
+      // signed in on: refused, so that page is signed out rather than acting
+      // as the account being deleted. Read only when the named profile is not
+      // a live account's own.
+      if (
+        profileId !== undefined &&
+        restrictedUntil === null &&
+        named?.accountId !== accountId &&
+        (yield* foreignProfileOfScheduledDeletion(accountId, profileId))
+      ) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      }
       const profile =
         named && named.accountId === accountId ? named : yield* findDefaultProfile(accountId);
       if (!profile) {
