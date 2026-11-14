@@ -148,19 +148,23 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
               </Notice>
             )}
           </Show>
-          <div class="border-ui-warn/40 bg-ui-warn/10 flex flex-col gap-2 rounded-md border p-3">
+          {/* The one message box drawn by hand: the warn edge and wash with
+              the ink left alone, which `Notice tone="warn"` would paint warn. */}
+          <div class="border-ui-warn/40 bg-ui-warn/10 rounded-ui-md flex flex-col gap-2 border p-3">
             <For each={visibleEvents()}>
               {(event: SecurityEventSummary) => (
                 <div class="flex flex-col gap-0.5">
-                  <span class="font-medium">{headlineFor(event.kind, props.productName)}</span>
-                  <span class="text-muted-foreground text-xs">
+                  <span class="text-ui-ink text-ui-sm font-medium">
+                    {headlineFor(event.kind, props.productName)}
+                  </span>
+                  <span class="text-ui-xs text-ui-ink-secondary">
                     {formatTs(event.createdAt)}
                     <Show when={event.uaLabel}> · {event.uaLabel}</Show>
                   </span>
                 </div>
               )}
             </For>
-            <span class="text-muted-foreground text-xs">
+            <span class="text-ui-xs text-ui-ink-secondary">
               If you don't recognise this, review your active sessions and rotate your credentials.
               Acknowledging requires a fresh passkey or OTP check.
             </span>

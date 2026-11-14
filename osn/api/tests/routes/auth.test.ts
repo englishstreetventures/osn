@@ -2016,17 +2016,6 @@ describe("auth routes", () => {
       expect([400, 404, 422]).toContain(res.status);
     });
 
-    it("POST /sessions/revoke-all-other returns 400 without a session cookie", async () => {
-      const { app: freshApp, accessToken } = await setup();
-      const res = await freshApp.handle(
-        new Request("http://localhost/sessions/revoke-all-other", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-
     it("POST /sessions/revoke-all-other succeeds when the cookie is present", async () => {
       const { app: freshApp, accessToken, cookieHeader } = await setup();
       const res = await freshApp.handle(

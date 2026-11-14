@@ -5,6 +5,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { ChangeEmailForm } from "../src/ChangeEmailForm";
 import { DETAILS, WAIT, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 interface AccountStub {
   changeEmailBegin: ReturnType<typeof vi.fn>;
@@ -79,7 +84,7 @@ describe("ChangeEmailForm", () => {
     await screen.findByRole("heading", { name: "Check your email" });
     expect(screen.getByText("42")).toBeTruthy();
     window.dispatchEvent(new Event("focus"));
-    fireEvent.click(await screen.findByRole("button", { name: /Use email instead/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Email me a link/ }));
     await screen.findByText("47");
     window.dispatchEvent(new Event("focus"));
   }

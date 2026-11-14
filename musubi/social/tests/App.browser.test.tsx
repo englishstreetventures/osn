@@ -62,14 +62,20 @@ vi.mock("@osn/client/solid", async () => {
     ),
   };
 });
-vi.mock("@osn/auth-ui/SignIn", () => ({
-  SignIn: () => (
-    <div class="flex flex-col gap-2 p-6">
-      <label for="identifier">Email or handle</label>
-      <input id="identifier" />
-    </div>
-  ),
-}));
+// The view names its dialog through its own `DialogTitle`, as the real one
+// does through `AuthHeader`.
+vi.mock("@osn/auth-ui/SignIn", async () => {
+  const { DialogTitle } = await import("@shared/ui/ui/dialog");
+  return {
+    SignIn: () => (
+      <div class="flex flex-col gap-2 p-6">
+        <DialogTitle>Sign in to Musubi</DialogTitle>
+        <label for="identifier">Email or handle</label>
+        <input id="identifier" />
+      </div>
+    ),
+  };
+});
 vi.mock("@osn/auth-ui/Register", () => ({
   Register: () => <p class="p-6">Create your account</p>,
 }));
@@ -188,8 +194,10 @@ describe("one set of shell dialogs", () => {
     await railArrives();
 
     await userEvent.click(railSignIn()!);
-    // Named for assistive technology: the view inside heads itself with a plain heading.
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Sign in" })).toBeDefined());
+    // Named by the view's own title.
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Sign in to Musubi" })).toBeDefined(),
+    );
     const field = await waitFor(() => screen.getByLabelText("Email or handle"));
     await userEvent.fill(field, "alice");
     // A centred card, capped at 384px.

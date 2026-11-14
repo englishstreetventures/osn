@@ -77,12 +77,29 @@ vi.mock("../src/lib/authClients", () => ({
   stepUpClient: {},
 }));
 
-vi.mock("@osn/auth-ui/SignIn", () => ({
-  SignIn: () => <p class="p-6">Sign in form</p>,
-}));
-vi.mock("@osn/auth-ui/Register", () => ({
-  Register: () => <p class="p-6">Create your account</p>,
-}));
+// Each view names its dialog through its own `DialogTitle`, as the real ones
+// do through `AuthHeader`.
+vi.mock("@osn/auth-ui/SignIn", async () => {
+  const { DialogTitle } = await import("@shared/ui/ui/dialog");
+  return {
+    SignIn: () => (
+      <div class="p-6">
+        <DialogTitle>Sign in to Musubi</DialogTitle>
+        <p>Sign in form</p>
+      </div>
+    ),
+  };
+});
+vi.mock("@osn/auth-ui/Register", async () => {
+  const { DialogTitle } = await import("@shared/ui/ui/dialog");
+  return {
+    Register: () => (
+      <div class="p-6">
+        <DialogTitle>Create your Musubi account</DialogTitle>
+      </div>
+    ),
+  };
+});
 
 import { Layout } from "../src/App";
 import { SignedOutNote } from "../src/components/SignedOutNote";
@@ -169,7 +186,9 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   expect(inNote).toHaveLength(1);
   expect(inNote[0]!.closest("output")).toBeNull();
   await userEvent.click(signIn);
-  await waitFor(() => expect(screen.getByRole("dialog", { name: "Sign in" })).toBeDefined());
+  await waitFor(() =>
+    expect(screen.getByRole("dialog", { name: "Sign in to Musubi" })).toBeDefined(),
+  );
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 

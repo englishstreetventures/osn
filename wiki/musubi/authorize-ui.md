@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-13
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -98,10 +98,12 @@ along. If the user opens the link in a *different* browser, every call
 3. **Signed out** (`signedIn: false`, or arrived with `reason=login` or
    `reason=create`) —
    render the client card (name + logo + "wants to use your Musubi
-   account") above the standard `<SignIn>` component, with a register
-   link. With `reason=create` the panel opens on `<Register>` instead,
-   until a sign-in or registration has happened on this page (see
-   below). On success, re-fetch context and continue. A sign-in performed
+   account"; the name at `text-display`) above the standard `<SignIn>`
+   component, unframed (`host="page"`) and 24px under the card, with a
+   register link. With `reason=create` the panel opens on `<Register>`
+   instead, until a sign-in or registration has happened on this page
+   (see below). `<Register>`'s Cancel reads "Sign in instead" here. On
+   success, re-fetch context and continue. A sign-in performed
    here creates a fresh session, which by construction satisfies
    `requireAuthAfter` — the retry loop needs no special casing.
 4. **Account** (`reason=select_account`, signed in, and no sign-in made on

@@ -53,6 +53,7 @@ function makeApp(
 ) {
   return createAccountExportRoutes(
     config,
+    { secure: false },
     layer,
     Layer.empty,
     opts.exportLimiter,
@@ -176,6 +177,7 @@ describe("GET /account/export — download name", () => {
     const { auth, profile, accessToken } = await seed(layer);
     const app = createAccountExportRoutes(
       { ...config, instanceName },
+      { secure: false },
       layer,
       Layer.empty,
       undefined,
@@ -350,6 +352,7 @@ describe("GET /account/export — bundle", () => {
     // A downstream whose fetch always throws → degraded, not a broken stream.
     const app = createAccountExportRoutes(
       config,
+      { secure: false },
       layer,
       Layer.empty,
       undefined,

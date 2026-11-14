@@ -5,11 +5,11 @@ import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
-import { Skeleton } from "@shared/ui/ui/skeleton";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
 import { AppRowsLoading } from "../components/AppRowsLoading";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SectionTabs } from "../components/SectionTabs";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { PRODUCT_NAME } from "../lib/auth";
@@ -221,12 +221,19 @@ export function SettingsPage() {
  * each fallback's own wrapper carries `aria-busy` and leaves with it.
  */
 
-/** The Security section's place while its code loads: the passkeys' head and one row. */
+/**
+ * The Security section's place while its code loads: the passkeys' head and
+ * one row, each as tall as `@osn/auth-ui`'s at each width. Below `md` the
+ * head's "Add a passkey" is 40px tall, and the row's actions sit under its
+ * words, 40px tall: 144px, against 92px from `md`. The package keeps its own
+ * placeholder internal, so these numbers copy it; `LoadingShapes.browser.test.tsx`
+ * fails when the two part.
+ */
 function SecurityLoading() {
   return (
     <div aria-busy="true" class="flex flex-col gap-3">
-      <Skeleton standsFor="line" width={24} height={8} />
-      <Skeleton height={15.5} />
+      <ResponsiveSkeleton standsFor="line" width={24} height={8} phoneHeight={10} />
+      <ResponsiveSkeleton standsFor="row" height={23} phoneHeight={36} />
     </div>
   );
 }

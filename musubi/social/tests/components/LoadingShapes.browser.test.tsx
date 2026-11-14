@@ -64,7 +64,7 @@ vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null
 vi.mock("../../src/lib/authClients", () => ({
   registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
   connectionsClient: { list: () => reads.hold("apps") },
-  passkeysClient: { list: () => Promise.resolve({ passkeys: [] }) },
+  passkeysClient: { list: () => reads.hold("passkeys") },
   stepUpClient: {},
   totpClient: { status: () => Promise.resolve({ enrolled: false }) },
   recoveryClient: { getRecoveryCodesStatus: () => Promise.resolve({ active: 10, total: 10 }) },
@@ -295,16 +295,46 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
     expect(height.landed).toBeCloseTo(height.held, 0);
   });
 
-  it("Settings → Security: the section's code, then its views", async () => {
+  // The fallback copies the passkey panel's head and its row placeholder,
+  // which `@osn/auth-ui` keeps internal, so each is held against the real one
+  // here: the fallback's blocks against the view's head and placeholder, and
+  // that placeholder against the row that lands.
+  it("Settings → Security: the section's code, then its views, then one passkey", async () => {
     renderAt("/settings#security", "/settings", SettingsPage);
     const fallback = await busyRegion(2);
+    const [headBlock, rowBlock] = shownBlocks(fallback).map(
+      (b) => b.getBoundingClientRect().height,
+    );
 
     await page.screenshot({ path: `${SHOTS}/security-${width}.png` }); // The fallback shows from the moment the lazy import starts; the wrapper
     // holds it once the section's module has loaded.
     await waitFor(() => expect(reads.held("security-chunk")).toBe(true));
     reads.release("security-chunk", true);
-    await screen.findByRole("button", { name: "Add passkey" });
+    const add = await screen.findByRole("button", { name: "Add a passkey" });
     expect(fallback.isConnected).toBe(false);
-    await waitFor(() => expect(document.querySelector("[aria-busy]")).toBeNull());
+    // The passkey list's own placeholder, now the page's only busy region.
+    const list = await busyRegion(1);
+    expect(add.parentElement!.getBoundingClientRect().height).toBeCloseTo(headBlock!, 0);
+    expect(list.getBoundingClientRect().height).toBeCloseTo(rowBlock!, 0);
+    const height = await land(
+      list,
+      "passkeys",
+      {
+        passkeys: [
+          {
+            id: "pk_aaaaaaaaaaaa",
+            label: "Work laptop",
+            aaguid: null,
+            transports: null,
+            backupEligible: false,
+            backupState: false,
+            createdAt: 1_700_000_000,
+            lastUsedAt: 1_700_005_000,
+          },
+        ],
+      },
+      "Work laptop",
+    );
+    expect(height.landed).toBeCloseTo(height.held, 0);
   });
 });

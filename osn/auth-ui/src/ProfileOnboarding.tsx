@@ -46,7 +46,7 @@ export function ProfileOnboarding(props: ProfileOnboardingProps) {
           </div>
         </CardHeader>
         <CardContent>
-          <p class="text-muted-foreground mb-3 text-sm">
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary mb-3">
             Profiles let you separate personal and professional presence. Create a second profile to
             try it out.
           </p>
@@ -57,7 +57,7 @@ export function ProfileOnboarding(props: ProfileOnboardingProps) {
       </Card>
 
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
-        <DialogContent>
+        <DialogContent presentation="sheet" class="md:max-w-sm">
           <DialogHeader>
             <DialogTitle>Create a new profile</DialogTitle>
           </DialogHeader>

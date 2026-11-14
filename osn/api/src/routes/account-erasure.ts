@@ -10,7 +10,8 @@ import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
-import { readSessionCookie, type CookieSessionConfig } from "../lib/cookie-session";
+import type { CookieSessionConfig } from "../lib/cookie-session";
+import { createLiveSessionCheck } from "../lib/live-session";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountDeletionRequested, metricAuthRateLimited } from "../metrics";
@@ -69,6 +70,7 @@ export function createAccountErasureRoutes(
   const rl = rateLimiters;
 
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
+  const { liveSession, liveSessionGate } = createLiveSessionCheck({ auth, run, cookieConfig });
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
@@ -151,6 +153,21 @@ export function createAccountErasureRoutes(
               return { error: "handle_mismatch" };
             }
 
+            // Before the step-up token is read: one minted while the session
+            // was live is not spent once it has ended. The session found here
+            // is the cancel handle the sweep below spares.
+            const live = await liveSession(
+              "account_delete",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (live.sessionHash === null) {
+              set.status = 409;
+              metricAccountDeletionRequested("error");
+              return live.refusal;
+            }
+
             const stepUpToken = body.step_up_token ?? headers["x-step-up-token"];
             if (!stepUpToken) {
               set.status = 403;
@@ -166,17 +183,14 @@ export function createAccountErasureRoutes(
               return { error: "step_up_required", detail: errBody };
             }
 
-            // Cancellation handle = current session id (hashed). Read from the
-            // session cookie if present so the user can cancel during the grace
+            // Cancellation handle = the caller's live session, whose device the
+            // deletion's sweep spares, so the user can cancel during the grace
             // window without further auth.
-            const rawCookie = headers.cookie;
-            const sessionToken = rawCookie ? readSessionCookie(rawCookie, cookieConfig) : null;
-            const cancelSessionId = sessionToken ? auth.hashSessionToken(sessionToken) : null;
 
             const result = await run(
               accountErasure.requestErasure({
                 accountId: profile.accountId,
-                cancelSessionId,
+                cancel: { sessionId: live.sessionHash, familyId: live.familyId },
               }),
             );
 
@@ -213,6 +227,8 @@ export function createAccountErasureRoutes(
             // whatever `publicError` maps a service failure to.
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             // Missing or rejected step-up. The only status in this group that
             // carries a `detail`; see `stepUpRequiredResponse`.
             403: stepUpRequiredResponse,
@@ -225,10 +241,11 @@ export function createAccountErasureRoutes(
       // ---------------------------------------------------------------------
       // POST /account/restore — cancellation flow during the grace window.
       //
-      // The user must hit this endpoint with the cancellation session that
-      // was preserved at soft-delete time (the only surviving session for
-      // this account). We don't require step-up here — the session itself
-      // is a fresh-enough authenticator within the 7-day window.
+      // The caller must hold a live session of the account. At soft-delete
+      // time the deletion spared only the cancellation handle's family, so
+      // during the grace window that is the only device that can. We don't
+      // require step-up here — the session itself is a fresh-enough
+      // authenticator within the 7-day window.
       // ---------------------------------------------------------------------
       .post(
         "/restore",
@@ -254,6 +271,18 @@ export function createAccountErasureRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Only a live session cancels: a token whose session the
+            // deletion's sweep ended does not.
+            const staleErr = await liveSessionGate(
+              "account_restore",
+              profile.accountId,
+              claims,
+              headers.cookie,
+            );
+            if (staleErr) {
+              set.status = 409;
+              return staleErr;
+            }
             const result = await run(accountErasure.cancelErasure(profile.accountId));
             return { cancelled: result.cancelled };
           } catch (e) {
@@ -270,6 +299,8 @@ export function createAccountErasureRoutes(
             200: accountRestoreResponse,
             400: errorResponse,
             401: errorResponse,
+            // `session_stale`: the access token's session has ended.
+            409: errorResponse,
             429: errorResponse,
             500: errorResponse,
           },

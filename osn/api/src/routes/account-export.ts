@@ -9,6 +9,8 @@ import { Layer } from "effect";
 import { Elysia } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
+import type { CookieSessionConfig } from "../lib/cookie-session";
+import { createLiveSessionCheck } from "../lib/live-session";
 import { arcFetchStream } from "../lib/outbound-arc";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
@@ -52,6 +54,12 @@ function exportFileName(instanceName: string): string {
  */
 export function createAccountExportRoutes(
   authConfig: AuthConfig,
+  /**
+   * Names the session cookie the live-session check reads. Required, with no
+   * default: a deployed tier's cookie carries the `__Host-` prefix, and a
+   * defaulted value would read a name no browser sends.
+   */
+  cookieConfig: CookieSessionConfig,
   dbLayer: Layer.Layer<Db> = DbLive,
   loggerLayer: Layer.Layer<never> = Layer.empty,
   /**
@@ -73,6 +81,7 @@ export function createAccountExportRoutes(
   const auth = createAuthService(authConfig);
   const contentDisposition = `attachment; filename="${exportFileName(authConfig.instanceName)}"`;
   const { run } = makeAppRunner<Db>(runtime, Layer.merge(dbLayer, loggerLayer));
+  const { liveSessionGate } = createLiveSessionCheck({ auth, run, cookieConfig });
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
   type IpCtx = {
@@ -119,6 +128,20 @@ export function createAccountExportRoutes(
           set.status = 401;
           metricAccountExportRequested("unauthorized");
           return { error: "unauthorized" };
+        }
+
+        // Before the step-up token is read: one minted while the session was
+        // live is not spent once it has ended.
+        const staleErr = await liveSessionGate(
+          "account_export",
+          profile.accountId,
+          claims,
+          headers.cookie,
+        );
+        if (staleErr) {
+          set.status = 409;
+          metricAccountExportRequested("unauthorized");
+          return staleErr;
         }
 
         const stepUpToken = headers["x-step-up-token"];
@@ -191,6 +214,8 @@ export function createAccountExportRoutes(
         400: errorResponse,
         401: errorResponse,
         403: stepUpRequiredResponse,
+        // `session_stale`: the access token's session has ended.
+        409: errorResponse,
         // Two different limits, same status: the pre-auth per-IP throttle, and
         // the per-account 1-per-24h cap. The second is consumed only AFTER a
         // successful step-up, so a fumbled ceremony never burns the day's

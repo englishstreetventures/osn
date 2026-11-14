@@ -7,11 +7,26 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@shared/ui/ui/dialog";
 import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
-import { createResource, createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
+import {
+  createResource,
+  createSignal,
+  createUniqueId,
+  onCleanup,
+  onMount,
+  Show,
+  type JSX,
+} from "solid-js";
 
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy, fieldError, inputError, plainError, type FieldError } from "./error-lines";
@@ -98,25 +113,47 @@ const LIMIT_LINE =
 const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 
 /**
- * Modal that drives the step-up (sudo) ceremony and yields a short-lived
- * step-up token to the caller via `onToken`. Three factors: passkey, a link
- * emailed to the account's own address, and an authenticator app. Which of
- * them appear depends on the ceremony (see {@link PURPOSE_FACTORS}) and on
- * what the account has set up.
+ * How long after closing the sheet hands its outcome over even though the
+ * exit fade has not ended. The fade is the host's `--ui-dur-exit` (80ms in
+ * Musubi). A tab the browser has hidden runs no animation, so its end never
+ * comes; without this the token would wait for the person to come back.
+ */
+const EXIT_FALLBACK_MS = 300;
+
+/**
+ * A line of the sheet's text that is not its description, in
+ * `DialogDescription`'s own look, so every line above the step reads as one.
+ */
+const LINE = "text-ui-base text-ui-ink-secondary";
+
+/**
+ * The step-up (sudo) ceremony, as a sheet: it asks for a fresh factor before a
+ * gated action and hands the host a short-lived step-up token through
+ * `onToken`. Three factors: passkey, a link emailed to the account's own
+ * address, and an authenticator app. Which of them appear depends on the
+ * ceremony (see {@link PURPOSE_FACTORS}) and on what the account has set up.
  *
- * The emailed link swaps the factors for `CheckEmailView` inside this panel:
- * the number to type on the link's page, Resend, and Cancel. This panel polls
- * until the link is confirmed, on this device or another, and hands the token
- * to `onToken`. The claim secret and the number live in memory only.
+ * It is open while mounted: a host mounts it when an action needs it and
+ * removes it on `onToken` or `onCancel`. It is `@shared/ui`'s `Dialog` with
+ * `presentation="sheet"`, a bottom sheet below `md` and a centred card above.
+ *
+ * The emailed link swaps the factors for `CheckEmailView` inside the sheet:
+ * the number to type on the link's page, Resend, "Use another method" and
+ * Cancel. The sheet polls until the link is confirmed, on this device or
+ * another. The claim secret and the number live in memory only, and go when
+ * the person goes back or closes the sheet.
  */
 export interface StepUpDialogProps {
   client: StepUpClient;
   /**
-   * Fires as soon as a step-up token is successfully minted. The caller
-   * should close the dialog and proceed with the gated action.
+   * Receives the step-up token, once, after the sheet has closed. The host
+   * removes the sheet and goes on with the gated action.
    */
   onToken: (token: StepUpToken) => void;
-  /** Called when the user cancels the ceremony without completing it. */
+  /**
+   * Called, once, after the sheet has closed without a token: Cancel, Escape
+   * or a press outside it.
+   */
   onCancel: () => void;
   /** Executes the browser-side WebAuthn assertion. */
   runPasskeyCeremony?: RunPasskeyCeremony;
@@ -124,7 +161,7 @@ export interface StepUpDialogProps {
    * TOTP client, for the "enter a code from your authenticator app" factor.
    * Omit it and that factor is never offered.
    *
-   * The dialog asks `GET /totp/status` itself rather than taking a boolean,
+   * The sheet asks `GET /totp/status` itself rather than taking a boolean,
    * so a host cannot wire the client and the flag inconsistently and end up
    * offering a factor the account has not set up. A failed status read leaves
    * the factor hidden and never blocks the other two.
@@ -132,15 +169,17 @@ export interface StepUpDialogProps {
   totpClient?: TotpClient;
   /**
    * **The host cannot deliver mail**: suppress the emailed-link factor and
-   * drive the passkey ceremony directly. With this set the dialog auto-starts
+   * drive the passkey ceremony directly. With this set the sheet auto-starts
    * the passkey ceremony on mount and offers a retry on failure, and the
-   * "choose a method" helper line goes with the factor picker.
+   * "choose a method" helper line goes with the factor picker — unless a
+   * `warning` is given: then the sheet shows its factors and waits for a
+   * press, so the warning is read before the browser's prompt covers it.
    *
    * It suppresses the emailed link and **nothing else**. An authenticator app
    * needs no delivery, so it cannot fail the way this prop exists to prevent,
    * and it stays on offer wherever the ceremony and the account allow it —
    * which is why the name is not the whole story and this paragraph is here.
-   * Where no authenticator is enrolled the dialog really is passkey-only, the
+   * Where no authenticator is enrolled the sheet really is passkey-only, the
    * state the name was written for.
    *
    * @see wiki/osn/passkey-primary.md — the settled meaning, and why the
@@ -148,18 +187,28 @@ export interface StepUpDialogProps {
    */
   passkeyOnly?: boolean;
   /**
-   * Optional heading override. Defaults to "Confirm it's you".
+   * The sheet's title, which names it. Defaults to "Confirm it's you". Where
+   * a destructive action leads here, the title names the action ("Remove
+   * Device passkey?") and `warning` says what it costs.
    */
   title?: string;
   /**
    * Optional one-liner explaining WHY re-authentication is needed (e.g.
-   * "to generate recovery codes"). Rendered under the heading so the user
-   * isn't asked to re-auth without context.
+   * "to generate recovery codes"), rendered as "Re-authenticate {reason}." so
+   * the person isn't asked to re-auth without context.
    */
   reason?: string;
   /**
+   * What a destructive action costs, as a sentence, first in the sheet
+   * ("You'll need another credential to sign in. Confirm it's you to remove
+   * it."). The sheet's description: a screen reader hears it as the sheet
+   * opens. There is no red button: the factor the person picks commits the
+   * action.
+   */
+  warning?: string;
+  /**
    * Ceremony the minted token is for. Endpoints that name a purpose reject
-   * tokens minted for a different one, so a token this dialog produces for
+   * tokens minted for a different one, so a token this sheet produces for
    * one action can't be replayed at another. The emailed link is fixed to one
    * purpose when it is sent, so without a purpose it is not offered.
    */
@@ -168,14 +217,33 @@ export interface StepUpDialogProps {
 
 type Mode = "choose" | "passkey" | "email" | "totp";
 
+/** Runs `onGone` when the sheet's content unmounts, its exit fade over. */
+function OnUnmount(props: { onGone: () => void }): JSX.Element {
+  onCleanup(() => props.onGone());
+  return null;
+}
+
 export function StepUpDialog(props: StepUpDialogProps) {
-  const [mode, setMode] = createSignal<Mode>(props.passkeyOnly ? "passkey" : "choose");
+  // Read before the host's update lands: the host disables its opener in the
+  // same update that mounts this sheet, and a disabled control can drop focus
+  // to the page before the sheet's own focus hooks run.
+  const opener =
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+  // With a warning the sheet waits for a press, even with `passkeyOnly`: the
+  // warning is the one confirmation before a destructive action, and the
+  // browser's prompt would cover it.
+  const autoStart = () => props.passkeyOnly && !props.warning;
+  const start = (): Mode => (autoStart() ? "passkey" : "choose");
+  const [mode, setMode] = createSignal<Mode>(start());
   const [code, setCode] = createSignal("");
   // The call under way, so only the button that started it shows the wait.
   const [waiting, setWaiting] = createSignal<"passkey" | "emailBegin" | "totp" | null>(null);
   const busy = () => waiting() !== null;
-  // On the two code steps the line sits under the code field and is tied to
-  // it; on the others, above the factor buttons.
+  // On the code step the line sits under the code boxes and is tied to them;
+  // on the others, above the factor buttons.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
   const codeLabelId = createUniqueId();
@@ -188,10 +256,28 @@ export function StepUpDialog(props: StepUpDialogProps) {
   const [linkStatus, setLinkStatus] = createSignal<CheckEmailStatus>("waiting");
   const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
   const linkPoll = createLinkPoll(pollLink);
+  // Which emailed-link wait is current. Starting one, going back and closing
+  // each move it on, and every answer checks it after its `await`, so an
+  // answer for a wait the person has left writes nothing and starts nothing.
+  let emailRun = 0;
+
+  // The sheet is open until it closes itself, once, with one outcome. The
+  // outcome goes to the host when the content unmounts (its exit fade over),
+  // or after EXIT_FALLBACK_MS if that never comes, and never to a host that
+  // has already removed the sheet.
+  const [open, setOpen] = createSignal(true);
+  const closing = () => !open();
+  let outcome: (() => void) | undefined;
+  let fallback: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   onCleanup(() => {
     disposed = true;
+    clearTimeout(fallback);
   });
+
+  // Factor buttons, so going back can put focus on the one just left.
+  let emailFactor: HTMLButtonElement | undefined;
+  let totpFactor: HTMLButtonElement | undefined;
 
   // An unbound ceremony names no purpose, so there is no allow-list to look
   // up: the emailed link, which is fixed to one purpose, is not offered.
@@ -213,20 +299,63 @@ export function StepUpDialog(props: StepUpDialogProps) {
 
   // `state` first, never `totpStatus()`: a loading resource read in a
   // component joins its host's Suspense boundary, and Settings would swap the
-  // whole tab, this dialog included, for its fallback until the status lands.
+  // whole tab, this sheet included, for its fallback until the status lands.
   const totp = () => (totpStatus.state === "ready" ? totpStatus.latest : undefined);
   const totpOffered = () => factors().totp && totp()?.enrolled === true;
   const emailOffered = () => factors().email && !props.passkeyOnly;
 
   // Passkey-only contexts skip the factor picker — kick the ceremony off as
-  // soon as the dialog mounts so the user lands straight on the platform
+  // soon as the sheet mounts so the user lands straight on the platform
   // authenticator prompt.
   onMount(() => {
-    if (props.passkeyOnly) void startPasskey();
+    if (autoStart()) void startPasskey();
   });
 
+  /** Ends any emailed-link wait on this side: the poll, the secret, the number. */
+  function endEmailWait() {
+    emailRun += 1;
+    linkPoll.stop();
+    setLink(null);
+    setPairingCode(undefined);
+    setLinkError(undefined);
+    setLinkStatus("waiting");
+  }
+
+  /** Closes the sheet with `deliver` as its one outcome; later calls do nothing. */
+  function close(deliver: () => void) {
+    if (outcome) return;
+    outcome = deliver;
+    endEmailWait();
+    setOpen(false);
+    fallback = setTimeout(handOver, EXIT_FALLBACK_MS);
+  }
+
+  function handOver() {
+    const deliver = outcome;
+    if (!deliver || disposed) return;
+    outcome = () => {};
+    clearTimeout(fallback);
+    deliver();
+  }
+
+  function cancel() {
+    if (busy() || closing()) return;
+    close(props.onCancel);
+  }
+
+  /** Back to the factors, ending the step on screen; focus on the factor just left. */
+  function goBack() {
+    if (busy() || closing()) return;
+    const left = mode();
+    endEmailWait();
+    setCode("");
+    setError(null);
+    setMode(start());
+    (left === "email" ? emailFactor : totpFactor)?.focus();
+  }
+
   async function startPasskey() {
-    if (busy()) return;
+    if (busy() || closing()) return;
     if (!props.runPasskeyCeremony) {
       // Retrying cannot help here, so the line offers no retry.
       setError(plainError("A passkey can't be used here."));
@@ -241,7 +370,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
         assertion,
         purpose: props.purpose,
       });
-      props.onToken(token);
+      close(() => props.onToken(token));
     } catch (e) {
       setError(plainError(describePasskeyError(e, "authentication")));
     } finally {
@@ -249,24 +378,30 @@ export function StepUpDialog(props: StepUpDialogProps) {
     }
   }
 
-  /** Sends a new link (a new request, with its own number) and waits on it. */
-  async function sendLink(purpose: StepUpPurpose) {
+  /**
+   * Sends a new link (a new request, with its own number) and waits on it,
+   * unless the wait `run` names is no longer current when the answer comes.
+   * Says whether it started the wait.
+   */
+  async function sendLink(purpose: StepUpPurpose, run: number): Promise<boolean> {
     const begun = await props.client.emailBegin({ purpose });
+    if (disposed || run !== emailRun) return false;
     setLink(begun);
     setPairingCode(begun.pairingCode);
     setLinkError(undefined);
     setLinkStatus("waiting");
     linkPoll.start();
+    return true;
   }
 
   async function startEmail() {
     const purpose = props.purpose;
-    if (busy() || purpose === undefined) return;
+    if (busy() || closing() || purpose === undefined) return;
     setWaiting("emailBegin");
     setError(null);
+    emailRun += 1;
     try {
-      await sendLink(purpose);
-      setMode("email");
+      if (await sendLink(purpose, emailRun)) setMode("email");
     } catch (e) {
       setError(plainError(describeAuthError(e)));
     } finally {
@@ -275,8 +410,8 @@ export function StepUpDialog(props: StepUpDialogProps) {
   }
 
   /**
-   * One poll of the link this panel waits on. Any answer about a request this
-   * panel no longer waits on — cancelled, gone, or replaced by a new one — is
+   * One poll of the link this sheet waits on. Any answer about a request this
+   * sheet no longer waits on — cancelled, gone, or replaced by a new one — is
    * dropped, a token included: the person said stop, and a token nobody
    * presents expires unused.
    */
@@ -289,9 +424,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     });
     if (disposed || link() !== request) return "stop";
     if (answer.status === "complete") {
-      setLink(null);
-      setPairingCode(undefined);
-      props.onToken(answer.token);
+      close(() => props.onToken(answer.token));
       return "stop";
     }
     if (answer.status === "pending") {
@@ -305,16 +438,19 @@ export function StepUpDialog(props: StepUpDialogProps) {
   /**
    * Resend in the waiting view. A live request gets another link of its own;
    * an expired one is replaced by a new request, with a new number. A
-   * rejection is how the view learns that no new link went.
+   * rejection is how the view learns that no new link went. An answer that
+   * comes after the person left this wait changes nothing.
    */
   async function resendLink() {
     const request = link();
     const purpose = props.purpose;
-    if (!request || purpose === undefined) return;
+    const run = emailRun;
+    if (!request || purpose === undefined || closing()) return;
     if (linkStatus() === "expired") {
       try {
-        await sendLink(purpose);
+        await sendLink(purpose, run);
       } catch (err) {
+        if (run !== emailRun) return;
         setLinkError(RESEND_FAILED_LINE);
         setLinkStatus("error");
         throw err;
@@ -330,10 +466,12 @@ export function StepUpDialog(props: StepUpDialogProps) {
         claimSecret: request.claimSecret,
       });
     } catch (err) {
+      if (run !== emailRun) return;
       setLinkError(RESEND_FAILED_LINE);
       setLinkStatus("error");
       throw err;
     }
+    if (disposed || run !== emailRun) return;
     if (answer.status === "sent") {
       linkPoll.start();
       return;
@@ -348,14 +486,8 @@ export function StepUpDialog(props: StepUpDialogProps) {
     throw new Error("The link expired");
   }
 
-  function cancelEmail() {
-    setLink(null);
-    linkPoll.stop();
-    setPairingCode(undefined);
-    props.onCancel();
-  }
-
   function startTotp() {
+    if (busy() || closing()) return;
     // No `begin` half: TOTP is challenge-free, so there is nothing for the
     // server to mint, park or send. `GET /totp/status` already answered the
     // only question — whether the factor exists at all.
@@ -365,7 +497,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
   }
 
   async function completeTotp() {
-    if (busy()) return;
+    if (busy() || closing()) return;
     if (code().length !== 6) {
       setError(inputError("Enter the 6-digit code."));
       return;
@@ -377,13 +509,28 @@ export function StepUpDialog(props: StepUpDialogProps) {
         code: code(),
         purpose: props.purpose,
       });
-      props.onToken(token);
+      close(() => props.onToken(token));
     } catch (e) {
       setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
       setWaiting(null);
     }
   }
+
+  /**
+   * Focus back to the control that opened the sheet, if it is still in the
+   * page. Kobalte marks the event `defaultPrevented` when focus is already on
+   * something focusable outside the sheet — the host's next step, mounted
+   * once it had the token — and that focus stays.
+   */
+  function onCloseAutoFocus(event: Event) {
+    if (event.defaultPrevented || !opener?.isConnected) return;
+    event.preventDefault();
+    opener.focus();
+  }
+  // `DialogContent` passes every prop on to Kobalte's `Dialog.Content`, whose
+  // focus hook this is; its own type names only a `div`'s props.
+  const focusHooks = { onCloseAutoFocus };
 
   /** The error line, wherever the step on screen draws it. */
   const errorLine = () => (
@@ -417,106 +564,141 @@ export function StepUpDialog(props: StepUpDialogProps) {
     </div>
   );
 
-  // It draws no edge, so its side padding only indents it; below `md` it
-  // drops, and a code step's row takes its host's whole column.
+  /** Every way out but Cancel: back to the factors, under the step's own action. */
+  const anotherMethod = () => (
+    <Button
+      variant="link"
+      size="sm"
+      class="self-center max-md:h-10"
+      onClick={goBack}
+      disabled={busy()}
+    >
+      Use another method
+    </Button>
+  );
+
+  const cancelButton = () => (
+    <Button variant="secondary" class="max-md:h-10" onClick={cancel} disabled={busy()}>
+      Cancel
+    </Button>
+  );
+
+  const reasonLine = (reason: string) => `Re-authenticate ${reason}.`;
+
   return (
-    <div class="flex flex-col gap-3 p-4 max-md:px-0">
-      <h2 class="text-lg font-semibold">{props.title ?? "Confirm it's you"}</h2>
-      <Show when={props.reason}>
-        {(reason) => <p class="text-muted-foreground text-sm">Re-authenticate {reason()}.</p>}
-      </Show>
-      {/* Passkey-only mode has no factor picker, so the "choose a method"
-          helper line would be misleading — the ceremony auto-starts. The
-          email wait has chosen already. */}
-      <Show when={!props.passkeyOnly && mode() !== "email"}>
-        <p class="text-muted-foreground text-sm">
-          This action needs a fresh authentication. Choose a method below.
-        </p>
-      </Show>
-      {/* A step-up failure is the reason the user cannot proceed, so it is
-          announced rather than left for them to notice. */}
-      <Show when={!onCodeStep()}>{errorLine()}</Show>
-      <Show when={!props.passkeyOnly && mode() === "choose"}>
-        <div class="flex flex-col gap-2">
-          <Button
-            onClick={startPasskey}
-            busy={waiting() === "passkey"}
-            disabled={busy() && waiting() !== "passkey"}
-          >
-            {waiting() === "passkey" ? "Waiting for your passkey…" : "Use passkey"}
-          </Button>
-          <Show when={emailOffered()}>
-            <Button
-              variant="outline"
-              onClick={startEmail}
-              busy={waiting() === "emailBegin"}
-              disabled={busy() && waiting() !== "emailBegin"}
-            >
-              {waiting() === "emailBegin" ? "Sending…" : "Use email instead"}
-            </Button>
+    <Dialog
+      open={open()}
+      // Escape and a press outside close it, as Cancel does — but never while
+      // a call the sheet started runs, since Cancel is disabled then too.
+      onOpenChange={(next) => {
+        if (!next) cancel();
+      }}
+    >
+      <DialogContent presentation="sheet" class="md:max-w-sm" {...focusHooks}>
+        <OnUnmount onGone={() => queueMicrotask(handOver)} />
+        <DialogHeader>
+          {/* A title can carry a passkey's name, one word of up to 64
+              characters, so it breaks anywhere rather than widen the sheet. */}
+          <DialogTitle>
+            <span class="wrap-anywhere">{props.title ?? "Confirm it's you"}</span>
+          </DialogTitle>
+        </DialogHeader>
+        <div class="flex flex-col gap-3 p-4" inert={closing() || undefined}>
+          {/* The warning, when there is one, is what the sheet is about, so it
+              is the description; otherwise the reason is. */}
+          <Show when={props.warning}>
+            {(warning) => <DialogDescription>{warning()}</DialogDescription>}
           </Show>
-          <Show when={totpOffered()}>
-            <Button variant="outline" onClick={startTotp} disabled={busy()}>
-              Use your authenticator app
-            </Button>
+          <Show when={props.reason}>
+            {(reason) =>
+              props.warning ? (
+                <p class={LINE}>{reasonLine(reason())}</p>
+              ) : (
+                <DialogDescription>{reasonLine(reason())}</DialogDescription>
+              )
+            }
           </Show>
-          <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
-            Cancel
-          </Button>
+          {/* Passkey-only mode has no factor picker, so the "choose a method"
+              helper line would be misleading — the ceremony auto-starts. The
+              email wait and the code step have chosen already. */}
+          <Show when={mode() === "choose"}>
+            <p class={LINE}>This action needs a fresh authentication. Choose a method below.</p>
+          </Show>
+          {/* A step-up failure is the reason the user cannot proceed, so it is
+              announced rather than left for them to notice. */}
+          <Show when={!onCodeStep()}>{errorLine()}</Show>
+          <Show when={mode() === "choose" || mode() === "passkey"}>
+            <div class="flex flex-col gap-2">
+              <Button
+                class="max-md:h-10"
+                onClick={startPasskey}
+                busy={waiting() === "passkey"}
+                disabled={busy() && waiting() !== "passkey"}
+              >
+                {waiting() === "passkey"
+                  ? "Waiting for your passkey…"
+                  : mode() === "passkey" && error() && props.runPasskeyCeremony
+                    ? "Try again"
+                    : "Use passkey"}
+              </Button>
+              <Show when={emailOffered()}>
+                <Button
+                  ref={emailFactor}
+                  variant="outline"
+                  class="max-md:h-10"
+                  onClick={startEmail}
+                  busy={waiting() === "emailBegin"}
+                  disabled={busy() && waiting() !== "emailBegin"}
+                >
+                  {waiting() === "emailBegin" ? "Sending…" : "Email me a link"}
+                </Button>
+              </Show>
+              {/* An authenticator code needs no delivery, so it survives the
+                  no-mail mode `passkeyOnly` puts the sheet in. */}
+              <Show when={totpOffered()}>
+                <Button
+                  ref={totpFactor}
+                  variant="outline"
+                  class="max-md:h-10"
+                  onClick={startTotp}
+                  disabled={busy()}
+                >
+                  Use your authenticator app
+                </Button>
+              </Show>
+              {cancelButton()}
+            </div>
+          </Show>
+          {/* Mounted inside the sheet that is already open, so the view's
+              heading takes focus as it appears. Every way out stays open while
+              a Resend runs: leaving ends the request on this side, and the
+              answer is dropped. */}
+          <Show when={mode() === "email"}>
+            <div class="flex flex-col gap-2">
+              <CheckEmailView
+                purpose="step-up"
+                status={linkStatus()}
+                errorMessage={linkError()}
+                pairingCode={pairingCode()}
+                resendWaitSeconds={RESEND_WAIT_SECONDS}
+                onResend={resendLink}
+              />
+              {anotherMethod()}
+              {cancelButton()}
+            </div>
+          </Show>
+          <Show when={mode() === "totp"}>
+            <div class="flex flex-col gap-2">
+              {codeRow("Code from your authenticator app")}
+              <Button class="max-md:h-10" onClick={completeTotp} busy={busy()}>
+                {busy() ? "Checking…" : "Confirm"}
+              </Button>
+              {anotherMethod()}
+              {cancelButton()}
+            </div>
+          </Show>
         </div>
-      </Show>
-      <Show when={props.passkeyOnly && mode() === "passkey"}>
-        <div class="flex flex-col gap-2">
-          <Show when={busy()}>
-            <p class="text-muted-foreground text-sm" aria-live="polite">
-              Waiting for your passkey…
-            </p>
-          </Show>
-          <Show when={!busy()}>
-            <Button onClick={startPasskey}>
-              {error() && props.runPasskeyCeremony ? "Try again" : "Use passkey"}
-            </Button>
-          </Show>
-          {/* An authenticator code needs no delivery, so it survives the
-              no-mail mode this dialog was put in. */}
-          <Show when={totpOffered()}>
-            <Button variant="outline" onClick={startTotp} disabled={busy()}>
-              Use your authenticator app
-            </Button>
-          </Show>
-          <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
-            Cancel
-          </Button>
-        </div>
-      </Show>
-      {/* Mounted inside the panel that is already open, so the view's heading
-          keeps the focus it takes. */}
-      <Show when={mode() === "email"}>
-        <div class="flex flex-col gap-2">
-          <CheckEmailView
-            purpose="step-up"
-            status={linkStatus()}
-            errorMessage={linkError()}
-            pairingCode={pairingCode()}
-            resendWaitSeconds={RESEND_WAIT_SECONDS}
-            onResend={resendLink}
-          />
-          <Button variant="ghost" onClick={cancelEmail}>
-            Cancel
-          </Button>
-        </div>
-      </Show>
-      <Show when={mode() === "totp"}>
-        <div class="flex flex-col gap-2">
-          {codeRow("Code from your authenticator app")}
-          <Button onClick={completeTotp} busy={busy()}>
-            {busy() ? "Checking…" : "Confirm"}
-          </Button>
-          <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
-            Cancel
-          </Button>
-        </div>
-      </Show>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
