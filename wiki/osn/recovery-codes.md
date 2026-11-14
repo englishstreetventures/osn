@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-14
 ---
 # Recovery Codes
 
@@ -216,7 +216,7 @@ POST /login/recovery/complete
 On success the server:
 1. Marks the consumed row's `used_at` — the row is kept for audit.
 2. **Revokes every session on the account** in the same transaction. The fresh session issued by the login step is the only one standing afterwards. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_consume"}`.
-3. Sets the HttpOnly session cookie (C3) and returns the access token in the body.
+3. Ends the device session the request's own cookie named, if it carried one — another account's included — then sets the HttpOnly session cookie (C3) and returns the access token in the body ([[sessions#Endpoints]]).
 
 All failure modes — unknown identifier, bad code, used code — surface as `{ error: "invalid_request" }` with no distinguishing detail. Both the known-identifier + wrong-code branch and the unknown-identifier branch run the same DB + SHA-256 work, so latency does not reveal whether the user exists. Recovery login is the "lost device" escape hatch; see `[[passkey-primary]]` for the broader login model.
 

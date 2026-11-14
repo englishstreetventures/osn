@@ -126,25 +126,31 @@ export function createSessionsModule() {
   /**
    * Ends the device a session token belongs to: every session of its family,
    * found from the live session or from the token's live rotation record
-   * (see {@link familyOf}). Used by the `/logout` endpoint. One statement, so
-   * a refresh of the same token in another tab, whether it finished before
-   * the delete or is in flight when the delete runs, leaves no session of the
-   * device behind.
+   * (see {@link familyOf}). One statement, so a refresh of the same token in
+   * another tab, whether it finished before the delete or is in flight when
+   * the delete runs, leaves no session of the device behind.
    *
    * A token no live session holds, found through a rotation record written
    * longer than `ROTATION_GRACE_MS` ago, is a replay of a token its device has
-   * moved on from, and counts as reuse as it does at `/token`: the
-   * `reuse_detected` metric, then `family_revoked` and a warning when the
-   * delete removed a session, or an info line when none was left. No line
-   * names the account, the family or the token. The family's rotation records
-   * go with it, so one token counts as reuse once. Inside the window it is the
+   * moved on from, and counts as reuse as it does at `/token`. When this
+   * request's delete removed a session, `family_revoked` and a warning. Then
+   * the family's rotation records are deleted, and the request whose delete
+   * removes them counts `reuse_detected` (with an info line when its own
+   * delete found no session left), so two requests replaying one token at once
+   * count it once. Each line says which request found it (`at`); none names
+   * the account, the family or the token. A records delete that fails is
+   * logged on its own: the family's sessions are already gone, and a later
+   * replay of the token counts the reuse. Inside the window it is the
    * device's own race with its refresh, and nothing is counted.
    *
    * Silently succeeds when the token names nothing (idempotent — don't leak
    * whether a session was valid). Otherwise the family's rotation records
    * stay, as a revoke by handle leaves them.
    */
-  const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+  const endFamilyOfToken = (
+    sessionToken: string,
+    at: "logout" | "sign-in",
+  ): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const sessionId = hashSessionToken(sessionToken);
       const { db } = yield* Db;
@@ -184,7 +190,7 @@ export function createSessionsModule() {
             return { record: records[0], removed: rowsChanged(result) };
           }
           // In turn on bun:sqlite, where a failed read loses only the reuse
-          // signal, never the logout.
+          // signal, never the delete.
           const records = await rotatedOut.then(
             (rows) => rows,
             () => [],
@@ -195,29 +201,56 @@ export function createSessionsModule() {
       });
       if (record === undefined || nowMs - record.rotatedAt < ROTATION_GRACE_MS) return;
 
-      metricSessionReuseDetected();
       if (removed > 0) {
         metricSessionFamilyRevoked();
-        yield* Effect.logWarning("Session token reuse detected at logout — family revoked");
-      } else {
-        yield* Effect.logInfo(
-          "Session token reuse detected at logout — no session of the family was left",
-        );
+        yield* Effect.logWarning(`Session token reuse detected at ${at} — family revoked`);
       }
       // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .delete(rotatedSessions)
-            .where(
-              and(
-                eq(rotatedSessions.accountId, record.accountId),
-                eq(rotatedSessions.familyId, record.familyId),
+      // No cause in the line: a database error's text carries the ids.
+      const recordsRemoved = yield* Effect.tryPromise({
+        try: async () =>
+          rowsChanged(
+            await db
+              .delete(rotatedSessions)
+              .where(
+                and(
+                  eq(rotatedSessions.accountId, record.accountId),
+                  eq(rotatedSessions.familyId, record.familyId),
+                ),
               ),
-            ),
+          ),
         catch: (cause) => new DatabaseError({ cause }),
-      });
+      }).pipe(
+        Effect.catch(() =>
+          Effect.logError(
+            "Session token reuse: the family's rotation records could not be removed",
+          ).pipe(Effect.map(() => 0)),
+        ),
+      );
+      if (recordsRemoved === 0) return;
+      metricSessionReuseDetected();
+      if (removed === 0) {
+        yield* Effect.logInfo(
+          `Session token reuse detected at ${at} — no session of the family was left`,
+        );
+      }
     });
+
+  /** `POST /logout`: ends the device the cookie's token belongs to ({@link endFamilyOfToken}). */
+  const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+    endFamilyOfToken(sessionToken, "logout");
+
+  /**
+   * A route that has just issued a new session ends the device the request's
+   * own session cookie named ({@link endFamilyOfToken}). The browser drops that
+   * cookie when the new one lands, and a renewal sent with it before the
+   * sign-in can answer after it: ending the family leaves that answer's
+   * rotated cookie naming no session, so the next renewal with it is refused
+   * rather than acting as whoever held the old cookie. Every new session has
+   * a family of its own, so this never ends the session the request issued.
+   */
+  const endReplacedSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+    endFamilyOfToken(sessionToken, "sign-in").pipe(Effect.withSpan("auth.session.end_replaced"));
 
   /**
    * The account's live session ids, most recently used first.
@@ -578,6 +611,7 @@ export function createSessionsModule() {
 
   return {
     invalidateSession,
+    endReplacedSession,
     resolveSessionByBinding,
     classifyCallerSession,
     resolveLiveOrdinarySession,

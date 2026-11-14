@@ -1,7 +1,6 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
-import { buildSessionCookies } from "../../lib/cookie-session";
 import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
@@ -17,7 +16,7 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
     socketIpOf,
     sessionMetaFrom,
     rl,
-    cookieConfig,
+    replaceSession,
   } = ctx;
 
   return (
@@ -199,9 +198,9 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
-            set.headers["set-cookie"] = buildSessionCookies(
+            set.headers["set-cookie"] = await replaceSession(
+              headers.cookie,
               result.session.refreshToken,
-              cookieConfig,
             );
             return {
               session: toTokenResponseCookieOnly(result.session),
@@ -344,9 +343,9 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
             // session and answers 409 `session_stale` — at the one step this
             // session exists to perform.
             set.status = 201;
-            set.headers["set-cookie"] = buildSessionCookies(
+            set.headers["set-cookie"] = await replaceSession(
+              headers.cookie,
               result.session.refreshToken,
-              cookieConfig,
             );
             return {
               status: result.status,
@@ -460,9 +459,9 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
-            set.headers["set-cookie"] = buildSessionCookies(
+            set.headers["set-cookie"] = await replaceSession(
+              headers.cookie,
               result.session.refreshToken,
-              cookieConfig,
             );
             return {
               session: toTokenResponseCookieOnly(result.session),

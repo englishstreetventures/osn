@@ -1,6 +1,5 @@
 import { Elysia, t } from "elysia";
 
-import { buildSessionCookies } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import {
@@ -20,7 +19,7 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
     socketIpOf,
     sessionMetaFrom,
     rl,
-    cookieConfig,
+    replaceSession,
   } = ctx;
   return (
     new Elysia()
@@ -130,9 +129,9 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
-            set.headers["set-cookie"] = buildSessionCookies(
+            set.headers["set-cookie"] = await replaceSession(
+              headers.cookie,
               result.session.refreshToken,
-              cookieConfig,
             );
             return {
               session: toTokenResponseCookieOnly(result.session),
