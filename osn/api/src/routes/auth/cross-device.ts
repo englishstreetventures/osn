@@ -1,13 +1,13 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
-import { buildSessionCookies } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
 
 export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, cookieConfig } = ctx;
+  const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, replaceSession } =
+    ctx;
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -86,9 +86,9 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
           try {
             const result = await run(auth.getCrossDeviceLoginStatus(params.requestId, body.secret));
             if (result.status === "approved") {
-              set.headers["set-cookie"] = buildSessionCookies(
+              set.headers["set-cookie"] = await replaceSession(
+                headers.cookie,
                 result.session.refreshToken,
-                cookieConfig,
               );
               return {
                 status: result.status,

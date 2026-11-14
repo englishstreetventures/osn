@@ -28,7 +28,6 @@ import { createRateLimiter, isUnresolvedIp } from "@shared/rate-limit";
 import { Effect } from "effect";
 import { Elysia, t } from "elysia";
 
-import { buildSessionCookies } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
@@ -157,7 +156,7 @@ function devLoginPage(returnTo: string): string {
 }
 
 export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConfig) {
-  const { auth, run, handleError, resolveIp, socketIpOf, sessionMetaFrom, cookieConfig } = ctx;
+  const { auth, run, handleError, resolveIp, socketIpOf, sessionMetaFrom, replaceSession } = ctx;
 
   /**
    * Own limiter rather than `ctx.rateLimit`: that one denies outright on an
@@ -246,7 +245,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
 
     return {
       ok: true,
-      cookies: buildSessionCookies(session.refreshToken, cookieConfig),
+      cookies: await replaceSession(headers.cookie, session.refreshToken),
       body: { session: toTokenResponseCookieOnly(session), profile: publicProfileOf(profile) },
     } as const;
   }

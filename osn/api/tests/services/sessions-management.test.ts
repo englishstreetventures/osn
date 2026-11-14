@@ -955,6 +955,32 @@ describe("logout of a rotated-out token", () => {
     }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
   });
 
+  it.effect("sent with a sign-in, counts reuse once and says the sign-in found it", () => {
+    const db = refreshedOnce("si_reuse");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+    return Effect.gen(function* () {
+      const { profile, old, current, familyId } = yield* db.setUp;
+      db.ageRecords();
+      log.lines.length = 0;
+
+      yield* auth.endReplacedSession(old);
+
+      expect(reuse).toHaveBeenCalledTimes(1);
+      expect(revoked).toHaveBeenCalledTimes(1);
+      expect(log.reuseLines("WARN").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at sign-in — family revoked",
+      ]);
+      expect(yield* dead(current)).toBe(true);
+      expect(db.records(profile.accountId)).toBe(0);
+      const written = JSON.stringify(log.lines);
+      for (const secret of [profile.accountId, auth.hashSessionToken(old), familyId]) {
+        expect(written).not.toContain(secret);
+      }
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
+
   it.effect("counts once: a second logout with the same token finds nothing", () => {
     const db = refreshedOnce("lo_twice");
     const log = capture();
