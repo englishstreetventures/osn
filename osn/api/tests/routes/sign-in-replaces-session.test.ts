@@ -437,6 +437,14 @@ const ROUTES: readonly SessionRoute[] = [
     signIn: (h, cookie) => devForm(h, DEV_SECRET, cookie),
     refused: (h, cookie) => devForm(h, "x".repeat(32), cookie),
   },
+  {
+    name: "POST /dev/login",
+    okStatus: 200,
+    refusedStatus: 401,
+    signIn: (h, cookie) => h.request("/dev/login", { secret: DEV_SECRET }, h.withCookie(cookie)),
+    refused: (h, cookie) =>
+      h.request("/dev/login", { secret: "x".repeat(32) }, h.withCookie(cookie)),
+  },
 ];
 
 /** The form post the dev sign-in page sends. */
@@ -494,6 +502,21 @@ describe("a passkey sign-in and the session the request carried", () => {
     expect(res.status).toBe(200);
     expect((await h.grant(one)).status).toBe(200);
     expect((await h.grant(two)).status).toBe(200);
+  });
+
+  it("signs in quietly with a cookie that names no session", async () => {
+    // The commonest cookie a browser brings to a sign-in: one logged out, or
+    // long expired. Ending its family finds nothing and is no failure.
+    const h = makeHarness();
+    const old = await h.signedIn("old_owner");
+    expect((await h.request("/logout", {}, h.withCookie(old.token))).status).toBe(200);
+    const account = await withPasskey(h, "stalecookie");
+
+    const res = await passkeySignIn(h, account, old.token);
+
+    expect(res.status).toBe(200);
+    expect((await h.grant(sessionCookieOf(res)!)).status).toBe(200);
+    expect(h.logs.filter((line) => line.level === "ERROR")).toEqual([]);
   });
 
   it("signing in again as the same account ends only the device the cookie named", async () => {
