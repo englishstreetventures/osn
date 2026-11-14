@@ -136,7 +136,7 @@ export function VerifyEmailLinkPage() {
               replaces it (`DESIGN.md` §Motion). The wrapper goes with the
               placeholder, and its busy state with it. */}
           <div aria-busy="true">
-            <ResponsiveSkeleton standsFor="card" height={130} phoneHeight={138} />
+            <ResponsiveSkeleton standsFor="card" height={140.5} phoneHeight={148} />
           </div>
         </Match>
         <Match when={read()}>
