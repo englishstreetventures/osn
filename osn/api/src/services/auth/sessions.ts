@@ -185,8 +185,10 @@ export function createSessionsModule() {
    *
    * A sign-in (`at` is `"sign-in"`) leaves the family of an account scheduled
    * for deletion live: that account's one family is the deletion's cancel
-   * handle. A token rotated out past the grace window is the exception: it is
-   * a replay, and reuse ends the handle here as it would at `/token`.
+   * handle. It marks the family `replaced_at` instead, so the handle renews
+   * only for its own account's profiles from then on. A token rotated out
+   * past the grace window is the exception: it is a replay, and reuse ends
+   * the handle here as it would at `/token`.
    *
    * Silently succeeds when the token names nothing (idempotent — don't leak
    * whether a session was valid). Otherwise the family's rotation records
@@ -237,11 +239,30 @@ export function createSessionsModule() {
               : undefined,
           ),
         );
+      // The cancel handle the sign-in spares, marked replaced: it renews from
+      // now on only for its own account's profiles (`refreshTokens`), whatever
+      // becomes of the deletion. Exactly the rows the delete above spares.
+      const mark = db
+        .update(sessions)
+        .set({
+          replacedAt: sql<number>`coalesce(${sessions.replacedAt}, ${Math.floor(nowMs / 1000)})`,
+        })
+        .where(
+          and(
+            inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
+            accountScheduledForDeletion(db, sessions.accountId),
+            not(rotatedOutPastGrace(db, sessionId, nowMs)),
+          ),
+        );
       const { record, removed } = yield* Effect.tryPromise({
         try: async () => {
           // One batch on D1, so one request and one transaction, over the two
           // tables the delete's own lookup reads.
           if (canBatch(db)) {
+            if (sparesCancelHandle) {
+              const [records, , result] = await db.batch([rotatedOut, mark, removal]);
+              return { record: records[0], removed: rowsChanged(result) };
+            }
             const [records, result] = await db.batch([rotatedOut, removal]);
             return { record: records[0], removed: rowsChanged(result) };
           }
@@ -251,6 +272,7 @@ export function createSessionsModule() {
             (rows) => rows,
             () => [],
           );
+          if (sparesCancelHandle) await mark;
           return { record: records[0], removed: rowsChanged(await removal) };
         },
         catch: (cause) => new DatabaseError({ cause }),
@@ -304,8 +326,9 @@ export function createSessionsModule() {
    * rotated cookie naming no session, so the next renewal with it is refused
    * rather than acting as whoever held the old cookie. Every new session has
    * a family of its own, so this never ends the session the request issued.
-   * The cancel handle of an account scheduled for deletion is spared;
-   * `refreshTokens` keeps its cookie from renewing as anyone else's profile.
+   * The cancel handle of an account scheduled for deletion is spared and
+   * marked replaced; `refreshTokens` then keeps its cookie from renewing as
+   * anyone else's profile, and `/authorize` sees no session in it.
    */
   const endReplacedSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
     endFamilyOfToken(sessionToken, "sign-in").pipe(Effect.withSpan("auth.session.end_replaced"));

@@ -10,7 +10,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Data Map (Article 30 Records of Processing)
@@ -58,6 +58,7 @@ the compliance checklist.
 | `sessions.last_used_at` | UX | Art. 6(1)(f) | 30 d sliding | `@osn/api` only | [[sessions]] |
 | `sessions.restricted_until` | Carries the "this session may only enrol a passkey" restriction across refresh rotation, which inserts a new row and deletes the old one; also pins the session's absolute expiry | Art. 6(1)(b) — contract (getting a locked-out user back into their own account) | **15 minutes, absolute** — the row's `expires_at` equals this value and never slides. Cleared on enrolment, after which the row is an ordinary 30 d sliding session | `@osn/api` only | [[sessions]] |
 | `sessions.restricted_amr` | The authentication factor behind that restricted session (`otp` / `totp` / `webauthn`) — read back to decide whether it may enrol a passkey past the step-up gate | Art. 6(1)(b); Art. 32(1) — the record IS the access control | Same 15 minutes; cleared with `restricted_until` on enrolment | `@osn/api` only — never in a token, never exported | [[sessions]], [[account-recovery-factors]] |
+| `sessions.replaced_at` | The moment a sign-in on the device's browser replaced the cookie of an account's deletion cancel handle — read so that handle renews only for its own account's profiles | Art. 6(1)(f) — legit interest in keeping one account's session from acting for another on a shared device; Art. 32(1) | The life of its session: deleted with the row | `@osn/api` only — never in a token, never exported | [[sessions]] |
 | `rotated_sessions` (`token_hash` = SHA-256 of a rotated-out session token, `family_id`, `account_id`, `rotated_at`, `expires_at`; migration `20261026102423_rotated_sessions`) | Refresh-token reuse detection: a replayed rotated-out token revokes its whole family | Art. 6(1)(f) — legit interest in preventing session theft; Art. 32(1) | 30 d from rotation (the session lifetime), timestamps in Unix milliseconds. Swept by the 6-hourly cron once expired; deleted with its family on reuse; at soft delete removed for every revoked family but the cancel handle's, at hard delete removed with the account | `@osn/api` only — security state, **never exported** | [[sessions]] |
 | `osn_sid` access-token claim (derived, not stored: `sha256(session_hash \| ":" \| profile_id)`, 128 bits) | Lets a cookieless Bearer caller name its own session, so passkey add/remove spares it instead of signing the account out everywhere. Per-profile by construction, so it cannot correlate two profiles of one account (P6) | Art. 6(1)(b) — contract (keeping the caller signed in through a security ceremony) | Not retained — recomputed per token and changes on every rotation | `@osn/api`, plus any service that verifies an `osn-access` token | [[sessions]] |
 | `security_events.kind` + `metadata` | Audit trail of security-relevant actions | Art. 6(1)(c) — legal obligation under GDPR Art. 32; Art. 6(1)(f) | 12 months then purge | `@osn/api`; user via `/account/security-events` | [[recovery-codes]] |
