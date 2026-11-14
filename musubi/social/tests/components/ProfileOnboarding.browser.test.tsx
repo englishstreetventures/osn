@@ -99,7 +99,12 @@ function expectSecondaryCancel(sheet: HTMLElement) {
   ]);
 }
 
-/** Every animation on the page that ends: the sheet's entry fade and its scrim's. */
+/**
+ * Every animation on the page that ends: the card's entry fade or, below `md`,
+ * the sheet's rise over `--ui-dur-slow`, and its scrim's. A read of where the
+ * sheet sits must wait for it, since below `md` it starts its own height below
+ * the bottom edge.
+ */
 async function settle() {
   const ending = document
     .getAnimations()

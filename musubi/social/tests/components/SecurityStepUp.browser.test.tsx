@@ -180,8 +180,10 @@ afterEach(() => {
  * Each shot is taken in its own render with the theme set before it, never by
  * flipping the theme on a drawn page: the buttons' colour transitions would be
  * caught half way. Shots wait for every animation on the page that ends: the
- * sheet's entry fade (`--ui-dur-fast`) and its scrim's. One that never ends,
- * such as a busy button's orb, is left running.
+ * card's entry fade (`--ui-dur-fast`) or, below `md`, the sheet's rise
+ * (`--ui-dur-slow`), and its scrim's. One that never ends, such as a busy
+ * button's orb, is left running. A read of where a sheet sits waits too, since
+ * below `md` it starts its own height below the bottom edge.
  */
 async function settle() {
   const ending = document
@@ -216,6 +218,7 @@ describe("the step-up sheet in Settings → Security", () => {
       document.documentElement.classList.toggle("dark", theme === "dark");
       await page.viewport(390, 844);
       const { sheet, opener } = await openSheet();
+      await settle();
       const box = sheet.getBoundingClientRect();
       expect(box.left).toBeCloseTo(0, 1);
       expect(box.width).toBeCloseTo(390, 1);
@@ -306,10 +309,44 @@ describe("the step-up sheet in Settings → Security", () => {
     await userEvent.click(within(sheet).getByRole("button", { name: "Use passkey" }));
     await waitFor(() => within(sheet).getByRole("button", { name: "Waiting for your passkey…" }));
     await userEvent.click(scrimOf(sheet), { position: { x: 100, y: 100 } });
-    // Long enough for the 80ms exit fade and the 300ms fallback after it.
+    // Long enough for the card's 80ms exit fade and the 300ms fallback after it.
     await new Promise((r) => setTimeout(r, 400));
     expect(screen.getByRole("dialog", { name: "Confirm it's you" })).toBe(sheet);
     expect(sheet.hasAttribute("data-closed")).toBe(false);
+  });
+});
+
+describe("the step-up's hand-over below md", () => {
+  // The sheet hands its outcome over when it unmounts, with a fallback timer
+  // for a tab that runs no animation. Below `md` its exit is the slide down,
+  // the longest it has; if that ever outran the fallback, the host would get
+  // the outcome while the sheet was still on screen.
+  it("cancels only once the sheet has slid out, at 390px", async () => {
+    await page.viewport(390, 844);
+    let goneAtHandOver: boolean | undefined;
+    const onCancel = vi.fn(() => {
+      goneAtHandOver = screen.queryByRole("dialog") === null;
+    });
+    render(() => (
+      <StepUpDialog
+        client={{} as StepUpClient}
+        onToken={() => {}}
+        onCancel={onCancel}
+        purpose="passkey_delete"
+      />
+    ));
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+    await settle();
+    const runs: string[] = [];
+    const listen = (event: AnimationEvent) => {
+      if (event.target === sheet) runs.push(event.animationName);
+    };
+    document.addEventListener("animationstart", listen, true);
+    await userEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 2000 });
+    document.removeEventListener("animationstart", listen, true);
+    expect(runs, "the sheet did not slide out").toContain("ui-sheet-exit");
+    expect(goneAtHandOver, "the outcome arrived while the sheet was on screen").toBe(true);
   });
 });
 
@@ -531,6 +568,7 @@ describe("recovery codes in Settings → Security", () => {
     "ask before a new set in a bottom sheet at 390px, dismissed by a secondary Cancel (%s)",
     async (theme) => {
       const sheet = await openRotate(390, theme);
+      await settle();
       const box = sheet.getBoundingClientRect();
       expect(box.left).toBeCloseTo(0, 1);
       expect(box.width).toBeCloseTo(390, 1);

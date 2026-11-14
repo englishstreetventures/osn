@@ -2,12 +2,16 @@ import { commands } from "vitest/browser";
 
 /**
  * What the overlay motion tests share: the two browser commands, typed, and a
- * record of every enter or exit animation as it starts.
+ * record of every enter or exit run and every transition as it starts.
  *
  * An exit runs for 80ms and its panel then unmounts, so reading the panel after
  * a close races the unmount. An `animationstart` listener on the document reads
  * the panel's computed style at the moment its animation starts, while the
  * panel is certainly there, and keeps what it read.
+ *
+ * A `Dialog` sheet below `md` moves by transitions; its panel and scrim still
+ * run `ui-sheet-enter` and `ui-sheet-exit`, empty keyframes that tell Kobalte
+ * how long to keep them mounted. The watchers record both kinds.
  */
 
 type Media = { reducedMotion?: "reduce" | "no-preference"; forcedColors?: "active" | "none" };
@@ -61,11 +65,17 @@ export function rootEasing(token: string): string {
   return value;
 }
 
-/** Record every `ui-enter` and `ui-exit` animation that starts until `stop()`. */
+/** The keyframes a Kobalte overlay opens or closes on: the card's two and the sheet's two. */
+export const OVERLAY_RUNS = ["ui-enter", "ui-exit", "ui-sheet-enter", "ui-sheet-exit"] as const;
+export type OverlayRun = (typeof OVERLAY_RUNS)[number];
+const isOverlayRun = (name: string): name is OverlayRun =>
+  (OVERLAY_RUNS as readonly string[]).includes(name);
+
+/** Record every overlay run (`OVERLAY_RUNS`) that starts until `stop()`. */
 export function watchAnimations(): { started: Started[]; stop: () => void } {
   const started: Started[] = [];
   const listen = (event: AnimationEvent) => {
-    if (event.animationName !== "ui-enter" && event.animationName !== "ui-exit") return;
+    if (!isOverlayRun(event.animationName)) return;
     const target = event.target as Element;
     const style = getComputedStyle(target);
     started.push({
@@ -79,6 +89,34 @@ export function watchAnimations(): { started: Started[]; stop: () => void } {
   };
   document.addEventListener("animationstart", listen, true);
   return { started, stop: () => document.removeEventListener("animationstart", listen, true) };
+}
+
+/** One CSS transition, as its element's computed style read when it was created. */
+export interface Ran {
+  target: Element;
+  /** The property it moves, as `transitionrun` names it. */
+  property: string;
+  /** Milliseconds: the element's computed `transition-duration`, not a reversed run's shortened one. */
+  duration: number;
+  /** The computed `transition-timing-function`, as the browser writes it. */
+  easing: string;
+}
+
+/** Record every CSS transition created, on any element, until `stop()`. */
+export function watchTransitions(): { ran: Ran[]; stop: () => void } {
+  const ran: Ran[] = [];
+  const listen = (event: TransitionEvent) => {
+    const target = event.target as Element;
+    const style = getComputedStyle(target);
+    ran.push({
+      target,
+      property: event.propertyName,
+      duration: ms(style.transitionDuration),
+      easing: style.transitionTimingFunction,
+    });
+  };
+  document.addEventListener("transitionrun", listen, true);
+  return { ran, stop: () => document.removeEventListener("transitionrun", listen, true) };
 }
 
 /** Wait `n` animation frames. */

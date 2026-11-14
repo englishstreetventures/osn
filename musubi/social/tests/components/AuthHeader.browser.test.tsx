@@ -32,7 +32,12 @@ const SHOTS = "../../../../e2e-artifacts/musubi-auth-header";
 /** A product name with no space in it, so only a break inside a word keeps it in. */
 const LONG_TITLE = "Create your MusubiForOrganisationsAndCommunities account";
 
-/** Waits for every animation that ends: the sheet's entry fade and its scrim's. */
+/**
+ * Waits for every animation that ends: the card's entry fade or, below `md`,
+ * the sheet's rise over `--ui-dur-slow`, and its scrim's. A read of where the
+ * sheet sits must wait for it, since below `md` it starts its own height below
+ * the bottom edge.
+ */
 async function settle() {
   const ending = document
     .getAnimations()

@@ -147,27 +147,38 @@ export const DialogTitleWeight: Story<{ weight: string } & StoryArgs> = {
 
 /**
  * The fade with no scale an app opts into: `--ui-scale-enter` and
- * `--ui-scale-exit` at 1, so `Dialog` (and every Kobalte overlay) changes only
- * its opacity as it opens and closes. `unmapped` is the contract's default,
- * which pulse draws: in from 96%, out to 98%. Open it as a sheet at a phone
- * width to see the difference best: the default sheet's edges sit in from the
- * screen's as it moves. The run is 120ms in and 80ms out, so slow it in the
- * browser's animation tools to judge it.
+ * `--ui-scale-exit` at 1, so `Dialog` as a card (and every Kobalte overlay
+ * but a sheet) changes only its opacity as it opens and closes. `unmapped` is
+ * the contract's default, which pulse draws: in from 96%, out to 98%. The run
+ * is 120ms in and 80ms out, so slow it in the browser's animation tools to
+ * judge it. As a sheet it fades like this only at `md` and up; at a phone
+ * width it slides whatever the scale tokens hold (`DialogSheetSlide`).
  */
 export const DialogFadeOnly: Story<{ motion: string; presentation: string } & StoryArgs> = {
-  args: { motion: "fade only", presentation: "sheet" },
+  args: { motion: "fade only", presentation: "centred" },
   controls: {
     motion: { kind: "select", options: ["fade only", "unmapped"] },
-    presentation: { kind: "select", options: ["sheet", "centred"] },
+    presentation: { kind: "select", options: ["centred", "sheet"] },
   },
   render: (args) => {
     lend(() => {
       const scale = args.motion === "fade only" ? "1" : "initial";
       return { "--ui-scale-enter": scale, "--ui-scale-exit": scale };
     });
-    return <LeaveDialog presentation={args.presentation === "centred" ? "centred" : "sheet"} />;
+    return <LeaveDialog presentation={args.presentation === "sheet" ? "sheet" : "centred"} />;
   },
 };
+
+/**
+ * `Dialog` as a sheet, the shape Musubi's dialogs, `@osn/auth-ui`'s and
+ * pulse's share dialog take. Below `md` it slides up from its own height
+ * below the bottom edge over `--ui-dur-slow` (320ms) and back down over
+ * `--ui-dur-base` (200ms), both on `--ui-ease-sheet`, with its scrim fading
+ * on the same pace; at `md` and up it is the card. Narrow the lab window, or
+ * open it with `?bare` in a phone-sized window, to see the slide; close it
+ * part-way up to see it turn round.
+ */
+export const DialogSheetSlide = () => <LeaveDialog presentation="sheet" />;
 
 export const Dropdown = () => {
   const [picked, setPicked] = createSignal("—");

@@ -384,7 +384,9 @@ holds at 3:1. A focus mark appears at once, never animated.
 ## Motion
 
 The app adds colour and opacity transitions only, and no spatial motion of its
-own, with one exception: the orb a busy button draws (§The orb). Rows, tabs and controls fade their colours with `transition-ui-colors`
+own, with two exceptions: the orb a busy button draws (§The orb), and a dialog
+below `md`, which `@shared/ui` slides up and down as a sheet (below). Rows,
+tabs and controls fade their colours with `transition-ui-colors`
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
@@ -411,22 +413,42 @@ than the screen either way, so the name does not move;
 `tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
 390×844 and 1280×800.*
 
-**Overlays fade, with no scale.** `@shared/ui`'s Dialog (as card and as
-sheet), Popover (the sign-up form's `InfoPopover`) and the default menu (the
-account and theme menus) change their opacity alone as they open and close,
-the owner's decision on #2034. The contract block in `App.css` maps `--ui-scale-enter` and
-`--ui-scale-exit` to 1, so the shared `zoom-in` and `zoom-out` scale nothing
-(`wiki/shared/design-tokens.md` §Motion); a call site adds no motion class.
-The timing is the contract's: in over `--ui-dur-fast` (120ms) on
+**Sheets slide; cards and menus fade, with no scale.** Below `md` every
+dialog is a sheet (`ResponsiveDialogContent`, and `@osn/auth-ui`'s three,
+§Responsive layout), and it slides up from the bottom edge as it opens and
+back down as it closes, as an iOS sheet does: the owner's choice ("B: slide
+up"), recorded on #2045 on 2026-11-13. It rises from its own height below the
+edge over `--ui-dur-slow` (320ms) and falls over `--ui-dur-base` (200ms),
+both on `--ui-ease-sheet` (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity
+and with no scale. The scrim fades in and out on the same pace and curve.
+Closed part-way up, or reopened part-way down, the sheet turns round from
+where it is. The slide is `@shared/ui`'s, on every app's sheets; Musubi adds
+no class for it, and its scale tokens do not touch it.
+
+From `md` the same dialog is a centred card, and a card, Popover (the
+sign-up form's `InfoPopover`) and the default menu (the account and theme
+menus) change their opacity alone as they open and close, the owner's
+decision on #2034. The contract block in `App.css` maps `--ui-scale-enter`
+and `--ui-scale-exit` to 1, so the shared `zoom-in` and `zoom-out` scale
+nothing (`wiki/shared/design-tokens.md` §Motion); a call site adds no motion
+class. The timing is the contract's: in over `--ui-dur-fast` (120ms) on
 `--ui-ease-out`, out over `--ui-dur-exit` (80ms) on `--ui-ease-exit`, which
-carries the same curve. The scrim fades with the
-panel. Under reduced motion each one shows and hides at once
-(`tokens.css` sets the overlay animations to `none`). Only cire's `accent`
-menu look closes at once, and Musubi draws none.
+carries the same curve. The scrim fades with the panel. A sheet carried
+across `md` while open (a phone turned, a window resized) does not slide:
+down across it, it sits on the bottom edge at once; up across it, the card
+fades in at its new place.
+
+Under reduced motion each one shows and hides at once (`tokens.css` sets the
+overlay animations and the sheet's transitions to `none`). Only cire's
+`accent` menu look closes at once, and Musubi draws none. On a browser older
+than Chrome 117, Firefox 129 or Safari 17.5, which cannot read
+`@starting-style`, a sheet appears at once and still slides out.
 `tools/e2e/tests/support/musubi-surfaces.ts` holds the first frame of the
 account menu, the profile switcher and the create-organisation dialog, and
-the half-way frame of the menu and the switcher closing, and finds no
-transform on any.
+the half-way frame of the menu and the switcher closing: the menu and the
+card show no transform, and the switcher, a sheet at 390px, sits its own
+height below the edge as it opens and part-way down half-way out, at full
+opacity and unscaled.
 
 ## The orb
 

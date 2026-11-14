@@ -295,19 +295,24 @@
     --ui-focus-offset: 2px;
     /* A hover, a press, a small panel arriving. */
     --ui-dur-fast: 120ms;
-    /* A panel swap, a pill sliding. */
+    /* A panel swap, a pill sliding, a `Dialog` sheet leaving. Retimes the sheet's exit. */
     --ui-dur-base: 200ms;
-    /* Something crossing the screen. */
+    /* Something crossing the screen: a `Dialog` sheet rising. Retimes the sheet's entry. */
     --ui-dur-slow: 320ms;
-    /* A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on `--ui-modal-exit`. */
+    /* A Kobalte overlay closing: a menu, a popover, `Dialog` as a card. `Modal` exits on
+       `--ui-modal-exit`; a `Dialog` sheet below `md` leaves on `--ui-dur-base`. */
     --ui-dur-exit: 80ms;
     /* Something arriving. */
     --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     /* Something moving between two places. */
     --ui-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-    /* A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal`'s exit runs `ease-in`. */
+    /* A Kobalte overlay closing: a menu, a popover, `Dialog` as a card. `Modal`'s exit runs
+       `ease-in`; a `Dialog` sheet below `md` leaves on `--ui-ease-sheet`. */
     --ui-ease-exit: cubic-bezier(0.22, 1, 0.36, 1);
-    /* How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog`. */
+    /* A `Dialog` sheet rising and leaving: quick off the mark, long to settle, as iOS sheets move. */
+    --ui-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+    /* How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog`
+       as a card (a sheet below `md` slides instead). */
     --ui-scale-enter: 0.96;
     /* How small an overlay ends as it leaves, `Modal` included. Nearer 1 than the entry. */
     --ui-scale-exit: 0.98;
@@ -356,6 +361,18 @@
  * `Modal` does NOT use these. It is the platform `<dialog>` and animates
  * through `@starting-style` and the top layer — see
  * wiki/decisions/native-dialog-over-kobalte.md.
+ *
+ * `Dialog` as a sheet below `md` is the one Kobalte overlay that moves by
+ * transitions: `animate-sheet-in` and `animate-sheet-out`, after the two
+ * zoom utilities. It slides on `transform` and its scrim fades on `opacity`,
+ * from `@starting-style` in and to the closed state out, so a sheet closed or
+ * reopened part-way turns round from where it is, which keyframes cannot do.
+ * Kobalte still needs a keyframe run to know how long to keep a closing panel
+ * mounted, so the two utilities also run `ui-sheet-enter` and `ui-sheet-exit`,
+ * which move nothing: a run that wrote `transform` or `opacity` would beat the
+ * transition on the same property in Chromium and WebKit. The two names must
+ * differ, and neither may contain the other, because Kobalte unmounts on the
+ * end of a run whose name the current `animation-name` contains.
  */
 @keyframes ui-enter {
   from {
@@ -402,10 +419,46 @@
 }
 
 /*
+ * Each writes only `--ui-sheet-run`, which nothing reads: Tailwind drops an
+ * empty `@keyframes`, and with no keyframes to run Kobalte would unmount a
+ * closing sheet at once.
+ */
+@keyframes ui-sheet-enter {
+  to {
+    --ui-sheet-run: 1;
+  }
+}
+
+@keyframes ui-sheet-exit {
+  to {
+    --ui-sheet-run: 0;
+  }
+}
+
+@utility animate-sheet-in {
+  animation-name: var(--ui-enter-animation, ui-sheet-enter);
+  animation-duration: var(--ui-dur-slow, 320ms);
+  transition-property: var(--ui-sheet-transition, transform, opacity);
+  transition-duration: var(--ui-dur-slow, 320ms);
+  transition-timing-function: var(--ui-ease-sheet, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+@utility animate-sheet-out {
+  animation-name: var(--ui-exit-animation, ui-sheet-exit);
+  animation-duration: var(--ui-dur-base, 200ms);
+  transition-property: var(--ui-sheet-transition, transform, opacity);
+  transition-duration: var(--ui-dur-base, 200ms);
+  transition-timing-function: var(--ui-ease-sheet, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+/*
  * A reader who has turned motion down gets the state change without the
  * movement. `none` rather than a 1ms duration, because these are discrete
  * enter/exit animations with `fill-mode: both`: no animation leaves the
  * element at its natural state, which is what is wanted.
+ *
+ * `--ui-sheet-transition: none` stops a sheet's slide and its scrim's fade
+ * the same way; with no run either, Kobalte unmounts a closing sheet at once.
  *
  * On the root, so a panel portalled to `<body>` inherits it. Flat rather than
  * nested in each `@utility`: Tailwind emits a nested `@media` as CSS nesting,
@@ -415,5 +468,6 @@
   :where(:root) {
     --ui-enter-animation: none;
     --ui-exit-animation: none;
+    --ui-sheet-transition: none;
   }
 }

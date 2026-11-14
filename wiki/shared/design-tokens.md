@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -237,13 +237,14 @@ never `--ui-ease-out`: for the contract's curve write `ease-(--ui-ease-out)`
 | Token | Value | Used for |
 | --- | --- | --- |
 | `--ui-dur-fast` | 120ms | A hover, a press, a small panel arriving |
-| `--ui-dur-base` | 200ms | A panel swap, a pill sliding |
-| `--ui-dur-slow` | 320ms | Something crossing the screen |
-| `--ui-dur-exit` | 80ms | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on its own `--ui-modal-exit` ([[component-library]], §Overlays: `Modal`) |
+| `--ui-dur-base` | 200ms | A panel swap, a pill sliding, a `Dialog` sheet leaving |
+| `--ui-dur-slow` | 320ms | Something crossing the screen: a `Dialog` sheet rising |
+| `--ui-dur-exit` | 80ms | A Kobalte overlay closing: a menu, a popover, `Dialog` as a card. `Modal` exits on its own `--ui-modal-exit` ([[component-library]], §Overlays: `Modal`); a `Dialog` sheet below `md` on `--ui-dur-base` |
 | `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving |
 | `--ui-ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | Something moving between two places |
-| `--ui-ease-exit` | `cubic-bezier(0.22, 1, 0.36, 1)` | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal`'s exit runs `ease-in` |
-| `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` |
+| `--ui-ease-exit` | `cubic-bezier(0.22, 1, 0.36, 1)` | A Kobalte overlay closing: a menu, a popover, `Dialog` as a card. `Modal`'s exit runs `ease-in`; a `Dialog` sheet below `md` leaves on `--ui-ease-sheet` |
+| `--ui-ease-sheet` | `cubic-bezier(0.32, 0.72, 0, 1)` | A `Dialog` sheet rising and leaving below `md`: quick off the mark, long to settle, as iOS sheets move |
+| `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` as a card (a sheet below `md` slides instead) |
 | `--ui-scale-exit` | 0.98 | How small an overlay ends as it leaves, `Modal` included |
 | `--ui-distance-enter` | 24px | How far `Modal` rises into place |
 | `--ui-distance-exit` | 8px | How far `Modal` sinks as it leaves |
@@ -283,17 +284,42 @@ mapping or maps an exit, and cire host's
 `tests/styles/overlay-curves.browser.test.tsx` reads a `Popover`'s and a
 `Modal`'s curves back as they run.
 
-`Dialog`'s `sheet` presentation scales like its centred card, from its
-centre. Below `md` the sheet is pinned to the bottom edge at full width, so
-its sides and its bottom edge sit in from the screen's by 2% of its size as
-it arrives and 1% as it leaves. `Modal`'s sheet rises from below the edge
-instead. Musubi's dialogs, most of the sheet's callers, fade with no scale
-(below); pulse's share dialog keeps the scale.
+**A `Dialog` sheet slides.** Below `md`, `Dialog`'s `sheet` presentation
+rises from its own height below the bottom edge over `--ui-dur-slow` and
+falls back over `--ui-dur-base`, both on `--ui-ease-sheet`, at full opacity
+and with no scale, whatever the scale tokens hold; its scrim fades in and out
+on the same pace and curve. The owner chose it for every sheet ("B: slide
+up", #2045, 2026-11-13). It moves by CSS transitions, not the keyframes the
+other overlays run, so a sheet closed part-way up or reopened part-way down
+turns round from where it is: `transform` on the panel and `opacity` on the
+scrim, from `@starting-style` in and to the closed state out, through
+`animate-sheet-in` and `animate-sheet-out` in `tokens.css`. The slide is on
+`transform`, never `translate`, because the card's centring and the sheet's
+reset of it are both on `translate`: listed, it would fly a sheet in from the
+middle of the screen when a phone turns with it open. Kobalte keeps a closing
+panel mounted only while a keyframe run lasts, so the two utilities also run
+`ui-sheet-enter` and `ui-sheet-exit`, which write only `--ui-sheet-run` and
+move nothing. A run that wrote `transform` or `opacity` would beat the
+transition on the same property in Chromium and WebKit, the two names must
+not contain each other (Kobalte ends a close on the end of a run whose name
+the current one contains), and Tailwind drops an empty `@keyframes`, so a run
+with no declaration never reaches the stylesheet. At `md` and up the sheet is
+the centred card and runs the card's keyframes. Carried across `md` while
+open, it does not slide: down across it, it sits on the bottom edge at once;
+up across it, the card's entry runs again. `@starting-style` needs Chrome 117,
+Firefox 129 and Safari 17.5, above the floor in [[frontend-patterns]]
+§Supported browsers; on a browser between the floor and those versions a
+sheet appears at once and still slides out.
+`Modal`, on the same rule, has the same gap. `overlay-motion.browser.test.tsx` holds the slide, its
+pace and curve, the scrim, the turn-rounds, the `md` crossing and reduced
+motion ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's profile
+switcher sliding on a real page.
 
 **A fade with no scale is the two scale tokens at 1.** An app whose overlays
 should fade without moving sets `--ui-scale-enter` and `--ui-scale-exit` to 1
-on its root. Every Kobalte overlay — `Dialog` as card and as sheet, `Popover`,
-both `DropdownMenu` looks and `Tooltip` — then changes only its opacity, since
+on its root. Every Kobalte overlay — `Dialog` as a card (and as a sheet at
+`md` and up), `Popover`, both `DropdownMenu` looks and `Tooltip` — then
+changes only its opacity, since
 `zoom-in` and `zoom-out` read those tokens and nothing else in the keyframes
 moves a panel. `--ui-scale-exit` at 1 also stops `Modal`'s exit scale. Its
 entry keeps its own `scale(0.98)` (`modal.tsx`), which no token reaches, so it
@@ -302,18 +328,19 @@ still grows as it opens; its rise and sink (`--ui-distance-enter`,
 give a panel's scale a second home, and leave the menus and popovers of the
 same app zooming. A held frame's computed `transform` is the identity matrix
 rather than `none`, because the shared keyframes always declare one.
-`overlay-motion.browser.test.tsx` holds the fade for all five overlays, and
-for `Dialog` as a sheet at 390px, against a control that scales, and the lab's
-`DialogFadeOnly` story shows it ([[component-lab]]). Musubi sets both to 1 in
-its contract block, so the lab and the metrics dashboard fade too. On real
-pages `tools/e2e` holds Musubi's account menu, profile switcher and
-create-organisation dialog on the fade, and pulse's avatar menus and "More
-filters" dialog on the contract's 0.96 (`musubi-surfaces.ts`,
+`overlay-motion.browser.test.tsx` holds the fade for all five overlays
+against a control that scales, and the lab's `DialogFadeOnly` story shows it
+([[component-lab]]). Musubi sets both to 1 in its contract block, so the lab
+and the metrics dashboard fade too. On real pages `tools/e2e` holds Musubi's
+account menu and create-organisation dialog on the fade, and pulse's avatar
+menus and "More filters" dialog on the contract's 0.96 (`musubi-surfaces.ts`,
 `pulse-menus.ts`).
 
-The overlays reach them through four utilities in `tokens.css`, not by
-reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` on
+The overlays reach them through utilities in `tokens.css`, not by reading
+the tokens in their own classes. `animate-in` runs `--ui-dur-fast` on
 `--ui-ease-out` and `animate-out` runs `--ui-dur-exit` on `--ui-ease-exit`;
+`animate-sheet-in` and `animate-sheet-out` time a sheet's transitions and
+runs on `--ui-dur-slow` and `--ui-dur-base`, both on `--ui-ease-sheet`;
 `zoom-in` and `zoom-out` set the scale an element enters from and leaves to
 from `--ui-scale-enter` and `--ui-scale-exit`. Two pairs of names sit close:
 `--ui-scale-enter` is the token an app sets, `--ui-enter-scale` is what
@@ -324,7 +351,10 @@ from `--ui-scale-enter` and `--ui-scale-exit`. Two pairs of names sit close:
 `--ui-enter-animation` and `--ui-exit-animation` to `none` on the root, and
 `animate-in` and `animate-out` read their `animation-name` from them. Every
 overlay drawn with those utilities stops moving, and a new one needs nothing
-on its class string. The accent menu's pop is its own `animation` shorthand,
+on its class string. The same block sets `--ui-sheet-transition: none`, which
+`animate-sheet-in` and `animate-sheet-out` read as their
+`transition-property`, so a sheet neither slides nor fades its scrim, and with
+no run either Kobalte unmounts it at once. The accent menu's pop is its own `animation` shorthand,
 so it keeps its `motion-safe:` prefix. `Modal` is a transition, not these
 utilities: its own stylesheet drops every duration to 1ms
 ([[component-library]] §Overlays: `Modal`).
