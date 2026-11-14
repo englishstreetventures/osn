@@ -1,6 +1,6 @@
 {
   "name": "@musubi/social",
-  "version": "0.23.3",
+  "version": "0.23.4",
   "private": true,
   "description": "Musubi — identity and social graph app, built on OSN",
   "type": "module",

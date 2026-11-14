@@ -1,5 +1,14 @@
 # @osn/api
 
+## 0.28.22
+
+### Patch Changes
+
+- Updated dependencies [0d8f467]
+  - @shared/observability@0.24.1
+  - @shared/crypto@0.14.32
+  - @shared/osn-auth-client@0.4.70
+
 ## 0.28.21
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @osn/client
 
+## 3.5.0
+
+### Minor Changes
+
+- 0d8f467: Starting a Musubi sign-up again for the same address from a new tab of the same browser, or after closing the waiting tab, mails the link at once. `@osn/api`'s `POST /register/begin` answers a `retireSecret` beside the claim secret, for a free, taken or held address alike, stored only as a SHA-256 hash. It can only end its request: no status poll, Resend, candidates read or confirm accepts it. Begin's `previous` is `{ requestId, retireSecret }`, never the claim secret, and it retires the earlier request only when that request is for the address this begin is for; a wrong secret, the claim secret, an unknown request or another address retires nothing, at the same one store read and with the same answer. `@osn/client`'s `BegunRegistration` carries `retireSecret`, `PreviousRegistration` is `{ requestId, retireSecret }`, and the status poll and Resend take a `RegistrationClaim`. `@osn/auth-ui`'s `Register` keeps the claim secret in the tab's `sessionStorage` as before, and shares the live request's id, retire secret and expiry with the browser's other tabs in `localStorage` (`osn.signup.live`), nothing about the address; a tab that begins sends it as `previous`. The tab's own left request (`osn.signup.previous`, in its `sessionStorage`) carries the retire secret and the address it was for, and is sent first for that address. The entry goes when its request ends or expires, and no tab removes another tab's entry; a begin refused with a 4xx other than 429 is not sent with the same `previous` again. Only sign-up's requests carry a retire secret. `@shared/observability` redacts `retireSecret` in logs.
+
 ## 3.4.2
 
 ### Patch Changes
