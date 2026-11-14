@@ -14,6 +14,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SignedOutNote } from "../components/SignedOutNote";
+import { describeActionError } from "../lib/action-error";
 import { orgClient } from "../lib/api";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
@@ -51,7 +52,7 @@ export function OrganisationsPage() {
       setDescription("");
       refetch();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create organisation");
+      toast.error(describeActionError(err, "Failed to create organisation"));
     } finally {
       setCreating(false);
     }

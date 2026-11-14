@@ -813,6 +813,14 @@ logs out in one tab sees the notice in every other open tab, which is true.
 The notice's Sign in opens the shell's sign-in dialog through
 `useShellDialogs()`, as the shells' own buttons do (§Responsive layout).
 
+A profile switch, a connection request, accept, reject, cancel, remove or
+unblock, and an organisation create that fails because the session ended also
+raises an error toast with the copy map's sentence, "Your session has ended.
+Sign in again." (`describeAuthError`), alone with no lead. Any other failure of
+those actions toasts the error's own message when it has one, else the action's
+fixed sentence ("Failed to switch profile"): `describeActionError` in
+`lib/action-error.ts`.
+
 **What Musubi supplies:**
 
 - `productName` — `PRODUCT_NAME`, "Musubi" (`src/lib/auth.ts`).
