@@ -6,6 +6,7 @@
 
 import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
 import { and, eq, sql } from "drizzle-orm";
@@ -304,10 +305,12 @@ export function createRegistrationModule(
    * opens an emailed-link request and parks the sign-up beside it, then mails
    * the link. No account row is created yet.
    *
-   * Answers `{ requestId, claimSecret, pairingCode, expiresAt }` to the tab
-   * that began. The tab keeps the claim secret and polls `registrationStatus`
-   * with it, and shows the pairing code, which the confirm step requires; the
-   * link goes only to the address.
+   * Answers `{ requestId, claimSecret, retireSecret, pairingCode, expiresAt }`
+   * to the tab that began. The tab keeps the claim secret and polls
+   * `registrationStatus` with it, and shows the pairing code, which the
+   * confirm step requires; the link goes only to the address. The retire
+   * secret can only end the request, as a later begin's `previous`: no poll,
+   * Resend or confirm accepts it.
    *
    * Security properties:
    *  - Every branch — the address or handle taken, a sign-up already pending
@@ -321,13 +324,22 @@ export function createRegistrationModule(
    *    "Is this handle free?" is answered by the public `/handle/:handle`.
    *  - A swap from nothing refuses to replace a live pending entry, so a
    *    second begin for someone's address cannot take over the request their
-   *    link belongs to; of two begins at once, one parks and the other sends
-   *    nothing until a Resend finds the address free.
-   *  - `previous`, the request and claim secret of a sign-up this tab began
-   *    before, retires that request and frees its address first, so a person
-   *    who goes back to fix their handle can begin again at once. Without the
-   *    claim secret it retires nothing. Its first link counts against the
-   *    mailbox's first-link window as every begin's does.
+   *    link belongs to unless it carries that request's retire secret; of two
+   *    begins at once, one parks and the other sends nothing until a Resend
+   *    finds the address free.
+   *  - `previous`, the request and retire secret of a sign-up begun before in
+   *    this browser, retires that request and frees its address first when
+   *    it is for the address this begin is for, so a person who goes back to
+   *    fix their handle, or starts again from another tab, can begin again
+   *    at once. The browser keeps the retire secret where every tab and
+   *    every user of it can read it, so it is held to ending one request, for
+   *    a begin for that request's address; the new request's link still needs
+   *    its number picked, and wrong picks count against the address. A wrong
+   *    retire secret, the claim secret in its place, an
+   *    unknown request or one for another address retires nothing, costs the
+   *    one read and answers as a begin with no `previous` does, alike. Its
+   *    first link counts against the mailbox's first-link window as every
+   *    begin's does.
    *  - The pending store is self-bounding (CEREMONY_STORE_MAX in memory,
    *    per-entry TTL on the Durable Object store).
    *  - The local-only debug line with the link is gated on `OSN_ENV` being
@@ -352,10 +364,16 @@ export function createRegistrationModule(
     handle: string,
     birthdate: string,
     displayName?: string,
-    previous?: { readonly requestId: string; readonly claimSecret: string },
+    previous?: { readonly requestId: string; readonly retireSecret: string },
     emailVerificationInput?: EmailVerificationInput,
   ): Effect.Effect<
-    { requestId: string; claimSecret: string; pairingCode: string; expiresAt: number },
+    {
+      requestId: string;
+      claimSecret: string;
+      retireSecret: string;
+      pairingCode: string;
+      expiresAt: number;
+    },
     AgeRestrictionError | AuthError | ValidationError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
@@ -388,7 +406,14 @@ export function createRegistrationModule(
       const normalisedEmail = email.toLowerCase();
 
       if (previous) {
-        yield* links.retire("registration", previous.requestId, previous.claimSecret);
+        // Only a request for the address typed now is retired: its parked
+        // address, or a taken address's probe key, keyed as this begin's.
+        const typedKey = serverMac.probeKey(normalisedEmail);
+        yield* links.retire("registration", previous.requestId, previous.retireSecret, (entry) => {
+          const parked = entry.signUp?.email ?? "";
+          const parkedKey = serverMac.probeKey(parked);
+          return timingSafeEqualString(parked === "" ? entry.subject : parkedKey, typedKey);
+        });
       }
 
       // A browser's proof that the person controls the address, checked
@@ -413,7 +438,7 @@ export function createRegistrationModule(
         : { email: normalisedEmail, handle, displayName: displayName ?? null };
       // The request carries the sign-up too, so a begin that finds the
       // address held can park it on a Resend once the address is free.
-      const opened = yield* links.open("registration", key, ttlMs, { signUp });
+      const opened = yield* links.openRetirable("registration", key, ttlMs, { signUp });
       const parked: PendingRegistration = {
         ...signUp,
         requestId: opened.requestId,
@@ -425,6 +450,7 @@ export function createRegistrationModule(
       const answer = {
         requestId: opened.requestId,
         claimSecret: opened.claimSecret,
+        retireSecret: opened.retireSecret,
         pairingCode: opened.pairingCode,
         expiresAt: Math.floor(opened.expiresAt / 1000),
       };

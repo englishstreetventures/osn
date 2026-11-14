@@ -12233,18 +12233,18 @@
                   },
                   "previous": {
                     "properties": {
-                      "claimSecret": {
-                        "pattern": "^[a-f0-9]{64}$",
-                        "type": "string"
-                      },
                       "requestId": {
                         "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       }
                     },
                     "required": [
                       "requestId",
-                      "claimSecret"
+                      "retireSecret"
                     ],
                     "type": "object"
                   },
@@ -12285,18 +12285,18 @@
                   },
                   "previous": {
                     "properties": {
-                      "claimSecret": {
-                        "pattern": "^[a-f0-9]{64}$",
-                        "type": "string"
-                      },
                       "requestId": {
                         "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       }
                     },
                     "required": [
                       "requestId",
-                      "claimSecret"
+                      "retireSecret"
                     ],
                     "type": "object"
                   },
@@ -12337,18 +12337,18 @@
                   },
                   "previous": {
                     "properties": {
-                      "claimSecret": {
-                        "pattern": "^[a-f0-9]{64}$",
-                        "type": "string"
-                      },
                       "requestId": {
                         "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       }
                     },
                     "required": [
                       "requestId",
-                      "claimSecret"
+                      "retireSecret"
                     ],
                     "type": "object"
                   },
@@ -12384,11 +12384,15 @@
                     },
                     "requestId": {
                       "type": "string"
+                    },
+                    "retireSecret": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "requestId",
                     "claimSecret",
+                    "retireSecret",
                     "pairingCode",
                     "expiresAt"
                   ],

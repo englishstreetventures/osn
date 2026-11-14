@@ -253,7 +253,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
       const again = yield* settle(
         auth.beginRegistration(address, "attreg", "1990-01-01", undefined, {
           requestId: begun.requestId,
-          claimSecret: begun.claimSecret,
+          retireSecret: begun.retireSecret,
         }),
       );
       const next = latestLinkTo(mail.recorded(), address)!;

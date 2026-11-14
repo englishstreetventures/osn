@@ -43,6 +43,7 @@ import { toast } from "@shared/toast";
 // Import after mocks so the component picks them up.
 import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 
+import { hasPendingSignUp } from "../src/pending-sign-up";
 import { Register } from "../src/Register";
 import {
   CONNECTION,
@@ -81,6 +82,7 @@ function begun(n = 1) {
   return {
     requestId: `signup_00000000000${n}`,
     claimSecret: String(n).repeat(64),
+    retireSecret: `${"f".repeat(63)}${n}`,
     pairingCode: `4${n}`,
     expiresAt: Math.floor(Date.now() / 1000) + 600,
   };
@@ -155,6 +157,7 @@ describe("Register component", () => {
     hoisted.adoptSession.mockReset();
     hoisted.startRegistration.mockReset();
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -442,10 +445,9 @@ describe("Register component", () => {
         string,
         unknown
       >;
-      expect(Object.keys(stored)).toEqual(
-        expect.arrayContaining(["claimSecret", "email", "expiresAt", "handle", "requestId"]),
+      expect(new Set(Object.keys(stored))).toEqual(
+        new Set(["claimSecret", "email", "expiresAt", "handle", "requestId", "retireSecret"]),
       );
-      expect(Object.keys(stored)).toHaveLength(5);
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)!;
         expect(Object.values(JSON.parse(sessionStorage.getItem(key)!) as object)).not.toContain(
@@ -505,7 +507,7 @@ describe("Register component", () => {
       await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
       expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
         requestId: begun(1).requestId,
-        claimSecret: begun(1).claimSecret,
+        retireSecret: begun(1).retireSecret,
       });
     });
 
@@ -654,7 +656,7 @@ describe("Register component", () => {
       await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
       expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
         requestId: begun(1).requestId,
-        claimSecret: begun(1).claimSecret,
+        retireSecret: begun(1).retireSecret,
       });
     });
 
@@ -671,7 +673,7 @@ describe("Register component", () => {
       await submitDetailsAs();
       expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
         requestId: begun(1).requestId,
-        claimSecret: begun(1).claimSecret,
+        retireSecret: begun(1).retireSecret,
       });
     });
 
@@ -837,6 +839,331 @@ describe("Register component", () => {
       expect(screen.queryByText(/taken while you waited/i)).toBeNull();
       expect(field.hasAttribute("aria-describedby")).toBe(false);
     });
+  });
+
+  describe("the entry other tabs of the browser read", () => {
+    const LIVE = "osn.signup.live";
+
+    /** The shared entry as stored, or null. */
+    const live = () =>
+      JSON.parse(localStorage.getItem(LIVE) ?? "null") as Record<string, unknown> | null;
+
+    /** Every value `localStorage` holds. */
+    function localValues(): string[] {
+      const values: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        values.push(localStorage.getItem(localStorage.key(i)!) ?? "");
+      }
+      return values;
+    }
+
+    /** What a new tab of the same browser starts with: no session storage, the same local storage. */
+    function newTab(view: { unmount: () => void }) {
+      view.unmount();
+      sessionStorage.clear();
+      return renderRegister();
+    }
+
+    /** An entry another tab wrote for request `n`. */
+    function seedLive(n: number, expiresAt = Math.floor(Date.now() / 1000) + 600) {
+      localStorage.setItem(
+        LIVE,
+        JSON.stringify({
+          requestId: begun(n).requestId,
+          retireSecret: begun(n).retireSecret,
+          expiresAt,
+        }),
+      );
+    }
+
+    it("holds only the request, its retire secret and its expiry, after a begin and after a Resend", async () => {
+      const answer = begun();
+      stub.beginRegistration.mockResolvedValue(answer);
+      stub.registrationStatus.mockResolvedValue({
+        status: "pending",
+        pairingCode: answer.pairingCode,
+      });
+      stub.resendRegistrationLink.mockResolvedValue({ status: "sent" });
+      renderRegister();
+      await submitDetailsAs();
+
+      const check = () => {
+        const entry = live()!;
+        expect(new Set(Object.keys(entry))).toEqual(
+          new Set(["expiresAt", "requestId", "retireSecret"]),
+        );
+        expect(entry).toMatchObject({
+          requestId: answer.requestId,
+          retireSecret: answer.retireSecret,
+          expiresAt: answer.expiresAt,
+        });
+        for (const value of localValues()) {
+          expect(value).not.toContain(answer.claimSecret);
+          expect(value).not.toContain("alice@example.com");
+          expect(value).not.toContain(`"${answer.pairingCode}"`);
+        }
+      };
+      check();
+
+      localStorage.removeItem(LIVE);
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/We sent a new link/)).toBeTruthy());
+      check();
+    });
+
+    it("lets a new tab, or one opened after the waiting tab closed, retire the earlier request for the same address in any case", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const first = renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+
+      newTab(first);
+      await submitDetailsAs("Alice@Example.COM");
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+      await waitFor(() => expect(live()?.requestId).toBe(begun(2).requestId));
+    });
+
+    it("is sent by a new tab whatever address it begins for, since osn-api checks the address", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const first = renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+
+      newTab(first);
+      await submitDetailsAs("bob@example.com", "bob");
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
+    it("removes an expired or malformed entry when the view opens, and never sends it", async () => {
+      seedLive(1, Math.floor(Date.now() / 1000) - 1);
+      const expired = renderRegister();
+      expect(localStorage.getItem(LIVE)).toBeNull();
+      expired.unmount();
+
+      localStorage.setItem(LIVE, JSON.stringify({ requestId: begun(1).requestId }));
+      renderRegister();
+      expect(localStorage.getItem(LIVE)).toBeNull();
+
+      stub.beginRegistration.mockResolvedValue(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      await submitDetailsAs();
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+    });
+
+    it("is removed once the account is made, and another request's entry is left alone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun(1));
+      stub.registrationStatus.mockResolvedValue(completed());
+      const view = renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
+      expect(localStorage.getItem(LIVE)).toBeNull();
+      view.unmount();
+
+      sessionStorage.clear();
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()?.requestId).toBe(begun(1).requestId);
+      // Another tab began since, for its own request.
+      seedLive(3);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
+      expect(live()?.requestId).toBe(begun(3).requestId);
+    });
+
+    it("is removed when the poll finds the request gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("is removed when Resend finds the request gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockResolvedValueOnce({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("is not written by a Resend over another request's entry", async () => {
+      stub.beginRegistration.mockResolvedValue(begun(1));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockResolvedValue({ status: "sent" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()?.requestId).toBe(begun(1).requestId);
+      // Another tab began since, for its own request.
+      seedLive(3);
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/We sent a new link/)).toBeTruthy());
+      expect(live()?.requestId).toBe(begun(3).requestId);
+    });
+
+    it("leaves the sign-up working when local storage refuses every call", async () => {
+      const refuse = () => {
+        throw new DOMException("denied", "SecurityError");
+      };
+      const spies = [
+        vi.spyOn(localStorage, "getItem").mockImplementation(refuse),
+        vi.spyOn(localStorage, "setItem").mockImplementation(refuse),
+        vi.spyOn(localStorage, "removeItem").mockImplementation(refuse),
+      ];
+      try {
+        stub.beginRegistration.mockResolvedValue(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        renderRegister();
+        await submitDetailsAs();
+        expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+        expect(screen.queryByText(/could(n't| not)/i)).toBeNull();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(stub.registrationStatus).toHaveBeenCalledWith({
+          requestId: begun().requestId,
+          claimSecret: begun().claimSecret,
+        });
+      } finally {
+        for (const spy of spies) spy.mockRestore();
+      }
+    });
+
+    it("is kept on 'Start again', so another tab can still retire the request", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      expect(live()?.requestId).toBe(begun().requestId);
+    });
+
+    it("drops a stored previous of another shape rather than send it", async () => {
+      sessionStorage.setItem(
+        "osn.signup.previous",
+        JSON.stringify({ requestId: begun(1).requestId, claimSecret: begun(1).claimSecret }),
+      );
+      stub.beginRegistration.mockResolvedValue(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+      expect(sessionStorage.getItem("osn.signup.previous")).toBeNull();
+    });
+
+    it("is removed when its request expires while the view is open", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(590_000);
+      expect(live()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("is removed by hasPendingSignUp once it has expired", () => {
+      seedLive(1, Math.floor(Date.now() / 1000) - 1);
+      expect(hasPendingSignUp()).toBe(false);
+      expect(localStorage.getItem(LIVE)).toBeNull();
+    });
+
+    it("leaves another tab's entry in place when a begin that carried it is refused, and does not send it again", async () => {
+      seedLive(3);
+      stub.beginRegistration
+        .mockRejectedValueOnce(apiError("PLANTED-refused", 400, "invalid_request"))
+        .mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.checkHandle.mockResolvedValue({ available: true });
+      renderRegister();
+      fillEmail("alice@example.com");
+      fillHandle("alice");
+      fillBirthdate("1990-01-01");
+      await vi.advanceTimersByTimeAsync(350);
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toEqual({
+        requestId: begun(3).requestId,
+        retireSecret: begun(3).retireSecret,
+      });
+      expect(live()?.requestId).toBe(begun(3).requestId);
+
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toBeUndefined();
+    });
+
+    it("sends the request this tab left when it was for the address typed, though another tab's entry is newer", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      // Another tab began since, for another address.
+      seedLive(3);
+      fillEmail("ALICE@example.com");
+      await vi.advanceTimersByTimeAsync(350);
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
+    it.each([
+      ["a 400 drops it", apiError("PLANTED-refused", 400, "invalid_request"), true],
+      ["a 429 keeps it", apiError("PLANTED-limited", 429, "rate_limited"), false],
+    ])(
+      "after a begin that carried previous is refused, %s for the next try",
+      async (_, error, dropped) => {
+        stub.beginRegistration
+          .mockResolvedValueOnce(begun(1))
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce(begun(2));
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        renderRegister();
+        await submitDetailsAs();
+        fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+        await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+        await vi.advanceTimersByTimeAsync(350);
+        fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+        await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+        expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+          requestId: begun(1).requestId,
+          retireSecret: begun(1).retireSecret,
+        });
+        await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+
+        fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+        await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(3));
+        expect(stub.beginRegistration.mock.calls[2]![0].previous).toEqual(
+          dropped
+            ? undefined
+            : { requestId: begun(1).requestId, retireSecret: begun(1).retireSecret },
+        );
+      },
+    );
   });
 
   describe("passkey step (mandatory)", () => {

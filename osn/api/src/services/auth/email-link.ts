@@ -4,8 +4,9 @@
  * change.
  *
  * A flow opens a request and gets back a request id, a link secret, a claim
- * secret and a pairing number. Each secret is 256 random bits, stored only as
- * its SHA-256 hash; the pairing number is stored only as a keyed digest.
+ * secret and a pairing number, and sign-up a retire secret too. Each secret
+ * is 256 random bits, stored only as its SHA-256 hash; the pairing number is
+ * stored only as a keyed digest.
  *
  * - The email carries `<frontend origin>/verify/<request id>#<link secret>`.
  *   The secret rides in the fragment, which no browser sends to any server, so
@@ -38,6 +39,12 @@
  *   request is confirmed, the poll claims it and the flow finishes. The
  *   device that opened the link and the device that gets the result can
  *   differ.
+ * - The retire secret ends the request ({@link retire}) and does nothing
+ *   else: no poll, Resend, candidates read, confirm or claim compares it, so
+ *   it never yields the number, a link or the flow's result. Only a request
+ *   opened with {@link openRetirable} has one, and sign-up's begin is its one
+ *   caller, so another tab of the same browser can end a sign-up it did not
+ *   begin.
  * - A claim records what the flow finishes with (the account and profile,
  *   and for recovery the id of the audit row it writes) and stays on the
  *   request until a poll has delivered the result, so a finish that failed
@@ -114,7 +121,7 @@ export const EMAIL_LINK_ID_PATTERN = idPattern(Object.values(EMAIL_LINK_ID_PREFI
 export const emailLinkIdPattern = (flow: EmailLinkFlow): string =>
   idPattern([EMAIL_LINK_ID_PREFIX[flow]]);
 
-/** A link or claim secret: 32 bytes, hex. */
+/** A link, claim or retire secret: 32 bytes, hex. */
 export const EMAIL_LINK_SECRET_PATTERN = "^[a-f0-9]{64}$";
 
 /**
@@ -200,6 +207,19 @@ export interface OpenedEmailLink {
   readonly expiresAt: number;
   /** The entry as written, for a write that must name the value it replaces. */
   readonly entry: EmailLinkChallenge;
+}
+
+/** A request opened to be retirable: as {@link OpenedEmailLink}, with its retire secret. */
+export interface RetirableEmailLink extends OpenedEmailLink {
+  /** Ends the request ({@link retire}) and can do nothing else. */
+  readonly retireSecret: string;
+}
+
+/** What a flow may set on a request it opens; see `EmailLinkChallenge`. */
+interface OpenExtra {
+  readonly signUp?: PendingSignUp;
+  readonly bound?: string;
+  readonly purpose?: string;
 }
 
 /**
@@ -662,17 +682,15 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * A registration request carries `signUp`, the sign-up it parks at
    * `subject`, so it can park later if it cannot now; a recovery, step-up or
    * email-change request is bound to `bound`, and a step-up request is for
-   * `purpose` (see `EmailLinkChallenge`).
+   * `purpose` (see `EmailLinkChallenge`). With `retireSecret`, the entry
+   * carries its hash and {@link retire} can end it; without, nothing can.
    */
-  const open = (
+  const openWith = (
     flow: EmailLinkFlow,
     subject: string,
     ttlMs: number,
-    extra: {
-      readonly signUp?: PendingSignUp;
-      readonly bound?: string;
-      readonly purpose?: string;
-    } = {},
+    extra: OpenExtra,
+    retireSecret: string | null,
   ): Effect.Effect<OpenedEmailLink, CoordinationError> =>
     Effect.gen(function* () {
       const requestId = genId(EMAIL_LINK_ID_PREFIX[flow]);
@@ -693,6 +711,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
         status: "pending",
         expiresAt,
       };
+      if (retireSecret !== null) entry.retireSecretHash = sha256(retireSecret);
       if (extra.signUp) entry.signUp = extra.signUp;
       if (extra.bound !== undefined) entry.bound = extra.bound;
       if (extra.purpose !== undefined) entry.purpose = extra.purpose;
@@ -705,6 +724,32 @@ export function createEmailLinkModule(ctx: AuthContext) {
         expiresAt,
         entry,
       };
+    });
+
+  /** Opens a request no retire secret can end ({@link openWith}). */
+  const open = (
+    flow: EmailLinkFlow,
+    subject: string,
+    ttlMs: number,
+    extra: OpenExtra = {},
+  ): Effect.Effect<OpenedEmailLink, CoordinationError> =>
+    openWith(flow, subject, ttlMs, extra, null);
+
+  /**
+   * Opens a request a later begin may end with its retire secret, and answers
+   * that secret beside what {@link open} answers. Sign-up's begin is the one
+   * caller.
+   */
+  const openRetirable = (
+    flow: EmailLinkFlow,
+    subject: string,
+    ttlMs: number,
+    extra: OpenExtra = {},
+  ): Effect.Effect<RetirableEmailLink, CoordinationError> =>
+    Effect.gen(function* () {
+      const retireSecret = newSecret();
+      const opened = yield* openWith(flow, subject, ttlMs, extra, retireSecret);
+      return { ...opened, retireSecret };
     });
 
   /**
@@ -1135,22 +1180,47 @@ export function createEmailLinkModule(ctx: AuthContext) {
     });
 
   /**
-   * Ends the request for the tab that holds its claim secret, and frees the
-   * flow's pending entry for it. Answers whether it ended the request; without
-   * a match, or for a claimed request, it answers false and touches nothing.
+   * Ends the request for the holder of its retire secret, when `sameSubject`
+   * says it is about what the caller's own request is about, and frees the
+   * flow's pending entry for it. Answers whether it ended the request. A
+   * wrong flow, an unknown, expired or malformed request, a request that
+   * carries no retire digest, a wrong secret (the claim secret included) and
+   * another subject each cost the one read and touch nothing, alike; so does
+   * a claimed request, past the read, as {@link end} leaves it. Both checks
+   * run whatever the first answers.
    */
   const retire = (
     flow: EmailLinkFlow,
     requestId: string,
-    claimSecret: string,
+    retireSecret: string,
+    sameSubject: (entry: EmailLinkChallenge) => boolean,
   ): Effect.Effect<boolean, CoordinationError> =>
     Effect.gen(function* () {
-      const entry = yield* held(flow, requestId, claimSecret);
-      if (!entry) return false;
+      if (!ANY_ID.test(requestId)) return false;
+      const entry = yield* read(requestId);
+      if (!usable(entry) || entry.flow !== flow) return false;
+      // A request with no retire digest compares against nothing, and never
+      // matches.
+      const stored = typeof entry.retireSecretHash === "string" ? entry.retireSecretHash : "";
+      const holds = timingSafeEqualString(stored, sha256(retireSecret));
+      const same = sameSubject(entry);
+      if (!holds || !same) return false;
       return yield* end(requestId, entry);
     });
 
-  return { open, markVerified, candidates, confirm, poll, claim, letGo, spend, resend, retire };
+  return {
+    open,
+    openRetirable,
+    markVerified,
+    candidates,
+    confirm,
+    poll,
+    claim,
+    letGo,
+    spend,
+    resend,
+    retire,
+  };
 }
 
 export type EmailLinkModule = ReturnType<typeof createEmailLinkModule>;
