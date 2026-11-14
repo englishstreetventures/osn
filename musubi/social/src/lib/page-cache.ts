@@ -59,9 +59,12 @@ interface Entry<T> {
   readers: number;
 }
 
-/** What a scope change needs of each query: to forget every entry it holds. */
+/** What the module needs of each query, by name. */
 interface QueryStore {
+  /** Forgets every entry (a scope change). */
   forgetAll(): void;
+  /** `invalidate()` with no arguments. */
+  invalidateAll(): void;
 }
 
 let scope: string | null = null;
@@ -71,7 +74,7 @@ let scopeEnded = gate();
 const [version, setVersion] = createSignal(0);
 const serials = new WeakMap<Session, number>();
 let lastSerial = 0;
-const stores = new Set<QueryStore>();
+const stores = new Map<string, QueryStore>();
 const rowsSeen = new Map<string, number>();
 
 function gate() {
@@ -103,7 +106,7 @@ export function bindScope(session: Session | null | undefined): void {
   const ended = scopeEnded;
   scopeEnded = gate();
   batch(() => {
-    for (const store of stores) store.forgetAll();
+    for (const store of stores.values()) store.forgetAll();
   });
   rowsSeen.clear();
   ended.open();
@@ -132,6 +135,15 @@ export function PageCacheScope(): null {
   useSessionScope();
   onCleanup(() => bindScope(null));
   return null;
+}
+
+/**
+ * Marks every entry of the queries named (`PAGE_DATA`) out of date, as their
+ * `invalidate()` does, for code that changes a page's rows without loading
+ * the page's queries. A query not yet loaded holds nothing to mark.
+ */
+export function invalidatePages(...names: string[]): void {
+  for (const name of names) stores.get(name)?.invalidateAll();
 }
 
 /** The scope a mutation starts under; pass it to `update` once its answer lands. */
@@ -304,12 +316,6 @@ export function pageQuery<A extends unknown[], T>(
   countRows: (value: T) => number,
 ): PageQuery<A, T> {
   const entries = new Map<string, Entry<T>>();
-  stores.add({
-    forgetAll() {
-      for (const entry of entries.values()) forget(entry);
-      entries.clear();
-    },
-  });
 
   const keyOf = (args: readonly unknown[]) => `${scope}\u0000${name}\u0000${JSON.stringify(args)}`;
   const existing = (args: readonly unknown[]) =>
@@ -344,6 +350,32 @@ export function pageQuery<A extends unknown[], T>(
     entries.set(key, entry);
     return entry;
   }
+
+  /** Out of date: read again now if a page shows it, else drop any read out. */
+  function stale(entry: Entry<T>): void {
+    if (entry.readers > 0) {
+      void send(entry);
+      return;
+    }
+    entry.seq += 1;
+    entry.inFlight = null;
+    entry.sentAt = 0;
+    batch(() => {
+      if (entry.status() === "pending") entry.setStatus("idle");
+      if (entry.status() === "refreshing") entry.setStatus("ready");
+      entry.setOut(false);
+    });
+  }
+
+  stores.set(name, {
+    forgetAll() {
+      for (const entry of entries.values()) forget(entry);
+      entries.clear();
+    },
+    invalidateAll() {
+      if (scope !== null) for (const entry of entries.values()) stale(entry);
+    },
+  });
 
   function use(args: () => A | undefined): PageRead<T> {
     useSessionScope();
@@ -426,20 +458,7 @@ export function pageQuery<A extends unknown[], T>(
       if (scope === null) return;
       const matches =
         args.length === 0 ? [...entries.values()] : [existing(args)].filter((e) => e !== undefined);
-      for (const entry of matches) {
-        if (entry.readers > 0) {
-          void send(entry);
-          continue;
-        }
-        entry.seq += 1;
-        entry.inFlight = null;
-        entry.sentAt = 0;
-        batch(() => {
-          if (entry.status() === "pending") entry.setStatus("idle");
-          if (entry.status() === "refreshing") entry.setStatus("ready");
-          entry.setOut(false);
-        });
-      }
+      for (const entry of matches) stale(entry);
     },
     drop(...args) {
       const entry = existing(args);

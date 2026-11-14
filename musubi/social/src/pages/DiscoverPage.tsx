@@ -30,6 +30,11 @@ function suggestionReason(suggestion: Suggestion): string {
     : "Suggested for you";
 }
 
+/** The route's preload. */
+export function preloadDiscover(): void {
+  suggestions.preload();
+}
+
 export function DiscoverPage() {
   const { session } = useAuth();
   usePageTitle(() => "Discover");

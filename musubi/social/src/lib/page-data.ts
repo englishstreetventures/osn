@@ -1,6 +1,7 @@
 import { graphClient, orgClient, recommendationClient } from "./api";
 import { connectionsClient } from "./authClients";
 import { pageQuery } from "./page-cache";
+import { PAGE_DATA } from "./page-names";
 
 // Every page read Musubi makes, on the one page cache (`page-cache.ts`). Each
 // name is the page's, so its placeholder count is that page's last row count.
@@ -9,63 +10,63 @@ import { pageQuery } from "./page-cache";
 
 /** Connections → All. */
 export const connectionsList = pageQuery(
-  "connections.all",
+  PAGE_DATA.connections,
   () => graphClient.listConnections(),
   (value) => value.connections.length,
 );
 
 /** Connections → Pending: requests waiting on this profile. */
 export const pendingRequests = pageQuery(
-  "connections.pending",
+  PAGE_DATA.pendingRequests,
   () => graphClient.listPendingRequests(),
   (value) => value.pending.length,
 );
 
 /** Connections → Sent. */
 export const sentRequests = pageQuery(
-  "connections.sent",
+  PAGE_DATA.sentRequests,
   () => graphClient.listSentRequests(),
   (value) => value.sent.length,
 );
 
 /** Connections → Blocked. */
 export const blockedProfiles = pageQuery(
-  "connections.blocked",
+  PAGE_DATA.blockedProfiles,
   () => graphClient.listBlocks(),
   (value) => value.blocks.length,
 );
 
 /** Discover's suggestions. */
 export const suggestions = pageQuery(
-  "discover.suggestions",
+  PAGE_DATA.suggestions,
   () => recommendationClient.suggestConnections({ limit: 20 }),
   (value) => value.suggestions.length,
 );
 
 /** The organisations this profile belongs to. */
 export const myOrganisations = pageQuery(
-  "organisations.mine",
+  PAGE_DATA.myOrganisations,
   () => orgClient.listMyOrgs(),
   (value) => value.organisations.length,
 );
 
 /** One organisation, by handle. */
 export const organisationDetail = pageQuery(
-  "organisations.one",
+  PAGE_DATA.organisation,
   async (handle: string) => (await orgClient.getOrg(handle)).organisation,
   () => 1,
 );
 
 /** One organisation's roster, by handle; refused (403) to anyone not in it. */
 export const organisationMembers = pageQuery(
-  "organisations.members",
+  PAGE_DATA.organisationMembers,
   (handle: string) => orgClient.listMembers(handle),
   (value) => value.members.length,
 );
 
-/** Settings → Connected apps. Its name is `SettingsPage`'s too, for the chunk's placeholder. */
+/** Settings → Connected apps. `SettingsPage` names it too, for the chunk's placeholder. */
 export const connectedApps = pageQuery(
-  "settings.apps",
+  PAGE_DATA.connectedApps,
   async () => (await connectionsClient.list()).connections,
   (value) => value.length,
 );

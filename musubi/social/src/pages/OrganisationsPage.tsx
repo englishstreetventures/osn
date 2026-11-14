@@ -20,6 +20,11 @@ import { myOrganisations, suggestions } from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
 
+/** The route's preload. */
+export function preloadOrganisations(): void {
+  myOrganisations.preload();
+}
+
 export function OrganisationsPage() {
   const { session } = useAuth();
   usePageTitle(() => "Organisations");

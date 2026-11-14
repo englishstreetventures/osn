@@ -47,6 +47,12 @@ function LoadFailure(props: { message: string }) {
   );
 }
 
+/** The route's preload: the organisation and its roster. */
+export function preloadOrganisation(handle: string): void {
+  organisationDetail.preload(handle);
+  organisationMembers.preload(handle);
+}
+
 export function OrgDetailPage() {
   const params = useParams<{ handle: string }>();
   const navigate = useNavigate();

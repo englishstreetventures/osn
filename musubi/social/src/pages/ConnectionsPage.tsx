@@ -43,6 +43,11 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "blocked", label: "Blocked" },
 ];
 
+/** The route's preload: the tab a visit opens on. */
+export function preloadConnections(): void {
+  connectionsList.preload();
+}
+
 export function ConnectionsPage() {
   const { session } = useAuth();
   usePageTitle(() => "Connections");

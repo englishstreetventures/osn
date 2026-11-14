@@ -9,7 +9,6 @@ import { PageErrorBoundary } from "./components/PageErrorBoundary";
 import { ShellDialogsProvider, useShellDialogs } from "./components/ShellDialogs";
 import { RailFrame, TopBarFrame } from "./components/ShellFrame";
 import { osnAuth } from "./lib/auth";
-import { PageCacheScope } from "./lib/page-cache";
 
 import "./App.css";
 
@@ -53,21 +52,24 @@ const ShellNotices = lazy(() =>
   import("./components/ShellNotices").then((m) => ({ default: m.ShellNotices })),
 );
 
+// The data pages' modules are imported in one place each: the page and its
+// route's preload share the chunk, and no new import site splits the entry.
+const connectionsModule = () => import("./pages/ConnectionsPage");
+const discoverModule = () => import("./pages/DiscoverPage");
+const organisationsModule = () => import("./pages/OrganisationsPage");
+const orgDetailModule = () => import("./pages/OrgDetailPage");
+
 const ConnectionsPage = lazy(() =>
-  import("./pages/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })),
+  connectionsModule().then((m) => ({ default: m.ConnectionsPage })),
 );
-const DiscoverPage = lazy(() =>
-  import("./pages/DiscoverPage").then((m) => ({ default: m.DiscoverPage })),
-);
+const DiscoverPage = lazy(() => discoverModule().then((m) => ({ default: m.DiscoverPage })));
 const SearchPage = lazy(() =>
   import("./pages/SearchPage").then((m) => ({ default: m.SearchPage })),
 );
 const OrganisationsPage = lazy(() =>
-  import("./pages/OrganisationsPage").then((m) => ({ default: m.OrganisationsPage })),
+  organisationsModule().then((m) => ({ default: m.OrganisationsPage })),
 );
-const OrgDetailPage = lazy(() =>
-  import("./pages/OrgDetailPage").then((m) => ({ default: m.OrgDetailPage })),
-);
+const OrgDetailPage = lazy(() => orgDetailModule().then((m) => ({ default: m.OrgDetailPage })));
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
 );
@@ -138,9 +140,6 @@ export function Layout(props: { children?: JSX.Element }) {
 function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
   return (
     <ShellDialogsProvider>
-      {/* The page cache follows this provider's session, with or without a
-          page reading it, and is cleared when the shell goes. */}
-      <PageCacheScope />
       {/* Mount only the active shell: one chunk fetched, one shell hydrating.
           The dialogs sit above this switch, so one open across a crossing
           stays open. The CSS hidden classes on each shell remain as a
@@ -226,14 +225,14 @@ function Content(props: { children?: JSX.Element; padForMobileNav?: boolean }) {
 }
 
 /**
- * Starts a page's reads on the page cache before the page shows. The router
- * calls a route's `preload` when a link to it is hovered (at rest 20ms),
- * focused or touched, and as it is navigated to. A read starts only for rows
- * not yet landed; signed out, none does. One import site, so the queries and
- * their clients stay out of the entry chunk.
+ * Starts a page's reads on the page cache before the page shows, from the
+ * page's own module. The router calls a route's `preload` when a link to it is
+ * hovered (at rest 20ms), focused or touched, and as it is navigated to. A
+ * read starts only for rows not yet landed; signed out, none does. A module
+ * that fails to load starts nothing; the page's own load says so.
  */
-function preloadPage(start: (pages: typeof import("./lib/page-data")) => void) {
-  import("./lib/page-data").then(start, () => undefined);
+function preloadFrom<M>(load: () => Promise<M>, start: (module: M) => void) {
+  load().then(start, () => undefined);
 }
 
 export default function App() {
@@ -242,23 +241,23 @@ export default function App() {
       <Route
         path="/"
         component={ConnectionsPage}
-        preload={() => preloadPage((pages) => pages.connectionsList.preload())}
+        preload={() => preloadFrom(connectionsModule, (m) => m.preloadConnections())}
       />
       <Route
         path="/connections"
         component={ConnectionsPage}
-        preload={() => preloadPage((pages) => pages.connectionsList.preload())}
+        preload={() => preloadFrom(connectionsModule, (m) => m.preloadConnections())}
       />
       <Route path="/search" component={SearchPage} />
       <Route
         path="/discover"
         component={DiscoverPage}
-        preload={() => preloadPage((pages) => pages.suggestions.preload())}
+        preload={() => preloadFrom(discoverModule, (m) => m.preloadDiscover())}
       />
       <Route
         path="/organisations"
         component={OrganisationsPage}
-        preload={() => preloadPage((pages) => pages.myOrganisations.preload())}
+        preload={() => preloadFrom(organisationsModule, (m) => m.preloadOrganisations())}
       />
       <Route
         path="/organisations/:handle"
@@ -266,10 +265,7 @@ export default function App() {
         preload={({ params }) => {
           const handle = params.handle;
           if (!handle) return;
-          preloadPage((pages) => {
-            pages.organisationDetail.preload(handle);
-            pages.organisationMembers.preload(handle);
-          });
+          preloadFrom(orgDetailModule, (m) => m.preloadOrganisation(handle));
         }}
       />
       <Route path="/settings" component={SettingsPage} />
