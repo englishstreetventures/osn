@@ -40,8 +40,9 @@ vi.mock("@shared/toast", () => ({
 
 import type { RegistrationClient } from "@osn/client";
 import { toast } from "@shared/toast";
-
 // Import after mocks so the component picks them up.
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
+
 import { Register } from "../src/Register";
 import {
   CONNECTION,
@@ -53,6 +54,7 @@ import {
   apiError,
   ceremonyError,
 } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
 
 interface ClientStub {
   checkHandle: ReturnType<typeof vi.fn>;
@@ -162,13 +164,17 @@ describe("Register component", () => {
 
   describe("details step", () => {
     it("sanitises handle input: lowercases and strips invalid chars", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const input = fillHandle("Alice WONDERLAND!");
       expect(input.value).toBe("alicewonderland");
     });
 
     it("flags handle as invalid format synchronously, no fetch", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       // Empty after sanitisation? No — we want a string that survives
       // sanitisation but fails HANDLE_RE. The sanitiser strips everything
       // except [a-z0-9_], so any input that survives is by construction valid.
@@ -180,7 +186,9 @@ describe("Register component", () => {
 
     it("debounces availability check and shows 'available'", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("alice");
       // Synchronously transitions to "checking".
       expect(screen.getByText(/Checking/)).toBeTruthy();
@@ -196,7 +204,9 @@ describe("Register component", () => {
 
     it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
       stub.checkHandle.mockImplementation(() => new Promise(() => {}));
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("ali");
       await vi.advanceTimersByTimeAsync(350);
       expect(stub.checkHandle).toHaveBeenCalledTimes(1);
@@ -212,7 +222,9 @@ describe("Register component", () => {
 
     it("shows 'taken' when the server reports unavailable", async () => {
       stub.checkHandle.mockResolvedValue({ available: false });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("taken");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
@@ -226,7 +238,9 @@ describe("Register component", () => {
       // input was perfectly valid. Network/server failures must surface
       // separately so the user isn't told their handle is the wrong shape.
       stub.checkHandle.mockRejectedValue(new Error("network down"));
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillHandle("alice");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
@@ -239,7 +253,9 @@ describe("Register component", () => {
       stub.checkHandle.mockImplementation(
         () => new Promise(() => {}), // never resolves
       );
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       // Still "checking" — debounce hasn't fired but the synchronous status
@@ -252,7 +268,9 @@ describe("Register component", () => {
 
     it("submit becomes enabled once email + handle + birthdate are all valid", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       fillBirthdate("1990-01-01");
@@ -269,7 +287,9 @@ describe("Register component", () => {
     // feedback — the submit button stays disabled and the copy explains why.
     it("keeps submit disabled and warns for an under-13 birthdate", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       const tenYearsAgo = new Date();
@@ -293,14 +313,18 @@ describe("Register component", () => {
   // address a person types in.
   describe("email explainer", () => {
     it("names the trigger, since a circled glyph announces nothing", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const trigger = screen.getByLabelText("What this address is used for");
       expect(trigger.tagName).toBe("BUTTON");
       expect(trigger.textContent).toBe("i");
     });
 
     it("is a real button that cannot submit the form it sits in", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const trigger = screen.getByLabelText("What this address is used for") as HTMLButtonElement;
       expect(trigger.getAttribute("type")).toBe("button");
       expect(trigger.disabled).toBe(false);
@@ -308,7 +332,9 @@ describe("Register component", () => {
     });
 
     it("gives all three uses of the address, naming the product it was given", async () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />
+      ));
       fireEvent.click(screen.getByLabelText("What this address is used for"));
 
       const panel = await screen.findByRole("dialog");
@@ -325,7 +351,9 @@ describe("Register component", () => {
     // assertion would pass without proving anything.
     it("opening it does not submit the form or advance the step", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       fillBirthdate("1990-01-01");
@@ -369,6 +397,7 @@ describe("Register component", () => {
   function renderRegister(extra?: { onSuccess?: () => void; onCancel?: () => void }) {
     return render(() => (
       <Register
+        host="page"
         client={asClient(stub)}
         onCancel={extra?.onCancel ?? (() => {})}
         onSuccess={extra?.onSuccess}
@@ -683,7 +712,7 @@ describe("Register component", () => {
       fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       late.resolve(completed());
-      await waitFor(() => screen.getByRole("button", { name: /Enroll credential/i }));
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
     });
 
@@ -818,7 +847,7 @@ describe("Register component", () => {
       renderRegister(extra);
       await submitDetailsAs();
       await vi.advanceTimersByTimeAsync(2_000);
-      await waitFor(() => screen.getByRole("button", { name: /Enroll credential/i }));
+      await waitFor(() => screen.getByRole("button", { name: /^Add a passkey$/ }));
     }
 
     // The passkey step is the whole reason this component holds `accessToken`
@@ -839,7 +868,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
@@ -854,7 +883,7 @@ describe("Register component", () => {
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
       hoisted.startRegistration.mockRejectedValue(new Error("PLANTED ceremony cancelled"));
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert").textContent).toContain(PASSKEY_GENERAL);
@@ -877,13 +906,13 @@ describe("Register component", () => {
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
       hoisted.adoptSession.mockRejectedValue(new Error("PLANTED storage unavailable"));
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert").textContent).toContain(PASSKEY_GENERAL);
       });
       expect(alertsText()).not.toContain("PLANTED");
-      expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Add a passkey$/ })).toBeTruthy();
     });
 
     it("happy path: enrolls a WebAuthn credential using the freshly-issued access token", async () => {
@@ -892,7 +921,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(stub.passkeyRegisterComplete).toHaveBeenCalled();
@@ -924,7 +953,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       // onSuccess now sits behind the adoptSession await, one microtask hop
       // further out than `waitFor`'s fake-timer loop drains on its own.
@@ -947,7 +976,7 @@ describe("Register component", () => {
         ceremonyError("NotAllowedError", "PLANTED ceremony cancelled"),
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert").textContent).toContain(PASSKEY_NOT_ADDED);
@@ -955,7 +984,7 @@ describe("Register component", () => {
       expect(alertsText()).not.toContain("PLANTED");
       expect(onSuccess).not.toHaveBeenCalled();
       // Still on the passkey step — enrollment remains required.
-      expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /^Add a passkey$/ })).toBeTruthy();
     });
 
     // onSuccess is optional — consumers that react to session()
@@ -966,7 +995,7 @@ describe("Register component", () => {
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Add a passkey$/ }));
 
       await waitFor(() => {
         expect(screen.getByText(/You.re all set/)).toBeTruthy();
@@ -983,6 +1012,7 @@ describe("Register component", () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       render(() => (
         <Register
+          host="page"
           client={asClient(stub)}
           onCancel={() => {}}
           turnstileSiteKey={siteKey}
@@ -1025,7 +1055,9 @@ describe("Register component", () => {
     );
 
     it("ties a malformed email to its field once the field is left", async () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const field = screen.getByLabelText(/Email/) as HTMLInputElement;
       fireEvent.input(field, { target: { value: "alice@" } });
       // Not announced on every keystroke.
@@ -1038,7 +1070,9 @@ describe("Register component", () => {
     });
 
     it("describes the date of birth by its hint, then by the under-13 line", async () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       const field = screen.getByLabelText(/Date of birth/) as HTMLInputElement;
       const hint = screen.getByText("You must be 13 or older to create an account.");
       expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(hint.id);
@@ -1128,7 +1162,9 @@ describe("Register component", () => {
   describe("WebAuthn-unsupported environment", () => {
     it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      render(() => (
+        <Register host="page" client={asClient(stub)} onCancel={() => {}} productName="Musubi" />
+      ));
       // No form fields render; only the fallback copy.
       expect(screen.queryByLabelText(/Email/)).toBeNull();
       expect(screen.getByText(/needs a passkey or security key/i)).toBeTruthy();
@@ -1138,8 +1174,49 @@ describe("Register component", () => {
 
   it("Cancel button calls onCancel", () => {
     const onCancel = vi.fn();
-    render(() => <Register client={asClient(stub)} onCancel={onCancel} productName="Musubi" />);
+    render(() => (
+      <Register host="page" client={asClient(stub)} onCancel={onCancel} productName="Musubi" />
+    ));
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(onCancel).toHaveBeenCalled();
+  });
+});
+
+describe("Register in a dialog", () => {
+  withoutAnimations();
+  afterEach(cleanup);
+
+  it("names the dialog by its title, through one element", () => {
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(makeClientStub())}
+            onCancel={() => {}}
+            productName="Musubi"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    const dialog = screen.getByRole("dialog", { name: "Create your Musubi account" });
+    const id = dialog.getAttribute("aria-labelledby");
+    expect(id).toBeTruthy();
+    expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1);
+  });
+
+  it("takes the host's words for Cancel", () => {
+    const onCancel = vi.fn();
+    render(() => (
+      <Register
+        host="page"
+        client={asClient(makeClientStub())}
+        onCancel={onCancel}
+        cancelLabel="Sign in instead"
+        productName="Musubi"
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in instead" }));
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 });

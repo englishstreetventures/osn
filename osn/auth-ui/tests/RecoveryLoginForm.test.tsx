@@ -170,15 +170,15 @@ describe("RecoveryLoginForm — typed identifiers", () => {
   it("asks phones not to capitalise any identifier field", () => {
     mountFull();
     openRecoveryCode();
-    expect(screen.getByLabelText(/Handle or email/i).getAttribute("autocapitalize")).toBe("none");
+    expect(screen.getByLabelText(/Email or @handle/i).getAttribute("autocapitalize")).toBe("none");
     fireEvent.click(screen.getByRole("button", { name: /^Back$/ }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     expect(
       screen.getByLabelText(/Email address on the account/i).getAttribute("autocapitalize"),
     ).toBe("none");
     fireEvent.click(screen.getByRole("button", { name: /^Back$/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    expect(screen.getByLabelText(/Handle or email/i).getAttribute("autocapitalize")).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    expect(screen.getByLabelText(/Email or @handle/i).getAttribute("autocapitalize")).toBe("none");
   });
 });
 
@@ -191,7 +191,7 @@ describe("RecoveryLoginForm — recovery code", () => {
     }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
 
-    fill(/Handle or email/i, "alice@example.com");
+    fill(/Email or @handle/i, "alice@example.com");
     expect(submit.disabled).toBe(true); // still missing code
 
     fill(/Recovery code/i, "abcd-1234-5678-ef00");
@@ -208,7 +208,7 @@ describe("RecoveryLoginForm — recovery code", () => {
     mountFull({ onSuccess });
     openRecoveryCode();
 
-    fill(/Handle or email/i, "alice@example.com");
+    fill(/Email or @handle/i, "alice@example.com");
     fill(/Recovery code/i, "abcd-1234-5678-ef00");
     fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
 
@@ -233,7 +233,7 @@ describe("RecoveryLoginForm — recovery code", () => {
     mountFull();
     openRecoveryCode();
 
-    fill(/Handle or email/i, "  alice  ");
+    fill(/Email or @handle/i, "  alice  ");
     fill(/Recovery code/i, "  abcd-1234-5678-ef00  ");
     fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
 
@@ -254,7 +254,7 @@ describe("RecoveryLoginForm — recovery code", () => {
     mountFull();
     openRecoveryCode();
 
-    fill(/Handle or email/i, "nobody@example.com");
+    fill(/Email or @handle/i, "nobody@example.com");
     fill(/Recovery code/i, "wrng-wrng-wrng-wrng");
     fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
 
@@ -288,7 +288,7 @@ describe("RecoveryLoginForm — error lines", () => {
       stub.loginWithRecoveryCode.mockRejectedValue(error);
       mountFull();
       openRecoveryCode();
-      const identifier = fill(/Handle or email/i, "alice");
+      const identifier = fill(/Email or @handle/i, "alice");
       const code = fill(/Recovery code/i, "abcd-1234-5678-ef00");
       fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
 
@@ -337,8 +337,8 @@ describe("RecoveryLoginForm — error lines", () => {
     async (_, error, sentence, invalid) => {
       stub.totpRecoveryComplete.mockRejectedValue(error);
       mountFull();
-      fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-      const field = fill(/Handle or email/i, "alice");
+      fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+      const field = fill(/Email or @handle/i, "alice");
       const boxes = await enterCode("Code from your authenticator app", "654321");
       fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
@@ -411,7 +411,7 @@ describe("RecoveryLoginForm — which factors are offered", () => {
     mountFull();
     expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Email me a link/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use my authenticator app/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use your authenticator app/i })).toBeTruthy();
   });
 
   it("hides both restricted factors when the browser has no WebAuthn", () => {
@@ -424,7 +424,7 @@ describe("RecoveryLoginForm — which factors are offered", () => {
 
     expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Use my authenticator app/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Use your authenticator app/i })).toBeNull();
     // And says what does work instead, rather than showing a shorter menu
     // with no explanation.
     expect(screen.getByText(/cross-device/i)).toBeTruthy();
@@ -437,7 +437,7 @@ describe("RecoveryLoginForm — which factors are offered", () => {
     render(() => <RecoveryLoginForm client={asClient(stub)} />);
     expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Use my authenticator app/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Use your authenticator app/i })).toBeNull();
   });
 });
 
@@ -445,12 +445,12 @@ describe("RecoveryLoginForm — email recovery", () => {
   it("asks for an email address, not a handle", () => {
     // `/login/recovery/email/begin` refuses a handle — it puts mail in
     // somebody's inbox and a handle is public — and the refusal is flattened
-    // on the wire, so a shared "handle or email" field would produce an error
+    // on the wire, so a shared "email or @handle" field would produce an error
     // with nothing in it.
     mountFull();
     fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     expect(screen.getByLabelText(/Email address on the account/i)).toBeTruthy();
-    expect(screen.queryByLabelText(/Handle or email/i)).toBeNull();
+    expect(screen.queryByLabelText(/Email or @handle/i)).toBeNull();
   });
 
   const begun = {
@@ -553,8 +553,8 @@ describe("RecoveryLoginForm — authenticator recovery", () => {
     });
     mountFull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    fill(/Handle or email/i, "  alice  ");
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    fill(/Email or @handle/i, "  alice  ");
     typeCode("654321");
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
@@ -573,8 +573,8 @@ describe("RecoveryLoginForm — the restricted session", () => {
       session: restrictedSession,
       profile: sampleProfile,
     });
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    fill(/Handle or email/i, "alice");
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    fill(/Email or @handle/i, "alice");
     typeCode("654321");
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     await waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
@@ -634,8 +634,8 @@ describe("RecoveryLoginForm — the restricted session", () => {
         profile: sampleProfile,
       });
       mountFull();
-      fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-      fill(/Handle or email/i, "alice");
+      fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+      fill(/Email or @handle/i, "alice");
       typeCode("654321");
       fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
 
@@ -728,8 +728,8 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
   async function reachEnrolmentHolding(session: ReturnType<typeof sessionExpiringIn>) {
     stub.totpRecoveryComplete.mockResolvedValue({ session, profile: sampleProfile });
     mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    fill(/Handle or email/i, "alice");
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    fill(/Email or @handle/i, "alice");
     typeCode("654321");
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     await vi.waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
@@ -817,8 +817,8 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
         runPasskeyRegistration={() => ceremony.promise}
       />
     ));
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    fill(/Handle or email/i, "alice");
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    fill(/Email or @handle/i, "alice");
     typeCode("654321");
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     await vi.waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
@@ -987,7 +987,7 @@ describe("RecoveryLoginForm — a wait", () => {
     stub.loginWithRecoveryCode.mockReturnValue(never());
     mountFull();
     openRecoveryCode();
-    fill(/Handle or email/i, "alice@example.com");
+    fill(/Email or @handle/i, "alice@example.com");
     fill(/Recovery code/i, "abcd-1234-5678-ef00");
     fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
     expect(await pressBusy("Signing in…", stub.loginWithRecoveryCode)).toEqual(HELD);
@@ -1007,8 +1007,8 @@ describe("RecoveryLoginForm — a wait", () => {
   it("holds Continue busy while it checks an authenticator code", async () => {
     stub.totpRecoveryComplete.mockReturnValue(never());
     mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    fill(/Handle or email/i, "alice");
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    fill(/Email or @handle/i, "alice");
     typeCode("654321");
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     expect(await pressBusy("Checking…", stub.totpRecoveryComplete)).toEqual(HELD);
@@ -1021,8 +1021,8 @@ describe("RecoveryLoginForm — a wait", () => {
       profile: sampleProfile,
     });
     mountFull({ runPasskeyRegistration: never });
-    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
-    fill(/Handle or email/i, "alice");
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    fill(/Email or @handle/i, "alice");
     typeCode("654321");
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Add a passkey/i }));

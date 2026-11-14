@@ -256,34 +256,42 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
     expect(h.codeIds()).toEqual(["code_bob"]);
   });
 
-  it.each([
-    [
-      "no Authorization header",
-      (cookie: string) =>
-        new Request("http://localhost/sessions/revoke-all-other", {
-          method: "POST",
-          headers: { Cookie: cookie },
-        }),
-      401,
-    ],
-    [
-      "no session cookie",
-      (_cookie: string, accessToken: string) =>
-        new Request("http://localhost/sessions/revoke-all-other", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-      400,
-    ],
-  ] as const)("sends nothing to cire for a request with %s", async (_, build, status) => {
+  it("sends nothing to cire for a request with no Authorization header", async () => {
     const h = setup();
     const ada = await h.register("ada@example.com", "ada");
     h.grantConsent(ada.accountId, ada.profileId, CIRE_CLIENT_ID);
     const calls = fakeCire();
 
-    const res = await h.send(build(ada.cookie, ada.accessToken));
+    const res = await h.send(
+      new Request("http://localhost/sessions/revoke-all-other", {
+        method: "POST",
+        headers: { Cookie: ada.cookie },
+      }),
+    );
 
-    expect(res.status).toBe(status);
+    expect(res.status).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it("sends nothing to cire for a token whose session has ended", async () => {
+    // The session check refuses before the OSN revoke, so nothing reaches cire.
+    const h = setup();
+    const ada = await h.register("ada@example.com", "ada");
+    h.grantConsent(ada.accountId, ada.profileId, CIRE_CLIENT_ID);
+    const calls = fakeCire();
+    const out = await h.send(
+      new Request("http://localhost/logout", { method: "POST", headers: { Cookie: ada.cookie } }),
+    );
+    expect(out.status).toBe(200);
+
+    const res = await h.send(
+      new Request("http://localhost/sessions/revoke-all-other", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ada.accessToken}` },
+      }),
+    );
+
+    expect(res.status).toBe(409);
     expect(calls).toEqual([]);
   });
 

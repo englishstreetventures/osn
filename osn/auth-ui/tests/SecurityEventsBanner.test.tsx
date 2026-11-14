@@ -5,6 +5,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
 import { SERVER, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Settings banner for out-of-band security events (M-PK1b). Tests cover:
@@ -170,8 +175,8 @@ describe("SecurityEventsBanner", () => {
     expect(stub.acknowledgeAll).not.toHaveBeenCalled();
 
     // Drive the OTP flow in the step-up dialog.
-    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     await screen.findByRole("heading", { name: "Check your email" });
     // The link is confirmed elsewhere; coming back to the tab polls at once.
     window.dispatchEvent(new Event("focus"));
@@ -203,8 +208,8 @@ describe("SecurityEventsBanner", () => {
     ));
     await waitFor(() => screen.getByRole("button", { name: /Acknowledge/ }));
     fireEvent.click(screen.getByRole("button", { name: /Acknowledge/ }));
-    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     await screen.findByRole("heading", { name: "Check your email" });
     // The link is confirmed elsewhere; coming back to the tab polls at once.
     window.dispatchEvent(new Event("focus"));
@@ -299,8 +304,8 @@ describe("SecurityEventsBanner", () => {
     await waitFor(() => expect(counts).toEqual([1]));
 
     fireEvent.click(screen.getByRole("button", { name: /Acknowledge/ }));
-    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     await screen.findByRole("heading", { name: "Check your email" });
     // The link is confirmed elsewhere; coming back to the tab polls at once.
     window.dispatchEvent(new Event("focus"));

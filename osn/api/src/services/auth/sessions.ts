@@ -315,10 +315,10 @@ export function createSessionsModule() {
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
 
   /**
-   * The caller's live, ordinary session on the account, or null: the row its
-   * session cookie names, else the row its access token's `osn_sid` binding
-   * names, provided that row belongs to this account, is unrestricted and is
-   * not yet expired. Both inputs are server-derived: the hash from the
+   * The caller's live, ordinary session on the account — its hash and its
+   * family — or null: the row its session cookie names, else the row its
+   * access token's `osn_sid` binding names, provided that row belongs to this
+   * account, is unrestricted and is not yet expired. Both inputs are server-derived: the hash from the
    * HttpOnly cookie, the binding from the signed token.
    *
    * Stricter than {@link classifyCallerSession}, which counts every row of the
@@ -337,7 +337,7 @@ export function createSessionsModule() {
     accountId: string,
     profileId: string,
     caller: { cookieSessionHash: string | null; sessionBinding: string | null },
-  ): Effect.Effect<string | null, DatabaseError, Db> =>
+  ): Effect.Effect<{ sessionHash: string; familyId: string } | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { cookieSessionHash, sessionBinding } = caller;
       if (!cookieSessionHash && !sessionBinding) return null;
@@ -348,7 +348,7 @@ export function createSessionsModule() {
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: sessions.id })
+            .select({ id: sessions.id, familyId: sessions.familyId })
             .from(sessions)
             .where(
               and(
@@ -362,8 +362,14 @@ export function createSessionsModule() {
         catch: (cause) => new DatabaseError({ cause }),
       });
       const ids = rows.map((row) => row.id);
-      if (cookieSessionHash && ids.includes(cookieSessionHash)) return cookieSessionHash;
-      return sessionBinding ? matchBinding(ids, profileId, sessionBinding) : null;
+      const hash =
+        cookieSessionHash && ids.includes(cookieSessionHash)
+          ? cookieSessionHash
+          : sessionBinding
+            ? matchBinding(ids, profileId, sessionBinding)
+            : null;
+      const row = hash === null ? undefined : rows.find((r) => r.id === hash);
+      return row ? { sessionHash: row.id, familyId: row.familyId } : null;
     }).pipe(Effect.withSpan("auth.session.check_live"));
 
   /**

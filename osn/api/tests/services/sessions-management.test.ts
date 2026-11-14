@@ -1,6 +1,8 @@
 import { it, expect, describe } from "@effect/vitest";
+import { sessions as sessionRows } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
+import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer, Logger } from "effect";
 import { afterEach, beforeAll, vi } from "vitest";
 
@@ -591,7 +593,22 @@ describe("account-wide deletes keep the caller's device across its own refresh",
       records: true,
       prepare: (profile) =>
         Effect.succeed((hash: string) =>
-          accountErasure.requestErasure({ accountId: profile.accountId, cancelSessionId: hash }),
+          Effect.gen(function* () {
+            // The family the route's live-session check finds for the hash.
+            // A hash no live row holds is refused by the route before it gets
+            // here; a family no row has stands in for it, and spares nothing.
+            const { db } = yield* Db;
+            const rows = yield* Effect.promise(() =>
+              db
+                .select({ familyId: sessionRows.familyId })
+                .from(sessionRows)
+                .where(eq(sessionRows.id, hash)),
+            );
+            return yield* accountErasure.requestErasure({
+              accountId: profile.accountId,
+              cancel: { sessionId: hash, familyId: rows[0]?.familyId ?? "fam_none" },
+            });
+          }),
         ),
     },
   ];

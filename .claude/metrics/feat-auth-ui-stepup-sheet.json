@@ -1,0 +1,205 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/auth-ui-stepup-sheet",
+    "base_sha": "a870081e805f07fa3f7c2249b3561dcf75955805",
+    "head_sha": "c895285264388313ffbb7b140a5f7e3d7e427e0a",
+    "generated_at": "2026-11-13T00:56:04.231Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2045,
+    "type": null,
+    "labels": [
+      "complexity:8",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-12T19:31:28.378Z",
+    "last_ts": "2026-11-13T00:55:58.608Z",
+    "span_seconds": 19470,
+    "active_seconds": 4747,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 53.30156479999995,
+    "tokens": {
+      "input": 1134,
+      "output": 480305,
+      "thinking": 220539,
+      "cache_write_5m": 1808105,
+      "cache_write_1h": 0,
+      "cache_read": 86868936
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1128,
+          "output": 479850,
+          "thinking": 220539,
+          "cache_write_5m": 1775961,
+          "cache_write_1h": 0,
+          "cache_read": 86807693
+        },
+        "usd_equivalent": 53.20439419999995,
+        "messages": 542
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 6,
+          "output": 455,
+          "thinking": 0,
+          "cache_write_5m": 32144,
+          "cache_write_1h": 0,
+          "cache_read": 61243
+        },
+        "usd_equivalent": 0.0971706,
+        "messages": 3
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1134,
+          "output": 480305,
+          "thinking": 220539,
+          "cache_write_5m": 1808105,
+          "cache_write_1h": 0,
+          "cache_read": 86868936
+        },
+        "usd_equivalent": 53.30156479999995,
+        "messages": 546
+      }
+    },
+    "effort": {
+      "high": 148,
+      "medium": 3,
+      "xhigh": 394
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 8,
+      "docs": 6,
+      "config": 0,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 15,
+        "deleted": 0
+      },
+      "test": {
+        "added": 942,
+        "deleted": 86
+      },
+      "docs": {
+        "added": 182,
+        "deleted": 68
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 986,
+        "deleted": 144
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "osn/auth-ui",
+      "tools/lab"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 473,
+      "Read": 47,
+      "Skill": 26,
+      "Edit": 19,
+      "Write": 8,
+      "StructuredOutput": 7,
+      "ToolSearch": 3,
+      "SubagentHandback": 2,
+      "TaskStop": 2,
+      "Monitor": 1,
+      "WebFetch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 8
+    },
+    "skills": {
+      "new-feat": 2,
+      "design-system": 4,
+      "emil-design-eng": 2,
+      "apple-design": 2,
+      "find-animation-opportunities": 1,
+      "animation-vocabulary": 1,
+      "animate": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "web-design-guidelines": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-docs": 1,
+      "review-design": 1,
+      "review-security": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 545,
+      "with_tools": 545,
+      "with_one_tool": 513,
+      "context_median": 136984,
+      "context_p90": 325826
+    }
+  },
+  "review": null
+}

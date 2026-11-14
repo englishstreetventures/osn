@@ -1,6 +1,6 @@
 {
   "name": "@osn/auth-ui",
-  "version": "4.6.1",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -11,6 +11,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./AuthHeader": "./src/AuthHeader.tsx",
     "./ChangeEmailForm": "./src/ChangeEmailForm.tsx",
     "./CheckEmailView": "./src/CheckEmailView.tsx",
     "./ConfirmLinkPage": "./src/ConfirmLinkPage.tsx",
@@ -19,7 +20,6 @@
     "./pending-recovery": "./src/pending-recovery.ts",
     "./pending-sign-up": "./src/pending-sign-up.ts",
     "./ProfileOnboarding": "./src/ProfileOnboarding.tsx",
-    "./ProfileSwitcher": "./src/ProfileSwitcher.tsx",
     "./RecoveryCodesView": "./src/RecoveryCodesView.tsx",
     "./Register": "./src/Register.tsx",
     "./SecurityEventsBanner": "./src/SecurityEventsBanner.tsx",

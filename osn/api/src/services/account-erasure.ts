@@ -22,7 +22,7 @@ import type { DeletionJob } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, jsonEachIn, rowsChanged } from "@shared/db-utils";
 import type { AppEnrollmentApp, DeletionFanoutService } from "@shared/observability/metrics";
-import { and, eq, gt, inArray, isNull, lte, notExists, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, ne, notExists, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { canBatch } from "../lib/batch";
@@ -37,7 +37,6 @@ import {
   withAccountDeletion,
 } from "../metrics";
 import { listActiveApps, leaveApp } from "./app-enrollments";
-import { outsideFamilyOf } from "./auth/sessions";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -106,8 +105,15 @@ class BridgePurgeError extends Data.TaggedError("BridgePurgeError")<{
 
 interface RequestErasureInput {
   readonly accountId: string;
-  /** Hashed session id of the requesting session. Kept alive as the cancellation handle. */
-  readonly cancelSessionId: string | null;
+  /**
+   * The requesting session, kept alive as the cancellation handle: its hash
+   * (recorded on the job) and its family, whose sessions the sweep spares. The
+   * route's live-session check found the session live in this request, so a
+   * refresh of it in another tab before the sweep keeps the device rather
+   * than leaving the account with no session that could cancel. Null spares
+   * nothing.
+   */
+  readonly cancel: { readonly sessionId: string; readonly familyId: string } | null;
   /** "user_request" | "minor_detected" | "admin". */
   readonly reason?: string;
 }
@@ -147,7 +153,7 @@ export const requestErasure = (
   input: RequestErasureInput,
 ): Effect.Effect<RequestErasureOutput, AccountNotFoundError | AccountErasureDbError, Db> =>
   Effect.gen(function* () {
-    const { accountId, cancelSessionId, reason = "user_request" } = input;
+    const { accountId, cancel, reason = "user_request" } = input;
     const { db } = yield* Db;
     const now = Math.floor(Date.now() / 1_000);
 
@@ -228,20 +234,18 @@ export const requestErasure = (
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
           db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
 
-          // 4. Revoke all sessions EXCEPT the cancellation handle's device
-          //    (its family, so a refresh of the handle in flight in another
-          //    tab does not sign it out; see `outsideFamilyOf`). The requesting
-          //    session stays alive as the only path to cancel during the
-          //    7-day grace window. Without a cancellation handle the user must
-          //    use a recovery-code login to cancel.
-          cancelSessionId
+          // 4. Revoke all sessions EXCEPT the cancellation handle's device:
+          //    its family, as the route's check found it, so a refresh of the
+          //    handle in another tab, finished or in flight, does not sign it
+          //    out. The requesting session stays alive as the only path to
+          //    cancel during the 7-day grace window: a tombstoned account
+          //    cannot sign in again. Without a cancellation handle the user
+          //    must use a recovery-code login to cancel.
+          cancel
             ? db
                 .delete(sessions)
                 .where(
-                  and(
-                    eq(sessions.accountId, accountId),
-                    outsideFamilyOf(db, sessions.familyId, cancelSessionId),
-                  ),
+                  and(eq(sessions.accountId, accountId), ne(sessions.familyId, cancel.familyId)),
                 )
             : db.delete(sessions).where(eq(sessions.accountId, accountId)),
 
@@ -249,15 +253,14 @@ export const requestErasure = (
           //    cancel handle's family keeps its own, so a replay of a token
           //    rotated out of that chain still revokes the handle: that is
           //    what reuse detection is for while the handle is the account's
-          //    only live session. Runs after the delete above, which keeps the
-          //    handle's row, so the family is found as that delete found it.
-          cancelSessionId
+          //    only live session.
+          cancel
             ? db
                 .delete(rotatedSessions)
                 .where(
                   and(
                     eq(rotatedSessions.accountId, accountId),
-                    outsideFamilyOf(db, rotatedSessions.familyId, cancelSessionId),
+                    ne(rotatedSessions.familyId, cancel.familyId),
                   ),
                 )
             : db.delete(rotatedSessions).where(eq(rotatedSessions.accountId, accountId)),
@@ -289,7 +292,7 @@ export const requestErasure = (
             pulseDoneAt: enrolledSet.has("pulse") ? null : NOT_APPLICABLE_SENTINEL,
             zapDoneAt: enrolledSet.has("zap") ? null : NOT_APPLICABLE_SENTINEL,
             reason,
-            cancelSessionId,
+            cancelSessionId: cancel?.sessionId ?? null,
           }),
         ]),
       catch: (cause) => new AccountErasureDbError({ cause }),
@@ -306,8 +309,10 @@ export const requestErasure = (
 
 /**
  * Cancellation: removes the deletion_jobs row + clears `accounts.deleted_at`.
- * Caller must have re-authenticated using the cancellation session (verified
- * upstream in the route handler) — we don't re-check session ownership here.
+ * The route admits only a caller holding a live, ordinary session of the
+ * account; during the grace window the only such sessions are the
+ * cancellation handle's family, which the deletion spared. Nothing here
+ * checks the session again.
  * Idempotent: returns `{ cancelled: false }` when no job exists.
  *
  * Answers `{ cancelled: false }` too once the grace window has passed or a

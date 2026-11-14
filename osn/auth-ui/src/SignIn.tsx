@@ -8,6 +8,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
 import { createSignal, createUniqueId, Show, onMount } from "solid-js";
 
+import { AuthHeader } from "./AuthHeader";
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { InlineAction } from "./InlineAction";
 import { describePasskeyError } from "./passkey-errors";
@@ -46,7 +47,16 @@ export interface SignInProps {
   /** Executes the browser-side WebAuthn attestation for that enrolment. */
   runPasskeyRegistration?: RunPasskeyRegistration;
   onSuccess?: () => void;
+  /** Called by the header's Cancel. Absent: no Cancel. */
   onCancel?: () => void;
+  /** Cancel's words where going back means something else. See `AuthHeader`. */
+  cancelLabel?: string;
+  /**
+   * What the view is mounted in: `"dialog"` inside `@shared/ui`'s `Dialog`,
+   * whose name its title becomes; `"page"` on a page such as `/authorize`,
+   * with no padding at the sides. See `AuthHeader`.
+   */
+  host: "dialog" | "page";
   /**
    * Cloudflare Turnstile sitekey (public, build-time). When provided, the
    * identifier-bound passkey form renders the Turnstile challenge and gates
@@ -189,121 +199,123 @@ export function SignIn(props: SignInProps) {
   });
 
   return (
-    <div class="mx-auto max-w-sm px-4 py-8">
-      <div class="mb-6 flex items-center justify-between">
-        <h2 class="text-foreground text-2xl font-bold">
-          {view() === "recovery" ? "Recover your account" : `Sign in to ${props.productName}`}
-        </h2>
-        <Show when={props.onCancel}>
-          <Button variant="ghost" size="sm" onClick={props.onCancel} disabled={busy()}>
-            Cancel
-          </Button>
+    <div class="flex flex-col">
+      {/* The one title in the view: the recovery form below draws none, so
+          a dialog keeps one name as the view switches. */}
+      <AuthHeader
+        host={props.host}
+        title={view() === "recovery" ? "Recover your account" : `Sign in to ${props.productName}`}
+        onCancel={props.onCancel}
+        cancelLabel={props.cancelLabel}
+        cancelDisabled={busy()}
+      />
+      <div class={props.host === "dialog" ? "p-4" : "pt-6"}>
+        <Show when={signedIn()}>
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You&apos;re all set.</p>
+        </Show>
+
+        {/* Primary WebAuthn flow */}
+        <Show when={!signedIn() && view() === "passkey" && webauthnSupported()}>
+          <form onSubmit={submitPasskey} class="flex flex-col gap-4">
+            <Field labelTreatment="plain" label="Email or @handle">
+              {(field) => (
+                <>
+                  <Input
+                    id={field.id}
+                    type="text"
+                    required
+                    autocomplete="username webauthn"
+                    autocapitalize="none"
+                    spellcheck={false}
+                    value={identifier()}
+                    onInput={(e) => setIdentifier(e.currentTarget.value)}
+                    aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
+                    aria-invalid={error()?.invalid || undefined}
+                  />
+                  <Show when={error()}>
+                    {(line) => (
+                      <Notice tone="danger" size="inline" alert id={errorId}>
+                        {line().text}
+                        {/* The passkey sentence names no cause, so the way in
+                          without one sits beside it. */}
+                        <Show when={line().passkey}>
+                          {" "}
+                          <InlineAction onClick={openRecovery}>Lost your passkey?</InlineAction>
+                        </Show>
+                      </Notice>
+                    )}
+                  </Show>
+                </>
+              )}
+            </Field>
+            {/* Turnstile challenge — renders only when a sitekey is provided. */}
+            <TurnstileWidget
+              siteKey={props.turnstileSiteKey}
+              onToken={setTurnstileToken}
+              onReady={(c) => (resetTurnstile = c.reset)}
+              alternative="Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”."
+            />
+            {/* The other reasons apply only while idle: begin spends the token,
+              and the widget drops it before the passkey prompt has closed. */}
+            <Button
+              type="submit"
+              busy={busy()}
+              disabled={!busy() && (!identifier().trim() || (turnstileOn() && !turnstileToken()))}
+            >
+              {busy() ? "Verifying…" : "Continue"}
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              class="self-center"
+              onClick={openRecovery}
+              disabled={busy()}
+            >
+              Lost your passkey?
+            </Button>
+          </form>
+        </Show>
+
+        {/* No WebAuthn support in this environment */}
+        <Show when={!signedIn() && view() === "passkey" && !webauthnSupported()}>
+          <div class="flex flex-col gap-4">
+            {/* A blocker that stops the flow here: an info notice, not body copy. */}
+            <Notice tone="info" size="sm">
+              {props.productName} sign-in needs a passkey or security key, and this browser
+              doesn&apos;t support WebAuthn.
+            </Notice>
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You can either:</p>
+            <ul class="text-ui-sm leading-ui-snug text-ui-ink-secondary list-inside list-disc">
+              <li>Sign in on a device that does (iOS 16+, Android 9+, recent desktop browsers).</li>
+              <li>
+                Use your phone via the QR / Bluetooth cross-device flow offered by your password
+                manager on next try.
+              </li>
+              <li>Plug in a FIDO2 security key and reload the page.</li>
+            </ul>
+            <Button type="button" variant="secondary" onClick={openRecovery}>
+              Use a recovery code instead
+            </Button>
+          </div>
+        </Show>
+
+        {/* Recovery escape hatch */}
+        <Show when={!signedIn() && view() === "recovery"}>
+          <RecoveryLoginForm
+            client={props.recoveryClient}
+            registrationClient={props.registrationClient}
+            runPasskeyRegistration={props.runPasskeyRegistration}
+            turnstileSiteKey={props.turnstileSiteKey}
+            productName={props.productName}
+            onSuccess={() => {
+              setSignedIn(true);
+              props.onSuccess?.();
+            }}
+            onCancel={() => setView("passkey")}
+          />
         </Show>
       </div>
-
-      <Show when={signedIn()}>
-        <p class="text-muted-foreground text-sm">You&apos;re all set.</p>
-      </Show>
-
-      {/* Primary WebAuthn flow */}
-      <Show when={!signedIn() && view() === "passkey" && webauthnSupported()}>
-        <form onSubmit={submitPasskey} class="flex flex-col gap-4">
-          <Field labelTreatment="plain" label="Email or @handle">
-            {(field) => (
-              <>
-                <Input
-                  id={field.id}
-                  type="text"
-                  required
-                  autocomplete="username webauthn"
-                  autocapitalize="none"
-                  spellcheck={false}
-                  value={identifier()}
-                  onInput={(e) => setIdentifier(e.currentTarget.value)}
-                  aria-describedby={describedBy(field["aria-describedby"], error() && errorId)}
-                  aria-invalid={error()?.invalid || undefined}
-                />
-                <Show when={error()}>
-                  {(line) => (
-                    <Notice tone="danger" size="inline" alert id={errorId}>
-                      {line().text}
-                      {/* The passkey sentence names no cause, so the way in
-                          without one sits beside it. */}
-                      <Show when={line().passkey}>
-                        {" "}
-                        <InlineAction onClick={openRecovery}>Lost your passkey?</InlineAction>
-                      </Show>
-                    </Notice>
-                  )}
-                </Show>
-              </>
-            )}
-          </Field>
-          {/* Turnstile challenge — renders only when a sitekey is provided. */}
-          <TurnstileWidget
-            siteKey={props.turnstileSiteKey}
-            onToken={setTurnstileToken}
-            onReady={(c) => (resetTurnstile = c.reset)}
-            alternative="Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”."
-          />
-          {/* The other reasons apply only while idle: begin spends the token,
-              and the widget drops it before the passkey prompt has closed. */}
-          <Button
-            type="submit"
-            busy={busy()}
-            disabled={!busy() && (!identifier().trim() || (turnstileOn() && !turnstileToken()))}
-          >
-            {busy() ? "Verifying…" : "Continue"}
-          </Button>
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            class="self-center"
-            onClick={openRecovery}
-            disabled={busy()}
-          >
-            Lost your passkey?
-          </Button>
-        </form>
-      </Show>
-
-      {/* No WebAuthn support in this environment */}
-      <Show when={!signedIn() && view() === "passkey" && !webauthnSupported()}>
-        <div class="flex flex-col gap-4">
-          <p class="text-muted-foreground text-sm">
-            {props.productName} sign-in needs a passkey or security key, and this browser
-            doesn&apos;t support WebAuthn. You can either:
-          </p>
-          <ul class="text-muted-foreground list-inside list-disc text-sm">
-            <li>Sign in on a device that does (iOS 16+, Android 9+, recent desktop browsers).</li>
-            <li>
-              Use your phone via the QR / Bluetooth cross-device flow offered by your password
-              manager on next try.
-            </li>
-            <li>Plug in a FIDO2 security key and reload the page.</li>
-          </ul>
-          <Button type="button" variant="secondary" onClick={openRecovery}>
-            Use a recovery code instead
-          </Button>
-        </div>
-      </Show>
-
-      {/* Recovery escape hatch */}
-      <Show when={!signedIn() && view() === "recovery"}>
-        <RecoveryLoginForm
-          client={props.recoveryClient}
-          registrationClient={props.registrationClient}
-          runPasskeyRegistration={props.runPasskeyRegistration}
-          turnstileSiteKey={props.turnstileSiteKey}
-          productName={props.productName}
-          onSuccess={() => {
-            setSignedIn(true);
-            props.onSuccess?.();
-          }}
-          onCancel={() => setView("passkey")}
-        />
-      </Show>
     </div>
   );
 }

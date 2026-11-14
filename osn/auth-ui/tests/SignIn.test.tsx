@@ -30,6 +30,7 @@ vi.mock("@shared/toast", () => ({
 
 import type { LoginClient, RecoveryClient, RegistrationClient } from "@osn/client";
 import { toast } from "@shared/toast";
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 
 import { SignIn } from "../src/SignIn";
 import {
@@ -40,6 +41,7 @@ import {
   apiError,
   ceremonyError,
 } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
 
 interface LoginStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
@@ -102,7 +104,12 @@ describe("SignIn component", () => {
 
   it("asks phones not to capitalise the typed identifier", () => {
     render(() => (
-      <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} productName="Musubi" />
+      <SignIn
+        host="page"
+        client={asLogin(login)}
+        recoveryClient={asRecovery(recovery)}
+        productName="Musubi"
+      />
     ));
     expect(screen.getByLabelText(/Email or @handle/).getAttribute("autocapitalize")).toBe("none");
   });
@@ -116,6 +123,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -144,6 +152,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -163,6 +172,7 @@ describe("SignIn component", () => {
     function mount() {
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -271,6 +281,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -301,6 +312,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -355,6 +367,7 @@ describe("SignIn component", () => {
       };
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
@@ -380,6 +393,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
@@ -426,6 +440,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
@@ -462,6 +477,7 @@ describe("SignIn component", () => {
 
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
@@ -485,6 +501,7 @@ describe("SignIn component", () => {
       hoisted.webauthnSupported = false;
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -524,6 +541,7 @@ describe("SignIn component", () => {
         };
         render(() => (
           <SignIn
+            host="page"
             client={asLogin(login)}
             recoveryClient={asRecovery(emailed)}
             registrationClient={{} as unknown as RegistrationClient}
@@ -552,6 +570,7 @@ describe("SignIn component", () => {
     it("surfaces the recovery form when the user clicks it", async () => {
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
@@ -571,6 +590,7 @@ describe("SignIn component", () => {
       const onCancel = vi.fn();
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           onCancel={onCancel}
@@ -584,12 +604,48 @@ describe("SignIn component", () => {
     it("omits the Cancel button when no onCancel prop is given", () => {
       render(() => (
         <SignIn
+          host="page"
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           productName="Musubi"
         />
       ));
       expect(screen.queryByRole("button", { name: /^Cancel$/ })).toBeNull();
+    });
+  });
+
+  describe("in a dialog", () => {
+    withoutAnimations();
+
+    /** The one element the dialog takes its name from, read through its id. */
+    function dialogNamedOnce(name: string) {
+      const dialog = screen.getByRole("dialog", { name });
+      const id = dialog.getAttribute("aria-labelledby");
+      expect(id).toBeTruthy();
+      expect(document.querySelectorAll(`[id="${id}"]`)).toHaveLength(1);
+      expect(dialog.querySelectorAll("h2")).toHaveLength(1);
+    }
+
+    it("names the dialog by its title, and renames it for recovery and back, by one element", async () => {
+      render(() => (
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent presentation="sheet">
+            <SignIn
+              host="dialog"
+              client={asLogin(login)}
+              recoveryClient={asRecovery(recovery)}
+              productName="Musubi"
+              onCancel={() => {}}
+            />
+          </DialogContent>
+        </Dialog>
+      ));
+      dialogNamedOnce("Sign in to Musubi");
+      fireEvent.click(screen.getByRole("button", { name: "Lost your passkey?" }));
+      await waitFor(() => dialogNamedOnce("Recover your account"));
+      fireEvent.click(screen.getByRole("button", { name: "Back to sign in" }));
+      await waitFor(() => dialogNamedOnce("Sign in to Musubi"));
+      expect(screen.getByLabelText(/Email or @handle/)).toBeTruthy();
     });
   });
 });

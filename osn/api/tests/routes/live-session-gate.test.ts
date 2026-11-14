@@ -16,7 +16,15 @@
 
 import { Database } from "bun:sqlite";
 
-import { accounts, oauthClients, passkeys, recoveryCodes, sessions } from "@osn/db/schema";
+import {
+  accounts,
+  oauthClients,
+  oauthConsents,
+  passkeys,
+  recoveryCodes,
+  securityEvents,
+  sessions,
+} from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { applySchema } from "@osn/db/testing";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
@@ -83,7 +91,10 @@ vi.mock("../../src/metrics", async (importOriginal) => {
 const { verifyAuthenticationResponse, verifyRegistrationResponse } =
   await import("@simplewebauthn/server");
 const { createAuthService } = await import("../../src/services/auth");
-const { deriveSessionBinding, signJwt } = await import("../../src/services/auth/helpers");
+const { deriveSessionBinding, sessionHandleFromHash, signJwt } =
+  await import("../../src/services/auth/helpers");
+const { createAccountErasureRoutes } = await import("../../src/routes/account-erasure");
+const { createAccountExportRoutes } = await import("../../src/routes/account-export");
 const { createDefaultCeremonyStores, createInMemoryAccountCap } =
   await import("../../src/services/auth/stores");
 const { cookieName } = await import("../../src/lib/cookie-session");
@@ -125,10 +136,38 @@ function makeApp(overrides: Partial<AuthConfig> = {}) {
   const layer = Layer.merge(Layer.succeed(Db, { db }), recorder.layer);
   const merged = { ...config, ceremonyStores: createDefaultCeremonyStores(), ...overrides };
   const app = createAuthRoutes(merged, layer);
+  const cookieConfig = { secure: false };
+  const proxied = { trustedProxyCount: 1 };
+  const erasure = createAccountErasureRoutes(
+    merged,
+    layer,
+    undefined,
+    undefined,
+    cookieConfig,
+    proxied,
+  );
+  const exporter = createAccountExportRoutes(
+    merged,
+    cookieConfig,
+    layer,
+    undefined,
+    undefined,
+    undefined,
+    proxied,
+    undefined,
+    [],
+  );
   const auth = createAuthService(merged);
   const svc = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
-  return { app, auth, db, svc, recorded: () => recorder.recorded() };
+  /** The route module that serves `path`. */
+  const appFor = (path: string) =>
+    path === "/account/export"
+      ? exporter
+      : path === "/account" || path === "/account/restore"
+        ? erasure
+        : app;
+  return { app, appFor, auth, db, svc, recorded: () => recorder.recorded() };
 }
 
 type Harness = ReturnType<typeof makeApp>;
@@ -142,23 +181,34 @@ const cookieFor = (refreshToken: string) => `${cookieName({ secure: false })}=${
  * answer, mail included, so "nothing was sent" is a fact by the time a test
  * reads it.
  */
-function post(
+function send(
   h: Harness,
+  method: string,
   path: string,
-  opts: { token?: string; cookie?: string; body?: unknown },
+  opts: { token?: string; cookie?: string; body?: unknown; headers?: Record<string, string> },
 ): Promise<Response> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-forwarded-for": "127.0.0.1",
+    ...opts.headers,
+  };
   if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
   if (opts.cookie) headers["cookie"] = opts.cookie;
   return settledHandle(
-    h.app,
+    h.appFor(path),
     new Request(`http://localhost${path}`, {
-      method: "POST",
+      method,
       headers,
-      body: JSON.stringify(opts.body ?? {}),
+      body: method === "GET" ? undefined : JSON.stringify(opts.body ?? {}),
     }),
   );
 }
+
+const post = (
+  h: Harness,
+  path: string,
+  opts: { token?: string; cookie?: string; body?: unknown },
+): Promise<Response> => send(h, "POST", path, opts);
 
 /** Mail sent to `to` so far. */
 const mailTo = (h: Harness, to: string) => h.recorded().filter((m) => m.to === to).length;
@@ -227,7 +277,11 @@ async function enrolTotp(h: Harness, profile: Profile, accessToken: string): Pro
  * every session on the account.
  */
 async function enrolPasskey(h: Harness, profile: Profile): Promise<string> {
-  await h.svc(h.auth.beginPasskeyRegistration(profile.accountId));
+  // A step-up token, which a registration past the first needs.
+  const stepUp = await h.svc(
+    h.auth.issueStepUpToken(profile.accountId, "passkey", "passkey_register"),
+  );
+  await h.svc(h.auth.beginPasskeyRegistration(profile.accountId, stepUp));
   await h.svc(
     h.auth.completePasskeyRegistration(
       profile.accountId,
@@ -1108,7 +1162,15 @@ interface GatedCall {
     profile: Profile,
     live: { accessToken: string; refreshToken: string },
     credentialId: string | null,
-  ) => Promise<{ path: string; body: unknown; ok: number }>;
+  ) => Promise<{
+    path: string;
+    body?: unknown;
+    ok: number;
+    /** The served answer's body, where the status alone cannot show a spend. */
+    served?: unknown;
+    method?: string;
+    headers?: Record<string, string>;
+  }>;
 }
 
 const GATED: readonly GatedCall[] = [
@@ -1290,11 +1352,199 @@ const GATED: readonly GatedCall[] = [
       ok: 201,
     }),
   },
+  {
+    endpoint: "account_delete",
+    prepare: async (h, profile) => ({
+      method: "DELETE",
+      path: "/account",
+      body: {
+        confirm_handle: profile.handle,
+        step_up_token: await h.svc(
+          h.auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+        ),
+      },
+      ok: 202,
+    }),
+  },
+  {
+    endpoint: "account_restore",
+    prepare: async (h, profile, live) => {
+      const scheduled = await send(h, "DELETE", "/account", {
+        token: live.accessToken,
+        cookie: cookieFor(live.refreshToken),
+        body: {
+          confirm_handle: profile.handle,
+          step_up_token: await h.svc(
+            h.auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+          ),
+        },
+      });
+      expect(scheduled.status).toBe(202);
+      // `cancelled: true` only if the refused call cancelled nothing.
+      return { path: "/account/restore", ok: 200, served: { cancelled: true } };
+    },
+  },
+  {
+    endpoint: "account_export",
+    prepare: async (h, profile) => ({
+      method: "GET",
+      path: "/account/export",
+      headers: {
+        "x-step-up-token": await h.svc(
+          h.auth.issueStepUpToken(profile.accountId, "otp", "account_export"),
+        ),
+      },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "security_event_ack",
+    prepare: async (h, profile) => {
+      const id = "sev_" + "a".repeat(12);
+      await h.db.insert(securityEvents).values({
+        id,
+        accountId: profile.accountId,
+        kind: "passkey_registered",
+        createdAt: Math.floor(Date.now() / 1000),
+      });
+      return {
+        path: `/account/security-events/${id}/ack`,
+        body: {
+          step_up_token: await h.svc(
+            h.auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"),
+          ),
+        },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "security_event_ack_all",
+    prepare: async (h, profile) => ({
+      path: "/account/security-events/ack-all",
+      body: {
+        step_up_token: await h.svc(
+          h.auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"),
+        ),
+      },
+      ok: 200,
+    }),
+  },
+  {
+    endpoint: "totp_disable",
+    prepare: async (h, profile, live) => {
+      await enrolTotp(h, profile, live.accessToken);
+      return {
+        method: "DELETE",
+        path: "/totp",
+        body: {
+          step_up_token: await h.svc(
+            h.auth.issueStepUpToken(profile.accountId, "otp", "totp_disable"),
+          ),
+        },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "passkey_rename",
+    passkey: true,
+    prepare: async (h, profile) => {
+      const target = await newestPasskey(h, profile);
+      return {
+        method: "PATCH",
+        path: `/passkeys/${target.id}`,
+        body: { label: "Renamed", step_up_token: await passkeyMutationStepUp(h, profile, target) },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "passkey_delete",
+    passkey: true,
+    prepare: async (h, profile) => {
+      const target = await newestPasskey(h, profile);
+      return {
+        method: "DELETE",
+        path: `/passkeys/${target.id}`,
+        body: { step_up_token: await passkeyMutationStepUp(h, profile, target) },
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "session_revoke",
+    prepare: async (h, profile) => {
+      const target = await openSession(h, profile);
+      return {
+        method: "DELETE",
+        path: `/sessions/${sessionHandleFromHash(h.auth.hashSessionToken(target.refreshToken))}`,
+        ok: 200,
+      };
+    },
+  },
+  {
+    endpoint: "oidc_connections_revoke",
+    prepare: async (h, profile, live) => {
+      const created = await post(h, "/oidc/clients", {
+        token: live.accessToken,
+        body: { name: "Gate test", redirect_uris: ["https://app.example.com/cb"] },
+      });
+      const { client } = (await created.json()) as { client: { clientId: string } };
+      await h.db.insert(oauthConsents).values({
+        id: "ocs_" + "b".repeat(12),
+        accountId: profile.accountId,
+        clientId: client.clientId,
+        profileId: profile.id,
+        scope: "openid",
+        grantedAt: Math.floor(Date.now() / 1000),
+      });
+      // `success` only while the consent is live: a refused call that
+      // withdrew it would leave this call a 404.
+      return { method: "DELETE", path: `/oidc/connections/${client.clientId}`, ok: 200 };
+    },
+  },
+  {
+    endpoint: "session_revoke_others",
+    prepare: async (h, profile) => {
+      await openSession(h, profile);
+      return { path: "/sessions/revoke-all-other", ok: 200 };
+    },
+  },
 ];
+
+/** The account's newest passkey row, as the passkey routes name it. */
+async function newestPasskey(h: Harness, profile: Profile) {
+  const rows = await h.db
+    .select({ id: passkeys.id, createdAt: passkeys.createdAt })
+    .from(passkeys)
+    .where(eq(passkeys.accountId, profile.accountId));
+  return rows.at(-1)!;
+}
+
+/**
+ * A `passkey_delete` step-up token minted by asserting `target` itself, which
+ * the cooldown on older credentials never refuses.
+ */
+const passkeyMutationStepUp = (
+  h: Harness,
+  profile: Profile,
+  target: { id: string; createdAt: Date | number },
+) =>
+  h.svc(
+    h.auth.issueStepUpToken(profile.accountId, "passkey", "passkey_delete", {
+      id: target.id,
+      provenance: "webauthn",
+      createdAt:
+        target.createdAt instanceof Date
+          ? Math.floor(target.createdAt.getTime() / 1000)
+          : target.createdAt,
+    }),
+  );
 
 describe("every gated route, for a logged-out session's token", () => {
   it.each(GATED.map((row, i) => [row.endpoint, row, i] as const))(
-    "%s refuses it alone, counted under its own name, and serves it with a live cookie",
+    "%s refuses it, counted under its own name, and serves it with a live cookie",
     async (endpoint, row, i) => {
       // Red on a route that names another endpoint in its gate, or that does
       // not pass the request's cookie to it: the cookie is the only thing that
@@ -1302,23 +1552,40 @@ describe("every gated route, for a logged-out session's token", () => {
       const h = makeApp();
       const profile = await registerAccount(h, `lsg-row${i}@example.com`, `lsgrow${i}`);
       const credentialId = row.passkey ? await enrolPasskey(h, profile) : null;
+      // A second credential, so the last-passkey guard never decides a row.
+      if (row.passkey) await enrolPasskey(h, profile);
       const ended = await openSession(h, profile);
       const live = await openSession(h, profile);
       await logOut(h, ended.refreshToken);
       const call = await row.prepare(h, profile, live, credentialId);
 
+      const method = call.method ?? "POST";
       staleRefusals.length = 0;
+      // The ended session's own cookie rides along, as a logged-out tab's
+      // might: it names no live session either.
       expect(
-        await answerOf(await post(h, call.path, { token: ended.accessToken, body: call.body })),
+        await answerOf(
+          await send(h, method, call.path, {
+            token: ended.accessToken,
+            cookie: cookieFor(ended.refreshToken),
+            body: call.body,
+            headers: call.headers,
+          }),
+        ),
       ).toEqual(REFUSED);
       expect(staleRefusals).toEqual([endpoint]);
 
-      const served = await post(h, call.path, {
+      // Served with the same body, and so the same step-up token: the
+      // refusal spent nothing.
+      const served = await send(h, method, call.path, {
         token: ended.accessToken,
         cookie: cookieFor(live.refreshToken),
         body: call.body,
+        headers: call.headers,
       });
       expect(served.status).toBe(call.ok);
+      const servedBody = call.served === undefined ? undefined : await served.json();
+      expect(servedBody).toEqual(call.served);
       // A change of address revokes every session but the caller's device:
       // the one the cookie named stays.
       expect(await sessionIds(h, profile)).toContain(h.auth.hashSessionToken(live.refreshToken));
@@ -1345,6 +1612,17 @@ describe("every gated route, for a logged-out session's token", () => {
       totp_enroll_complete: true,
       passkey_register_begin: true,
       oidc_client_create: true,
+      account_delete: true,
+      account_restore: true,
+      account_export: true,
+      security_event_ack: true,
+      security_event_ack_all: true,
+      totp_disable: true,
+      passkey_rename: true,
+      passkey_delete: true,
+      session_revoke: true,
+      session_revoke_others: true,
+      oidc_connections_revoke: true,
     };
     expect(GATED.map((r) => r.endpoint).toSorted()).toEqual(Object.keys(every).toSorted());
   });
@@ -1370,5 +1648,139 @@ describe("when the cookie and the token's binding name two live sessions", () =>
     expect(claims.sessionBinding).toBe(
       deriveSessionBinding(h.auth.hashSessionToken(b.refreshToken), profile.id),
     );
+  });
+});
+
+describe("the revocation routes, and the sessions they spare", () => {
+  it("sign-out-everywhere refused for a logged-out session revokes nothing", async () => {
+    // Red on moving the gate after the revoke in POST /sessions/revoke-all-other.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-rao@example.com", "lsgrao");
+    expect(
+      await answerOf(
+        await post(h, "/sessions/revoke-all-other", {
+          token: ended.accessToken,
+          cookie: cookieFor(ended.refreshToken),
+        }),
+      ),
+    ).toEqual(REFUSED);
+    expect(await sessionIds(h, profile)).toContain(h.auth.hashSessionToken(live.refreshToken));
+  });
+
+  it("revoking one session, refused for a logged-out session, revokes nothing", async () => {
+    // Red on moving the gate after the revoke in DELETE /sessions/:id.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-rv1@example.com", "lsgrv1");
+    const handle = sessionHandleFromHash(h.auth.hashSessionToken(live.refreshToken));
+    expect(
+      await answerOf(await send(h, "DELETE", `/sessions/${handle}`, { token: ended.accessToken })),
+    ).toEqual(REFUSED);
+    expect(await sessionIds(h, profile)).toContain(h.auth.hashSessionToken(live.refreshToken));
+  });
+
+  it("sign-out-everywhere with a stale cookie spares the session the token is bound to", async () => {
+    // Red on sparing the raw cookie's session: a cookie naming no live session
+    // spares nothing, and the caller's own device goes with the rest.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-ras@example.com", "lsgras");
+    const other = await openSession(h, profile);
+
+    const res = await post(h, "/sessions/revoke-all-other", {
+      token: live.accessToken,
+      cookie: cookieFor(ended.refreshToken),
+    });
+    expect(res.status).toBe(200);
+    const left = await sessionIds(h, profile);
+    expect(left).toContain(h.auth.hashSessionToken(live.refreshToken));
+    expect(left).not.toContain(h.auth.hashSessionToken(other.refreshToken));
+  });
+
+  it("sign-out-everywhere serves a caller named by its token's binding alone", async () => {
+    // Red on refusing a request that carries no session cookie: a caller whose
+    // token is bound to a live session (a native client) may sign every other
+    // session out, and keeps its own.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-rat@example.com", "lsgrat");
+    const caller = await openSession(h, profile);
+    const other = await openSession(h, profile);
+
+    const res = await post(h, "/sessions/revoke-all-other", { token: caller.accessToken });
+    expect(res.status).toBe(200);
+    const left = await sessionIds(h, profile);
+    expect(left).toContain(h.auth.hashSessionToken(caller.refreshToken));
+    expect(left).not.toContain(h.auth.hashSessionToken(other.refreshToken));
+  });
+
+  it("sign-out-everywhere refuses a logged-out session's token sent with no cookie", async () => {
+    // Red on answering anything but the session check to a token-only caller
+    // whose session has ended, or on revoking for it.
+    const h = makeApp();
+    const { profile, ended, live } = await endedAndLive(h, "lsg-rad@example.com", "lsgrad");
+    staleRefusals.length = 0;
+    expect(
+      await answerOf(await post(h, "/sessions/revoke-all-other", { token: ended.accessToken })),
+    ).toEqual(REFUSED);
+    expect(staleRefusals).toEqual(["session_revoke_others"]);
+    expect(await sessionIds(h, profile)).toContain(h.auth.hashSessionToken(live.refreshToken));
+  });
+
+  it("an account deletion keeps the session the gate found as its cancel handle", async () => {
+    // Red on taking the cancel handle from the raw cookie: a caller admitted by
+    // its token's binding alone sends none, and the deletion's sweep signs out
+    // the very device that could cancel it.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-del@example.com", "lsgdel");
+    const caller = await openSession(h, profile);
+    const other = await openSession(h, profile);
+
+    const res = await send(h, "DELETE", "/account", {
+      token: caller.accessToken,
+      body: {
+        confirm_handle: profile.handle,
+        step_up_token: await h.svc(
+          h.auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+        ),
+      },
+    });
+    expect(res.status).toBe(202);
+    const left = await sessionIds(h, profile);
+    expect(left).toContain(h.auth.hashSessionToken(caller.refreshToken));
+    expect(left).not.toContain(h.auth.hashSessionToken(other.refreshToken));
+  });
+});
+
+describe("a restricted recovery session that has ended", () => {
+  it("cannot begin passkey registration, and its step-up token stays unspent", async () => {
+    // Red on letting a restricted caller whose session names no row through to
+    // the step-up check: the token would be spent before any refusal.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-rpr@example.com", "lsgrpr");
+    await enrolPasskey(h, profile);
+    const recovery = await recoverySessionFor(h, profile);
+    await h.db
+      .delete(sessions)
+      .where(eq(sessions.id, h.auth.hashSessionToken(recovery.refreshToken)));
+    const stepUp = await h.svc(
+      h.auth.issueStepUpToken(profile.accountId, "passkey", "passkey_register"),
+    );
+
+    staleRefusals.length = 0;
+    expect(
+      await answerOf(
+        await post(h, "/passkey/register/begin", {
+          token: recovery.accessToken,
+          cookie: cookieFor(recovery.refreshToken),
+          body: { profileId: profile.id, step_up_token: stepUp },
+        }),
+      ),
+    ).toEqual(REFUSED);
+    expect(staleRefusals).toEqual(["passkey_register_begin"]);
+
+    const live = await openSession(h, profile);
+    const begun = await post(h, "/passkey/register/begin", {
+      token: live.accessToken,
+      body: { profileId: profile.id, step_up_token: stepUp },
+    });
+    expect(begun.status).toBe(200);
   });
 });

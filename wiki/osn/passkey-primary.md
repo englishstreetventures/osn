@@ -14,7 +14,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-13
 ---
 
 # Passkey-Primary Login
@@ -49,7 +49,7 @@ holds from registration to deletion:
   codes are NOT a substitute credential — they are the "my device is gone"
   escape hatch only.
 - **Rotation.** Users who want to remove a compromised passkey enrol the
-  replacement first via Settings → Security → "Add passkey", then delete
+  replacement first via Settings → Security → "Add a passkey", then remove
   the old one. The add-passkey flow is step-up gated (passkey or OTP AMR)
   so a stolen access token can't silently bind a new authenticator — see
   "Step-up gating on register" below.
@@ -83,7 +83,8 @@ UI surface (`@osn/auth-ui`):
   first-credential enrolment succeeds.
 - `<PasskeysView>` (`@osn/auth-ui/PasskeysView`) — Settings → Security
   surface. Lists the account's credentials; supports rename (step-up
-  gated), delete (last-passkey guarded), and **Add passkey** (step-up
+  gated), remove (last-passkey guarded; the step-up sheet asks first,
+  titled "Remove {name}?"), and **Add a passkey** (step-up
   gated via the same `/passkey/register/*` endpoints the registration
   flow uses). `@musubi/social` mounts it behind a lazy-loaded
   `SecuritySection` so `@simplewebauthn/browser` only ships when the tab
@@ -113,7 +114,10 @@ UI surface (`@osn/auth-ui`):
 factor and nothing else: the passkey factor is unaffected, and the
 authenticator-app factor stays on offer wherever the ceremony and the account
 allow it. With it set the dialog also auto-starts the passkey ceremony on
-mount, since there is no factor picker to show first.
+mount, since there is no factor picker to show first — except when the host
+gives a `warning` (a removal): then the sheet shows its factors and waits for
+a press, because the warning is the only confirmation before the removal and
+the browser's prompt would cover it.
 
 The reason is the whole reason the prop exists. It is there so an OTP step-up
 cannot dead-end on a code that never arrives — and a TOTP code has no delivery
@@ -146,7 +150,7 @@ That table mirrors the **defaults** in `osn/api/src/services/auth/context.ts`;
 three of the four allow-lists are `AuthConfig` fields, so a deployment that
 narrows one reintroduces a dead end the UI cannot see. No deployment sets them.
 
-The dialog offers "Use email instead" only where the purpose admits it, and
+The dialog offers "Email me a link" only where the purpose admits it, and
 never for passkey rename and delete, whose gate is `["webauthn"]`: there the
 link would arrive and the action would still fail. The emailed link needs a
 `purpose`, which it fixes when it is sent ([[email-links#Step-up]]). The
@@ -206,7 +210,9 @@ of the account, named by its session cookie or its token's `osn_sid`, or the
 answer is `409 session_stale` before the account's one parked registration
 challenge is touched ([[sessions#Access-token session binding (`osn_sid`)]]).
 A restricted recovery session is checked by `classifyCallerSession` instead,
-on both routes, since the live-session check refuses restricted sessions.
+on both routes, since the live-session check refuses restricted sessions; on
+begin, one that lookup does not resolve is refused `409 session_stale` before
+its step-up token is read.
 
 Since the credential-provenance work, `/passkey/register/begin` also decides
 what the credential it is about to create will be **stamped** with — the

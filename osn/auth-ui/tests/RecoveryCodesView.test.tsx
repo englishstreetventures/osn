@@ -1,12 +1,17 @@
 import type { RecoveryClient, StepUpClient } from "@osn/client";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 // @vitest-environment happy-dom
-import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/testing-library";
 import { Suspense } from "solid-js";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { RecoveryCodesView, recoveryCodesFileName } from "../src/RecoveryCodesView";
 import { WAIT, alertsText, apiError } from "./helpers/errors";
+import { withoutAnimations } from "./helpers/motion";
+
+// The step-up sheet closes at once, as under reduced motion, and hands its
+// outcome over then (`helpers/motion.ts`).
+withoutAnimations();
 
 /**
  * Show-once recovery-code view. Tests cover:
@@ -90,18 +95,21 @@ const sampleCodes = [
 let stub: ClientStub;
 let stepUp: StepUpStub;
 
-/** Renders in passkey-only mode, so the dialog auto-runs the ceremony. */
 function renderView(extra: Record<string, unknown> = {}) {
   return render(() => (
     <RecoveryCodesView
       client={asClient(stub)}
       stepUpClient={asStepUp(stepUp)}
       runPasskeyCeremony={async () => assertion}
-      passkeyOnly
       productName="Musubi"
       {...extra}
     />
   ));
+}
+
+/** Picks the step-up sheet's passkey factor once the sheet is up. */
+async function usePasskey() {
+  fireEvent.click(await screen.findByRole("button", { name: "Use passkey" }));
 }
 
 /**
@@ -156,6 +164,7 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => {
       for (const code of sampleCodes) {
         expect(screen.getByText(code)).toBeTruthy();
@@ -201,9 +210,37 @@ describe("RecoveryCodesView", () => {
     await clickGenerate(/Generate new codes/i);
     await waitFor(() => screen.getByRole("button", { name: /Generate new set/i }));
     fireEvent.click(screen.getByRole("button", { name: /Generate new set/i }));
+    await usePasskey();
 
     await waitFor(() => expect(screen.getByText(sampleCodes[0]!)).toBeTruthy());
     expect(stepUp.passkeyBegin).toHaveBeenCalled();
+  });
+
+  // The confirm dialog closes in the same tick the step-up sheet opens, so two
+  // modal layers overlap for the length of the confirm's exit.
+  it("opens the step-up sheet from the rotation dialog, and Escape leaves the set untouched", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    renderView();
+
+    await clickGenerate(/Generate new codes/i);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    const sheet = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(within(sheet).getByRole("button", { name: "Use passkey" })).toBeTruthy();
+    fireEvent.keyDown(sheet, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull(),
+    );
+    const generate = screen.getByRole("button", {
+      name: /Generate new codes/i,
+    }) as HTMLButtonElement;
+    expect(generate.disabled).toBe(false);
+    expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
+    expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
   });
 
   // The generate holds focus through the wait: `busy`, not `disabled`.
@@ -211,6 +248,7 @@ describe("RecoveryCodesView", () => {
     stub.generateRecoveryCodes.mockReturnValue(new Promise(() => {}));
     renderView();
     await clickGenerate();
+    await usePasskey();
     const generating = await screen.findByRole("button", { name: "Generating…" });
     expect(generating.getAttribute("aria-busy")).toBe("true");
     expect((generating as HTMLButtonElement).disabled).toBe(false);
@@ -224,6 +262,7 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => screen.getByRole("button", { name: /^Done$/ }));
 
     const done = screen.getByRole("button", { name: /^Done$/ }) as HTMLButtonElement;
@@ -247,6 +286,7 @@ describe("RecoveryCodesView", () => {
     renderView({ productName: "Acme" });
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => screen.getByText(sampleCodes[0]!));
     fireEvent.click(screen.getByRole("button", { name: /Download \.txt/ }));
 
@@ -259,6 +299,7 @@ describe("RecoveryCodesView", () => {
     renderView({ onSaved });
 
     await clickGenerate();
+    await usePasskey();
     await waitFor(() => screen.getByText(sampleCodes[0]!));
 
     fireEvent.click(screen.getByRole("checkbox"));
@@ -276,6 +317,7 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await clickGenerate();
+    await usePasskey();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(WAIT);
     expect(alertsText()).not.toContain("PLANTED");
@@ -291,6 +333,7 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await clickGenerate();
+    await usePasskey();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Something went wrong. Try again.");
     expect(alertsText()).not.toContain("PLANTED");
@@ -302,13 +345,14 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await waitFor(() => {
-      expect(screen.getByText(/Couldn't check whether you have recovery codes/i)).toBeTruthy();
+      expect(screen.getByText(/Your recovery codes didn't load/i)).toBeTruthy();
     });
     // An unreadable count is treated conservatively as "might have codes", so
     // the rotation dialog gates generation — confirm it to proceed.
     await clickGenerate();
     await waitFor(() => screen.getByRole("button", { name: /Generate new set/i }));
     fireEvent.click(screen.getByRole("button", { name: /Generate new set/i }));
+    await usePasskey();
     await waitFor(() => screen.getByText(sampleCodes[0]!));
   });
 
@@ -320,7 +364,7 @@ describe("RecoveryCodesView", () => {
     renderView();
 
     await waitFor(() => {
-      expect(screen.getByText(/Couldn't check whether you have recovery codes/i)).toBeTruthy();
+      expect(screen.getByText(/Your recovery codes didn't load/i)).toBeTruthy();
     });
     // An unreadable count is treated as "might have codes", so the confirmation
     // dialog must still gate the ceremony.
@@ -329,6 +373,34 @@ describe("RecoveryCodesView", () => {
 
     expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
     expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
+  });
+
+  // A failed status read is the panel's own line, never a throw into the
+  // host's boundary, and its Try again reads the status again.
+  it("says a failed status read in its place, with a Try again, and keeps the panel", async () => {
+    stub.getRecoveryCodesStatus
+      .mockRejectedValueOnce(apiError("PLANTED-status", 503, "unavailable"))
+      .mockResolvedValue({ active: 4, total: 10, generatedAt: 1_750_000_000 });
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <RecoveryCodesView
+          client={asClient(stub)}
+          stepUpClient={asStepUp(stepUp)}
+          runPasskeyCeremony={async () => assertion}
+          productName="Musubi"
+        />
+      </Suspense>
+    ));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Your recovery codes didn't load.");
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("button", { name: /Generate/ })).toBeTruthy();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByText(/4 of 10 codes unused/)).toBeTruthy());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("holds the generate button until the status read settles", async () => {
@@ -387,7 +459,6 @@ describe("RecoveryCodesView — under a host's Suspense", () => {
           client={asClient(stub)}
           stepUpClient={asStepUp(stepUp)}
           runPasskeyCeremony={async () => assertion}
-          passkeyOnly
           productName="Musubi"
         />
       </Suspense>
@@ -412,6 +483,7 @@ describe("RecoveryCodesView — under a host's Suspense", () => {
 
     await clickGenerate(/Generate new codes/i);
     fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    await usePasskey();
     await screen.findByText(sampleCodes[0]!);
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /^Done$/ }));

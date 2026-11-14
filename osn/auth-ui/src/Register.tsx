@@ -18,6 +18,7 @@ import { UsernameInput } from "@shared/ui/ui/username-input";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import { createEffect, createSignal, createUniqueId, on, Show, onCleanup, onMount } from "solid-js";
 
+import { AuthHeader } from "./AuthHeader";
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy } from "./error-lines";
 import { describePasskeyError } from "./passkey-errors";
@@ -67,7 +68,20 @@ function ageInYears(birthdate: string): number {
 
 interface RegisterProps {
   client: RegistrationClient;
+  /** Called by the header's Cancel. */
   onCancel: () => void;
+  /**
+   * Cancel's words where going back means something else, such as "Sign in
+   * instead" where Cancel takes a create-account view back to sign-in. See
+   * `AuthHeader`.
+   */
+  cancelLabel?: string;
+  /**
+   * What the view is mounted in: `"dialog"` inside `@shared/ui`'s `Dialog`,
+   * whose name its title becomes; `"page"` on a page such as `/authorize`,
+   * with no padding at the sides. See `AuthHeader`.
+   */
+  host: "dialog" | "page";
   /**
    * Fired once the account exists and its first passkey is enrolled — i.e.
    * the session is fully usable. Consumers that own navigation (e.g. a
@@ -78,7 +92,7 @@ interface RegisterProps {
   /**
    * Cloudflare Turnstile sitekey (public, build-time). When provided, the
    * "details" step renders the Turnstile challenge and gates "Send verification
-   * code" on it (the token rides on `/register/begin`). Omitted/blank ⇒ no
+   * link" on it (the token rides on `/register/begin`). Omitted/blank ⇒ no
    * widget, no gate (key-optional — matches osn-api skipping siteverify).
    */
   turnstileSiteKey?: string;
@@ -588,210 +602,205 @@ export function Register(props: RegisterProps) {
   }
 
   return (
-    <div class="mx-auto max-w-sm px-4 py-8">
-      <div class="mb-6 flex items-center justify-between">
-        <h2 class="text-foreground text-2xl font-bold">Create your {props.productName} account</h2>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={cancel}
-          disabled={sending() || resending() || enrolling()}
-        >
-          Cancel
-        </Button>
-      </div>
-
-      {/* Gate the flow behind WebAuthn support: registration demands an
+    <div class="flex flex-col">
+      <AuthHeader
+        host={props.host}
+        title={`Create your ${props.productName} account`}
+        onCancel={cancel}
+        cancelLabel={props.cancelLabel}
+        cancelDisabled={sending() || resending() || enrolling()}
+      />
+      <div class={props.host === "dialog" ? "p-4" : "pt-6"}>
+        {/* Gate the flow behind WebAuthn support: registration demands an
           enrolled passkey or security key, so there is no path forward from
           a browser without WebAuthn. */}
-      <Show
-        when={webauthnSupported}
-        fallback={
-          <div class="flex flex-col gap-4">
-            <p class="text-muted-foreground text-sm">
+        <Show
+          when={webauthnSupported}
+          fallback={
+            <Notice tone="info" size="sm">
               Creating an account on {props.productName} needs a passkey or security key — something
               this browser doesn&apos;t support. Try a device with WebAuthn (iOS 16+, Android 9+, a
               recent desktop browser), or plug in a FIDO2 security key.
-            </p>
-          </div>
-        }
-      >
-        <Show when={step() === "details"}>
-          <form onSubmit={submitDetails} class="flex flex-col gap-4">
-            {/* A bare Label: the "i" beside it is a button, which a label
+            </Notice>
+          }
+        >
+          <Show when={step() === "details"}>
+            <form onSubmit={submitDetails} class="flex flex-col gap-4">
+              {/* A bare Label: the "i" beside it is a button, which a label
                 cannot hold, so this field is wired by hand. */}
-            <div class="flex flex-col gap-1.5">
-              <div class="flex items-center">
-                <Label for={emailId}>Email</Label>
-                <InfoPopover
-                  label="What this address is used for"
-                  glyph="i"
-                  placement="top"
-                  body={emailUses()}
+              <div class="flex flex-col gap-1.5">
+                <div class="flex items-center">
+                  <Label for={emailId}>Email</Label>
+                  <InfoPopover
+                    label="What this address is used for"
+                    glyph="i"
+                    placement="top"
+                    body={emailUses()}
+                  />
+                </div>
+                <Input
+                  id={emailId}
+                  type="email"
+                  required
+                  autocomplete="email"
+                  value={email()}
+                  onInput={(e) => setEmail(e.currentTarget.value)}
+                  onBlur={() => setEmailLeft(true)}
+                  aria-describedby={emailMalformed() ? emailErrorId : undefined}
+                  aria-invalid={emailMalformed() || undefined}
                 />
-              </div>
-              <Input
-                id={emailId}
-                type="email"
-                required
-                autocomplete="email"
-                value={email()}
-                onInput={(e) => setEmail(e.currentTarget.value)}
-                onBlur={() => setEmailLeft(true)}
-                aria-describedby={emailMalformed() ? emailErrorId : undefined}
-                aria-invalid={emailMalformed() || undefined}
-              />
-              <Show when={emailMalformed()}>
-                <Notice tone="danger" size="inline" alert id={emailErrorId}>
-                  Please enter a valid email address
-                </Notice>
-              </Show>
-              {/* The browser Email Verification API field: hidden, filled by a
+                <Show when={emailMalformed()}>
+                  <Notice tone="danger" size="inline" alert id={emailErrorId}>
+                    Please enter a valid email address
+                  </Notice>
+                </Show>
+                {/* The browser Email Verification API field: hidden, filled by a
                   browser that has the API when the form is submitted. */}
-              <Show when={verificationNonce()} keyed>
-                {(minted) => (
-                  <input
-                    ref={verificationField}
-                    type="hidden"
-                    name="email-verification-token"
-                    autocomplete="email-verification-token"
-                    nonce={minted.nonce}
+                <Show when={verificationNonce()} keyed>
+                  {(minted) => (
+                    <input
+                      ref={verificationField}
+                      type="hidden"
+                      name="email-verification-token"
+                      autocomplete="email-verification-token"
+                      nonce={minted.nonce}
+                    />
+                  )}
+                </Show>
+              </div>
+
+              <Field labelTreatment="plain" label="Handle">
+                {(field) => (
+                  <>
+                    <UsernameInput
+                      {...field}
+                      ref={handleField}
+                      required
+                      spellcheck={false}
+                      value={handle()}
+                      onInput={onHandleInput}
+                      aria-describedby={describedBy(
+                        field["aria-describedby"],
+                        handleTaken() && handleTakenId,
+                      )}
+                      aria-invalid={handleTaken() || undefined}
+                      status={handleStatus()}
+                      placeholder="lowercase, numbers, _"
+                      invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
+                    />
+                    <Show when={handleTaken()}>
+                      <Notice tone="danger" size="inline" alert id={handleTakenId}>
+                        {CONFLICT_LINE}
+                      </Notice>
+                    </Show>
+                  </>
+                )}
+              </Field>
+
+              {/* The hint goes once a date is in; the under-13 line comes with one. */}
+              <Field
+                labelTreatment="plain"
+                label="Date of birth"
+                hint={birthdate() ? undefined : "You must be 13 or older to create an account."}
+              >
+                {(field) => (
+                  <>
+                    <Input
+                      id={field.id}
+                      type="date"
+                      required
+                      autocomplete="bday"
+                      value={birthdate()}
+                      onInput={(e) => setBirthdate(e.currentTarget.value)}
+                      aria-describedby={describedBy(
+                        field["aria-describedby"],
+                        underAge() && birthdateErrorId,
+                      )}
+                      aria-invalid={underAge() || undefined}
+                    />
+                    <Show when={underAge()}>
+                      <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
+                        {props.productName} is for users 13 and older
+                      </Notice>
+                    </Show>
+                  </>
+                )}
+              </Field>
+
+              <Field labelTreatment="plain" label="Display name (optional)">
+                {(field) => (
+                  <Input
+                    {...field}
+                    type="text"
+                    value={displayName()}
+                    onInput={(e) => setDisplayName(e.currentTarget.value)}
                   />
                 )}
+              </Field>
+
+              {/* Turnstile challenge — renders only when a sitekey is provided. */}
+              <TurnstileWidget
+                siteKey={props.turnstileSiteKey}
+                onToken={setTurnstileToken}
+                onReady={(c) => (resetTurnstile = c.reset)}
+              />
+
+              <Show when={detailsError()}>
+                {(msg) => (
+                  <Notice tone="danger" size="inline" alert>
+                    {msg()}
+                  </Notice>
+                )}
               </Show>
-            </div>
-
-            <Field labelTreatment="plain" label="Handle">
-              {(field) => (
-                <>
-                  <UsernameInput
-                    {...field}
-                    ref={handleField}
-                    required
-                    spellcheck={false}
-                    value={handle()}
-                    onInput={onHandleInput}
-                    aria-describedby={describedBy(
-                      field["aria-describedby"],
-                      handleTaken() && handleTakenId,
-                    )}
-                    aria-invalid={handleTaken() || undefined}
-                    status={handleStatus()}
-                    placeholder="lowercase, numbers, _"
-                    invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
-                  />
-                  <Show when={handleTaken()}>
-                    <Notice tone="danger" size="inline" alert id={handleTakenId}>
-                      {CONFLICT_LINE}
-                    </Notice>
-                  </Show>
-                </>
-              )}
-            </Field>
-
-            {/* The hint goes once a date is in; the under-13 line comes with one. */}
-            <Field
-              labelTreatment="plain"
-              label="Date of birth"
-              hint={birthdate() ? undefined : "You must be 13 or older to create an account."}
-            >
-              {(field) => (
-                <>
-                  <Input
-                    id={field.id}
-                    type="date"
-                    required
-                    autocomplete="bday"
-                    value={birthdate()}
-                    onInput={(e) => setBirthdate(e.currentTarget.value)}
-                    aria-describedby={describedBy(
-                      field["aria-describedby"],
-                      underAge() && birthdateErrorId,
-                    )}
-                    aria-invalid={underAge() || undefined}
-                  />
-                  <Show when={underAge()}>
-                    <Notice tone="danger" size="inline" alert id={birthdateErrorId}>
-                      {props.productName} is for users 13 and older
-                    </Notice>
-                  </Show>
-                </>
-              )}
-            </Field>
-
-            <Field labelTreatment="plain" label="Display name (optional)">
-              {(field) => (
-                <Input
-                  {...field}
-                  type="text"
-                  value={displayName()}
-                  onInput={(e) => setDisplayName(e.currentTarget.value)}
-                />
-              )}
-            </Field>
-
-            {/* Turnstile challenge — renders only when a sitekey is provided. */}
-            <TurnstileWidget
-              siteKey={props.turnstileSiteKey}
-              onToken={setTurnstileToken}
-              onReady={(c) => (resetTurnstile = c.reset)}
-            />
-
-            <Show when={detailsError()}>
-              {(msg) => (
-                <Notice tone="danger" size="inline" alert>
-                  {msg()}
-                </Notice>
-              )}
-            </Show>
-            {/* Invalid only while idle: the send spends the token, and a
+              {/* Invalid only while idle: the send spends the token, and a
                 refused one drops it before the wait ends. */}
-            <Button type="submit" busy={sending()} disabled={!sending() && !detailsValid()}>
-              {sending() ? "Sending…" : "Send verification link"}
-            </Button>
-          </form>
-        </Show>
+              <Button type="submit" busy={sending()} disabled={!sending() && !detailsValid()}>
+                {sending() ? "Sending…" : "Send verification link"}
+              </Button>
+            </form>
+          </Show>
 
-        <Show when={step() === "verify" ? waiting() : null}>
-          {(request) => (
-            <CheckEmailView
-              purpose="sign-up"
-              productName={props.productName}
-              email={request().email}
-              pairingCode={pairingCode()}
-              status={linkStatus()}
-              errorMessage={linkError()}
-              onResend={resendLink}
-              onChangeEmail={backToDetails}
-            />
-          )}
-        </Show>
+          <Show when={step() === "verify" ? waiting() : null}>
+            {(request) => (
+              <CheckEmailView
+                purpose="sign-up"
+                productName={props.productName}
+                email={request().email}
+                pairingCode={pairingCode()}
+                status={linkStatus()}
+                errorMessage={linkError()}
+                onResend={resendLink}
+                onChangeEmail={backToDetails}
+              />
+            )}
+          </Show>
 
-        <Show when={step() === "passkey"}>
-          <div class="flex flex-col gap-4">
-            <p class="text-muted-foreground text-sm">
-              Enroll a passkey or security key so you can sign back in. This is required to finish
-              creating your account.
+          <Show when={step() === "passkey"}>
+            <div class="flex flex-col gap-4">
+              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+                Add a passkey or security key so you can sign back in. This is required to finish
+                creating your account.
+              </p>
+              <Show when={passkeyError()}>
+                {(msg) => (
+                  <Notice tone="danger" size="inline" alert>
+                    {msg()}
+                  </Notice>
+                )}
+              </Show>
+              <Button onClick={enrollPasskey} busy={enrolling()}>
+                {enrolling() ? "Waiting for your passkey…" : "Add a passkey"}
+              </Button>
+            </div>
+          </Show>
+
+          <Show when={step() === "done"}>
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+              You&apos;re all set. Loading {props.productName}…
             </p>
-            <Show when={passkeyError()}>
-              {(msg) => (
-                <Notice tone="danger" size="inline" alert>
-                  {msg()}
-                </Notice>
-              )}
-            </Show>
-            <Button onClick={enrollPasskey} busy={enrolling()}>
-              {enrolling() ? "Setting up…" : "Enroll credential"}
-            </Button>
-          </div>
+          </Show>
         </Show>
-
-        <Show when={step() === "done"}>
-          <p class="text-muted-foreground text-sm">
-            You&apos;re all set. Loading {props.productName}…
-          </p>
-        </Show>
-      </Show>
+      </div>
     </div>
   );
 }

@@ -50,8 +50,10 @@ export default function SecuritySection(props: SecuritySectionProps) {
 
       <section class="flex flex-col gap-4 border-t pt-8">
         <div class="flex flex-col gap-1">
-          <h2 class="text-lg font-semibold">Recovery codes</h2>
-          <p class="text-muted-foreground text-sm">
+          {/* The panels' own headings' look: `text-ui-md` at the title weight
+              is `text-title` at 500 here. */}
+          <h2 class="text-foreground text-title font-medium">Recovery codes</h2>
+          <p class="text-muted-foreground text-body">
             Keep a set somewhere away from your devices — a recovery code works when every other way
             back in is gone.
           </p>
