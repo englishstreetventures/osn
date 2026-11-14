@@ -259,13 +259,13 @@ describe("TurnstileWidget — a challenge that fails to load", () => {
       <TurnstileWidget
         siteKey="0x4AAAtest"
         onToken={() => {}}
-        alternative="Signing in with a recovery code doesn't need this challenge."
+        alternative="Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”."
       />
     ));
     scripts[0]!.dispatchEvent(new Event("error"));
     const alert = await screen.findByRole("alert");
     expect(lineText(alert)).toBe(
-      `${CAUSES} Signing in with a recovery code doesn't need this challenge. Try again`,
+      `${CAUSES} Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”. Try again`,
     );
   });
 });

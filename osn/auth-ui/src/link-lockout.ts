@@ -59,6 +59,7 @@ function span(ms: number): string {
 export function lockoutRule(purpose: CheckEmailPurpose): string {
   const rule = LINK_LOCKOUT[purpose];
   const window = span(rule.windowMs);
-  const links = rule.scope === "address" ? "links to this address" : "links like this one";
+  const links =
+    rule.scope === "address" ? "links to this address" : "links like this one for this account";
   return `After ${rule.wrong} wrong numbers in ${window}, ${links} stop for up to ${window}.`;
 }

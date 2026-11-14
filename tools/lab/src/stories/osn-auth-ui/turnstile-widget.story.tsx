@@ -110,7 +110,7 @@ export const FailedWithAlternative = state(
   </>,
   () => (
     <WithStandIn api={standIn(2)}>
-      <Form alternative="Signing in with a recovery code doesn't need this challenge." />
+      <Form alternative="Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”." />
     </WithStandIn>
   ),
 );

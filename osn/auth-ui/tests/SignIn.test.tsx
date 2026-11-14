@@ -363,7 +363,7 @@ describe("SignIn component", () => {
       ));
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain(
-        "Signing in with a recovery code doesn't need this challenge.",
+        "Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”.",
       );
     });
 

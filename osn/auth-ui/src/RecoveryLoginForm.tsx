@@ -762,7 +762,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             siteKey={props.turnstileSiteKey}
             onToken={setTurnstileToken}
             onReady={(c) => (resetTurnstile = c.reset)}
-            alternative="A recovery code doesn't need this challenge: go back and choose Use a recovery code."
+            alternative="A recovery code doesn't need this challenge: go back and choose “Use a recovery code”."
           />
           {errorLine()}
           <div class="flex gap-2">

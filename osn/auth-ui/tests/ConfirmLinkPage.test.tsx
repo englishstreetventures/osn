@@ -42,7 +42,7 @@ const STEP_UP_EXPIRED_WARNING =
 const ADDRESS_RULE = "After 3 wrong numbers in a day, links to this address stop for up to a day.";
 /** As recovery and step-up state it: per account, five in 15 minutes. */
 const ACCOUNT_RULE =
-  "After 5 wrong numbers in 15 minutes, links like this one stop for up to 15 minutes.";
+  "After 5 wrong numbers in 15 minutes, links like this one for this account stop for up to 15 minutes.";
 const RULE = {
   "sign-up": ADDRESS_RULE,
   recovery: ACCOUNT_RULE,
@@ -1491,6 +1491,20 @@ describe("ConfirmLinkPage — the rule on wrong numbers", () => {
     expect(afterPick).toEqual([EXPIRED_BODY, expiredRule("sign-up")]);
     expect(opened).toEqual(afterPick);
     expect(unofferable).toEqual(afterPick);
+  });
+
+  it("states no rule where the host cannot tell the flow", () => {
+    const { container } = render(() => (
+      <ConfirmLinkPage
+        purpose="sign-up"
+        initialOutcome="expired"
+        showLockoutRule={false}
+        onConfirm={vi.fn<OnConfirm>()}
+      />
+    ));
+    expect(heading().textContent).toBe(EXPIRED_HEADING);
+    expect(paragraph(EXPIRED_BODY)).not.toBeNull();
+    expect(container.textContent).not.toMatch(/wrong number/);
   });
 
   it.each([

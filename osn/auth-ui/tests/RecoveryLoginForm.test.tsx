@@ -369,7 +369,7 @@ describe("RecoveryLoginForm — error lines", () => {
       fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain(
-        "A recovery code doesn't need this challenge: go back and choose Use a recovery code.",
+        "A recovery code doesn't need this challenge: go back and choose “Use a recovery code”.",
       );
       expect(
         (screen.getByRole("button", { name: /Send the link/i }) as HTMLButtonElement).disabled,

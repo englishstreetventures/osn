@@ -66,6 +66,12 @@ interface ConfirmLinkPageCommonProps {
    * carry on in this tab. Absent, the page sends them back to where they began.
    */
   onContinue?: () => void;
+  /**
+   * `false` where the host cannot tell which flow the link belongs to, as for
+   * a link whose id names none: the page then states no lockout rule, since
+   * each flow's differs. Absent, the page states `purpose`'s.
+   */
+  showLockoutRule?: boolean;
 }
 
 /**
@@ -167,8 +173,7 @@ const IF_NOT_ASKED = {
  * flow's lockout rule. The same on every expired page, so it says the rule and
  * never whether a number was wrong or a lockout holds.
  */
-const expiredRule = (purpose: ConfirmLinkPurpose) =>
-  `A wrong number ends a link too. ${lockoutRule(purpose)}`;
+const expiredRule = (rule: string) => `A wrong number ends a link too. ${rule}`;
 
 /**
  * What the expired page adds for a flow whose unasked link is itself a warning:
@@ -283,6 +288,9 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
   const [entry, setEntry] = createSignal("");
 
   const ruleId = createUniqueId();
+
+  /** The flow's lockout rule, or nothing where the host cannot tell the flow. */
+  const rule = () => (props.showLockoutRule === false ? undefined : lockoutRule(props.purpose));
 
   const usable = createMemo(() => offerable(props.candidates));
 
@@ -439,9 +447,15 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
       case "declined":
         return `${DECLINED_HEADING}. ${DECLINED_BODY[props.purpose]}`;
       case "expired": {
-        const warning = EXPIRED_WARNING[props.purpose];
-        const said = `${EXPIRED_HEADING}. ${EXPIRED_BODY[props.purpose]} ${expiredRule(props.purpose)}`;
-        return warning ? `${said} ${warning}` : said;
+        const stated = rule();
+        return [
+          `${EXPIRED_HEADING}.`,
+          EXPIRED_BODY[props.purpose],
+          stated && expiredRule(stated),
+          EXPIRED_WARNING[props.purpose],
+        ]
+          .filter(Boolean)
+          .join(" ");
       }
     }
   };
@@ -495,9 +509,13 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
                 {EXPIRED_BODY[props.purpose]}
               </p>
-              <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
-                {expiredRule(props.purpose)}
-              </p>
+              <Show when={rule()}>
+                {(stated) => (
+                  <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
+                    {expiredRule(stated())}
+                  </p>
+                )}
+              </Show>
               <Show when={EXPIRED_WARNING[props.purpose]}>
                 {(warning) => (
                   <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{warning()}</p>
@@ -514,15 +532,27 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               <div class="flex flex-col gap-2">
                 {/* One column at every width: a number runs to six digits, and
                     five of them do not fit a row of the card. */}
-                <fieldset class="flex min-w-0 flex-col gap-2" aria-describedby={ruleId}>
-                  <legend class="text-ui-sm text-ui-ink-secondary leading-ui-snug mb-2">
+                <fieldset
+                  class="flex min-w-0 flex-col gap-2"
+                  aria-describedby={rule() ? ruleId : undefined}
+                >
+                  {/* With a rule under it, the instruction sits 6px over it, as
+                      a Field's label sits over what it names, and the rule 8px
+                      over the numbers. */}
+                  <legend
+                    class={`text-ui-sm text-ui-ink-secondary leading-ui-snug ${rule() ? "mb-1.5" : "mb-2"}`}
+                  >
                     {PICK_LINE}
                   </legend>
                   {/* Field's hint, under the instruction rather than under the
                       numbers, so it is read before a pick. */}
-                  <p id={ruleId} class="text-ui-xs text-ui-ink-secondary leading-ui-snug">
-                    {lockoutRule(props.purpose)}
-                  </p>
+                  <Show when={rule()}>
+                    {(stated) => (
+                      <p id={ruleId} class="text-ui-xs text-ui-ink-secondary leading-ui-snug">
+                        {stated()}
+                      </p>
+                    )}
+                  </Show>
                   <For each={props.candidates}>
                     {(candidate) => {
                       // A number keeps its digits while busy: the line under
@@ -556,7 +586,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               {/* A plain label, as every auth form field has. Not `OtpInput`:
                   its six boxes are a fixed length, and the number runs from
                   one digit to six, which the page does not know. */}
-              <Field labelTreatment="plain" label={TYPE_LINE} hint={lockoutRule(props.purpose)}>
+              <Field labelTreatment="plain" label={TYPE_LINE} hint={rule()}>
                 {(field) => (
                   <Input
                     {...field}

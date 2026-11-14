@@ -49,7 +49,7 @@ Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 | `SessionsView` | `client` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
 | `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode`, `productName` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
-| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
+| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue`, `showLockoutRule` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
@@ -196,8 +196,10 @@ As built:
   `flex-col gap-6` column for a bare route; the host draws the `<main>` around
   it. Its `h1` and sentences (`gap-2`); then, while it asks, a `<fieldset>`
   whose `<legend>` is the instruction, then the lockout rule as the
-  fieldset's description (`aria-describedby`), above the numbers so it is
-  read before a pick, then the numbers in one column at every width
+  fieldset's description (`aria-describedby`), 6px under the legend and 8px
+  over the numbers, as a Field's hint sits nearer what it names, and above
+  them so it is read before a pick (with no rule, the legend sits 8px over
+  the numbers), then the numbers in one column at every width
   as full-width `outline` Buttons 48px tall (`h-12`), and under them "I didn't
   ask for this" as a full-width `ghost` `sm` Button, 44px below `md`
   (`max-md:h-11`); then the line about the number picked, the slow line and
@@ -423,9 +425,12 @@ that asked." Each flow's lockout rule, built from `LINK_LOCKOUT`
 (`src/link-lockout.ts`, the numbers osn-api enforces): sign-up and email change
 "After 3 wrong numbers in a day, links to this address stop for up to a day.";
 recovery and step-up "After 5 wrong numbers in 15 minutes, links like this one
-stop for up to 15 minutes." Fixed copy, the same whatever happened: it states
-the rule, never whether a number was wrong or a lockout holds, so the waiting
-screen can keep answering as for an address nobody was mailed.
+for this account stop for up to 15 minutes." Fixed copy, the same whatever
+happened: it states the rule, never whether a number was wrong or a lockout
+holds, so the waiting screen can keep answering as for an address nobody was
+mailed. A host that cannot tell the flow — Musubi's card for a link whose id
+names none — passes `showLockoutRule={false}`, and the page states no rule,
+since each flow's differs.
 
 | State | What shows |
 | --- | --- |
@@ -435,7 +440,7 @@ screen can keep answering as for an address nobody was mailed.
 | Error | The same, the numbers (typed: the field) disabled and Confirm gone, "I didn't ask for this" still open; "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again, which sends the same attempt, while the decline sends `null` as a new one |
 | Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
 | Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
-| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again." (step-up's ends "If not, go back and ask for a new link.", since its waiting screen learns of the refusal and offers one, and adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions." after the rule below). Then "A wrong number ends a link too." and the flow's lockout rule, in the card and in what the page says aloud. The same for every refusal, a list the page cannot offer included |
+| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again." (step-up's ends "If not, go back and ask for a new link.", since its waiting screen learns of the refusal and offers one, and adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions." after the rule below). Then "A wrong number ends a link too." and the flow's lockout rule (none with `showLockoutRule={false}`), in the card and in what the page says aloud. The same for every refusal, a list the page cannot offer included |
 
 **`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
 "Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
@@ -453,10 +458,10 @@ after 15 seconds, or the challenge's own error — `LoadFailed`'s line: "Couldn'
 load the verification challenge. A content blocker, a browser extension or a
 network that blocks challenges.cloudflare.com can stop it. Turn the blocker
 off for this site, or use another network.", then the host's `alternative`
-(`SignIn`: "Signing in with a recovery code doesn't need this challenge.";
-`RecoveryLoginForm`: "A recovery code doesn't need this challenge: go back and
-choose Use a recovery code."; `Register` passes none, having no way round
-it), then "Try again". Try again loads the script afresh where it failed and
+(`SignIn`: "Signing in with a recovery code doesn't need this challenge:
+choose “Lost your passkey?”."; `RecoveryLoginForm`: "A recovery code doesn't
+need this challenge: go back and choose “Use a recovery code”."; `Register`
+passes none, having no way round it), then "Try again". Try again loads the script afresh where it failed and
 renders the challenge again, with no wait of its own to show: the line goes,
 and comes back, read out again, if the next attempt fails too. The host's
 submit stays disabled until a token arrives.
@@ -693,7 +698,9 @@ no product.
 **As it stands:**
 
 - `SignIn`, `Register`, `RecoveryCodesView` and `SecurityEventsBanner` take
-  `productName`. No error line names a product: each is a sentence from §7's
+  `productName`, and so, optionally, do `CheckEmailView` (its junk-mail line)
+  and `RecoveryLoginForm` (which hands it to its wait); `Register` and `SignIn`
+  pass theirs on. No error line names a product: each is a sentence from §7's
   helpers or a view's own check.
 - The identifier: "Email or @handle" in `SignIn`; "Handle or email" in
   `RecoveryLoginForm`; "Email address on the account" on its emailed-link

@@ -59,7 +59,7 @@ const SCRIPT_HOST = new URL(SCRIPT_SRC).host;
  */
 const LOAD_DEADLINE_MS = 15_000;
 
-/** How often a load in flight looks for `window.turnstile`. */
+/** How often a loaded script is looked at for `window.turnstile`. */
 const LOAD_POLL_MS = 50;
 
 let scriptPromise: Promise<void> | null = null;
@@ -75,22 +75,27 @@ function loadTurnstileScript(): Promise<void> {
   if (scriptPromise) return scriptPromise;
   let script = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
   const attempt = new Promise<void>((resolve, reject) => {
-    const started = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onError = () => finish(new Error("turnstile script error"));
+    const deadline = setTimeout(
+      () => finish(new Error("turnstile load timeout")),
+      LOAD_DEADLINE_MS,
+    );
     function finish(error?: Error) {
       clearTimeout(timer);
+      clearTimeout(deadline);
       script?.removeEventListener("error", onError);
+      script?.removeEventListener("load", look);
       if (error) reject(error);
       else resolve();
     }
+    // Looks for `window.turnstile` once the script has run, and again every
+    // 50 ms until it appears or the deadline passes.
     function look() {
       if (getTurnstile()) return finish();
-      if (Date.now() - started >= LOAD_DEADLINE_MS) {
-        return finish(new Error("turnstile load timeout"));
-      }
       timer = setTimeout(look, LOAD_POLL_MS);
     }
+    const loading = !script;
     if (!script) {
       script = document.createElement("script");
       script.id = SCRIPT_ID;
@@ -100,7 +105,9 @@ function loadTurnstileScript(): Promise<void> {
       document.head.appendChild(script);
     }
     script.addEventListener("error", onError, { once: true });
-    look();
+    script.addEventListener("load", look, { once: true });
+    // An element already in the page may have run before this call.
+    if (!loading) look();
   });
   scriptPromise = attempt;
   // Only a load in flight is shared: once it settles, `window.turnstile`

@@ -2323,17 +2323,20 @@ in [link-lockout.ts](../../osn/auth-ui/src/link-lockout.ts), a copy of the
 numbers osn-api enforces that `tests/link-lockout.contract.test.ts` holds to
 them: sign-up and email change "After 3 wrong numbers in a day, links to this
 address stop for up to a day.", recovery and step-up "After 5 wrong numbers in
-15 minutes, links like this one stop for up to 15 minutes." It says the rule,
-never whether a number was wrong or a lockout holds, so the waiting screen in
-the tab that began can go on answering as for an address nobody was mailed
-([[email-links]]).
+15 minutes, links like this one for this account stop for up to 15 minutes." It
+says the rule, never whether a number was wrong or a lockout holds, so the
+waiting screen in the tab that began can go on answering as for an address
+nobody was mailed ([[email-links]]). A host that cannot tell the flow passes
+`showLockoutRule={false}`, and the page states none: Musubi's `/verify` page
+does for a link whose id names no flow.
 
 What it draws, in musubi's sizes through the contract: the shared `Card`
 (`padding="lg"`: the surface, the hairline, the 16px corner); an `h1` at
 `text-ui-base` medium; the sentences at `text-ui-sm` in the secondary ink; the
 numbers in a `<fieldset>` whose `<legend>` is "Pick the number shown on the
-screen where you started.", with the lockout rule under it in a Field hint's
-look (`text-ui-xs`, secondary ink) as the fieldset's description, then one
+screen where you started.", with the lockout rule 6px under it in a Field
+hint's look (`text-ui-xs`, secondary ink) as the fieldset's description, then,
+8px under the rule, one
 column of full-width `outline` Buttons 48px
 tall, each number at `text-ui-xl` medium in tabular figures, the size the
 waiting screen draws it; under them "I didn't ask for this", a full-width

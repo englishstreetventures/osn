@@ -244,7 +244,7 @@ export function SignIn(props: SignInProps) {
             siteKey={props.turnstileSiteKey}
             onToken={setTurnstileToken}
             onReady={(c) => (resetTurnstile = c.reset)}
-            alternative="Signing in with a recovery code doesn't need this challenge."
+            alternative="Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”."
           />
           {/* The other reasons apply only while idle: begin spends the token,
               and the widget drops it before the passkey prompt has closed. */}

@@ -308,9 +308,9 @@ export const TypedNumber = state(
     Recovery and step-up ask for the number to be typed, not picked (the host passes{" "}
     <Mono>typeNumber</Mono>): one field for up to six digits, Confirm once it holds one, and "I
     didn't ask for this". The field's hint states the lockout rule ("After 5 wrong numbers in 15
-    minutes, links like this one stop for up to 15 minutes."). A letter, a space or a seventh digit
-    does nothing. Type a number and press Confirm or Enter: "You typed … Confirming…", then
-    "Confirmed" after 600 ms.
+    minutes, links like this one for this account stop for up to 15 minutes."). A letter, a space or
+    a seventh digit does nothing. Type a number and press Confirm or Enter: "You typed …
+    Confirming…", then "Confirmed" after 600 ms.
   </>,
   () => (
     <ConfirmLinkPage
