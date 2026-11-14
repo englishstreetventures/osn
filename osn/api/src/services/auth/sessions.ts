@@ -132,13 +132,16 @@ export function createSessionsModule() {
    *
    * A token no live session holds, found through a rotation record written
    * longer than `ROTATION_GRACE_MS` ago, is a replay of a token its device has
-   * moved on from, and counts as reuse as it does at `/token`: the
-   * `reuse_detected` metric, then `family_revoked` and a warning when the
-   * delete removed a session, or an info line when none was left. Each line
-   * says which request found it (`at`); none names the account, the family or
-   * the token. The family's rotation records go with it, so one token counts
-   * as reuse once. Inside the window it is the device's own race with its
-   * refresh, and nothing is counted.
+   * moved on from, and counts as reuse as it does at `/token`. When this
+   * request's delete removed a session, `family_revoked` and a warning. Then
+   * the family's rotation records are deleted, and the request whose delete
+   * removes them counts `reuse_detected` (with an info line when its own
+   * delete found no session left), so two requests replaying one token at once
+   * count it once. Each line says which request found it (`at`); none names
+   * the account, the family or the token. A records delete that fails is
+   * logged on its own: the family's sessions are already gone, and a later
+   * replay of the token counts the reuse. Inside the window it is the
+   * device's own race with its refresh, and nothing is counted.
    *
    * Silently succeeds when the token names nothing (idempotent — don't leak
    * whether a session was valid). Otherwise the family's rotation records
@@ -198,28 +201,39 @@ export function createSessionsModule() {
       });
       if (record === undefined || nowMs - record.rotatedAt < ROTATION_GRACE_MS) return;
 
-      metricSessionReuseDetected();
       if (removed > 0) {
         metricSessionFamilyRevoked();
         yield* Effect.logWarning(`Session token reuse detected at ${at} — family revoked`);
-      } else {
+      }
+      // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
+      // No cause in the line: a database error's text carries the ids.
+      const recordsRemoved = yield* Effect.tryPromise({
+        try: async () =>
+          rowsChanged(
+            await db
+              .delete(rotatedSessions)
+              .where(
+                and(
+                  eq(rotatedSessions.accountId, record.accountId),
+                  eq(rotatedSessions.familyId, record.familyId),
+                ),
+              ),
+          ),
+        catch: (cause) => new DatabaseError({ cause }),
+      }).pipe(
+        Effect.catch(() =>
+          Effect.logError(
+            "Session token reuse: the family's rotation records could not be removed",
+          ).pipe(Effect.map(() => 0)),
+        ),
+      );
+      if (recordsRemoved === 0) return;
+      metricSessionReuseDetected();
+      if (removed === 0) {
         yield* Effect.logInfo(
           `Session token reuse detected at ${at} — no session of the family was left`,
         );
       }
-      // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .delete(rotatedSessions)
-            .where(
-              and(
-                eq(rotatedSessions.accountId, record.accountId),
-                eq(rotatedSessions.familyId, record.familyId),
-              ),
-            ),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
     });
 
   /** `POST /logout`: ends the device the cookie's token belongs to ({@link endFamilyOfToken}). */
