@@ -60,6 +60,7 @@ const { createAuthService } = await import("../../src/services/auth");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createAuthRoutes } = await import("../helpers/routes");
 const { holdQueries } = await import("../helpers/held-query");
+const { mintStepUpToken } = await import("../helpers/step-up-session");
 const { beginThroughRoutes, confirmThroughRoutes, latestLinkTo, statusThroughRoutes } =
   await import("../helpers/registration");
 const { beginRecoveryThroughRoutes, latestRecoveryLinkTo, recoveryStatusThroughRoutes } =
@@ -241,7 +242,7 @@ async function withTotp(h: Harness, handle: string) {
     ),
   );
   const authorization = `Bearer ${tokens.accessToken}`;
-  const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+  const stepUp = await h.svc(mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"));
   const begun = await h.request("/totp/enroll/begin", { step_up_token: stepUp }, { authorization });
   const secret = base32Decode(((await begun.json()) as { totpSecret: string }).totpSecret);
   const step = Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS);
