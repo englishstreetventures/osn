@@ -300,6 +300,93 @@ describe("POST /register/begin", () => {
   });
 });
 
+describe("POST /register/begin with `previous`", () => {
+  /** What begin's own calls are, after the one read a `previous` costs. */
+  const AFTER_READ = ["email_link.read", "email_link.write", "pending_registration.swap"];
+
+  it.live(
+    "makes the same calls for a wrong retire secret, an unknown request and the claim secret sent as one, whatever the address",
+    () => {
+      const h = harness();
+      return Effect.gen(function* () {
+        yield* h.auth.registerProfile("seq-prev-taken@example.com", "seqprevtaken");
+        const live = yield* h.auth.beginRegistration(
+          "seq-prev@example.com",
+          "seqprev",
+          "1990-01-01",
+        );
+        const decoy = yield* h.auth.beginRegistration(
+          "seq-prev-taken@example.com",
+          "seqprevother",
+          "1990-01-01",
+        );
+        const tries = [
+          { requestId: live.requestId, retireSecret: "0".repeat(64) },
+          { requestId: decoy.requestId, retireSecret: "0".repeat(64) },
+          { requestId: "signup_0123456789ab", retireSecret: live.retireSecret },
+          { requestId: live.requestId, retireSecret: live.claimSecret },
+          { requestId: decoy.requestId, retireSecret: decoy.claimSecret },
+        ];
+        for (const [n, previous] of tries.entries()) {
+          const run = yield* h.record(
+            h.auth.beginRegistration(
+              `seq-prev-${n}@example.com`,
+              `seqprev${n}`,
+              "1990-01-01",
+              undefined,
+              previous,
+            ),
+          );
+          expect(run).toEqual({ ops: AFTER_READ, outcome: "ok" });
+        }
+        // Nothing was retired: both requests are as they were.
+        expect((yield* h.entry(live.requestId))?.status).toBe("pending");
+        expect((yield* h.entry(decoy.requestId))?.status).toBe("pending");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live(
+    "makes the same calls retiring a free address's request, a taken one's and a held one's",
+    () => {
+      const h = harness();
+      return Effect.gen(function* () {
+        yield* h.auth.registerProfile("seq-ret-taken@example.com", "seqrettaken");
+        const free = yield* h.auth.beginRegistration("seq-ret@example.com", "seqret", "1990-01-01");
+        const taken = yield* h.auth.beginRegistration(
+          "seq-ret-taken@example.com",
+          "seqretother",
+          "1990-01-01",
+        );
+        const held = yield* h.auth.beginRegistration(
+          "seq-ret@example.com",
+          "seqretheld",
+          "1990-01-01",
+        );
+
+        const runs = [];
+        for (const [n, begun] of [held, taken, free].entries()) {
+          runs.push(
+            yield* h.record(
+              h.auth.beginRegistration(
+                `seq-ret-${n}@example.com`,
+                `seqretnext${n}`,
+                "1990-01-01",
+                undefined,
+                { requestId: begun.requestId, retireSecret: begun.retireSecret },
+              ),
+            ),
+          );
+        }
+        expect(runs[1]).toEqual(runs[0]);
+        expect(runs[2]).toEqual(runs[0]);
+        expect(runs[0]!.outcome).toBe("ok");
+        for (const begun of [held, taken, free]) expect(yield* h.entry(begun.requestId)).toBeNull();
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+});
+
 describe("a send-limit store that cannot answer", () => {
   it.live("mails nothing for a begin when the lockout store fails", () => {
     const h = harness();
@@ -397,7 +484,7 @@ describe("POST /register/:requestId/resend", () => {
           "seqrholder",
           "1990-01-01",
           undefined,
-          { requestId: holder.requestId, claimSecret: holder.claimSecret },
+          { requestId: holder.requestId, retireSecret: holder.retireSecret },
         );
         const parkingResend = yield* h.record(
           h.auth.resendRegistration(held.requestId, held.claimSecret),

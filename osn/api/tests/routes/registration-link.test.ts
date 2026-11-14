@@ -121,7 +121,7 @@ describe("wrong secrets", () => {
 
     const again = await beginThroughRoutes(
       h.app,
-      { email, handle: "wipe", previous: { requestId: s.requestId, claimSecret: s.claimSecret } },
+      { email, handle: "wipe", previous: { requestId: s.requestId, retireSecret: s.retireSecret } },
       { "x-forwarded-for": "10.0.6.2" },
     );
     const link = latestLinkTo(h.recorded(), email)!;
@@ -432,7 +432,7 @@ describe("resend", () => {
     await beginThroughRoutes(h.app, {
       email: "parks-later-2@example.com",
       handle: "parksfirst",
-      previous: { requestId: first.requestId, claimSecret: first.claimSecret },
+      previous: { requestId: first.requestId, retireSecret: first.retireSecret },
     });
 
     const resent = await resendThroughRoutes(h.app, second.body.requestId, second.body.claimSecret);
@@ -501,7 +501,7 @@ describe("resend", () => {
       current = await beginThroughRoutes(h.app, {
         email,
         handle: "addrcap",
-        previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
+        previous: { requestId: current.body.requestId, retireSecret: current.body.retireSecret },
       });
     }
     // Four begins, each with its first link, and six Resends: ten mailed.
@@ -582,24 +582,48 @@ describe("resend", () => {
 });
 
 describe("previous on begin", () => {
-  it("retires the earlier request only for the holder of its claim secret", async () => {
+  it("retires the earlier request only for the holder of its retire secret, and mails at once", async () => {
     const h = harness();
     const email = "previous@example.com";
     const first = await begun(h, email, "previous");
 
-    const forged = await beginThroughRoutes(h.app, {
-      email,
-      handle: "previous",
-      previous: { requestId: first.requestId, claimSecret: WRONG_SECRET },
-    });
-    expect(forged.res.status).toBe(200);
+    // A wrong retire secret, an unknown request and the claim secret in the
+    // retire secret's place each answer as a begin with no `previous` does:
+    // the address stays held and nothing is mailed.
+    const tries = [
+      { requestId: first.requestId, retireSecret: WRONG_SECRET },
+      { requestId: "signup_0123456789ab", retireSecret: first.retireSecret },
+      { requestId: first.requestId, retireSecret: first.claimSecret },
+    ];
+    for (const [n, previous] of tries.entries()) {
+      // eslint-disable-next-line no-await-in-loop -- each refusal is checked before the next
+      const refused = await beginThroughRoutes(
+        h.app,
+        { email, handle: "previous", previous },
+        { "x-forwarded-for": `10.0.8.${n}` },
+      );
+      expect(refused.res.status).toBe(200);
+      expect(Object.keys(refused.body).toSorted()).toEqual([
+        "claimSecret",
+        "expiresAt",
+        "pairingCode",
+        "requestId",
+        "retireSecret",
+      ]);
+    }
     expect(linksTo(h.recorded(), email)).toHaveLength(1);
+    const stillLive = await statusThroughRoutes(h.app, first.requestId, first.claimSecret);
+    expect(await stillLive.json()).toEqual({ status: "pending", pairingCode: first.pairingCode });
 
-    const owned = await beginThroughRoutes(h.app, {
-      email,
-      handle: "previous2",
-      previous: { requestId: first.requestId, claimSecret: first.claimSecret },
-    });
+    const owned = await beginThroughRoutes(
+      h.app,
+      {
+        email,
+        handle: "previous2",
+        previous: { requestId: first.requestId, retireSecret: first.retireSecret },
+      },
+      { "x-forwarded-for": "10.0.8.9" },
+    );
     const links = linksTo(h.recorded(), email);
     expect(links).toHaveLength(2);
     expect(
@@ -614,6 +638,128 @@ describe("previous on begin", () => {
     const done = await statusThroughRoutes(h.app, owned.body.requestId, owned.body.claimSecret);
     expect(done.status).toBe(201);
     expect(((await done.json()) as { handle: string }).handle).toBe("previous2");
+  });
+
+  it("retires a request whose link was confirmed but never claimed, and the new begin mails at once", async () => {
+    // The tab that began closed after the link was confirmed on another
+    // device; a new tab of the same browser begins again for the address.
+    const h = harness();
+    const email = "confirmed-left@example.com";
+    const first = await begun(h, email, "confirmedleft");
+    const confirmed = await confirmThroughRoutes(
+      h.app,
+      first.requestId,
+      first.link.linkSecret,
+      first.pairingCode,
+    );
+    expect(await confirmed.json()).toEqual({ status: "confirmed" });
+
+    const again = await beginThroughRoutes(h.app, {
+      email,
+      handle: "confirmedleft",
+      previous: { requestId: first.requestId, retireSecret: first.retireSecret },
+    });
+    const links = linksTo(h.recorded(), email);
+    expect(links).toHaveLength(2);
+    expect(links[1]!.requestId).toBe(again.body.requestId);
+
+    // The retired request makes no account for whoever holds its claim secret.
+    const old = await statusThroughRoutes(h.app, first.requestId, first.claimSecret);
+    expect(await old.json()).toEqual({ status: "expired" });
+    await confirmThroughRoutes(
+      h.app,
+      links[1]!.requestId,
+      links[1]!.linkSecret,
+      again.body.pairingCode,
+    );
+    const done = await statusThroughRoutes(h.app, again.body.requestId, again.body.claimSecret);
+    expect(done.status).toBe(201);
+  });
+});
+
+describe("the retire secret", () => {
+  it("is refused exactly as a wrong secret on the status, resend, candidates and confirm routes", async () => {
+    const h = harness();
+    const email = "retire-only@example.com";
+    const s = await begun(h, email, "retireonly");
+    await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, s.pairingCode);
+
+    /** One call made with the retire secret, and the same call with a wrong secret. */
+    const both = async (call: (secret: string) => Promise<Response>) => {
+      const read = async (res: Response) => ({
+        status: res.status,
+        body: await res.json(),
+        cookies: res.headers.getSetCookie(),
+      });
+      return {
+        retire: await read(await call(s.retireSecret)),
+        wrong: await read(await call(WRONG_SECRET)),
+      };
+    };
+
+    // The poll that would make the account and hand out its session.
+    const status = await both((secret) => statusThroughRoutes(h.app, s.requestId, secret));
+    expect(status.retire).toEqual(status.wrong);
+    expect(status.retire).toEqual({ status: 200, body: { status: "expired" }, cookies: [] });
+
+    const resend = await both((secret) => resendThroughRoutes(h.app, s.requestId, secret));
+    expect(resend.retire).toEqual(resend.wrong);
+    expect(resend.retire.body).toEqual({ status: "expired" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+
+    const candidates = await both((secret) => candidatesThroughRoutes(h.app, s.requestId, secret));
+    expect(candidates.retire).toEqual(candidates.wrong);
+    expect(candidates.retire.body).toEqual({ status: "expired" });
+
+    const confirm = await both((secret) =>
+      confirmThroughRoutes(h.app, s.requestId, secret, s.pairingCode),
+    );
+    expect(confirm.retire).toEqual(confirm.wrong);
+    expect(confirm.retire.body).toEqual({ status: "expired" });
+
+    // None of it spent the request: its own claim secret still finishes it.
+    const owner = await statusThroughRoutes(h.app, s.requestId, s.claimSecret);
+    expect(owner.status).toBe(201);
+  });
+
+  it("is handed out for a taken address as for a free one, and retiring either answers alike", async () => {
+    const h = harness();
+    await registerThroughRoutes(h.app, h.recorded, "retire-taken@example.com", "retiretaken");
+    const free = await begun(h, "retire-free@example.com", "retirefree");
+    const taken = await beginThroughRoutes(h.app, {
+      email: "retire-taken@example.com",
+      handle: "retiretakentwo",
+    });
+    for (const body of [free, taken.body]) {
+      expect(body.retireSecret).toMatch(/^[a-f0-9]{64}$/);
+      expect(body.retireSecret).not.toBe(body.claimSecret);
+    }
+
+    const a = await beginThroughRoutes(
+      h.app,
+      {
+        email: "retire-next-a@example.com",
+        handle: "retirenexta",
+        previous: { requestId: free.requestId, retireSecret: free.retireSecret },
+      },
+      { "x-forwarded-for": "10.0.9.1" },
+    );
+    const b = await beginThroughRoutes(
+      h.app,
+      {
+        email: "retire-next-b@example.com",
+        handle: "retirenextb",
+        previous: { requestId: taken.body.requestId, retireSecret: taken.body.retireSecret },
+      },
+      { "x-forwarded-for": "10.0.9.2" },
+    );
+    expect(b.res.status).toBe(a.res.status);
+    expect(Object.keys(b.body).toSorted()).toEqual(Object.keys(a.body).toSorted());
+    // Both retired: each one's poll now reads as an unknown request's.
+    const aPoll = await statusThroughRoutes(h.app, free.requestId, free.claimSecret);
+    const bPoll = await statusThroughRoutes(h.app, taken.body.requestId, taken.body.claimSecret);
+    expect(await aPoll.json()).toEqual({ status: "expired" });
+    expect(await bPoll.json()).toEqual({ status: "expired" });
   });
 });
 
@@ -670,11 +816,15 @@ describe("input the routes refuse", () => {
   });
 
   it.each([
-    ["a request id of the wrong shape", { requestId: "signup_zz", claimSecret: "a".repeat(64) }],
-    ["another flow's prefix", { requestId: "recover_0123456789ab", claimSecret: "a".repeat(64) }],
+    ["a request id of the wrong shape", { requestId: "signup_zz", retireSecret: "a".repeat(64) }],
+    ["another flow's prefix", { requestId: "recover_0123456789ab", retireSecret: "a".repeat(64) }],
     [
-      "a 63-character claim secret",
-      { requestId: "signup_0123456789ab", claimSecret: SHORT_SECRET },
+      "a 63-character retire secret",
+      { requestId: "signup_0123456789ab", retireSecret: SHORT_SECRET },
+    ],
+    [
+      "a claim secret in the retire secret's place",
+      { requestId: "signup_0123456789ab", claimSecret: "a".repeat(64) },
     ],
   ])(
     "refuses begin's `previous` with %s before Turnstile and before any store call",
@@ -701,7 +851,8 @@ describe("input the routes refuse", () => {
       const { res } = await beginThroughRoutes(app, {
         email: "bad-previous@example.com",
         handle: "badprevious",
-        previous,
+        // Sent as the body would carry it, whatever its shape.
+        previous: previous as { requestId: string; retireSecret: string },
         turnstileToken: "good",
       });
       expectRefused(res);
@@ -1182,7 +1333,7 @@ describe("the first-link window", () => {
         {
           email: other,
           handle: "loopprev",
-          previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
+          previous: { requestId: current.body.requestId, retireSecret: current.body.retireSecret },
         },
         ip(50 + n),
       );

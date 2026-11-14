@@ -4,8 +4,9 @@
  * change.
  *
  * A flow opens a request and gets back a request id, a link secret, a claim
- * secret and a pairing number. Each secret is 256 random bits, stored only as
- * its SHA-256 hash; the pairing number is stored only as a keyed digest.
+ * secret, a retire secret and a pairing number. Each secret is 256 random
+ * bits, stored only as its SHA-256 hash; the pairing number is stored only as
+ * a keyed digest.
  *
  * - The email carries `<frontend origin>/verify/<request id>#<link secret>`.
  *   The secret rides in the fragment, which no browser sends to any server, so
@@ -38,6 +39,11 @@
  *   request is confirmed, the poll claims it and the flow finishes. The
  *   device that opened the link and the device that gets the result can
  *   differ.
+ * - The retire secret ends the request ({@link retire}) and does nothing
+ *   else: no poll, Resend, candidates read, confirm or claim compares it, so
+ *   it never yields the number, a link or the flow's result. Sign-up hands it
+ *   out so another tab of the same browser can end a request it did not
+ *   begin; no other flow hands it out.
  * - A claim records what the flow finishes with (the account and profile,
  *   and for recovery the id of the audit row it writes) and stays on the
  *   request until a poll has delivered the result, so a finish that failed
@@ -114,7 +120,7 @@ export const EMAIL_LINK_ID_PATTERN = idPattern(Object.values(EMAIL_LINK_ID_PREFI
 export const emailLinkIdPattern = (flow: EmailLinkFlow): string =>
   idPattern([EMAIL_LINK_ID_PREFIX[flow]]);
 
-/** A link or claim secret: 32 bytes, hex. */
+/** A link, claim or retire secret: 32 bytes, hex. */
 export const EMAIL_LINK_SECRET_PATTERN = "^[a-f0-9]{64}$";
 
 /**
@@ -192,6 +198,8 @@ export interface EmailLinkConfirmInput {
 export interface OpenedEmailLink {
   readonly requestId: string;
   readonly claimSecret: string;
+  /** Ends the request ({@link retire}) and can do nothing else. */
+  readonly retireSecret: string;
   /** The number the tab that began shows, which the reader picks on the confirm page. */
   readonly pairingCode: string;
   /** The link to mail, secret included. */
@@ -677,6 +685,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
     Effect.gen(function* () {
       const requestId = genId(EMAIL_LINK_ID_PREFIX[flow]);
       const claimSecret = newSecret();
+      const retireSecret = newSecret();
       const linkSecret = newSecret();
       const pairingCode =
         EMAIL_LINK_PAIRING_MODE[flow] === "type"
@@ -689,6 +698,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
         subject,
         mailSecretHashes: [sha256(linkSecret)],
         claimSecretHash: sha256(claimSecret),
+        retireSecretHash: sha256(retireSecret),
         pairingHash: serverMac.pairingDigest(requestId, pairingCode),
         status: "pending",
         expiresAt,
@@ -700,6 +710,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       return {
         requestId,
         claimSecret,
+        retireSecret,
         pairingCode,
         url: linkUrl(requestId, linkSecret),
         expiresAt,
@@ -1135,18 +1146,26 @@ export function createEmailLinkModule(ctx: AuthContext) {
     });
 
   /**
-   * Ends the request for the tab that holds its claim secret, and frees the
-   * flow's pending entry for it. Answers whether it ended the request; without
-   * a match, or for a claimed request, it answers false and touches nothing.
+   * Ends the request for the holder of its retire secret, and frees the
+   * flow's pending entry for it. Answers whether it ended the request. A
+   * wrong flow, an unknown, expired or malformed request, a request that
+   * carries no retire digest and a wrong secret (the claim secret included)
+   * each cost the one read and touch nothing, alike; so does a claimed
+   * request, past the read, as {@link end} leaves it.
    */
   const retire = (
     flow: EmailLinkFlow,
     requestId: string,
-    claimSecret: string,
+    retireSecret: string,
   ): Effect.Effect<boolean, CoordinationError> =>
     Effect.gen(function* () {
-      const entry = yield* held(flow, requestId, claimSecret);
-      if (!entry) return false;
+      if (!ANY_ID.test(requestId)) return false;
+      const entry = yield* read(requestId);
+      if (!usable(entry) || entry.flow !== flow) return false;
+      // A request with no retire digest compares against nothing, and never
+      // matches.
+      const stored = typeof entry.retireSecretHash === "string" ? entry.retireSecretHash : "";
+      if (!timingSafeEqualString(stored, sha256(retireSecret))) return false;
       return yield* end(requestId, entry);
     });
 

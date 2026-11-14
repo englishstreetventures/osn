@@ -45,6 +45,7 @@ describe("redact", () => {
       requestId: "signup_0123456789ab",
       linkSecret: "a".repeat(64),
       claimSecret: "b".repeat(64),
+      retireSecret: "c".repeat(64),
       pairingCode: "47",
       pairingCandidates: ["12", "33", "47", "68", "90"],
       pairingPick: "47",
@@ -53,6 +54,7 @@ describe("redact", () => {
     expect(out.requestId).toBe("signup_0123456789ab");
     expect(out.linkSecret).toBe(REDACTION_PLACEHOLDER);
     expect(out.claimSecret).toBe(REDACTION_PLACEHOLDER);
+    expect(out.retireSecret).toBe(REDACTION_PLACEHOLDER);
     expect(out.pairingCode).toBe(REDACTION_PLACEHOLDER);
     expect(out.pairingCandidates).toBe(REDACTION_PLACEHOLDER);
     expect(out.pairingPick).toBe(REDACTION_PLACEHOLDER);
@@ -568,6 +570,7 @@ describe("redact", () => {
       "cdl_secret",
       "linksecret",
       "claimsecret",
+      "retiresecret",
       "pairingcode",
       "pairingcandidates",
       "pairingpick",

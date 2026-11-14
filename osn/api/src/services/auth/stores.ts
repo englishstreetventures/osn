@@ -142,7 +142,7 @@ export type EmailLinkFlow = "registration" | "recovery" | "step_up" | "email_cha
  * One emailed-link request, keyed by its request id. The link carries the
  * request id in its path and the link secret in its fragment; the tab that
  * began holds the claim secret and shows the pairing number. Only SHA-256
- * hashes of the two secrets are stored, and only a keyed digest of the pairing
+ * hashes of the secrets are stored, and only a keyed digest of the pairing
  * number; the candidates the confirm page shows are derived from the request
  * id, never stored.
  *
@@ -181,6 +181,11 @@ export interface EmailLinkChallenge {
   /** The hash of every link sent for the request, newest last. */
   mailSecretHashes: string[];
   claimSecretHash: string;
+  /**
+   * The hash of the retire secret, which only ends the request (`retire` in
+   * `email-link.ts`). A request without one cannot be retired.
+   */
+  retireSecretHash?: string;
   /** `serverMac.pairingDigest(requestId, pairing number)`. */
   pairingHash: string;
   /**

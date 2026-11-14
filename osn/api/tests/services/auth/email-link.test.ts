@@ -398,7 +398,7 @@ describe("retiring a request that did not park", () => {
           "releasesecond",
           "1990-01-01",
           undefined,
-          { requestId: second.requestId, claimSecret: second.claimSecret },
+          { requestId: second.requestId, retireSecret: second.retireSecret },
         ),
       );
 
@@ -770,7 +770,7 @@ describe("a request the tab's poll has claimed", () => {
           "claimedretire2",
           "1990-01-01",
           undefined,
-          { requestId: s.requestId, claimSecret: s.claimSecret },
+          { requestId: s.requestId, retireSecret: s.retireSecret },
         ),
       );
       expect((yield* h.entry(s.requestId))?.status).toBe("claimed");

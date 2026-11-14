@@ -393,6 +393,7 @@ describe("sign-up through the emailed link", () => {
       expect(Object.keys(entry!).toSorted()).toEqual(
         [
           "claimSecretHash",
+          "retireSecretHash",
           "expiresAt",
           "flow",
           "mailSecretHashes",
@@ -421,8 +422,39 @@ describe("sign-up through the emailed link", () => {
       expect(entry!.pairingHash).not.toBe(unkeyed(`${begun.requestId}\0${begun.pairingCode}`));
       expect(entry!.pairingHash).not.toBe(unkeyed(begun.pairingCode));
       expect(stored).not.toContain(begun.claimSecret);
+      expect(stored).not.toContain(begun.retireSecret);
+      expect(entry!.retireSecretHash).toBe(unkeyed(begun.retireSecret));
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
   });
+
+  it.effect(
+    "retires nothing, and answers as a wrong secret, for a stored request with no retire digest",
+    () => {
+      const stores = createDefaultCeremonyStores();
+      const svc = createAuthService({ ...config, ceremonyStores: stores });
+      const email = makeLogEmailLive();
+      return Effect.gen(function* () {
+        const begun = yield* settle(
+          svc.beginRegistration("noretire@example.com", "noretire", "1990-01-01"),
+        );
+        const entry = (yield* Effect.promise(() => stores.emailLinks.get(begun.requestId)))!;
+        const { retireSecretHash: _dropped, ...withoutDigest } = entry;
+        yield* Effect.promise(() => stores.emailLinks.set(begun.requestId, withoutDigest, 600_000));
+
+        const again = yield* settle(
+          svc.beginRegistration("noretire@example.com", "noretire", "1990-01-01", undefined, {
+            requestId: begun.requestId,
+            retireSecret: begun.retireSecret,
+          }),
+        );
+        expect(again.requestId).not.toBe(begun.requestId);
+        expect((yield* Effect.promise(() => stores.emailLinks.get(begun.requestId)))?.status).toBe(
+          "pending",
+        );
+        expect(email.recorded().filter((m) => m.to === "noretire@example.com")).toHaveLength(1);
+      }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+    },
+  );
 
   it.effect("refuses a stored request that carries no pairing digest", () => {
     const stores = createDefaultCeremonyStores();
