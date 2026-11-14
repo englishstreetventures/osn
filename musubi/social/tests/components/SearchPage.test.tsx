@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+import { AuthExpiredError, GraphClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -91,6 +93,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   cleanup();
   vi.clearAllMocks();
@@ -220,4 +223,39 @@ describe("<SearchPage />", () => {
     expect(screen.getByText(/Sign in to search/)).toBeDefined();
     expect(screen.queryByLabelText("Search people and organisations")).toBeNull();
   });
+
+  it.each([
+    ["connect", "none", "Connect", "Failed to send request", () => mocks.sendConnectionRequest],
+    [
+      "accept",
+      "pending_received",
+      "Accept",
+      "Failed to accept request",
+      () => mocks.acceptConnection,
+    ],
+  ] as const)(
+    "words an ended session, a server message and a missing message on %s",
+    async (_n, status, label, fallback, call) => {
+      mocks.search.mockResolvedValue({ people: [person("alice", status)], organisations: [] });
+      const spy = vi.spyOn(toast, "error");
+      renderPage();
+      await type("ali");
+      await waitFor(() => expect(screen.getByRole("button", { name: label })).toBeDefined());
+
+      call().mockRejectedValueOnce(new AuthExpiredError({}));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith("Your session has ended. Sign in again.");
+
+      call().mockRejectedValueOnce(new GraphClientError("Connection already exists", 400));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith("Connection already exists");
+
+      call().mockRejectedValueOnce(new GraphClientError("", 400));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith(fallback);
+    },
+  );
 });

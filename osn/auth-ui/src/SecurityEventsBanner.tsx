@@ -188,6 +188,7 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
           onCancel={() => setStepUpOpen(false)}
           runPasskeyCeremony={props.runPasskeyCeremony}
           totpClient={props.totpClient}
+          reason="To acknowledge these alerts, confirm it's you."
           purpose="security_event_ack"
         />
       </Show>

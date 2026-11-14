@@ -15,6 +15,7 @@ import { describePasskeyError } from "./passkey-errors";
 import { hasPendingRecovery, RecoveryLoginForm } from "./RecoveryLoginForm";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
+import { StepLink, stepAction, ViewStep } from "./ViewParts";
 
 /**
  * Shared sign-in component. WebAuthn (passkey or security key) is the only
@@ -32,7 +33,7 @@ type View = "passkey" | "recovery";
 // Musubi imports views by subpath, so the recovery wait's probe comes from here.
 export { hasPendingRecovery };
 
-export interface SignInProps {
+interface SignInBaseProps {
   client: LoginClient;
   /** Needed for the "Lost your passkey?" escape hatch. */
   recoveryClient: RecoveryClient;
@@ -47,16 +48,6 @@ export interface SignInProps {
   /** Executes the browser-side WebAuthn attestation for that enrolment. */
   runPasskeyRegistration?: RunPasskeyRegistration;
   onSuccess?: () => void;
-  /** Called by the header's Cancel. Absent: no Cancel. */
-  onCancel?: () => void;
-  /** Cancel's words where going back means something else. See `AuthHeader`. */
-  cancelLabel?: string;
-  /**
-   * What the view is mounted in: `"dialog"` inside `@shared/ui`'s `Dialog`,
-   * whose name its title becomes; `"page"` on a page such as `/authorize`,
-   * with no padding at the sides. See `AuthHeader`.
-   */
-  host: "dialog" | "page";
   /**
    * Cloudflare Turnstile sitekey (public, build-time). When provided, the
    * identifier-bound passkey form renders the Turnstile challenge and gates
@@ -69,6 +60,24 @@ export interface SignInProps {
   /** Product name shown in this dialog's copy — e.g. "Musubi". */
   productName: string;
 }
+
+/**
+ * What the view is mounted in. See `AuthHeader`.
+ *
+ * - `"dialog"`: inside `@shared/ui`'s `Dialog`, whose name its title becomes.
+ *   `onCancel` is required: it is the footer's Cancel, first beside each
+ *   step's action, and always reads "Cancel". It closes nothing itself;
+ *   Escape and a press outside are the host's `onOpenChange`, which should
+ *   run the same handler.
+ * - `"page"`: on a page such as `/authorize`, with no padding at the sides.
+ *   Cancel, when the page gives `onCancel`, sits at the title row's end, in
+ *   the page's words (`cancelLabel`).
+ */
+export type SignInProps = SignInBaseProps &
+  (
+    | { host: "dialog"; onCancel: () => void }
+    | { host: "page"; onCancel?: () => void; cancelLabel?: string }
+  );
 
 export function SignIn(props: SignInProps) {
   const { adoptSession } = useAuth();
@@ -198,25 +207,63 @@ export function SignIn(props: SignInProps) {
     if (webauthnSupported()) void startConditionalPasskey();
   });
 
+  const title = () =>
+    view() === "recovery" ? "Recover your account" : `Sign in to ${props.productName}`;
+  // The dialog's way out, first in each step's footer; a page's is its title row's.
+  const dismiss = () => (props.host === "dialog" ? props.onCancel : undefined);
+  const page = () => (props.host === "page" ? props : undefined);
+  const lostPasskey = () => (
+    <StepLink host={props.host} onClick={openRecovery} disabled={busy()}>
+      Lost your passkey?
+    </StepLink>
+  );
+
   return (
     <div class="flex flex-col">
       {/* The one title in the view: the recovery form below draws none, so
           a dialog keeps one name as the view switches. */}
-      <AuthHeader
-        host={props.host}
-        title={view() === "recovery" ? "Recover your account" : `Sign in to ${props.productName}`}
-        onCancel={props.onCancel}
-        cancelLabel={props.cancelLabel}
-        cancelDisabled={busy()}
-      />
-      <div class={props.host === "dialog" ? "p-4" : "pt-6"}>
-        <Show when={signedIn()}>
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You&apos;re all set.</p>
-        </Show>
+      <Show when={page()} fallback={<AuthHeader host="dialog" title={title()} />}>
+        {(onPage) => (
+          <AuthHeader
+            host="page"
+            title={title()}
+            onCancel={onPage().onCancel}
+            cancelLabel={onPage().cancelLabel}
+            cancelDisabled={busy()}
+          />
+        )}
+      </Show>
 
-        {/* Primary WebAuthn flow */}
-        <Show when={!signedIn() && view() === "passkey" && webauthnSupported()}>
-          <form onSubmit={submitPasskey} class="flex flex-col gap-4">
+      {/* The host closes the dialog on success, so this line has no footer. */}
+      <Show when={signedIn()}>
+        <ViewStep host={props.host}>
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You&apos;re all set.</p>
+        </ViewStep>
+      </Show>
+
+      {/* Primary WebAuthn flow. The step sits inside the form, footer and
+          all, so Enter in the field submits. */}
+      <Show when={!signedIn() && view() === "passkey" && webauthnSupported()}>
+        <form onSubmit={submitPasskey} class="flex flex-col">
+          <ViewStep
+            host={props.host}
+            onCancel={dismiss()}
+            cancelDisabled={busy()}
+            action={
+              // The other reasons apply only while idle: begin spends the
+              // token, and the widget drops it before the passkey prompt has
+              // closed.
+              <Button
+                type="submit"
+                {...stepAction(props.host)}
+                busy={busy()}
+                disabled={!busy() && (!identifier().trim() || (turnstileOn() && !turnstileToken()))}
+              >
+                {busy() ? "Verifying…" : "Continue"}
+              </Button>
+            }
+            links={lostPasskey()}
+          >
             <Field labelTreatment="plain" label="Email or @handle">
               {(field) => (
                 <>
@@ -237,7 +284,7 @@ export function SignIn(props: SignInProps) {
                       <Notice tone="danger" size="inline" alert id={errorId}>
                         {line().text}
                         {/* The passkey sentence names no cause, so the way in
-                          without one sits beside it. */}
+                            without one sits beside it. */}
                         <Show when={line().passkey}>
                           {" "}
                           <InlineAction onClick={openRecovery}>Lost your passkey?</InlineAction>
@@ -253,67 +300,66 @@ export function SignIn(props: SignInProps) {
               siteKey={props.turnstileSiteKey}
               onToken={setTurnstileToken}
               onReady={(c) => (resetTurnstile = c.reset)}
+              alternative="Signing in with a recovery code doesn't need this challenge: choose “Lost your passkey?”."
             />
-            {/* The other reasons apply only while idle: begin spends the token,
-              and the widget drops it before the passkey prompt has closed. */}
-            <Button
-              type="submit"
-              busy={busy()}
-              disabled={!busy() && (!identifier().trim() || (turnstileOn() && !turnstileToken()))}
-            >
-              {busy() ? "Verifying…" : "Continue"}
-            </Button>
+          </ViewStep>
+        </form>
+      </Show>
+
+      {/* No WebAuthn support in this environment */}
+      <Show when={!signedIn() && view() === "passkey" && !webauthnSupported()}>
+        <ViewStep
+          host={props.host}
+          onCancel={dismiss()}
+          action={
+            // The step's one way forward. In a dialog it is the footer's
+            // commit beside a `secondary` Cancel; on a page it stays the
+            // `secondary` fallback it has always been.
             <Button
               type="button"
-              variant="link"
-              size="sm"
-              class="self-center"
+              {...stepAction(props.host)}
+              variant={props.host === "dialog" ? "default" : "secondary"}
               onClick={openRecovery}
-              disabled={busy()}
             >
-              Lost your passkey?
-            </Button>
-          </form>
-        </Show>
-
-        {/* No WebAuthn support in this environment */}
-        <Show when={!signedIn() && view() === "passkey" && !webauthnSupported()}>
-          <div class="flex flex-col gap-4">
-            {/* A blocker that stops the flow here: an info notice, not body copy. */}
-            <Notice tone="info" size="sm">
-              {props.productName} sign-in needs a passkey or security key, and this browser
-              doesn&apos;t support WebAuthn.
-            </Notice>
-            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You can either:</p>
-            <ul class="text-ui-sm leading-ui-snug text-ui-ink-secondary list-inside list-disc">
-              <li>Sign in on a device that does (iOS 16+, Android 9+, recent desktop browsers).</li>
-              <li>
-                Use your phone via the QR / Bluetooth cross-device flow offered by your password
-                manager on next try.
-              </li>
-              <li>Plug in a FIDO2 security key and reload the page.</li>
-            </ul>
-            <Button type="button" variant="secondary" onClick={openRecovery}>
               Use a recovery code instead
             </Button>
-          </div>
-        </Show>
+          }
+        >
+          {/* A blocker that stops the flow here: an info notice, not body copy. */}
+          <Notice tone="info" size="sm">
+            {props.productName} sign-in needs a passkey or security key, and this browser
+            doesn&apos;t support WebAuthn.
+          </Notice>
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You can either:</p>
+          <ul class="text-ui-sm leading-ui-snug text-ui-ink-secondary list-inside list-disc">
+            <li>Sign in on a device that does (iOS 16+, Android 9+, recent desktop browsers).</li>
+            <li>
+              Use your phone via the QR / Bluetooth cross-device flow offered by your password
+              manager on next try.
+            </li>
+            <li>Plug in a FIDO2 security key and reload the page.</li>
+          </ul>
+        </ViewStep>
+      </Show>
 
-        {/* Recovery escape hatch */}
-        <Show when={!signedIn() && view() === "recovery"}>
-          <RecoveryLoginForm
-            client={props.recoveryClient}
-            registrationClient={props.registrationClient}
-            runPasskeyRegistration={props.runPasskeyRegistration}
-            turnstileSiteKey={props.turnstileSiteKey}
-            onSuccess={() => {
-              setSignedIn(true);
-              props.onSuccess?.();
-            }}
-            onCancel={() => setView("passkey")}
-          />
-        </Show>
-      </div>
+      {/* Recovery escape hatch */}
+      <Show when={!signedIn() && view() === "recovery"}>
+        <RecoveryLoginForm
+          {...(props.host === "dialog"
+            ? { host: "dialog" as const, onDismiss: props.onCancel }
+            : { host: "page" as const })}
+          client={props.recoveryClient}
+          registrationClient={props.registrationClient}
+          runPasskeyRegistration={props.runPasskeyRegistration}
+          turnstileSiteKey={props.turnstileSiteKey}
+          productName={props.productName}
+          onSuccess={() => {
+            setSignedIn(true);
+            props.onSuccess?.();
+          }}
+          onCancel={() => setView("passkey")}
+        />
+      </Show>
     </div>
   );
 }

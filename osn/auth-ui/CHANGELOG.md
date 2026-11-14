@@ -1,5 +1,37 @@
 # @osn/ui
 
+## 6.0.1
+
+### Patch Changes
+
+- ed7813d: `Button` presses: while a pointer or a held Space presses it, it scales to 0.97 over `--ui-dur-fast` on `--ui-ease-out` and eases back when let go, in every app that draws it (Musubi, `@osn/auth-ui`'s views, pulse). It sets `scale`, so a call site's `transform` stays. No press while disabled, busy or `aria-disabled`, at `size="inline"`, or under `prefers-reduced-motion: reduce`. The colour fade keeps Tailwind's 150ms and curve. Musubi's and `@osn/auth-ui`'s `DESIGN.md` name the press beside the orb, and the lab's `shared/ui/Button` gains a `Press` story.
+- Updated dependencies [ed7813d]
+  - @shared/ui@0.16.0
+
+## 6.0.0
+
+### Major Changes
+
+- 123bb37: Every dialog `@osn/auth-ui` and Musubi draw has one shape: the title alone in the header, centred; the body; then a footer with Cancel (`secondary`) first, beside the step's one action, both `sm` and 40px tall below `md`. The step-up sheet says one line under its title naming the cause ("To generate recovery codes, confirm it's you."), and drops "Re-authenticate…" and "This action needs a fresh authentication. Choose a method below."
+
+  Breaking, in `@osn/auth-ui`: `AuthHeader` with `host="dialog"` takes no `onCancel`, `cancelLabel` or `cancelDisabled` (a page header still does). `SignIn` with `host="dialog"` requires `onCancel` and takes no `cancelLabel`; `Register` with `host="dialog"` takes no `cancelLabel`. `RecoveryLoginForm` takes a required `host`, and `onDismiss` (the dialog's Cancel) with `host="dialog"`. `StepUpDialog`'s `reason` is the whole line it prints ("To change your email, confirm it's you."); with a `warning`, the warning is the one line. `CreateProfileForm` draws its own padded body and a dialog footer (Cancel, then Create profile): mount it straight inside a `DialogContent`, with no padding of your own.
+
+  New: `DialogActions` (`@osn/auth-ui/DialogActions` and the barrel), every dialog's footer — Cancel first, then the step's one action, both `sm`, wrapping rather than scrolling sideways — for a host's own dialogs.
+
+  - `SignIn`, `Register` and `RecoveryLoginForm` lay out each step through an internal `ViewStep`: in a dialog, the body with its ways back as centred links at its foot ("Lost your passkey?" under the field, recovery's "Back"), then the footer (none on a done line); on a page, the action spans the column with its links under it, so `/authorize`'s sign-in and create-account views look as they did. Recovery's "Back" buttons are links, and its chooser lists "Use a recovery code" after the factors that end in a passkey.
+  - The step-up sheet opens with focus on "Use passkey", now the footer's action; the other factors sit above it. "Generate a new set?" and "Create a new profile" take the same header and footer.
+  - Every view that opens the step-up sheet passes its line: adding a passkey, renaming one (by its current name), adding an authenticator app, generating recovery codes, acknowledging alerts and changing the email.
+
+  - The recovery form's Cancel on the emailed link's wait ends the wait in this tab, as Back does, and a recovery that answers after the form has gone starts no session refresh.
+
+  Musubi: the profile switcher, the remove-friend dialog and the create and edit organisation dialogs take `AuthHeader` and `DialogActions`, so their titles are centred and their footers match the auth views'; the switcher gains a footer Cancel after its rows, held with Escape and a press outside while a switch runs. The sign-in and create-account dialogs open with focus on the dialog itself, so no phone keyboard rises over the sheet. The lab's `AuthHeader`, `SignIn` and step-up stories show the new layout.
+
+## 5.0.1
+
+### Patch Changes
+
+- 12bb72c: `@osn/auth-ui`: three states where a person signing up could get stuck now have a way forward. `CheckEmailView` takes `productName` and, for sign-up and recovery, says above Resend once its first wait ends to look in the junk or spam folder for an email about the product; `Register` passes its `productName`, and `RecoveryLoginForm` takes one, which `SignIn` passes. `ConfirmLinkPage` states each flow's wrong-number lockout as fixed copy under its instruction and on every expired page, from `LINK_LOCKOUT` (`src/link-lockout.ts`), which a new `repo` test project (`test:repo`) holds to osn-api's constants; `showLockoutRule={false}` leaves it out where the host cannot tell the flow. `TurnstileWidget` names the causes of a challenge that cannot load and offers Try again, which loads the script afresh where it failed and renders the challenge again; a load unfinished 15 seconds after it started counts as failed; a host may add an `alternative` sentence (`SignIn` and `RecoveryLoginForm` name the recovery code); the package exports a `./TurnstileWidget` subpath. `@musubi/social`'s `/verify/:requestId` placeholder holds the taller ready card (590px below `md`, 560px from it), and a link whose id names no flow states no lockout rule. `@tools/lab` adds the TurnstileWidget stories and shows the new copy in the CheckEmailView and ConfirmLinkPage stories.
+
 ## 5.0.0
 
 ### Major Changes

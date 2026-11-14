@@ -26,7 +26,11 @@ import {
   allowRequests,
   emulateMedia,
   failRequests,
+  holdKey,
   movePointer,
+  pressPointer,
+  releaseKey,
+  releasePointer,
 } from "./tests/test-support/browser-commands.ts";
 
 /**
@@ -71,9 +75,19 @@ export default defineConfig({
             instances: [{ browser: "chromium" }],
             // Lets a test flip `prefers-reduced-motion` for itself instead of
             // running the whole suite twice under a second browser instance,
-            // move the real pointer in steps, and fail a module's fetch the way
-            // a dropped connection does.
-            commands: { emulateMedia, movePointer, failRequests, allowRequests },
+            // move the real pointer in steps, hold a real button or key down so
+            // a press reaches `:active`, and fail a module's fetch the way a
+            // dropped connection does.
+            commands: {
+              emulateMedia,
+              movePointer,
+              pressPointer,
+              releasePointer,
+              holdKey,
+              releaseKey,
+              failRequests,
+              allowRequests,
+            },
           },
         },
       },

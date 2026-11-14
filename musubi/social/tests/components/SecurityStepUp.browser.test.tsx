@@ -209,6 +209,50 @@ function scrimOf(sheet: HTMLElement): HTMLElement {
   return scrim;
 }
 
+/** The names of the buttons in the footer the sheet's Cancel sits in, in order. */
+function footerRow(sheet: HTMLElement): string[] {
+  const cancel = within(sheet).getByRole("button", { name: "Cancel" });
+  return [...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent ?? "");
+}
+
+/**
+ * The sheet's one layout (`osn/auth-ui/DESIGN.md` §8): the title alone in
+ * the header, centred; one line under it naming the cause, which is the
+ * sheet's description; the footer's buttons each `tall`, on one row, inside
+ * the sheet's 16px padding.
+ */
+function expectSheetLayout(sheet: HTMLElement, tall: number) {
+  const title = within(sheet).getByRole("heading", { level: 2 });
+  expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+  expect(getComputedStyle(title).textAlign).toBe("center");
+  const box = sheet.getBoundingClientRect();
+  const text = textBox(title);
+  expect(Math.abs(text.left + text.width / 2 - (box.left + box.width / 2))).toBeLessThanOrEqual(1);
+  const described = (sheet.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
+  expect(described).toBe("To add a passkey, confirm it's you.");
+  expect(sheet.textContent).not.toMatch(/Re-authenticate|fresh authentication|Choose a method/);
+  const cancel = within(sheet).getByRole("button", { name: "Cancel" });
+  const row = [...cancel.parentElement!.querySelectorAll("button")];
+  for (const button of row) {
+    const rect = button.getBoundingClientRect();
+    expect(rect.height).toBeCloseTo(tall, 0);
+    expect(rect.top).toBeCloseTo(row[0]!.getBoundingClientRect().top, 0);
+    expect(rect.right).toBeLessThanOrEqual(box.right - 16 + 0.5);
+  }
+  expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+}
+
+/** The box the words of `element` take, line boxes and all, not the element's. */
+function textBox(element: Element): DOMRect {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return range.getBoundingClientRect();
+}
+
 describe("the step-up sheet in Settings → Security", () => {
   it.each(["light", "dark"])(
     "is a bottom sheet at 390px that takes focus and gives it back on Escape (%s)",
@@ -225,11 +269,13 @@ describe("the step-up sheet in Settings → Security", () => {
       expect(style.borderTopRightRadius).toBe("16px");
       expect(style.borderBottomLeftRadius).toBe("0px");
       expect(style.borderBottomRightRadius).toBe("0px");
-      // Focus moves into the sheet: the first factor.
+      // Focus moves into the sheet: "Use passkey", the footer's action.
       await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
       expect(document.activeElement).toBe(
         within(sheet).getByRole("button", { name: "Use passkey" }),
       );
+      expect(footerRow(sheet)).toEqual(["Cancel", "Use passkey"]);
+      expectSheetLayout(sheet, 40);
       await settle();
       await page.screenshot({ path: `${SHOTS}/step-up-sheet-390-${theme}.png` });
 
@@ -289,6 +335,35 @@ describe("the step-up sheet in Settings → Security", () => {
     await settle();
     await page.screenshot({ path: `${SHOTS}/step-up-code-1440-${theme}.png` });
   });
+
+  it.each(["light", "dark"])(
+    "keeps the footer's pair on one row at 320px while the passkey call runs (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(320, 640);
+      const { sheet } = await openSheet();
+      await userEvent.click(within(sheet).getByRole("button", { name: "Use passkey" }));
+      // The longest label a footer pair carries: 284px of the sheet's 288px.
+      await waitFor(() => within(sheet).getByRole("button", { name: "Waiting for your passkey…" }));
+      expect(footerRow(sheet)).toEqual(["Cancel", "Waiting for your passkey…"]);
+      expectSheetLayout(sheet, 40);
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/step-up-busy-320-${theme}.png` });
+    },
+  );
+
+  it.each(["light", "dark"])(
+    "lists the factors in a centred card at 1440px (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(1440, 900);
+      const { sheet } = await openSheet();
+      expect(footerRow(sheet)).toEqual(["Cancel", "Use passkey"]);
+      expectSheetLayout(sheet, 32);
+      await settle();
+      await page.screenshot({ path: `${SHOTS}/step-up-sheet-1440-${theme}.png` });
+    },
+  );
 
   it("closes on a press outside the card at 1440px, and gives focus back", async () => {
     await page.viewport(1440, 900);

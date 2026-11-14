@@ -1,9 +1,11 @@
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { DialogActions } from "@osn/auth-ui/DialogActions";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
-import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Dialog } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Skeleton } from "@shared/ui/ui/skeleton";
@@ -14,6 +16,7 @@ import { createSignal, For, Show } from "solid-js";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SignedOutNote } from "../components/SignedOutNote";
+import { describeActionError } from "../lib/action-error";
 import { orgClient } from "../lib/api";
 import { scopeMark } from "../lib/page-cache";
 import { myOrganisations, suggestions } from "../lib/page-data";
@@ -64,7 +67,7 @@ export function OrganisationsPage() {
       myOrganisations.invalidate();
       suggestions.invalidate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create organisation");
+      toast.error(describeActionError(err, "Failed to create organisation"));
     } finally {
       setCreating(false);
     }
@@ -165,9 +168,7 @@ export function OrganisationsPage() {
       {/* Create org dialog */}
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
         <ResponsiveDialogContent>
-          <DialogHeader>
-            <DialogTitle>Create organisation</DialogTitle>
-          </DialogHeader>
+          <AuthHeader host="dialog" title="Create organisation" />
           {/* The footer sits inside the form, so Enter in a field still submits. */}
           <form onSubmit={handleCreate}>
             <div class="flex flex-col gap-4 p-4">
@@ -212,17 +213,7 @@ export function OrganisationsPage() {
                 )}
               </Field>
             </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                class="max-md:h-10"
-                onClick={() => setShowCreate(false)}
-                disabled={creating()}
-              >
-                Cancel
-              </Button>
+            <DialogActions onCancel={() => setShowCreate(false)} cancelDisabled={creating()}>
               <Button
                 type="submit"
                 size="sm"
@@ -232,7 +223,7 @@ export function OrganisationsPage() {
               >
                 {creating() ? "Creating…" : "Create"}
               </Button>
-            </DialogFooter>
+            </DialogActions>
           </form>
         </ResponsiveDialogContent>
       </Dialog>

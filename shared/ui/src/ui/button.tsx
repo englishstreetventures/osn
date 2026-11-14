@@ -15,15 +15,44 @@ import {
 } from "solid-js";
 
 /**
- * The box every size but `inline` draws: one centred row, glyph and label, at
- * the control weight. `inline` draws none, so it takes the sentence's type and
- * wraps with it; that is why these live in each size rather than in the base,
- * where an `inline` override would tie with them. The type step is not here
- * either: each size names its own, so no two `base:` utilities set one property
- * on one button and none depends on the order Tailwind emits them in.
+ * The press: while a pointer or a held Space presses the button, it scales to
+ * 0.97, and eases back when let go. Not while it is disabled, nor while it
+ * says it is unavailable (`aria-disabled`, which `busy` sets, so a busy button
+ * that keeps keyboard focus does not press either), and not at all under
+ * `prefers-reduced-motion: reduce`.
+ *
+ * It sets `scale`, not `transform`, so a transform a call site sets is never
+ * overwritten: the two compose. It belongs to the box, so `inline` does not
+ * press: an `<a>` at `display: inline` cannot be transformed, and the
+ * `<button>` spelling of the same link should not press where the `<a>` cannot.
+ * `TRANSITION` eases it.
  */
-const BOX =
-  "base:inline-flex base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:font-medium";
+const PRESS = "base:motion-safe:active:not-disabled:not-aria-disabled:scale-97";
+
+/**
+ * The box every size but `inline` draws: one centred row, glyph and label, at
+ * the control weight, and the press. `inline` draws none, so it takes the
+ * sentence's type and wraps with it; that is why these live in each size rather
+ * than in the base, where an `inline` override would tie with them. The type
+ * step is not here either: each size names its own, so no two `base:`
+ * utilities set one property on one button and none depends on the order
+ * Tailwind emits them in.
+ */
+const BOX = `base:inline-flex base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:font-medium ${PRESS}`;
+
+/**
+ * The colours fade as Tailwind's `transition-colors` fades them — the same ten
+ * properties, its default duration and curve — and the press eases on the
+ * contract's press tokens, `--ui-dur-fast` on `--ui-ease-out`. A transition
+ * takes one list per longhand, matched by position, so the press's timing is
+ * the eleventh entry of each. Written as arbitrary properties rather than
+ * `duration-*` and `ease-*`, which would also set `--tw-duration` and
+ * `--tw-ease` on every button.
+ */
+const TRANSITION =
+  "base:[transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,scale] " +
+  "base:[transition-duration:var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--default-transition-duration),var(--ui-dur-fast)] " +
+  "base:[transition-timing-function:var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--default-transition-timing-function),var(--ui-ease-out)]";
 
 /**
  * `ghostDanger` destroys something, and says so only when you reach for it —
@@ -50,13 +79,13 @@ const BOX =
  * theme it computes as `outline-none` does. It applies only while focused from
  * the keyboard; at rest the theme would ring every button. Like the `ring-2`
  * it stands in for, it is a fixed 2px and does not follow `--ui-focus-width`
- * or `--ui-focus-offset`. The colour transition below covers the outline's
- * colour, so focus starts one in the theme too, but the theme's colour stands
- * in for every value it passes through: the outline reads the same at once as
- * when settled (`button.browser.test.tsx`, in Chromium).
+ * or `--ui-focus-offset`. The colour transition (`TRANSITION`) covers the
+ * outline's colour, so focus starts one in the theme too, but the theme's
+ * colour stands in for every value it passes through: the outline reads the
+ * same at once as when settled (`button.browser.test.tsx`, in Chromium).
  */
 const buttonVariants = cva(
-  "base:cursor-pointer base:rounded-ui-control base:transition-colors base:focus-visible:outline-hidden base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:disabled:pointer-events-none base:disabled:opacity-50",
+  `base:cursor-pointer base:rounded-ui-control ${TRANSITION} base:focus-visible:outline-hidden base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:disabled:pointer-events-none base:disabled:opacity-50`,
   {
     variants: {
       variant: {

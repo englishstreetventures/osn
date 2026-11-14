@@ -11,6 +11,7 @@ import { Chip } from "@shared/ui/ui/chip";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 
+import { describeActionError } from "../lib/action-error";
 import { graphClient } from "../lib/api";
 import { invalidatePages } from "../lib/page-cache";
 import { PAGE_DATA } from "../lib/page-names";
@@ -47,7 +48,7 @@ export function useSearchActions(controller: SearchController) {
         // The pages these change, by name: the shell does not load their queries.
         invalidatePages(PAGE_DATA.sentRequests, PAGE_DATA.suggestions);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to send request");
+        toast.error(describeActionError(err, "Failed to send request"));
       }
     });
   }
@@ -60,7 +61,7 @@ export function useSearchActions(controller: SearchController) {
         toast.success(`You and @${handle} are connected`);
         invalidatePages(PAGE_DATA.pendingRequests, PAGE_DATA.connections, PAGE_DATA.suggestions);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to accept request");
+        toast.error(describeActionError(err, "Failed to accept request"));
       }
     });
   }

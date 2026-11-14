@@ -509,6 +509,17 @@ describe("Register component", () => {
       });
     });
 
+    it("names the product where its wait says to look in the junk folder", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(screen.getByText(/^Can't find it\?/).textContent).toBe(
+        "Can't find it? Look in your junk or spam folder for an email about Musubi.",
+      );
+    });
+
     it("keeps waiting through a poll that failed, and polls again", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       stub.registrationStatus
@@ -1207,5 +1218,99 @@ describe("Register in a dialog", () => {
     ));
     fireEvent.click(screen.getByRole("button", { name: "Sign in instead" }));
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  /** The view in an open sheet, with the host's `onOpenChange` watched. */
+  function renderInDialog(onCancel = vi.fn(), onOpenChange = vi.fn()) {
+    render(() => (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(makeClientStub())}
+            onCancel={onCancel}
+            productName="Musubi"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    return { onCancel, onOpenChange };
+  }
+
+  // The header holds the title alone; Cancel leads the footer pair,
+  // calls the view's handler once and leaves closing to it.
+  it("puts Cancel first in the footer, beside the send, with no button in the header", () => {
+    const { onCancel, onOpenChange } = renderInDialog();
+    const title = screen.getByRole("heading", { name: "Create your Musubi account" });
+    expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect([...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+      ["Cancel", "Send verification link"],
+    );
+    fireEvent.click(cancel);
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("takes no Cancel words in a dialog", () => {
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(makeClientStub())}
+            onCancel={() => {}}
+            productName="Musubi"
+            // @ts-expect-error A dialog's Cancel always reads "Cancel".
+            cancelLabel="Sign in instead"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    expect(screen.queryByRole("button", { name: "Sign in instead" })).toBeNull();
+  });
+
+  // The footer's Cancel is the dialog's way out, so it holds while the send runs.
+  it("holds the footer's Cancel while the send runs", async () => {
+    const client = makeClientStub();
+    client.checkHandle.mockResolvedValue({ available: true });
+    client.beginRegistration.mockReturnValue(new Promise(() => {}));
+    const onCancel = vi.fn();
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(client)}
+            onCancel={onCancel}
+            productName="Musubi"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    fillEmail("alice@example.com");
+    fillHandle("alice");
+    fillBirthdate("1990-01-01");
+    const send = () =>
+      screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
+    await waitFor(() => expect(send().disabled).toBe(false));
+    fireEvent.click(send());
+    await screen.findByRole("button", { name: /Sending…/ });
+    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(cancel);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  // The footer sits inside the form, so Enter in a field submits.
+  it("keeps the send the form's submit, so Enter in a field sends it", () => {
+    renderInDialog();
+    const email = screen.getByLabelText("Email") as HTMLInputElement;
+    const send = screen.getByRole("button", {
+      name: "Send verification link",
+    }) as HTMLButtonElement;
+    expect(send.type).toBe("submit");
+    expect(send.form).not.toBeNull();
+    expect(send.form).toBe(email.form);
   });
 });

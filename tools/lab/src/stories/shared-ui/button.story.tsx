@@ -124,6 +124,63 @@ export const Busy: Story = {
   },
 };
 
+/**
+ * The press: hold the mouse down on a button, or Tab onto one and hold Space,
+ * and it scales to 0.97 over 120ms (`--ui-dur-fast` on `--ui-ease-out`), then
+ * eases back when let go. Every variant and every size that draws a box
+ * presses, and so does a link wearing `buttonVariants`. The second group does
+ * not: disabled, busy, `aria-disabled`, and a link inside a sentence. With the
+ * system's reduce-motion setting on, nothing scales.
+ */
+export const Press: Story = {
+  layout: "padded",
+  render: () => (
+    <div class="flex flex-col gap-6">
+      <div class="flex flex-col gap-2">
+        <p class="text-meta text-muted-foreground">Presses</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button>Default</Button>
+          <Button variant="secondary">Secondary</Button>
+          <Button variant="outline">Outline</Button>
+          <Button variant="ghost">Ghost</Button>
+          <Button variant="ghostDanger">Remove</Button>
+          <Button variant="destructive">Delete</Button>
+          <Button variant="link">Link</Button>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button size="sm">Small</Button>
+          <Button size="lg">Large</Button>
+          <Button size="icon" aria-label="Add">
+            +
+          </Button>
+          <a
+            href="#settings"
+            class={buttonVariants({ variant: "outline", size: "sm" })}
+            onClick={(event) => event.preventDefault()}
+          >
+            A link styled as a button
+          </a>
+        </div>
+      </div>
+      <div class="flex flex-col gap-2">
+        <p class="text-meta text-muted-foreground">Does not press</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <Button disabled>Disabled</Button>
+          <Button busy>Creating…</Button>
+          <Button aria-disabled="true">aria-disabled</Button>
+        </div>
+        <p class="text-body">
+          By continuing you accept the{" "}
+          <Button variant="link" size="inline">
+            terms
+          </Button>
+          .
+        </p>
+      </div>
+    </div>
+  ),
+};
+
 interface PlaygroundArgs extends StoryArgs {
   label: string;
   variant: "default" | "secondary" | "outline" | "ghost" | "destructive" | "link";

@@ -11,13 +11,18 @@
  *   single span and `Button` is a gapped flex row that would set each child of
  *   its own apart;
  * - both buttons are 40px tall below `md`, musubi's phone touch height, and
- *   `Button`'s own 32px from `md` up.
+ *   `Button`'s own 32px from `md` up;
+ * - the junk-mail line that arrives as Resend unlocks never puts "Start again"
+ *   under a tap aimed at Resend: in the sheet, in the centred dialog, and in a
+ *   frame that grows downward, as `/authorize`'s does.
  *
  * The view sits where `Register` puts it in musubi's create-account dialog:
  * `ResponsiveDialogContent` (a bottom sheet below `md`, full width with no
- * side border or padding), then `Register`'s root (`flex flex-col`) and its
- * body for `host="dialog"`, `p-4`, class for class (`Register.tsx`). At a
- * 320px viewport that leaves the view a 288px column.
+ * side border or padding), then `Register`'s root (`flex flex-col`) and the
+ * body `ViewStep` draws for `host="dialog"`, padded 16px (`ViewParts.tsx`),
+ * copied here; `AuthDialogs.browser.test.tsx` holds the real body's column to
+ * the sheet's width less 32px, so the copy cannot drift unseen. At a 320px
+ * viewport that leaves the view a 288px column.
  *
  * Each case writes a screenshot to `__screenshots__/` beside this file
  * (gitignored).
@@ -69,7 +74,7 @@ async function mountInSheet(email: string, pairingCode?: string) {
     <Dialog open onOpenChange={() => {}}>
       <ResponsiveDialogContent aria-label="Check your email">
         <div class="flex flex-col">
-          <div class="p-4">
+          <div class="flex flex-col gap-4 p-4">
             <CheckEmailView
               email={email}
               purpose="sign-up"
@@ -201,4 +206,62 @@ describe("CheckEmailView in musubi's auth sheet", () => {
 
     await page.screenshot({ path: `${SHOTS}/desktop-1280.png` });
   });
+
+  for (const [frame, viewport] of [
+    ["the phone sheet", PHONE],
+    ["the centred dialog", DESKTOP],
+    ["a frame that grows downward", { width: 390, height: 844 }],
+  ] as const) {
+    it(`keeps "Start again" out from under a tap aimed at Resend as the junk-mail line arrives, in ${frame}`, async () => {
+      await atViewport(viewport);
+      const view = () => (
+        <div class="mx-auto max-w-sm px-4 py-8">
+          <CheckEmailView
+            email={LONG_EMAIL}
+            purpose="sign-up"
+            productName="Musubi"
+            status="waiting"
+            resendWaitSeconds={1}
+            onResend={() => {}}
+            onChangeEmail={() => {}}
+          />
+        </div>
+      );
+      render(() =>
+        frame === "a frame that grows downward" ? (
+          <main class="p-4">{view()}</main>
+        ) : (
+          <Dialog open onOpenChange={() => {}}>
+            <ResponsiveDialogContent aria-label="Check your email">
+              {view()}
+            </ResponsiveDialogContent>
+          </Dialog>
+        ),
+      );
+      await nextFrame();
+      await nextFrame();
+      await Promise.all(document.getAnimations().map((animation) => animation.finished));
+      await document.fonts.ready;
+
+      const resend = screen.getByRole("button", { name: /^Resend in/ });
+      const box = resend.getBoundingClientRect();
+      const aim = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      expect(screen.queryByText(/^Can't find it\?/)).toBeNull();
+
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      await nextFrame();
+      await nextFrame();
+      const line = screen.getByText(/^Can't find it\?/);
+      const changeEmail = screen.getByRole("button", { name: "Start again" });
+      const hit = document.elementFromPoint(aim.x, aim.y);
+      expect(hit).not.toBeNull();
+      expect(changeEmail.contains(hit)).toBe(false);
+      // The line sits directly above Resend.
+      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        screen.getByRole("button", { name: "Resend link" }).getBoundingClientRect().top,
+      );
+
+      await page.screenshot({ path: `${SHOTS}/junk-line-${viewport.width}.png` });
+    });
+  }
 });

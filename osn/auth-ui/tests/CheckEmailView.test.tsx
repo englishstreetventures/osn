@@ -930,3 +930,150 @@ describe("CheckEmailView — controls and focus", () => {
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 });
+
+describe("CheckEmailView — where a missing email may be", () => {
+  const JUNK = "Can't find it? Look in your junk or spam folder for an email about Musubi.";
+
+  /** The junk line, found by its opening words; null when it is not drawn. */
+  function junkLine(): HTMLElement | null {
+    return screen.queryByText(/^Can't find it\?/);
+  }
+
+  it.each(["sign-up", "recovery"] as const)(
+    "says nothing of junk mail during the wait, then, for %s, the same line once Resend unlocks",
+    (purpose) => {
+      render(() => (
+        <CheckEmailView
+          email={EMAIL}
+          purpose={purpose}
+          productName="Musubi"
+          status="waiting"
+          onResend={() => {}}
+        />
+      ));
+
+      vi.advanceTimersByTime(29_000);
+      expect(junkLine()).toBeNull();
+
+      vi.advanceTimersByTime(1_000);
+      expect(junkLine()?.textContent).toBe(JUNK);
+    },
+  );
+
+  it("keeps the line through a Resend and the wait after it", async () => {
+    const pending = deferred();
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        productName="Musubi"
+        status="waiting"
+        onResend={() => pending.promise}
+      />
+    ));
+
+    vi.advanceTimersByTime(30_000);
+    fireEvent.click(resend());
+    expect(junkLine()?.textContent).toBe(JUNK);
+    pending.resolve();
+    await settle();
+    expect(junkLine()?.textContent).toBe(JUNK);
+    vi.advanceTimersByTime(10_000);
+    expect(junkLine()?.textContent).toBe(JUNK);
+  });
+
+  it("is outside the live region, and moves no focus when it appears", () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        productName="Musubi"
+        status="waiting"
+        onResend={() => {}}
+      />
+    ));
+    expect(document.activeElement).toBe(heading());
+    const announced = region().textContent;
+
+    vi.advanceTimersByTime(30_000);
+    expect(junkLine()).not.toBeNull();
+    expect(region().contains(junkLine())).toBe(false);
+    expect(region().textContent).toBe(announced);
+    expect(junkLine()?.closest("[role=alert],[aria-live]")).toBeNull();
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it("sits directly above Resend, so a tap as Resend unlocks never lands on Start again", () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        productName="Musubi"
+        status="waiting"
+        onResend={() => {}}
+        onChangeEmail={() => {}}
+      />
+    ));
+    vi.advanceTimersByTime(30_000);
+    const line = junkLine()!;
+    const following = line.compareDocumentPosition(resend());
+    expect(following & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const startAgain = screen.getByRole("button", { name: "Start again" });
+    expect(
+      line.compareDocumentPosition(startAgain) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("names no product when the host gives none", () => {
+    render(() => (
+      <CheckEmailView email={EMAIL} purpose="recovery" status="waiting" onResend={() => {}} />
+    ));
+    vi.advanceTimersByTime(120_000);
+    expect(junkLine()?.textContent).toBe("Can't find it? Look in your junk or spam folder.");
+  });
+
+  it("shows at once when there is no wait", () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        productName="Musubi"
+        status="waiting"
+        resendWaitSeconds={0}
+        onResend={() => {}}
+      />
+    ));
+    expect(junkLine()?.textContent).toBe(JUNK);
+  });
+
+  it.each(["step-up", "email-change"] as const)("is not drawn for %s", (purpose) => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose={purpose}
+        productName="Musubi"
+        status="waiting"
+        onResend={() => {}}
+      />
+    ));
+    vi.advanceTimersByTime(120_000);
+    expect(junkLine()).toBeNull();
+  });
+
+  it("is not drawn once the link has expired", () => {
+    const [status, setStatus] = createSignal<CheckEmailStatus>("waiting");
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        productName="Musubi"
+        status={status()}
+        onResend={() => {}}
+      />
+    ));
+    vi.advanceTimersByTime(30_000);
+    expect(junkLine()).not.toBeNull();
+    setStatus("expired");
+    expect(junkLine()).toBeNull();
+  });
+});

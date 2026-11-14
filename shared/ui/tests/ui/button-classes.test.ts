@@ -19,6 +19,11 @@ import { buttonVariants } from "../../src/ui/button";
  * `text-ui-base`, which its own `text-ui-sm` overrode only by coming later in
  * Tailwind's output. Its computed size, 13px, is held by the snapshot in
  * `button-default.browser.test.tsx`.
+ *
+ * And the press changed two things on purpose: the base string's
+ * `transition-colors` became the three transition longhands that add `scale`
+ * to the same colour fade, and every pair carries the press class, since every
+ * size here draws a box (`button-press.browser.test.tsx` holds what they do).
  */
 
 const BASE =
@@ -48,10 +53,25 @@ type Size = keyof typeof SIZES;
 /** The distinct classes in `strings`. */
 const classSet = (...strings: string[]) => new Set(strings.join(" ").split(/\s+/).filter(Boolean));
 
-/** What a pair carries now: what it carried before, less `sm`'s overridden step. */
+/** The colour fade with `scale` on the press tokens, in place of `transition-colors`. */
+const TRANSITION = [
+  "base:[transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,scale]",
+  `base:[transition-duration:${"var(--default-transition-duration),".repeat(10)}var(--ui-dur-fast)]`,
+  `base:[transition-timing-function:${"var(--default-transition-timing-function),".repeat(10)}var(--ui-ease-out)]`,
+];
+
+const PRESS = "base:motion-safe:active:not-disabled:not-aria-disabled:scale-97";
+
+/**
+ * What a pair carries now: what it carried before, less `sm`'s overridden
+ * step, with the press's transition in place of `transition-colors` and the
+ * press itself.
+ */
 const expected = (variant: Variant, size: Size) => {
   const set = classSet(BASE, VARIANTS[variant], SIZES[size]);
   if (size === "sm") set.delete("base:text-ui-base");
+  set.delete("base:transition-colors");
+  for (const name of [...TRANSITION, PRESS]) set.add(name);
   return set;
 };
 
