@@ -24,12 +24,14 @@ vi.mock("../../src/lib/api", () => ({
 import { DiscoverPage } from "../../src/pages/DiscoverPage";
 
 function authedProvider() {
+  // `latest` is the value, as a landed resource's is: the page cache keys on
+  // the session object, so each render's new one gives each test a fresh cache.
   const asResource = <T,>(value: T) =>
     Object.assign(() => value, {
       state: "ready",
       loading: false,
       error: undefined,
-      latest: null,
+      latest: value,
       refetch: () => {},
       mutate: () => {},
     });

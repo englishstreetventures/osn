@@ -23,11 +23,22 @@
  * tall at the phone width. Last, it
  * loads `/authorize` with no request, which runs outside the session provider,
  * and reads its dead-end box on `Card`.
+ *
+ * It also holds Musubi's page cache to its promise (`musubi/social/src/lib/
+ * page-cache.ts`): hovering the Discover link reads its suggestions before the
+ * click; coming back to the organisations list draws it at once, renamed,
+ * while its read again is held, with no placeholder, then the organisation
+ * the same way; and a deleted organisation's stale link is a first load,
+ * placeholder and all. The page under the return is shot as
+ * `screenshots/musubi-page-cache/organisations-return.png`.
  */
+
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 import type { Page } from "@playwright/test";
 
-import { DB_FILES, MUSUBI_ORG, ORIGINS } from "../../src/config";
+import { DB_FILES, MUSUBI_ORG, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
   expect,
   holdMethod,
@@ -70,6 +81,49 @@ async function hold(page: Page, url: string): Promise<() => void> {
     await route.continue();
   });
   return release;
+}
+
+/** A loading placeholder (`@shared/ui`'s `Skeleton`): hidden from readers, the sunk well's fill. */
+const PLACEHOLDER = '[aria-hidden="true"][class*="bg-ui-surface-sunk"]';
+
+/**
+ * Watches the page for a loading placeholder being drawn, from now until
+ * `seen` is read. On `document.body`, which outlives every page's `<main>`,
+ * and on added nodes, since a placeholder arrives inside a new subtree.
+ */
+async function watchPlaceholders(page: Page): Promise<{ seen: () => Promise<boolean> }> {
+  await page.evaluate((selector) => {
+    const w = window as unknown as {
+      __placeholderWatch?: { observer: MutationObserver; seen: boolean };
+    };
+    w.__placeholderWatch?.observer.disconnect();
+    const watch = { observer: undefined as unknown as MutationObserver, seen: false };
+    const file = (records: MutationRecord[]) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof Element && (node.matches(selector) || node.querySelector(selector))) {
+            watch.seen = true;
+          }
+        }
+      }
+    };
+    watch.observer = new MutationObserver(file);
+    watch.observer.observe(document.body, { childList: true, subtree: true });
+    w.__placeholderWatch = watch;
+    (w as unknown as { __placeholderFile: typeof file }).__placeholderFile = file;
+  }, PLACEHOLDER);
+  return {
+    seen: () =>
+      page.evaluate(() => {
+        const w = window as unknown as {
+          __placeholderWatch: { observer: MutationObserver; seen: boolean };
+          __placeholderFile: (records: MutationRecord[]) => void;
+        };
+        w.__placeholderFile(w.__placeholderWatch.observer.takeRecords());
+        w.__placeholderWatch.observer.disconnect();
+        return w.__placeholderWatch.seen;
+      }),
+  };
 }
 
 /** Members `org` has, read from osn-api's database. */
@@ -216,10 +270,31 @@ test("musubi-org-detail", async ({ page, flow }) => {
     .getByRole("main")
     .getByText(`@${member.handle}`, { exact: true })
     .locator("xpath=ancestor::div[.//button][1]");
-  await flow.step("open Discover, the member suggested", async () => {
-    await page.getByRole("link", { name: "Discover" }).first().click();
-    await expect(suggestion.getByRole("button", { name: "Connect" })).toBeVisible();
+  // Discover has no rows yet: hovering its link reads them before the click,
+  // and the visit reads them again behind the ones it then draws at once.
+  const suggestionsUrl = `${ORIGINS.osnApi}/recommendations/connections`;
+  const suggestionReads = () => flow.count("GET osn-api /recommendations/connections ");
+  const suggestionsAnswered = () =>
+    page.waitForResponse(
+      (response) =>
+        response.url().startsWith(suggestionsUrl) && response.request().method() === "GET",
+    );
+  const discoverLink = page.getByRole("link", { name: "Discover" }).first();
+  await flow.step("hover Discover: its suggestions are read before any click", async () => {
+    const answered = suggestionsAnswered();
+    await discoverLink.hover();
+    await answered;
+    await expect.poll(suggestionReads).toBe(1);
   });
+  flow.check("hovering Discover reads its suggestions", 1, suggestionReads());
+  await flow.step("open Discover, the member suggested", async () => {
+    const answered = suggestionsAnswered();
+    await discoverLink.click();
+    await expect(suggestion.getByRole("button", { name: "Connect" })).toBeVisible();
+    await answered;
+    await expect.poll(suggestionReads).toBe(2);
+  });
+  flow.check("the visit reads them again behind the hovered ones", 2, suggestionReads());
   const discoverHeld = holdMethod("POST");
   await page.route(connectUrl, discoverHeld.handler);
   try {
@@ -291,11 +366,47 @@ test("musubi-org-detail", async ({ page, flow }) => {
   });
   flow.check("/search sent one request", 1, sentRequests() - sentFromDiscover);
 
+  // Back to pages already seen: each draws its rows at once and reads them
+  // again behind them. The list's read is held, so its row, under the new
+  // name the rename wrote into the cache, is drawn before the read answers.
+  const listReads = () => flow.count("GET osn-api /organisations ");
+  const readsBefore = listReads();
+  const listWatch = await watchPlaceholders(page);
+  const listHeld = holdMethod("GET");
+  await page.route(orgsUrl, listHeld.handler);
+  let drawnWhileHeld = false;
+  try {
+    await flow.step(
+      "back to the organisations list: drawn at once, read again behind it",
+      async () => {
+        const sent = page.waitForRequest(
+          (request) => request.url() === orgsUrl && request.method() === "GET",
+        );
+        await page.getByRole("link", { name: "Organisations" }).first().click();
+        await sent;
+        await expect(page.getByRole("link", { name: new RegExp(org.renamed) })).toBeVisible();
+        drawnWhileHeld = true;
+        const shots = join(SCREENSHOT_DIR, "musubi-page-cache");
+        mkdirSync(shots, { recursive: true });
+        await page.screenshot({ path: join(shots, "organisations-return.png") });
+      },
+    );
+  } finally {
+    listHeld.release();
+    await page.unroute(orgsUrl, listHeld.handler);
+  }
+  await expect.poll(listReads).toBe(readsBefore + 1);
+  flow.check("organisations: the list drawn while its read is held", true, drawnWhileHeld);
+  flow.check("organisations: no placeholder on the return", false, await listWatch.seen());
+  flow.check("organisations: the list read again behind it", 1, listReads() - readsBefore);
+
+  const orgWatch = await watchPlaceholders(page);
   await flow.step("back to the organisation", async () => {
-    await page.getByRole("link", { name: "Organisations" }).first().click();
     await orgLink.click();
     await expect(page.getByRole("heading", { level: 1, name: org.renamed })).toBeVisible();
+    await expect(page.getByText(`@${member.handle}`, { exact: true })).toBeVisible();
   });
+  flow.check("organisation: no placeholder on the return", false, await orgWatch.seen());
 
   await flow.step("remove the member", async () => {
     await page.getByRole("button", { name: `Remove @${member.handle}`, exact: true }).click();
@@ -366,11 +477,15 @@ test("musubi-org-detail", async ({ page, flow }) => {
     )?.n ?? -1,
   );
 
+  const staleWatch = await watchPlaceholders(page);
   await flow.step("follow the stale link back", async () => {
     await page.goBack();
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations/${org.handle}`);
     await expect(page.getByText("Organisation not found.")).toBeVisible();
   });
+  // The deleted organisation's rows were dropped: a first load, which draws
+  // its placeholder (and shows the watch above can see one).
+  flow.check("stale link: a first load, with a placeholder", true, await staleWatch.seen());
   flow.check(
     "deleted organisation answers 404",
     true,

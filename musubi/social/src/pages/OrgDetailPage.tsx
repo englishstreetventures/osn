@@ -1,5 +1,4 @@
 import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
-import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
@@ -11,13 +10,21 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { orgClient } from "../lib/api";
+import { scopeMark } from "../lib/page-cache";
+import {
+  myOrganisations,
+  organisationDetail,
+  organisationMembers,
+  suggestions,
+} from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
+import { createRowActions } from "../lib/row-actions";
 import { safeAvatarUrl } from "../lib/utils";
 
 /** A member's role as the roster shows it: a label set as written, so in sentence case. */
@@ -43,36 +50,21 @@ function LoadFailure(props: { message: string }) {
 export function OrgDetailPage() {
   const params = useParams<{ handle: string }>();
   const navigate = useNavigate();
-  const { session } = useAuth();
 
-  // One memoised key for both resources, so they refetch together and only
-  // when the session object or the handle changes. The memo holds its object
-  // until one of the two does; a fresh object per read would refetch on every
-  // tick. Keyed on the session, not its token: a silent token renewal does not
-  // replace the session object, so it refetches nothing.
-  const resourceKey = createMemo(() => {
-    const current = session();
-    const handle = params.handle;
-    return current && handle ? { session: current, handle } : false;
-  });
+  // Both through the page cache, by handle: an organisation shown again draws
+  // at once and is read again behind it. The page stays mounted when only the
+  // handle changes; each handle has its own entry, so a state or an error
+  // never belongs to the organisation before.
+  const handleArgs = (): [string] | undefined => (params.handle ? [params.handle] : undefined);
+  const org = organisationDetail.use(handleArgs);
+  const members = organisationMembers.use(handleArgs);
 
-  const [org, { mutate: setOrg }] = createResource(
-    resourceKey,
-    async (key) => (await orgClient.getOrg(key.handle)).organisation,
-  );
-
-  const [members, { mutate: setMembers }] = createResource(resourceKey, (key) =>
-    orgClient.listMembers(key.handle),
-  );
-
-  // What shows is chosen by `state`, never by `.error`: Solid keeps a failed
-  // load's error until the next load finishes, and the page stays mounted when
-  // only the handle changes, so `.error` can belong to the organisation before.
-  // Solid also throws when a failed resource is read, so values are read only
-  // in the `ready` state. A roster read by a non-member answers 403: the
-  // organisation is public, its member list is not.
-  const orgReady = () => (org.state === "ready" ? org() : undefined);
-  const memberRows = () => (members.state === "ready" ? members()?.members : undefined);
+  // What shows is chosen by `state`: a failed read throws when read, so values
+  // are read only once one has landed. A roster read by a non-member answers
+  // 403: the organisation is public, its member list is not.
+  const landed = (state: string) => state === "ready" || state === "refreshing";
+  const orgReady = () => (landed(org.state) ? org() : undefined);
+  const memberRows = () => (landed(members.state) ? members()?.members : undefined);
   // The page's `h1`: the organisation's name, or the section's while it loads
   // or when it could not be loaded.
   usePageTitle(() => orgReady()?.name ?? "Organisations");
@@ -95,14 +87,26 @@ export function OrgDetailPage() {
     e.preventDefault();
     if (saving()) return;
     setSaving(true);
+    const handle = params.handle;
     try {
-      const { organisation } = await orgClient.updateOrg(params.handle, {
+      const mark = scopeMark();
+      const { organisation } = await orgClient.updateOrg(handle, {
         name: editName(),
         description: editDesc() || undefined,
       });
       toast.success("Organisation updated");
       setShowEdit(false);
-      setOrg(organisation);
+      organisationDetail.update([handle], () => organisation, mark);
+      // The list shows the new name at once and reads itself again when next shown.
+      myOrganisations.update(
+        [],
+        (value) => ({
+          ...value,
+          organisations: value.organisations.map((o) => (o.handle === handle ? organisation : o)),
+        }),
+        mark,
+      );
+      myOrganisations.invalidate();
     } catch (err) {
       toast.error(`Couldn't save the organisation. ${describeAuthError(err)}`);
     } finally {
@@ -112,31 +116,63 @@ export function OrgDetailPage() {
 
   async function handleDelete() {
     if (!confirm("Delete this organisation? This cannot be undone.")) return;
+    const handle = params.handle;
     try {
-      await orgClient.deleteOrg(params.handle);
+      const mark = scopeMark();
+      await orgClient.deleteOrg(handle);
       toast.success("Organisation deleted");
       navigate("/organisations");
+      // Gone from the list at once; a link back to it is a first load, which
+      // answers that it is not found.
+      organisationDetail.drop(handle);
+      organisationMembers.drop(handle);
+      myOrganisations.update(
+        [],
+        (value) => ({
+          ...value,
+          organisations: value.organisations.filter((o) => o.handle !== handle),
+        }),
+        mark,
+      );
+      myOrganisations.invalidate();
+      suggestions.invalidate();
     } catch (err) {
       toast.error(`Couldn't delete the organisation. ${describeAuthError(err)}`);
     }
   }
 
-  async function removeMember(profileHandle: string) {
-    try {
-      await orgClient.removeMember(params.handle, profileHandle);
-      toast.success(`Removed @${profileHandle}`);
-      setMembers(
-        (roster) =>
-          roster && { members: roster.members.filter((member) => member.handle !== profileHandle) },
-      );
-    } catch (err) {
-      toast.error(`Couldn't remove @${profileHandle}. ${describeAuthError(err)}`);
-    }
+  const actions = createRowActions();
+
+  function removeMember(profileHandle: string) {
+    const handle = params.handle;
+    return actions.run(
+      `remove:${profileHandle}`,
+      members,
+      (roster) => roster.members.some((member) => member.handle === profileHandle),
+      async (mark) => {
+        try {
+          await orgClient.removeMember(handle, profileHandle);
+          toast.success(`Removed @${profileHandle}`);
+          organisationMembers.update(
+            [handle],
+            (roster) => ({
+              ...roster,
+              members: roster.members.filter((member) => member.handle !== profileHandle),
+            }),
+            mark,
+          );
+          organisationMembers.invalidate(handle);
+          suggestions.invalidate();
+        } catch (err) {
+          toast.error(`Couldn't remove @${profileHandle}. ${describeAuthError(err)}`);
+        }
+      },
+    );
   }
 
   return (
     <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
-      <div aria-busy={org.loading || undefined}>
+      <div aria-busy={org.busy || undefined}>
         <Show
           when={orgReady()}
           fallback={
@@ -219,15 +255,17 @@ export function OrgDetailPage() {
                     </Show>
                   }
                 >
-                  <div aria-busy={members.loading || undefined}>
+                  <div aria-busy={members.busy || undefined}>
                     <Show
-                      when={members.state === "ready"}
+                      when={memberRows()}
                       fallback={
-                        // A member row with Remove: 56px, and 60px below `md`,
-                        // where the button takes the touch height. An admin's
-                        // row has no Remove, and is 56px at both widths.
+                        // As many rows as the last roster landed, one when
+                        // nothing is known. A member row with Remove: 56px,
+                        // and 60px below `md`, where the button takes the
+                        // touch height. An admin's row has no Remove, and is
+                        // 56px at both widths.
                         <div class="flex flex-col gap-1">
-                          {Array.from({ length: 2 }, () => (
+                          {Array.from({ length: members.rows }, () => (
                             <ResponsiveSkeleton height={14} phoneHeight={15} />
                           ))}
                         </div>
@@ -261,10 +299,11 @@ export function OrgDetailPage() {
                                   variant="ghost"
                                   size="sm"
                                   class="h-7 max-md:h-10"
-                                  aria-label={`Remove @${member.handle}`}
+                                  aria-label={`${actions.busy(`remove:${member.handle}`) ? "Removing" : "Remove"} @${member.handle}`}
+                                  busy={actions.busy(`remove:${member.handle}`)}
                                   onClick={() => removeMember(member.handle)}
                                 >
-                                  Remove
+                                  {actions.busy(`remove:${member.handle}`) ? "Removing…" : "Remove"}
                                 </Button>
                               </Show>
                             </div>

@@ -5,12 +5,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SignedOutNote } from "../components/SignedOutNote";
-import { graphClient, recommendationClient } from "../lib/api";
+import { graphClient } from "../lib/api";
+import { scopeMark } from "../lib/page-cache";
+import { sentRequests, suggestions } from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
 
@@ -32,21 +34,37 @@ export function DiscoverPage() {
   const { session } = useAuth();
   usePageTitle(() => "Discover");
 
-  // Keyed on the session object: a new session refetches, a token renewal does not.
-  const [recommendations, { refetch }] = createResource(
-    () => session() ?? false,
-    () => recommendationClient.suggestConnections({ limit: 20 }),
-  );
+  // Through the page cache: shown again, the last suggestions draw at once
+  // and are read again behind them.
+  const recommendations = suggestions.use(() => []);
 
   const [sending, setSending] = createSignal<Set<string>>(new Set());
 
+  /**
+   * Busy from the press. Waits for any read of the suggestions that is out,
+   * and sends nothing for a card that read removed (`DESIGN.md` §Empty
+   * states). A card asked is taken off at once: osn-api suggests nobody with
+   * a request in flight.
+   */
   async function connect(handle: string) {
     if (sending().has(handle)) return;
     setSending((s) => new Set(s).add(handle));
     try {
+      const mark = scopeMark();
+      const shown = await recommendations.settled();
+      if (!shown?.suggestions.some((s) => s.handle === handle)) return;
       await graphClient.sendConnectionRequest(handle);
       toast.success(`Request sent to @${handle}`);
-      refetch();
+      suggestions.update(
+        [],
+        (value) => ({
+          ...value,
+          suggestions: value.suggestions.filter((s) => s.handle !== handle),
+        }),
+        mark,
+      );
+      suggestions.invalidate();
+      sentRequests.invalidate();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send request");
     } finally {
@@ -68,12 +86,13 @@ export function DiscoverPage() {
       </div>
 
       <Show when={session()} fallback={<SignedOutNote>Sign in to discover people.</SignedOutNote>}>
-        <div aria-busy={recommendations.loading || undefined}>
+        <div aria-busy={recommendations.busy || undefined}>
           <Show
-            when={!recommendations.loading}
+            when={recommendations()}
             fallback={
               <div class="grid gap-3 md:grid-cols-2">
-                {Array.from({ length: 4 }, () => (
+                {/* As many as the page last landed, one when nothing is known. */}
+                {Array.from({ length: recommendations.rows }, () => (
                   // A card is 114px, and 126px below `md`, where Connect
                   // takes the touch height.
                   <ResponsiveSkeleton standsFor="card" height={28.5} phoneHeight={31.5} />

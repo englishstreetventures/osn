@@ -16,6 +16,15 @@ import type { SearchController } from "../lib/search";
 import { safeAvatarUrl } from "../lib/utils";
 
 /**
+ * Marks the page reads a connect or accept from search made stale. The shell
+ * draws search, so the queries load on demand rather than with it; a failed
+ * load only means the pages read themselves again when next shown anyway.
+ */
+function invalidatePages(pick: (data: typeof import("../lib/page-data")) => void) {
+  import("../lib/page-data").then(pick, () => undefined);
+}
+
+/**
  * Connect / accept actions shared by every search surface. Kept here rather
  * than in each surface so the rail dropdown and the `/search` page can never
  * drift on what a row does.
@@ -42,6 +51,10 @@ export function useSearchActions(controller: SearchController) {
         await graphClient.sendConnectionRequest(handle);
         controller.setConnectionStatus(handle, "pending_sent");
         toast.success(`Request sent to @${handle}`);
+        invalidatePages((pages) => {
+          pages.sentRequests.invalidate();
+          pages.suggestions.invalidate();
+        });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to send request");
       }
@@ -54,6 +67,11 @@ export function useSearchActions(controller: SearchController) {
         await graphClient.acceptConnection(handle);
         controller.setConnectionStatus(handle, "connected");
         toast.success(`You and @${handle} are connected`);
+        invalidatePages((pages) => {
+          pages.pendingRequests.invalidate();
+          pages.connectionsList.invalidate();
+          pages.suggestions.invalidate();
+        });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to accept request");
       }

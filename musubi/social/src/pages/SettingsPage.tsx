@@ -14,6 +14,7 @@ import { SectionTabs } from "../components/SectionTabs";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { PRODUCT_NAME } from "../lib/auth";
 import { registrationClient } from "../lib/authClients";
+import { placeholderRows } from "../lib/page-cache";
 import { usePageTitle } from "../lib/page-title";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
@@ -230,11 +231,11 @@ function SecurityLoading() {
   );
 }
 
-/** The connected apps' list's place while their code loads: one app's row. */
+/** The connected apps' list's place while their code loads: as many rows as it last landed, one when none. */
 function ConnectedAppsLoading() {
   return (
     <div aria-busy="true">
-      <AppRowsLoading />
+      <AppRowsLoading count={placeholderRows("settings.apps")} />
     </div>
   );
 }

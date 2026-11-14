@@ -9,6 +9,7 @@ import { PageErrorBoundary } from "./components/PageErrorBoundary";
 import { ShellDialogsProvider, useShellDialogs } from "./components/ShellDialogs";
 import { RailFrame, TopBarFrame } from "./components/ShellFrame";
 import { osnAuth } from "./lib/auth";
+import { PageCacheScope } from "./lib/page-cache";
 
 import "./App.css";
 
@@ -137,6 +138,9 @@ export function Layout(props: { children?: JSX.Element }) {
 function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
   return (
     <ShellDialogsProvider>
+      {/* The page cache follows this provider's session, with or without a
+          page reading it, and is cleared when the shell goes. */}
+      <PageCacheScope />
       {/* Mount only the active shell: one chunk fetched, one shell hydrating.
           The dialogs sit above this switch, so one open across a crossing
           stays open. The CSS hidden classes on each shell remain as a
@@ -221,15 +225,53 @@ function Content(props: { children?: JSX.Element; padForMobileNav?: boolean }) {
   );
 }
 
+/**
+ * Starts a page's reads on the page cache before the page shows. The router
+ * calls a route's `preload` when a link to it is hovered (at rest 20ms),
+ * focused or touched, and as it is navigated to. A read starts only for rows
+ * not yet landed; signed out, none does. One import site, so the queries and
+ * their clients stay out of the entry chunk.
+ */
+function preloadPage(start: (pages: typeof import("./lib/page-data")) => void) {
+  import("./lib/page-data").then(start, () => undefined);
+}
+
 export default function App() {
   return (
     <Router root={Layout}>
-      <Route path="/" component={ConnectionsPage} />
-      <Route path="/connections" component={ConnectionsPage} />
+      <Route
+        path="/"
+        component={ConnectionsPage}
+        preload={() => preloadPage((pages) => pages.connectionsList.preload())}
+      />
+      <Route
+        path="/connections"
+        component={ConnectionsPage}
+        preload={() => preloadPage((pages) => pages.connectionsList.preload())}
+      />
       <Route path="/search" component={SearchPage} />
-      <Route path="/discover" component={DiscoverPage} />
-      <Route path="/organisations" component={OrganisationsPage} />
-      <Route path="/organisations/:handle" component={OrgDetailPage} />
+      <Route
+        path="/discover"
+        component={DiscoverPage}
+        preload={() => preloadPage((pages) => pages.suggestions.preload())}
+      />
+      <Route
+        path="/organisations"
+        component={OrganisationsPage}
+        preload={() => preloadPage((pages) => pages.myOrganisations.preload())}
+      />
+      <Route
+        path="/organisations/:handle"
+        component={OrgDetailPage}
+        preload={({ params }) => {
+          const handle = params.handle;
+          if (!handle) return;
+          preloadPage((pages) => {
+            pages.organisationDetail.preload(handle);
+            pages.organisationMembers.preload(handle);
+          });
+        }}
+      />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/authorize" component={AuthorizePage} />
       <Route path="/verify/:requestId" component={VerifyEmailLinkPage} />
