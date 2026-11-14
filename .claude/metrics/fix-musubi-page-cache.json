@@ -1,0 +1,192 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "fix/musubi-page-cache",
+    "base_sha": "90cfe9315cc3183748f837ca7b5b1e93a09b38c1",
+    "head_sha": "0a5d4738829354c55917c1711bb957c86b27d6d4",
+    "generated_at": "2026-11-14T08:40:55.606Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2264,
+    "type": null,
+    "labels": [
+      "complexity:5",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-13T04:28:15.967Z",
+    "last_ts": "2026-11-14T08:40:48.057Z",
+    "span_seconds": 101552,
+    "active_seconds": 6506,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 92.84914120000003,
+    "tokens": {
+      "input": 1208,
+      "output": 662610,
+      "thinking": 364926,
+      "cache_write_5m": 3186758,
+      "cache_write_1h": 0,
+      "cache_read": 159145798
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1208,
+          "output": 662610,
+          "thinking": 364926,
+          "cache_write_5m": 3186758,
+          "cache_write_1h": 0,
+          "cache_read": 159145798
+        },
+        "usd_equivalent": 92.84914120000003,
+        "messages": 592
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1208,
+          "output": 662610,
+          "thinking": 364926,
+          "cache_write_5m": 3186758,
+          "cache_write_1h": 0,
+          "cache_read": 159145798
+        },
+        "usd_equivalent": 92.84914120000003,
+        "messages": 594
+      }
+    },
+    "effort": {
+      "high": 239,
+      "xhigh": 353
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 8,
+      "docs": 4,
+      "config": 1,
+      "source": 14
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1373,
+        "deleted": 80
+      },
+      "docs": {
+        "added": 115,
+        "deleted": 7
+      },
+      "config": {
+        "added": 1,
+        "deleted": 0
+      },
+      "source": {
+        "added": 1057,
+        "deleted": 271
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 543,
+      "Read": 19,
+      "Write": 15,
+      "Skill": 8,
+      "Edit": 7,
+      "SubagentHandback": 6,
+      "Agent": 5,
+      "ToolSearch": 2,
+      "SendMessage": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 3
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-docs": 1,
+      "review-performance": 1,
+      "review-design": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 4
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 592,
+      "with_tools": 584,
+      "with_one_tool": 562,
+      "context_median": 183755,
+      "context_p90": 577181
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 12,
+    "located": 10,
+    "acted_on": 10,
+    "paired": 10,
+    "acted_on_paired": 10,
+    "control_changed": 1,
+    "acted_on_by_test": 4,
+    "acted_on_paired_by_test": 4
+  }
+}

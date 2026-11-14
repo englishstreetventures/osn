@@ -27,23 +27,23 @@ vi.mock("../../src/lib/api", () => ({
 import { ConnectionsPage } from "../../src/pages/ConnectionsPage";
 
 function authedProvider() {
+  // One object per render: the page cache keys on the session object, so a
+  // fresh one gives each test a fresh cache.
+  const session = {
+    accessToken: "tkn",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  };
   const authValue = {
-    session: Object.assign(
-      () => ({
-        accessToken: "tkn",
-        idToken: null,
-        expiresAt: Date.now() + 60_000,
-        scopes: [],
-      }),
-      {
-        state: "ready",
-        loading: false,
-        error: undefined,
-        latest: null,
-        refetch: () => {},
-        mutate: () => {},
-      },
-    ),
+    session: Object.assign(() => session, {
+      state: "ready",
+      loading: false,
+      error: undefined,
+      latest: session,
+      refetch: () => {},
+      mutate: () => {},
+    }),
     profiles: Object.assign(() => [], {
       state: "ready",
       loading: false,
@@ -133,7 +133,8 @@ describe("<ConnectionsPage /> — remove friend confirmation", () => {
     const confirmButton = removeButtons[removeButtons.length - 1];
     fireEvent.click(confirmButton);
 
-    expect(mocks.removeConnection).toHaveBeenCalledTimes(1);
+    // The call waits for any read of the list that is out (none here).
+    await waitFor(() => expect(mocks.removeConnection).toHaveBeenCalledTimes(1));
     expect(mocks.removeConnection).toHaveBeenCalledWith("bob");
   });
 });
@@ -152,7 +153,7 @@ describe("<ConnectionsPage /> — sent requests", () => {
 
     fireEvent.click(screen.getByText("Cancel"));
 
-    expect(mocks.removeConnection).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.removeConnection).toHaveBeenCalledTimes(1));
     expect(mocks.removeConnection).toHaveBeenCalledWith("carol");
   });
 
@@ -162,6 +163,36 @@ describe("<ConnectionsPage /> — sent requests", () => {
     fireEvent.click(screen.getByText("Sent"));
     const emptyState = await screen.findByText("No outgoing connection requests.");
     expect(emptyState).toBeDefined();
+  });
+});
+
+describe("<ConnectionsPage /> — a row the list read in flight removes", () => {
+  // A tab shown again is read again behind its rows. A row action pressed
+  // meanwhile is busy, waits for that read, and does nothing if its row went.
+  it("Accept waits for the read and sends nothing for a request that has gone", async () => {
+    mocks.listPendingRequests.mockResolvedValueOnce({
+      pending: [{ handle: "bob", displayName: "Bob Jones", requestedAt: new Date().toISOString() }],
+    });
+    await renderConnectionsPage();
+    fireEvent.click(screen.getByText("Pending"));
+    await screen.findByText("Bob Jones");
+
+    // Away and back: Bob's row at once, a read held behind it.
+    let answer!: (value: unknown) => void;
+    mocks.listPendingRequests.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    fireEvent.click(screen.getByText("All"));
+    fireEvent.click(screen.getByText("Pending"));
+    expect(screen.getByText("Bob Jones")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    expect(await screen.findByRole("button", { name: "Accepting…" })).toBeTruthy();
+    answer({ pending: [] });
+    await screen.findByText("No pending connection requests.");
+    expect(mocks.acceptConnection).not.toHaveBeenCalled();
   });
 });
 
