@@ -672,6 +672,19 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   read lands. A state whose words are the content stays
   words: `/authorize`'s "Checking this request…" and "Taking you back…",
   search's "Searching…", and a busy button's label (§Busy buttons).
+- **A page seen before draws no placeholder.** Connections (each tab),
+  Discover, Organisations, an organisation's page and Settings' Connected
+  apps read through one page cache (`src/lib/page-cache.ts`). Shown again,
+  a page draws the rows it last had at once and reads them again behind
+  them, with no busy mark: the rows on screen are whole, and a screen reader
+  may pass over a region marked `aria-busy`. Rows that come back unchanged
+  keep their elements, so focus stays where it was. A row action pressed meanwhile is busy from the
+  press with its own label ("Accepting…", "Declining…", "Removing…",
+  "Cancelling…", "Unblocking…", "Sending…", "Revoking…"), waits for the read,
+  and acts only if its row is still there. A first load draws as many
+  placeholders as that page last landed, one when nothing is known; the
+  count goes with the session that saw it
+  (`tests/components/PlaceholderRows.browser.test.tsx`).
 - **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
   `rounded-card` block, 16px at the sides, `size="page"` (`py-16`) for a
   page's whole content, `size="section"` (`py-12`) for one list. Its words sit
@@ -789,7 +802,10 @@ orb (§The orb).
 Uses in the app: the create-organisation dialog's Create ("Creating…"), the
 edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
 apps' Revoke ("Revoking…"), `/search`'s Connect ("Sending…") and Accept
-("Accepting…"), and Try again on a bare route's failed card ("Checking…"). The
+("Accepting…"), Connections' Accept ("Accepting…"), Decline ("Declining…"),
+Remove ("Removing…"), Cancel ("Cancelling…") and Unblock ("Unblocking…"), a
+roster's Remove ("Removing…"), and Try again on a bare route's failed card
+("Checking…"). The
 rail's results panel shows the same words as text, since
 a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
 in `osn/auth-ui/DESIGN.md` §6.

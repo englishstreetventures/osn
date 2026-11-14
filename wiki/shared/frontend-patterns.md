@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Frontend Patterns
@@ -94,7 +94,7 @@ On a cold desktop load of `/discover` with the rail's chunk held back 400ms, the
 
 *Measured 2026-11-09 — `vite build` and `vite preview` of `@musubi/social`, Playwright Chromium at 1440×900 and 390×844, the shell chunk's request delayed 400ms by `page.route`, summing buffered `layout-shift` entries.*
 
-**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside a render-phase tracking scope (a `Show`'s `when`, a memo, JSX; not a `createEffect`), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels and Musubi's `ConnectedAppsSection` read this way (`osn/auth-ui/DESIGN.md` §6).
+**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside a render-phase tracking scope (a `Show`'s `when`, a memo, JSX; not a `createEffect`), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels read this way (`osn/auth-ui/DESIGN.md` §6); Musubi's page reads hold their rows in signals, which never suspend ([[#Page data: one cache, keyed by the session]]).
 
 **Group dialogs that load together into one dynamic import.** In `@musubi/social`, two `lazy()` dialogs imported from two modules made the bundler split the entry chunk in two and keep client code it otherwise drops. With the shell frames and the dialogs' provider added, the entry closure grew 2.0 KB gzipped that way, and 1.0 KB with both dialogs behind one module (`ShellDialogSet.tsx`).
 
@@ -880,9 +880,69 @@ into them. A merge keeps every held row the server has stopped returning, and
 those are exactly the rows the caller has lost access to: an organisation left,
 a wedding deleted. Keep the place by re-reading as many pages as are held, not
 by keeping old ones, and clear the rows on a failed read rather than leaving
-them behind an error. `cire/vendor/src/lib/enquiry-inbox.ts` and the organiser
+them behind an error. `cire/vendor/src/lib/enquiry-inbox.ts`, the organiser
 caches ([[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]])
+and Musubi's page cache ([[#Page data: one cache, keyed by the session]])
 follow it.
+
+## Page data: one cache, keyed by the session
+
+`@musubi/social` reads its data pages' rows — Connections' tabs, Discover,
+Organisations, an organisation and its roster, Settings' Connected apps —
+through one module-level cache (search, Settings' Security views, the
+shell's prompts and the bare routes read on their own), `src/lib/page-cache.ts`, with the queries in
+`src/lib/page-data.ts`. A page shown again draws its last rows at once and
+reads them again behind them; a first load draws as many placeholders as that
+page last landed, one when nothing is known.
+
+- **Scope.** Entries belong to the session object `AuthProvider` holds. One
+  session object stands for one account and one active profile: signing in,
+  switching profile, a profile reset, signing out and the session ending each
+  replace it or take it away, and a silent token renewal does neither. Any
+  change clears every entry, every row count and every read still out, and
+  keys carry the scope too. A mutation takes `scopeMark()` before its request
+  and passes it to `update`, which writes nothing once the scope has moved.
+  The shell mounts `PageCacheScope` (inside `ShellNotices`, which it keeps
+  across navigation and the breakpoint switch), so the cache follows the
+  session with no page mounted and is cleared when the shell goes (a bare
+  route). Not
+  `activeProfileId`: it lags the session it belongs to and is `null` for a
+  moment after every sign-in.
+- **Plain signals, not a resource.** A read never raises a `Suspense`
+  boundary (see [[#Lazy Loading]] on resources under `Suspense`), so a cached
+  page paints with the navigation's own commit. An answer that repeats rows
+  already held keeps those row objects (`keepSame`), so `<For>` keeps their
+  elements and focus. A read behind rows on screen sets no `aria-busy`; a
+  first load and a `refresh` do.
+- **When it reads.** A show — the page mounts, its arguments change, or the
+  scope changes — joins a read already out, or sends one: a first read with a
+  placeholder when nothing has landed, a read behind the rows otherwise. A
+  change of the entry's state is never a show, so a failed read is not sent
+  again by itself. Each visit costs one read, as a mount-time resource did.
+  A route's `preload` (hover at rest 20 ms, focus or touch of a link, and
+  navigation, through `@solidjs/router`'s anchor listeners) sends a read only
+  for rows never read: landed rows are read again when shown, and a failed
+  read is tried again when shown, not on every hover. The preload lives in
+  the page's own module and `App.tsx` imports it through the same
+  `import()` as the page: a new dynamic-import site from the entry splits the
+  entry chunk, as [[#Lazy Loading]] records for the dialogs.
+- **After a mutation.** `update` writes the known outcome (a row gone, a
+  rename) and drops any read that may predate it; `invalidate` reads again
+  now for a page on screen, `refresh` does so with the rows marked
+  `refreshing`, and `drop` forgets a deleted organisation so its stale link is
+  a first load. A row action (`src/lib/row-actions.ts`) is busy from its
+  press, waits for a read in flight (`settled()`) and acts only on a row still
+  there.
+- **Why not the router's `query()`.** `@solidjs/router` 1.0's `query()`
+  reuses an entry for five seconds outside back and forward, then waits on
+  the network again through `createAsync`, a resource; it has no notion of a
+  session and sweeps entries after three minutes. The router still drives
+  preloading.
+
+`tests/lib/page-cache.test.tsx` holds each way the cache can fail, the
+scope refusals first; `tests/components/PageCacheScope.test.tsx` holds them
+through the real `AuthProvider`; [[social]] §Page data lists the queries and
+what each mutation writes.
 
 ## Source Files
 

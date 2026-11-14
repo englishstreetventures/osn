@@ -11,25 +11,30 @@ import { Input } from "@shared/ui/ui/input";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { describeActionError } from "../lib/action-error";
 import { orgClient } from "../lib/api";
+import { scopeMark } from "../lib/page-cache";
+import { myOrganisations, suggestions } from "../lib/page-data";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
+
+/** The route's preload. */
+export function preloadOrganisations(): void {
+  myOrganisations.preload();
+}
 
 export function OrganisationsPage() {
   const { session } = useAuth();
   usePageTitle(() => "Organisations");
 
-  // Keyed on the session object: a new session refetches, a token renewal does not.
-  const [orgs, { refetch }] = createResource(
-    () => session() ?? false,
-    () => orgClient.listMyOrgs(),
-  );
+  // Through the page cache: shown again, the last list draws at once and is
+  // read again behind it.
+  const orgs = myOrganisations.use(() => []);
 
   const [showCreate, setShowCreate] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
@@ -42,7 +47,8 @@ export function OrganisationsPage() {
     if (creating() || !handle() || !name()) return;
     setCreating(true);
     try {
-      await orgClient.createOrg({
+      const mark = scopeMark();
+      const { organisation } = await orgClient.createOrg({
         handle: handle(),
         name: name(),
         description: description() || undefined,
@@ -52,7 +58,14 @@ export function OrganisationsPage() {
       setHandle("");
       setName("");
       setDescription("");
-      refetch();
+      // On the list at once; the read behind it puts it in the API's order.
+      myOrganisations.update(
+        [],
+        (value) => ({ ...value, organisations: [...value.organisations, organisation] }),
+        mark,
+      );
+      myOrganisations.invalidate();
+      suggestions.invalidate();
     } catch (err) {
       toast.error(describeActionError(err, "Failed to create organisation"));
     } finally {
@@ -78,12 +91,13 @@ export function OrganisationsPage() {
         when={session()}
         fallback={<SignedOutNote>Sign in to view your organisations.</SignedOutNote>}
       >
-        <div aria-busy={orgs.loading || undefined}>
+        <div aria-busy={orgs.busy || undefined}>
           <Show
-            when={!orgs.loading}
+            when={orgs()}
             fallback={
               <div class="flex flex-col gap-2">
-                {Array.from({ length: 2 }, () => (
+                {/* As many as the page last landed, one when nothing is known. */}
+                {Array.from({ length: orgs.rows }, () => (
                   <Skeleton standsFor="card" height={18.5} />
                 ))}
               </div>

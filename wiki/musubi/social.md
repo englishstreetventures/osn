@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Social
@@ -162,6 +162,37 @@ Two more module boundaries in `@osn/client` exist for the same reason, since rol
 *Re-measured 2026-11-07 — the same build, with `main` at `98a302733`; the entry chunk imports no other chunk, and Node's `zlib.gzipSync` at its default level gives 50,405 bytes with `osn/client` and `osn/auth-ui` checked out from `98a302733` (no `OsnApiError`) and 50,589 with both modules.*
 
 The two delete shapes are deliberately different and must not be merged. `graph.ts` uses `authDelete`, which parses and returns the JSON body; `organisations.ts` uses `authDeleteVoid`, which reads the body only on the error path. Both sets of routes answer `200` with `{ ok: true }` — the difference is that `OrgClient` declares `deleteOrg` and `removeMember` as `Promise<void>`, so that client discards the body rather than there being no body to read.
+
+## Page data
+
+The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, Settings' Security views, the shell's prompts and the bare routes read on their own); how it is keyed, cleared and read is in [[frontend-patterns#Page data: one cache, keyed by the session]]. A page seen before draws its last rows at once and reads them again behind them; a first load draws as many placeholders as that page last landed, one when nothing is known (`DESIGN.md` §Empty states and failed loads). The queries are in `src/lib/page-data.ts`:
+
+| Query | Page | Read |
+|---|---|---|
+| `connectionsList`, `pendingRequests`, `sentRequests`, `blockedProfiles` | Connections, one per tab, read only while its tab is shown | `GET /graph/connections`, `/graph/connections/pending`, `/graph/connections/sent`, `/graph/blocks` |
+| `suggestions` | Discover | `GET /recommendations/connections?limit=20` |
+| `myOrganisations` | Organisations | `GET /organisations` |
+| `organisationDetail`, `organisationMembers` | An organisation, by handle | `GET /organisations/:handle`, `/organisations/:handle/members` |
+| `connectedApps` | Settings' Connected apps | `GET /oidc/connections` |
+
+The data routes' `preload`s (`App.tsx`) call a function each page module exports (`preloadConnections`, `preloadDiscover`, `preloadOrganisations`, `preloadOrganisation`), through the same `import()` as the page, so the entry chunk gains no import site. The shell names a query without loading it: search marks pages stale with `invalidatePages` and the names in `src/lib/page-names.ts`, and `PageCacheScope` mounts inside the lazy `ShellNotices`.
+
+*Measured 2026-11-14 — `bunx --bun vite build` in `musubi/social`, gzip -9 of the entry chunk and every chunk it imports statically: 56,294 bytes in one file on `main` at `90cfe9315`, 56,499 in one file with the page cache. With `page-data` imported from `App.tsx` and `PageCacheScope` mounted from it, the entry split into four files, 58,879.*
+
+What each mutation writes, with the scope mark taken before its request:
+
+| Where | Mutation | Cache |
+|---|---|---|
+| Connections | remove, accept, decline, cancel, unblock | the row taken off its tab's list, the list read again (not after unblock, whose answer leaves nothing to learn); accept also marks All stale; every one marks Discover's suggestions stale |
+| Discover | connect | the card taken off (osn-api suggests nobody with a request in flight), the suggestions read again, Sent marked stale |
+| Search (rail and `/search`) | connect, accept | Sent, or Pending and All, and the suggestions marked stale |
+| Organisations | create | the answer appended, the list read again, suggestions stale |
+| An organisation | rename | its entry and its row in the list rewritten; the list reads itself again when next shown |
+| An organisation | delete | its entry and roster forgotten, so a stale link is a first load that answers "not found"; its row taken off the list |
+| An organisation | remove member | the row taken off, suggestions stale |
+| Connected apps | revoke | the list read again, Revoke busy until it lands |
+
+Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`). `tests/lib/page-cache.test.tsx` holds each way the cache can fail; `tests/components/PageCacheScope.test.tsx` holds, through the real `AuthProvider` (with a fake runtime, hence `effect` among the dev dependencies), that a profile switch, a sign-out then another account, and a session end then another account each show none of the rows before; `tests/components/PlaceholderRows.browser.test.tsx` holds the placeholder count. `musubi-org-detail` hovers Discover and finds its suggestions read before the click, comes back to the organisations list with its read held and finds the renamed row drawn and no placeholder, and finds a deleted organisation's stale link drawing one.
 
 ## Dev
 
