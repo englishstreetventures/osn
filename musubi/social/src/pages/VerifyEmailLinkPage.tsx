@@ -107,7 +107,12 @@ export function VerifyEmailLinkPage() {
       </p>
       <Switch>
         <Match when={!purpose()}>
-          <ConfirmLinkPage purpose="sign-up" initialOutcome="expired" onConfirm={confirm} />
+          <ConfirmLinkPage
+            purpose="sign-up"
+            initialOutcome="expired"
+            showLockoutRule={false}
+            onConfirm={confirm}
+          />
         </Match>
         <Match when={typed() && !emailLinkSecret(requestId()) && purpose()}>
           {(flow) => (
@@ -136,7 +141,7 @@ export function VerifyEmailLinkPage() {
               replaces it (`DESIGN.md` §Motion). The wrapper goes with the
               placeholder, and its busy state with it. */}
           <div aria-busy="true">
-            <ResponsiveSkeleton standsFor="card" height={130} phoneHeight={138} />
+            <ResponsiveSkeleton standsFor="card" height={140} phoneHeight={147.5} />
           </div>
         </Match>
         <Match when={read()}>

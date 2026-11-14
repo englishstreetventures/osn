@@ -509,6 +509,17 @@ describe("Register component", () => {
       });
     });
 
+    it("names the product where its wait says to look in the junk folder", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(screen.getByText(/^Can't find it\?/).textContent).toBe(
+        "Can't find it? Look in your junk or spam folder for an email about Musubi.",
+      );
+    });
+
     it("keeps waiting through a poll that failed, and polls again", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       stub.registrationStatus

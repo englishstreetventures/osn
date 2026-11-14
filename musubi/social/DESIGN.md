@@ -399,14 +399,15 @@ by spatial motion.
 On the emailed-link page (`/verify/:requestId`) the loaded shape is the whole
 card, so the placeholder is one `Skeleton` standing for a card
 (`ResponsiveSkeleton`), at the ready card's height with five numbers on a
-360–430px phone and on desktop: 552px below `md` and 520px from it (138 and 130
-spacing steps). The product name above it stays put when the card arrives.
+360–430px phone and on desktop: 590px below `md` and 560px from it (147.5 and
+140 spacing steps). The product name above it stays put when the card arrives.
 Meanwhile the page's live region says "Checking this link…".
 
-*Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
-Chromium (Vitest browser tier, `ConfirmLinkPage` with five numbers, Musubi's
-`App.css`): 568.9px at 320px wide; 550.7px at 360, 375, 390, 414 and 430px;
-532.5px at 600px; 520.5px at 768 and 1280px. At 320×640 the column is taller
+*Measured 2026-11-14 — the ready card's `getBoundingClientRect().height` in
+Chromium (Vitest browser tier, `VerifyEmailLinkPage` on `/verify/:requestId`
+with five two-digit numbers, Musubi's `App.css`): 608.5px at 320px wide;
+590.3px at 360, 375, 390, 414 and 430px; 572.1px at 600 and 767px; 560.1px at
+768 and 1280px. At 320×640 the column is taller
 than the screen either way, so the name does not move;
 `tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
 390×844 and 1280×800.*

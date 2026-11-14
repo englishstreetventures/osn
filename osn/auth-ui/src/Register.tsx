@@ -764,6 +764,7 @@ export function Register(props: RegisterProps) {
             {(request) => (
               <CheckEmailView
                 purpose="sign-up"
+                productName={props.productName}
                 email={request().email}
                 pairingCode={pairingCode()}
                 status={linkStatus()}
