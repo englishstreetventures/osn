@@ -485,7 +485,12 @@ async function menus(flow: Flow, page: Page): Promise<void> {
  * Security's rows and rules, drawn as hairlines.
  */
 async function security(flow: Flow, page: Page, profileName: string): Promise<void> {
-  const row = page.locator("li.rounded-md.border").first();
+  // A passkey row: `Card radius="md" padding="sm"` inside its `li`, the nested row's 8px corner.
+  const row = page
+    .locator("li")
+    .filter({ has: page.getByRole("button", { name: /^Rename / }) })
+    .first()
+    .locator(":scope > div");
   const hint = page.getByText("Handles cannot be changed.", { exact: true });
   await flow.step("surfaces: open Settings → Profile", async () => {
     await at(page, DESKTOP, "light");
@@ -540,6 +545,7 @@ async function security(flow: Flow, page: Page, profileName: string): Promise<vo
     await painted(row, "var(--border)"),
     await computed(row, "border-top-color"),
   );
+  await securityPanelSurfaces(flow, page, row);
   const rule = page
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "Recovery codes" }) });
@@ -559,6 +565,78 @@ async function security(flow: Flow, page: Page, profileName: string): Promise<vo
       await settled(row);
     }),
   );
+}
+
+/**
+ * Settings → Security's own parts, each read against a probe wearing the
+ * classes the contract gives it: the panel headings at `DialogTitle`'s type,
+ * a passkey row as a nested `Card` (8px corner, 16px inside, the card's
+ * fill), its meta line and its actions 40px tall on a phone, and the
+ * "Signing in somewhere new?" summary taking Button's ring from the keyboard.
+ */
+async function securityPanelSurfaces(flow: Flow, page: Page, row: Locator): Promise<void> {
+  for (const name of ["Passkeys", "Authenticator app", "Recovery codes"]) {
+    const heading = page.getByRole("heading", { name, exact: true });
+    flow.check(
+      `security: the "${name}" heading is at the title step and weight`,
+      await probedType(heading, "text-ui-md font-ui-title"),
+      await type(heading),
+    );
+  }
+  flow.check(
+    "security: a passkey row takes the nested card's 8px corner",
+    await probed(row, "rounded-ui-md", "border-top-left-radius"),
+    await computed(row, "border-top-left-radius"),
+  );
+  flow.check("security: a passkey row is 16px inside", "16px 16px 16px 16px", await padding(row));
+  flow.check(
+    "security: a passkey row takes the card's fill",
+    await painted(row, "var(--ui-surface)"),
+    await computed(row, "background-color"),
+  );
+  const meta = row.getByText(/^Added /);
+  flow.check(
+    "security: a passkey row's meta line is the meta step in the secondary ink",
+    `${await probedType(meta, "text-ui-xs font-normal")} ${await probed(meta, "text-ui-ink-secondary", "color")}`,
+    `${await type(meta)} ${await computed(meta, "color")}`,
+  );
+  await onPhone(page, async () => {
+    await phoneTall(flow, row.getByRole("button", { name: /^Rename / }), "security: Rename");
+    await phoneTall(flow, row.getByRole("button", { name: /^Remove / }), "security: Remove");
+  });
+  const summary = page.getByText("Signing in somewhere new?", { exact: true });
+  await tabTo(page, row.getByRole("button", { name: /^Remove / }), summary);
+  flow.check(
+    "security: the summary takes Button's 2px focus ring, no outline",
+    `none ${await probed(summary, "ring-2 ring-ui-focus", "box-shadow")}`,
+    `${await computed(summary, "outline-style")} ${await computed(summary, "box-shadow")}`,
+  );
+  // Focus leaves the page's controls, so the shots after this show no ring.
+  await summary.evaluate((el) => (el as HTMLElement).blur());
+}
+
+/**
+ * A removal's step-up sheet on a phone: a bottom sheet as wide as the screen,
+ * shot in both schemes.
+ */
+export async function removalSheetSurfaces(flow: Flow, page: Page, sheet: Locator): Promise<void> {
+  await restoring(page, async () => {
+    await at(page, PHONE, "light");
+    const box = await sheet.boundingBox();
+    flow.check(
+      "removal sheet: as wide as a 390px screen",
+      PHONE.width,
+      Math.round(box?.width ?? 0),
+    );
+    flow.check(
+      "removal sheet: pinned to the bottom edge",
+      PHONE.height,
+      Math.round((box?.y ?? 0) + (box?.height ?? 0)),
+    );
+    await flow.step("surfaces: shoot the removal sheet", () =>
+      shoot(page, "totp-remove-sheet", () => expect(sheet).toBeVisible(), { widths: [PHONE] }),
+    );
+  });
 }
 
 /** `/privacy` and `/terms`: the page head and the body, on Musubi's scale. */
@@ -1086,6 +1164,25 @@ export async function authorizeThirdPartySurfaces(flow: Flow, page: Page): Promi
     await painted(chip, "var(--border)"),
     await computed(chip, "border-top-color"),
   );
+  // The app's name is its own words: it breaks anywhere, and at 320px the
+  // checks under it stay on screen beside it.
+  const name = page.getByRole("heading", { level: 1 });
+  flow.check(
+    "authorize: the app's name breaks anywhere",
+    "anywhere",
+    await computed(name, "overflow-wrap"),
+  );
+  const checks = chip.locator("xpath=..");
+  await restoring(page, async () => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    const box = await checks.boundingBox();
+    flow.check(
+      "authorize at 320px: the third-party chip and the domain stay inside the screen",
+      true,
+      box !== null && box.x >= 0 && box.x + box.width <= 320,
+    );
+    await expect(word).toBeInViewport();
+  });
   const scopeRow = page.getByRole("listitem").first().locator(":scope > div");
   await restoring(page, async () => {
     for (const colorScheme of SCHEMES) {
@@ -1129,7 +1226,7 @@ export async function signedOutSurfaces(flow: Flow, page: Page, message: string)
     true,
     await signIn.evaluate((el) => el.closest("output") === null),
   );
-  const dialog = page.getByRole("dialog", { name: "Sign in" });
+  const dialog = page.getByRole("dialog", { name: "Sign in to Musubi", exact: true });
   await flow.step("surfaces: open sign-in from the signed-out note", async () => {
     await signIn.click();
     await expect(dialog).toBeVisible();
@@ -1159,7 +1256,7 @@ export async function signedOutSurfaces(flow: Flow, page: Page, message: string)
  * §Motion); the dialog stays open behind it.
  */
 export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog", { name: "Create account" });
+  const dialog = page.getByRole("dialog", { name: "Create your Musubi account", exact: true });
   const dob = dialog.getByLabel("Date of birth");
   await expect(dob).toBeVisible();
   await plainLabel(
@@ -1211,7 +1308,7 @@ export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<voi
  * 32px box centred under Continue.
  */
 export async function signInLinkSurfaces(flow: Flow, page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog", { name: "Sign in" });
+  const dialog = page.getByRole("dialog", { name: "Sign in to Musubi", exact: true });
   const identifier = dialog.getByLabel("Email or @handle");
   await expect(identifier).toBeVisible();
   await plainLabel(
@@ -1381,6 +1478,23 @@ export async function authorizeSignInSurfaces(flow: Flow, page: Page): Promise<v
   const link = page.getByRole("button", { name: "Create one" });
   const sentence = link.locator("xpath=..");
   await expect(link).toBeVisible();
+  // The app's name leads at the display step, the panel's own heading
+  // under it at the title step, and the panel draws no frame of its own.
+  const client = page.getByRole("heading", { level: 1 });
+  const heading = page.getByRole("heading", { name: "Sign in to Musubi", exact: true });
+  flow.check(
+    "authorize: the app's name is at the display step and 500",
+    await probedType(client, "text-display font-medium"),
+    await type(client),
+  );
+  flow.check("authorize: the app's name is 24px at 500", "24px 500", await type(client));
+  flow.check("authorize: the panel's heading is 14px at 500", "14px 500", await type(heading));
+  const panelPlace = heading.locator("xpath=../../..");
+  flow.check(
+    "authorize: the panel draws no frame",
+    "0px",
+    await computed(panelPlace, "border-top-width"),
+  );
   await restoring(page, async () => {
     await page.mouse.move(0, 0);
     await settled(link);
@@ -1484,7 +1598,9 @@ export async function totpSetupSurfaces(flow: Flow, page: Page): Promise<void> {
 export async function securityLoadingSurfaces(flow: Flow, page: Page): Promise<string> {
   const view = page.getByRole("heading", { name: "Passkeys", exact: true }).locator("xpath=../..");
   const region = view.locator(':scope > [aria-busy="true"]');
-  const block = region.locator('[aria-hidden="true"]');
+  // One block per width: the row is taller below `md`, so the placeholder
+  // draws the one this width shows.
+  const block = region.locator('[aria-hidden="true"]').filter({ visible: true });
   await expect(block).toBeVisible();
   const height = await computed(block, "height");
   flow.check("security loading: the list's place is busy", 1, await region.count());

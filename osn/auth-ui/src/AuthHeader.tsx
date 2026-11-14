@@ -1,4 +1,8 @@
 import { Button } from "@shared/ui/ui/button";
+// Imported for the dialog host alone, so the page host pays for it too: in
+// Musubi, `/authorize`'s sign-in chunk loads the dialog module (6.80 kB, 2.39
+// kB gzipped, from `vite build`) it never runs. Kept over a header split in two,
+// which would make the dialog host hand its header to `SignIn` and `Register`.
 import { DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { Match, Show, Switch } from "solid-js";
 

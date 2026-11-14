@@ -154,7 +154,7 @@ describe("StepUpDialog", () => {
       />
     ));
 
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/ }));
     await waitFor(() =>
       expect(stub.emailBegin).toHaveBeenCalledWith({ purpose: "account_export" }),
     );
@@ -172,7 +172,7 @@ describe("StepUpDialog", () => {
 
   // The button holds focus through the wait: `busy`, not `disabled`, and the
   // factors and Cancel beside it wait too.
-  it("keeps Use email instead busy, not disabled, while it sends", async () => {
+  it("keeps Email me a link busy, not disabled, while it sends", async () => {
     stub.emailBegin.mockReturnValue(new Promise(() => {}));
     render(() => (
       <StepUpDialog
@@ -183,7 +183,7 @@ describe("StepUpDialog", () => {
         runPasskeyCeremony={async () => assertion}
       />
     ));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/ }));
     const sending = await screen.findByRole("button", { name: "Sending…" });
     expect(sending.getAttribute("aria-busy")).toBe("true");
     expect((sending as HTMLButtonElement).disabled).toBe(false);
@@ -258,7 +258,7 @@ describe("StepUpDialog", () => {
         onCancel={() => {}}
       />
     ));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/ }));
     const heading = await screen.findByRole("heading", { name: "Check your email" });
     await waitFor(() => expect(document.activeElement).toBe(heading));
   });
@@ -327,11 +327,38 @@ describe("StepUpDialog", () => {
     ));
 
     // No email affordance at all.
-    expect(screen.queryByRole("button", { name: /Use email instead/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
     // Ceremony fires without the user clicking "Use passkey".
     await waitFor(() => expect(runPasskey).toHaveBeenCalled());
     await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 }));
     expect(stub.emailBegin).not.toHaveBeenCalled();
+  });
+
+  // A destructive action's warning is the one confirmation before it: with
+  // `passkeyOnly` the sheet still waits for a press, so the warning is read
+  // before the browser's prompt covers it.
+  it("passkeyOnly with a warning: waits for the factor press, and offers no link", async () => {
+    stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
+    stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
+    const runPasskey = vi.fn(async () => assertion);
+    const onToken = vi.fn();
+    renderSheet({
+      runPasskeyCeremony: runPasskey,
+      onToken,
+      passkeyOnly: true,
+      purpose: "totp_disable",
+      title: "Remove iPhone?",
+      warning: "You'll lose it as a way back into your account. Confirm it's you to remove it.",
+    });
+
+    const usePasskey = await waitFor(() => buttonsIn("Remove iPhone?").get(/^Use passkey$/));
+    await flush();
+    expect(runPasskey).not.toHaveBeenCalled();
+    expect(stub.passkeyBegin).not.toHaveBeenCalled();
+    expect(buttonsIn("Remove iPhone?").query(/Email me a link/)).toBeNull();
+
+    fireEvent.click(usePasskey);
+    await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 }));
   });
 
   it("passkeyOnly: surfaces a retry affordance when the ceremony fails", async () => {
@@ -368,7 +395,7 @@ describe("StepUpDialog", () => {
       />
     ));
 
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/ }));
     // A step-up failure is why the user cannot proceed. Rendering it in a
     // coloured paragraph tells a sighted user only.
     const alert = await screen.findByRole("alert");
@@ -512,7 +539,7 @@ describe("StepUpDialog — authenticator app factor", () => {
     await Promise.resolve();
     expect(screen.queryByText("HOST FALLBACK")).toBeNull();
     expect(screen.getByRole("button", { name: /Use passkey/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use email instead/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Email me a link/i })).toBeTruthy();
   });
 
   it("keeps the other factors when the status read fails", async () => {
@@ -522,7 +549,7 @@ describe("StepUpDialog — authenticator app factor", () => {
       purpose: "recovery_generate",
     });
     expect(underTest.get(/Use passkey/i)).toBeTruthy();
-    expect(underTest.get(/Use email instead/i)).toBeTruthy();
+    expect(underTest.get(/Email me a link/i)).toBeTruthy();
     expect(underTest.query(TOTP_BUTTON)).toBeNull();
   });
 
@@ -566,7 +593,7 @@ describe("StepUpDialog — authenticator app factor", () => {
     // delivered, so it cannot dead-end the way the prop exists to prevent.
     mount({ totp: totpStub({ enrolled: true }), purpose: "recovery_generate", passkeyOnly: true });
     expect(await screen.findByRole("button", { name: TOTP_BUTTON })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Use email instead/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
   });
 });
 
@@ -632,7 +659,7 @@ describe("StepUpDialog — factors the ceremony would refuse", () => {
     // rename as well as delete.
     const refuses = await mountBesideAnAdmittingCeremony("passkey_delete");
     expect(refuses.get(/Use passkey/i)).toBeTruthy();
-    expect(refuses.query(/Use email instead/i)).toBeNull();
+    expect(refuses.query(/Email me a link/i)).toBeNull();
     expect(refuses.query(TOTP_BUTTON)).toBeNull();
   });
 
@@ -640,14 +667,14 @@ describe("StepUpDialog — factors the ceremony would refuse", () => {
     // The emailed code proves control of the CURRENT mailbox; an
     // authenticator seed does not, which is the whole point of that gate.
     const refuses = await mountBesideAnAdmittingCeremony("email_change");
-    expect(refuses.get(/Use email instead/i)).toBeTruthy();
+    expect(refuses.get(/Email me a link/i)).toBeTruthy();
     expect(refuses.query(TOTP_BUTTON)).toBeNull();
   });
 
   it("passkey_register admits both, so a lost device is not a lock-out", async () => {
     render(() => dialog("passkey_register"));
     expect(await screen.findByRole("button", { name: TOTP_BUTTON })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use email instead/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Email me a link/i })).toBeTruthy();
   });
 });
 
@@ -667,7 +694,7 @@ describe("StepUpDialog — the sheet", () => {
 
   async function openEmailWait(overrides: Partial<StepUpDialogProps> = {}) {
     renderSheet({ purpose: "account_export", ...overrides });
-    fireEvent.click(screen.getByRole("button", { name: "Use email instead" }));
+    fireEvent.click(screen.getByRole("button", { name: "Email me a link" }));
     return screen.findByRole("heading", { name: "Check your email" });
   }
 
@@ -804,7 +831,7 @@ describe("StepUpDialog — the sheet", () => {
     await waitFor(() => expect(stub.emailStatus).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
     // Focus goes to the factor just left, so the next choice is beside it.
-    const email = await screen.findByRole("button", { name: "Use email instead" });
+    const email = await screen.findByRole("button", { name: "Email me a link" });
     expect(document.activeElement).toBe(email);
     answer.settle({ status: "complete", token: { token: "eyJlate", expiresIn: 300 } });
     await flush();
@@ -830,7 +857,7 @@ describe("StepUpDialog — the sheet", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Resend link" }));
       await waitFor(() => expect(stub.emailResend).toHaveBeenCalledTimes(1));
       fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Use email instead" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Email me a link" }));
       expect(await screen.findByText("83")).toBeTruthy();
       resend.settle({ status: "limit" });
       await flush();
@@ -854,7 +881,7 @@ describe("StepUpDialog — the sheet", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Resend link" }));
       await waitFor(() => expect(stub.emailResend).toHaveBeenCalledTimes(1));
       fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Use email instead" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Email me a link" }));
       expect(await screen.findByText("83")).toBeTruthy();
       failing.fail(new Error("network"));
       await flush();
@@ -961,14 +988,14 @@ describe("StepUpDialog — the sheet", () => {
       stub.emailStatus.mockReturnValueOnce(stale.promise).mockReturnValue(new Promise(() => {}));
       const onToken = vi.fn();
       renderSheet({ purpose: "account_export", onToken });
-      fireEvent.click(screen.getByRole("button", { name: "Use email instead" }));
+      fireEvent.click(screen.getByRole("button", { name: "Email me a link" }));
       await vi.advanceTimersByTimeAsync(10);
       window.dispatchEvent(new Event("focus"));
       await vi.advanceTimersByTimeAsync(10);
       expect(stub.emailStatus).toHaveBeenCalledTimes(1);
       fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
       await vi.advanceTimersByTimeAsync(10);
-      fireEvent.click(screen.getByRole("button", { name: "Use email instead" }));
+      fireEvent.click(screen.getByRole("button", { name: "Email me a link" }));
       await vi.advanceTimersByTimeAsync(10);
       expect(screen.getByText("83")).toBeTruthy();
       return { stale, onToken };
@@ -1013,7 +1040,7 @@ describe("StepUpDialog — the sheet", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Send a new link" }));
     await waitFor(() => expect(stub.emailBegin).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
-    await screen.findByRole("button", { name: "Use email instead" });
+    await screen.findByRole("button", { name: "Email me a link" });
     begun.settle(LINK_REQUEST_2);
     await flush();
     window.dispatchEvent(new Event("focus"));
@@ -1039,7 +1066,7 @@ describe("StepUpDialog — the sheet", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Send a new link" }));
     await waitFor(() => expect(stub.emailBegin).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Use email instead" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Email me a link" }));
     expect(await screen.findByText("83")).toBeTruthy();
     begun.fail(new Error("network"));
     await flush();

@@ -52,13 +52,10 @@ export function AuthDialogs(props: {
   return (
     <>
       <Dialog open={props.showRegister && !session()} onOpenChange={props.onShowRegisterChange}>
-        {/* The view heads itself with a plain heading, not a dialog title,
-            so the dialog takes its name here. */}
-        <ResponsiveDialogContent
-          aria-label="Create account"
-          onCloseAutoFocus={props.onCloseAutoFocus}
-        >
+        {/* The view's title is the dialog's `DialogTitle`, which names it. */}
+        <ResponsiveDialogContent onCloseAutoFocus={props.onCloseAutoFocus}>
           <Register
+            host="dialog"
             client={registrationClient}
             turnstileSiteKey={TURNSTILE_SITEKEY}
             productName={PRODUCT_NAME}
@@ -68,8 +65,9 @@ export function AuthDialogs(props: {
         </ResponsiveDialogContent>
       </Dialog>
       <Dialog open={props.showSignIn && !session()} onOpenChange={props.onShowSignInChange}>
-        <ResponsiveDialogContent aria-label="Sign in" onCloseAutoFocus={props.onCloseAutoFocus}>
+        <ResponsiveDialogContent onCloseAutoFocus={props.onCloseAutoFocus}>
           <SignIn
+            host="dialog"
             client={loginClient}
             recoveryClient={recoveryClient}
             registrationClient={registrationClient}

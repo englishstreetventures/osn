@@ -384,7 +384,7 @@ before it mails, reads, replaces or spends anything
   Resends a day per mailbox (`linkResendCap`, counted apart from email
   change's, so neither flow's Resends spend the other's). Begin: 5 a minute
   per client address.
-- **The UI** is `StepUpDialog`, a sheet: "Use email instead", under the
+- **The UI** is `StepUpDialog`, a sheet: "Email me a link", under the
   passkey, swaps the factors for `CheckEmailView` in the sheet; the sheet
   polls and hands the token to `onToken`, unless the person closed the sheet
   or pressed "Use another method", or the sheet has gone, in which case a

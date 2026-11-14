@@ -131,16 +131,19 @@ osn/auth-ui/src/
 ├── index.ts                ← the barrel; most views also have their own subpath
 │                             (RecoveryLoginForm and TurnstileWidget are barrel-only)
 ├── AuthHeader.tsx          ← Button, DialogHeader, DialogTitle — a sign-in or create-account view's title row
-├── SignIn.tsx              ← Button, Input, Label
-├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
+├── SignIn.tsx              ← AuthHeader, Button, Field, Input, Notice
+├── Register.tsx            ← AuthHeader, Button, Field, InfoPopover, Input, Label, Notice, UsernameInput
 ├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
 ├── ConfirmLinkPage.tsx     ← Button, Card, Notice — the page an emailed link opens
 ├── pairing-code.ts         ← isPairingCode: the number's format, for every view that draws one (not exported)
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── StepUpDialog.tsx  RecoveryLoginForm.tsx  ChangeEmailForm.tsx  ← OtpInput
-├── TotpView.tsx            ← OtpInput, Skeleton
-├── PasskeysView.tsx  SessionsView.tsx  RecoveryCodesView.tsx  ← Skeleton
-└── ProfileOnboarding.tsx   ProfileSwitcher.tsx  SecurityEventsBanner.tsx  TurnstileWidget.tsx
+├── TotpView.tsx            ← OtpInput, RowPlaceholder, SettingsRow
+├── PasskeysView.tsx  SessionsView.tsx  ← RowPlaceholder, SettingsRow
+├── RecoveryCodesView.tsx   ← Card (the codes' well), Skeleton
+├── SettingsRow.tsx         ← Card: a Settings panel's row, nested in the host's card (not exported)
+├── RowPlaceholder.tsx      ← one SettingsRow's Skeleton, a block for each width (not exported)
+└── ProfileOnboarding.tsx   SecurityEventsBanner.tsx  TurnstileWidget.tsx
 
 cire/ui/src/
 ├── button.tsx  card.tsx  disclosure.tsx  eyebrow.tsx  loading.tsx  note.tsx

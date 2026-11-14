@@ -156,11 +156,14 @@ describe("flow sources", () => {
   // answers 202 and the flow waits for mail that never comes. A flow asks for
   // a recovery link with "Send the link" and resends with "Resend link";
   // `musubi-recovery` presses the first through its `askForLink` helper, so
-  // there each call of the helper is the press that counts.
+  // there each call of the helper is the press that counts. A recovery flow is
+  // one that presses "Send the link", the recovery begin's own words: the
+  // step-up sheet's "Email me a link" shares the recovery chooser's, so it
+  // cannot tell the two apart.
   test("the flows send no more recovery links than osn-api allows one account a day", () => {
     const recovery = readdirSync(join(import.meta.dirname, "flows"))
       .map((file) => readFileSync(join(import.meta.dirname, "flows", file), "utf8"))
-      .filter((source) => source.includes('name: "Email me a link"'));
+      .filter((source) => source.includes('name: "Send the link"'));
     const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
     const begins = recovery.reduce(
       (sum, source) =>
@@ -177,6 +180,30 @@ describe("flow sources", () => {
     expect(recovery.length).toBeGreaterThan(0);
     expect(begins).toBeGreaterThan(0);
     expect(begins + resends).toBeLessThanOrEqual(3);
+  });
+
+  // osn-api takes five step-up email begins a minute per client address
+  // (`stepUpEmailBegin`, osn/api/src/routes/auth/limiters.ts), one window for
+  // the whole run. A flow begins one by pressing the step-up sheet's "Email me
+  // a link" (outside a recovery flow, where the same words choose recovery's
+  // emailed link), or through osn-api's `/step-up/email/begin` as
+  // `musubi-step-up-email` does.
+  test("the flows begin no more step-up email links than osn-api allows in a minute", () => {
+    const sources = readdirSync(join(import.meta.dirname, "flows")).map((file) =>
+      readFileSync(join(import.meta.dirname, "flows", file), "utf8"),
+    );
+    const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
+    const begins = sources
+      .filter((source) => !source.includes('name: "Send the link"'))
+      .reduce(
+        (sum, source) =>
+          sum +
+          count(source, /name: "Email me a link" \}\)\.click\(/g) +
+          count(source, /"\/step-up\/email\/begin"/g),
+        0,
+      );
+    expect(begins).toBeGreaterThan(0);
+    expect(begins).toBeLessThanOrEqual(5);
   });
 
   // The organiser's window exists only because the stack's cire-api keeps a

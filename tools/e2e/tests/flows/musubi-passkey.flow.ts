@@ -78,6 +78,7 @@ import {
   otpDigitSurfaces,
   phoneTall,
   registerFieldSurfaces,
+  removalSheetSurfaces,
   securityLoadingSurfaces,
   signedOutSurfaces,
   signInLinkSurfaces,
@@ -410,7 +411,7 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   );
 
   await flow.step("register: the first browser finishes on its own", async () => {
-    await expect(page.getByRole("button", { name: "Enroll credential" })).toBeVisible({
+    await expect(page.getByRole("button", { name: "Add a passkey" })).toBeVisible({
       timeout: 20_000,
     });
   });
@@ -432,13 +433,15 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   await page.route(passkeyRegisterBegin, enrollHeld.handler);
   try {
     await flow.step("register: enroll passkey waits on begin", async () => {
-      await page.getByRole("button", { name: "Enroll credential" }).click();
-      await expect(registerDialog.getByRole("button", { name: "Setting up…" })).toBeVisible();
+      await page.getByRole("button", { name: "Add a passkey" }).click();
+      await expect(
+        registerDialog.getByRole("button", { name: "Waiting for your passkey…" }),
+      ).toBeVisible();
     });
     await busyButtonHeld(
       flow,
-      registerDialog.getByRole("button", { name: "Setting up…" }),
-      "Setting up…",
+      registerDialog.getByRole("button", { name: "Waiting for your passkey…" }),
+      "Waiting for your passkey…",
       "register enroll busy",
     );
     flow.check("register enroll busy: Cancel waits", true, await registerCancel.isDisabled());
@@ -706,12 +709,28 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   const stepUpBegin = `${ORIGINS.osnApi}/step-up/passkey/begin`;
   const stepUpHeld = holdMethod("POST");
   const stepUpCancel = page.getByRole("button", { name: "Cancel", exact: true });
+  const emailFactor = page.getByRole("button", { name: "Email me a link" });
+  // The emailed link, as far as its wait: one step-up email begin and no
+  // confirm, so the run's confirm budget is untouched (flows.test.ts). Back to
+  // the factors, focus lands on the factor just left.
+  await flow.step("add an authenticator app: the emailed link's wait, and back", async () => {
+    await page.getByRole("link", { name: "Settings" }).first().click();
+    await settingsTab("Security").click();
+    await page.getByRole("button", { name: "Add an authenticator app" }).click();
+    // Pressed by its words, which `flows.test.ts` counts against the limit.
+    await page.getByRole("button", { name: "Email me a link" }).click();
+    await expect(page.getByRole("button", { name: /^Resend in \d+s$/ })).toBeDisabled();
+    await page.getByRole("button", { name: "Use another method" }).click();
+    await expect(emailFactor).toBeFocused();
+  });
+  flow.check(
+    "the emailed link was asked for once",
+    1,
+    flow.count("POST osn-api /step-up/email/begin 200"),
+  );
   await page.route(stepUpBegin, stepUpHeld.handler);
   try {
     await flow.step("add an authenticator app: the step-up waits on begin", async () => {
-      await page.getByRole("link", { name: "Settings" }).first().click();
-      await settingsTab("Security").click();
-      await page.getByRole("button", { name: "Add an authenticator app" }).click();
       await page.getByRole("button", { name: "Use passkey" }).click();
       await expect(page.getByRole("button", { name: "Waiting for your passkey…" })).toBeVisible();
     });
@@ -760,8 +779,10 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     confirmHeld.release();
     await page.unroute(totpConfirm, confirmHeld.handler);
   }
+  // Left unnamed, so the row and its removal call it "Authenticator app".
+  const removeApp = page.getByRole("button", { name: "Remove Authenticator app", exact: true });
   await flow.step("add an authenticator app", async () => {
-    await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
+    await expect(removeApp).toBeVisible();
   });
   flow.check(
     "the authenticator app was enrolled",
@@ -769,10 +790,28 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     flow.saw("POST osn-api /totp/enroll/complete 200"),
   );
 
+  // The step-up sheet asks first, with no browser dialog: titled with the
+  // app, described by what removing it costs.
+  const removal = page.getByRole("dialog", { name: "Remove Authenticator app?", exact: true });
+  let removalDescription = "";
+  await flow.step("remove the authenticator app: the sheet asks first", async () => {
+    await removeApp.click();
+    await expect(removal).toBeVisible();
+    removalDescription = await removal.evaluate((el) =>
+      (el.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent ?? "")
+        .join(" "),
+    );
+  });
+  flow.check(
+    "the removal sheet is described by its warning",
+    true,
+    removalDescription.includes("You'll lose it as a way back into your account."),
+  );
+  await removalSheetSurfaces(flow, page, removal);
   await flow.step("remove the authenticator app", async () => {
-    page.once("dialog", (dialog) => void dialog.accept());
-    await page.getByRole("button", { name: "Remove" }).click();
-    await page.getByRole("button", { name: "Use passkey" }).click();
+    await removal.getByRole("button", { name: "Use passkey" }).click();
     await expect(page.getByRole("button", { name: "Add an authenticator app" })).toBeVisible();
     // Leave the Security tab, so the next step's visit mounts its views again.
     await settingsTab("Profile").click();
@@ -1057,6 +1096,24 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await expect(page.getByLabel("Email or @handle")).toBeVisible();
   });
   await authorizeSignInSurfaces(flow, page);
+  // Here Register's Cancel switches back to sign-in, so it says so.
+  const signInInstead = page.getByRole("button", { name: "Sign in instead", exact: true });
+  await flow.step("open /authorize's create-account panel, then go back", async () => {
+    await page.getByRole("button", { name: "Create one" }).click();
+    await expect(signInInstead).toBeVisible();
+  });
+  flow.check(
+    'authorize: Register\'s Cancel reads "Sign in instead"',
+    "Sign in instead",
+    (await signInInstead.textContent())?.trim() ?? "",
+  );
+  await flow.step("go back to sign-in with Sign in instead", async () => {
+    await signInInstead.click();
+    await expect(
+      page.getByRole("heading", { name: "Sign in to Musubi", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Email or @handle")).toBeVisible();
+  });
   await flow.step("sign in to Pulse through Musubi's /authorize", async () => {
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();

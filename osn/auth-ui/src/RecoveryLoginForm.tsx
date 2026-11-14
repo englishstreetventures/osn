@@ -519,7 +519,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
         }),
       );
     } catch (err) {
-      // Handle or email plus a code, refused alike whichever was wrong.
+      // Email or @handle plus a code, refused alike whichever was wrong.
       setError(fieldError(describeAuthError(err, "recovery"), err));
     } finally {
       setBusy(false);
@@ -642,7 +642,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     <div class="flex flex-col gap-4">
       <Show when={view() === "choose"}>
         <div class="flex flex-col gap-3">
-          <p class="text-muted-foreground text-sm">
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
             Pick how you'd like to prove this account is yours.
           </p>
           <Button onClick={() => setView("code")}>Use a recovery code</Button>
@@ -651,19 +651,20 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
               Email me a link
             </Button>
             <Button variant="outline" onClick={() => setView("totp")}>
-              Use my authenticator app
+              Use your authenticator app
             </Button>
           </Show>
           {/* Where a WebAuthn ceremony cannot run, the two restricted factors
               are useless and the honest answer is the list of things that do
               work. Same copy as the unsupported-browser screen on sign-in. */}
           <Show when={!restrictedFactorsAvailable()}>
-            <div class="text-muted-foreground flex flex-col gap-2 text-sm">
-              <p>
-                The other ways back in need a passkey ceremony, which this browser can't run. You
-                can:
-              </p>
-              <ul class="list-inside list-disc">
+            <div class="flex flex-col gap-2">
+              {/* A blocker that stops these two ways here: an info notice. */}
+              <Notice tone="info" size="sm">
+                The other ways back in need a passkey ceremony, which this browser can't run.
+              </Notice>
+              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You can:</p>
+              <ul class="text-ui-sm leading-ui-snug text-ui-ink-secondary list-inside list-disc">
                 <li>
                   Sign in on a device that supports passkeys (iOS 16+, Android 9+, recent desktop
                   browsers).
@@ -688,11 +689,11 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
 
       <Show when={view() === "code"}>
         <form onSubmit={submitRecoveryCode} class="flex flex-col gap-3">
-          <p class="text-muted-foreground text-sm">
-            Enter your handle or email plus one of your saved recovery codes. All other signed-in
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+            Enter your email or @handle plus one of your saved recovery codes. All other signed-in
             sessions will be revoked.
           </p>
-          <Field labelTreatment="plain" label="Handle or email">
+          <Field labelTreatment="plain" label="Email or @handle">
             {(field) => (
               <Input
                 autocomplete="username"
@@ -732,7 +733,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
 
       <Show when={view() === "email-identify"}>
         <form onSubmit={sendEmailLink} class="flex flex-col gap-3">
-          <p class="text-muted-foreground text-sm">
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
             We'll send a link to the address on the account. Open it on any device to get back in
             here.
           </p>
@@ -799,10 +800,10 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
 
       <Show when={view() === "totp"}>
         <div class="flex flex-col gap-3">
-          <p class="text-muted-foreground text-sm">
-            Enter your handle or email, then the current code from your authenticator app.
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+            Enter your email or @handle, then the current code from your authenticator app.
           </p>
-          <Field labelTreatment="plain" label="Handle or email">
+          <Field labelTreatment="plain" label="Email or @handle">
             {(field) => (
               <Input
                 autocomplete="username"
@@ -839,11 +840,11 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
 
       <Show when={view() === "enrol"}>
         <div class="flex flex-col gap-3">
-          <h3 class="text-lg font-semibold">Add a passkey to get back in</h3>
+          <h3 class="text-ui-ink text-ui-base font-medium">Add a passkey to get back in</h3>
           {/* Say plainly what this is. A user who has just proved who they are
               and is then shown a bare button will not know why they are not
               simply signed in. */}
-          <p class="text-muted-foreground text-sm">
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
             You're in a <strong>recovery session</strong>. It can do one thing — add a passkey to
             this account — and it's short-lived, so do it now. Every other session on the account
             has been signed out.
@@ -864,8 +865,8 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
 
       <Show when={view() === "enrolled"}>
         <div class="flex flex-col gap-3">
-          <h3 class="text-lg font-semibold">You're back in</h3>
-          <p class="text-muted-foreground text-sm">
+          <h3 class="text-ui-ink text-ui-base font-medium">You're back in</h3>
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
             This device now has a passkey for your account. Sign in with it to finish — that also
             proves the new passkey works.
           </p>
@@ -878,8 +879,8 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
           {/* Its own state, not a 401 toast. Somebody who has just proved who
               they are and then meets a generic error concludes the product is
               broken, and stops. */}
-          <h3 class="text-lg font-semibold">That recovery session timed out</h3>
-          <p class="text-muted-foreground text-sm">
+          <h3 class="text-ui-ink text-ui-base font-medium">That recovery session timed out</h3>
+          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
             Recovery sessions are deliberately short. Nothing has gone wrong and your account is
             fine — start again and you'll get a fresh one.
           </p>

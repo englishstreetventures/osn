@@ -3,12 +3,12 @@ import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js
 
 /**
  * Cloudflare Turnstile widget — KEY-OPTIONAL Solid island for the OSN auth
- * surface (Register + SignIn).
+ * surface (`Register`, `SignIn` and `RecoveryLoginForm`'s emailed-link step).
  *
- * `@osn/auth-ui` is a shared library consumed by multiple apps (the organiser portal,
- * osn-social), so — unlike the guest-site widget — the sitekey is passed in as a
- * PROP rather than read from `import.meta.env`. The consuming app reads its own
- * build-time `PUBLIC_TURNSTILE_SITEKEY` and threads it down.
+ * `@osn/auth-ui` belongs to OSN, not to one app, so — unlike the guest-site
+ * widget — the sitekey is passed in as a PROP rather than read from
+ * `import.meta.env`. The host, today Musubi alone, reads its own build-time
+ * site key and threads it down.
  *
  * Contract: when `siteKey` is undefined/blank, this renders NOTHING and the
  * parent form behaves exactly as before (Turnstile not configured). When set, it

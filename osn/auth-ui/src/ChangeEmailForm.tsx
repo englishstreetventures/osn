@@ -213,7 +213,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
 
   return (
     <div class="flex flex-col gap-3">
-      <h2 class="text-lg font-semibold">Change email</h2>
+      <h2 class="text-ui-ink text-ui-md font-ui-title">Change email</h2>
 
       <Show when={phase() === "enter_email"}>
         <Field labelTreatment="plain" label="New email">
@@ -262,13 +262,13 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
       </Show>
 
       <Show when={phase() === "finishing"}>
-        <p class="text-muted-foreground text-sm" aria-live="polite">
+        <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary" aria-live="polite">
           Changing your email…
         </p>
       </Show>
 
       <Show when={phase() === "done"}>
-        <p class="text-sm">Your email is now {newEmail()}.</p>
+        <p class="text-ui-sm leading-ui-snug text-ui-ink">Your email is now {newEmail()}.</p>
       </Show>
     </div>
   );

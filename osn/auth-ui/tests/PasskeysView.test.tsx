@@ -28,7 +28,7 @@ withoutAnimations();
 /**
  * Settings → Passkeys view. Covers the orchestration logic that
  * isn't exercised at the service / HTTP layer: list rendering, inline
- * rename, confirm-gated delete, and step-up threading into the delete
+ * rename, removal through the step-up sheet, and step-up threading into the delete
  * call. The `PasskeysClient` + `StepUpClient` are stubbed so we assert
  * on the wire-contract rather than real network calls.
  */
@@ -143,8 +143,6 @@ describe("PasskeysView", () => {
   beforeEach(() => {
     pk = makePasskeys();
     su = makeStepUp();
-    // Confirm dialog defaults to approve — individual tests override.
-    window.confirm = () => true;
   });
 
   afterEach(() => cleanup());
@@ -195,8 +193,8 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Rename$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Rename / })[0]!);
     const input = screen.getByDisplayValue("Work laptop") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "  Primary  " } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
@@ -226,18 +224,18 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
-    expect(screen.queryByRole("button", { name: /Use email instead/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
   });
 
   it("disables save when the draft label is empty / whitespace-only", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
     render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Rename$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Rename / })[0]!);
 
     const input = screen.getByDisplayValue("Work laptop") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "   " } });
@@ -245,7 +243,7 @@ describe("PasskeysView", () => {
     expect(save.disabled).toBe(true);
   });
 
-  it("delete flow: confirm → step-up → client.delete with stepUpToken → reload", async () => {
+  it("delete flow: Remove → step-up → client.delete with stepUpToken → reload", async () => {
     pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
     pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
     pk.delete.mockResolvedValue({ success: true, remaining: 1 });
@@ -259,8 +257,8 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
 
     await useThePasskeyFactor();
 
@@ -292,31 +290,59 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     await useThePasskeyFactor();
     await waitFor(() => expect(pk.list).toHaveBeenCalledTimes(2));
 
     const actions = [
-      ...screen.getAllByRole("button", { name: /^Rename$/ }),
-      ...screen.getAllByRole("button", { name: /^Delete$/ }),
-      screen.getByRole("button", { name: "Add passkey" }),
+      ...screen.getAllByRole("button", { name: /^Rename / }),
+      ...screen.getAllByRole("button", { name: /^Remove / }),
+      screen.getByRole("button", { name: "Add a passkey" }),
     ] as HTMLButtonElement[];
     expect(actions).toHaveLength(5);
     for (const b of actions) expect(b.disabled).toBe(true);
   });
 
-  it("delete is skipped entirely if the user dismisses confirm()", async () => {
+  it("asks before a removal in the step-up sheet, named and described by the removal, never window.confirm", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    window.confirm = () => false;
+    const confirm = vi.fn(() => true);
+    window.confirm = confirm;
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        runPasskeyCeremony={runPasskeyCeremony}
+      />
+    ));
+
+    await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Work laptop" }));
+
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Remove Work laptop?" }));
+    const described = (sheet.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("You'll need another credential to sign in.");
+    expect(confirm).not.toHaveBeenCalled();
+    // Nothing red commits it: the factor does.
+    expect(screen.queryByRole("button", { name: /^(Remove|Delete)$/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(pk.delete).not.toHaveBeenCalled();
+    expect(su.passkeyBegin).not.toHaveBeenCalled();
+  });
+
+  it("names each row's actions by its passkey, so two rows never share a name", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
     render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
-
-    // No step-up prompt, no delete call, no reload.
-    expect(su.emailBegin).not.toHaveBeenCalled();
-    expect(pk.delete).not.toHaveBeenCalled();
+    await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    expect(screen.getByRole("button", { name: "Remove Synced passkey" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rename Work laptop" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rename Synced passkey" })).toBeTruthy();
   });
 
   it("shows a refused rename under the rename field, tied to it, never the error's text", async () => {
@@ -332,8 +358,8 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Rename$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Rename / })[0]!);
     const input = screen.getByDisplayValue("Work laptop") as HTMLInputElement;
     fireEvent.input(input, { target: { value: "New label" } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
@@ -352,7 +378,6 @@ describe("PasskeysView", () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
     pk.delete.mockRejectedValue(apiError("PLANTED-delete", 429, "rate_limited"));
     armPasskeyStepUp(su);
-    window.confirm = () => true;
 
     render(() => (
       <PasskeysView
@@ -362,8 +387,8 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     await useThePasskeyFactor();
 
     const alert = await screen.findByRole("alert");
@@ -386,7 +411,7 @@ describe("PasskeysView", () => {
       expect(screen.getByRole("heading", { name: "Passkeys" })).toBeTruthy();
 
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-      await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
+      await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
       expect(pk.list).toHaveBeenCalledTimes(2);
       expect(screen.queryByRole("alert")).toBeNull();
     });
@@ -415,8 +440,8 @@ describe("PasskeysView", () => {
   it("hides the Add-passkey button when profileId / runPasskeyRegistration are missing", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
     render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
-    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
-    expect(screen.queryByRole("button", { name: /Add passkey/i })).toBeNull();
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename / }));
+    expect(screen.queryByRole("button", { name: /Add a passkey/i })).toBeNull();
   });
 
   it("add-passkey flow: step-up → registerBegin(stepUpToken) → browser ceremony → registerComplete → reload", async () => {
@@ -452,12 +477,12 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
 
     // Step-up dialog — use OTP factor.
-    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     await screen.findByRole("heading", { name: "Check your email" });
     // The link is confirmed elsewhere; coming back to the tab polls at once.
     window.dispatchEvent(new Event("focus"));
@@ -494,10 +519,10 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
-    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     await screen.findByRole("heading", { name: "Check your email" });
     // The link is confirmed elsewhere; coming back to the tab polls at once.
     window.dispatchEvent(new Event("focus"));
@@ -530,10 +555,10 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
-    await waitFor(() => screen.getByRole("button", { name: /Use email instead/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Use email instead/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a link/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
     await screen.findByRole("heading", { name: "Check your email" });
     // The link is confirmed elsewhere; coming back to the tab polls at once.
     window.dispatchEvent(new Event("focus"));
@@ -545,7 +570,7 @@ describe("PasskeysView", () => {
     expect(pk.registerComplete).not.toHaveBeenCalled();
     // finally-block cleanup: the Add button must be clickable again.
     const addButton = screen.getByRole("button", {
-      name: /Add passkey/i,
+      name: /Add a passkey/i,
     }) as HTMLButtonElement;
     await waitFor(() => expect(addButton.disabled).toBe(false));
   });
@@ -564,28 +589,26 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     // "Use passkey" is the dialog-is-open signal: it is the one factor every
     // ceremony offers.
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
 
     const addButton = screen.getByRole("button", {
-      name: /Add passkey/i,
+      name: /Add a passkey/i,
     }) as HTMLButtonElement;
     expect(addButton.disabled).toBe(true);
   });
 
-  // passkeyOnly: in the cire organiser portal email is degraded, so the
-  // step-up dialog must not offer the OTP factor (it would never arrive).
-  // The dialog should auto-run the passkey ceremony instead.
-  it("passkeyOnly: delete uses the passkey ceremony, never OTP", async () => {
+  // passkeyOnly: a host that cannot deliver mail. A removal still waits for
+  // the person to press the passkey factor under its warning.
+  it("passkeyOnly: a removal waits for the passkey press and offers no link", async () => {
     pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
     pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
     pk.delete.mockResolvedValue({ success: true, remaining: 1 });
-    su.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
-    su.passkeyComplete.mockResolvedValue(stepUpToken);
-    const runCeremony = vi.fn().mockResolvedValue({ id: "cred_su" });
+    armPasskeyStepUp(su);
+    const runCeremony = vi.fn().mockResolvedValue(assertion);
 
     render(() => (
       <PasskeysView
@@ -596,12 +619,13 @@ describe("PasskeysView", () => {
       />
     ));
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getByRole("button", { name: "Remove Work laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Work laptop" }));
+    await waitFor(() => screen.getByRole("dialog", { name: "Remove Work laptop?" }));
+    expect(runCeremony).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
 
-    // No OTP affordance; passkey ceremony runs automatically.
-    await waitFor(() => expect(runCeremony).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: /Use email instead/i })).toBeNull();
+    await useThePasskeyFactor();
     await waitFor(() =>
       expect(pk.delete).toHaveBeenCalledWith({
         id: "pk_aaaaaaaaaaaa",
@@ -618,13 +642,13 @@ describe("PasskeysView", () => {
 
     render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
-    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getAllByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
     // Step-up dialog open — every Rename + Delete button on the list rows
     // must be disabled.
     await waitFor(() => screen.getByRole("button", { name: /Use passkey/i }));
-    const renameButtons = screen.getAllByRole("button", { name: /^Rename$/ });
-    const deleteButtons = screen.getAllByRole("button", { name: /^Delete$/ });
+    const renameButtons = screen.getAllByRole("button", { name: /^Rename / });
+    const deleteButtons = screen.getAllByRole("button", { name: /^Remove / });
     for (const b of [...renameButtons, ...deleteButtons]) {
       expect((b as HTMLButtonElement).disabled).toBe(true);
     }

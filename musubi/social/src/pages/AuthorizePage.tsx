@@ -21,6 +21,7 @@ import {
   Switch,
 } from "solid-js";
 
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { PRODUCT_NAME } from "../lib/auth";
 import { authorizeClient } from "../lib/authorize";
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
@@ -421,7 +422,9 @@ export function AuthorizePage() {
               Sign in with the account you want to use.
             </p>
           </Show>
-          <div class="border-border rounded-card mt-4 border p-1">
+          {/* Unframed: the panel's own header leads it, 24px under the
+              client card. */}
+          <div class="mt-6">
             <Suspense fallback={<SignInLoading mode={panelMode()} />}>
               {/* `reason` is advisory — it only picks which half of the panel
                   leads. The server re-derives every requirement at decision
@@ -695,7 +698,10 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
           />
         )}
       </Show>
-      <h1 class="text-foreground text-title font-medium">{client()?.name}</h1>
+      {/* The app's name leads the screen, over the panel's 14px heading. It
+          is the app's own words, so it breaks anywhere rather than widen the
+          column, and the checks under it stay in view. */}
+      <h1 class="text-foreground text-display font-medium wrap-anywhere">{client()?.name}</h1>
       <p class="text-muted-foreground text-body mt-1">wants to use your {PRODUCT_NAME} account</p>
       {/* Verifiable identity signal. The name above is self-asserted and can
           impersonate a first-party app; the redirect host is what the client
@@ -730,12 +736,14 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
  * The sign-in panel's place while its code loads, in the shape of the half
  * that leads: sign-in's heading, its one labelled field, Continue and "Lost
  * your passkey?", then the "Create one" line under the panel; or sign-up's
- * heading beside Cancel, its four labelled fields and the button. Words that
- * wrap stay words, so they wrap where the panel's do: the heading, and the date
- * of birth's hint. Labels, fields and buttons, which never wrap, are blocks,
- * each the height the panel draws it (a 14px label; the email's is 16px, the
- * height of the button beside it). A Suspense fallback goes when the panel
- * lands, and nothing holds both, so this wrapper carries `aria-busy`.
+ * heading beside "Sign in instead", its four labelled fields and the button.
+ * Words that wrap stay words, so they wrap where the panel's do: the heading,
+ * in `AuthHeader`'s page classes, and the date of birth's hint. Labels, fields
+ * and buttons, which never wrap, are blocks, each the height the panel draws
+ * it (a 14px label; the email's is 16px, the height of the button beside it).
+ * "Sign in instead" is 40px tall below `md` and 32px from it, so it gets a
+ * block for each. A Suspense fallback goes when the panel lands, and nothing
+ * holds both, so this wrapper carries `aria-busy`.
  */
 function SignInLoading(props: { mode: "register" | "signIn" }) {
   const register = () => props.mode === "register";
@@ -750,16 +758,23 @@ function SignInLoading(props: { mode: "register" | "signIn" }) {
       : [{ label: 3.5, hint: false }];
   return (
     <div aria-busy="true">
-      <div class="mx-auto flex w-full max-w-sm flex-col gap-4 px-4 py-8">
-        <div class="mb-2 flex items-center justify-between">
-          <h2 class="text-foreground text-2xl font-bold">
-            {register() ? `Create your ${PRODUCT_NAME} account` : `Sign in to ${PRODUCT_NAME}`}
-          </h2>
-          <Show when={register()}>
-            {/* Cancel, as wide as the button, so the heading wraps as it does. */}
-            <Skeleton standsFor="control" width={16.4} height={8} />
-          </Show>
-        </div>
+      <div class="flex items-center justify-between gap-3">
+        {/* `AuthHeader`'s page title, class for class. */}
+        <h2 class="text-ui-ink text-ui-md font-ui-title wrap-anywhere">
+          {register() ? `Create your ${PRODUCT_NAME} account` : `Sign in to ${PRODUCT_NAME}`}
+        </h2>
+        <Show when={register()}>
+          {/* "Sign in instead", as wide as the button, so the heading wraps as it does. */}
+          <ResponsiveSkeleton
+            standsFor="control"
+            width={SIGN_IN_INSTEAD_WIDTH}
+            height={8}
+            phoneHeight={10}
+            class="shrink-0"
+          />
+        </Show>
+      </div>
+      <div class="flex flex-col gap-4 pt-6">
         <For each={fields()}>
           {(field) => (
             <div class="flex flex-col gap-1.5">
@@ -779,10 +794,13 @@ function SignInLoading(props: { mode: "register" | "signIn" }) {
         </Show>
       </div>
       <Show when={!register()}>
-        <div class="px-4 pb-4">
+        <div class="mt-6">
           <Skeleton standsFor="line" width={40} height={4.5} class="mx-auto" />
         </div>
       </Show>
     </div>
   );
 }
+
+/** "Sign in instead" as a `ghost` `sm` Button draws it, in spacing steps. */
+const SIGN_IN_INSTEAD_WIDTH = 29;

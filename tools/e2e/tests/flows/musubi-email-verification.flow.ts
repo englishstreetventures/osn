@@ -94,7 +94,7 @@ test("musubi-email-verification", async ({ page, context, browser, flow }) => {
       (el as HTMLInputElement).value = value;
     }, token);
     await page.getByRole("button", { name: "Send verification link" }).click();
-    await expect(page.getByRole("button", { name: "Enroll credential" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add a passkey" })).toBeVisible();
   });
 
   flow.check(
@@ -126,7 +126,7 @@ test("musubi-email-verification", async ({ page, context, browser, flow }) => {
   );
 
   await flow.step("register: enroll passkey", async () => {
-    await page.getByRole("button", { name: "Enroll credential" }).click();
+    await page.getByRole("button", { name: "Add a passkey" }).click();
     await expect(page.getByRole("button", { name: `@${hedy.handle}` })).toBeVisible();
   });
   flow.check("authenticator holds one passkey", 1, (await authenticator.credentials()).length);

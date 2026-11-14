@@ -20,7 +20,6 @@
     "./pending-recovery": "./src/pending-recovery.ts",
     "./pending-sign-up": "./src/pending-sign-up.ts",
     "./ProfileOnboarding": "./src/ProfileOnboarding.tsx",
-    "./ProfileSwitcher": "./src/ProfileSwitcher.tsx",
     "./RecoveryCodesView": "./src/RecoveryCodesView.tsx",
     "./Register": "./src/Register.tsx",
     "./SecurityEventsBanner": "./src/SecurityEventsBanner.tsx",

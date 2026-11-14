@@ -141,8 +141,10 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
         <Button type="submit" busy={busy()} disabled={!busy() && !canSubmit()} class="flex-1">
           {busy() ? "Creating…" : "Create profile"}
         </Button>
+        {/* `secondary`: its one host, `ProfileOnboarding`, draws it in a
+            dialog, whose dismiss button is `secondary`. */}
         {props.onCancel && (
-          <Button type="button" variant="ghost" onClick={props.onCancel} disabled={busy()}>
+          <Button type="button" variant="secondary" onClick={props.onCancel} disabled={busy()}>
             Cancel
           </Button>
         )}

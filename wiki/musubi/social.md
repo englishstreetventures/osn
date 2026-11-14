@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-13
 ---
 
 # Social
@@ -313,7 +313,7 @@ Per-user limiters on the two recommendations endpoints, both fail-closed — 20 
 
 `tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, a query that normalises to nothing never leaves the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter activates the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. A pointer click is tested in Chromium instead (`tests/components/GlobalSearch.browser.test.tsx`), because happy-dom's synthetic click skips the press and the focus change that decide whether it lands: clicking an organisation opens it, clicking a person connects once and leaves focus in the field, and a click outside still closes the results.
 
-`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders; the dialogs' one also checks that a page's signed-out note holds its Sign in back until the dialogs load, then shows it once, outside the note's live region. `tests/components/SecurityStepUp.browser.test.tsx` opens Settings' Security tab, starts Add passkey and the step-up's emailed-code step: at 320px the row of code boxes is the card's whole column and no button runs past the card; at 1440px the row keeps the step-up's 16px padding. It shoots both widths in light and dark into `e2e-artifacts/musubi-settings/`. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
+`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders; the dialogs' one also checks that a page's signed-out note holds its Sign in back until the dialogs load, then shows it once, outside the note's live region. `tests/components/SecurityStepUp.browser.test.tsx` opens Settings' Security tab: the step-up sheet from "Add a passkey", the passkey rows against a nested `Card`, the recovery codes' well and the "Generate a new set?" sheet; what each case holds is its row in [[browser-tests]]. It shoots light and dark into `e2e-artifacts/musubi-settings/`. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 
 `tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.
 
@@ -349,6 +349,22 @@ disabled, with focus kept (`busyButtonHeld`), each Connect 40px tall at 390px.
 request. The rules they hold are in
 [DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
 fields.
+
+On Settings → Security it reads `@osn/auth-ui`'s panels against probes
+(`securityPanelSurfaces` in `tests/support/musubi-surfaces.ts`): each panel
+heading at the title step and weight; a passkey row as a nested `Card` (the
+8px corner, 16px inside, the card's fill) with its meta line at the meta step
+in the secondary ink; Rename and Remove 40px tall at 390 px; and the "Signing
+in somewhere new?" summary taking Button's 2px focus ring from the keyboard.
+The authenticator's removal goes through the step-up sheet, titled with the
+app's name and with no browser `confirm()`; `removalSheetSurfaces` reads it
+as a bottom sheet as wide as a 390 px screen and shoots it as
+`totp-remove-sheet`. On `/authorize`, `authorizeSignInSurfaces` reads the
+app's name at `text-display` and 500 over the sign-in panel's heading at
+14px and 500, with no frame round the panel, and the flow then presses
+"Create one" and finds Register's Cancel named "Sign in instead", which
+brings sign-in back; `authorizeThirdPartySurfaces` reads the name breaking
+anywhere, with the "Third-party app" chip and the domain on screen at 320 px.
 
 Both flows also read what Musubi's contract block maps onto the shared
 overlays and titles (§Typography, §Borders and §Motion there).

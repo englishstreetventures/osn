@@ -358,13 +358,13 @@ export const PasskeyOnlyWithAuthenticator = state(
 
 export const EmailSending = state(
   "sending the link",
-  <>"Use email instead" pressed, the send never answering: "Sending…", busy, the rest disabled.</>,
+  <>"Email me a link" pressed, the send never answering: "Sending…", busy, the rest disabled.</>,
   {
     client: client({ emailBegin: () => never() }),
     runPasskeyCeremony: heldCeremony,
     purpose: "passkey_register",
   },
-  [{ press: "Use email instead" }],
+  [{ press: "Email me a link" }],
 );
 
 export const EmailSendFailed = state(
@@ -377,7 +377,7 @@ export const EmailSendFailed = state(
     runPasskeyCeremony: heldCeremony,
     purpose: "passkey_register",
   },
-  [{ press: "Use email instead" }],
+  [{ press: "Email me a link" }],
 );
 
 export const EmailWaiting = state(
@@ -392,7 +392,7 @@ export const EmailWaiting = state(
     totpClient: authenticator,
     purpose: "passkey_register",
   },
-  [{ press: "Use email instead" }],
+  [{ press: "Email me a link" }],
 );
 
 export const EmailExpired = state(
@@ -406,7 +406,7 @@ export const EmailExpired = state(
     runPasskeyCeremony: heldCeremony,
     purpose: "passkey_register",
   },
-  [{ press: "Use email instead" }, { focusTab: true }],
+  [{ press: "Email me a link" }, { focusTab: true }],
 );
 
 export const EmailResent = state(
@@ -420,7 +420,7 @@ export const EmailResent = state(
     runPasskeyCeremony: heldCeremony,
     purpose: "passkey_register",
   }),
-  [{ press: "Use email instead" }, { focusTab: true }, { press: "Send a new link" }],
+  [{ press: "Email me a link" }, { focusTab: true }, { press: "Send a new link" }],
 );
 
 export const EmailResendFailed = state(
@@ -439,7 +439,7 @@ export const EmailResendFailed = state(
     runPasskeyCeremony: heldCeremony,
     purpose: "passkey_register",
   }),
-  [{ press: "Use email instead" }, { focusTab: true }, { press: "Send a new link" }],
+  [{ press: "Email me a link" }, { focusTab: true }, { press: "Send a new link" }],
 );
 
 export const EmailLimit = state(
@@ -454,7 +454,7 @@ export const EmailLimit = state(
     runPasskeyCeremony: heldCeremony,
     purpose: "passkey_register",
   },
-  [{ press: "Use email instead" }],
+  [{ press: "Email me a link" }],
 );
 
 export const Code = state(
