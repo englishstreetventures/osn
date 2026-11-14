@@ -685,6 +685,41 @@ describe("a sign-in on a browser holding the cancel handle of an account schedul
     expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
   });
 
+  it("marks the handle's renewed session when the sign-in carries the cookie it just rotated", async () => {
+    // The handle renewed a moment before the sign-in, which still carries the
+    // old cookie: the mark reaches the family through the rotation record.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+    const renewed = await grantFor(h, leaving.token, leaving.profile.id);
+    expect(renewed.status).toBe(200);
+    const late = sessionCookieOf(renewed)!;
+
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+
+    expect(h.familyRows(leaving.familyId!)).toBe(1);
+    expect((await grantFor(h, late, newcomer.profile.id)).status).toBe(400);
+    expect((await h.grant(late)).status).toBe(400);
+  });
+
+  it("fails the handle's own renewal as a rotation race when the mark lands while it rotates", async () => {
+    // The guard cannot tell the account's own profile from another's while
+    // the account is scheduled for deletion, so its own renewal loses the
+    // race too; the retry, naming its own profile, renews.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    const mint = h.held.hold(/^insert into "sessions"/);
+    const renewal = grantFor(h, leaving.token, leaving.profile.id);
+    await mint.reached;
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+    mint.release();
+
+    expect((await renewal).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
   it("leaves a handle no sign-in replaced to renew naming no profile", async () => {
     // The account's own cold start, on its own browser: the refusals above
     // follow the sign-in, not the deletion.

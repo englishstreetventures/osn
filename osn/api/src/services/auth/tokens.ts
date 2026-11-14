@@ -958,7 +958,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const oldRow = eq(sessions.id, oldSessionId);
       const newRow = eq(sessions.id, newSessionId);
       // Unmarked at the read, and naming no live profile of its own account:
-      // the mark would refuse this grant.
+      // every grant the mark would refuse, and also an account scheduled for
+      // deletion naming its own profile, which `findProfileById` hides. That
+      // one loses a race with the mark as a rotation race, as any session
+      // does, and its retry renews.
       const refusedOnceMarked = replacedAt === null && !namedOwnLive;
 
       // 1. The new session, written only while the old one stands. It copies
