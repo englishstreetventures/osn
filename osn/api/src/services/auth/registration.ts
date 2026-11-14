@@ -331,11 +331,11 @@ export function createRegistrationModule(
    *    this browser, retires that request and frees its address first when
    *    it is for the address this begin is for, so a person who goes back to
    *    fix their handle, or starts again from another tab, can begin again
-   *    at once. The browser keeps the retire secret where every tab can read
-   *    it, so whoever uses that browser while the request lives and types its
-   *    address can end it and have a new link mailed at once; the link still
-   *    needs the new request's number picked, and wrong picks count against
-   *    the address. A wrong retire secret, the claim secret in its place, an
+   *    at once. The browser keeps the retire secret where every tab and
+   *    every user of it can read it, so it is held to ending one request, for
+   *    a begin for that request's address; the new request's link still needs
+   *    its number picked, and wrong picks count against the address. A wrong
+   *    retire secret, the claim secret in its place, an
    *    unknown request or one for another address retires nothing, costs the
    *    one read and answers as a begin with no `previous` does, alike. Its
    *    first link counts against the mailbox's first-link window as every

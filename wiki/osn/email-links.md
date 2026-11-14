@@ -267,11 +267,12 @@ before it mails, reads, replaces or spends anything
   request still holds the address. A begin refused with a 4xx other than 429
   is not sent with that `previous` again from that view, and the tab's own
   left request is forgotten (another tab's entry stays), so an osn-api and a
-  Musubi of different versions cannot refuse every try. The cost: whoever uses that browser
-  profile while the request lives and types its address can end it and have
-  a new link mailed at once; that link still needs the new request's number
-  picked, and wrong picks count against the address (three in a day stop
-  sign-up links to it). Two tabs that begin in the same instant can leave the
+  Musubi of different versions cannot refuse every try. Every tab and every
+  user of the browser profile can read the entry while the request lives, so
+  the retire secret is held to ending that one request, for a begin for its
+  address; the new request's link still needs its number picked, and wrong
+  picks count against the address (three in a day stop sign-up links to it).
+  Two tabs that begin in the same instant can leave the
   request that did not park in the entry, and a later retire of it frees
   nothing: that sign-up waits as before, at most ten minutes.
 - **A request that did not park parks on a Resend.** Every sign-up request
