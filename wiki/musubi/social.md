@@ -173,7 +173,7 @@ The data pages' rows go through one cache, `src/lib/page-cache.ts` (search, Sett
 | `suggestions` | Discover | `GET /recommendations/connections?limit=20` |
 | `myOrganisations` | Organisations | `GET /organisations` |
 | `organisationDetail`, `organisationMembers` | An organisation, by handle | `GET /organisations/:handle`, `/organisations/:handle/members` |
-| `connectedApps` | Settings → Connected apps | `GET /oidc/connections` |
+| `connectedApps` | Settings' Connected apps | `GET /oidc/connections` |
 
 The data routes' `preload`s (`App.tsx`) call a function each page module exports (`preloadConnections`, `preloadDiscover`, `preloadOrganisations`, `preloadOrganisation`), through the same `import()` as the page, so the entry chunk gains no import site. The shell names a query without loading it: search marks pages stale with `invalidatePages` and the names in `src/lib/page-names.ts`, and `PageCacheScope` mounts inside the lazy `ShellNotices`.
 
