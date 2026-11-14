@@ -1,5 +1,12 @@
 # @osn/client
 
+## 3.4.2
+
+### Patch Changes
+
+- fe8f780: `describeAuthError(err, "code")` gives its own sentence for a call that got no answer (status `0`): "We couldn't connect. Check your connection, then try again with a new code." The server may have taken the code before the answer was lost, and it refuses the same code again as a replay that counts toward the lockout. `StepUpDialog` empties its code boxes on such a failure, the step-up deadline included, so a second Confirm sends nothing until a new code is typed.
+- fe8f780: Every `StepUpClient` call now ends at `STEP_UP_DEADLINE_MS` (15 s, exported) while the page is in the foreground: the token renewal `authFetch` makes first, the request, its 401 retry and the body read included. A call still waiting at the deadline is aborted and rejects with a `StepUpError` at status `0`, which `describeAuthError` reads as the connection sentence, so a step-up screen that holds its ways out while a call runs gets them back. A normal answer, a refusal and a session rejection are unchanged.
+
 ## 3.4.1
 
 ### Patch Changes
