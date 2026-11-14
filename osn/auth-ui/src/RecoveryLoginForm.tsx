@@ -14,7 +14,7 @@ import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
-import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, onMount, Show, type JSX } from "solid-js";
 
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
@@ -23,6 +23,7 @@ import { describePasskeyError } from "./passkey-errors";
 import { storedWait, writeStoredWait, type Waiting } from "./pending-recovery";
 import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
+import { StepLink, stepAction, ViewStep } from "./ViewParts";
 
 /**
  * Every way back into an account that is not a passkey.
@@ -78,12 +79,12 @@ import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
  * never buy more time than the session was granted.
  */
 
-export interface RecoveryLoginFormProps {
+interface RecoveryLoginFormBaseProps {
   client: RecoveryClient;
   /**
    * Needed by the two restricted paths, which end in passkey enrolment.
-   * Without it — or without {@link RecoveryLoginFormProps.runPasskeyRegistration} —
-   * neither is offered, because neither could be finished.
+   * Without it — or without `runPasskeyRegistration` — neither is offered,
+   * because neither could be finished.
    */
   registrationClient?: RegistrationClient;
   /**
@@ -98,8 +99,24 @@ export interface RecoveryLoginFormProps {
    */
   turnstileSiteKey?: string;
   onSuccess?: () => void;
+  /**
+   * Back to sign-in: "Back to sign in" on the chooser, shown only when this
+   * is given, and "Sign in with your new passkey" once a passkey is added.
+   */
   onCancel?: () => void;
 }
+
+/**
+ * What the form is mounted in. `SignIn` passes its own.
+ *
+ * - `"dialog"`: each step's action sits in a `DialogFooter`, Cancel first.
+ *   `onDismiss` is that Cancel, which leaves the dialog; it is held while a
+ *   call this form started runs, and not while a Resend runs.
+ * - `"page"`: each step's action spans the column under it, its ways back
+ *   centred under that, with no Cancel.
+ */
+export type RecoveryLoginFormProps = RecoveryLoginFormBaseProps &
+  ({ host: "dialog"; onDismiss: () => void } | { host: "page" });
 
 /**
  * Seconds before Resend unlocks. A request lives ten minutes and sends at most
@@ -638,254 +655,325 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
         : ("idle" as const),
   });
 
+  // The dialog's way out, first in each step's footer.
+  const dismiss = () => (props.host === "dialog" ? props.onDismiss : undefined);
+  /** One step: Cancel in a dialog, the step's own action, its ways back. */
+  const step = (parts: { action?: JSX.Element; links?: JSX.Element; children: JSX.Element }) => (
+    <ViewStep
+      host={props.host}
+      onCancel={dismiss()}
+      cancelDisabled={busy()}
+      action={parts.action}
+      links={parts.links}
+    >
+      {parts.children}
+    </ViewStep>
+  );
+  /** A way back inside the form, held while a call it started runs. */
+  const backLink = (label: string, onClick: () => void) => (
+    <StepLink host={props.host} onClick={onClick} disabled={busy()}>
+      {label}
+    </StepLink>
+  );
+  // The chooser's other factors take the step-up sheet's factor buttons:
+  // Button's own size, 40px tall below `md` in a sheet.
+  const factorClass = () => (props.host === "dialog" ? "max-md:h-10" : undefined);
+  const line = "text-ui-sm leading-ui-snug text-ui-ink-secondary";
+
   return (
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col">
       <Show when={view() === "choose"}>
-        <div class="flex flex-col gap-3">
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-            Pick how you'd like to prove this account is yours.
-          </p>
-          <Button onClick={() => setView("code")}>Use a recovery code</Button>
-          <Show when={restrictedFactorsAvailable()}>
-            <Button variant="outline" onClick={() => setView("email-identify")}>
-              Email me a link
+        {step({
+          // A recovery code needs nothing but the code, so it is the step's
+          // one action; the factors that end in a new passkey sit above it.
+          action: (
+            <Button {...stepAction(props.host)} onClick={() => setView("code")}>
+              Use a recovery code
             </Button>
-            <Button variant="outline" onClick={() => setView("totp")}>
-              Use your authenticator app
-            </Button>
-          </Show>
-          {/* Where a WebAuthn ceremony cannot run, the two restricted factors
-              are useless and the honest answer is the list of things that do
-              work. Same copy as the unsupported-browser screen on sign-in. */}
-          <Show when={!restrictedFactorsAvailable()}>
-            <div class="flex flex-col gap-2">
-              {/* A blocker that stops these two ways here: an info notice. */}
-              <Notice tone="info" size="sm">
-                The other ways back in need a passkey ceremony, which this browser can't run.
-              </Notice>
-              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">You can:</p>
-              <ul class="text-ui-sm leading-ui-snug text-ui-ink-secondary list-inside list-disc">
-                <li>
-                  Sign in on a device that supports passkeys (iOS 16+, Android 9+, recent desktop
-                  browsers).
-                </li>
-                <li>
-                  Use your phone via the QR / Bluetooth cross-device flow your password manager
-                  offers.
-                </li>
-                <li>Plug in a FIDO2 security key and reload the page.</li>
-              </ul>
-            </div>
-          </Show>
-          <Show when={props.onCancel}>
-            {(cancel) => (
-              <Button variant="ghost" onClick={cancel()}>
-                Back to sign in
-              </Button>
-            )}
-          </Show>
-        </div>
+          ),
+          links: <Show when={props.onCancel}>{(back) => backLink("Back to sign in", back())}</Show>,
+          children: (
+            <>
+              <p class={line}>Pick how you'd like to prove this account is yours.</p>
+              <Show when={restrictedFactorsAvailable()}>
+                <div class="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    class={factorClass()}
+                    onClick={() => setView("email-identify")}
+                  >
+                    Email me a link
+                  </Button>
+                  <Button variant="outline" class={factorClass()} onClick={() => setView("totp")}>
+                    Use your authenticator app
+                  </Button>
+                </div>
+              </Show>
+              {/* Where a WebAuthn ceremony cannot run, the two restricted factors
+                  are useless and the honest answer is the list of things that do
+                  work. Same copy as the unsupported-browser screen on sign-in. */}
+              <Show when={!restrictedFactorsAvailable()}>
+                <div class="flex flex-col gap-2">
+                  {/* A blocker that stops these two ways here: an info notice. */}
+                  <Notice tone="info" size="sm">
+                    The other ways back in need a passkey ceremony, which this browser can't run.
+                  </Notice>
+                  <p class={line}>You can:</p>
+                  <ul class={`${line} list-inside list-disc`}>
+                    <li>
+                      Sign in on a device that supports passkeys (iOS 16+, Android 9+, recent
+                      desktop browsers).
+                    </li>
+                    <li>
+                      Use your phone via the QR / Bluetooth cross-device flow your password manager
+                      offers.
+                    </li>
+                    <li>Plug in a FIDO2 security key and reload the page.</li>
+                  </ul>
+                </div>
+              </Show>
+            </>
+          ),
+        })}
       </Show>
 
+      {/* A step with a form wraps all of it, footer included, so Enter in a
+          field submits. */}
       <Show when={view() === "code"}>
-        <form onSubmit={submitRecoveryCode} class="flex flex-col gap-3">
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-            Enter your email or @handle plus one of your saved recovery codes. All other signed-in
-            sessions will be revoked.
-          </p>
-          <Field labelTreatment="plain" label="Email or @handle">
-            {(field) => (
-              <Input
-                autocomplete="username"
-                autocapitalize="none"
-                spellcheck={false}
-                value={identifier()}
-                onInput={(e) => setIdentifier(e.currentTarget.value)}
-                required
-                {...tie(field)}
-              />
-            )}
-          </Field>
-          <Field labelTreatment="plain" label="Recovery code">
-            {(field) => (
-              <Input
-                autocomplete="one-time-code"
-                spellcheck={false}
-                placeholder="xxxx-xxxx-xxxx-xxxx"
-                value={code()}
-                onInput={(e) => setCode(e.currentTarget.value)}
-                required
-                {...tie(field)}
-              />
-            )}
-          </Field>
-          {errorLine()}
-          <div class="flex gap-2">
-            <Button type="submit" busy={busy()} disabled={!busy() && (!identifier() || !code())}>
-              {busy() ? "Signing in…" : "Sign in with recovery code"}
-            </Button>
-            <Button type="button" variant="ghost" onClick={restart} disabled={busy()}>
-              Back
-            </Button>
-          </div>
+        <form onSubmit={submitRecoveryCode} class="flex flex-col">
+          {step({
+            action: (
+              <Button
+                type="submit"
+                {...stepAction(props.host)}
+                busy={busy()}
+                disabled={!busy() && (!identifier() || !code())}
+              >
+                {busy() ? "Signing in…" : "Sign in with recovery code"}
+              </Button>
+            ),
+            links: backLink("Back", restart),
+            children: (
+              <>
+                <p class={line}>
+                  Enter your email or @handle plus one of your saved recovery codes. All other
+                  signed-in sessions will be revoked.
+                </p>
+                <Field labelTreatment="plain" label="Email or @handle">
+                  {(field) => (
+                    <Input
+                      autocomplete="username"
+                      autocapitalize="none"
+                      spellcheck={false}
+                      value={identifier()}
+                      onInput={(e) => setIdentifier(e.currentTarget.value)}
+                      required
+                      {...tie(field)}
+                    />
+                  )}
+                </Field>
+                <Field labelTreatment="plain" label="Recovery code">
+                  {(field) => (
+                    <Input
+                      autocomplete="one-time-code"
+                      spellcheck={false}
+                      placeholder="xxxx-xxxx-xxxx-xxxx"
+                      value={code()}
+                      onInput={(e) => setCode(e.currentTarget.value)}
+                      required
+                      {...tie(field)}
+                    />
+                  )}
+                </Field>
+                {errorLine()}
+              </>
+            ),
+          })}
         </form>
       </Show>
 
       <Show when={view() === "email-identify"}>
-        <form onSubmit={sendEmailLink} class="flex flex-col gap-3">
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-            We'll send a link to the address on the account. Open it on any device to get back in
-            here.
-          </p>
-          {/* Email only, not "handle or email": this endpoint refuses a
-              handle — it puts mail in somebody's inbox and a handle is
-              public — and the refusal is flattened on the wire, so asking
-              for the wrong thing produces an error with nothing in it. */}
-          <Field labelTreatment="plain" label="Email address on the account">
-            {(field) => (
-              <Input
-                type="email"
-                autocomplete="email"
-                autocapitalize="none"
-                value={email()}
-                onInput={(e) => setEmail(e.currentTarget.value)}
-                required
-                {...tie(field)}
-              />
-            )}
-          </Field>
-          <TurnstileWidget
-            siteKey={props.turnstileSiteKey}
-            onToken={setTurnstileToken}
-            onReady={(c) => (resetTurnstile = c.reset)}
-          />
-          {errorLine()}
-          <div class="flex gap-2">
-            {/* The other reasons apply only while idle: the send spends the
-                token, and the widget drops it before the wait ends. */}
-            <Button
-              type="submit"
-              busy={busy()}
-              disabled={!busy() && (!email().trim() || (turnstileOn() && !turnstileToken()))}
-            >
-              {busy() ? "Sending…" : "Send the link"}
-            </Button>
-            <Button type="button" variant="ghost" onClick={restart} disabled={busy()}>
-              Back
-            </Button>
-          </div>
+        <form onSubmit={sendEmailLink} class="flex flex-col">
+          {step({
+            action: (
+              // The other reasons apply only while idle: the send spends the
+              // token, and the widget drops it before the wait ends.
+              <Button
+                type="submit"
+                {...stepAction(props.host)}
+                busy={busy()}
+                disabled={!busy() && (!email().trim() || (turnstileOn() && !turnstileToken()))}
+              >
+                {busy() ? "Sending…" : "Send the link"}
+              </Button>
+            ),
+            links: backLink("Back", restart),
+            children: (
+              <>
+                <p class={line}>
+                  We'll send a link to the address on the account. Open it on any device to get back
+                  in here.
+                </p>
+                {/* Email only, not "handle or email": this endpoint refuses a
+                    handle — it puts mail in somebody's inbox and a handle is
+                    public — and the refusal is flattened on the wire, so asking
+                    for the wrong thing produces an error with nothing in it. */}
+                <Field labelTreatment="plain" label="Email address on the account">
+                  {(field) => (
+                    <Input
+                      type="email"
+                      autocomplete="email"
+                      autocapitalize="none"
+                      value={email()}
+                      onInput={(e) => setEmail(e.currentTarget.value)}
+                      required
+                      {...tie(field)}
+                    />
+                  )}
+                </Field>
+                <TurnstileWidget
+                  siteKey={props.turnstileSiteKey}
+                  onToken={setTurnstileToken}
+                  onReady={(c) => (resetTurnstile = c.reset)}
+                />
+                {errorLine()}
+              </>
+            ),
+          })}
         </form>
       </Show>
 
+      {/* A wait commits nothing of its own, so in a dialog Cancel stands
+          alone. Every way out stays open while a Resend runs, as on the
+          step-up sheet's wait: leaving ends the wait on this side. */}
       <Show when={view() === "email-verify"}>
-        <div class="flex flex-col gap-3">
-          {/* The same status and error whether or not the address has an
-              account: a request for one with no account waits and expires
-              like any other. */}
-          <CheckEmailView
-            purpose="recovery"
-            email={waiting()?.email}
-            status={linkStatus()}
-            errorMessage={linkError()}
-            pairingCode={pairingCode()}
-            resendWaitSeconds={RESEND_WAIT_SECONDS}
-            onResend={resendLink}
-            onChangeEmail={backToIdentify}
-          />
-          <Button variant="ghost" onClick={restart}>
-            Back
-          </Button>
-        </div>
+        {step({
+          links: backLink("Back", restart),
+          children: (
+            // The same status and error whether or not the address has an
+            // account: a request for one with no account waits and expires
+            // like any other.
+            <CheckEmailView
+              purpose="recovery"
+              email={waiting()?.email}
+              status={linkStatus()}
+              errorMessage={linkError()}
+              pairingCode={pairingCode()}
+              resendWaitSeconds={RESEND_WAIT_SECONDS}
+              onResend={resendLink}
+              onChangeEmail={backToIdentify}
+            />
+          ),
+        })}
       </Show>
 
       <Show when={view() === "totp"}>
-        <div class="flex flex-col gap-3">
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-            Enter your email or @handle, then the current code from your authenticator app.
-          </p>
-          <Field labelTreatment="plain" label="Email or @handle">
-            {(field) => (
-              <Input
-                autocomplete="username"
-                autocapitalize="none"
-                spellcheck={false}
-                value={identifier()}
-                onInput={(e) => setIdentifier(e.currentTarget.value)}
-                required
-                {...tie(field)}
-              />
-            )}
-          </Field>
-          <div class="flex flex-col gap-1.5">
-            <span class={labelVariants()} id={totpCodeLabelId}>
-              Code from your authenticator app
-            </span>
-            <OtpInput value={code()} onChange={setCode} {...codeRow(totpCodeLabelId)} />
-            {errorLine()}
-          </div>
-          <div class="flex gap-2">
+        {step({
+          action: (
             <Button
+              {...stepAction(props.host)}
               onClick={verifyTotpCode}
               busy={busy()}
               disabled={!busy() && (!identifier().trim() || code().length !== 6)}
             >
               {busy() ? "Checking…" : "Continue"}
             </Button>
-            <Button variant="ghost" onClick={restart} disabled={busy()}>
-              Back
-            </Button>
-          </div>
-        </div>
+          ),
+          links: backLink("Back", restart),
+          children: (
+            <>
+              <p class={line}>
+                Enter your email or @handle, then the current code from your authenticator app.
+              </p>
+              <Field labelTreatment="plain" label="Email or @handle">
+                {(field) => (
+                  <Input
+                    autocomplete="username"
+                    autocapitalize="none"
+                    spellcheck={false}
+                    value={identifier()}
+                    onInput={(e) => setIdentifier(e.currentTarget.value)}
+                    required
+                    {...tie(field)}
+                  />
+                )}
+              </Field>
+              <div class="flex flex-col gap-1.5">
+                <span class={labelVariants()} id={totpCodeLabelId}>
+                  Code from your authenticator app
+                </span>
+                <OtpInput value={code()} onChange={setCode} {...codeRow(totpCodeLabelId)} />
+                {errorLine()}
+              </div>
+            </>
+          ),
+        })}
       </Show>
 
       <Show when={view() === "enrol"}>
-        <div class="flex flex-col gap-3">
-          <h3 class="text-ui-ink text-ui-base font-medium">Add a passkey to get back in</h3>
-          {/* Say plainly what this is. A user who has just proved who they are
-              and is then shown a bare button will not know why they are not
-              simply signed in. */}
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-            You're in a <strong>recovery session</strong>. It can do one thing — add a passkey to
-            this account — and it's short-lived, so do it now. Every other session on the account
-            has been signed out.
-          </p>
-          {errorLine()}
-          <div class="flex gap-2">
-            <Button onClick={enrolPasskey} busy={busy()}>
+        {step({
+          action: (
+            <Button {...stepAction(props.host)} onClick={enrolPasskey} busy={busy()}>
               {busy() ? "Waiting for your passkey…" : error() ? "Try again" : "Add a passkey"}
             </Button>
-            <Show when={error()}>
-              <Button variant="ghost" onClick={restart} disabled={busy()}>
-                Start again
-              </Button>
-            </Show>
-          </div>
-        </div>
+          ),
+          links: <Show when={error()}>{backLink("Start again", restart)}</Show>,
+          children: (
+            <>
+              <h3 class="text-ui-ink text-ui-base font-medium">Add a passkey to get back in</h3>
+              {/* Say plainly what this is. A user who has just proved who they
+                  are and is then shown a bare button will not know why they
+                  are not simply signed in. */}
+              <p class={line}>
+                You're in a <strong>recovery session</strong>. It can do one thing — add a passkey
+                to this account — and it's short-lived, so do it now. Every other session on the
+                account has been signed out.
+              </p>
+              {errorLine()}
+            </>
+          ),
+        })}
       </Show>
 
       <Show when={view() === "enrolled"}>
-        <div class="flex flex-col gap-3">
-          <h3 class="text-ui-ink text-ui-base font-medium">You're back in</h3>
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-            This device now has a passkey for your account. Sign in with it to finish — that also
-            proves the new passkey works.
-          </p>
-          <Button onClick={() => props.onCancel?.()}>Sign in with your new passkey</Button>
-        </div>
+        {step({
+          action: (
+            <Button {...stepAction(props.host)} onClick={() => props.onCancel?.()}>
+              Sign in with your new passkey
+            </Button>
+          ),
+          children: (
+            <>
+              <h3 class="text-ui-ink text-ui-base font-medium">You're back in</h3>
+              <p class={line}>
+                This device now has a passkey for your account. Sign in with it to finish — that
+                also proves the new passkey works.
+              </p>
+            </>
+          ),
+        })}
       </Show>
 
       <Show when={view() === "expired"}>
-        <div class="flex flex-col gap-3">
-          {/* Its own state, not a 401 toast. Somebody who has just proved who
-              they are and then meets a generic error concludes the product is
-              broken, and stops. */}
-          <h3 class="text-ui-ink text-ui-base font-medium">That recovery session timed out</h3>
-          <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-            Recovery sessions are deliberately short. Nothing has gone wrong and your account is
-            fine — start again and you'll get a fresh one.
-          </p>
-          <Button onClick={restart}>Start again</Button>
-        </div>
+        {step({
+          action: (
+            <Button {...stepAction(props.host)} onClick={restart}>
+              Start again
+            </Button>
+          ),
+          children: (
+            <>
+              {/* Its own state, not a 401 toast. Somebody who has just proved
+                  who they are and then meets a generic error concludes the
+                  product is broken, and stops. */}
+              <h3 class="text-ui-ink text-ui-base font-medium">That recovery session timed out</h3>
+              <p class={line}>
+                Recovery sessions are deliberately short. Nothing has gone wrong and your account is
+                fine — start again and you'll get a fresh one.
+              </p>
+            </>
+          ),
+        })}
       </Show>
     </div>
   );

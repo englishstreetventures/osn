@@ -15,9 +15,9 @@
  *
  * The view sits where `Register` puts it in musubi's create-account dialog:
  * `ResponsiveDialogContent` (a bottom sheet below `md`, full width with no
- * side border or padding), then `Register`'s root (`flex flex-col`) and its
- * body for `host="dialog"`, `p-4`, class for class (`Register.tsx`). At a
- * 320px viewport that leaves the view a 288px column.
+ * side border or padding), then `Register`'s root (`flex flex-col`) and the
+ * body `ViewStep` draws for `host="dialog"`, padded 16px (`ViewParts.tsx`).
+ * At a 320px viewport that leaves the view a 288px column.
  *
  * Each case writes a screenshot to `__screenshots__/` beside this file
  * (gitignored).
@@ -69,7 +69,7 @@ async function mountInSheet(email: string, pairingCode?: string) {
     <Dialog open onOpenChange={() => {}}>
       <ResponsiveDialogContent aria-label="Check your email">
         <div class="flex flex-col">
-          <div class="p-4">
+          <div class="flex flex-col gap-4 p-4">
             <CheckEmailView
               email={email}
               purpose="sign-up"

@@ -3,7 +3,7 @@ import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
-import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Dialog, DialogFooter } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Skeleton } from "@shared/ui/ui/skeleton";
@@ -11,6 +11,7 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { DialogTitleRow } from "../components/DialogTitleRow";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SignedOutNote } from "../components/SignedOutNote";
@@ -151,9 +152,7 @@ export function OrganisationsPage() {
       {/* Create org dialog */}
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
         <ResponsiveDialogContent>
-          <DialogHeader>
-            <DialogTitle>Create organisation</DialogTitle>
-          </DialogHeader>
+          <DialogTitleRow>Create organisation</DialogTitleRow>
           {/* The footer sits inside the form, so Enter in a field still submits. */}
           <form onSubmit={handleCreate}>
             <div class="flex flex-col gap-4 p-4">

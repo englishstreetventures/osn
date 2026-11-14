@@ -83,6 +83,41 @@ async function at(
 const primaryBar = (page: Page) => page.locator('nav[aria-label="Primary"]');
 const rail = (page: Page) => page.locator("aside");
 
+/**
+ * Whether a dialog's title sits alone in its header and centred in the
+ * dialog: `text-align: center`, no button beside it, and its text's middle
+ * within 1px of the dialog's. One boolean, so a rerun reads the same.
+ */
+async function titleCentred(dialog: Locator, title: Locator): Promise<boolean> {
+  const [dialogBox, centred] = await Promise.all([
+    dialog.boundingBox(),
+    title.evaluate((el) => ({
+      align: getComputedStyle(el).textAlign,
+      buttons: el.parentElement?.querySelectorAll("button").length ?? -1,
+      // The title's own text: the span inside it where there is one.
+      box: (el.firstElementChild ?? el).getBoundingClientRect().toJSON() as {
+        left: number;
+        width: number;
+      },
+    })),
+  ]);
+  return (
+    dialogBox !== null &&
+    centred.align === "center" &&
+    centred.buttons === 0 &&
+    Math.abs(centred.box.left + centred.box.width / 2 - (dialogBox.x + dialogBox.width / 2)) <= 1
+  );
+}
+
+/** The names of the buttons in the footer `cancel` sits in, in order, joined by " | ". */
+function footerRow(cancel: Locator): Promise<string> {
+  return cancel.evaluate((el) =>
+    [...(el.parentElement?.querySelectorAll("button") ?? [])]
+      .map((b) => (b.textContent ?? "").trim())
+      .join(" | "),
+  );
+}
+
 /** One computed property of `target`. */
 function computed(target: Locator, property: string): Promise<string> {
   return target.evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop), property);
@@ -441,12 +476,17 @@ async function menus(flow: Flow, page: Page): Promise<void> {
   const title = switcher.getByRole("heading", { name: "Switch profile" });
   const profile = switcher.getByRole("button").first();
   const switcherOpened = await holdOverlay(page, '[role="dialog"]', "ui-enter", 0);
+  const switcherCancel = switcher.getByRole("button", { name: "Cancel", exact: true });
   await flow.step("surfaces: open the profile switcher from the keyboard", async () => {
     await expect(switchProfile).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(profile).toBeVisible();
-    // The dialog holds focus; Tab lands on its one row as a keyboard user's would.
+    // The dialog opens on its row; Tab reaches the footer's Cancel, after the
+    // rows, and Shift+Tab comes back to the row as a keyboard user's would.
+    await expect(profile).toBeFocused();
     await page.keyboard.press("Tab");
+    await expect(switcherCancel).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
     await expect(profile).toBeFocused();
     expect(await profile.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
   });
@@ -455,6 +495,16 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     "profile switcher: the title is at title size and 500",
     await probedType(title, "text-title font-medium"),
     await type(title),
+  );
+  flow.check(
+    "profile switcher: the title sits alone in the header, centred",
+    true,
+    await titleCentred(switcher, title),
+  );
+  flow.check(
+    "profile switcher: the footer holds Cancel alone",
+    "Cancel",
+    await footerRow(switcherCancel),
   );
   flow.check(
     "profile switcher: a focused row draws its outline inside the row",
@@ -620,6 +670,25 @@ async function securityPanelSurfaces(flow: Flow, page: Page, row: Locator): Prom
  * shot in both schemes.
  */
 export async function removalSheetSurfaces(flow: Flow, page: Page, sheet: Locator): Promise<void> {
+  flow.check(
+    "removal sheet: the title sits alone in the header, centred",
+    true,
+    await titleCentred(sheet, sheet.getByRole("heading", { level: 2 })),
+  );
+  flow.check(
+    "removal sheet: one line under the title, and none of the old ones",
+    true,
+    await sheet.evaluate(
+      (el) =>
+        el.querySelectorAll("p").length === 1 &&
+        !/Re-authenticate|fresh authentication|Choose a method/.test(el.textContent ?? ""),
+    ),
+  );
+  flow.check(
+    "removal sheet: the footer reads Cancel, then Use passkey",
+    "Cancel | Use passkey",
+    await footerRow(sheet.getByRole("button", { name: "Cancel", exact: true })),
+  );
   await restoring(page, async () => {
     await at(page, PHONE, "light");
     const box = await sheet.boundingBox();
@@ -878,6 +947,11 @@ async function formDialog(flow: Flow, label: string, field: Locator, action: Loc
   // The field sits in its label's column; the column sits in the body.
   const body = field.locator("xpath=../..");
   const footer = action.locator("xpath=..");
+  flow.check(
+    `${label}: the footer reads Cancel, then the commit`,
+    `Cancel | ${((await action.textContent()) ?? "").trim()}`,
+    await footerRow(footer.getByRole("button", { name: "Cancel", exact: true })),
+  );
   flow.check(`${label}: the body is padded 16px`, "16px 16px 16px 16px", await padding(body));
   flow.check(`${label}: the footer is padded 16px`, "16px 16px 16px 16px", await padding(footer));
   flow.check(
@@ -892,13 +966,21 @@ async function formDialog(flow: Flow, label: string, field: Locator, action: Loc
   );
 }
 
-/** A dialog's `DialogTitle`, on Musubi's title step at 500 (DESIGN.md §Typography). */
+/**
+ * A dialog's `DialogTitle`, on Musubi's title step at 500 (DESIGN.md
+ * §Typography), alone in its header and centred (§Responsive layout, Dialogs).
+ */
 async function dialogTitle(flow: Flow, label: string, dialog: Locator, name: string) {
   const title = dialog.getByRole("heading", { name });
   flow.check(
     `${label}: the title is at title size and 500`,
     await probedType(title, "text-title font-medium"),
     await type(title),
+  );
+  flow.check(
+    `${label}: the title sits alone in the header, centred`,
+    true,
+    await titleCentred(dialog, title),
   );
 }
 
@@ -1302,10 +1384,11 @@ export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<voi
 }
 
 /**
- * The sign-in dialog, before anything is typed: "Email or @handle" a plain
- * `Field` label, and "Lost your passkey?" under Continue a standalone link —
- * `Button`'s `link` at `sm`, in the accent ink, no underline until hovered, a
- * 32px box centred under Continue.
+ * The sign-in dialog, before anything is typed: its title alone and centred,
+ * "Email or @handle" a plain `Field` label, "Lost your passkey?" under the
+ * field a standalone link — `Button`'s `link` at `sm`, in the accent ink, no
+ * underline until hovered, a 32px box centred in the body — and the footer
+ * reading Cancel, then Continue.
  */
 export async function signInLinkSurfaces(flow: Flow, page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Sign in to Musubi", exact: true });
@@ -1320,6 +1403,16 @@ export async function signInLinkSurfaces(flow: Flow, page: Page): Promise<void> 
   // No error line is up, so this is the standalone link, not the one inside a line.
   const link = dialog.getByRole("button", { name: "Lost your passkey?" });
   const proceed = dialog.getByRole("button", { name: "Continue" });
+  flow.check(
+    "sign in: the title sits alone in the header, centred",
+    true,
+    await titleCentred(dialog, dialog.getByRole("heading", { name: "Sign in to Musubi" })),
+  );
+  flow.check(
+    "sign in: the footer reads Cancel, then Continue",
+    "Cancel | Continue",
+    await footerRow(dialog.getByRole("button", { name: "Cancel", exact: true })),
+  );
   await restoring(page, async () => {
     await page.mouse.move(0, 0);
     await settled(link);
@@ -1343,13 +1436,20 @@ export async function signInLinkSurfaces(flow: Flow, page: Page): Promise<void> 
       "32px",
       await computed(link, "height"),
     );
-    const [linkBox, proceedBox] = await Promise.all([link.boundingBox(), proceed.boundingBox()]);
+    const [linkBox, fieldBox, proceedBox] = await Promise.all([
+      link.boundingBox(),
+      identifier.boundingBox(),
+      proceed.boundingBox(),
+    ]);
     flow.check(
-      "sign in: the standalone link sits centred under Continue",
+      "sign in: the standalone link sits centred under the field, above the footer",
       true,
       linkBox !== null &&
+        fieldBox !== null &&
         proceedBox !== null &&
-        Math.abs(linkBox.x + linkBox.width / 2 - (proceedBox.x + proceedBox.width / 2)) <= 1,
+        linkBox.y > fieldBox.y + fieldBox.height &&
+        linkBox.y + linkBox.height < proceedBox.y &&
+        Math.abs(linkBox.x + linkBox.width / 2 - (fieldBox.x + fieldBox.width / 2)) <= 1,
     );
     await link.hover();
     await settled(link);

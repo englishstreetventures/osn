@@ -31,6 +31,7 @@ import {
   type Waiting,
 } from "./pending-sign-up";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
+import { stepAction, ViewStep } from "./ViewParts";
 
 type Step = "details" | "verify" | "passkey" | "done";
 
@@ -66,22 +67,8 @@ function ageInYears(birthdate: string): number {
   return age;
 }
 
-interface RegisterProps {
+interface RegisterBaseProps {
   client: RegistrationClient;
-  /** Called by the header's Cancel. */
-  onCancel: () => void;
-  /**
-   * Cancel's words where going back means something else, such as "Sign in
-   * instead" where Cancel takes a create-account view back to sign-in. See
-   * `AuthHeader`.
-   */
-  cancelLabel?: string;
-  /**
-   * What the view is mounted in: `"dialog"` inside `@shared/ui`'s `Dialog`,
-   * whose name its title becomes; `"page"` on a page such as `/authorize`,
-   * with no padding at the sides. See `AuthHeader`.
-   */
-  host: "dialog" | "page";
   /**
    * Fired once the account exists and its first passkey is enrolled — i.e.
    * the session is fully usable. Consumers that own navigation (e.g. a
@@ -99,6 +86,24 @@ interface RegisterProps {
   /** Product name shown in this dialog's copy — e.g. "Musubi". */
   productName: string;
 }
+
+/**
+ * What the view is mounted in, and where Cancel goes. See `AuthHeader`.
+ *
+ * - `"dialog"`: inside `@shared/ui`'s `Dialog`, whose name its title becomes.
+ *   Cancel is the footer's, first beside each step's action, and reads
+ *   "Cancel". It ends a sign-up link's wait, then calls `onCancel`, and
+ *   closes nothing itself; Escape and a press outside are the host's
+ *   `onOpenChange`.
+ * - `"page"`: on a page such as `/authorize`, with no padding at the sides.
+ *   Cancel sits at the title row's end, in the page's words where going back
+ *   means something else, such as "Sign in instead" (`cancelLabel`).
+ */
+export type RegisterProps = RegisterBaseProps &
+  (
+    | { host: "dialog"; /** Called by Cancel. */ onCancel: () => void }
+    | { host: "page"; /** Called by Cancel. */ onCancel: () => void; cancelLabel?: string }
+  );
 
 export function Register(props: RegisterProps) {
   const { adoptSession } = useAuth();
@@ -601,33 +606,65 @@ export function Register(props: RegisterProps) {
     }
   }
 
+  const busyNow = () => sending() || resending() || enrolling();
+  const title = () => `Create your ${props.productName} account`;
+  // The dialog's way out, first in each step's footer; on a page it is the
+  // title row's.
+  const dismiss = () => (props.host === "dialog" ? cancel : undefined);
+  const page = () => (props.host === "page" ? props : undefined);
+
   return (
     <div class="flex flex-col">
-      <AuthHeader
-        host={props.host}
-        title={`Create your ${props.productName} account`}
-        onCancel={cancel}
-        cancelLabel={props.cancelLabel}
-        cancelDisabled={sending() || resending() || enrolling()}
-      />
-      <div class={props.host === "dialog" ? "p-4" : "pt-6"}>
-        {/* Gate the flow behind WebAuthn support: registration demands an
+      <Show when={page()} fallback={<AuthHeader host="dialog" title={title()} />}>
+        {(onPage) => (
+          <AuthHeader
+            host="page"
+            title={title()}
+            onCancel={cancel}
+            cancelLabel={onPage().cancelLabel}
+            cancelDisabled={busyNow()}
+          />
+        )}
+      </Show>
+      {/* Gate the flow behind WebAuthn support: registration demands an
           enrolled passkey or security key, so there is no path forward from
-          a browser without WebAuthn. */}
-        <Show
-          when={webauthnSupported}
-          fallback={
+          a browser without WebAuthn. The blocker commits nothing, so in a
+          dialog Cancel stands alone. */}
+      <Show
+        when={webauthnSupported}
+        fallback={
+          <ViewStep host={props.host} onCancel={dismiss()}>
             <Notice tone="info" size="sm">
               Creating an account on {props.productName} needs a passkey or security key — something
               this browser doesn&apos;t support. Try a device with WebAuthn (iOS 16+, Android 9+, a
               recent desktop browser), or plug in a FIDO2 security key.
             </Notice>
-          }
-        >
-          <Show when={step() === "details"}>
-            <form onSubmit={submitDetails} class="flex flex-col gap-4">
+          </ViewStep>
+        }
+      >
+        {/* The step sits inside the form, footer and all, so Enter in a
+            field submits. */}
+        <Show when={step() === "details"}>
+          <form onSubmit={submitDetails} class="flex flex-col">
+            <ViewStep
+              host={props.host}
+              onCancel={dismiss()}
+              cancelDisabled={busyNow()}
+              action={
+                // Invalid only while idle: the send spends the token, and a
+                // refused one drops it before the wait ends.
+                <Button
+                  type="submit"
+                  {...stepAction(props.host)}
+                  busy={sending()}
+                  disabled={!sending() && !detailsValid()}
+                >
+                  {sending() ? "Sending…" : "Send verification link"}
+                </Button>
+              }
+            >
               {/* A bare Label: the "i" beside it is a button, which a label
-                cannot hold, so this field is wired by hand. */}
+                  cannot hold, so this field is wired by hand. */}
               <div class="flex flex-col gap-1.5">
                 <div class="flex items-center">
                   <Label for={emailId}>Email</Label>
@@ -655,7 +692,7 @@ export function Register(props: RegisterProps) {
                   </Notice>
                 </Show>
                 {/* The browser Email Verification API field: hidden, filled by a
-                  browser that has the API when the form is submitted. */}
+                    browser that has the API when the form is submitted. */}
                 <Show when={verificationNonce()} keyed>
                   {(minted) => (
                     <input
@@ -752,16 +789,15 @@ export function Register(props: RegisterProps) {
                   </Notice>
                 )}
               </Show>
-              {/* Invalid only while idle: the send spends the token, and a
-                refused one drops it before the wait ends. */}
-              <Button type="submit" busy={sending()} disabled={!sending() && !detailsValid()}>
-                {sending() ? "Sending…" : "Send verification link"}
-              </Button>
-            </form>
-          </Show>
+            </ViewStep>
+          </form>
+        </Show>
 
-          <Show when={step() === "verify" ? waiting() : null}>
-            {(request) => (
+        {/* A wait commits nothing of its own, so in a dialog Cancel stands
+            alone. */}
+        <Show when={step() === "verify" ? waiting() : null}>
+          {(request) => (
+            <ViewStep host={props.host} onCancel={dismiss()} cancelDisabled={busyNow()}>
               <CheckEmailView
                 purpose="sign-up"
                 email={request().email}
@@ -771,35 +807,44 @@ export function Register(props: RegisterProps) {
                 onResend={resendLink}
                 onChangeEmail={backToDetails}
               />
-            )}
-          </Show>
+            </ViewStep>
+          )}
+        </Show>
 
-          <Show when={step() === "passkey"}>
-            <div class="flex flex-col gap-4">
-              <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
-                Add a passkey or security key so you can sign back in. This is required to finish
-                creating your account.
-              </p>
-              <Show when={passkeyError()}>
-                {(msg) => (
-                  <Notice tone="danger" size="inline" alert>
-                    {msg()}
-                  </Notice>
-                )}
-              </Show>
-              <Button onClick={enrollPasskey} busy={enrolling()}>
+        <Show when={step() === "passkey"}>
+          <ViewStep
+            host={props.host}
+            onCancel={dismiss()}
+            cancelDisabled={busyNow()}
+            action={
+              <Button {...stepAction(props.host)} onClick={enrollPasskey} busy={enrolling()}>
                 {enrolling() ? "Waiting for your passkey…" : "Add a passkey"}
               </Button>
-            </div>
-          </Show>
+            }
+          >
+            <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
+              Add a passkey or security key so you can sign back in. This is required to finish
+              creating your account.
+            </p>
+            <Show when={passkeyError()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
+            </Show>
+          </ViewStep>
+        </Show>
 
-          <Show when={step() === "done"}>
+        {/* The host closes the dialog on success, so this line has no footer. */}
+        <Show when={step() === "done"}>
+          <ViewStep host={props.host}>
             <p class="text-ui-sm leading-ui-snug text-ui-ink-secondary">
               You&apos;re all set. Loading {props.productName}…
             </p>
-          </Show>
+          </ViewStep>
         </Show>
-      </div>
+      </Show>
     </div>
   );
 }

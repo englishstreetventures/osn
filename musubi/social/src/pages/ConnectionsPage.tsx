@@ -8,15 +8,10 @@ import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@shared/ui/ui/dialog";
+import { Dialog, DialogDescription, DialogFooter } from "@shared/ui/ui/dialog";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { DialogTitleRow } from "../components/DialogTitleRow";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
@@ -326,11 +321,9 @@ export function ConnectionsPage() {
           }}
         >
           <ResponsiveDialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?
-              </DialogTitle>
-            </DialogHeader>
+            <DialogTitleRow>
+              Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?
+            </DialogTitleRow>
             <div class="p-4">
               <DialogDescription>You can always add them again later.</DialogDescription>
             </div>

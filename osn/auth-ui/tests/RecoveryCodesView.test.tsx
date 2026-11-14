@@ -6,6 +6,7 @@ import { Suspense } from "solid-js";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { RecoveryCodesView, recoveryCodesFileName } from "../src/RecoveryCodesView";
+import { dialogDescription } from "./helpers/dialog";
 import { WAIT, alertsText, apiError } from "./helpers/errors";
 import { withoutAnimations } from "./helpers/motion";
 
@@ -214,6 +215,38 @@ describe("RecoveryCodesView", () => {
 
     await waitFor(() => expect(screen.getByText(sampleCodes[0]!)).toBeTruthy());
     expect(stepUp.passkeyBegin).toHaveBeenCalled();
+  });
+
+  // The header holds the title alone; Cancel leads the footer pair.
+  it("puts Cancel first in the rotation dialog's footer, beside Generate new set", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    renderView();
+    await clickGenerate(/Generate new codes/i);
+    const title = await screen.findByRole("heading", { name: "Generate a new set?" });
+    expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+    const cancel = screen.getByRole("button", { name: /^Cancel$/ });
+    expect([...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(
+      ["Cancel", "Generate new set"],
+    );
+  });
+
+  // The sheet says why, in one line under its title.
+  it("says why on the step-up sheet before a new set is generated", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    renderView();
+    await clickGenerate(/Generate new codes/i);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To generate recovery codes, confirm it's you.",
+    );
   });
 
   // The confirm dialog closes in the same tick the step-up sheet opens, so two

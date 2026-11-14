@@ -11,14 +11,17 @@ import "../../src/App.css";
 
 /**
  * `@osn/auth-ui`'s `AuthHeader`, the title row of the sign-in and
- * create-account views, in Musubi's type and colours, in a real browser.
+ * create-account views and of every dialog the package draws, in Musubi's
+ * type and colours, in a real browser.
  *
- * In a dialog it is the sheet's `DialogHeader` holding its `DialogTitle`; on a
- * page (`/authorize`) it is an `h2` with `DialogTitle`'s classes copied, so the
- * title reads the same in both hosts. Whether the copy still matches, whether a
- * long title wraps instead of widening a 320px sheet, and how tall Cancel is
- * below `md` are all computed style and layout, which the package's happy-dom
- * tests cannot see (`osn/auth-ui/DESIGN.md` §3, §4).
+ * In a dialog it is the sheet's `DialogHeader` holding its `DialogTitle`
+ * alone, centred; the dialog's Cancel is its footer's
+ * (`AuthDialogs.browser.test.tsx`). On a page (`/authorize`) it is an `h2`
+ * with `DialogTitle`'s classes copied, so the title reads the same in both
+ * hosts, and Cancel sits at the row's end. Whether the copy still matches,
+ * whether a long title wraps instead of widening a 320px sheet, where it sits
+ * and how tall Cancel is below `md` are all computed style and layout, which
+ * the package's happy-dom tests cannot see (`osn/auth-ui/DESIGN.md` §3, §4).
  */
 
 afterEach(() => {
@@ -46,7 +49,7 @@ function renderDialogHost(title: string) {
     <Dialog open onOpenChange={() => {}}>
       <ResponsiveDialogContent>
         <div>
-          <AuthHeader host="dialog" title={title} onCancel={() => {}} />
+          <AuthHeader host="dialog" title={title} />
         </div>
       </ResponsiveDialogContent>
     </Dialog>
@@ -77,7 +80,7 @@ function setTheme(theme: (typeof THEMES)[number]) {
 
 describe("AuthHeader in Musubi's sheet", () => {
   it.each(THEMES)(
-    "wraps a long title beside Cancel at 320px, inside the sheet (%s)",
+    "centres a long title alone, wrapping inside the sheet at 320px (%s)",
     async (theme) => {
       setTheme(theme);
       await page.viewport(320, 640);
@@ -85,18 +88,23 @@ describe("AuthHeader in Musubi's sheet", () => {
       const sheet = await waitFor(() => screen.getByRole("dialog", { name: LONG_TITLE }));
       await settle();
 
-      expect(sheet.getBoundingClientRect().width).toBeCloseTo(320, 1);
+      const box = sheet.getBoundingClientRect();
+      expect(box.width).toBeCloseTo(320, 1);
       expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
 
-      const cancel = within(sheet).getByRole("button", { name: "Cancel" });
       const heading = within(sheet).getByRole("heading", { level: 2, name: LONG_TITLE });
-      const button = cancel.getBoundingClientRect();
-      // 40px below `md`, never squeezed by the title, inside the header's 16px padding.
-      expect(button.height).toBeCloseTo(40, 0);
-      expect(cancel.scrollWidth).toBeLessThanOrEqual(cancel.clientWidth);
-      expect(button.right).toBeLessThanOrEqual(sheet.getBoundingClientRect().right - 16 + 0.5);
-      // The title breaks onto more lines instead of running under Cancel.
-      expect(heading.getBoundingClientRect().right).toBeLessThanOrEqual(button.left);
+      // The header holds the title alone.
+      expect(heading.parentElement!.querySelectorAll("button")).toHaveLength(0);
+      expect(getComputedStyle(heading).textAlign).toBe("center");
+      // The title breaks onto more lines inside the header's 16px padding,
+      // and its lines sit centred in the sheet.
+      const text = heading.firstElementChild!.getBoundingClientRect();
+      expect(text.left).toBeGreaterThanOrEqual(box.left + 16 - 0.5);
+      expect(text.right).toBeLessThanOrEqual(box.right - 16 + 0.5);
+      expect(text.height).toBeGreaterThan(Number.parseFloat(getComputedStyle(heading).lineHeight));
+      expect(Math.abs(text.left + text.width / 2 - (box.left + box.width / 2))).toBeLessThanOrEqual(
+        1,
+      );
       await page.screenshot({ path: `${SHOTS}/dialog-long-title-320-${theme}.png` });
     },
   );
@@ -137,7 +145,7 @@ describe("AuthHeader's two hosts", () => {
         <Dialog open onOpenChange={() => {}}>
           <ResponsiveDialogContent>
             <div>
-              <AuthHeader host="dialog" title="Sign in to Musubi" onCancel={() => {}} />
+              <AuthHeader host="dialog" title="Sign in to Musubi" />
             </div>
           </ResponsiveDialogContent>
         </Dialog>
@@ -166,49 +174,35 @@ describe("AuthHeader's two hosts", () => {
     expect(type(inDialog)).toMatchObject({ fontSize: "14px", fontWeight: "500" });
   });
 
-  it.each(THEMES)(
-    "draw Cancel as a secondary Button in a dialog and a ghost one on a page (%s)",
-    async (theme) => {
-      setTheme(theme);
-      await page.viewport(1440, 900);
-      render(() => (
-        <>
-          <PageHost title="Create your Musubi account" />
-          {/* Probes: the two variants as any call site draws them. */}
-          <Button variant="secondary" size="sm">
-            Probe secondary
-          </Button>
-          <Button variant="ghost" size="sm">
-            Probe ghost
-          </Button>
-          <Dialog open onOpenChange={() => {}}>
-            <ResponsiveDialogContent>
-              <div>
-                <AuthHeader host="dialog" title="Sign in to Musubi" onCancel={() => {}} />
-              </div>
-            </ResponsiveDialogContent>
-          </Dialog>
-        </>
-      ));
-      const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Sign in to Musubi" }));
-      const look = (element: Element) => {
-        const style = getComputedStyle(element);
-        return {
-          backgroundColor: style.backgroundColor,
-          color: style.color,
-          borderTopColor: style.borderTopColor,
-          borderTopWidth: style.borderTopWidth,
-        };
+  it.each(THEMES)("draws Cancel on a page as a ghost Button (%s)", async (theme) => {
+    setTheme(theme);
+    await page.viewport(1440, 900);
+    render(() => (
+      <>
+        <PageHost title="Create your Musubi account" />
+        {/* Probes: the two variants as any call site draws them. */}
+        <Button variant="secondary" size="sm">
+          Probe secondary
+        </Button>
+        <Button variant="ghost" size="sm">
+          Probe ghost
+        </Button>
+      </>
+    ));
+    const look = (element: Element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        color: style.color,
+        borderTopColor: style.borderTopColor,
+        borderTopWidth: style.borderTopWidth,
       };
-      // The open modal dialog hides the rest of the page from the accessibility tree.
-      const outside = (name: string) => screen.getByRole("button", { name, hidden: true });
-      const secondary = look(outside("Probe secondary"));
-      const ghost = look(outside("Probe ghost"));
-      // The two variants differ at rest, or the checks below prove nothing.
-      expect(secondary.backgroundColor).not.toBe(ghost.backgroundColor);
-
-      expect(look(within(sheet).getByRole("button", { name: "Cancel" }))).toEqual(secondary);
-      expect(look(outside("Sign in instead"))).toEqual(ghost);
-    },
-  );
+    };
+    const secondary = look(screen.getByRole("button", { name: "Probe secondary" }));
+    const ghost = look(screen.getByRole("button", { name: "Probe ghost" }));
+    // The two variants differ at rest, or the check below proves nothing.
+    expect(secondary.backgroundColor).not.toBe(ghost.backgroundColor);
+    // On a page Cancel switches views and dismisses nothing.
+    expect(look(screen.getByRole("button", { name: "Sign in instead" }))).toEqual(ghost);
+  });
 });

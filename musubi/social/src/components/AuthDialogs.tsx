@@ -12,6 +12,20 @@ import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-def
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
 
 /**
+ * Opens a dialog with focus on the dialog itself, not its first control. The
+ * sign-in view's first control is its text field, which would raise a
+ * phone's keyboard over the sheet as it opens, and the create-account view's
+ * is the "i" beside Email. A screen reader still hears the dialog's name, and
+ * Tab reaches the first field.
+ */
+function focusDialog(event: Event) {
+  const dialog = event.currentTarget;
+  if (!(dialog instanceof HTMLElement)) return;
+  event.preventDefault();
+  dialog.focus();
+}
+
+/**
  * The Create-account and Sign-in dialogs, mounted once through
  * `ShellDialogSet`, above the desktop/phone shell switch; `ShellDialogs` owns
  * their open flags. Both close themselves the moment a session exists.
@@ -53,7 +67,10 @@ export function AuthDialogs(props: {
     <>
       <Dialog open={props.showRegister && !session()} onOpenChange={props.onShowRegisterChange}>
         {/* The view's title is the dialog's `DialogTitle`, which names it. */}
-        <ResponsiveDialogContent onCloseAutoFocus={props.onCloseAutoFocus}>
+        <ResponsiveDialogContent
+          onOpenAutoFocus={focusDialog}
+          onCloseAutoFocus={props.onCloseAutoFocus}
+        >
           <Register
             host="dialog"
             client={registrationClient}
@@ -65,7 +82,10 @@ export function AuthDialogs(props: {
         </ResponsiveDialogContent>
       </Dialog>
       <Dialog open={props.showSignIn && !session()} onOpenChange={props.onShowSignInChange}>
-        <ResponsiveDialogContent onCloseAutoFocus={props.onCloseAutoFocus}>
+        <ResponsiveDialogContent
+          onOpenAutoFocus={focusDialog}
+          onCloseAutoFocus={props.onCloseAutoFocus}
+        >
           <SignIn
             host="dialog"
             client={loginClient}

@@ -33,6 +33,7 @@ vi.mock("@simplewebauthn/browser", () => ({
 }));
 
 import type { RecoveryClient, RegistrationClient } from "@osn/client";
+import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 
 import { RecoveryLoginForm } from "../src/RecoveryLoginForm";
 import { enterCode, expectTied } from "./helpers/code";
@@ -137,6 +138,7 @@ function mountFull(
 ) {
   render(() => (
     <RecoveryLoginForm
+      host="page"
       client={asClient(stub)}
       registrationClient={asRegistration(registration)}
       runPasskeyRegistration={
@@ -412,7 +414,7 @@ describe("RecoveryLoginForm — which factors are offered", () => {
   it("hides both restricted factors when the host wired no enrolment path", () => {
     // Same rule, other half: a factor is offered only when everything needed
     // to finish it is present.
-    render(() => <RecoveryLoginForm client={asClient(stub)} />);
+    render(() => <RecoveryLoginForm host="page" client={asClient(stub)} />);
     expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Use your authenticator app/i })).toBeNull();
@@ -771,6 +773,7 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     });
     render(() => (
       <RecoveryLoginForm
+        host="page"
         client={asClient(stub)}
         registrationClient={asRegistration(registration)}
         runPasskeyRegistration={() => ceremony.promise}
@@ -988,5 +991,65 @@ describe("RecoveryLoginForm — a wait", () => {
     expect(await pressBusy("Waiting for your passkey…", registration.passkeyRegisterBegin)).toEqual(
       HELD,
     );
+  });
+});
+
+describe("RecoveryLoginForm in a dialog", () => {
+  function mountInDialog(onDismiss = vi.fn()) {
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <div>
+            <RecoveryLoginForm
+              host="dialog"
+              client={asClient(stub)}
+              registrationClient={asRegistration(registration)}
+              runPasskeyRegistration={async () => attestation as never}
+              onCancel={() => {}}
+              onDismiss={onDismiss}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    ));
+    return onDismiss;
+  }
+
+  /** The buttons in the footer Cancel sits in, by name, in order. */
+  function footer(): HTMLButtonElement[] {
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    return [...cancel.parentElement!.querySelectorAll("button")];
+  }
+  const names = () => footer().map((b) => b.textContent);
+
+  // Cancel leads the footer, beside each step's own action.
+  it("puts Cancel first in the footer, beside each step's action", () => {
+    const onDismiss = mountInDialog();
+    expect(names()).toEqual(["Cancel", "Use a recovery code"]);
+    // Back to sign in is a way back inside the view, not the dialog's way out.
+    expect(names()).not.toContain("Back to sign in");
+    openRecoveryCode();
+    expect(names()).toEqual(["Cancel", "Sign in with recovery code"]);
+    const submit = screen.getByRole("button", { name: "Sign in with recovery code" });
+    expect((submit as HTMLButtonElement).form).toBe(
+      (screen.getByLabelText(/Email or @handle/i) as HTMLInputElement).form,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  // Nothing leaves the view while a call it started runs.
+  it("holds the footer's Cancel while a recovery code is checked", async () => {
+    stub.loginWithRecoveryCode.mockReturnValue(new Promise(() => {}));
+    const onDismiss = mountInDialog();
+    openRecoveryCode();
+    fill(/Email or @handle/i, "alice@example.com");
+    fill(/Recovery code/i, "abcd-1234-5678-ef00");
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with recovery code" }));
+    await screen.findByRole("button", { name: "Signing in…" });
+    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(cancel);
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 });

@@ -3,10 +3,12 @@ import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Button } from "@shared/ui/ui/button";
+import { Dialog, DialogFooter } from "@shared/ui/ui/dialog";
 import { createSignal, For, Show } from "solid-js";
 
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
+import { DialogTitleRow } from "./DialogTitleRow";
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
 
 /**
@@ -38,18 +40,24 @@ export function ProfileSwitcherDialog(props: {
   }
 
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      // Escape and a press outside close it, as Cancel does — but never while
+      // a switch runs, since Cancel is disabled then too.
+      onOpenChange={(open) => {
+        if (!open && switching()) return;
+        props.onOpenChange(open);
+      }}
+    >
       <ResponsiveDialogContent width="xs" onCloseAutoFocus={props.onCloseAutoFocus}>
-        <DialogHeader>
-          <DialogTitle>Switch profile</DialogTitle>
-        </DialogHeader>
+        <DialogTitleRow>Switch profile</DialogTitleRow>
         <div class="flex flex-col gap-1 py-2">
           <For each={profiles() ?? []}>
             {(profile) => {
               const active = () => profile.id === activeProfileId();
               // The rows run to the dialog's edges, and below `md` the sheet
               // scrolls, which clips anything drawn outside a row: the focus
-              // ring sits inside it. Their text lines up with the title's.
+              // ring sits inside it. Their text sits 16px in, as the body's does.
               return (
                 <button
                   type="button"
@@ -92,6 +100,20 @@ export function ProfileSwitcherDialog(props: {
             }}
           </For>
         </div>
+        {/* The rows are the choice, so the footer holds Cancel alone, after
+            them: the first row keeps first focus. */}
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            class="max-md:h-10"
+            disabled={switching()}
+            onClick={() => props.onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+        </DialogFooter>
       </ResponsiveDialogContent>
     </Dialog>
   );

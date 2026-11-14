@@ -707,27 +707,80 @@ describe("StepUpDialog — the sheet", () => {
     expect(screen.getByRole("dialog", { name: "Remove Device passkey?" })).toBeTruthy();
   });
 
-  // F8
-  it("is described by the warning when there is one, and by the reason otherwise", async () => {
+  /** The sheet's description, read through `aria-describedby`. */
+  function description(): string {
+    const dialog = screen.getByRole("dialog");
+    const ids = (dialog.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+    return ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+  }
+
+  /** Everything the sheet says. */
+  function sheetText(): string {
+    return screen.getByRole("dialog").textContent ?? "";
+  }
+
+  // The title, then one line naming the cause, as the host gives it.
+  it("says one line under its title: the warning when there is one, else the reason, as given", () => {
+    const warning = "You'll need another credential to sign in. Confirm it's you to remove it.";
     renderSheet({
       purpose: "passkey_delete",
-      reason: "to remove a passkey",
-      warning: "You'll need another credential to sign in. Confirm it's you to remove it.",
+      reason: "To remove a passkey, confirm it's you.",
+      warning,
     });
-    const dialog = screen.getByRole("dialog");
-    const describedBy = (dialog.getAttribute("aria-describedby") ?? "").split(" ");
-    const description = describedBy.map((id) => document.getElementById(id)?.textContent).join(" ");
-    expect(description).toBe(
-      "You'll need another credential to sign in. Confirm it's you to remove it.",
-    );
-    // The reason still shows, as a line of its own.
-    expect(screen.getByText("Re-authenticate to remove a passkey.")).toBeTruthy();
+    expect(description()).toBe(warning);
+    expect(sheetText()).not.toContain("To remove a passkey");
+    expect(sheetText()).not.toMatch(/Re-authenticate|fresh authentication|Choose a method/);
     cleanup();
-    renderSheet({ reason: "to generate recovery codes" });
-    const plain = screen.getByRole("dialog");
-    expect(document.getElementById(plain.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-      "Re-authenticate to generate recovery codes.",
-    );
+
+    renderSheet({
+      purpose: "account_export",
+      reason: "To generate recovery codes, confirm it's you.",
+    });
+    expect(description()).toBe("To generate recovery codes, confirm it's you.");
+    expect(sheetText()).not.toMatch(/Re-authenticate|fresh authentication|Choose a method/);
+    cleanup();
+
+    renderSheet({ purpose: "account_export" });
+    expect(description()).toBe("");
+    expect(sheetText()).not.toMatch(/Re-authenticate|fresh authentication|Choose a method/);
+  });
+
+  // "Use passkey" sits after the other factors, so Kobalte's first
+  // tabbable would be "Email me a link" (Enter would send an email) or Cancel.
+  it.each([
+    ["every factor", "account_export" as const],
+    ["a removal, the passkey only", "passkey_delete" as const],
+  ])("opens with focus on Use passkey (%s)", async (_, purpose) => {
+    renderSheet({ purpose, totpClient: enrolled() });
+    await flush();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Use passkey" }));
+  });
+
+  /** The buttons in the footer Cancel sits in, by name, in order. */
+  function footer(): string[] {
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    return [...cancel.parentElement!.querySelectorAll("button")].map((b) => b.textContent ?? "");
+  }
+
+  // No button in the header; Cancel, then the step's one primary, in the footer.
+  it("puts Cancel first in its footer, beside the step's primary, in every step", async () => {
+    renderSheet({ purpose: "account_export", totpClient: enrolled() });
+    await screen.findByRole("button", { name: "Use your authenticator app" });
+    const title = screen.getByRole("heading", { name: "Confirm it's you" });
+    expect(title.parentElement!.querySelectorAll("button")).toHaveLength(0);
+    expect(footer()).toEqual(["Cancel", "Use passkey"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Use your authenticator app" }));
+    await screen.findByRole("button", { name: "Confirm" });
+    expect(footer()).toEqual(["Cancel", "Confirm"]);
+    fireEvent.click(screen.getByRole("button", { name: "Use another method" }));
+
+    stub.emailBegin.mockResolvedValue(LINK_REQUEST);
+    stub.emailStatus.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(await screen.findByRole("button", { name: "Email me a link" }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    // A wait commits nothing of its own, so Cancel stands alone.
+    expect(footer()).toEqual(["Cancel"]);
   });
 
   // F7

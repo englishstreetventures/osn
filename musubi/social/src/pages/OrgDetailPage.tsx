@@ -4,7 +4,7 @@ import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Chip } from "@shared/ui/ui/chip";
-import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Dialog, DialogFooter } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -13,6 +13,7 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
+import { DialogTitleRow } from "../components/DialogTitleRow";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
@@ -283,9 +284,7 @@ export function OrgDetailPage() {
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
         <ResponsiveDialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit organisation</DialogTitle>
-          </DialogHeader>
+          <DialogTitleRow>Edit organisation</DialogTitleRow>
           {/* The footer sits inside the form, so Enter in a field still submits. */}
           <form onSubmit={handleSave}>
             <div class="flex flex-col gap-4 p-4">
