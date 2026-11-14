@@ -7,13 +7,15 @@
 import { accounts, organisations, users } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { commitBatch, driverErrorText } from "@shared/db-utils";
+import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notExists, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
 import { forkBackground } from "../../lib/background";
+import { canBatch } from "../../lib/batch";
+import { bound } from "../../lib/bound";
 import { heldHandleRow } from "../../lib/handle-hold";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricEmailLinkSend, withAuthRegister } from "../../metrics";
@@ -557,10 +559,19 @@ export function createRegistrationModule(
   /**
    * Inserts the account and default profile a claim names, with the sign-up
    * it parked. True when they are in place after the call: inserted now, or
-   * already committed by an earlier try for the same claim. False when a
-   * UNIQUE index refused them for someone else's account. Any other failure
-   * is a DatabaseError. On D1 the two inserts commit together; bun:sqlite,
-   * local only, runs them one after the other.
+   * already committed by an earlier try for the same claim. False when they
+   * are not this claim's own and either a UNIQUE index refused them for
+   * someone else's account, or the guard below wrote nothing because the
+   * handle is held or an organisation has it. Any other failure is a
+   * DatabaseError.
+   *
+   * Both inserts are `INSERT … SELECT` under the same guard: no live hold on
+   * the handle and no organisation with it. `users.handle` is UNIQUE, but
+   * neither a hold nor an organisation is a `users` row, so without the
+   * guard either could take the handle between begin and this call and the
+   * account would still be created. On D1 the two inserts commit together and
+   * read the guard in one transaction, so both rows land or neither does;
+   * bun:sqlite, local only, runs them one after the other.
    */
   const insertClaimed = (
     claim: Pick<EmailLinkClaim, "accountId" | "profileId">,
@@ -569,40 +580,64 @@ export function createRegistrationModule(
     Effect.gen(function* () {
       const { db } = yield* Db;
       const ts = now();
+      const handleFree = and(
+        notExists(
+          heldHandleRow(db, heldHandleDigest, signUp.handle, Math.floor(Date.now() / 1000)),
+        ),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(organisations)
+            .where(eq(organisations.handle, signUp.handle)),
+        ),
+      );
+      const account = db.insert(accounts).select(
+        db
+          .select({
+            id: bound(claim.accountId, accounts.id),
+            email: bound(signUp.email, accounts.email),
+            passkeyUserId: bound(crypto.randomUUID(), accounts.passkeyUserId),
+            maxProfiles: bound(5, accounts.maxProfiles),
+            createdAt: bound(ts, accounts.createdAt),
+            updatedAt: bound(ts, accounts.updatedAt),
+          })
+          .from(sql`(SELECT 1)`)
+          .where(handleFree),
+      );
+      // Selected from the account row this claim names, so a profile is never
+      // written without its account.
+      const profile = db.insert(users).select(
+        db
+          .select({
+            id: bound(claim.profileId, users.id),
+            accountId: bound(claim.accountId, users.accountId),
+            handle: bound(signUp.handle, users.handle),
+            displayName: bound(signUp.displayName, users.displayName),
+            isDefault: bound(true, users.isDefault),
+            createdAt: bound(ts, users.createdAt),
+            updatedAt: bound(ts, users.updatedAt),
+          })
+          .from(accounts)
+          .where(and(eq(accounts.id, claim.accountId), handleFree)),
+      );
       return yield* Effect.tryPromise({
         try: async () => {
           try {
-            await commitBatch(db, [
-              db.insert(accounts).values({
-                id: claim.accountId,
-                email: signUp.email,
-                passkeyUserId: crypto.randomUUID(),
-                maxProfiles: 5,
-                createdAt: ts,
-                updatedAt: ts,
-              }),
-              db.insert(users).values({
-                id: claim.profileId,
-                accountId: claim.accountId,
-                handle: signUp.handle,
-                displayName: signUp.displayName,
-                isDefault: true,
-                createdAt: ts,
-                updatedAt: ts,
-              }),
-            ]);
-            return true;
+            const [, inserted] = canBatch(db)
+              ? await db.batch([account, profile])
+              : ([await account, await profile] as const);
+            if (rowsChanged(inserted) > 0) return true;
           } catch (e) {
             if (!UNIQUE_CONSTRAINT_ERROR.test(driverErrorText(e))) throw e;
-            // The claim's ids are random and fixed when it was made, so a
-            // profile under them is this request's own, from an earlier try.
-            const own = await db
-              .select({ id: users.id })
-              .from(users)
-              .where(and(eq(users.id, claim.profileId), eq(users.accountId, claim.accountId)))
-              .limit(1);
-            return own.length > 0;
           }
+          // The claim's ids are random and fixed when it was made, so a
+          // profile under them is this request's own, from an earlier try.
+          const own = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.id, claim.profileId), eq(users.accountId, claim.accountId)))
+            .limit(1);
+          return own.length > 0;
         },
         catch: (cause) => new DatabaseError({ cause }),
       });

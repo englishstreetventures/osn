@@ -105,8 +105,13 @@ const SITES: Site[] = [
   site("account.deleteAccount", AccountError, () =>
     account.deleteAccount({ confirmHandle: "alice", stepUpToken: "su" }),
   ),
-  site("account.cancelAccountDeletion", AccountError, () => account.cancelAccountDeletion()),
+  site("account.cancelAccountDeletion", AccountError, () =>
+    account.cancelAccountDeletion({ stepUpToken: "su" }),
+  ),
   site("account.getAccountDeletionStatus", AccountError, () => account.getAccountDeletionStatus()),
+  site("account.getAccountDeletionPreview", AccountError, () =>
+    account.getAccountDeletionPreview(),
+  ),
   site("register.checkHandle", RegistrationError, () => register.checkHandle("alice")),
   site("register.beginRegistration", RegistrationError, () =>
     register.beginRegistration({
@@ -458,7 +463,7 @@ const SESSION_REJECTIONS = [
 
 describe("a session rejection from authFetch", () => {
   it("P9: covers every authenticated client method", () => {
-    expect(AUTH_FETCH_SITES).toHaveLength(39);
+    expect(AUTH_FETCH_SITES).toHaveLength(40);
   });
 
   it.each(
