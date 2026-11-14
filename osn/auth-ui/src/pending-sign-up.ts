@@ -33,10 +33,10 @@ export const PENDING_KEY = "osn.signup.pending";
 export const PREVIOUS_KEY = "osn.signup.previous";
 /**
  * The live sign-up of this browser, in `localStorage` so every tab reads it:
- * the request, its retire secret, its expiry and a digest of the address.
- * Never the claim secret, a token, the address or the number. A tab that
- * begins for the same address sends it as `previous`, so the earlier request
- * ends and the new link goes at once.
+ * the request, its retire secret and its expiry. Nothing about the address,
+ * and never the claim secret, a token or the number. A tab that begins sends
+ * it as `previous`; osn-api retires the earlier request only when the new
+ * begin is for its address, so the new link goes at once.
  */
 export const LIVE_KEY = "osn.signup.live";
 
@@ -45,8 +45,6 @@ export interface LiveSignUp {
   readonly requestId: string;
   readonly retireSecret: string;
   readonly expiresAt: number;
-  /** {@link addressDigest} of the address typed, with this request's id. */
-  readonly addressDigest: string;
 }
 
 const REQUEST_ID = /^signup_[a-f0-9]{12}$/;
@@ -157,32 +155,23 @@ export function readLive(): LiveSignUp | null {
   }
   const previous = asPrevious(parsed);
   const expiresAt = parsed?.expiresAt;
-  const addressDigest = parsed?.addressDigest;
-  if (
-    !previous ||
-    typeof expiresAt !== "number" ||
-    typeof addressDigest !== "string" ||
-    !HEX_64.test(addressDigest) ||
-    expiresAt * 1000 <= Date.now()
-  ) {
+  if (!previous || typeof expiresAt !== "number" || expiresAt * 1000 <= Date.now()) {
     removeLive();
     return null;
   }
-  return { ...previous, expiresAt, addressDigest };
+  return { ...previous, expiresAt };
 }
 
 /**
  * Writes the shared entry, field by field so nothing else of the wait can
- * reach it; nothing when the retire secret or the digest is missing. With
+ * reach it; nothing when the retire secret is missing. With
  * `over: "own"` it writes only into an empty slot or over its own request, so
  * a Resend never replaces a newer sign-up another tab began. Answers whether
  * it wrote.
  */
 export function writeLive(entry: LiveSignUp, over: "any" | "own" = "any"): boolean {
   const previous = asPrevious(entry);
-  if (!previous || !HEX_64.test(entry.addressDigest) || typeof entry.expiresAt !== "number") {
-    return false;
-  }
+  if (!previous || typeof entry.expiresAt !== "number") return false;
   if (over === "own") {
     const current = readLive();
     if (current && current.requestId !== previous.requestId) return false;
@@ -194,7 +183,6 @@ export function writeLive(entry: LiveSignUp, over: "any" | "own" = "any"): boole
         requestId: previous.requestId,
         retireSecret: previous.retireSecret,
         expiresAt: entry.expiresAt,
-        addressDigest: entry.addressDigest,
       }),
     );
     return true;
@@ -213,22 +201,6 @@ export function clearLive(requestId: string): void {
     if (named === requestId) localStorage.removeItem(LIVE_KEY);
   } catch {
     // Unreadable: `readLive` removes a malformed entry on its next read.
-  }
-}
-
-/**
- * The SHA-256, hex, of the request id and the address as begin keys it
- * (trimmed, lowercased). The request id makes it this request's alone, so it
- * is not the bare hashed address other sites match on. Null where the page
- * has no Web Crypto (an insecure origin) or it fails.
- */
-export async function addressDigest(requestId: string, address: string): Promise<string | null> {
-  try {
-    const bytes = new TextEncoder().encode(`${requestId}\n${address.trim().toLowerCase()}`);
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  } catch {
-    return null;
   }
 }
 

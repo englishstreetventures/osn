@@ -394,9 +394,7 @@ describe("Register component", () => {
       expect(submit.disabled).toBe(false);
     });
     fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
-    // `vi.waitFor` moves the faked clock on while it waits, which the
-    // address digest's Web Crypto call needs to settle.
-    await vi.waitFor(() => expect(screen.getByText(/Check your email/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Check your email/)).toBeTruthy());
   }
 
   function renderRegister(extra?: { onSuccess?: () => void; onCancel?: () => void }) {
@@ -859,11 +857,6 @@ describe("Register component", () => {
       return values;
     }
 
-    async function sha256Hex(text: string): Promise<string> {
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    }
-
     /** What a new tab of the same browser starts with: no session storage, the same local storage. */
     function newTab(view: { unmount: () => void }) {
       view.unmount();
@@ -879,12 +872,11 @@ describe("Register component", () => {
           requestId: begun(n).requestId,
           retireSecret: begun(n).retireSecret,
           expiresAt,
-          addressDigest: "a".repeat(64),
         }),
       );
     }
 
-    it("holds only the request, its retire secret, its expiry and a digest of the address, after a begin and after a Resend", async () => {
+    it("holds only the request, its retire secret and its expiry, after a begin and after a Resend", async () => {
       const answer = begun();
       stub.beginRegistration.mockResolvedValue(answer);
       stub.registrationStatus.mockResolvedValue({
@@ -895,33 +887,29 @@ describe("Register component", () => {
       renderRegister();
       await submitDetailsAs();
 
-      const check = async () => {
+      const check = () => {
         const entry = live()!;
         expect(new Set(Object.keys(entry))).toEqual(
-          new Set(["addressDigest", "expiresAt", "requestId", "retireSecret"]),
+          new Set(["expiresAt", "requestId", "retireSecret"]),
         );
         expect(entry).toMatchObject({
           requestId: answer.requestId,
           retireSecret: answer.retireSecret,
           expiresAt: answer.expiresAt,
         });
-        expect(entry.addressDigest).toMatch(/^[a-f0-9]{64}$/);
-        // Not the bare hashed address other sites match on.
-        expect(entry.addressDigest).not.toBe(await sha256Hex("alice@example.com"));
         for (const value of localValues()) {
           expect(value).not.toContain(answer.claimSecret);
           expect(value).not.toContain("alice@example.com");
           expect(value).not.toContain(`"${answer.pairingCode}"`);
         }
       };
-      await vi.waitFor(() => expect(live()).not.toBeNull());
-      await check();
+      check();
 
       localStorage.removeItem(LIVE);
       await vi.advanceTimersByTimeAsync(30_000);
       fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
-      await vi.waitFor(() => expect(live()).not.toBeNull());
-      await check();
+      await waitFor(() => expect(screen.getByText(/We sent a new link/)).toBeTruthy());
+      check();
     });
 
     it("lets a new tab, or one opened after the waiting tab closed, retire the earlier request for the same address in any case", async () => {
@@ -929,7 +917,7 @@ describe("Register component", () => {
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
       const first = renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()).not.toBeNull());
+      expect(live()).not.toBeNull();
 
       newTab(first);
       await submitDetailsAs("Alice@Example.COM");
@@ -940,16 +928,19 @@ describe("Register component", () => {
       await waitFor(() => expect(live()?.requestId).toBe(begun(2).requestId));
     });
 
-    it("sends nothing from the entry when a new tab begins for another address", async () => {
+    it("is sent by a new tab whatever address it begins for, since osn-api checks the address", async () => {
       stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
       const first = renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()).not.toBeNull());
+      expect(live()).not.toBeNull();
 
       newTab(first);
       await submitDetailsAs("bob@example.com", "bob");
-      expect(stub.beginRegistration.mock.calls[1]![0].previous).toBeUndefined();
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
     });
 
     it("removes an expired or malformed entry when the view opens, and never sends it", async () => {
@@ -981,7 +972,7 @@ describe("Register component", () => {
       sessionStorage.clear();
       renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()?.requestId).toBe(begun(1).requestId));
+      expect(live()?.requestId).toBe(begun(1).requestId);
       // Another tab began since, for its own request.
       seedLive(3);
       await vi.advanceTimersByTimeAsync(2_000);
@@ -994,7 +985,7 @@ describe("Register component", () => {
       stub.registrationStatus.mockResolvedValue({ status: "expired" });
       renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()).not.toBeNull());
+      expect(live()).not.toBeNull();
       await vi.advanceTimersByTimeAsync(2_000);
       await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
       expect(localStorage.getItem(LIVE)).toBeNull();
@@ -1006,7 +997,7 @@ describe("Register component", () => {
       stub.resendRegistrationLink.mockResolvedValueOnce({ status: "expired" });
       renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()).not.toBeNull());
+      expect(live()).not.toBeNull();
       await vi.advanceTimersByTimeAsync(30_000);
       fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
       await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
@@ -1019,14 +1010,12 @@ describe("Register component", () => {
       stub.resendRegistrationLink.mockResolvedValue({ status: "sent" });
       renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()?.requestId).toBe(begun(1).requestId));
+      expect(live()?.requestId).toBe(begun(1).requestId);
       // Another tab began since, for its own request.
       seedLive(3);
       await vi.advanceTimersByTimeAsync(30_000);
       fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
       await waitFor(() => expect(screen.getByText(/We sent a new link/)).toBeTruthy());
-      // The share waits on the address digest, which settles as the clock moves.
-      await vi.advanceTimersByTimeAsync(1_000);
       expect(live()?.requestId).toBe(begun(3).requestId);
     });
 
@@ -1061,7 +1050,7 @@ describe("Register component", () => {
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
       renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()).not.toBeNull());
+      expect(live()).not.toBeNull();
       fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       expect(live()?.requestId).toBe(begun().requestId);
@@ -1085,7 +1074,7 @@ describe("Register component", () => {
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
       renderRegister();
       await submitDetailsAs();
-      await vi.waitFor(() => expect(live()).not.toBeNull());
+      expect(live()).not.toBeNull();
       await vi.advanceTimersByTimeAsync(590_000);
       expect(live()).not.toBeNull();
       await vi.advanceTimersByTimeAsync(15_000);

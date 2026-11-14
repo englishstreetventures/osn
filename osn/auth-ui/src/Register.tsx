@@ -22,7 +22,6 @@ import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
 import { describedBy } from "./error-lines";
 import { describePasskeyError } from "./passkey-errors";
 import {
-  addressDigest,
   clearLive,
   forgetPrevious,
   keepPrevious,
@@ -372,12 +371,12 @@ export function Register(props: RegisterProps) {
   // The entry the browser's other tabs read
   //
   // While this tab's request lives, the browser keeps its request id, retire
-  // secret, expiry and a digest of the address in `localStorage`
-  // (`osn.signup.live`), so a tab that begins again for the same address
-  // retires it and its own link goes at once. The retire secret can only end
-  // the request; the claim secret never leaves this tab's `sessionStorage`.
-  // Every removal names the request it is for, so this tab never removes an
-  // entry another tab wrote since.
+  // secret and expiry in `localStorage` (`osn.signup.live`), and nothing about
+  // the address. A tab that begins sends it as `previous`, and osn-api retires
+  // the request when that begin is for its address, so the new link goes at
+  // once. The retire secret can only end the request; the claim secret never
+  // leaves this tab's `sessionStorage`. Every removal names the request it is
+  // for, so this tab never removes an entry another tab wrote since.
   // ---------------------------------------------------------------------------
 
   let liveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -391,21 +390,13 @@ export function Register(props: RegisterProps) {
 
   /**
    * Shares `request` with the browser's other tabs, `over` as `writeLive`
-   * takes it, while this view still waits on it, and removes it when it
-   * expires while this view is open.
+   * takes it, and removes it when it expires while this view is open.
    */
-  async function shareLive(request: Waiting, over: "any" | "own") {
+  function shareLive(request: Waiting, over: "any" | "own") {
     const retireSecret = request.retireSecret;
     if (!retireSecret) return;
-    const digest = await addressDigest(request.requestId, request.email);
-    if (!digest || waiting()?.requestId !== request.requestId) return;
     const written = writeLive(
-      {
-        requestId: request.requestId,
-        retireSecret,
-        expiresAt: request.expiresAt,
-        addressDigest: digest,
-      },
+      { requestId: request.requestId, retireSecret, expiresAt: request.expiresAt },
       over,
     );
     if (!written || disposed) return;
@@ -471,13 +462,12 @@ export function Register(props: RegisterProps) {
     setSending(true);
     setDetailsError(null);
     const typed = email();
-    // The browser's live sign-up, when it is for the address typed here
-    // (another tab's, or this one's): retiring it lets this begin's link go
-    // at once. Otherwise the request this tab left, whatever its address.
+    // The browser's live sign-up (another tab's, or this one's), else the
+    // request this tab left. osn-api retires it only when it is for the
+    // address typed here, so this begin's link goes at once; for another
+    // address it is left alone.
     const live = readLive();
-    const sameAddress =
-      live !== null && (await addressDigest(live.requestId, typed)) === live.addressDigest;
-    const previous = sameAddress
+    const previous = live
       ? { requestId: live.requestId, retireSecret: live.retireSecret }
       : storedPrevious();
     try {
@@ -503,11 +493,8 @@ export function Register(props: RegisterProps) {
         // A nonce is good for one begin, refused or not.
         if (input.emailVerificationToken) void loadVerificationNonce();
       }
-      // The request `previous` named is retired, or was never there to retire.
-      if (previous) {
-        forgetPrevious(previous.requestId);
-        clearLive(previous.requestId);
-      }
+      // Sent once: osn-api retired it, or it is for another address.
+      if (previous) forgetPrevious(previous.requestId);
       // A browser token that verified has confirmed the address already: the
       // first poll makes the account, and the person goes straight to the
       // passkey step without a "check your email" screen. Any other answer
@@ -530,7 +517,7 @@ export function Register(props: RegisterProps) {
         handle: handle(),
       };
       waitOn(request, begun.pairingCode);
-      void shareLive(request, "any");
+      shareLive(request, "any");
     } catch (err) {
       // A refusal may be of `previous` itself, as an osn-api of another
       // version reads it, so it is dropped and the next try goes without it.
@@ -597,7 +584,7 @@ export function Register(props: RegisterProps) {
     if (answer.status === "sent") {
       startPolling();
       // Back into the shared entry if it has gone, never over another tab's.
-      void shareLive(request, "own");
+      shareLive(request, "own");
       return;
     }
     if (answer.status === "limit") {
