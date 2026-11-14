@@ -1,6 +1,6 @@
 ---
 title: Agent tooling
-description: How this repository configures coding agents — where sessions start, code search with LSP and git grep, skills and their evals, third-party skills, subagent definitions, committed settings, the guard hook, the mods in .claude/mods, and the vendored trees agents must not edit
+description: How this repository configures coding agents — where sessions start, code search with LSP and git grep, polling GitHub within its API quota, skills and their evals, third-party skills, subagent definitions, committed settings, the guard hook, the mods in .claude/mods, and the vendored trees agents must not edit
 tags: [convention, agents, tooling]
 related:
   - "[[house-lint-rules]]"
@@ -8,7 +8,7 @@ related:
   - "[[contributing]]"
   - "[[wiki-search]]"
   - "[[review-findings]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Agent tooling
@@ -143,6 +143,17 @@ So a plausible `LSP` list can still be half the answer. Two rules follow:
 `LSP` needs the worktree's `node_modules`: in a fresh worktree, run `bun install --frozen-lockfile` before trusting any answer. That also means an `LSP` call runs code from the branch: the server is the worktree's installed `typescript`, and a `tsconfig` can name a package under `contentMappers`, which `tsc --runExternalCode` runs and the language server may. On a branch nobody has read yet, read what it would run (`review-pr` Step 2) before any agent calls `LSP` there. Its streamed diagnostics stay untrusted either way (`.claude/skills/orchestrate/references/gotchas.md`).
 
 The tool comes from the `ts-lsp@osn-local` plugin in `tools/claude-ts-lsp`, which starts the worktree's own `node_modules/.bin/tsc --lsp --stdio`, TypeScript 7's built-in language server. The `setup-osn` skill installs it at user scope. `.claude/settings.json` does not enable the plugin: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions and CI agents have no `LSP` at all — cloud sessions ignore project plugins and never start plugin language servers — so there grep is the only tool. Every agent except `shepherd` lists `LSP` in its `tools:`.
+
+## Polling GitHub
+
+Every `gh` call and every agent in a session spends one GitHub API quota: 5,000 requests an hour for the signed-in user, shared by every tool and every subagent. Once it is spent, each call answers `HTTP 403: API rate limit exceeded` until the hour's reset, and a watcher that reads a run's state in that window reports nothing.
+
+- **Watch a run with `gh run watch <id> --interval 60`.** The default interval is 3 seconds, so each watcher spends at least 1,200 requests an hour, and a few at once spend the quota.
+- **Poll a loop of your own no faster than once a minute.** Wait for a stated condition, such as a run's `conclusion` or a pull request's checks all concluded, rather than a fixed delay.
+- **Treat an empty `conclusion` as "still running".** A check that has not finished reports an empty `conclusion`, not the word `pending`, so a test for the word never matches.
+- **Read the quota before more calls:** `gh api rate_limit --jq .resources.core`. It prints `remaining` and `reset`, a Unix time.
+
+*Measured 2026-11-12 — 5,000 of 5,000 requests used by one session's watchers and its subagents; `gh api rate_limit --jq .resources.core` then printed `remaining: 0`, and every `gh run view` answered 403 until the reset about three minutes later.*
 
 ## Skills and their evals
 

@@ -1,4 +1,4 @@
-import type { Suggestion } from "@osn/client";
+import { type Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -10,6 +10,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SignedOutNote } from "../components/SignedOutNote";
+import { describeActionError } from "../lib/action-error";
 import { graphClient, recommendationClient } from "../lib/api";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
@@ -48,7 +49,7 @@ export function DiscoverPage() {
       toast.success(`Request sent to @${handle}`);
       refetch();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send request");
+      toast.error(describeActionError(err, "Failed to send request"));
     } finally {
       setSending((s) => {
         const next = new Set(s);

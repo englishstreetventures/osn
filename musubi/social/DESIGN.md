@@ -366,6 +366,16 @@ holds at 3:1. A focus mark appears at once, never animated.
   `focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden`;
   the profile choice on `/authorize`'s account screen does
   (`AuthorizePage.tsx`, in the contract's `ring-ui-focus`, the same colour).
+- **Where focus goes when a dialog opens.** To its first control, Kobalte's
+  default, which a footer's Cancel never is unless the dialog has nothing
+  before it ("Generate a new set?", the remove-friend dialog): the profile
+  switcher opens on its first row, a form dialog on its first field. The
+  step-up sheet puts it on "Use passkey" itself (`onOpenAutoFocus`), since its
+  other factors come first in the page. The sign-in and create-account dialogs open
+  with focus on the dialog itself (`AuthDialogs`, `onOpenAutoFocus`): their
+  first control is a text field, which would raise a phone's keyboard over
+  the sheet, or the "i" beside Email. A screen reader hears the dialog's
+  name, and Tab reaches the first field.
 - **Where focus goes when a dialog closes.** Back to the element that had it
   when the dialog opened, if it is still in the page: `ResponsiveDialogContent`
   does this for every app dialog. No app dialog has a `Dialog.Trigger`, so
@@ -384,7 +394,8 @@ holds at 3:1. A focus mark appears at once, never animated.
 ## Motion
 
 The app adds colour and opacity transitions only, and no spatial motion of its
-own, with one exception: the orb a busy button draws (§The orb). Rows, tabs and controls fade their colours with `transition-ui-colors`
+own, with two exceptions, both `@shared/ui`'s `Button`'s: the orb a busy button
+draws (§The orb), and the press (below). Rows, tabs and controls fade their colours with `transition-ui-colors`
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
@@ -399,14 +410,15 @@ by spatial motion.
 On the emailed-link page (`/verify/:requestId`) the loaded shape is the whole
 card, so the placeholder is one `Skeleton` standing for a card
 (`ResponsiveSkeleton`), at the ready card's height with five numbers on a
-360–430px phone and on desktop: 552px below `md` and 520px from it (138 and 130
-spacing steps). The product name above it stays put when the card arrives.
+360–430px phone and on desktop: 590px below `md` and 560px from it (147.5 and
+140 spacing steps). The product name above it stays put when the card arrives.
 Meanwhile the page's live region says "Checking this link…".
 
-*Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
-Chromium (Vitest browser tier, `ConfirmLinkPage` with five numbers, Musubi's
-`App.css`): 568.9px at 320px wide; 550.7px at 360, 375, 390, 414 and 430px;
-532.5px at 600px; 520.5px at 768 and 1280px. At 320×640 the column is taller
+*Measured 2026-11-14 — the ready card's `getBoundingClientRect().height` in
+Chromium (Vitest browser tier, `VerifyEmailLinkPage` on `/verify/:requestId`
+with five two-digit numbers, Musubi's `App.css`): 608.5px at 320px wide;
+590.3px at 360, 375, 390, 414 and 430px; 572.1px at 600 and 767px; 560.1px at
+768 and 1280px. At 320×640 the column is taller
 than the screen either way, so the name does not move;
 `tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
 390×844 and 1280×800.*
@@ -428,12 +440,27 @@ account menu, the profile switcher and the create-organisation dialog, and
 the half-way frame of the menu and the switcher closing, and finds no
 transform on any.
 
+**A button presses.** While a pointer or a held Space presses one of
+`@shared/ui`'s `Button`s, it scales to 0.97 over `--ui-dur-fast` (120ms) on
+`--ui-ease-out`, and eases back the same way when let go: the owner's decision
+on #2034 (2026-11-14), for every app that draws `Button`. It is the button's
+own, so a call site adds no class for it, and sets no `transition-*`,
+`duration-*` or `ease-*` on a `Button`, which would replace the press's
+timing. It sets `scale`, so a call site's `transform` stays. No press while a
+button is disabled, busy or `aria-disabled`, nor at `size="inline"`, a link
+inside a sentence (§Links), and under reduced motion no scale at all. The
+overlay scale tokens do not reach it: `App.css` maps both to 1 and buttons
+still press. The press is `Button`'s alone: the app's own rows, tabs and rail
+links do not scale. `wiki/shared/component-library.md` §Press has the rest,
+and `shared/ui/tests/button-press.browser.test.tsx` holds it.
+
 ## The orb
 
 A busy button (§Busy buttons) draws `@shared/ui`'s `Orb` before its label: a
 20px sphere of dots, state `working`, in the button's own text colour, so it
 reads on a filled button and on the page alike. It is the app's one canvas
-animation and its one motion that is not a colour or opacity change.
+animation, and with the press (§Motion) one of its two motions that are not a
+colour or opacity change.
 
 - **It stops.** It moves for five seconds at most, then holds one still frame,
   so it needs no pause control (WCAG 2.2.2). Under reduced motion it draws that
@@ -533,17 +560,38 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   profile switcher takes. The component takes no `class`, `classList` or
   `style`: the sheet's rules sit behind `base:`, so a call-site `max-w-*` would
   cap the sheet too and pin a narrow sheet to a phone's left edge. A dialog's
-  padding and layout go on the children it wraps. Every dialog has a name: a
-  `DialogTitle` in a `DialogHeader`, or, where the view inside draws its own
-  heading (`@osn/auth-ui`'s `SignIn` and `Register`), an `aria-label` on
-  `ResponsiveDialogContent`.
-- **A form dialog** (create and edit organisation) = `DialogHeader` ›
-  `DialogTitle`, then the `<form>`: its fields in a body `div` padded 16px
-  (`flex flex-col gap-4 p-4`), its actions in `DialogFooter` (16px padding, a
-  hairline above, right-aligned; Cancel `secondary`, then the commit). The
-  footer sits inside the form, so Enter in a field submits. A confirmation
-  dialog has the same shape with its words in the body (`ConnectionsPage`'s
-  remove dialog).
+  padding and layout go on the children it wraps. Every dialog has a name: its
+  title, a `DialogTitle`, drawn by `@osn/auth-ui`'s `AuthHeader` in the app's
+  dialogs and the auth views' alike; `ResponsiveDialogContent` takes no
+  `aria-label`.
+- **Every dialog has one shape**, the app's and `@osn/auth-ui`'s alike ([the
+  owner's
+  call](https://github.com/englishstreetventures/osn/issues/2045#issuecomment-6843934504),
+  2026-11-13: "cancel in footer", "consistent across the board"): a header
+  holding the title alone, centred, its lines centred as it wraps and
+  breaking anywhere, over a hairline (`AuthHeader` with `host="dialog"`, from
+  `@osn/auth-ui`); the body, padded 16px; then `DialogActions`, also from
+  `@osn/auth-ui`: a `DialogFooter` (16px padding, a hairline above,
+  right-aligned, `gap-2`, wrapping rather than scrolling sideways) holding
+  Cancel (`secondary`) first, then the commit, both `size="sm"` and 40px tall
+  below `md` (`max-md:h-10`): 32px from `md`. One part draws each, so the
+  app's dialogs and the auth views' cannot drift apart. No dialog puts a button in its header. At `sm` every footer pair the
+  app and the auth views draw fits a 320px sheet's 288px on one line
+  (`osn/auth-ui/DESIGN.md` §4 has the measure). A dialog that commits nothing
+  of its own has Cancel alone: the profile switcher, whose rows are the
+  choice, puts it after them. Below `md` a tall sheet scrolls, footer
+  included; the scrim above the sheet and Escape stay as ways out.
+  `tools/e2e` holds the shape (`musubi-surfaces.ts`): `dialogTitle` and
+  `formDialog` read the create and edit organisation dialogs' centred title
+  and footer order, `signInLinkSurfaces` the sign-in dialog's,
+  `removalSheetSurfaces` the step-up sheet's, and the switcher check its
+  centred title, Cancel alone, focus on its row and Tab to Cancel.
+- **A form dialog** (create and edit organisation) = `AuthHeader`, then the
+  `<form>`: its fields in a body `div` padded 16px (`flex flex-col gap-4
+  p-4`), its actions in `DialogActions`. The footer sits inside the form, so
+  Enter in a field submits. A confirmation dialog has the same shape with its
+  words in the body (`ConnectionsPage`'s remove dialog, whose commit is
+  `destructive`).
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
@@ -699,8 +747,12 @@ apart by its underline or by standing alone at 500.
   the address.
 - **A link standing alone** is `variant="link" size="sm"`: 13px at 500 in a
   32px box with 12px sides, underlined only under the pointer. It sits centred
-  under the action it follows (`self-center`), so no column edge sits 12px off
-  its words. Uses: `@osn/auth-ui`'s "Lost your passkey?" under Continue.
+  (`self-center`), so no column edge sits 12px off its words: under the
+  action it follows on a page, and at the foot of a dialog's body, above the
+  footer, 40px tall below `md`, since a dialog's action is its footer's. Uses:
+  `@osn/auth-ui`'s "Lost your passkey?", under the field in the sign-in
+  dialog and under Continue on `/authorize`; its recovery steps' "Back";
+  the step-up sheet's "Use another method".
 - **The action that ends an error line is neither.** It keeps the line's ink
   and is underlined at rest: `@osn/auth-ui`'s `InlineAction`, and "Try again"
   in `ShellNotices` and `PageErrorBoundary`. `link` would paint it the accent
@@ -718,8 +770,10 @@ orb (§The orb).
 - **Only the button that started the wait.** Every other action in the same
   form or dialog is `disabled` while it runs, its Cancel, Back and links among
   them, so nothing leaves it mid-call: the organisation dialogs' Cancel while
-  Create or Save runs, and `@osn/auth-ui`'s sign-up Cancel while its link is
-  sent or resent. A row's action leaves the other rows alone.
+  Create or Save runs, `@osn/auth-ui`'s sign-up Cancel while its link is
+  sent or resent, and the profile switcher's Cancel while a switch runs,
+  where Escape and a press outside are refused too, as on the step-up sheet.
+  A row's action leaves the other rows alone.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -777,10 +831,11 @@ contract block in `App.css` maps onto this file's scale (§Token contract): a
 panel heading is `text-title` at 500, body lines `text-body` in the secondary
 ink, meta lines `text-meta`, names in a row 14px at 500. Their form fields,
 links and busy buttons follow this file too: §Form fields, §Links and §Busy
-buttons. A view's title in a dialog is the dialog's `DialogTitle`, so the
-sign-in and create-account dialogs are named "Sign in to Musubi" and
+buttons. A view's title in a dialog is the dialog's `DialogTitle`, centred, so
+the sign-in and create-account dialogs are named "Sign in to Musubi" and
 "Create your Musubi account" by the view; `ResponsiveDialogContent` takes no
-`aria-label` there.
+`aria-label` there. Their Cancel is the footer's, as every dialog's is
+(§Responsive layout, Dialogs).
 
 Every control the views draw by hand takes Button's focus ring, not the base
 outline (§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
@@ -812,6 +867,14 @@ logs out in one tab sees the notice in every other open tab, which is true.
 
 The notice's Sign in opens the shell's sign-in dialog through
 `useShellDialogs()`, as the shells' own buttons do (§Responsive layout).
+
+A profile switch, a connection request, accept, reject, cancel, remove or
+unblock, and an organisation create that fails because the session ended also
+raises an error toast with the copy map's sentence, "Your session has ended.
+Sign in again." (`describeAuthError`), alone with no lead. Any other failure of
+those actions toasts the error's own message when it has one, else the action's
+fixed sentence ("Failed to switch profile"): `describeActionError` in
+`lib/action-error.ts`.
 
 **What Musubi supplies:**
 

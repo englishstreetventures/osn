@@ -203,7 +203,12 @@ describe("the emailed-link page's own states, on musubi's /verify route", () => 
     await open(SIGN_UP);
     const cut = cardOf(DEAD);
     expect(look(cut)).toEqual(unknownLook);
-    expect(cut.textContent).toBe(unknown.textContent);
+    // The same card, but a link that names no flow states no lockout rule:
+    // each flow's differs. A sign-up link's states sign-up's.
+    expect(unknown.textContent).not.toContain("wrong number");
+    expect(cut.textContent).toBe(
+      `${unknown.textContent}A wrong number ends a link too. After 3 wrong numbers in a day, links to this address stop for up to a day.`,
+    );
     expect(link.candidates).not.toHaveBeenCalled();
   });
 

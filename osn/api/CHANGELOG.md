@@ -1,5 +1,21 @@
 # @osn/osn
 
+## 3.38.3
+
+### Patch Changes
+
+- 8404646: Every route that sets a new session cookie (passkey sign-in, recovery-code sign-in, the sign-up, email-recovery and cross-device polls, TOTP recovery, and dev sign-in) now ends the family of the session cookie the request carried, once the new session exists. A `/token` grant sent with the old cookie that answers after the sign-in can then never leave a live old session in the browser: its rotated cookie names no session, and the next renewal with it is refused. A sign-in with no cookie, or one that is refused or not finished, ends nothing; a failure to end the old family is logged and the sign-in still answers with its cookie.
+
+  Reuse of a rotated-out session token is counted once even when two requests (a renewal, a logout or a sign-in) replay it at the same moment: the request whose delete removes the family's rotation records counts it.
+
+## 3.38.2
+
+### Patch Changes
+
+- 19e9fdf: Every route that spends a step-up token now answers `409 { error: "session_stale" }` before it reads the token unless the caller holds a live session (its session cookie, or its access token's `osn_sid` binding, names an unrestricted, unexpired session of the account): `DELETE /account`, `GET /account/export`, `POST /account/security-events/:id/ack` and `/ack-all`, `DELETE /totp`, `PATCH /passkeys/:id` and `DELETE /passkeys/:id`. So do `POST /account/restore`, `DELETE /sessions/:id`, `POST /sessions/revoke-all-other` and `DELETE /oidc/connections/:clientId`, before anything is revoked or withdrawn; `POST /sessions/revoke-all-other` serves a caller whose access token's `osn_sid` names a live session even with no session cookie, and passkey registration's begin refuses a restricted recovery caller whose session names no row before it reads a step-up token.
+
+  The session the check finds is the one sign-out-everywhere and a passkey deletion spare, and the one an account deletion keeps as its cancel handle, by the family the check found, so a renewal in another tab before the sweep keeps the device that can cancel. Of two concurrent deletes of an account's two passkeys, the one that finds its passkey the last is refused and records nothing. The check lives in `lib/live-session.ts`; `createAccountExportRoutes` takes the cookie configuration as its second, required argument; `deletePasskey` takes the caller's session hash as a string; `requestErasure` takes `cancel: { sessionId, familyId } | null`; `resolveLiveOrdinarySession` answers the session's hash and family.
+
 ## 3.38.1
 
 ### Patch Changes

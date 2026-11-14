@@ -875,9 +875,11 @@ describe("logout of a rotated-out token", () => {
     vi.restoreAllMocks();
   });
 
-  /** One device signed in, refreshed once; the database beside it. */
+  /** One device signed in, refreshed once; the database beside it, whose statements a test can hold. */
   const refreshedOnce = (handle: string) => {
-    const { layer, sqlite } = createTestLayerWithSqlite();
+    const { db: plain, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(plain);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
     const setUp = Effect.gen(function* () {
       const profile = yield* auth.registerProfile(`${handle}@example.com`, handle);
       const old = (yield* auth.issueTokens(
@@ -906,7 +908,7 @@ describe("logout of a rotated-out token", () => {
           .query("SELECT COUNT(*) AS n FROM rotated_sessions WHERE account_id = ?")
           .get(accountId) as { n: number }
       ).n;
-    return { layer, sqlite, setUp, ageRecords, records };
+    return { layer, sqlite, setUp, ageRecords, records, hold: queries.hold };
   };
 
   const capture = () => {
@@ -954,6 +956,118 @@ describe("logout of a rotated-out token", () => {
       }
     }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
   });
+
+  it.effect("sent with a sign-in, counts reuse once and says the sign-in found it", () => {
+    const db = refreshedOnce("si_reuse");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+    return Effect.gen(function* () {
+      const { profile, old, current, familyId } = yield* db.setUp;
+      db.ageRecords();
+      log.lines.length = 0;
+
+      yield* auth.endReplacedSession(old);
+
+      expect(reuse).toHaveBeenCalledTimes(1);
+      expect(revoked).toHaveBeenCalledTimes(1);
+      expect(log.reuseLines("WARN").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at sign-in — family revoked",
+      ]);
+      expect(yield* dead(current)).toBe(true);
+      expect(db.records(profile.accountId)).toBe(0);
+      const written = JSON.stringify(log.lines);
+      for (const secret of [profile.accountId, auth.hashSessionToken(old), familyId]) {
+        expect(written).not.toContain(secret);
+      }
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
+
+  it.live("replayed by two requests at once, counts reuse once", () => {
+    // The second request reads the record before the first deletes it. The
+    // count goes with the delete that removes the family's records.
+    const db = refreshedOnce("si_race");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+    return Effect.gen(function* () {
+      const { old, current } = yield* db.setUp;
+      db.ageRecords();
+
+      const records = db.hold(/^delete from "rotated_sessions"/);
+      const first = yield* Effect.forkChild(auth.endReplacedSession(old));
+      yield* Effect.promise(() => records.reached);
+      yield* auth.invalidateSession(old);
+      records.release();
+      yield* Fiber.join(first);
+
+      expect(reuse).toHaveBeenCalledTimes(1);
+      expect(revoked).toHaveBeenCalledTimes(1);
+      expect(yield* dead(current)).toBe(true);
+      // One line from each: the sign-in removed the sessions, the logout the
+      // records.
+      expect(log.reuseLines("WARN").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at sign-in — family revoked",
+      ]);
+      expect(log.reuseLines("INFO").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at logout — no session of the family was left",
+      ]);
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
+
+  it.live(
+    "replayed at sign-in while a renewal's reuse revoke is in flight, counts reuse once",
+    () => {
+      const db = refreshedOnce("si_grant_race");
+      const log = capture();
+      const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+      const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+      return Effect.gen(function* () {
+        const { old, current } = yield* db.setUp;
+        db.ageRecords();
+
+        const records = db.hold(/^delete from "rotated_sessions"/);
+        const grant = yield* Effect.forkChild(Effect.result(auth.refreshTokens(old)));
+        yield* Effect.promise(() => records.reached);
+        yield* auth.endReplacedSession(old);
+        records.release();
+
+        expect((yield* Fiber.join(grant))._tag).toBe("Failure");
+        expect(reuse).toHaveBeenCalledTimes(1);
+        expect(revoked).toHaveBeenCalledTimes(1);
+        expect(yield* dead(current)).toBe(true);
+      }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+    },
+  );
+
+  it.effect(
+    "whose records cannot be removed still ends the family, and says so in its own line",
+    () => {
+      const db = refreshedOnce("si_records_kept");
+      const log = capture();
+      const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+      return Effect.gen(function* () {
+        const { profile, old, current, familyId } = yield* db.setUp;
+        db.ageRecords();
+        db.sqlite.run(
+          "CREATE TRIGGER keep_records BEFORE DELETE ON rotated_sessions BEGIN SELECT RAISE(ABORT, 'kept'); END",
+        );
+        log.lines.length = 0;
+
+        yield* auth.endReplacedSession(old);
+
+        expect(yield* dead(current)).toBe(true);
+        expect(reuse).not.toHaveBeenCalled();
+        expect(
+          log.lines.filter((line) => line.level === "ERROR").map((line) => String(line.message)),
+        ).toEqual(["Session token reuse: the family's rotation records could not be removed"]);
+        const written = JSON.stringify(log.lines);
+        for (const secret of [profile.accountId, auth.hashSessionToken(old), familyId]) {
+          expect(written).not.toContain(secret);
+        }
+      }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+    },
+  );
 
   it.effect("counts once: a second logout with the same token finds nothing", () => {
     const db = refreshedOnce("lo_twice");

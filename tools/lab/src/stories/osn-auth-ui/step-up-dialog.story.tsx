@@ -229,8 +229,9 @@ function state(
 export const Factors = state(
   "the factors",
   <>
-    What opens on "Add passkey": every factor the account has, the passkey first. Press{" "}
-    <Mono>Use passkey</Mono> and it closes with a token; the other two go to their steps.
+    What opens on "Add passkey": every factor the account has, the passkey the footer's action
+    beside Cancel and the other two above. Press <Mono>Use passkey</Mono> and it closes with a
+    token; the other two go to their steps.
   </>,
   {
     client: client(),
@@ -243,15 +244,15 @@ export const Factors = state(
 export const WithReason = state(
   "with a reason",
   <>
-    The host's <Mono>reason</Mono> under the title, as Recovery codes passes it. It is the sheet's
-    description, read as it opens.
+    The host's <Mono>reason</Mono>, the one line under the title, as Recovery codes passes it. It is
+    the sheet's description, read as it opens.
   </>,
   {
     client: client(),
     runPasskeyCeremony: heldCeremony,
     totpClient: authenticator,
     purpose: "recovery_generate",
-    reason: "to generate recovery codes",
+    reason: "To generate recovery codes, confirm it's you.",
   },
 );
 

@@ -78,15 +78,18 @@ export const WaitingBeforeResend = state(
 export const WaitingResendReady = state(
   "waiting, Resend ready",
   <>
-    The wait is over (<Mono>resendWaitSeconds={"{0}"}</Mono> here). Press Resend: it turns busy,
-    "Sending…" with the orb, keeping focus, while "Start again" is disabled; the sentence reads
-    "Sending a new link…", then "We sent a new link". With no wait set, Resend is ready again at
-    once and keeps focus.
+    The wait is over (<Mono>resendWaitSeconds={"{0}"}</Mono> here), so the line above Resend says to
+    look in the junk or spam folder for an email about the product (<Mono>productName</Mono>
+    "Musubi"); sign-up and recovery show it once the first wait ends, and it stays. Press Resend: it
+    turns busy, "Sending…" with the orb, keeping focus, while "Start again" is disabled; the
+    sentence reads "Sending a new link…", then "We sent a new link". With no wait set, Resend is
+    ready again at once and keeps focus.
   </>,
   () => (
     <CheckEmailView
       email={EMAIL}
       purpose="sign-up"
+      productName="Musubi"
       status="waiting"
       resendWaitSeconds={0}
       onResend={stubResend}

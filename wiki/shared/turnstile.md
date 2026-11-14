@@ -17,7 +17,7 @@ packages:
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-14
 ---
 # Turnstile bot protection
 
@@ -107,7 +107,7 @@ domains cover `invite.cireweddings.com` (guest), `host.cireweddings.com`
 > organiser widget fires `error-callback` (Cloudflare error `110200`), never
 > calls back with a token, and the gated form's submit stays disabled — the
 > `@osn/auth-ui` widget surfaces this as "Couldn't load the verification challenge",
-> not a silent hang. The list is a **dashboard step** — the wrangler API token
+> not a silent hang (§Client widget: a challenge that cannot load). The list is a **dashboard step** — the wrangler API token
 > has no `challenge-widgets.write` scope, so it cannot be edited from CI.
 >
 > Only hostnames that **render a form** belong here. `musubi.social` does
@@ -137,6 +137,22 @@ user bounced back to the login screen. Any new client form that gates a backend
 call on a Turnstile token MUST reset the widget after the call. The silent
 conditional-UI (autofill) passkey ceremony is exempt — it carries no token and
 osn-api does not gate it (#163 Bug C).
+
+## Client widget: a challenge that cannot load
+
+A content blocker, an extension or a network that filters
+`challenges.cloudflare.com` stops the script or the challenge, and with no
+token the gated form cannot be sent. `TurnstileWidget` then shows a danger line
+(`LoadFailed`) that names those causes and what to do about them, adds the
+host's way on that needs no challenge where there is one (`SignIn`'s recovery
+code; none on `Register`), and ends with Try again. Try again removes the
+widget, loads `api.js` afresh if the script failed — a failed load's `<script>`
+is removed, so the next attempt appends a new one — and renders the challenge
+again. A load that has not produced `window.turnstile` 15 seconds after it
+started counts as failed, so a network that drops the request rather than
+refusing it still gets the line. The server check is unchanged. The copy is in
+[osn/auth-ui/DESIGN.md](../../osn/auth-ui/DESIGN.md) §6 and the code in
+[TurnstileWidget.tsx](../../osn/auth-ui/src/TurnstileWidget.tsx).
 
 ## Activation (the rollout order matters)
 

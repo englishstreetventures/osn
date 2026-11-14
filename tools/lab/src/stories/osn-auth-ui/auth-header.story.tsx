@@ -1,4 +1,4 @@
-import { AuthHeader, type AuthHeaderProps } from "@osn/auth-ui/AuthHeader";
+import { AuthHeader, type AuthHeaderProps, type PageHostHeader } from "@osn/auth-ui/AuthHeader";
 import { Button } from "@shared/ui/ui/button";
 import { Dialog, DialogContent } from "@shared/ui/ui/dialog";
 import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
@@ -7,12 +7,14 @@ import type { Story } from "../../lab/types.ts";
 import { Gallery, Mono } from "../design-system/chrome.tsx";
 
 /**
- * The title row of the sign-in and create-account views, in both hosts it
- * has. A dialog story opens the real sheet, `@shared/ui`'s `Dialog`, which
- * portals to `<body>` and covers the lab: press Cancel or Escape to close it,
- * and the story's button to open it again. Below 768px it is a bottom sheet;
- * narrow the window, or open `Phone`. A page story draws the header in the
- * column `/authorize` gives it, under a stand-in for the app's name.
+ * The title row of the sign-in and create-account views, and of every dialog
+ * `@osn/auth-ui` draws, in both hosts it has. A dialog story opens the real
+ * sheet, `@shared/ui`'s `Dialog`, which portals to `<body>` and covers the
+ * lab: press Escape to close it, and the story's button to open it again. In
+ * a dialog the header holds the title alone, centred; the dialog's Cancel is
+ * its footer's, which the views' own stories draw. Below 768px it is a bottom
+ * sheet; narrow the window, or open `Phone`. A page story draws the header in
+ * the column `/authorize` gives it, under a stand-in for the app's name.
  *
  * The colours and type steps are musubi's, the lab's own mapping, so the
  * **light · dark** toggle is the theme check. No view is mounted: the sheet's
@@ -20,18 +22,21 @@ import { Gallery, Mono } from "../design-system/chrome.tsx";
  */
 export const meta = { title: "osn/auth-ui/AuthHeader", layout: "padded" as const };
 
-/** A story's header: `cancel` gives it a Cancel, which closes the sheet in a dialog and does nothing on a page. */
-type HeaderProps = Omit<AuthHeaderProps, "host" | "onCancel"> & { cancel?: boolean };
+/**
+ * A page story's header: `cancel` gives it a Cancel, which does nothing here.
+ * A dialog's header takes the title alone.
+ */
+type PageProps = Omit<PageHostHeader, "host" | "onCancel"> & { cancel?: boolean };
 
-/** `props` as `AuthHeader` takes them in `host`, with `onCancel` for a Cancel. */
-function Header(props: HeaderProps & { host: AuthHeaderProps["host"]; onCancel: () => void }) {
+/** `props` as `AuthHeader` takes them on a page, with a Cancel that does nothing. */
+function PageHeader(props: PageProps) {
   return (
     <AuthHeader
-      host={props.host}
+      host="page"
       title={props.title}
       cancelLabel={props.cancelLabel}
       cancelDisabled={props.cancelDisabled}
-      onCancel={props.cancel ? props.onCancel : undefined}
+      onCancel={props.cancel ? () => {} : undefined}
     />
   );
 }
@@ -76,9 +81,9 @@ function DialogName() {
 
 /**
  * The opener, and the sheet open over it, sized as musubi's auth dialogs are:
- * a bottom sheet below `md`, a 384px card from it. Cancel and Escape close it.
+ * a bottom sheet below `md`, a 384px card from it. Escape closes it.
  */
-function DialogBench(props: { header: (close: () => void) => JSX.Element; body?: JSX.Element }) {
+function DialogBench(props: { title: string; body?: JSX.Element }) {
   const [open, setOpen] = createSignal(true);
   return (
     <>
@@ -87,7 +92,7 @@ function DialogBench(props: { header: (close: () => void) => JSX.Element; body?:
       </Button>
       <Dialog open={open()} onOpenChange={setOpen}>
         <DialogContent presentation="sheet" class="md:max-w-sm">
-          {props.header(() => setOpen(false))}
+          <AuthHeader host="dialog" title={props.title} />
           <div class="flex flex-col gap-4 p-4">
             {props.body}
             <DialogName />
@@ -118,22 +123,22 @@ function PageColumn(props: { children: JSX.Element }) {
   );
 }
 
-function inDialog(title: string, intro: JSX.Element, props: HeaderProps): Story {
+function inDialog(title: string, intro: JSX.Element, header: string): Story {
   return {
     render: () => (
       <Gallery title={`osn/auth-ui AuthHeader — ${title}`} intro={intro}>
-        <DialogBench header={(close) => <Header host="dialog" {...props} onCancel={close} />} />
+        <DialogBench title={header} />
       </Gallery>
     ),
   };
 }
 
-function onPage(title: string, intro: JSX.Element, props: HeaderProps): Story {
+function onPage(title: string, intro: JSX.Element, props: PageProps): Story {
   return {
     render: () => (
       <Gallery title={`osn/auth-ui AuthHeader — ${title}`} intro={intro}>
         <PageColumn>
-          <Header host="page" {...props} onCancel={() => {}} />
+          <PageHeader {...props} />
         </PageColumn>
       </Gallery>
     ),
@@ -143,41 +148,36 @@ function onPage(title: string, intro: JSX.Element, props: HeaderProps): Story {
 export const InDialog = inDialog(
   "sign in, in a dialog",
   <>
-    What opens on "Sign in": the title, which names the dialog, and Cancel at the row's end,{" "}
-    <Mono>secondary</Mono> as every dialog's dismiss button is.
+    What opens on "Sign in": the title alone, centred, which names the dialog. The dialog's Cancel
+    is its footer's, first beside the step's action (the <Mono>SignIn</Mono> story).
   </>,
-  { title: "Sign in to Musubi", cancel: true },
+  "Sign in to Musubi",
 );
 
 export const InDialogRegister = inDialog(
   "create an account, in a dialog",
   <>What opens on "Create account".</>,
-  { title: "Create your Musubi account", cancel: true },
-);
-
-export const InDialogNoCancel = inDialog(
-  "no Cancel",
-  <>
-    A host that passes no <Mono>onCancel</Mono>: the title alone. Escape still closes the sheet.
-  </>,
-  { title: "Sign in to Musubi" },
-);
-
-export const CancelDisabled = inDialog(
-  "while a call runs",
-  <>
-    The view's call under way (<Mono>cancelDisabled</Mono>): Cancel is disabled, so nothing leaves
-    the view meanwhile.
-  </>,
-  { title: "Create your Musubi account", cancel: true, cancelDisabled: true },
+  "Create your Musubi account",
 );
 
 export const LongTitle = inDialog(
   "a long title",
+  <>A host whose product name is long: the title wraps, each line centred in the sheet.</>,
+  "Create your Musubi for Organisations and Communities account",
+);
+
+export const CancelDisabled = onPage(
+  "while a call runs, on /authorize",
   <>
-    A host whose product name is long: the title wraps beside Cancel, and Cancel keeps its width.
+    The view's call under way (<Mono>cancelDisabled</Mono>): Cancel is disabled, so nothing leaves
+    the view meanwhile.
   </>,
-  { title: "Create your Musubi for Organisations and Communities account", cancel: true },
+  {
+    title: "Create your Musubi account",
+    cancel: true,
+    cancelLabel: "Sign in instead",
+    cancelDisabled: true,
+  },
 );
 
 export const OnPage = onPage(
@@ -214,7 +214,7 @@ export const BothHosts: Story = {
       }
     >
       <DialogBench
-        header={(close) => <AuthHeader host="dialog" title="Sign in to Musubi" onCancel={close} />}
+        title="Sign in to Musubi"
         body={
           <>
             <p class="text-ui-ink-secondary text-ui-sm">
@@ -244,7 +244,7 @@ export const Phone: Story = {
         intro={
           <>
             The narrowest supported phone: the sign-in sheet, a long title, and both page views,
-            each the story of that name in a 320 × 640 frame. Cancel is 40px tall below{" "}
+            each the story of that name in a 320 × 640 frame. A page's Cancel is 40px tall below{" "}
             <Mono>md</Mono>.
           </>
         }
@@ -296,7 +296,7 @@ export const Playground: Story<PlaygroundArgs> = {
     host: { kind: "select", options: ["dialog", "page"] },
   },
   render: (args) => {
-    const props = (): HeaderProps => ({
+    const props = (): PageProps => ({
       title: args.title,
       cancel: args.cancel,
       cancelLabel: args.cancelLabel,
@@ -307,8 +307,9 @@ export const Playground: Story<PlaygroundArgs> = {
         title="osn/auth-ui AuthHeader — playground"
         intro={
           <>
-            The host, the title, Cancel and its words, and Cancel disabled. A dialog header renders
-            only inside its sheet, and a page header only outside one.
+            The host and the title; on a page, Cancel, its words, and Cancel disabled. A dialog
+            header holds the title alone and renders only inside its sheet; a page header only
+            outside one.
           </>
         }
       >
@@ -316,11 +317,11 @@ export const Playground: Story<PlaygroundArgs> = {
           when={args.host === "dialog"}
           fallback={
             <PageColumn>
-              <Header host="page" {...props()} onCancel={() => {}} />
+              <PageHeader {...props()} />
             </PageColumn>
           }
         >
-          <DialogBench header={(close) => <Header host="dialog" {...props()} onCancel={close} />} />
+          <DialogBench title={args.title} />
         </Show>
       </Gallery>
     );

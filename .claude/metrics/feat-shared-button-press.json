@@ -1,0 +1,191 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/shared-button-press",
+    "base_sha": "29a88cb522856722a81c26664f17ae6fba677928",
+    "head_sha": "315f3540ecd704b95005aaa59bf1a79218bb7d1c",
+    "generated_at": "2026-11-14T08:52:03.864Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2269,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-14T08:14:11.508Z",
+    "last_ts": "2026-11-14T08:51:56.449Z",
+    "span_seconds": 2265,
+    "active_seconds": 2265,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 27.444240600000008,
+    "tokens": {
+      "input": 532,
+      "output": 175996,
+      "thinking": 70555,
+      "cache_write_5m": 926119,
+      "cache_write_1h": 0,
+      "cache_read": 48228994
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 532,
+          "output": 175996,
+          "thinking": 70555,
+          "cache_write_5m": 926119,
+          "cache_write_1h": 0,
+          "cache_read": 48228994
+        },
+        "usd_equivalent": 27.444240600000008,
+        "messages": 246
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 532,
+          "output": 175996,
+          "thinking": 70555,
+          "cache_write_5m": 926119,
+          "cache_write_1h": 0,
+          "cache_read": 48228994
+        },
+        "usd_equivalent": 27.444240600000008,
+        "messages": 246
+      }
+    },
+    "effort": {
+      "xhigh": 171,
+      "high": 75
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 7,
+      "config": 0,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 8,
+        "deleted": 0
+      },
+      "test": {
+        "added": 397,
+        "deleted": 67
+      },
+      "docs": {
+        "added": 114,
+        "deleted": 20
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 119,
+        "deleted": 18
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "osn/auth-ui",
+      "shared/ui",
+      "tools/lab"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 210,
+      "Skill": 19,
+      "Read": 19,
+      "Edit": 10,
+      "Write": 8,
+      "Agent": 1,
+      "ToolSearch": 1,
+      "SubagentHandback": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 2
+    },
+    "skills": {
+      "design-system": 1,
+      "new-feat": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "emil-design-eng": 1,
+      "apple-design": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "find-animation-opportunities": 1,
+      "animation-vocabulary": 1,
+      "animate": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "write-pr": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "reviewer": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 246,
+      "with_tools": 245,
+      "with_one_tool": 222,
+      "context_median": 190840,
+      "context_p90": 349957
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 3,
+    "located": 3,
+    "acted_on": 1,
+    "paired": 3,
+    "acted_on_paired": 1,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

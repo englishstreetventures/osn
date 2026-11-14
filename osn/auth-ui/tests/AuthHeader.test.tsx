@@ -76,18 +76,29 @@ describe("AuthHeader in a dialog", () => {
     named("Sign in to Musubi");
   });
 
-  it("hands Cancel to the view, once, and leaves closing to it", () => {
-    const onCancel = vi.fn();
-    const onOpenChange = vi.fn();
+  // A dialog's Cancel is in its footer, so its header holds the title
+  // alone. Whether the title is centred is computed style, which musubi's
+  // `AuthHeader.browser.test.tsx` reads.
+  it("holds the title alone, with no button", () => {
     render(() => (
-      <OpenDialog onOpenChange={onOpenChange}>
-        <AuthHeader host="dialog" title="Sign in to Musubi" onCancel={onCancel} />
+      <OpenDialog>
+        <AuthHeader host="dialog" title="Sign in to Musubi" />
       </OpenDialog>
     ));
-    fireEvent.click(cancelButton());
-    expect(onCancel).toHaveBeenCalledTimes(1);
-    // The dialog was not asked to close: only the view's handler decides that.
-    expect(onOpenChange).not.toHaveBeenCalled();
+    const title = screen.getByRole("heading", { level: 2, name: "Sign in to Musubi" });
+    const header = title.parentElement!;
+    expect(header.querySelectorAll("button")).toHaveLength(0);
+    expect(header.children).toHaveLength(1);
+  });
+
+  it("takes no Cancel in a dialog", () => {
+    render(() => (
+      <OpenDialog>
+        {/* @ts-expect-error A dialog's Cancel is the view's footer's, never the header's. */}
+        <AuthHeader host="dialog" title="Sign in to Musubi" onCancel={() => {}} />
+      </OpenDialog>
+    ));
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 });
 

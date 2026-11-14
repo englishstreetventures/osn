@@ -22,6 +22,7 @@ import { forkBackground } from "../../lib/background";
 import type { CookieSessionConfig } from "../../lib/cookie-session";
 import { createLiveSessionCheck } from "../../lib/live-session";
 import { publicError } from "../../lib/public-error";
+import { createSessionReplacer } from "../../lib/replace-session";
 import { makeAppRunner, type AppRuntime } from "../../lib/route-runtime";
 import { deriveUaLabel } from "../../lib/ua-label";
 import {
@@ -221,6 +222,11 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
   // only the yes or no.
   const { liveSession, liveSessionGate } = createLiveSessionCheck({ auth, run, cookieConfig });
 
+  // Every route that sets a new session cookie (`lib/replace-session.ts`):
+  // ends the family of the session the request's cookie named, then answers
+  // the cookies that carry the new one.
+  const { replaceSession } = createSessionReplacer({ auth, run, cookieConfig });
+
   /**
    * Starts ending the account's cire organiser sessions, in the background:
    * the request answers without waiting for cire-api, and on workerd the
@@ -309,6 +315,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     turnstileGate,
     liveSession,
     liveSessionGate,
+    replaceSession,
     resolvePasskeyEnrollPrincipal,
     cireOrganiserRevoke,
     forkCireOrganiserRevoke,

@@ -12,6 +12,7 @@ import { Suspense } from "solid-js";
 
 import { TotpView } from "../src/TotpView";
 import { enterCode, expectTied } from "./helpers/code";
+import { dialogDescription } from "./helpers/dialog";
 import { CODE, WAIT, alertsText, apiError } from "./helpers/errors";
 import { withoutAnimations } from "./helpers/motion";
 
@@ -142,6 +143,16 @@ describe("TotpView", () => {
       expect(totp.enrollBegin).toHaveBeenCalledWith({
         stepUpToken: "stpup_x",
       }),
+    );
+  });
+
+  // The sheet says why, in one line under its title.
+  it("says why on the sheet before an authenticator is added", async () => {
+    totp.status.mockResolvedValue(notEnrolled);
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
+    expect(await dialogDescription("Confirm it's you")).toBe(
+      "To add an authenticator app, confirm it's you.",
     );
   });
 

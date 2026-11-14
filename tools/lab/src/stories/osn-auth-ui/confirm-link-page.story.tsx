@@ -93,9 +93,11 @@ function state(title: string, intro: JSX.Element, page: () => JSX.Element): Stor
 export const Ready = state(
   "ready",
   <>
-    What the link opens: three numbers, one of them the number on the waiting screen. Nothing is
-    confirmed until one is tapped. Tap one: "You picked … Confirming…" for 600 ms, then "Confirmed".
-    Focus is on the heading.
+    What the link opens: three numbers, one of them the number on the waiting screen, and under the
+    instruction the lockout rule in the hint's size ("After 3 wrong numbers in a day, links to this
+    address stop for up to a day."), the numbers' description. Nothing is confirmed until one is
+    tapped. Tap one: "You picked … Confirming…" for 600 ms, then "Confirmed". Focus is on the
+    heading.
   </>,
   () => (
     <ConfirmLinkPage
@@ -177,7 +179,9 @@ export const Expired = state(
   "expired",
   <>
     Every refusal reads the same: a link unknown, used or out of date, a number that was not the one
-    shown, or a list the page cannot offer. No button: the way on is where the person started.
+    shown, or a list the page cannot offer. Under the body, the same on every expired page, "A wrong
+    number ends a link too." and the flow's lockout rule: it says the rule, never whether it was
+    met. No button: the way on is where the person started.
   </>,
   () => (
     <Pressed>
@@ -194,8 +198,9 @@ export const Expired = state(
 export const ExpiredStepUp = state(
   "expired, step-up",
   <>
-    Step-up's expired page keeps its warning: an unasked step-up means someone else may be signed
-    in, so it says to sign out the other sessions. The other flows show the body alone.
+    Step-up's expired page keeps its warning, after the lockout rule (five in 15 minutes, per
+    account): an unasked step-up means someone else may be signed in, so it says to sign out the
+    other sessions.
   </>,
   () => (
     <ConfirmLinkPage
@@ -302,8 +307,10 @@ export const TypedNumber = state(
   <>
     Recovery and step-up ask for the number to be typed, not picked (the host passes{" "}
     <Mono>typeNumber</Mono>): one field for up to six digits, Confirm once it holds one, and "I
-    didn't ask for this". A letter, a space or a seventh digit does nothing. Type a number and press
-    Confirm or Enter: "You typed … Confirming…", then "Confirmed" after 600 ms.
+    didn't ask for this". The field's hint states the lockout rule ("After 5 wrong numbers in 15
+    minutes, links like this one for this account stop for up to 15 minutes."). A letter, a space or
+    a seventh digit does nothing. Type a number and press Confirm or Enter: "You typed …
+    Confirming…", then "Confirmed" after 600 ms.
   </>,
   () => (
     <ConfirmLinkPage

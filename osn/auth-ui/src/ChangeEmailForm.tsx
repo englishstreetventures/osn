@@ -255,7 +255,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
           client={props.stepUpClient}
           runPasskeyCeremony={props.runPasskeyCeremony}
           purpose="email_change"
-          reason="to change your email"
+          reason="To change your email, confirm it's you."
           onToken={(tok) => void complete(tok)}
           onCancel={changeAddress}
         />
