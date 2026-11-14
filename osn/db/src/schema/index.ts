@@ -562,9 +562,9 @@ export const emailChanges = sqliteTable(
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
     // and keeps these rows under Art. 6(1)(c), so the column outlives its
     // parent: a foreign key to it would fail that delete, and with it the
-    // whole erasure batch, on a database that enforces foreign keys. Nothing
-    // deletes these rows yet: `wiki/compliance/retention.md` sets their
-    // retention and lists the sweeper that will enforce it as planned.
+    // whole erasure batch, on a database that enforces foreign keys. The
+    // retention sweep (`osn/api/src/services/retention.ts`, on the six-hourly
+    // cron) deletes rows 90 days after `completed_at`.
     accountId: text("account_id").notNull(),
     previousEmail: text("previous_email").notNull(),
     newEmail: text("new_email").notNull(),
@@ -576,8 +576,8 @@ export const emailChanges = sqliteTable(
     // range) as a single index scan instead of an accountId-only scan
     // followed by a filter.
     index("email_changes_account_completed_at_idx").on(t.accountId, t.completedAt),
-    // Kept for a future retention sweeper (not yet built) that will need to
-    // find rows past the retention window irrespective of account.
+    // The retention sweep's range: rows past the 90-day window, whatever
+    // the account (`osn/api/src/services/retention.ts`).
     index("email_changes_completed_at_idx").on(t.completedAt),
   ],
 );
@@ -610,9 +610,9 @@ export const securityEvents = sqliteTable(
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
     // and keeps these rows under Art. 6(1)(c), so the column outlives its
     // parent: a foreign key to it would fail that delete, and with it the
-    // whole erasure batch, on a database that enforces foreign keys. Nothing
-    // deletes these rows yet: `wiki/compliance/retention.md` sets their
-    // retention and lists the sweeper that will enforce it as planned.
+    // whole erasure batch, on a database that enforces foreign keys. The
+    // retention sweep (`osn/api/src/services/retention.ts`, on the six-hourly
+    // cron) deletes rows 12 months after `created_at`.
     accountId: text("account_id").notNull(),
     /**
      * Bounded kind enum — see SecurityEventKind in @shared/observability.
@@ -639,6 +639,9 @@ export const securityEvents = sqliteTable(
     index("security_events_unacked_idx")
       .on(t.accountId, t.createdAt)
       .where(sql`${t.acknowledgedAt} IS NULL`),
+    // The retention sweep's range: rows older than the 12-month window,
+    // whatever the account (`osn/api/src/services/retention.ts`).
+    index("security_events_created_at_idx").on(t.createdAt),
   ],
 );
 
@@ -779,6 +782,29 @@ export const deletionJobs = sqliteTable(
      * NULL. Nothing clears it; the row's own delete removes it.
      */
     purgeStartedAt: integer("purge_started_at"),
+    /**
+     * What a cancel puts back, as JSON written by the soft delete in the
+     * statement that inserts this row: `{ "profiles": [{ "id", "handle",
+     * "displayName", "avatarUrl" }], "enrollments": ["aenr_…"] }` — each
+     * profile as it stood before redaction, and the app enrolments the soft
+     * delete closed. NULL on a row written before the column existed; such a
+     * row cancels without restoring profiles or enrolments.
+     */
+    restore: text("restore"),
+    /**
+     * The person's answers to the deletion's open actions, as JSON keyed by
+     * action id: `{ "<action id>": { "choice": string, "successorProfileId"?:
+     * string } }`. Only choices the person made are stored; an action with a
+     * default and no answer takes its default when the hard delete runs. NULL
+     * when there were none.
+     */
+    choices: text("choices"),
+    /**
+     * Unix seconds. The last time a hard delete of this account failed. The
+     * sweep reads rows with no failure first, then the least recently failed,
+     * so a job that keeps failing never stands in front of the rest.
+     */
+    hardDeleteFailedAt: integer("hard_delete_failed_at"),
   },
   (t) => [
     // Sweeper scan: rows ready for hard-delete.
@@ -795,6 +821,43 @@ export const deletionJobs = sqliteTable(
 
 export type DeletionJob = typeof deletionJobs.$inferSelect;
 export type NewDeletionJob = typeof deletionJobs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Handle holds
+//
+// A deleted account's handles cannot be taken while its deletion is pending
+// or for 30 days after the hard delete. One row per held handle. `handle` is
+// a keyed hash of the handle (`osn/api/src/lib/handle-hold.ts`), never the
+// handle itself: the plain value lives only on the profile and, during the
+// window, in the job's restore record. Registration, profile creation and
+// organisation creation refuse a handle whose hash has a live row here.
+// ---------------------------------------------------------------------------
+
+export const handleHolds = sqliteTable(
+  "handle_holds",
+  {
+    /** Keyed hash of the normalised handle, 64 hex digits. */
+    handle: text("handle").primaryKey(),
+    /**
+     * The account whose deletion holds the handle, while that deletion is
+     * pending. A cancel deletes the account's rows; the hard delete clears this
+     * and starts the 30 days.
+     */
+    accountId: text("account_id").references(() => accounts.id),
+    /** Unix seconds. NULL while the deletion is pending; the hold ends here. */
+    releaseAt: integer("release_at"),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("handle_holds_account_idx").on(t.accountId),
+    // The retention sweep's range: holds past their release.
+    index("handle_holds_release_idx").on(t.releaseAt),
+  ],
+);
+
+export type HandleHold = typeof handleHolds.$inferSelect;
+export type NewHandleHold = typeof handleHolds.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // OIDC relying parties (OAuth 2.1 authorization-code clients)
