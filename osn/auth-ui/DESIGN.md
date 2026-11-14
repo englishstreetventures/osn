@@ -16,7 +16,8 @@ with the issue that brings the code to the rule.
 (`ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
 `RecoveryCodesView`, `Register`, `SecurityEventsBanner`,
 `SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`), one for `AuthHeader`,
-the title row the sign-in and create-account views share, and a barrel,
+the title row every dialog shares, one for `DialogActions`, every dialog's
+footer (§4: Musubi draws its own dialogs with these two), and a barrel,
 `src/index.ts`, which also carries `RecoveryLoginForm`, `TurnstileWidget`,
 `turnstileEnabled` and the `RunPasskeyCeremony` / `RunPasskeyRegistration`
 types.
@@ -26,7 +27,9 @@ package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
 Two views mount in no app: `SessionsView` (#2055) and `ChangeEmailForm`
 (#2056). Only their tests and lab stories render them. Musubi's profile
-switcher is its own (`ProfileSwitcherDialog`); the package draws none.
+switcher is its own (`ProfileSwitcherDialog`); the package draws none, but
+Musubi's own dialogs take their header and footer from it (`AuthHeader`,
+`DialogActions`), so every dialog in the product has one shape.
 
 **What a host supplies.**
 
@@ -179,16 +182,19 @@ As built:
   (`src/ViewParts.tsx`, internal) for its host:
   - **In a dialog**: the step's body, a `flex-col gap-4` stack padded 16px
     (`p-4`) under the header's hairline, with its ways back as links at its
-    foot; then a `DialogFooter` (a hairline above, 16px in, right-aligned,
-    `gap-2`) holding Cancel (`secondary`) first and the step's one action
-    after it, both `sm`, 32px tall from `md` and 40px below (`max-md:h-10`).
+    foot; then `DialogActions` (`src/DialogActions.tsx`, exported): a
+    `DialogFooter` (a hairline above, 16px in, right-aligned, `gap-2`)
+    holding Cancel (`secondary`) first and the step's one action after it,
+    both `sm`, 32px tall from `md` and 40px below (`max-md:h-10`).
     At `sm` every pair the package draws fits a 320px sheet's 288px on one
     line; the widest, Cancel beside a busy "Waiting for your passkey…", is
     284px in Musubi's type (measured below). The footer wraps
     rather than scroll sideways should a wider font push a pair past it. A
     step that commits nothing of its own (an emailed link's wait, `Register`'s
     no-WebAuthn blocker) has Cancel alone; a done line ("You're all set.")
-    has no footer, since the host closes the dialog. A step with a `<form>`
+    has no footer, since the host closes the dialog; a body in which nothing
+    shows (a step-up sheet given no line and offering no other factor) draws
+    no empty padded band. A step with a `<form>`
     wraps its footer too, so Enter in a field submits. A tall step scrolls
     inside the sheet below `md`, footer included.
   - **On a page**: the same stack with no side padding, 24px under the
@@ -353,7 +359,8 @@ besides the default:
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary` (a dialog's Cancel), `link` |
 | `StepUpDialog` | Button, Dialog, Notice, OtpInput; `AuthHeader`, `ViewStep`; `CheckEmailView` for the emailed link's wait | `outline`, `secondary`, `link` |
 | `AuthHeader` | Button, Dialog (`DialogHeader`, `DialogTitle`) | `ghost` (Cancel on a page, where it switches views and dismisses nothing) |
-| `ViewStep`, `StepLink` (`src/ViewParts.tsx`, internal) | Button, Dialog (`DialogFooter`) | `secondary` (a dialog's Cancel, as every dialog's dismiss button), `link` |
+| `ViewStep`, `StepLink` (`src/ViewParts.tsx`, internal) | Button; `DialogActions` | `link` |
+| `DialogActions` (`src/DialogActions.tsx`, exported for the host's own dialogs) | Button, Dialog (`DialogFooter`) | `secondary` (a dialog's Cancel, as every dialog's dismiss button) |
 | `PasskeysView` | Button, Card, Input, Notice, Skeleton | `outline`, `ghost` |
 | `TotpView` | Button, Card, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
 | `RecoveryCodesView` | Button, Card, Checkbox, Dialog, Notice, Skeleton; `AuthHeader`, `ViewStep` | `outline`, `secondary` |
@@ -798,8 +805,7 @@ host a short-lived token through `onToken`.
   of the wait that follows (`link-poll.ts`).
 - **Who opens it.** `PasskeysView` (`passkey_register` to add,
   `passkey_delete` to rename or delete), `TotpView` (`totp_enroll`,
-  `totp_disable`), `RecoveryCodesView` (`recovery_generate`, "to generate
-  recovery codes"), `SecurityEventsBanner` (`security_event_ack`) and
+  `totp_disable`), `RecoveryCodesView` (`recovery_generate`), `SecurityEventsBanner` (`security_event_ack`) and
   `ChangeEmailForm` (`email_change`). Each passes its one line: "To add a
   passkey, confirm it's you.", "To rename {name}, confirm it's you." (the
   passkey's name before the rename), "To add an authenticator app, confirm
@@ -893,7 +899,7 @@ new view takes its words from here, and a new action adds its row here.
 | Rename a factor | "Rename", named "Rename {name}" | `PasskeysView` |
 | Take a factor off | "Remove", named "Remove {name}"; the step-up sheet titled "Remove {name}?" | `PasskeysView`, `TotpView` |
 | End one session | "Sign out", named "Sign out {device}"; all others "Sign out everywhere else" | `SessionsView` |
-| Leave a dialog or view | "Cancel"; a host's `cancelLabel` where leaving means something else ("Sign in instead") | `AuthHeader`, every dialog |
+| Leave a dialog or view | "Cancel"; on a page, a host's `cancelLabel` where leaving means something else ("Sign in instead") | `DialogActions`, every dialog's footer; `AuthHeader` on a page (`cancelLabel` there only) |
 | Go back a step | "Back"; to sign-in "Back to sign in"; to the factors "Use another method"; redo "Start again" | `RecoveryLoginForm`, `StepUpDialog`, `CheckEmailView` |
 | Say no to a link | "I didn't ask for this", answered by "Cancelled" | `ConfirmLinkPage` |
 
@@ -1053,9 +1059,15 @@ As built:
   dialog's header; the footer reading Cancel, then the step's action, on every
   step (Cancel alone on a wait); Cancel calling `onCancel` once and never
   asking the dialog to close; the action still the form's submit, so Enter
-  sends it; Cancel held while a call the view started runs; a dialog host
-  refusing `cancelLabel` in its type; and, on a page, "Lost your passkey?"
-  under Continue.
+  sends it; Cancel held while a call the view started runs (`SignIn`'s
+  passkey call, `Register`'s send, a recovery code's check), and, in the
+  recovery view, still leaving the dialog; Cancel on the emailed recovery
+  wait ending the wait in this tab's storage; a dialog host refusing
+  `cancelLabel` in its type; and, on a page, "Lost your passkey?" under
+  Continue. `ViewParts.test.tsx` holds that a dialog step with neither
+  Cancel nor an action draws no footer, and one whose body shows nothing
+  draws no body. `RecoveryLoginForm.test.tsx` holds that a recovery answering
+  after the form unmounts starts no session refresh.
 - **The step-up sheet in the package tests** (`StepUpDialog.test.tsx`, one
   case per way it can fail): named by its title and described by its one
   line, the warning when there is one, else the reason as given, with none
@@ -1087,7 +1099,8 @@ As built:
   `token-contract.test.ts` (§2). `SignIn.test.tsx` and `Register.test.tsx`
   mount each view in a real `Dialog` with `host="dialog"`: the dialog named
   by its title through exactly one element, `SignIn`'s renamed "Recover your
-  account" and back; `Register`'s Cancel reads the host's `cancelLabel`.
+  account" and back; `Register` on a page takes the host's `cancelLabel`
+  ("Sign in instead"), and in a dialog its type refuses one.
   `PasskeysView.test.tsx` and `TotpView.test.tsx` press Remove: no
   `window.confirm`, the sheet named "Remove {name}?" and described by its
   warning, and Cancel removing nothing; each row's actions named by their

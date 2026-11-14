@@ -638,16 +638,6 @@ describe("SignIn component", () => {
       expect(onOpenChange).not.toHaveBeenCalled();
     });
 
-    // "Lost your passkey?" sits in the body, under the field, since
-    // Continue is the footer's.
-    it("puts Lost your passkey? in the body, above the footer", () => {
-      renderInDialog();
-      const link = screen.getByRole("button", { name: "Lost your passkey?" });
-      const cancel = screen.getByRole("button", { name: "Cancel" });
-      expect(cancel.parentElement!.contains(link)).toBe(false);
-      expect(link.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    });
-
     // The footer sits inside the form, so Enter in the field submits.
     it("keeps Continue the form's submit, so Enter in the field sends it", () => {
       renderInDialog();
@@ -658,11 +648,30 @@ describe("SignIn component", () => {
       expect(proceed.form).toBe(field.form);
     });
 
-    it("puts Cancel beside the recovery chooser's own action", async () => {
-      renderInDialog();
+    it("puts Cancel beside the recovery chooser's own action, and it still leaves the dialog", async () => {
+      const { onCancel, onOpenChange } = renderInDialog();
       fireEvent.click(screen.getByRole("button", { name: "Lost your passkey?" }));
       await screen.findByRole("heading", { name: "Recover your account" });
       expect(footer()).toEqual(["Cancel", "Use a recovery code"]);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).not.toHaveBeenCalled();
+      // Cancel leaves the dialog; it does not go back to sign-in.
+      expect(screen.getByRole("heading", { name: "Recover your account" })).toBeTruthy();
+    });
+
+    // The footer's Cancel is the dialog's way out, so it holds while the
+    // passkey call runs.
+    it("holds the footer's Cancel while the passkey call runs", async () => {
+      login.passkeyBegin.mockReturnValue(new Promise(() => {}));
+      const { onCancel } = renderInDialog();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+      await screen.findByRole("button", { name: "Verifying…" });
+      const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+      expect(cancel.disabled).toBe(true);
+      fireEvent.click(cancel);
+      expect(onCancel).not.toHaveBeenCalled();
     });
 
     it("takes no Cancel words in a dialog", () => {

@@ -43,7 +43,7 @@ product layer, and which one a component belongs in is decided by
 | Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
-| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `AuthHeader` (their title row), `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `AuthHeader` (the title row of the sign-in views and of every dialog, the host's own included), `DialogActions` (every dialog's footer), `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `SkeletonOutline`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
@@ -132,8 +132,8 @@ osn/auth-ui/src/
 │                             (RecoveryLoginForm and TurnstileWidget are barrel-only)
 ├── AuthHeader.tsx          ← Button, DialogHeader, DialogTitle — a sign-in or create-account view's title row,
 │                             and every package dialog's: the title alone, centred
-├── ViewParts.tsx           ← Button, DialogFooter — ViewStep, a step's body and its footer (Cancel, then
-│                             the action) in a dialog, or its action and links on a page (not exported)
+├── ViewParts.tsx           ← Button, DialogActions — ViewStep, a step's body and its footer in a dialog,
+│                             or its action and links on a page (not exported)
 ├── SignIn.tsx              ← AuthHeader, ViewStep, Button, Field, Input, Notice
 ├── Register.tsx            ← AuthHeader, ViewStep, Button, Field, InfoPopover, Input, Label, Notice, UsernameInput
 ├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
@@ -146,7 +146,9 @@ osn/auth-ui/src/
 ├── RecoveryCodesView.tsx   ← Card (the codes' well), Skeleton; AuthHeader and ViewStep for "Generate a new set?"
 ├── SettingsRow.tsx         ← Card: a Settings panel's row, nested in the host's card (not exported)
 ├── RowPlaceholder.tsx      ← one SettingsRow's Skeleton, a block for each width (not exported)
-└── ProfileOnboarding.tsx   SecurityEventsBanner.tsx  TurnstileWidget.tsx
+├── DialogActions.tsx       ← Button, DialogFooter — every dialog's footer: Cancel, then the action
+├── ProfileOnboarding.tsx   ← AuthHeader for "Create a new profile"
+└── SecurityEventsBanner.tsx  TurnstileWidget.tsx
 
 cire/ui/src/
 ├── button.tsx  card.tsx  disclosure.tsx  eyebrow.tsx  loading.tsx  note.tsx

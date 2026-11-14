@@ -306,6 +306,16 @@ describe("StepUpDialog", () => {
     expect(alert.textContent).not.toMatch(/try again/i);
   });
 
+  it("passkeyOnly with no ceremony runner offers no retry either", async () => {
+    render(() => (
+      <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} passkeyOnly />
+    ));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("A passkey can't be used here.");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Use passkey" })).toBeTruthy();
+  });
+
   // passkeyOnly: the emailed-link factor is hidden entirely. Used where
   // transactional email is degraded (OSN_EMAIL_OPTIONAL=true), so an emailed
   // step-up would dead-end the user. The passkey ceremony starts immediately

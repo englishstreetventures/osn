@@ -888,6 +888,27 @@ describe("RecoveryLoginForm — keeping the restricted session alive", () => {
     expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
   });
 
+  it("starts no refresh loop for a recovery that completes after the screen unmounts", async () => {
+    // The recovery itself answers late: the person left the dialog while the
+    // code was checked. Nothing is on screen to hold the session for, so no
+    // timer may be armed to rotate it.
+    const answer = deferred<{ session: ReturnType<typeof sessionExpiringIn>; profile: unknown }>();
+    stub.totpRecoveryComplete.mockReturnValue(answer.promise);
+    hoisted.refreshHeldSession.mockImplementation(grantsTokenExpiringIn(TTL_MS, "acc_orphan"));
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Use your authenticator app/i }));
+    fill(/Email or @handle/i, "alice");
+    typeCode("654321");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    await vi.waitFor(() => expect(stub.totpRecoveryComplete).toHaveBeenCalled());
+
+    cleanup();
+    answer.settle({ session: sessionExpiringIn(TTL_MS), profile: sampleProfile });
+    await vi.advanceTimersByTimeAsync(TTL_MS * 3);
+
+    expect(hoisted.refreshHeldSession).not.toHaveBeenCalled();
+  });
+
   it("abandons a grant that resolves after unmount mid-ceremony", async () => {
     // `freshToken()` has its own `if (mine !== epoch) return null;`, separate
     // from `refreshHeld`'s — triggered on demand from the ceremony rather
@@ -1036,6 +1057,29 @@ describe("RecoveryLoginForm in a dialog", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  // Cancel ends the emailed link's wait on this side, as Back does: the
+  // request and its claim secret leave this tab's storage, so the next
+  // sign-in here does not resume someone's wait.
+  it("ends the emailed link's wait when the footer's Cancel leaves the dialog", async () => {
+    stub.emailRecoveryBegin.mockResolvedValue({
+      requestId: "recovery_0123456789ab",
+      claimSecret: "c".repeat(64),
+      pairingCode: "42",
+      expiresAt: Math.floor(Date.now() / 1000) + 600,
+    });
+    stub.emailRecoveryStatus.mockReturnValue(new Promise(() => {}));
+    sessionStorage.clear();
+    const onDismiss = mountInDialog();
+    fireEvent.click(screen.getByRole("button", { name: /Email me a link/i }));
+    fill(/Email address on the account/i, "alice@example.com");
+    fireEvent.click(screen.getByRole("button", { name: /Send the link/i }));
+    await screen.findByRole("heading", { name: "Check your email" });
+    expect(sessionStorage.getItem("osn.recovery.pending")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem("osn.recovery.pending")).toBeNull();
   });
 
   // Nothing leaves the view while a call it started runs.

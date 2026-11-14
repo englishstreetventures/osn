@@ -16,8 +16,10 @@
  * The view sits where `Register` puts it in musubi's create-account dialog:
  * `ResponsiveDialogContent` (a bottom sheet below `md`, full width with no
  * side border or padding), then `Register`'s root (`flex flex-col`) and the
- * body `ViewStep` draws for `host="dialog"`, padded 16px (`ViewParts.tsx`).
- * At a 320px viewport that leaves the view a 288px column.
+ * body `ViewStep` draws for `host="dialog"`, padded 16px (`ViewParts.tsx`),
+ * copied here; `AuthDialogs.browser.test.tsx` holds the real body's column to
+ * the sheet's width less 32px, so the copy cannot drift unseen. At a 320px
+ * viewport that leaves the view a 288px column.
  *
  * Each case writes a screenshot to `__screenshots__/` beside this file
  * (gitignored).

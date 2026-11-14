@@ -1259,6 +1259,38 @@ describe("Register in a dialog", () => {
     expect(screen.queryByRole("button", { name: "Sign in instead" })).toBeNull();
   });
 
+  // The footer's Cancel is the dialog's way out, so it holds while the send runs.
+  it("holds the footer's Cancel while the send runs", async () => {
+    const client = makeClientStub();
+    client.checkHandle.mockResolvedValue({ available: true });
+    client.beginRegistration.mockReturnValue(new Promise(() => {}));
+    const onCancel = vi.fn();
+    render(() => (
+      <Dialog open onOpenChange={() => {}}>
+        <DialogContent presentation="sheet">
+          <Register
+            host="dialog"
+            client={asClient(client)}
+            onCancel={onCancel}
+            productName="Musubi"
+          />
+        </DialogContent>
+      </Dialog>
+    ));
+    fillEmail("alice@example.com");
+    fillHandle("alice");
+    fillBirthdate("1990-01-01");
+    const send = () =>
+      screen.getByRole("button", { name: /Send verification link|Sending…/ }) as HTMLButtonElement;
+    await waitFor(() => expect(send().disabled).toBe(false));
+    fireEvent.click(send());
+    await screen.findByRole("button", { name: /Sending…/ });
+    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(cancel);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   // The footer sits inside the form, so Enter in a field submits.
   it("keeps the send the form's submit, so Enter in a field sends it", () => {
     renderInDialog();

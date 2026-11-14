@@ -1,9 +1,11 @@
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { DialogActions } from "@osn/auth-ui/DialogActions";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
-import { Dialog, DialogFooter } from "@shared/ui/ui/dialog";
+import { Dialog } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Skeleton } from "@shared/ui/ui/skeleton";
@@ -11,7 +13,6 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
-import { DialogTitleRow } from "../components/DialogTitleRow";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SignedOutNote } from "../components/SignedOutNote";
@@ -152,7 +153,7 @@ export function OrganisationsPage() {
       {/* Create org dialog */}
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
         <ResponsiveDialogContent>
-          <DialogTitleRow>Create organisation</DialogTitleRow>
+          <AuthHeader host="dialog" title="Create organisation" />
           {/* The footer sits inside the form, so Enter in a field still submits. */}
           <form onSubmit={handleCreate}>
             <div class="flex flex-col gap-4 p-4">
@@ -197,17 +198,7 @@ export function OrganisationsPage() {
                 )}
               </Field>
             </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                class="max-md:h-10"
-                onClick={() => setShowCreate(false)}
-                disabled={creating()}
-              >
-                Cancel
-              </Button>
+            <DialogActions onCancel={() => setShowCreate(false)} cancelDisabled={creating()}>
               <Button
                 type="submit"
                 size="sm"
@@ -217,7 +208,7 @@ export function OrganisationsPage() {
               >
                 {creating() ? "Creating…" : "Create"}
               </Button>
-            </DialogFooter>
+            </DialogActions>
           </form>
         </ResponsiveDialogContent>
       </Dialog>

@@ -53,7 +53,9 @@ export type AuthHeaderProps = DialogHostHeader | PageHostHeader;
 
 /**
  * The title row of a sign-in or create-account view, and of every dialog the
- * package draws. Cancel, on a page, calls `onCancel` and closes nothing itself.
+ * package draws and its host's own (Musubi's switcher, remove-friend and
+ * organisation dialogs). Cancel, on a page, calls `onCancel` and closes
+ * nothing itself.
  */
 export function AuthHeader(props: AuthHeaderProps) {
   return (
@@ -62,10 +64,9 @@ export function AuthHeader(props: AuthHeaderProps) {
       fallback={
         <DialogHeader class="justify-center">
           {/* The host's product name, or a passkey's 64-character name, sits
-              in the title, so it breaks anywhere rather than widen the sheet,
-              and a title that wraps balances its centred lines. */}
+              in the title, so it breaks anywhere rather than widen the sheet. */}
           <DialogTitle class="text-center">
-            <span class="block text-balance wrap-anywhere">{props.title}</span>
+            <span class="wrap-anywhere">{props.title}</span>
           </DialogTitle>
         </DialogHeader>
       }

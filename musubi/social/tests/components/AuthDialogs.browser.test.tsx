@@ -202,6 +202,10 @@ describe("the create-account dialog", () => {
         const sheet = await openDialog("register", width, theme);
         expect(footerRow(sheet)).toEqual(["Cancel", "Send verification link"]);
         expectLayout(sheet, width);
+        // The body's column, 16px in from each edge: `CheckEmailView`'s layout
+        // test copies it, and this is what holds the copy to the real one.
+        const column = within(sheet).getByLabelText("Email").getBoundingClientRect().width;
+        expect(column).toBeCloseTo(sheet.clientWidth - 32, 0);
         await page.screenshot({ path: `${SHOTS}/create-account-${width}-${theme}.png` });
       },
     );

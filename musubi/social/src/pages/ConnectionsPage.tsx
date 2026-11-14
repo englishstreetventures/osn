@@ -1,3 +1,5 @@
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { DialogActions } from "@osn/auth-ui/DialogActions";
 import type {
   ConnectionEntry,
   PendingRequestEntry,
@@ -8,10 +10,9 @@ import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
-import { Dialog, DialogDescription, DialogFooter } from "@shared/ui/ui/dialog";
+import { Dialog, DialogDescription } from "@shared/ui/ui/dialog";
 import { createResource, createSignal, For, Show } from "solid-js";
 
-import { DialogTitleRow } from "../components/DialogTitleRow";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
@@ -321,22 +322,14 @@ export function ConnectionsPage() {
           }}
         >
           <ResponsiveDialogContent>
-            <DialogTitleRow>
-              Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?
-            </DialogTitleRow>
+            <AuthHeader
+              host="dialog"
+              title={`Remove ${removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?`}
+            />
             <div class="p-4">
               <DialogDescription>You can always add them again later.</DialogDescription>
             </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                class="max-md:h-10"
-                onClick={() => setRemoveTarget(null)}
-              >
-                Cancel
-              </Button>
+            <DialogActions onCancel={() => setRemoveTarget(null)}>
               <Button
                 type="button"
                 variant="destructive"
@@ -348,7 +341,7 @@ export function ConnectionsPage() {
               >
                 Remove
               </Button>
-            </DialogFooter>
+            </DialogActions>
           </ResponsiveDialogContent>
         </Dialog>
 

@@ -369,8 +369,9 @@ holds at 3:1. A focus mark appears at once, never animated.
 - **Where focus goes when a dialog opens.** To its first control, Kobalte's
   default, which a footer's Cancel never is unless the dialog has nothing
   before it ("Generate a new set?", the remove-friend dialog): the profile
-  switcher opens on its first row, a form dialog on its first field, the
-  step-up sheet on "Use passkey". The sign-in and create-account dialogs open
+  switcher opens on its first row, a form dialog on its first field. The
+  step-up sheet puts it on "Use passkey" itself (`onOpenAutoFocus`), since its
+  other factors come first in the page. The sign-in and create-account dialogs open
   with focus on the dialog itself (`AuthDialogs`, `onOpenAutoFocus`): their
   first control is a text field, which would raise a phone's keyboard over
   the sheet, or the "i" beside Email. A screen reader hears the dialog's
@@ -543,27 +544,34 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   `style`: the sheet's rules sit behind `base:`, so a call-site `max-w-*` would
   cap the sheet too and pin a narrow sheet to a phone's left edge. A dialog's
   padding and layout go on the children it wraps. Every dialog has a name: its
-  title, a `DialogTitle`, which an app dialog draws with `DialogTitleRow` and
-  an `@osn/auth-ui` view with its `AuthHeader`; `ResponsiveDialogContent`
-  takes no `aria-label`.
+  title, a `DialogTitle`, drawn by `@osn/auth-ui`'s `AuthHeader` in the app's
+  dialogs and the auth views' alike; `ResponsiveDialogContent` takes no
+  `aria-label`.
 - **Every dialog has one shape**, the app's and `@osn/auth-ui`'s alike ([the
   owner's
   call](https://github.com/englishstreetventures/osn/issues/2045#issuecomment-6843934504),
   2026-11-13: "cancel in footer", "consistent across the board"): a header
   holding the title alone, centred, its lines centred as it wraps and
-  breaking anywhere, over a hairline (`DialogTitleRow`, `src/components/`);
-  the body, padded 16px; then a `DialogFooter` (16px padding, a hairline
-  above, right-aligned, `gap-2`) holding Cancel (`secondary`) first, then the
-  commit, both `size="sm"` and 40px tall below `md` (`max-md:h-10`): 32px from
-  `md`. No dialog puts a button in its header. At `sm` every footer pair the
+  breaking anywhere, over a hairline (`AuthHeader` with `host="dialog"`, from
+  `@osn/auth-ui`); the body, padded 16px; then `DialogActions`, also from
+  `@osn/auth-ui`: a `DialogFooter` (16px padding, a hairline above,
+  right-aligned, `gap-2`, wrapping rather than scrolling sideways) holding
+  Cancel (`secondary`) first, then the commit, both `size="sm"` and 40px tall
+  below `md` (`max-md:h-10`): 32px from `md`. One part draws each, so the
+  app's dialogs and the auth views' cannot drift apart. No dialog puts a button in its header. At `sm` every footer pair the
   app and the auth views draw fits a 320px sheet's 288px on one line
   (`osn/auth-ui/DESIGN.md` §4 has the measure). A dialog that commits nothing
   of its own has Cancel alone: the profile switcher, whose rows are the
   choice, puts it after them. Below `md` a tall sheet scrolls, footer
   included; the scrim above the sheet and Escape stay as ways out.
-- **A form dialog** (create and edit organisation) = `DialogTitleRow`, then
-  the `<form>`: its fields in a body `div` padded 16px (`flex flex-col gap-4
-  p-4`), its actions in `DialogFooter`. The footer sits inside the form, so
+  `tools/e2e` holds the shape (`musubi-surfaces.ts`): `dialogTitle` and
+  `formDialog` read the create and edit organisation dialogs' centred title
+  and footer order, `signInLinkSurfaces` the sign-in dialog's,
+  `removalSheetSurfaces` the step-up sheet's, and the switcher check its
+  centred title, Cancel alone, focus on its row and Tab to Cancel.
+- **A form dialog** (create and edit organisation) = `AuthHeader`, then the
+  `<form>`: its fields in a body `div` padded 16px (`flex flex-col gap-4
+  p-4`), its actions in `DialogActions`. The footer sits inside the form, so
   Enter in a field submits. A confirmation dialog has the same shape with its
   words in the body (`ConnectionsPage`'s remove dialog, whose commit is
   `destructive`).

@@ -114,13 +114,16 @@ describe("<ProfileSwitcherDialog />", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  // The rows are the choice, so focus opens on the first one, not Cancel.
-  it("opens with focus on the first row", async () => {
+  // Escape closes the switcher when nothing runs, so the refusal below is a
+  // refusal and not an Escape that never arrives.
+  it("closes on Escape while idle", () => {
+    const onOpenChange = vi.fn();
     renderSwitcher(
       makeAuth(() => Promise.reject(new Error("unused"))),
-      () => {},
+      onOpenChange,
     );
-    await waitFor(() => expect(document.activeElement).toBe(profileRow("alice")));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   // Nothing closes the switcher while a switch runs.

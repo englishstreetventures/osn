@@ -167,8 +167,7 @@ export interface StepUpDialogProps {
   /**
    * **The host cannot deliver mail**: suppress the emailed-link factor and
    * drive the passkey ceremony directly. With this set the sheet auto-starts
-   * the passkey ceremony on mount and offers a retry on failure, and the
-   * "choose a method" helper line goes with the factor picker — unless a
+   * the passkey ceremony on mount and offers a retry on failure — unless a
    * `warning` is given: then the sheet shows its factors and waits for a
    * press, so the warning is read before the browser's prompt covers it.
    *
@@ -600,7 +599,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
         >
           {waiting() === "passkey"
             ? "Waiting for your passkey…"
-            : mode() === "passkey" && error()
+            : mode() === "passkey" && error() && props.runPasskeyCeremony
               ? "Try again"
               : "Use passkey"}
         </Button>

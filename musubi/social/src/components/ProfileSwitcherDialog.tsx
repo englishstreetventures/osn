@@ -1,14 +1,14 @@
+import { AuthHeader } from "@osn/auth-ui/AuthHeader";
+import { DialogActions } from "@osn/auth-ui/DialogActions";
 import type { PublicProfile } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Button } from "@shared/ui/ui/button";
-import { Dialog, DialogFooter } from "@shared/ui/ui/dialog";
+import { Dialog } from "@shared/ui/ui/dialog";
 import { createSignal, For, Show } from "solid-js";
 
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
-import { DialogTitleRow } from "./DialogTitleRow";
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
 
 /**
@@ -50,7 +50,7 @@ export function ProfileSwitcherDialog(props: {
       }}
     >
       <ResponsiveDialogContent width="xs" onCloseAutoFocus={props.onCloseAutoFocus}>
-        <DialogTitleRow>Switch profile</DialogTitleRow>
+        <AuthHeader host="dialog" title="Switch profile" />
         <div class="flex flex-col gap-1 py-2">
           <For each={profiles() ?? []}>
             {(profile) => {
@@ -102,18 +102,7 @@ export function ProfileSwitcherDialog(props: {
         </div>
         {/* The rows are the choice, so the footer holds Cancel alone, after
             them: the first row keeps first focus. */}
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            class="max-md:h-10"
-            disabled={switching()}
-            onClick={() => props.onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-        </DialogFooter>
+        <DialogActions onCancel={() => props.onOpenChange(false)} cancelDisabled={switching()} />
       </ResponsiveDialogContent>
     </Dialog>
   );

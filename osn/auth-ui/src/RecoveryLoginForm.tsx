@@ -236,7 +236,16 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     return next;
   }
 
+  /**
+   * Set once the form unmounts. The epoch stops a continuation that captured
+   * it; this stops one that would start a new loop after the screen has gone,
+   * such as a recovery answer that lands once the person has left the dialog.
+   * No timer is armed after it is set.
+   */
+  let disposed = false;
+
   onCleanup(() => {
+    disposed = true;
     epoch += 1;
     clearTimeout(expiryTimer);
   });
@@ -294,6 +303,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
    */
   function armExpiry(session: Session) {
     clearTimeout(expiryTimer);
+    if (disposed) return;
     expiryTimer = setTimeout(expire, Math.max(0, session.expiresAt - Date.now()));
   }
 
@@ -306,6 +316,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
    */
   function scheduleRefresh(session: Session) {
     clearTimeout(expiryTimer);
+    if (disposed) return;
     const untilExpiry = session.expiresAt - Date.now();
     if (untilExpiry <= REFRESH_LEAD_MS) {
       armExpiry(session);
@@ -325,6 +336,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
    */
   function scheduleRetry(session: Session) {
     clearTimeout(expiryTimer);
+    if (disposed) return;
     const gap = (session.expiresAt - Date.now()) / 2;
     if (gap < MIN_RETRY_GAP_MS) {
       armExpiry(session);
@@ -350,6 +362,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
   }
 
   function beginRestricted(result: HeldRecovery) {
+    if (disposed) return;
     epoch += 1;
     setHeld(result);
     scheduleRefresh(result.session);
@@ -359,8 +372,8 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
   }
 
   /** Waits on `request`, in this tab and in its storage; its number in memory only. */
-  function waitOn(request: Waiting, code: string) {
-    setPairingCode(code);
+  function waitOn(request: Waiting, number: string) {
+    setPairingCode(number);
     setWaiting(request);
     setLinkStatus("waiting");
     setLinkError(undefined);
@@ -655,8 +668,17 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
         : ("idle" as const),
   });
 
-  // The dialog's way out, first in each step's footer.
-  const dismiss = () => (props.host === "dialog" ? props.onDismiss : undefined);
+  // The dialog's way out, first in each step's footer. On the emailed link's
+  // wait it ends the wait on this side first, as Back does, so the request and
+  // its claim secret leave this tab's storage with the dialog.
+  const dismiss = () => {
+    if (props.host !== "dialog") return undefined;
+    const onDismiss = props.onDismiss;
+    return () => {
+      if (view() === "email-verify") leaveWait();
+      onDismiss();
+    };
+  };
   /** One step: Cancel in a dialog, the step's own action, its ways back. */
   const step = (parts: { action?: JSX.Element; links?: JSX.Element; children: JSX.Element }) => (
     <ViewStep
