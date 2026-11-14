@@ -9,7 +9,7 @@ import {
 import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
+import { resolveAccessTokenPrincipal, resolveAccountWindowPrincipal } from "../lib/auth-derive";
 import type { CookieSessionConfig } from "../lib/cookie-session";
 import { createLiveSessionCheck } from "../lib/live-session";
 import { publicError } from "../lib/public-error";
@@ -331,13 +331,18 @@ export function createAccountErasureRoutes(
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            const claims = await resolveAccountWindowPrincipal(auth, headers.authorization);
             if (!claims) {
               set.status = 401;
               return { error: "unauthorized" };
             }
             const profile = await run(auth.findProfileByIdIncludingTombstoned(claims.profileId));
-            if (!profile) {
+            // A pending-deletion token answers only while the deletion is
+            // pending; after a cancel the client renews into an ordinary one.
+            if (
+              !profile ||
+              (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null)
+            ) {
               set.status = 401;
               return { error: "unauthorized" };
             }

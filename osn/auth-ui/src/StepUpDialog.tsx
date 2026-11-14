@@ -94,6 +94,7 @@ const PURPOSE_FACTORS = {
   security_event_ack: { email: true, totp: true },
   account_delete: { email: true, totp: true },
   account_export: { email: true, totp: true },
+  account_restore: { email: true, totp: true },
   pulse_app_delete: { email: true, totp: true },
   zap_app_delete: { email: true, totp: true },
   passkey_register: { email: true, totp: true },

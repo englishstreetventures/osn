@@ -283,13 +283,25 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
    * everyday enrolment must never come back marked `restricted`, or it would
    * skip its own step-up gate. Two verifications on the recovery path is the
    * price, and that path runs once per account recovery.
+   *
+   * A recovery token resolves its profile even while the account's deletion
+   * is pending: recovery deletes every session of the account and ends in an
+   * enrolment, so without it a person who can reach only their mailbox could
+   * never sign in again to cancel. The enrolment lifts the restriction, and
+   * the session's next refresh is a pending-deletion one. An ordinary token
+   * resolves through `findProfileById`, which finds no profile of such an
+   * account.
    */
   async function resolvePasskeyEnrollPrincipal(authHeader: string | undefined): Promise<Principal> {
     const claims = await resolveAccessTokenPrincipal(auth, authHeader);
     const recoveryClaims = claims ? null : await resolveRecoveryTokenPrincipal(auth, authHeader);
     const resolved = claims ?? recoveryClaims;
     if (!resolved) return { unauthorized: true };
-    const profile = await run(auth.findProfileById(resolved.profileId));
+    const profile = await run(
+      claims
+        ? auth.findProfileById(resolved.profileId)
+        : auth.findProfileByIdIncludingTombstoned(resolved.profileId),
+    );
     if (!profile) return { unauthorized: true };
     return {
       unauthorized: false,

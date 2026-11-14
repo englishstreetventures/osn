@@ -181,6 +181,7 @@ export type StepUpPurpose =
   | "security_event_ack"
   | "account_delete"
   | "account_export"
+  | "account_restore"
   | "totp_enroll"
   | "totp_disable"
   | "pulse_app_delete"

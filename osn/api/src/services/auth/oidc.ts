@@ -549,7 +549,7 @@ const CONSENT_WRITE_PASSES = 2;
 
 export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config } = ctx;
-  const { findDefaultProfile, findProfileById } = profiles;
+  const { findAccountById, findDefaultProfile, findProfileById } = profiles;
 
   // -------------------------------------------------------------------------
   // Relying-party registry
@@ -1499,6 +1499,20 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       }
 
       const { accountId, authTime } = session;
+
+      // An account whose deletion is pending signs in to no relying party,
+      // first-party or not: refused here, before either branch below can
+      // record a consent or mint a code, with the refusal every relying party
+      // already handles. One read of the account per request that gets here.
+      const account = yield* findAccountById(accountId);
+      if (account === null || account.deletedAt !== null) {
+        return {
+          kind: "error" as const,
+          code: "access_denied" as const,
+          description: "Access denied",
+        };
+      }
+
       const consent = yield* findConsent(accountId, request.client.clientId);
       const consentUsable =
         consent !== null && scopeCovers(consent.scope, request.scope) && !prompts.has("consent");

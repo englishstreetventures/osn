@@ -34,6 +34,7 @@ const {
   accounts,
   blocks,
   connections,
+  deletionJobs,
   emailChanges,
   oauthClients,
   oauthConsents,
@@ -103,6 +104,58 @@ export function defaultExportDownstreams(env?: {
 }
 
 const jsonLine = (o: unknown): string => `${JSON.stringify(o)}\n`;
+
+/** A profile as it stood before the soft delete redacted it. */
+interface HeldProfile {
+  readonly handle: string;
+  readonly displayName: string | null;
+  readonly avatarUrl: string | null;
+}
+
+const stringOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
+
+/** One entry of `restore.profiles`, in the shape the soft delete writes it. */
+const isHeldEntry = (v: unknown): v is HeldProfile & { readonly id: string } =>
+  typeof v === "object" &&
+  v !== null &&
+  "id" in v &&
+  typeof v.id === "string" &&
+  "handle" in v &&
+  typeof v.handle === "string" &&
+  "displayName" in v &&
+  stringOrNull(v.displayName) &&
+  "avatarUrl" in v &&
+  stringOrNull(v.avatarUrl);
+
+/**
+ * The profiles in a deletion job's `restore` record, by profile id: what the
+ * soft delete redacted, which the person still owns while the deletion is
+ * pending. An entry not in the shape the soft delete writes is left out, and
+ * a record that does not parse reads as empty, so the export then shows the
+ * rows as they stand.
+ */
+function heldProfiles(restore: string | null): Map<string, HeldProfile> {
+  const held = new Map<string, HeldProfile>();
+  if (restore === null) return held;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(restore);
+  } catch {
+    return held;
+  }
+  if (typeof parsed !== "object" || parsed === null || !("profiles" in parsed)) return held;
+  const { profiles } = parsed;
+  if (!Array.isArray(profiles)) return held;
+  for (const entry of profiles as unknown[]) {
+    if (!isHeldEntry(entry)) continue;
+    held.set(entry.id, {
+      handle: entry.handle,
+      displayName: entry.displayName,
+      avatarUrl: entry.avatarUrl,
+    });
+  }
+  return held;
+}
 
 /**
  * Drives one keyset-paginated section: repeatedly fetches pages of at most
@@ -192,6 +245,7 @@ export async function* exportLines(opts: {
   yield jsonLine({ version: 1, sections: [...EXPORT_SECTIONS] });
 
   // account — singleton. Explicit field list; NEVER the internal accountId.
+  // `deletedAt` is read only to find the deletion's restore record below.
   const acct = await db
     .select({
       email: accounts.email,
@@ -199,11 +253,32 @@ export async function* exportLines(opts: {
       maxProfiles: accounts.maxProfiles,
       createdAt: accounts.createdAt,
       updatedAt: accounts.updatedAt,
+      deletedAt: accounts.deletedAt,
     })
     .from(accounts)
     .where(eq(accounts.id, accountId))
     .limit(1);
-  if (acct[0]) yield jsonLine({ section: "account", record: acct[0] });
+  if (acct[0]) {
+    const { deletedAt, ...record } = acct[0];
+    void deletedAt;
+    yield jsonLine({ section: "account", record });
+  }
+
+  // While a deletion is pending the soft delete has redacted each profile's
+  // handle, display name and avatar; the person still owns them until the
+  // hard delete, so the export shows them from the job's restore record.
+  const held =
+    acct[0]?.deletedAt != null
+      ? heldProfiles(
+          (
+            await db
+              .select({ restore: deletionJobs.restore })
+              .from(deletionJobs)
+              .where(eq(deletionJobs.accountId, accountId))
+              .limit(1)
+          )[0]?.restore ?? null,
+        )
+      : new Map<string, HeldProfile>();
 
   // profiles — also collects the owned profileIds used to scope graph sections
   // and the downstream fan-out.
@@ -228,7 +303,8 @@ export async function* exportLines(opts: {
     const { _cursor, ...record } = row;
     void _cursor;
     profileIds.push(record.id);
-    yield jsonLine({ section: "profiles", record });
+    const before = held.get(record.id);
+    yield jsonLine({ section: "profiles", record: before ? { ...record, ...before } : record });
   }
 
   // passkeys — metadata only (never credentialId / publicKey).

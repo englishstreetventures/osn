@@ -658,6 +658,7 @@ export function createRegistrationModule(
           yield* links.spend(requestId, claimed);
           return { kind: "conflict" } as const;
         }
+        // The account was created just now, so no deletion is pending.
         const issued = yield* issueTokens(
           profileId,
           accountId,
@@ -666,6 +667,7 @@ export function createRegistrationModule(
           signUp.displayName,
           undefined,
           sessionMeta,
+          null,
         );
         if (!(yield* links.spend(requestId, claimed))) return { kind: "lost" } as const;
         return { kind: "complete", issued } as const;

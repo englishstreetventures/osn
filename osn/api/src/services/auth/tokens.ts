@@ -37,6 +37,7 @@ import {
   ACCESS_TOKEN_AUDIENCE,
   LAST_USED_AT_COALESCE_MS,
   MAX_SESSIONS_PER_ACCOUNT,
+  PENDING_DELETION_TOKEN_AUDIENCE,
   RECOVERY_SESSION_TTL_SEC,
   RECOVERY_TOKEN_AUDIENCE,
   ROTATED_SESSION_SWEEP_CHUNK,
@@ -148,7 +149,20 @@ export const runRotatedSessionSweep = (
 
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;
-  const { findDefaultProfile, findProfileById } = profiles;
+  const { findAccountById, findDefaultProfile, findProfileById } = profiles;
+
+  /**
+   * The audience of an access token for a session: a restricted recovery
+   * session's own, whatever else holds; else the pending-deletion audience
+   * while the account's deletion is pending (`deletedAt` not null); else the
+   * ordinary one.
+   */
+  const audienceFor = (restricted: boolean, deletedAt: number | null): string =>
+    restricted
+      ? RECOVERY_TOKEN_AUDIENCE
+      : deletedAt !== null
+        ? PENDING_DELETION_TOKEN_AUDIENCE
+        : ACCESS_TOKEN_AUDIENCE;
 
   // -------------------------------------------------------------------------
   // Token issuance
@@ -159,8 +173,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * (via `issueTokens`) and token refresh / profile switch (standalone).
    *
    * `audience` decides what the token can reach. It defaults to
-   * {@link ACCESS_TOKEN_AUDIENCE}; the only other value it is ever given is
-   * {@link RECOVERY_TOKEN_AUDIENCE}, for a restricted recovery session.
+   * {@link ACCESS_TOKEN_AUDIENCE}; the only other values it is ever given are
+   * {@link RECOVERY_TOKEN_AUDIENCE}, for a restricted recovery session, and
+   * {@link PENDING_DELETION_TOKEN_AUDIENCE}, for a session of an account whose
+   * deletion is pending (see `audienceFor`).
    *
    * `ttlSec` shortens the configured lifetime — see {@link sessionBoundTtl},
    * which is the only thing that ever passes it.
@@ -441,9 +457,21 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
      * the token's audience alone.
      */
     restrictedAmr: RecoveryFactorAmr | null,
+    /**
+     * The account's `deleted_at` as the caller read it, which decides whether
+     * an unrestricted session's token is pending-deletion. `undefined` when
+     * the caller did not read it: then it is read here, once. A restricted
+     * session's audience does not depend on it, so it is never read for one.
+     */
+    accountDeletedAt: number | null | undefined,
   ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const restricted = restrictedAmr !== null;
+      const deletedAt = restricted
+        ? null
+        : accountDeletedAt !== undefined
+          ? accountDeletedAt
+          : ((yield* findAccountById(accountId))?.deletedAt ?? null);
       // Generate opaque session token + store SHA-256 hash in DB. This runs
       // BEFORE the access token is signed: the JWT carries a binding to the
       // session it was minted from (`osn_sid`).
@@ -464,7 +492,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         handle,
         displayName,
         deriveSessionBinding(sessionId, profileId),
-        restricted ? RECOVERY_TOKEN_AUDIENCE : ACCESS_TOKEN_AUDIENCE,
+        audienceFor(restricted, deletedAt),
         sessionBoundTtl(restrictedUntil, nowSec),
       );
       const fam = familyId ?? genId("sfam_");
@@ -499,7 +527,13 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       };
     });
 
-  /** Ordinary, unrestricted session issuance. See {@link issueSession}. */
+  /**
+   * Ordinary, unrestricted session issuance. See {@link issueSession}.
+   *
+   * `accountDeletedAt` is the account's `deleted_at` when the caller has read
+   * the account row already (every sign-in finder returns it as
+   * `ProfileWithEmail.accountDeletedAt`); left out, it is read here.
+   */
   const issueTokens = (
     profileId: string,
     accountId: string,
@@ -508,8 +542,19 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     displayName: string | null,
     familyId?: string,
     sessionMeta?: SessionMeta,
+    accountDeletedAt?: number | null,
   ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
-    issueSession(profileId, accountId, email, handle, displayName, familyId, sessionMeta, null);
+    issueSession(
+      profileId,
+      accountId,
+      email,
+      handle,
+      displayName,
+      familyId,
+      sessionMeta,
+      null,
+      accountDeletedAt,
+    );
 
   /**
    * Issues a **restricted recovery session**: the session account recovery
@@ -561,6 +606,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         undefined,
         sessionMeta,
         amr,
+        undefined,
       );
     });
 
@@ -871,6 +917,12 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * the grant says nothing about which profiles exist. A restricted recovery
    * session ignores `profileId`: it mints only for the default profile, on
    * its own audience.
+   *
+   * An unrestricted session of an account whose deletion is pending gets the
+   * pending-deletion audience, read from the account at this grant: a named
+   * profile found by `findProfileById` belongs to a live account, and the
+   * default profile carries its account's `deleted_at`. So a cancel needs no
+   * session write; the next grant is ordinary again.
    */
   const refreshTokens = (
     sessionToken: string,
@@ -950,7 +1002,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         profile.handle,
         profile.displayName,
         deriveSessionBinding(newSessionId, profile.id),
-        restrictedUntil === null ? ACCESS_TOKEN_AUDIENCE : RECOVERY_TOKEN_AUDIENCE,
+        audienceFor(restrictedUntil !== null, profile.accountDeletedAt ?? null),
         sessionBoundTtl(restrictedUntil, nowSec),
       );
 
@@ -1160,8 +1212,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   /**
    * Verifies an access-shaped JWT and pins its `aud` to `audience`.
    *
-   * **Deliberately private.** Only two bindings exist — {@link verifyAccessToken}
-   * and {@link verifyRecoveryAccessToken} — and neither is parameterised on the
+   * **Deliberately private.** Only three bindings exist —
+   * {@link verifyAccessToken}, {@link verifyRecoveryAccessToken} and
+   * {@link verifyPendingDeletionAccessToken} — and none is parameterised on the
    * service surface. A public "verify with whatever audience you like" is one
    * careless call away from a caller accepting the recovery audience at a route
    * the restriction exists to keep it out of.
@@ -1221,6 +1274,18 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    */
   const verifyRecoveryAccessToken = (token: string) =>
     verifyTokenWithAudience(token, RECOVERY_TOKEN_AUDIENCE);
+
+  /**
+   * Verifies the access token of a session of an account whose deletion is
+   * pending ({@link PENDING_DELETION_TOKEN_AUDIENCE}).
+   *
+   * `resolveAccountWindowPrincipal` is the only caller, and it tries
+   * {@link verifyAccessToken} first. The token proves only that the account's
+   * deletion was pending when it was minted: a caller reads the account and
+   * refuses it once the deletion is no longer pending.
+   */
+  const verifyPendingDeletionAccessToken = (token: string) =>
+    verifyTokenWithAudience(token, PENDING_DELETION_TOKEN_AUDIENCE);
 
   /**
    * Lifts the restriction from a recovery session, turning it into an ordinary
@@ -1300,6 +1365,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     refreshTokens,
     verifyAccessToken,
     verifyRecoveryAccessToken,
+    verifyPendingDeletionAccessToken,
     liftSessionRestriction,
   };
 }

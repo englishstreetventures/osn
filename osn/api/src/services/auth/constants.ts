@@ -179,6 +179,20 @@ export const ACCESS_TOKEN_AUDIENCE = "osn-access";
 export const RECOVERY_TOKEN_AUDIENCE = "osn-recovery";
 
 /**
+ * `aud` on every access token minted for a session of an account whose
+ * deletion is pending (`accounts.deleted_at` set): sign-in, refresh, and the
+ * session the deletion spared once it next refreshes. The audience is chosen
+ * from `accounts.deleted_at` at each mint, so a cancel needs no session write:
+ * the next refresh is `osn-access` again.
+ *
+ * Every ordinary verifier, here and in the services that verify over JWKS,
+ * pins `osn-access` and so refuses it. `resolveAccountWindowPrincipal` is the
+ * only resolver that accepts it, and only the deletion-status, export, restore,
+ * delete and step-up routes call that.
+ */
+export const PENDING_DELETION_TOKEN_AUDIENCE = "osn-pending-deletion";
+
+/**
  * Absolute lifetime of a restricted recovery session, in seconds. It does not
  * slide: the row is inserted with `expiresAt === restrictedUntil` and rotation
  * copies that deadline forward rather than extending it.
@@ -447,6 +461,7 @@ const RESERVED_OIDC_CLIENT_IDS: ReadonlySet<string> = new Set([
   // uses while the real audience stayed claimable.
   ACCESS_TOKEN_AUDIENCE,
   RECOVERY_TOKEN_AUDIENCE,
+  PENDING_DELETION_TOKEN_AUDIENCE,
   "osn-step-up",
   "osn-api",
   "pulse-api",

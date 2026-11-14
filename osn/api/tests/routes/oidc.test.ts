@@ -2472,3 +2472,51 @@ describe("GET /authorize with a restricted recovery session", () => {
     expect(loc.searchParams.get("code")).toBeNull();
   });
 });
+
+describe("GET /authorize for an account whose deletion is pending", () => {
+  /** What the soft delete leaves on the account: `deleted_at` set. */
+  const tombstoneEveryAccount = (h: Harness) =>
+    h.sqlite.run("UPDATE accounts SET deleted_at = ?", [Math.floor(Date.now() / 1000)]);
+
+  const count = (h: Harness, table: "oauth_consents" | "oauth_authorization_codes") =>
+    (h.sqlite.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+  it("answers a first-party client access_denied on a first visit, writing no consent and no code", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "pd-first@example.com", "pd_first");
+    tombstoneEveryAccount(h);
+
+    const res = await h.app.handle(new Request(authorizeUrl(goodParams), { headers: { cookie } }));
+
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.origin + loc.pathname).toBe(REDIRECT_URI);
+    expect(loc.searchParams.get("error")).toBe("access_denied");
+    expect(loc.searchParams.get("code")).toBeNull();
+    expect(loc.searchParams.get("state")).toBe("st_123");
+    expect(count(h, "oauth_consents")).toBe(0);
+    expect(count(h, "oauth_authorization_codes")).toBe(0);
+  });
+
+  it("answers access_denied where a consent is on record, writing no code", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "pd-consent@example.com", "pd_consent");
+    // Signed in to the app while the account was live: consent recorded.
+    const live = await h.app.handle(new Request(authorizeUrl(goodParams), { headers: { cookie } }));
+    expect(new URL(live.headers.get("location")!).searchParams.get("code")).toMatch(/^cod_/);
+    expect(count(h, "oauth_consents")).toBe(1);
+    const codesBefore = count(h, "oauth_authorization_codes");
+    tombstoneEveryAccount(h);
+
+    const res = await h.app.handle(new Request(authorizeUrl(goodParams), { headers: { cookie } }));
+
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("error")).toBe("access_denied");
+    expect(loc.searchParams.get("code")).toBeNull();
+    expect(count(h, "oauth_consents")).toBe(1);
+    expect(count(h, "oauth_authorization_codes")).toBe(codesBefore);
+  });
+});
