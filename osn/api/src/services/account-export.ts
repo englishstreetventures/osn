@@ -245,7 +245,9 @@ export async function* exportLines(opts: {
   yield jsonLine({ version: 1, sections: [...EXPORT_SECTIONS] });
 
   // account — singleton. Explicit field list; NEVER the internal accountId.
-  // `deletedAt` is read only to find the deletion's restore record below.
+  // The deletion job's restore record comes with it, by the job's key: a row
+  // only while a deletion is pending, and read only to show the profiles
+  // below.
   const acct = await db
     .select({
       email: accounts.email,
@@ -253,14 +255,15 @@ export async function* exportLines(opts: {
       maxProfiles: accounts.maxProfiles,
       createdAt: accounts.createdAt,
       updatedAt: accounts.updatedAt,
-      deletedAt: accounts.deletedAt,
+      restore: deletionJobs.restore,
     })
     .from(accounts)
+    .leftJoin(deletionJobs, eq(deletionJobs.accountId, accounts.id))
     .where(eq(accounts.id, accountId))
     .limit(1);
   if (acct[0]) {
-    const { deletedAt, ...record } = acct[0];
-    void deletedAt;
+    const { restore, ...record } = acct[0];
+    void restore;
     yield jsonLine({ section: "account", record });
   }
 
@@ -268,17 +271,7 @@ export async function* exportLines(opts: {
   // handle, display name and avatar; the person still owns them until the
   // hard delete, so the export shows them from the job's restore record.
   const held =
-    acct[0]?.deletedAt != null
-      ? heldProfiles(
-          (
-            await db
-              .select({ restore: deletionJobs.restore })
-              .from(deletionJobs)
-              .where(eq(deletionJobs.accountId, accountId))
-              .limit(1)
-          )[0]?.restore ?? null,
-        )
-      : new Map<string, HeldProfile>();
+    acct[0]?.restore != null ? heldProfiles(acct[0].restore) : new Map<string, HeldProfile>();
 
   // profiles — also collects the owned profileIds used to scope graph sections
   // and the downstream fan-out.

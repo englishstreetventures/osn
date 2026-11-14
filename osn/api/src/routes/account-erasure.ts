@@ -242,12 +242,15 @@ export function createAccountErasureRoutes(
 
             // A retry of a deletion already requested: its handle is
             // redacted by now, and a retry needs neither the confirmation nor
-            // a step-up to learn its date.
-            const pending = await run(accountErasure.getDeletionStatus(profile.accountId));
-            if (pending.scheduled) {
-              metricAccountDeletionRequested("already_pending");
-              set.status = 202;
-              return { scheduled_for: pending.scheduledFor, already_pending: true };
+            // a step-up to learn its date. Only a tombstoned account has a job
+            // to read: the soft delete writes both in one batch.
+            if ((profile.accountDeletedAt ?? null) !== null) {
+              const pending = await run(accountErasure.getDeletionStatus(profile.accountId));
+              if (pending.scheduled) {
+                metricAccountDeletionRequested("already_pending");
+                set.status = 202;
+                return { scheduled_for: pending.scheduledFor, already_pending: true };
+              }
             }
             // A pending-deletion token reaches this route only for that answer.
             if (claims.pendingDeletion) {
@@ -393,8 +396,9 @@ export function createAccountErasureRoutes(
       //
       // The caller holds a live session of the account, either audience, and
       // a step-up token for `account_restore`, from the body's
-      // `step_up_token` or the `x-step-up-token` header. With nothing pending
-      // it answers `cancelled: false` before asking for the step-up.
+      // `step_up_token` or the `x-step-up-token` header. With the account not
+      // tombstoned it answers `cancelled: false` before asking for the
+      // step-up.
       // ---------------------------------------------------------------------
       .post(
         "/restore",
@@ -438,8 +442,10 @@ export function createAccountErasureRoutes(
               return staleErr;
             }
 
-            const pending = await run(accountErasure.getDeletionStatus(profile.accountId));
-            if (!pending.scheduled) return { cancelled: false };
+            // Nothing pending on a live account: the soft delete writes the
+            // job and the tombstone in one batch. A job gone since the read is
+            // answered by `cancelErasure`.
+            if ((profile.accountDeletedAt ?? null) === null) return { cancelled: false };
 
             const stepUpToken = body?.step_up_token ?? headers["x-step-up-token"];
             if (!stepUpToken) {
@@ -514,8 +520,10 @@ export function createAccountErasureRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const status = await run(accountErasure.getDeletionStatus(profile.accountId));
-            return status;
+            // A live account has no job to read: the soft delete writes the
+            // job and the tombstone in one batch.
+            if ((profile.accountDeletedAt ?? null) === null) return { scheduled: false };
+            return await run(accountErasure.getDeletionStatus(profile.accountId));
           } catch (e) {
             const { status, body: errBody } = handleError(e);
             set.status = status;

@@ -25,7 +25,7 @@
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-import { oauthAuthorizationCodes, oauthClients, oauthConsents } from "@osn/db/schema";
+import { accounts, oauthAuthorizationCodes, oauthClients, oauthConsents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { rowsChanged } from "@shared/db-utils";
 import { and, eq, isNull, lte } from "drizzle-orm";
@@ -549,7 +549,7 @@ const CONSENT_WRITE_PASSES = 2;
 
 export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config } = ctx;
-  const { findAccountById, findDefaultProfile, findProfileById } = profiles;
+  const { findDefaultProfile, findProfileById } = profiles;
 
   // -------------------------------------------------------------------------
   // Relying-party registry
@@ -838,6 +838,48 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       const row = rows[0];
       if (!row || row.revokedAt !== null) return null;
       return { id: row.id, profileId: row.profileId, scope: row.scope };
+    });
+
+  /**
+   * For `/authorize`: whether the account may sign in to a relying party at
+   * all (it exists and no deletion is pending), and its live consent for
+   * `clientId` as {@link findConsent} answers it, in one statement. Null when
+   * the account is gone or its deletion is pending.
+   */
+  const findAuthorizingConsent = (
+    accountId: string,
+    clientId: string,
+  ): Effect.Effect<
+    { consent: { id: string; profileId: string; scope: string } | null } | null,
+    DatabaseError,
+    Db
+  > =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              deletedAt: accounts.deletedAt,
+              id: oauthConsents.id,
+              profileId: oauthConsents.profileId,
+              scope: oauthConsents.scope,
+              revokedAt: oauthConsents.revokedAt,
+            })
+            .from(accounts)
+            .leftJoin(
+              oauthConsents,
+              and(eq(oauthConsents.accountId, accounts.id), eq(oauthConsents.clientId, clientId)),
+            )
+            .where(eq(accounts.id, accountId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const row = rows[0];
+      if (!row || row.deletedAt !== null) return null;
+      if (row.id === null || row.profileId === null || row.scope === null) return { consent: null };
+      if (row.revokedAt !== null) return { consent: null };
+      return { consent: { id: row.id, profileId: row.profileId, scope: row.scope } };
     });
 
   /**
@@ -1503,9 +1545,9 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       // An account whose deletion is pending signs in to no relying party,
       // first-party or not: refused here, before either branch below can
       // record a consent or mint a code, with the refusal every relying party
-      // already handles. One read of the account per request that gets here.
-      const account = yield* findAccountById(accountId);
-      if (account === null || account.deletedAt !== null) {
+      // already handles. The account and its consent come from one read.
+      const authorizing = yield* findAuthorizingConsent(accountId, request.client.clientId);
+      if (authorizing === null) {
         return {
           kind: "error" as const,
           code: "access_denied" as const,
@@ -1513,7 +1555,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         };
       }
 
-      const consent = yield* findConsent(accountId, request.client.clientId);
+      const { consent } = authorizing;
       const consentUsable =
         consent !== null && scopeCovers(consent.scope, request.scope) && !prompts.has("consent");
 

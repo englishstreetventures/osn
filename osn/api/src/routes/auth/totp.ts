@@ -3,12 +3,13 @@
  *
  * The step-up ceremony that CONSUMES a TOTP code lives with the other step-up
  * routes in `./step-up.ts`; these four are the credential's own lifecycle. See
- * `[[wiki/osn/totp]]`.
+ * `[[wiki/osn/totp]]`. Only the status admits a session of an account whose
+ * deletion is pending.
  */
 
 import { Elysia, t } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
+import { resolveAccessTokenPrincipal, resolveAccountWindowPrincipal } from "../../lib/auth-derive";
 import type { AuthRouteContext } from "./context";
 import { errorResponse } from "./response-schemas";
 
@@ -245,13 +246,21 @@ export function createTotpRoutes(ctx: AuthRouteContext) {
           return rlErr;
         }
         try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          // The one TOTP route a session of an account whose deletion is
+          // pending reaches: the step-up sheet reads it before offering the
+          // authenticator for the export or the cancel. Such a token answers
+          // only while the deletion is pending.
+          const claims = await resolveAccountWindowPrincipal(auth, headers.authorization);
           if (!claims) {
             set.status = 401;
             return { error: "unauthorized" };
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
+          const profile = await run(
+            claims.pendingDeletion
+              ? auth.findProfileByIdIncludingTombstoned(claims.profileId)
+              : auth.findProfileById(claims.profileId),
+          );
+          if (!profile || (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null)) {
             set.status = 401;
             return { error: "unauthorized" };
           }

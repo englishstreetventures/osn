@@ -633,6 +633,44 @@ describe("the export and status a pending-deletion token reaches", () => {
     expect(profiles[0]!["handle"]).toBe(`deleted_${profile.id.replace("usr_", "")}`);
   });
 
+  it("reads the authenticator status, which the step-up sheet asks before offering it, and still cannot enrol or remove one", async () => {
+    // Red on resolving the status caller as an ordinary session only: the
+    // sheet never offers the authenticator to a person cancelling their
+    // deletion, and the client's renew-then-401 ends the session.
+    const h = harness();
+    const { pending, profile } = await pendingDeletionAccount(h, "pdtotpstatus", {
+      beforeTombstone: async (live, accountId) => {
+        await enrolTotp(h, accountId, live);
+      },
+    });
+
+    const status = await h.authApp.handle(
+      new Request("http://localhost/totp/status", { headers: bearer(pending) }),
+    );
+    expect(status.status).toBe(200);
+    expect((await status.json()) as { enrolled?: boolean }).toMatchObject({ enrolled: true });
+
+    const stepUp = await h.svc(
+      h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+    );
+    const enrol = await h.post("/totp/enroll/begin", { step_up_token: stepUp }, bearer(pending));
+    expect(enrol.status).toBe(401);
+    const removal = await h.authApp.handle(
+      new Request("http://localhost/totp", {
+        method: "DELETE",
+        headers: { "content-type": "application/json", ...bearer(pending) },
+        body: JSON.stringify({ step_up_token: stepUp }),
+      }),
+    );
+    expect(removal.status).toBe(401);
+
+    untombstone(h, profile.accountId);
+    const stale = await h.authApp.handle(
+      new Request("http://localhost/totp/status", { headers: bearer(pending) }),
+    );
+    expect(stale.status).toBe(401);
+  });
+
   it("refuses a pending-deletion token once the account is no longer pending deletion", async () => {
     const h = harness();
     const { profile, pending } = await pendingDeletionAccount(h, "pdstaletoken");
