@@ -1287,7 +1287,7 @@ describe("ci.yml skips its build, test and E2E jobs for a prose-only change, and
   });
 });
 
-describe("CI's E2E job runs the suite once and retries the whole run; the determinism check runs where a flow can change", () => {
+describe("CI's E2E job runs the suite once and retries the whole run only when it fails; the determinism check runs daily and by hand", () => {
   const ci = load(".github/workflows/ci.yml");
   const repro = load(".github/workflows/e2e-repro.yml");
   const e2e = ci.jobs.e2e;
@@ -1300,6 +1300,7 @@ describe("CI's E2E job runs the suite once and retries the whole run; the determ
     expect(e2e?.name).toBe("E2E");
     const steps = e2e?.steps ?? [];
     expect(steps.filter((step) => step.run?.includes("test:e2e:repro"))).toEqual([]);
+    expect(steps.filter((step) => step.run?.includes("test:e2e"))).toHaveLength(1);
     const step = steps.find((one) => one.run?.includes("e2e-with-retry.sh"));
     const match = /^bash scripts\/e2e-with-retry\.sh (\d+) (\d+) bun run test:e2e$/.exec(
       step?.run ?? "",
@@ -1323,26 +1324,46 @@ describe("CI's E2E job runs the suite once and retries the whole run; the determ
     ]);
   });
 
-  // Without the paths, every pull request pays for two more runs of the suite;
-  // with a path that names nothing, the check never runs.
-  test("the determinism job runs test:e2e:repro daily, by hand, and on a push to main or a pull request that changes tools/e2e, and never in the merge queue", () => {
-    expect(Object.keys(repro.on).toSorted()).toEqual([
-      "pull_request",
-      "push",
-      "schedule",
-      "workflow_dispatch",
-    ]);
-    const paths = ["tools/e2e/**", ".github/workflows/e2e-repro.yml", `${SETUP.slice(2)}/**`];
-    expect(repro.on.pull_request).toEqual({ paths });
-    expect(repro.on.push).toEqual({ branches: ["main"], paths });
-    for (const path of paths)
-      expect(existsSync(join(root, path.replace(/\/\*\*$/, "")))).toBe(true);
+  // The determinism check runs the whole suite twice. On a pull request or a
+  // push that is two runs more than the one CI's E2E job makes, so it runs on
+  // its daily schedule and by hand only; without the schedule nothing compares
+  // two runs at all.
+  test("the determinism job runs test:e2e:repro daily and by hand only: never on a pull request, a push or a merge-queue group", () => {
+    expect(Object.keys(repro.on).toSorted()).toEqual(["schedule", "workflow_dispatch"]);
+    expect(repro.on.schedule).toEqual([{ cron: "17 5 * * *" }]);
     expect(repro.permissions).toEqual({ contents: "read" });
     const jobs = Object.values(repro.jobs);
     expect(jobs.map((job) => job.name)).toEqual(["E2E determinism"]);
+    // Nothing to cancel: no event here supersedes an earlier run.
+    expect(jobs[0]?.concurrency).toBeUndefined();
     expect(
       (jobs[0]?.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run])),
     ).toEqual(["bun run test:e2e:repro"]);
+  });
+
+  // A pull request, a push or a merge-queue group runs the suite in one step
+  // of one job, CI's E2E, and never twice by design: a second run happens only
+  // when e2e-with-retry.sh retries a failed one.
+  test("on a pull request, a push or a merge-queue group, only CI's E2E step runs the suite, and nothing runs test:e2e:repro", () => {
+    const CHANGE_EVENTS = new Set(["pull_request", "pull_request_target", "push", "merge_group"]);
+    const workflows = Array.from(
+      new Bun.Glob(".github/workflows/*.{yml,yaml}").scanSync({ cwd: root }),
+    ).toSorted();
+    expect(workflows).toContain(".github/workflows/e2e-repro.yml");
+    const suiteSteps = workflows.flatMap((path) => {
+      const workflow = load(path);
+      if (!Object.keys(workflow.on).some((event) => CHANGE_EVENTS.has(event))) return [];
+      return Object.entries(workflow.jobs).flatMap(([id, job]) =>
+        stepsOf(job)
+          .filter((step) =>
+            /\btest:e2e\b|\be2e:repro\b|tools\/e2e\b|\bplaywright test\b/.test(step.run ?? ""),
+          )
+          .map((step) => `${path} ${id}: ${step.run}`),
+      );
+    });
+    expect(suiteSteps).toEqual([
+      ".github/workflows/ci.yml e2e: bash scripts/e2e-with-retry.sh 2 720 bun run test:e2e",
+    ]);
   });
 
   test("both jobs set up through the one shared action, straight after the checkout", () => {

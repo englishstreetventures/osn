@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-15
 ---
 
 # Contributing
@@ -143,7 +143,7 @@ A pull request diffs its merge commit against the base it was merged with; a mer
 
 `scripts/tests/deploy-workflows.test.ts` holds which jobs may skip and runs the detection step against throwaway repositories, one per event; `scripts/tests/docs-only.cli.test.ts` holds what counts as prose.
 
-`E2E` runs the suite once and reruns a failed run whole; `E2E determinism` runs it twice and compares, on changes under `tools/e2e/` and daily ([[testing-patterns#The end-to-end suite]]). Swift CI (`ci-swift.yml`) runs only when Swift, Xcode or the OpenAPI documents change.
+`E2E` runs the suite once and reruns a failed run whole; `E2E determinism` runs it twice and compares, daily and by hand only, so no pull request or push runs the suite twice ([[testing-patterns#The end-to-end suite]]). Swift CI (`ci-swift.yml`) runs only when Swift, Xcode or the OpenAPI documents change.
 
 *Measured 2026-11-11 — job times from `gh api repos/englishstreetventures/osn/actions/runs/<id>/jobs` on seven pull-request runs: a wiki-only change (run 42205244609) spent 9 min 9 s in `E2E`, 2 min 17 s in the migration workflow and 30 to 47 s in each other job; the gate's slowest need on most changes is the migration workflow, at 1.5 to 2.4 min.*
 
