@@ -1018,6 +1018,24 @@ describe("a sheet's slide", () => {
       expect(readSheet(panel).opacity).toBe(1);
     });
 
+    it("hands focus back to what had it, after the fade out", async () => {
+      render(DIALOG_SHEET.view);
+      DIALOG_SHEET.trigger().focus();
+      await userEvent.keyboard("{Enter}");
+      const panel = await vi.waitFor(
+        () => {
+          const found = DIALOG_SHEET.panel();
+          if (!found) throw new Error("no sheet");
+          return found;
+        },
+        { timeout: 3000 },
+      );
+      await settled(panel);
+      await DIALOG_SHEET.close();
+      await frames();
+      expect(document.activeElement).toBe(DIALOG_SHEET.trigger());
+    });
+
     it("fades on the sheet's pace, and moves nothing but opacity", async () => {
       const set = renderSheet();
       const moved = watchTransitions();
