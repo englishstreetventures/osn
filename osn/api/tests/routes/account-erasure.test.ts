@@ -417,6 +417,118 @@ describe("account-erasure routes — response bodies", () => {
   });
 });
 
+/**
+ * The routes an account reaches to delete itself, cancel, or see what a
+ * deletion would leave open, against a caller with no ordinary bearer: none
+ * at all, one this issuer never signed, and a restricted recovery session's.
+ * Each refusal is sent beside the account's own token on the same request,
+ * which the route admits, because a 401 is also what a broken harness
+ * returns.
+ */
+describe("account-erasure routes refuse a missing, forged or recovery bearer", () => {
+  let otherKey: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+
+  beforeAll(async () => {
+    otherKey = await makeTestAuthConfig();
+  });
+
+  const ROUTES = [
+    {
+      route: "DELETE /account",
+      method: "DELETE",
+      path: "/account",
+      body: { confirm_handle: "not-eraser" } as Record<string, unknown> | undefined,
+      admitted: { status: 400, body: { error: "handle_mismatch" } as unknown },
+    },
+    {
+      route: "POST /account/restore",
+      method: "POST",
+      path: "/account/restore",
+      body: {},
+      admitted: { status: 200, body: { cancelled: false } },
+    },
+    {
+      route: "GET /account/deletion-preview",
+      method: "GET",
+      path: "/account/deletion-preview",
+      body: undefined,
+      admitted: { status: 200, body: { open_actions: [] } },
+    },
+  ];
+
+  type Seeded = Awaited<ReturnType<typeof seed>>;
+  const run = <A, E>(layer: ReturnType<typeof createTestLayer>, effect: Effect.Effect<A, E, Db>) =>
+    Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
+
+  /** The `Authorization` header each refused caller sends, or none. */
+  const CALLERS: Record<
+    string,
+    (s: Seeded, layer: ReturnType<typeof createTestLayer>) => Promise<string | null>
+  > = {
+    "no Authorization header": async () => null,
+    "a token signed with another key": async ({ profile }, layer) =>
+      `Bearer ${
+        (
+          await run(
+            layer,
+            createAuthService(otherKey).issueTokens(
+              profile.id,
+              profile.accountId,
+              profile.email,
+              profile.handle,
+              profile.displayName,
+            ),
+          )
+        ).accessToken
+      }`,
+    "a restricted recovery session's token": async ({ auth, profile }, layer) =>
+      `Bearer ${
+        (
+          await run(
+            layer,
+            auth.issueRecoverySession(
+              profile.id,
+              profile.accountId,
+              profile.email,
+              profile.handle,
+              profile.displayName,
+              "otp",
+            ),
+          )
+        ).accessToken
+      }`,
+  };
+
+  it.each(
+    ROUTES.flatMap((route) =>
+      Object.keys(CALLERS).map((caller) => [route.route, caller, route] as const),
+    ),
+  )("%s refuses %s with 401", async (_name, caller, route) => {
+    const layer = createTestLayer();
+    const seeded = await seed(layer);
+    const authorization = await CALLERS[caller]!(seeded, layer);
+    const send = (headers: Record<string, string>) =>
+      seeded.app.handle(
+        new Request(`http://localhost${route.path}`, {
+          method: route.method,
+          headers:
+            route.body === undefined ? headers : { ...headers, "content-type": "application/json" },
+          body: route.body === undefined ? undefined : JSON.stringify(route.body),
+        }),
+      );
+
+    const refused = await send(
+      authorization === null ? IP_HEADERS : { ...IP_HEADERS, Authorization: authorization },
+    );
+    expect(refused.status).toBe(401);
+    expect(await refused.json()).toEqual({ error: "unauthorized" });
+
+    const admitted = await send(seeded.authed);
+    expect(admitted.status).toBe(route.admitted.status);
+    expect(await admitted.json()).toEqual(route.admitted.body);
+  });
+});
+
 /** Runs a service effect on `layer`. */
 const runOn = <A, E, R>(
   layer: Layer.Layer<Db | EmailService>,
@@ -706,6 +818,92 @@ describe("the organisations an account owns", () => {
     expect(JSON.parse(job!.choices!)).toEqual({
       [action]: { choice: "successor", successorProfileId: h.bob.id },
     });
+  });
+
+  it("DELETE /account allows only delete for an organisation with no other member", async () => {
+    const h = await owner();
+    const solo = await runOn(h.layer, h.orgs.createOrganisation(h.profile.id, "solo", "Solo"));
+    const soloAction = `osn:organisation:${solo.id}`;
+    const acmeAnswer = { action: `osn:organisation:${h.acme.id}`, choice: "delete" };
+    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete");
+    const attempt = (choices: unknown[]) =>
+      requestDeletion(h.app, h.authed, {
+        confirm_handle: h.profile.handle,
+        step_up_token: token,
+        choices,
+      });
+
+    // Not answered: it waits for one, though no one could take it over.
+    const waiting = await attempt([acmeAnswer]);
+    expect(waiting.status).toBe(409);
+    const open = (await waiting.json()) as { error: string; open_actions: OpenAction[] };
+    expect(open.error).toBe("open_actions");
+    expect(open.open_actions.map((a) => a.id)).toEqual([soloAction]);
+
+    for (const answer of [
+      { action: soloAction, choice: "transfer" },
+      { action: soloAction, choice: "successor", successor_profile_id: h.bob.id },
+    ]) {
+      const refused = await attempt([acmeAnswer, answer]);
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toEqual({ error: "invalid_choice", action: soloAction });
+    }
+
+    const scheduled = await attempt([acmeAnswer, { action: soloAction, choice: "delete" }]);
+    expect(scheduled.status).toBe(202);
+  });
+
+  it("DELETE /account refuses a successor who is a member of another of the organisations only", async () => {
+    // bob is a member of acme, carol of beta. Named for beta, bob is refused,
+    // though a read of both organisations' members finds him.
+    const h = await owner();
+    const carol = await runOn(h.layer, h.auth.registerProfile("carol@example.com", "carol"));
+    const beta = await runOn(h.layer, h.orgs.createOrganisation(h.profile.id, "beta", "Beta"));
+    await runOn(h.layer, h.orgs.addMember(beta.id, h.profile.id, carol.id, "member"));
+    const acmeAction = `osn:organisation:${h.acme.id}`;
+    const betaAction = `osn:organisation:${beta.id}`;
+    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete");
+    const attempt = (betaSuccessor: string) =>
+      requestDeletion(h.app, h.authed, {
+        confirm_handle: h.profile.handle,
+        step_up_token: token,
+        choices: [
+          { action: acmeAction, choice: "successor", successor_profile_id: h.bob.id },
+          { action: betaAction, choice: "successor", successor_profile_id: betaSuccessor },
+        ],
+      });
+
+    const refused = await attempt(h.bob.id);
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: "invalid_choice", action: betaAction });
+
+    // Control: beta's own member is admitted, with the same unspent token.
+    expect((await attempt(carol.id)).status).toBe(202);
+  });
+
+  it("DELETE /account takes 200 choices and refuses 201 at the body schema", async () => {
+    const h = await owner();
+    const action = `osn:organisation:${h.acme.id}`;
+    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete");
+    // Answers to actions the account does not have, which the route ignores.
+    const ignored = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        action: `osn:organisation:org_${String(i).padStart(12, "0")}`,
+        choice: "delete",
+      }));
+    const attempt = (choices: unknown[]) =>
+      requestDeletion(h.app, h.authed, {
+        confirm_handle: h.profile.handle,
+        step_up_token: token,
+        choices,
+      });
+
+    const over = await attempt([...ignored(200), { action, choice: "delete" }]);
+    expect(over.status).toBe(422);
+
+    // The refusal above spent nothing: the same token schedules the deletion.
+    const atCap = await attempt([...ignored(199), { action, choice: "delete" }]);
+    expect(atCap.status).toBe(202);
   });
 
   it("DELETE /account needs no choice for an organisation another admin can take over", async () => {

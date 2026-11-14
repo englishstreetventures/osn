@@ -1,11 +1,13 @@
 import { it, expect, describe } from "@effect/vitest";
-import { handleHolds } from "@osn/db/schema";
+import { deletionJobs, handleHolds } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { type EmailService, makeLogEmailLive } from "@shared/email";
+import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { afterEach, beforeAll, vi } from "vitest";
 
 import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
+import { hardDeleteAccount, requestErasure } from "../../src/services/account-erasure";
 import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
 import { createProfileService } from "../../src/services/profile";
@@ -207,6 +209,59 @@ describe.each(SITES)("a held handle at $site", ({ attempt, taken, free }) => {
     const sites = makeSites();
     return Effect.gen(function* () {
       yield* holdHandle("someone", { accountId: null, releaseAt: nowSec() });
+      expect(yield* attempt(sites, "someone")).toBe(free);
+    }).pipe(Effect.provide(sites.layer));
+  });
+});
+
+/** When the account below is soft-deleted, and when it is hard-deleted: 7 days and a minute on. */
+const SOFT_DELETED_AT = new Date("2030-06-01T10:00:00.000Z");
+const HARD_DELETED_AT = Math.floor(Date.parse("2030-06-08T10:01:00.000Z") / 1000);
+
+/**
+ * An account on "someone", soft-deleted and then hard-deleted at
+ * {@link HARD_DELETED_AT}, through the erasure service with the digest the
+ * erasure routes' own factory makes. Answers the release the hard delete
+ * wrote, pinned to 30 days after it, to the second.
+ */
+const erasedHolder = (sites: Sites) =>
+  Effect.gen(function* () {
+    vi.setSystemTime(SOFT_DELETED_AT);
+    const holder = yield* sites.registration.registerProfile("holder@example.com", "someone");
+    yield* requestErasure({
+      accountId: holder.accountId,
+      cancel: null,
+      heldHandleDigest: createAuthService(config).heldHandleDigest,
+    });
+    const { db } = yield* Db;
+    const [job] = yield* Effect.promise(() =>
+      db.select().from(deletionJobs).where(eq(deletionJobs.accountId, holder.accountId)),
+    );
+    expect((yield* hardDeleteAccount(job!, HARD_DELETED_AT)).deleted).toBe(true);
+    const holds = yield* Effect.promise(() => db.select().from(handleHolds));
+    expect(holds).toEqual([
+      expect.objectContaining({ accountId: null, releaseAt: HARD_DELETED_AT + 30 * 86_400 }),
+    ]);
+    return holds[0]!.releaseAt!;
+  });
+
+describe.each(SITES)("the hold a hard delete wrote, at $site", ({ attempt, taken, free }) => {
+  it.effect("refuses the handle the second before its release", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const sites = makeSites();
+    return Effect.gen(function* () {
+      const releaseAt = yield* erasedHolder(sites);
+      vi.setSystemTime((releaseAt - 1) * 1000);
+      expect(yield* attempt(sites, "someone")).toBe(taken);
+    }).pipe(Effect.provide(sites.layer));
+  });
+
+  it.effect("admits it from the second of its release", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const sites = makeSites();
+    return Effect.gen(function* () {
+      const releaseAt = yield* erasedHolder(sites);
+      vi.setSystemTime(releaseAt * 1000);
       expect(yield* attempt(sites, "someone")).toBe(free);
     }).pipe(Effect.provide(sites.layer));
   });

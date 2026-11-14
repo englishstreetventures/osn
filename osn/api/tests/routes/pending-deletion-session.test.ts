@@ -64,6 +64,7 @@ const {
   confirmLinkThroughRoutes,
   linkForRequest,
   stepUpStatusThroughRoutes,
+  stepUpThroughRoutes,
 } = await import("../helpers/step-up-link");
 const { settledHandle } = await import("../helpers/background");
 
@@ -277,6 +278,49 @@ const nextCode = (secret: Uint8Array) =>
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
+/** The two purposes a pending-deletion caller may mint a step-up for. */
+const WINDOW_PURPOSES = ["account_export", "account_restore"] as const;
+
+type WindowPurpose = (typeof WINDOW_PURPOSES)[number];
+
+/** What a route answered: its status, and the body where the test reads one. */
+type Spent = { status: number; body?: unknown };
+
+/**
+ * Spends a pending-deletion caller's step-up token at the route its purpose
+ * is for, and answers what that route said.
+ */
+const SPEND_AT: Record<
+  WindowPurpose,
+  (h: Harness, pending: string, stepUp: string) => Promise<Spent>
+> = {
+  account_export: async (h, pending, stepUp) => {
+    const exported = await h.exportApp.handle(
+      new Request("http://localhost/account/export", {
+        headers: { ...IP_HEADERS, ...bearer(pending), "x-step-up-token": stepUp },
+      }),
+    );
+    await exported.text();
+    return { status: exported.status };
+  },
+  account_restore: async (h, pending, stepUp) => {
+    const restored = await h.erasureApp.handle(
+      new Request("http://localhost/account/restore", {
+        method: "POST",
+        headers: { ...IP_HEADERS, ...bearer(pending), "content-type": "application/json" },
+        body: JSON.stringify({ step_up_token: stepUp }),
+      }),
+    );
+    return { status: restored.status, body: await restored.json() };
+  },
+};
+
+/** What each route answers a token it accepts: the export, and the cancel. */
+const SPENT: Record<WindowPurpose, Spent> = {
+  account_export: { status: 200 },
+  account_restore: { status: 200, body: { cancelled: true } },
+};
+
 // ---------------------------------------------------------------------------
 // Minting
 // ---------------------------------------------------------------------------
@@ -373,79 +417,94 @@ describe("routes a pending-deletion token cannot reach", () => {
     expect(allowed.status).toBe(200);
   });
 
-  it("passkey step-up mints for it only for export or restore", async () => {
-    const h = harness();
-    // Enrolled before the session: a service enrolment with no caller session
-    // ends every session of the account.
-    const profile = await h.svc(h.auth.registerProfile("pdstepkey@example.com", "pdstepkey"));
-    const { credentialId } = await enrolPasskey(h, profile.accountId);
-    const session = await h.svc(
-      h.auth.issueTokens(profile.id, profile.accountId, profile.email, profile.handle, null),
-    );
-    tombstone(h, profile.accountId);
-    const { accessToken: pending } = await refresh(h, cookieHeaderFor(session.refreshToken));
+  // Each admitted purpose on a fresh account whose deletion is pending, its
+  // token spent where that purpose is for: the restore case is the only way
+  // a person signed in during the window can cancel.
+  it.each(WINDOW_PURPOSES)(
+    "passkey step-up mints for it only for export or restore (%s)",
+    async (purpose) => {
+      const h = harness();
+      // Enrolled before the session: a service enrolment with no caller session
+      // ends every session of the account.
+      const profile = await h.svc(h.auth.registerProfile("pdstepkey@example.com", "pdstepkey"));
+      const { credentialId } = await enrolPasskey(h, profile.accountId);
+      const session = await h.svc(
+        h.auth.issueTokens(profile.id, profile.accountId, profile.email, profile.handle, null),
+      );
+      tombstone(h, profile.accountId);
+      const { accessToken: pending } = await refresh(h, cookieHeaderFor(session.refreshToken));
 
-    const begun = await h.post("/step-up/passkey/begin", {}, bearer(pending));
-    expect(begun.status).toBe(200);
+      const begun = await h.post("/step-up/passkey/begin", {}, bearer(pending));
+      expect(begun.status).toBe(200);
 
-    const assertion = fakeAssertion(credentialId);
-    const noPurpose = await h.post("/step-up/passkey/complete", { assertion }, bearer(pending));
-    expect(noPurpose.status).toBe(401);
-    const otherPurpose = await h.post(
-      "/step-up/passkey/complete",
-      { assertion, purpose: "account_delete" },
-      bearer(pending),
-    );
-    expect(otherPurpose.status).toBe(401);
+      const assertion = fakeAssertion(credentialId);
+      const noPurpose = await h.post("/step-up/passkey/complete", { assertion }, bearer(pending));
+      expect(noPurpose.status).toBe(401);
+      const otherPurpose = await h.post(
+        "/step-up/passkey/complete",
+        { assertion, purpose: "account_delete" },
+        bearer(pending),
+      );
+      expect(otherPurpose.status).toBe(401);
 
-    const allowed = await h.post(
-      "/step-up/passkey/complete",
-      { assertion, purpose: "account_export" },
-      bearer(pending),
-    );
-    expect(allowed.status).toBe(200);
-    expect((await allowed.json()) as { step_up_token?: string }).toHaveProperty("step_up_token");
-  });
+      const allowed = await h.post(
+        "/step-up/passkey/complete",
+        { assertion, purpose },
+        bearer(pending),
+      );
+      expect(allowed.status).toBe(200);
+      const { step_up_token } = (await allowed.json()) as { step_up_token: string };
+      expect(await SPEND_AT[purpose](h, pending, step_up_token)).toEqual(SPENT[purpose]);
+    },
+  );
 
-  it("authenticator step-up mints for it only for export or restore", async () => {
-    const h = harness();
-    let secret: Uint8Array = new Uint8Array();
-    const { pending } = await pendingDeletionAccount(h, "pdsteptotp", {
-      beforeTombstone: async (live, accountId) => {
-        secret = await enrolTotp(h, accountId, live);
-      },
-    });
-    const code = await nextCode(secret);
+  it.each(WINDOW_PURPOSES)(
+    "authenticator step-up mints for it only for export or restore (%s)",
+    async (purpose) => {
+      const h = harness();
+      let secret: Uint8Array = new Uint8Array();
+      const { pending } = await pendingDeletionAccount(h, "pdsteptotp", {
+        beforeTombstone: async (live, accountId) => {
+          secret = await enrolTotp(h, accountId, live);
+        },
+      });
+      const code = await nextCode(secret);
 
-    const noPurpose = await h.post("/step-up/totp/complete", { code }, bearer(pending));
-    expect(noPurpose.status).toBe(401);
-    const otherPurpose = await h.post(
-      "/step-up/totp/complete",
-      { code, purpose: "account_delete" },
-      bearer(pending),
-    );
-    expect(otherPurpose.status).toBe(401);
+      const noPurpose = await h.post("/step-up/totp/complete", { code }, bearer(pending));
+      expect(noPurpose.status).toBe(401);
+      const otherPurpose = await h.post(
+        "/step-up/totp/complete",
+        { code, purpose: "account_delete" },
+        bearer(pending),
+      );
+      expect(otherPurpose.status).toBe(401);
 
-    const allowed = await h.post(
-      "/step-up/totp/complete",
-      { code, purpose: "account_export" },
-      bearer(pending),
-    );
-    expect(allowed.status).toBe(200);
-    expect((await allowed.json()) as { step_up_token?: string }).toHaveProperty("step_up_token");
-  });
+      const allowed = await h.post("/step-up/totp/complete", { code, purpose }, bearer(pending));
+      expect(allowed.status).toBe(200);
+      const { step_up_token } = (await allowed.json()) as { step_up_token: string };
+      expect(await SPEND_AT[purpose](h, pending, step_up_token)).toEqual(SPENT[purpose]);
+    },
+  );
 
-  it("step-up by emailed link begins for it only for export or restore", async () => {
-    const h = harness();
-    const { pending } = await pendingDeletionAccount(h, "pdsteplink");
+  it.each(WINDOW_PURPOSES)(
+    "step-up by emailed link begins for it only for export or restore (%s)",
+    async (purpose) => {
+      const h = harness();
+      const { pending } = await pendingDeletionAccount(h, "pdsteplink");
 
-    const refused = await beginStepUpThroughRoutes(h.authApp, pending, "account_delete");
-    expect(refused.res.status).toBe(401);
+      const refused = await beginStepUpThroughRoutes(h.authApp, pending, "account_delete");
+      expect(refused.res.status).toBe(401);
 
-    const allowed = await beginStepUpThroughRoutes(h.authApp, pending, "account_export");
-    expect(allowed.res.status).toBe(200);
-    expect(allowed.body).toHaveProperty("requestId");
-  });
+      // Begin, confirm from the mailed link, then poll, as the tab does.
+      const stepUp = await stepUpThroughRoutes(
+        h.authApp,
+        pending,
+        () => h.email.recorded(),
+        purpose,
+      );
+      expect(await SPEND_AT[purpose](h, pending, stepUp)).toEqual(SPENT[purpose]);
+    },
+  );
 
   it("a link begun before the deletion for another purpose cannot be polled or resent into a token", async () => {
     // A link begun while the account was live, for `pulse_app_delete`, and
@@ -687,7 +746,7 @@ describe("the restore and the repeat deletion a pending-deletion token reaches",
 
 describe("recovery of an account whose deletion is pending", () => {
   it.each(["email", "totp"] as const)(
-    "%s recovery ends in a passkey enrolment, and the next refresh is pending-deletion",
+    "%s recovery ends in a passkey enrolment, the next refresh is pending-deletion, and that passkey cancels the deletion",
     async (factor) => {
       const h = harness();
       const { profile, session } = await liveAccount(h, `pdrec${factor}`);
@@ -695,7 +754,7 @@ describe("recovery of an account whose deletion is pending", () => {
       const secret =
         factor === "totp" ? await enrolTotp(h, profile.accountId, session.accessToken) : null;
       // The lost device's passkey row is still there.
-      await enrolPasskey(h, profile.accountId);
+      const lost = await enrolPasskey(h, profile.accountId);
       tombstone(h, profile.accountId);
 
       // Handles are redacted, so recovery names the account by its email.
@@ -727,6 +786,34 @@ describe("recovery of an account whose deletion is pending", () => {
 
       const next = await refresh(h, headers.cookie);
       expect(audOf(next.accessToken)).toBe(PENDING_DELETION_TOKEN_AUDIENCE);
+
+      // The passkey just enrolled answers an account_restore step-up, and
+      // its token cancels the deletion.
+      const enrolled = (
+        await h.db
+          .select({ credentialId: passkeys.credentialId })
+          .from(passkeys)
+          .where(eq(passkeys.accountId, profile.accountId))
+      )
+        .map((row) => row.credentialId)
+        .filter((id) => id !== lost.credentialId);
+      expect(enrolled).toHaveLength(1);
+      const stepUpBegun = await h.post("/step-up/passkey/begin", {}, bearer(next.accessToken));
+      expect(stepUpBegun.status).toBe(200);
+      const stepUp = await h.post(
+        "/step-up/passkey/complete",
+        { assertion: fakeAssertion(enrolled[0]!), purpose: "account_restore" },
+        bearer(next.accessToken),
+      );
+      expect(stepUp.status).toBe(200);
+      const { step_up_token } = (await stepUp.json()) as { step_up_token: string };
+      expect(await SPEND_AT.account_restore(h, next.accessToken, step_up_token)).toEqual(
+        SPENT.account_restore,
+      );
+
+      // Cancelled: the same session now renews into an ordinary token.
+      const restored = await refresh(h, next.cookie);
+      expect(audOf(restored.accessToken)).toBe(ACCESS_TOKEN_AUDIENCE);
     },
   );
 

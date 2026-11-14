@@ -1,21 +1,13 @@
-import { type Db, DbLive } from "@osn/db/service";
+import { DbLive } from "@osn/db/service";
 import { initObservability, PrettyLoggerLive } from "@shared/observability";
-import { Cause, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
 import { createInMemoryCoordination } from "./lib/coordination/memory";
 import { selectEmailLayer } from "./lib/email-layer";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
-import { safeErrorSummary } from "./metrics";
-import * as accountErasure from "./services/account-erasure";
-import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
-import { runRotatedSessionSweep } from "./services/auth/tokens";
-import {
-  runEmailChangeSweep,
-  runHandleHoldSweep,
-  runSecurityEventSweep,
-} from "./services/retention";
+import { runLocalSweeps } from "./services/sweeps";
 
 export { SERVICE_NAME };
 export const port = Number(process.env.PORT) || 4000;
@@ -143,26 +135,10 @@ export function startBunServer(
     zapApiUrl: process.env.ZAP_API_URL,
   };
   // Each sweep's failure, a defect included, is logged and the next sweep
-  // still runs.
-  const isolated = <A, E>(failed: string, sweep: Effect.Effect<A, E, Db>) =>
-    sweep.pipe(
-      Effect.asVoid,
-      Effect.catchCause((cause) => Effect.logError(failed, safeErrorSummary(Cause.squash(cause)))),
-    );
+  // still runs (`runLocalSweeps`).
   const runSweep = (): void => {
     void Effect.runPromise(
-      Effect.gen(function* () {
-        yield* isolated(
-          "fan-out retry sweep failed",
-          accountErasure.runFanOutRetrySweep(fanoutUrls),
-        );
-        yield* isolated("hard-delete sweep failed", accountErasure.runHardDeleteSweep());
-        yield* isolated("OIDC code sweep failed", runExpiredAuthCodeSweep());
-        yield* isolated("rotated-session sweep failed", runRotatedSessionSweep());
-        yield* isolated("security-event sweep failed", runSecurityEventSweep());
-        yield* isolated("email-change sweep failed", runEmailChangeSweep());
-        yield* isolated("handle-hold sweep failed", runHandleHoldSweep());
-      }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)),
+      runLocalSweeps(fanoutUrls).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)),
     ).catch(() => undefined);
   };
   setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();

@@ -8,6 +8,9 @@ import {
   handleHolds,
   organisationMembers,
   organisations,
+  passkeys,
+  recoveryCodes,
+  totpCredentials,
   users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
@@ -120,11 +123,14 @@ async function organisation(ownerId: string, handle: string, members: ReadonlyAr
   return orgId;
 }
 
-/** Soft-deletes the account with `choices`, then hard-deletes it once its window closes. */
+/** The hard delete's clock: Unix seconds, past every window these tests open. */
+const HARD_DELETE_AT = 2_000_000_000;
+
+/** Soft-deletes the account with `choices`, then hard-deletes it at {@link HARD_DELETE_AT}. */
 async function purge(accountId: string, choices?: ErasureChoices) {
   await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest, choices }));
   const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
-  return run(hardDeleteAccount(job!, job!.hardDeleteAt));
+  return run(hardDeleteAccount(job!, HARD_DELETE_AT));
 }
 
 async function orgState(orgId: string) {
@@ -188,14 +194,58 @@ describe("an account enrolled in an app, hard-deleted on D1", () => {
     expect(
       await db.select().from(appEnrollments).where(eq(appEnrollments.accountId, accountId)),
     ).toEqual([]);
-    // The hold outlives the account, released 30 days on.
+    // The hold outlives the account, released 30 days after the hard delete.
     const holds = await db
       .select()
       .from(handleHolds)
       .where(eq(handleHolds.handle, digest("enrolled")));
     expect(holds).toHaveLength(1);
     expect(holds[0]!.accountId).toBeNull();
-    expect(holds[0]!.releaseAt).toBeGreaterThan(0);
+    expect(holds[0]!.releaseAt).toBe(HARD_DELETE_AT + 30 * 86_400);
+  });
+});
+
+describe("an account with its sign-in credentials, hard-deleted on D1", () => {
+  // The soft delete keeps every credential, so the hard delete is the only
+  // place they go, and each names the account by a foreign key.
+  it("is deleted with its passkey, recovery code and authenticator", async () => {
+    const { accountId } = await person("credentialed");
+    const now = Math.floor(Date.now() / 1_000);
+    await db.insert(passkeys).values({
+      id: newId("pk_"),
+      accountId,
+      credentialId: crypto.randomUUID(),
+      publicKey: "stub",
+      counter: 0,
+      createdAt: new Date(),
+    });
+    await db.insert(recoveryCodes).values({
+      id: newId("rec_"),
+      accountId,
+      codeHash: crypto.randomUUID(),
+      createdAt: now,
+    });
+    await db.insert(totpCredentials).values({
+      id: newId("totp_"),
+      accountId,
+      secretCiphertext: Buffer.from(new Uint8Array(36)),
+      iv: Buffer.from(new Uint8Array(12)),
+      keyVersion: 1,
+      confirmedAt: now,
+      createdAt: now,
+    });
+
+    const result = await purge(accountId);
+
+    expect(result.deleted).toBe(true);
+    expect(await accountGone(accountId)).toBe(true);
+    expect(await db.select().from(passkeys).where(eq(passkeys.accountId, accountId))).toEqual([]);
+    expect(
+      await db.select().from(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
+    ).toEqual([]);
+    expect(
+      await db.select().from(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
+    ).toEqual([]);
   });
 });
 

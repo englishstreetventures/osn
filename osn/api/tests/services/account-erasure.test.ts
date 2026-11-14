@@ -1103,9 +1103,15 @@ describe("account-erasure: owned organisations at hard delete", () => {
   const membersOf = (...members: Array<{ profileId: string; role: "admin" | "member" }>) =>
     members.toSorted((a, b) => a.profileId.localeCompare(b.profileId));
 
-  /** Soft-deletes the account with `choices`, then hard-deletes it once its window closes. */
+  /**
+   * Soft-deletes the account with `choices`, then hard-deletes it once its
+   * window closes. The account holds a passkey, a recovery code and an
+   * authenticator, as a real one does; the soft delete keeps them, and the
+   * hard delete leaves none.
+   */
   const purge = (accountId: string, choices?: accountErasure.ErasureChoices) =>
     Effect.gen(function* () {
+      yield* seedCredentials(accountId);
       yield* accountErasure.requestErasure({
         accountId,
         cancel: null,
@@ -1116,7 +1122,13 @@ describe("account-erasure: owned organisations at hard delete", () => {
       const [job] = yield* Effect.promise(() =>
         db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
       );
-      return yield* accountErasure.hardDeleteAccount(job!, job!.hardDeleteAt);
+      const result = yield* accountErasure.hardDeleteAccount(job!, job!.hardDeleteAt);
+      expect(yield* credentialCounts(accountId)).toEqual({
+        passkeys: 0,
+        recoveryCodes: 0,
+        totp: 0,
+      });
+      return result;
     });
 
   const action = (orgId: string) => `osn:organisation:${orgId}`;
