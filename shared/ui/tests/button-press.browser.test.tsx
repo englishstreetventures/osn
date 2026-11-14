@@ -182,6 +182,7 @@ describe("Button that does not press", () => {
     ));
     const target = screen.getByTestId("target");
     await press.pressPointer({ selector: '[data-testid="target"]' });
+    expect(target.matches(":active")).toBe(true);
     await settled(target);
     expect(scaleTransition(target)).toBeUndefined();
     expect(scaleOf(target)).toBe("none");

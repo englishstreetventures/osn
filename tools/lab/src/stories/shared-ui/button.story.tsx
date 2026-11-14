@@ -153,7 +153,11 @@ export const Press: Story = {
           <Button size="icon" aria-label="Add">
             +
           </Button>
-          <a href="#settings" class={buttonVariants({ variant: "outline", size: "sm" })}>
+          <a
+            href="#settings"
+            class={buttonVariants({ variant: "outline", size: "sm" })}
+            onClick={(event) => event.preventDefault()}
+          >
             A link styled as a button
           </a>
         </div>

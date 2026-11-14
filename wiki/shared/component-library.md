@@ -655,8 +655,9 @@ press (#2178).
   longhands out (`transition-property`, `transition-duration`,
   `transition-timing-function`): the same ten properties and `scale`, with the
   press's duration and curve as the eleventh entry of each. A call site that
-  sets `transition-*`, `duration-*` or `ease-*` on a `Button` replaces the whole
-  list, so the press would jump rather than ease; leave them to the component.
+  sets `transition-*` on a `Button` replaces the property list, so `scale`
+  drops out and the press jumps; a `duration-*` or `ease-*` class moves the
+  press off its tokens. Leave all three to the component.
 
 `shared/ui/tests/button-press.browser.test.tsx` holds each of these in
 Chromium, with real input, since a dispatched event sets no `:active`; the
@@ -2268,8 +2269,9 @@ column never scrolls sideways.
   sentence reads "If ada@example.com has an account, a link is on its way". The
   other three say "We sent a link to …", as the code screens they replace did.
 - **No motion of its own.** It declares no transition or animation; `Button`'s
-  colour transition is the only motion, which `musubi/social/DESIGN.md` allows.
-  The countdown is text, so the view is the same under reduced motion.
+  colour fade and its press ([[#Press]]) are the only motion, which
+  `musubi/social/DESIGN.md` allows. The countdown is text, so the view is the
+  same under reduced motion, where the press does not scale.
 
 For a host:
 
@@ -2465,7 +2467,8 @@ full-width Confirm, 40px and 44px like Try again, then the decline.
 - **Left-aligned**, unlike `AuthorizePage`'s centred terminal cards, which hold
   one sentence each. This card holds two or three sentences and sometimes a
   `Notice` with its mark; centred, both edges go ragged and the mark floats.
-- **No motion of its own.** `Button`'s colour transition is the only one.
+- **No motion of its own.** `Button`'s colour fade and its press ([[#Press]])
+  are the only motion.
 
 On the light surface the numbers measure 14.55:1, 13.23:1 hovered; the legend
 6.58:1; "I didn't ask for this" 14.55:1; the focus ring 6.58:1. On the dark one:
