@@ -6,6 +6,7 @@ import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 import { createAuthRoutes } from "../helpers/routes";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * The HTTP surface: status codes, the step-up gates, and — most importantly —
@@ -61,8 +62,8 @@ describe("POST /totp/enroll/begin", () => {
   it("403s with a valid bearer token but no step-up token", async () => {
     // The gate that matters: an access token alone must not bind an
     // authenticator to the account.
-    const { app, auth, svc, seed } = makeApp();
-    const { profile, tokens } = await seed("r-a@example.com", "rtotpa");
+    const { app, seed } = makeApp();
+    const { tokens } = await seed("r-a@example.com", "rtotpa");
 
     const res = await app.handle(
       json("/totp/enroll/begin", {
@@ -78,7 +79,7 @@ describe("POST /totp/enroll/begin", () => {
   it("returns the secret once, with no-store, on a gated call", async () => {
     const { app, auth, svc, seed } = makeApp();
     const { profile, tokens } = await seed("r-b@example.com", "rtotpb");
-    const stepUp = await svc(auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+    const stepUp = await svc(mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll"));
 
     const res = await app.handle(
       json("/totp/enroll/begin", {
@@ -103,7 +104,7 @@ describe("the enrol → confirm → status round trip", () => {
   it("enrols and reports status without ever returning secret material", async () => {
     const { app, auth, svc, seed } = makeApp();
     const { profile, tokens } = await seed("r-c@example.com", "rtotpc");
-    const stepUp = await svc(auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+    const stepUp = await svc(mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll"));
 
     const begun = (await (
       await app.handle(
@@ -156,7 +157,7 @@ describe("the enrol → confirm → status round trip", () => {
   it("400s on a wrong confirmation code and enrols nothing", async () => {
     const { app, auth, svc, seed } = makeApp();
     const { profile, tokens } = await seed("r-d@example.com", "rtotpd");
-    const stepUp = await svc(auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+    const stepUp = await svc(mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll"));
     await app.handle(
       json("/totp/enroll/begin", {
         method: "POST",
@@ -185,8 +186,8 @@ describe("the enrol → confirm → status round trip", () => {
 
 describe("DELETE /totp", () => {
   it("403s without a step-up token", async () => {
-    const { app, auth, svc, seed } = makeApp();
-    const { profile, tokens } = await seed("r-e@example.com", "rtotpe");
+    const { app, seed } = makeApp();
+    const { tokens } = await seed("r-e@example.com", "rtotpe");
 
     const res = await app.handle(
       json("/totp", {
@@ -208,7 +209,7 @@ describe("DELETE /totp", () => {
   it("accepts the step-up token from the X-Step-Up-Token header too", async () => {
     const { app, auth, svc, seed } = makeApp();
     const { profile, tokens } = await seed("r-f@example.com", "rtotpf");
-    const stepUp = await svc(auth.issueStepUpToken(profile.accountId, "passkey", "totp_disable"));
+    const stepUp = await svc(mintStepUpToken(auth, profile.accountId, "passkey", "totp_disable"));
 
     const res = await app.handle(
       json("/totp", {
@@ -234,8 +235,8 @@ describe("GET /totp/status", () => {
   });
 
   it("reports not-enrolled without disclosing anything else", async () => {
-    const { app, auth, svc, seed } = makeApp();
-    const { profile, tokens } = await seed("r-g@example.com", "rtotpg");
+    const { app, seed } = makeApp();
+    const { tokens } = await seed("r-g@example.com", "rtotpg");
 
     const res = await app.handle(
       json("/totp/status", { headers: { authorization: `Bearer ${tokens.accessToken}` } }),
@@ -265,7 +266,7 @@ describe("POST /step-up/totp/complete", () => {
   it("mints a step-up token from a code, and refuses that code a second time", async () => {
     const { app, auth, svc, seed } = makeApp();
     const { profile, tokens } = await seed("r-h@example.com", "rtotph");
-    const stepUp = await svc(auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+    const stepUp = await svc(mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll"));
 
     const begun = (await (
       await app.handle(

@@ -17,6 +17,12 @@ export class AuthError extends Data.TaggedError("AuthError")<{
   readonly metricResult?: Result;
 }> {}
 
+/**
+ * Whether a value a route's runner threw is an {@link AuthError}: a refusal
+ * the route answers itself, as opposed to a fault its error handler answers.
+ */
+export const isAuthError = (e: unknown): e is AuthError => e instanceof AuthError;
+
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}

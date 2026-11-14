@@ -1,4 +1,5 @@
 import { Db } from "@osn/db/service";
+import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
@@ -8,16 +9,22 @@ import { exportLines, type ExportDownstream } from "../../src/services/account-e
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+
+/** A test database and mail layer, or one over a held handle of the same shape. */
+type TestLayer = Layer.Layer<Db | EmailService>;
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
 });
 
-// The step-up token only signs (no Db), so it can run against the ambient
-// runtime. `purpose: account_export` is required by the export verifier.
-async function seed(layer: ReturnType<typeof createTestLayer>) {
+// A step-up token is bound to a live session of the account, which the mint
+// seeds through the test's layer. `purpose: account_export` is required by
+// the export verifier.
+async function seed(layer: TestLayer) {
   const auth = createAuthService(config);
   const profile = await Effect.runPromise(
     auth
@@ -38,14 +45,20 @@ async function seed(layer: ReturnType<typeof createTestLayer>) {
   return { auth, profile, accessToken: tokens.accessToken };
 }
 
-const mintStepUp = (auth: ReturnType<typeof createAuthService>, accountId: string) =>
-  Effect.runPromise(auth.issueStepUpToken(accountId, "otp", "account_export"));
+const mintStepUp = (
+  auth: ReturnType<typeof createAuthService>,
+  accountId: string,
+  layer: TestLayer,
+) =>
+  Effect.runPromise(
+    mintStepUpToken(auth, accountId, "otp", "account_export").pipe(Effect.provide(layer)),
+  );
 
 /** Direct-mode client-IP resolution needs a trusted XFF hop under app.handle. */
 const IP_HEADERS = { "x-forwarded-for": "1.2.3.4" };
 
 function makeApp(
-  layer: ReturnType<typeof createTestLayer>,
+  layer: TestLayer,
   opts: {
     exportLimiter?: RateLimiterBackend;
     downstreams?: ExportDownstream[];
@@ -91,7 +104,7 @@ describe("GET /account/export — gating", () => {
     const { auth, profile, accessToken } = await seed(layer);
     // A delete-purpose token must not authorise an export.
     const wrongPurpose = await Effect.runPromise(
-      auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+      mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
     );
     const app = makeApp(layer);
     const res = await app.handle(
@@ -114,6 +127,37 @@ describe("GET /account/export — gating", () => {
     expect(typeof body.detail?.error).toBe("string");
   });
 
+  it("a database fault while the step-up token's session is checked is a 500, not a step-up refusal", async () => {
+    // Red on the route answering every verifier failure as 403
+    // `step_up_required`: a fault would read as "step up again".
+    const base = createTestLayerWithSqlite();
+    const held = holdQueries(base.db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: held.db }), base.email.layer);
+    const { auth, profile, accessToken } = await seed(layer);
+    const stepUpToken = await mintStepUp(auth, profile.accountId, layer);
+    const app = makeApp(layer);
+    // The verifier's lookup of the token's session family, and no other read.
+    const lookup = held.hold(/"family_id" = \?/);
+    const answered = app.handle(
+      new Request("http://localhost/account/export", {
+        headers: {
+          ...IP_HEADERS,
+          Authorization: `Bearer ${accessToken}`,
+          "x-step-up-token": stepUpToken,
+        },
+      }),
+    );
+    await Promise.race([lookup.reached, answered]);
+    base.sqlite.run("DROP TABLE sessions");
+    lookup.release();
+
+    const res = await answered;
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 500,
+      body: { error: "internal_error" },
+    });
+  });
+
   it("a failed step-up (403) does not consume the 1/24h allowance", async () => {
     const layer = createTestLayer();
     const { auth, profile, accessToken } = await seed(layer);
@@ -133,7 +177,7 @@ describe("GET /account/export — gating", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -150,7 +194,7 @@ describe("GET /account/export — gating", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -162,7 +206,7 @@ describe("GET /account/export — gating", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -191,7 +235,7 @@ describe("GET /account/export — download name", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -228,7 +272,7 @@ describe("GET /account/export — bundle", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -302,7 +346,7 @@ describe("GET /account/export — bundle", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );
@@ -372,7 +416,7 @@ describe("GET /account/export — bundle", () => {
         headers: {
           ...IP_HEADERS,
           Authorization: `Bearer ${accessToken}`,
-          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+          "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
         },
       }),
     );

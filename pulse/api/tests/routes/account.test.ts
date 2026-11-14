@@ -17,6 +17,7 @@ vi.mock("../../src/lib/osn-bridge", () => ({
   notifyAppLeft: vi.fn(() => Effect.succeed({ closed: true } as const)),
 }));
 
+import { verifyStepUp } from "../../src/lib/osn-bridge";
 import { createAccountRoutes } from "../../src/routes/account";
 import { webSessionService, type WebIdentity } from "../../src/services/webSession";
 import { TEST_VERIFICATION } from "../helpers/verification";
@@ -196,6 +197,9 @@ describe("account routes — runtime wiring (ManagedRuntime)", () => {
       }),
     );
     expect(res.status).toBe(202);
+    // osn-api checks the token is of the account owning this profile, so the
+    // profile Pulse verified its caller as is what it sends.
+    expect(verifyStepUp).toHaveBeenCalledWith("stub-step-up", "pulse_app_delete", "usr_delete");
     const json = (await res.json()) as { scheduled_for: string; already_pending: boolean };
     expect(json.already_pending).toBe(false);
     expect(json.scheduled_for).toBeTruthy();

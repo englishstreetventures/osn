@@ -149,6 +149,15 @@ export type StepUpTokenClaims = {
   pk_id?: string;
   pk_provenance?: string;
   pk_created_at?: number;
+  /**
+   * The family of the session that minted this token: the one the mint
+   * route's live-session check resolved. `verifyStepUpToken` refuses the
+   * token once that family has no live, unrestricted, unexpired session, so a
+   * token outlives neither the sign-out nor the revocation of the device that
+   * minted it, whoever presents it. Required: a mint that cannot name the
+   * family mints nothing.
+   */
+  osn_fam: string;
 };
 
 /**
@@ -213,6 +222,7 @@ type VerifiedJwtClaims = {
   readonly pk_id?: unknown;
   readonly pk_provenance?: unknown;
   readonly pk_created_at?: unknown;
+  readonly osn_fam?: unknown;
 };
 
 export async function signJwt(

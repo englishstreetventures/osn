@@ -1,5 +1,7 @@
+import { Db } from "@osn/db/service";
+import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import {
@@ -8,7 +10,9 @@ import {
 } from "../../src/routes/account-erasure";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -141,7 +145,7 @@ describe("account-erasure routes — response bodies", () => {
   /** Direct-mode client-IP resolution needs a trusted XFF hop under app.handle. */
   const IP_HEADERS = { "x-forwarded-for": "1.2.3.4" };
 
-  async function seed(layer: ReturnType<typeof createTestLayer>) {
+  async function seed(layer: Layer.Layer<Db | EmailService>) {
     const auth = createAuthService(config);
     const profile = await Effect.runPromise(
       auth.registerProfile("eraser@example.com", "eraser", "Erase Me").pipe(Effect.provide(layer)),
@@ -189,7 +193,9 @@ describe("account-erasure routes — response bodies", () => {
     const first = await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
       ),
     });
     expect(first.status).toBe(202);
@@ -212,7 +218,9 @@ describe("account-erasure routes — response bodies", () => {
     const second = await requestDeletion(app, authed, {
       confirm_handle: `deleted_${profile.id.replace("usr_", "")}`,
       step_up_token: await Effect.runPromise(
-        auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
       ),
     });
     expect(second.status).toBe(202);
@@ -227,7 +235,7 @@ describe("account-erasure routes — response bodies", () => {
     const { auth, profile, app, authed } = await seed(layer);
     // An export-purpose token must not authorise a deletion.
     const wrongPurpose = await Effect.runPromise(
-      auth.issueStepUpToken(profile.accountId, "otp", "account_export"),
+      mintStepUpToken(auth, profile.accountId, "otp", "account_export").pipe(Effect.provide(layer)),
     );
     const res = await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
@@ -240,6 +248,33 @@ describe("account-erasure routes — response bodies", () => {
     // because the route declares `stepUpRequiredResponse` rather than the
     // shared `errorResponse` — see the schema's own note.
     expect(typeof body.detail?.error).toBe("string");
+  });
+
+  it("a database fault while the step-up token's session is checked is a 500, not a step-up refusal", async () => {
+    // Red on the route answering every verifier failure as 403
+    // `step_up_required`: a fault would read as "step up again".
+    const base = createTestLayerWithSqlite();
+    const held = holdQueries(base.db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: held.db }), base.email.layer);
+    const { auth, profile, app, authed } = await seed(layer);
+    const stepUpToken = await Effect.runPromise(
+      mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
+    );
+    // The verifier's lookup of the token's session family, and no other read.
+    const lookup = held.hold(/"family_id" = \?/);
+    const answered = requestDeletion(app, authed, {
+      confirm_handle: profile.handle,
+      step_up_token: stepUpToken,
+    });
+    await Promise.race([lookup.reached, answered]);
+    base.sqlite.run("DROP TABLE sessions");
+    lookup.release();
+
+    const res = await answered;
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 500,
+      body: { error: "internal_error" },
+    });
   });
 
   it("GET /account/deletion-status answers both arms of the union", async () => {
@@ -257,7 +292,9 @@ describe("account-erasure routes — response bodies", () => {
     await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
       ),
     });
 
@@ -295,7 +332,9 @@ describe("account-erasure routes — response bodies", () => {
     await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
       ),
     });
 

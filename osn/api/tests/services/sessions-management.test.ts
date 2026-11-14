@@ -19,6 +19,7 @@ import {
 } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 import { confirmedEmailChange, profileOf } from "../helpers/step-up-link";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * Session list/revoke behaviour:
@@ -569,7 +570,7 @@ describe("account-wide deletes keep the caller's device across its own refresh",
       records: false,
       prepare: (profile, h) =>
         Effect.gen(function* () {
-          const stepUp = yield* auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+          const stepUp = yield* mintStepUpToken(auth, profile.accountId, "otp", "email_change");
           const begun = yield* confirmedEmailChange(
             auth,
             profile.accountId,

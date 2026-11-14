@@ -22,6 +22,7 @@ import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { completeTotpStepUp, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * The TOTP credential's own behaviour. What matters here and is easy to get
@@ -130,7 +131,8 @@ const enrolledWith = (
 ) =>
   Effect.gen(function* () {
     const profile = yield* service.registerProfile(emailAddr, handle);
-    const stepUpToken = yield* service.issueStepUpToken(
+    const stepUpToken = yield* mintStepUpToken(
+      service,
       profile.accountId,
       "passkey",
       "totp_enroll",
@@ -200,7 +202,8 @@ describe("TOTP enrolment", () => {
       const profile = yield* auth.registerProfile("totp-b@example.com", "totpb");
       // A real step-up token, but minted for a DIFFERENT ceremony. Purpose
       // binding, not the AMR list, is what stops this.
-      const wrongPurpose = yield* auth.issueStepUpToken(
+      const wrongPurpose = yield* mintStepUpToken(
+        auth,
         profile.accountId,
         "passkey",
         "passkey_register",
@@ -213,7 +216,7 @@ describe("TOTP enrolment", () => {
   it.effect("refuses a second credential while one is confirmed", () =>
     Effect.gen(function* () {
       const { profile } = yield* enrolled("totp-c@example.com", "totpc");
-      const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
       const err = yield* Effect.flip(auth.beginTotpEnrollment(profile.accountId, token));
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(makeLayer())),
@@ -222,7 +225,7 @@ describe("TOTP enrolment", () => {
   it.effect("refuses a wrong code at enroll/complete", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("totp-d@example.com", "totpd");
-      const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_enroll");
       yield* auth.beginTotpEnrollment(profile.accountId, token);
 
       const err = yield* Effect.flip(
@@ -254,10 +257,10 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
       const step = currentStep() + 1;
       const code = yield* codeAtStep(secret, step);
 
-      const first = yield* auth.completeStepUpTotp(profile.accountId, code);
+      const first = yield* completeTotpStepUp(auth, profile.accountId, code);
       expect(first.stepUpToken).toMatch(/^eyJ/);
 
-      const err = yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, code));
+      const err = yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, code));
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(makeLayer())),
   );
@@ -268,7 +271,7 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
       // credential will ever produce — it is typed into a form. If the row went
       // in with a null step it would stay replayable for the rest of its window.
       const { profile, enrolmentCode } = yield* enrolled("totp-g@example.com", "totpg");
-      const err = yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, enrolmentCode));
+      const err = yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, enrolmentCode));
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(makeLayer())),
   );
@@ -277,12 +280,12 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
     Effect.gen(function* () {
       const { profile, secret } = yield* enrolled("totp-h@example.com", "totph");
       const step = currentStep() + 1;
-      yield* auth.completeStepUpTotp(profile.accountId, yield* codeAtStep(secret, step));
+      yield* completeTotpStepUp(auth, profile.accountId, yield* codeAtStep(secret, step));
 
       // The previous step is still inside the ±1 drift window, so it verifies
       // arithmetically — only the stored step rejects it.
       const older = yield* codeAtStep(secret, step - 1);
-      const err = yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, older));
+      const err = yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, older));
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(makeLayer())),
   );
@@ -296,10 +299,11 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
 
       vi.useFakeTimers({ toFake: ["Date"] });
       advanceOneStep();
-      yield* auth.completeStepUpTotp(profile.accountId, yield* codeAtStep(secret, currentStep()));
+      yield* completeTotpStepUp(auth, profile.accountId, yield* codeAtStep(secret, currentStep()));
 
       advanceOneStep();
-      const next = yield* auth.completeStepUpTotp(
+      const next = yield* completeTotpStepUp(
+        auth,
         profile.accountId,
         yield* codeAtStep(secret, currentStep()),
       );
@@ -324,8 +328,8 @@ describe("TOTP single use (RFC 6238 §5.2)", () => {
 
       const outcomes = yield* Effect.all(
         [
-          Effect.result(auth.completeStepUpTotp(profile.accountId, code)),
-          Effect.result(auth.completeStepUpTotp(profile.accountId, code)),
+          Effect.result(completeTotpStepUp(auth, profile.accountId, code)),
+          Effect.result(completeTotpStepUp(auth, profile.accountId, code)),
         ],
         { concurrency: "unbounded" },
       );
@@ -377,7 +381,7 @@ describe("TOTP encryption-key rotation", () => {
       const during = authWith(createTotpKeyRing(k2, k1));
       const code = yield* codeAtStep(secret, currentStep() + 1);
       rekeySpy.mockClear();
-      yield* during.completeStepUpTotp(profile.accountId, code);
+      yield* completeTotpStepUp(during, profile.accountId, code);
 
       // Re-keyed: the stamp moved AND the ciphertext really changed. Asserting
       // only the stamp would pass on an implementation that renumbered the row
@@ -402,7 +406,7 @@ describe("TOTP encryption-key rotation", () => {
       advanceOneStep();
       const after = authWith(createTotpKeyRing(k2));
       const next = yield* codeAtStep(secret, currentStep() + 1);
-      yield* after.completeStepUpTotp(profile.accountId, next);
+      yield* completeTotpStepUp(after, profile.accountId, next);
     }).pipe(
       Effect.provide(makeLayer()),
       Effect.ensuring(Effect.sync(() => rekeySpy.mockRestore())),
@@ -419,7 +423,8 @@ describe("TOTP encryption-key rotation", () => {
       const { profile, secret } = yield* enrolledWith(settled, "rot-b@example.com", "rotb");
 
       const before = yield* credentialRow(profile.accountId);
-      yield* settled.completeStepUpTotp(
+      yield* completeTotpStepUp(
+        settled,
         profile.accountId,
         yield* codeAtStep(secret, currentStep() + 1),
       );
@@ -455,7 +460,7 @@ describe("TOTP encryption-key rotation", () => {
 
         rekeySpy.mockClear();
         const code = yield* codeAtStep(secret, currentStep() + 1);
-        yield* during.completeStepUpTotp(profile.accountId, code);
+        yield* completeTotpStepUp(during, profile.accountId, code);
 
         const after = yield* credentialRow(profile.accountId);
         expect(after.keyVersion).toBe(original.keyVersion);
@@ -508,7 +513,8 @@ describe("TOTP encryption-key rotation", () => {
           ceremonyStores,
         });
         const profile = yield* before.registerProfile("rot-h@example.com", "roth");
-        const stepUpToken = yield* before.issueStepUpToken(
+        const stepUpToken = yield* mintStepUpToken(
+          before,
           profile.accountId,
           "passkey",
           "totp_enroll",
@@ -562,7 +568,7 @@ describe("TOTP encryption-key rotation", () => {
 
       const before = yield* credentialRow(profile.accountId);
       const code = yield* codeAtStep(secret, currentStep() + 1);
-      yield* service.completeStepUpTotp(profile.accountId, code);
+      yield* completeTotpStepUp(service, profile.accountId, code);
 
       // The stamp is left as it is, deliberately. The row is already under the
       // current key, and rewriting it to correct a number nothing reads would
@@ -593,10 +599,10 @@ describe("TOTP encryption-key rotation", () => {
       // The operator installed the new key without staging the old one.
       const broken = authWith(createTotpKeyRing(k2));
       const code = yield* codeAtStep(secret, currentStep() + 1);
-      const err = yield* Effect.flip(broken.completeStepUpTotp(profile.accountId, code));
+      const err = yield* Effect.flip(completeTotpStepUp(broken, profile.accountId, code));
 
       expect(err._tag).toBe("AuthError");
-      const wrong = yield* Effect.flip(broken.completeStepUpTotp(profile.accountId, "000000"));
+      const wrong = yield* Effect.flip(completeTotpStepUp(broken, profile.accountId, "000000"));
       expect(err.message).toBe(wrong.message);
 
       // Nothing was written: an unreadable row never reaches `consumeStep`.
@@ -629,7 +635,7 @@ describe("TOTP encryption-key rotation", () => {
       const during = authWith(createTotpKeyRing(decryptOnly, k1));
       const code = yield* codeAtStep(secret, currentStep() + 1);
       rekeySpy.mockClear();
-      yield* during.completeStepUpTotp(profile.accountId, code);
+      yield* completeTotpStepUp(during, profile.accountId, code);
 
       // Verified, and the row is untouched rather than half-written.
       const after = yield* credentialRow(profile.accountId);
@@ -670,8 +676,8 @@ describe("TOTP encryption-key rotation", () => {
       // wants a re-key and must not get one. Replaying a code after the row has
       // drained would prove nothing: there would be no re-key left to suppress.
       const during = authWith(createTotpKeyRing(k2, k1));
-      yield* Effect.flip(during.completeStepUpTotp(profile.accountId, enrolmentCode));
-      yield* Effect.flip(during.completeStepUpTotp(profile.accountId, "000000"));
+      yield* Effect.flip(completeTotpStepUp(during, profile.accountId, enrolmentCode));
+      yield* Effect.flip(completeTotpStepUp(during, profile.accountId, "000000"));
 
       const after = yield* credentialRow(profile.accountId);
       expect(
@@ -699,8 +705,8 @@ describe("TOTP encryption-key rotation", () => {
       const code = yield* codeAtStep(secret, currentStep() + 1);
       const outcomes = yield* Effect.all(
         [
-          Effect.result(during.completeStepUpTotp(profile.accountId, code)),
-          Effect.result(during.completeStepUpTotp(profile.accountId, code)),
+          Effect.result(completeTotpStepUp(during, profile.accountId, code)),
+          Effect.result(completeTotpStepUp(during, profile.accountId, code)),
         ],
         { concurrency: "unbounded" },
       );
@@ -729,8 +735,8 @@ describe("TOTP failures are indistinguishable on the wire", () => {
       const { profile } = yield* enrolled("totp-j@example.com", "totpj");
       const noTotp = yield* auth.registerProfile("totp-k@example.com", "totpk");
 
-      const wrong = yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, "000000"));
-      const absent = yield* Effect.flip(auth.completeStepUpTotp(noTotp.accountId, "000000"));
+      const wrong = yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, "000000"));
+      const absent = yield* Effect.flip(completeTotpStepUp(auth, noTotp.accountId, "000000"));
 
       expect(wrong.message).toBe(absent.message);
     }).pipe(Effect.provide(makeLayer())),
@@ -741,10 +747,10 @@ describe("TOTP failures are indistinguishable on the wire", () => {
       const { profile, secret } = yield* enrolled("totp-l@example.com", "totpl");
       const step = currentStep() + 1;
       const code = yield* codeAtStep(secret, step);
-      yield* auth.completeStepUpTotp(profile.accountId, code);
+      yield* completeTotpStepUp(auth, profile.accountId, code);
 
-      const replayed = yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, code));
-      const wrong = yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, "000000"));
+      const replayed = yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, code));
+      const wrong = yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, "000000"));
       expect(replayed.message).toBe(wrong.message);
     }).pipe(Effect.provide(makeLayer())),
   );
@@ -756,13 +762,13 @@ describe("TOTP per-account lockout", () => {
       const { profile, secret } = yield* enrolled("totp-m@example.com", "totpm");
 
       for (let i = 0; i < TOTP_LOCKOUT_THRESHOLD; i++) {
-        yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, "000000"));
+        yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, "000000"));
       }
 
       // The right code, refused: the lockout is keyed on the account, so a
       // rotating fleet cannot spread the guesses past it.
       const good = yield* codeAtStep(secret, currentStep() + 1);
-      const err = yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, good));
+      const err = yield* Effect.flip(completeTotpStepUp(auth, profile.accountId, good));
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(makeLayer())),
   );
@@ -786,20 +792,21 @@ describe("TOTP per-account lockout", () => {
       const { profile, secret } = yield* enrolledWith(service, "totp-n@example.com", "totpn");
 
       for (let i = 0; i < TOTP_LOCKOUT_THRESHOLD - 1; i++) {
-        yield* Effect.flip(service.completeStepUpTotp(profile.accountId, "000000"));
+        yield* Effect.flip(completeTotpStepUp(service, profile.accountId, "000000"));
       }
 
       vi.useFakeTimers({ toFake: ["Date"] });
       advanceOneStep();
       yield* settle(
-        service.completeStepUpTotp(profile.accountId, yield* codeAtStep(secret, currentStep())),
+        completeTotpStepUp(service, profile.accountId, yield* codeAtStep(secret, currentStep())),
       );
 
       // Were the counter still at threshold-1, one more failure would lock the
       // account and the next correct code would be refused.
-      yield* Effect.flip(service.completeStepUpTotp(profile.accountId, "000000"));
+      yield* Effect.flip(completeTotpStepUp(service, profile.accountId, "000000"));
       advanceOneStep();
-      const ok = yield* service.completeStepUpTotp(
+      const ok = yield* completeTotpStepUp(
+        service,
         profile.accountId,
         yield* codeAtStep(secret, currentStep()),
       );
@@ -829,7 +836,7 @@ describe("TOTP per-account lockout", () => {
       const failClosedAuth = createAuthService({ ...config, totpLockoutStore: broken });
 
       const good = yield* codeAtStep(secret, currentStep() + 1);
-      const err = yield* Effect.flip(failClosedAuth.completeStepUpTotp(profile.accountId, good));
+      const err = yield* Effect.flip(completeTotpStepUp(failClosedAuth, profile.accountId, good));
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(makeLayer())),
   );
@@ -853,14 +860,14 @@ describe("TOTP disable", () => {
     Effect.gen(function* () {
       const { profile } = yield* enrolled("totp-p@example.com", "totpp");
 
-      const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_disable");
+      const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_disable");
       const first = yield* auth.disableTotp(profile.accountId, token);
       expect(first.disabled).toBe(true);
 
       const status = yield* auth.getTotpStatus(profile.accountId);
       expect(status.enrolled).toBe(false);
 
-      const token2 = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_disable");
+      const token2 = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_disable");
       const second = yield* auth.disableTotp(profile.accountId, token2);
       expect(second.disabled).toBe(false);
     }).pipe(Effect.provide(makeLayer())),
@@ -869,7 +876,7 @@ describe("TOTP disable", () => {
   it.effect("refuses a step-up token minted for another ceremony", () =>
     Effect.gen(function* () {
       const { profile } = yield* enrolled("totp-q@example.com", "totpq");
-      const wrong = yield* auth.issueStepUpToken(profile.accountId, "passkey", "recovery_generate");
+      const wrong = yield* mintStepUpToken(auth, profile.accountId, "passkey", "recovery_generate");
       const err = yield* Effect.flip(auth.disableTotp(profile.accountId, wrong));
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(makeLayer())),
@@ -904,7 +911,7 @@ describe("TOTP enrolment and disable are audible", () => {
     const test = createTestLayerWithSqlite();
     return Effect.gen(function* () {
       const { profile } = yield* enrolled("totp-ev2@example.com", "totpev2");
-      const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_disable");
+      const token = yield* mintStepUpToken(auth, profile.accountId, "passkey", "totp_disable");
       yield* auth.disableTotp(profile.accountId, token);
 
       const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
@@ -928,7 +935,7 @@ describe("which gates a totp-AMR step-up token reaches", () => {
   // satisfies that verifier. None of them says anything about what a chain of
   // ceremonies can reach — see wiki/osn/totp.md §Threat model.
   const mintTotpToken = (accountId: string, purpose: Parameters<typeof auth.issueStepUpToken>[2]) =>
-    auth.issueStepUpToken(accountId, "totp", purpose);
+    mintStepUpToken(auth, accountId, "totp", purpose);
 
   it.effect("is ACCEPTED at passkey_register", () =>
     Effect.gen(function* () {
@@ -999,11 +1006,15 @@ describe("which gates a totp-AMR step-up token reaches", () => {
   it.effect("is ACCEPTED at verifyStepUpForExternalPurpose, the Pulse / Zap app delete", () =>
     Effect.gen(function* () {
       // The cross-service verifier behind ARC-gated `/internal/step-up/verify`.
-      // It reads the same allow-list but takes no expected accountId — it
-      // returns the token's verified `sub` for the calling service to use.
+      // It reads the same allow-list, takes the profile the calling service
+      // verified, and returns the token's verified `sub` for it to use.
       const profile = yield* auth.registerProfile("totp-ex@example.com", "totpex");
       const token = yield* mintTotpToken(profile.accountId, "pulse_app_delete");
-      const result = yield* auth.verifyStepUpForExternalPurpose(token, "pulse_app_delete");
+      const result = yield* auth.verifyStepUpForExternalPurpose(
+        token,
+        "pulse_app_delete",
+        profile.id,
+      );
       expect(result.accountId).toBe(profile.accountId);
     }).pipe(Effect.provide(makeLayer())),
   );
@@ -1044,7 +1055,7 @@ describe("TOTP without an encryption key", () => {
       const keyless = createAuthService(withoutKey);
 
       const profile = yield* keyless.registerProfile("totp-u@example.com", "totpu");
-      const token = yield* keyless.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = yield* mintStepUpToken(keyless, profile.accountId, "passkey", "totp_enroll");
 
       const err = yield* Effect.flip(keyless.beginTotpEnrollment(profile.accountId, token));
       expect(err.message).toBe("TOTP is not configured");
@@ -1060,12 +1071,12 @@ describe("TOTP without an encryption key", () => {
       const empty = createAuthService({ ...config, totpEncryptionKeys: new Map() });
 
       const profile = yield* empty.registerProfile("totp-empty@example.com", "totpempty");
-      const token = yield* empty.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const token = yield* mintStepUpToken(empty, profile.accountId, "passkey", "totp_enroll");
 
       const enrolErr = yield* Effect.flip(empty.beginTotpEnrollment(profile.accountId, token));
       expect(enrolErr.message).toBe("TOTP is not configured");
 
-      const verifyErr = yield* Effect.flip(empty.completeStepUpTotp(profile.accountId, "000000"));
+      const verifyErr = yield* Effect.flip(completeTotpStepUp(empty, profile.accountId, "000000"));
       expect(verifyErr.message).toBe("TOTP is not configured");
     }).pipe(Effect.provide(makeLayer())),
   );
