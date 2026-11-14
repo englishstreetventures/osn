@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { AuthExpiredError } from "@osn/client";
+import { AuthExpiredError, OsnApiError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
@@ -111,15 +111,23 @@ describe("<ProfileSwitcherDialog />", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith("Your session has ended. Sign in again."));
   });
 
-  it("words an ordinary failure as a non-empty sentence in the toast", async () => {
+  it("shows the error's own message for an ordinary failure", async () => {
     const spy = vi.spyOn(toast, "error");
     renderSwitcher(
-      makeAuth(() => Promise.reject(new Error("boom"))),
+      makeAuth(() => Promise.reject(new OsnApiError("Profile not found", 404))),
       () => {},
     );
     fireEvent.click(profileRow("bob"));
-    await waitFor(() => expect(spy).toHaveBeenCalled());
-    const shown = spy.mock.calls[0]![0];
-    expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("Profile not found"));
+  });
+
+  it("falls back to the fixed sentence when the error has no message", async () => {
+    const spy = vi.spyOn(toast, "error");
+    renderSwitcher(
+      makeAuth(() => Promise.reject(new OsnApiError("", 500))),
+      () => {},
+    );
+    fireEvent.click(profileRow("bob"));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("Failed to switch profile"));
   });
 });

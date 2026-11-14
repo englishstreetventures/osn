@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { AuthExpiredError } from "@osn/client";
+import { AuthExpiredError, OrgClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
@@ -82,12 +82,21 @@ describe("<OrganisationsPage /> create failure", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith("Your session has ended. Sign in again."));
   });
 
-  it("words an ordinary failure as a non-empty sentence in the toast", async () => {
-    mocks.createOrg.mockRejectedValue(new Error("boom"));
+  it.each([
+    [
+      "shows the error's own message for an ordinary failure",
+      "Handle unavailable",
+      "Handle unavailable",
+    ],
+    [
+      "falls back to the fixed sentence when the error has no message",
+      "",
+      "Failed to create organisation",
+    ],
+  ])("%s", async (_name, message, expected) => {
+    mocks.createOrg.mockRejectedValue(new OrgClientError(message, 400));
     const spy = vi.spyOn(toast, "error");
     await submitCreate();
-    await waitFor(() => expect(spy).toHaveBeenCalled());
-    const shown = spy.mock.calls[0]![0];
-    expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
   });
 });

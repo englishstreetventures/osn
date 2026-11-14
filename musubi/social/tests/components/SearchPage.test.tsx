@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { AuthExpiredError } from "@osn/client";
+import { AuthExpiredError, GraphClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
@@ -225,11 +225,17 @@ describe("<SearchPage />", () => {
   });
 
   it.each([
-    ["connect", "none", "Connect", () => mocks.sendConnectionRequest],
-    ["accept", "pending_received", "Accept", () => mocks.acceptConnection],
+    ["connect", "none", "Connect", "Failed to send request", () => mocks.sendConnectionRequest],
+    [
+      "accept",
+      "pending_received",
+      "Accept",
+      "Failed to accept request",
+      () => mocks.acceptConnection,
+    ],
   ] as const)(
-    "words an ended session and an ordinary failure on %s",
-    async (_n, status, label, call) => {
+    "words an ended session, a server message and a missing message on %s",
+    async (_n, status, label, fallback, call) => {
       mocks.search.mockResolvedValue({ people: [person("alice", status)], organisations: [] });
       const spy = vi.spyOn(toast, "error");
       renderPage();
@@ -241,12 +247,15 @@ describe("<SearchPage />", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(spy).toHaveBeenLastCalledWith("Your session has ended. Sign in again.");
 
-      call().mockRejectedValueOnce(new Error("boom"));
+      call().mockRejectedValueOnce(new GraphClientError("Connection already exists", 400));
       fireEvent.click(screen.getByRole("button", { name: label }));
       await vi.advanceTimersByTimeAsync(0);
-      const shown = spy.mock.lastCall![0];
-      expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
-      expect(shown).not.toBe("Your session has ended. Sign in again.");
+      expect(spy).toHaveBeenLastCalledWith("Connection already exists");
+
+      call().mockRejectedValueOnce(new GraphClientError("", 400));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith(fallback);
     },
   );
 });

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { AuthExpiredError } from "@osn/client";
+import { AuthExpiredError, GraphClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
@@ -144,16 +144,25 @@ describe("<DiscoverPage />", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith("Your session has ended. Sign in again."));
   });
 
-  it("words an ordinary failure as a non-empty sentence in the toast", async () => {
+  it.each([
+    [
+      "shows the error's own message for an ordinary failure",
+      "Connection already exists",
+      "Connection already exists",
+    ],
+    [
+      "falls back to the fixed sentence when the error has no message",
+      "",
+      "Failed to send request",
+    ],
+  ])("%s", async (_name, message, expected) => {
     mocks.suggestConnections.mockResolvedValue({
       suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 2 })],
     });
-    mocks.sendConnectionRequest.mockRejectedValue(new Error("boom"));
+    mocks.sendConnectionRequest.mockRejectedValue(new GraphClientError(message, 400));
     const spy = vi.spyOn(toast, "error");
     renderDiscover();
     fireEvent.click(await screen.findByText("Connect"));
-    await waitFor(() => expect(spy).toHaveBeenCalled());
-    const shown = spy.mock.calls[0]![0];
-    expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
   });
 });

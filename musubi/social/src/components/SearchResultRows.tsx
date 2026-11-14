@@ -1,8 +1,7 @@
-import {
-  describeAuthError,
-  type OrganisationSearchResult,
-  type ProfileSearchResult,
-  type SearchConnectionState,
+import type {
+  OrganisationSearchResult,
+  ProfileSearchResult,
+  SearchConnectionState,
 } from "@osn/client";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
@@ -12,6 +11,7 @@ import { Chip } from "@shared/ui/ui/chip";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 
+import { describeActionError } from "../lib/action-error";
 import { graphClient } from "../lib/api";
 import type { SearchController } from "../lib/search";
 import { safeAvatarUrl } from "../lib/utils";
@@ -44,7 +44,7 @@ export function useSearchActions(controller: SearchController) {
         controller.setConnectionStatus(handle, "pending_sent");
         toast.success(`Request sent to @${handle}`);
       } catch (err) {
-        toast.error(describeAuthError(err));
+        toast.error(describeActionError(err, "Failed to send request"));
       }
     });
   }
@@ -56,7 +56,7 @@ export function useSearchActions(controller: SearchController) {
         controller.setConnectionStatus(handle, "connected");
         toast.success(`You and @${handle} are connected`);
       } catch (err) {
-        toast.error(describeAuthError(err));
+        toast.error(describeActionError(err, "Failed to accept request"));
       }
     });
   }

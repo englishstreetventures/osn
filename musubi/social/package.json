@@ -3,13 +3,13 @@
   "version": "0.22.0",
   "private": true,
   "description": "Musubi — identity and social graph app, built on OSN",
-  "type": "module",
-  "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
+  "author": "English Street Ventures Pty Ltd",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
+  "type": "module",
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env vite",
@@ -19,10 +19,6 @@
     "test": "bunx --bun vitest --project unit",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser"
-  },
-  "portless": {
-    "name": "musubi",
-    "script": "dev:app"
   },
   "dependencies": {
     "@osn/auth-ui": "workspace:*",
@@ -50,5 +46,9 @@
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.5"
+  },
+  "portless": {
+    "name": "musubi",
+    "script": "dev:app"
   }
 }
