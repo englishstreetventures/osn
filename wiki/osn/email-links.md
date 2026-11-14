@@ -254,9 +254,10 @@ before it mails, reads, replaces or spends anything
   request lives, `Register` keeps one entry in `localStorage`,
   `osn.signup.live`: the request id, its retire secret and its expiry.
   Nothing about the address, and never the claim secret, a token or the
-  number. A tab that begins sends it as `previous` (else the request this tab
-  left, in its `sessionStorage`), and osn-api decides whether it is for the
-  same address. Each begin writes its own request over the entry, and the
+  number. A tab that begins sends, as `previous`, the request it left (kept in
+  its `sessionStorage` with the address it was for) when that was for the
+  address typed, else this entry, else the request it left; osn-api decides
+  whether it is for the same address. Each begin writes its own request over the entry, and the
   entry goes when its request ends: a poll or Resend that finds the request
   gone or the handle taken removes it, so does the account being made, and so
   does its expiry — a timer while the view is open, and any later read
@@ -264,8 +265,9 @@ before it mails, reads, replaces or spends anything
   request, so a tab never removes another tab's entry, and a Resend writes it
   back only into an empty slot. "Start again" and Cancel keep it, since the
   request still holds the address. A begin refused with a 4xx other than 429
-  drops the `previous` it carried, so an osn-api and a Musubi of different
-  versions cannot refuse every try. The cost: whoever uses that browser
+  is not sent with that `previous` again from that view, and the tab's own
+  left request is forgotten (another tab's entry stays), so an osn-api and a
+  Musubi of different versions cannot refuse every try. The cost: whoever uses that browser
   profile while the request lives and types its address can end it and have
   a new link mailed at once; that link still needs the new request's number
   picked, and wrong picks count against the address (three in a day stop
