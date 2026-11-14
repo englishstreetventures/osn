@@ -371,6 +371,16 @@ export const sessions = sqliteTable(
      * assumed. A restricted row with no recorded factor admits nothing.
      */
     restrictedAmr: text("restricted_amr"),
+    /**
+     * Unix seconds when a sign-in on this device's browser replaced the
+     * cookie of this session's family while its account was scheduled for
+     * deletion. Such a family is the deletion's cancel handle, so the sign-in
+     * leaves it live instead of ending it; from then on it renews only for a
+     * profile its own account owns, and `GET /authorize` sees no session in
+     * it. Copied forward on every rotation, and never cleared, so cancelling
+     * the deletion does not lift it. NULL on every other session.
+     */
+    replacedAt: integer("replaced_at"),
   },
   (t) => [
     index("sessions_account_idx").on(t.accountId),

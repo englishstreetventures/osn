@@ -179,6 +179,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `created_at` | `integer` | Unix seconds |
 | `restricted_until` | `integer` nullable | Non-null only on a restricted recovery session, where it equals `expires_at`. Drives **rotation**, not request-time authorisation — see [[sessions#The restricted recovery session]] |
 | `restricted_amr` | `text` nullable | The RFC 8176 factor that minted a restricted recovery session (`otp` / `totp` / `webauthn`). What the passkey-enrolment bypass is checked against, so the step-up it skips is priced at the ceremony actually performed. NULL on every ordinary session |
+| `replaced_at` | `integer` nullable | Set by a sign-in on the browser holding the cancel handle of an account scheduled for deletion: the family stays live but renews only for its own account's profiles, and `GET /authorize` reads it as no session. Copied across rotations, never cleared — see [[sessions#Endpoints]] |
 
 Two profile management endpoints:
 - `POST /profiles/switch` — Bearer access token, target `profile_id` in the body; receive a new access token for that profile, bound to the caller's session. That session must be live, named by the session cookie or the token's `osn_sid`, or the answer is `409 session_stale` ([[sessions#Access-token session binding (`osn_sid`)]]). Per-account rate limited (20 switches/hr).
