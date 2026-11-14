@@ -13,9 +13,7 @@
       (function () {
         try {
           var p = localStorage.getItem("osn-theme");
-          var light =
-            p === "light" ||
-            ((p === "system" || !p) && window.matchMedia("(prefers-color-scheme: light)").matches);
+          var light = p === "light" || ((p === "system" || !p) && window.matchMedia("(prefers-color-scheme: light)").matches);
           document.documentElement.classList.toggle("dark", !light);
           document.documentElement.style.colorScheme = light ? "light" : "dark";
         } catch (e) {}

@@ -183,3 +183,39 @@ describe("<ConnectionsPage /> — failed actions", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
   });
 });
+
+describe("<ConnectionsPage /> — fallback sentences", () => {
+  it.each([
+    ["Pending", "Accept", "Failed to accept request"],
+    ["Pending", "Decline", "Failed to reject request"],
+    ["Sent", "Cancel", "Failed to cancel request"],
+    ["Blocked", "Unblock", "Failed to unblock"],
+  ])("falls back on the %s tab's %s button", async (tab, button, expected) => {
+    await renderConnectionsPage();
+    const row = {
+      handle: "carol",
+      displayName: "Carol Smith",
+      requestedAt: new Date().toISOString(),
+    };
+    mocks.listPendingRequests.mockResolvedValue({ pending: [row] });
+    mocks.listSentRequests.mockResolvedValue({ sent: [row] });
+    mocks.listBlocks.mockResolvedValue({
+      blocks: [{ handle: "carol", displayName: "Carol Smith" }],
+    });
+    for (const fn of [
+      mocks.acceptConnection,
+      mocks.rejectConnection,
+      mocks.removeConnection,
+      mocks.unblockProfile,
+    ]) {
+      fn.mockRejectedValue(new GraphClientError("", 400));
+    }
+    const spy = vi.spyOn(toast, "error");
+
+    fireEvent.click(screen.getByText(tab));
+    await screen.findByText(tab === "Blocked" ? "@carol" : "Carol Smith");
+    fireEvent.click(screen.getByText(button));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
+  });
+});

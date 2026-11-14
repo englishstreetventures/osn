@@ -33,32 +33,32 @@ shell on mobile)
 Three greys carry all hierarchy. Values are in `src/App.css` (`:root` for
 light, `.dark` for dark).
 
-| Token                                          | Light     | Dark      | Role                                                      |
-| ---------------------------------------------- | --------- | --------- | --------------------------------------------------------- |
-| `--foreground` (`text-foreground`)             | `#292929` | `#f2f2f2` | primary text; also `--primary`, the filled-CTA background |
-| `--muted-foreground` (`text-muted-foreground`) | `#5d5d5d` | `#a3a3a3` | secondary text (subtitles, descriptions)                  |
-| `--subtle` (`text-subtle`)                     | `#8d8d8d` | `#7a7a7a` | resting icons and ornaments; never text a reader needs    |
-| `--background`                                 | `#ffffff` | `#1c1c1c` | the page                                                  |
-| `--card`, `--popover`                          | `#ffffff` | `#242424` | cards, dialogs, menus                                     |
-| `--muted` (and `--secondary`, `--accent`)      | `#f4f4f4` | `#2b2b2b` | hover and fill surfaces                                   |
-| `--border`                                     | `#ececec` | `#333333` | hairline rule                                             |
-| `--input`                                      | `#e2e2e2` | `#3a3a3a` | control borders                                           |
-| `--ring`                                       | `#5d5d5d` | `#a3a3a3` | focus ring                                                |
+| Token | Light | Dark | Role |
+| --- | --- | --- | --- |
+| `--foreground` (`text-foreground`) | `#292929` | `#f2f2f2` | primary text; also `--primary`, the filled-CTA background |
+| `--muted-foreground` (`text-muted-foreground`) | `#5d5d5d` | `#a3a3a3` | secondary text (subtitles, descriptions) |
+| `--subtle` (`text-subtle`) | `#8d8d8d` | `#7a7a7a` | resting icons and ornaments; never text a reader needs |
+| `--background` | `#ffffff` | `#1c1c1c` | the page |
+| `--card`, `--popover` | `#ffffff` | `#242424` | cards, dialogs, menus |
+| `--muted` (and `--secondary`, `--accent`) | `#f4f4f4` | `#2b2b2b` | hover and fill surfaces |
+| `--border` | `#ececec` | `#333333` | hairline rule |
+| `--input` | `#e2e2e2` | `#3a3a3a` | control borders |
+| `--ring` | `#5d5d5d` | `#a3a3a3` | focus ring |
 
 Text a reader needs — a handle, a status, a hint, a "Searching…" line — takes
 `text-muted-foreground`, never `text-subtle`. `--subtle` is for resting icons
 and ornaments, and clears 3:1 (WCAG 1.4.11's floor for an icon) on every
 ground it rests on:
 
-| `--subtle`      | on `--background` | on `--card`, `--popover` | on `--muted`, `--secondary`, `--accent` | on `muted/60` over the page |
-| --------------- | ----------------- | ------------------------ | --------------------------------------- | --------------------------- |
-| Light `#8d8d8d` | 3.32:1            | 3.32:1                   | 3.02:1                                  | 3.13:1                      |
-| Dark `#7a7a7a`  | 3.97:1            | 3.62:1                   | 3.30:1                                  | 3.57:1                      |
+| `--subtle` | on `--background` | on `--card`, `--popover` | on `--muted`, `--secondary`, `--accent` | on `muted/60` over the page |
+| --- | --- | --- | --- | --- |
+| Light `#8d8d8d` | 3.32:1 | 3.32:1 | 3.02:1 | 3.13:1 |
+| Dark `#7a7a7a` | 3.97:1 | 3.62:1 | 3.30:1 | 3.57:1 |
 
-_Measured 2026-11-07 — `contrastRatio` from `@shared/color` over the `App.css`
+*Measured 2026-11-07 — `contrastRatio` from `@shared/color` over the `App.css`
 values; `muted/60` composited first, each sRGB channel `0.6 × muted + 0.4 ×
 --background`. `tests/styles/design-token-contract.test.ts` re-checks 3:1 on
-the five contract grounds in both themes._
+the five contract grounds in both themes.*
 
 `text-subtle` rests in five places: the rail's small-caps "Social" tag, part of
 the wordmark, which WCAG 1.4.3 exempts as a logotype (`RailHead` in
@@ -118,22 +118,22 @@ under 4.5:1 (the table below).
 Success as ink, on each of the contract's five grounds, ink on the warn
 wash, and warn ink on a warn `Notice`'s wash:
 
-|                              | Light: `--background`, `--card`, `--popover` | Light: `--muted`, `--secondary` | Dark: `--background` | Dark: `--card`, `--popover` | Dark: `--muted`, `--secondary` |
-| ---------------------------- | -------------------------------------------- | ------------------------------- | -------------------- | --------------------------- | ------------------------------ |
-| Success ink                  | 6.16:1                                       | 5.60:1                          | 8.95:1               | 8.15:1                      | 7.44:1                         |
-| Danger ink (`--destructive`) | 4.77:1                                       | **4.34:1**                      | 5.90:1               | 5.37:1                      | 4.90:1                         |
+| | Light: `--background`, `--card`, `--popover` | Light: `--muted`, `--secondary` | Dark: `--background` | Dark: `--card`, `--popover` | Dark: `--muted`, `--secondary` |
+| --- | --- | --- | --- | --- | --- |
+| Success ink | 6.16:1 | 5.60:1 | 8.95:1 | 8.15:1 | 7.44:1 |
+| Danger ink (`--destructive`) | 4.77:1 | **4.34:1** | 5.90:1 | 5.37:1 | 4.90:1 |
 
-| On the warn wash (`warn/10` over `--background`) | Light      | Dark    |
-| ------------------------------------------------ | ---------- | ------- |
-| `--foreground`                                   | 12.69:1    | 12.50:1 |
-| `--muted-foreground`                             | 5.75:1     | 5.55:1  |
-| `--destructive`                                  | **4.16:1** | 4.85:1  |
+| On the warn wash (`warn/10` over `--background`) | Light | Dark |
+| --- | --- | --- |
+| `--foreground` | 12.69:1 | 12.50:1 |
+| `--muted-foreground` | 5.75:1 | 5.55:1 |
+| `--destructive` | **4.16:1** | 4.85:1 |
 
-| On a warn `Notice`'s wash (`warn/5` over `--background`) | Light  | Dark   |
-| -------------------------------------------------------- | ------ | ------ |
-| Warn ink (`--toast-accent-warn`)                         | 5.25:1 | 8.20:1 |
+| On a warn `Notice`'s wash (`warn/5` over `--background`) | Light | Dark |
+| --- | --- | --- |
+| Warn ink (`--toast-accent-warn`) | 5.25:1 | 8.20:1 |
 
-_Measured 2026-11-06 (danger 2026-11-09, warn ink on the `Notice`'s wash
+*Measured 2026-11-06 (danger 2026-11-09, warn ink on the `Notice`'s wash
 2026-11-10) — `contrastRatio` from `@shared/color` over the `App.css` values
 above; a wash is composited first, each sRGB channel `0.1 × warn + 0.9 ×
 --background` (`0.05` and `0.95` for the `Notice`'s).
@@ -141,7 +141,7 @@ above; a wash is composited first, each sRGB channel `0.1 × warn + 0.9 ×
 success and warn on all five grounds in both themes, for danger ink on the
 five grounds, expecting it to fall short only on light `--muted` and
 `--secondary`, and for warn ink on the `Notice`'s wash in both themes, with
-the wash's strength read from `notice.tsx`._
+the wash's strength read from `notice.tsx`.*
 
 ### The contrast contract
 
@@ -166,12 +166,12 @@ rule draws it on an element that does not name it (§Borders).
 - **Scale — four sizes only.** Use the semantic utilities, never raw `text-lg`,
   `text-xl`, `text-base`, or arbitrary `text-[Npx]`.
 
-  | Utility        | Size / line-height | Role                                                                                                                                                                                                                                                                                                                           |
-  | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-  | `text-display` | 24 / 30            | page titles (`h1`) in the shell, `/authorize`'s client name (the `h1` on its sign-in and consent screens), large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
-  | `text-title`   | 14 / 20            | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`'s dead end, its load-error card and "Choose a profile"; the emailed-link confirm page)             |
-  | `text-body`    | 13 / 18            | nav, tabs, `size="sm"` Button labels, body copy, subtitles                                                                                                                                                                                                                                                                     |
-  | `text-meta`    | 12 / 16            | handles, timestamps, captions, helper text                                                                                                                                                                                                                                                                                     |
+  | Utility | Size / line-height | Role |
+  | --- | --- | --- |
+  | `text-display` | 24 / 30 | page titles (`h1`) in the shell, `/authorize`'s client name (the `h1` on its sign-in and consent screens), large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
+  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`'s dead end, its load-error card and "Choose a profile"; the emailed-link confirm page) |
+  | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
+  | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
 - **Names and section heads** — a person's or an organisation's name, wherever
   it stands for them in a row or a card, is `text-title` at 500: the
@@ -403,13 +403,13 @@ card, so the placeholder is one `Skeleton` standing for a card
 spacing steps). The product name above it stays put when the card arrives.
 Meanwhile the page's live region says "Checking this link…".
 
-_Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
+*Measured 2026-11-10 — the ready card's `getBoundingClientRect().height` in
 Chromium (Vitest browser tier, `ConfirmLinkPage` with five numbers, Musubi's
 `App.css`): 568.9px at 320px wide; 550.7px at 360, 375, 390, 414 and 430px;
 532.5px at 600px; 520.5px at 768 and 1280px. At 320×640 the column is taller
 than the screen either way, so the name does not move;
 `tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
-390×844 and 1280×800._
+390×844 and 1280×800.*
 
 **Overlays fade, with no scale.** `@shared/ui`'s Dialog (as card and as
 sheet), Popover (the sign-up form's `InfoPopover`) and the default menu (the
@@ -788,18 +788,18 @@ outline (§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
 
 **Where each view mounts:**
 
-| View                                            | Where                                                                                                                                                                                                                                                                                                                                                                                   | Host file                                                                               |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `SignIn`, `Register`                            | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above                                                                                                                                                                                                                                                                  | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
-| `SignIn`, `Register`                            | `/authorize`, unframed (`host="page"`), 24px under the client card, at the column's width with no side padding; "No account yet? Create one" sits 24px under `SignIn` and swaps to `Register`, whose Cancel reads "Sign in instead". While the panel's code loads, its placeholder takes the same shape (`SignInLoading`)                                                               | `components/AuthorizeSignIn.tsx`, in `pages/AuthorizePage.tsx`                          |
-| `CheckEmailView`                                | Inside `Register` once its link is sent, and inside `RecoveryLoginForm` once a recovery link is                                                                                                                                                                                                                                                                                         | —                                                                                       |
-| `ConfirmLinkPage`                               | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column. A sign-up link's page offers the numbers to pick; a recovery link's asks for the number typed (`typeNumber`). Its expired card also answers a link whose id names no flow                                                                                      | `pages/VerifyEmailLinkPage.tsx`                                                         |
-| `RecoveryLoginForm`                             | Inside `SignIn`, from "Lost your passkey?"                                                                                                                                                                                                                                                                                                                                              | —                                                                                       |
-| `TurnstileWidget`                               | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-link step, when a site key is set                                                                                                                                                                                                                                                                                         | —                                                                                       |
-| `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, inside Settings' card, so their rows are nested 8px cards; the last under the app's own "Recovery codes" heading, `text-title` at 500 over a `text-body` intro, as the panels' own headings read. While the section's code loads, `SecurityLoading` draws the passkeys' head and one row, a block for each width as the view's own placeholder does | `components/SecuritySection.tsx` (lazy), in `pages/SettingsPage.tsx`                    |
-| `SecurityEventsBanner`                          | The account banner stack, above every signed-in page                                                                                                                                                                                                                                                                                                                                    | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx`                |
-| `ProfileOnboarding`                             | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm`                                                                                                                                                                                                                                                                                                             | `pages/SettingsPage.tsx`                                                                |
-| `StepUpDialog`                                  | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner` — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default                                                                                                                                  | —                                                                                       |
+| View | Where | Host file |
+| --- | --- | --- |
+| `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
+| `SignIn`, `Register` | `/authorize`, unframed (`host="page"`), 24px under the client card, at the column's width with no side padding; "No account yet? Create one" sits 24px under `SignIn` and swaps to `Register`, whose Cancel reads "Sign in instead". While the panel's code loads, its placeholder takes the same shape (`SignInLoading`) | `components/AuthorizeSignIn.tsx`, in `pages/AuthorizePage.tsx` |
+| `CheckEmailView` | Inside `Register` once its link is sent, and inside `RecoveryLoginForm` once a recovery link is | — |
+| `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column. A sign-up link's page offers the numbers to pick; a recovery link's asks for the number typed (`typeNumber`). Its expired card also answers a link whose id names no flow | `pages/VerifyEmailLinkPage.tsx` |
+| `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
+| `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-link step, when a site key is set | — |
+| `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, inside Settings' card, so their rows are nested 8px cards; the last under the app's own "Recovery codes" heading, `text-title` at 500 over a `text-body` intro, as the panels' own headings read. While the section's code loads, `SecurityLoading` draws the passkeys' head and one row, a block for each width as the view's own placeholder does | `components/SecuritySection.tsx` (lazy), in `pages/SettingsPage.tsx` |
+| `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
+| `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
+| `StepUpDialog` | A sheet over the view that opened it — `PasskeysView`, `TotpView`, `RecoveryCodesView` or `SecurityEventsBanner` — when an action needs it: as wide as the screen below `md`, a centred card capped at 384px above, as Musubi's dialogs are by default | — |
 
 **When the session ends.** The runtime ends a session when the issuer refuses
 to renew it, and when another tab signs out or signs in to another account.
@@ -813,11 +813,12 @@ logs out in one tab sees the notice in every other open tab, which is true.
 The notice's Sign in opens the shell's sign-in dialog through
 `useShellDialogs()`, as the shells' own buttons do (§Responsive layout).
 
-An action that fails because the session ended also raises an error toast with
-the copy map's sentence, "Your session has ended. Sign in again."
-(`describeAuthError`), alone with no lead. Any other failure of such an action
-toasts the error's own message when it has one, else the action's fixed
-sentence ("Failed to switch profile"): `describeActionError` in
+A profile switch, a connection request, accept, reject, cancel, remove or
+unblock, and an organisation create that fails because the session ended also
+raises an error toast with the copy map's sentence, "Your session has ended.
+Sign in again." (`describeAuthError`), alone with no lead. Any other failure of
+those actions toasts the error's own message when it has one, else the action's
+fixed sentence ("Failed to switch profile"): `describeActionError` in
 `lib/action-error.ts`.
 
 **What Musubi supplies:**
@@ -860,15 +861,15 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   the lab's cire column — draws its own colours.
 - **Type.**
 
-  | Contract step    | Musubi value           |
-  | ---------------- | ---------------------- |
-  | `--ui-text-xs`   | `--text-meta`, 12px    |
-  | `--ui-text-sm`   | `--text-body`, 13px    |
-  | `--ui-text-base` | `--text-title`, 14px   |
-  | `--ui-text-md`   | `--text-title`, 14px   |
-  | `--ui-text-lg`   | 20px                   |
-  | `--ui-text-xl`   | `--text-display`, 24px |
-  | `--ui-text-2xl`  | 32px                   |
+  | Contract step | Musubi value |
+  | --- | --- |
+  | `--ui-text-xs` | `--text-meta`, 12px |
+  | `--ui-text-sm` | `--text-body`, 13px |
+  | `--ui-text-base` | `--text-title`, 14px |
+  | `--ui-text-md` | `--text-title`, 14px |
+  | `--ui-text-lg` | 20px |
+  | `--ui-text-xl` | `--text-display`, 24px |
+  | `--ui-text-2xl` | 32px |
 
 - **Tracking.** `--ui-tracking-tight` and `-normal` are `-0.15px`; `-wide` is
   `0em`, which the rail's small-caps "Social" tag uses.
