@@ -70,26 +70,166 @@ describe("TurnstileWidget — single-use reset (onReady)", () => {
 });
 
 describe("TurnstileWidget — a challenge that fails to load", () => {
-  afterEach(() => {
-    delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
-  });
+  const CAUSES =
+    "Couldn't load the verification challenge. A content blocker, a browser extension or a network that blocks challenges.cloudflare.com can stop it. Turn the blocker off for this site, or use another network.";
 
-  it("says to reload, in an alert", async () => {
-    (globalThis as unknown as { turnstile?: unknown }).turnstile = {
-      render: vi.fn((_el: HTMLElement, opts: { "error-callback"?: () => void }) => {
-        opts["error-callback"]?.();
-        return "wid-err";
+  type Api = {
+    render: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  };
+
+  function setApi(api: Api | undefined) {
+    if (api) (globalThis as unknown as { turnstile?: unknown }).turnstile = api;
+    else delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
+  }
+
+  /** An api.js whose `render` hands back a token at once. */
+  function workingApi(): Api {
+    return {
+      render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+        opts.callback?.("tok");
+        return "wid-ok";
       }),
       reset: vi.fn(),
       remove: vi.fn(),
     };
+  }
+
+  /**
+   * Holds every `<script>` the widget appends instead of putting it in the
+   * page, so nothing is fetched; a test fires its `load` or `error` itself.
+   */
+  function heldScripts(): HTMLScriptElement[] {
+    const held: HTMLScriptElement[] = [];
+    const append = document.head.appendChild.bind(document.head);
+    vi.spyOn(document.head, "appendChild").mockImplementation(<T extends Node>(node: T): T => {
+      if (node instanceof HTMLScriptElement) {
+        held.push(node);
+        return node;
+      }
+      return append(node);
+    });
+    return held;
+  }
+
+  /** The line's words, without the hidden "Error:" mark `Notice` reads before them. */
+  function lineText(alert: HTMLElement): string {
+    return (alert.textContent ?? "").replace(/^Error: /, "");
+  }
+
+  function tryAgain(): HTMLButtonElement {
+    return screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    setApi(undefined);
+  });
+
+  it("names the causes a person can act on, with Try again, in an alert, when the script fails to load", async () => {
+    const scripts = heldScripts();
     const onToken = vi.fn();
     render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
 
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0]!.src).toBe("https://challenges.cloudflare.com/turnstile/v0/api.js");
+    scripts[0]!.dispatchEvent(new Event("error"));
+
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(
-      "Couldn't load the verification challenge. Reload and try again.",
-    );
+    expect(lineText(alert)).toBe(`${CAUSES} Try again`);
+    expect(alert.contains(tryAgain())).toBe(true);
     expect(onToken).toHaveBeenCalledWith(null);
+  });
+
+  it("loads the script again on Try again, then renders and hands over a token", async () => {
+    const scripts = heldScripts();
+    const onToken = vi.fn();
+    render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
+    scripts[0]!.dispatchEvent(new Event("error"));
+    await screen.findByRole("alert");
+
+    tryAgain().click();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Focus goes to the challenge, not to the page, as the line it held goes.
+    expect(document.activeElement).toBe(
+      screen.getByRole("group", { name: "Human verification challenge" }),
+    );
+    expect(scripts).toHaveLength(2);
+    expect(scripts[1]).not.toBe(scripts[0]);
+
+    const api = workingApi();
+    setApi(api);
+    scripts[1]!.dispatchEvent(new Event("load"));
+    await waitFor(() => expect(onToken).toHaveBeenLastCalledWith("tok"));
+    expect(api.render).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("fails a load that never finishes, at the deadline, rather than waiting for ever", async () => {
+    vi.useFakeTimers();
+    const scripts = heldScripts();
+    const onToken = vi.fn();
+    render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
+
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(screen.queryByRole("alert")).toBeNull();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lineText(screen.getByRole("alert"))).toBe(`${CAUSES} Try again`);
+    expect(onToken).toHaveBeenCalledWith(null);
+
+    tryAgain().click();
+    expect(scripts).toHaveLength(2);
+    // Settles the second load, so no load is left in flight for the next test.
+    scripts[1]!.dispatchEvent(new Event("error"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
+  it("renders the challenge again on Try again after it reports an error", async () => {
+    let fails = true;
+    const api: Api = {
+      render: vi.fn(
+        (
+          _el: HTMLElement,
+          opts: { callback?: (t: string) => void; "error-callback"?: () => void },
+        ) => {
+          if (fails) opts["error-callback"]?.();
+          else opts.callback?.("tok-2");
+          return fails ? "wid-err" : "wid-ok";
+        },
+      ),
+      reset: vi.fn(),
+      remove: vi.fn(),
+    };
+    setApi(api);
+    const onToken = vi.fn();
+    render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
+    const alert = await screen.findByRole("alert");
+    expect(lineText(alert)).toBe(`${CAUSES} Try again`);
+
+    fails = false;
+    tryAgain().click();
+    await waitFor(() => expect(onToken).toHaveBeenLastCalledWith("tok-2"));
+    expect(api.remove).toHaveBeenCalledWith("wid-err");
+    expect(api.render).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("adds the host's way on that needs no challenge, when it gives one", async () => {
+    const scripts = heldScripts();
+    render(() => (
+      <TurnstileWidget
+        siteKey="0x4AAAtest"
+        onToken={() => {}}
+        alternative="Signing in with a recovery code doesn't need this challenge."
+      />
+    ));
+    scripts[0]!.dispatchEvent(new Event("error"));
+    const alert = await screen.findByRole("alert");
+    expect(lineText(alert)).toBe(
+      `${CAUSES} Signing in with a recovery code doesn't need this challenge. Try again`,
+    );
   });
 });

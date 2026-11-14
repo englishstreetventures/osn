@@ -25,7 +25,10 @@ import {
   PENDING_KEY,
   PREVIOUS_KEY,
   readStored,
+  shareSignUp,
+  sharedSignUp,
   storedWaiting,
+  unshareSignUp,
   writeStored,
   type Waiting,
 } from "./pending-sign-up";
@@ -93,6 +96,8 @@ export function Register(props: RegisterProps) {
   const webauthnSupported = browserSupportsWebAuthn();
 
   const resumed = storedWaiting();
+  // Read for its side effect: a shared sign-up that has expired is removed.
+  sharedSignUp();
   const [step, setStep] = createSignal<Step>(resumed ? "verify" : "details");
   const [email, setEmail] = createSignal(resumed?.email ?? "");
   const [handle, setHandle] = createSignal(resumed?.handle ?? "");
@@ -282,6 +287,7 @@ export function Register(props: RegisterProps) {
     // view takes it to the passkey step, and once the view is gone it is
     // handed over without one.
     if (answer?.status === "complete") {
+      unshareSignUp(request.requestId);
       if (disposed) void handOver(answer);
       else finish(answer);
       return;
@@ -298,6 +304,7 @@ export function Register(props: RegisterProps) {
       schedulePoll(pollDelay);
     } else if (answer.status === "expired") {
       writeStored(PENDING_KEY, null);
+      unshareSignUp(request.requestId);
       setLinkError(undefined);
       setLinkStatus("expired");
     } else {
@@ -305,6 +312,7 @@ export function Register(props: RegisterProps) {
       // is spent; the details step offers the handle check again, reads the
       // reason out, and puts focus where the person picks another handle.
       writeStored(PENDING_KEY, null);
+      unshareSignUp(request.requestId);
       setWaiting(null);
       setDetailsError(null);
       setHandleTaken(true);
@@ -335,7 +343,11 @@ export function Register(props: RegisterProps) {
     document.removeEventListener("visibilitychange", pollOnReturn);
   });
 
-  /** Waits on `request`, in this tab and in its storage; its number in memory only. */
+  /**
+   * Waits on `request`, which this tab's begin just made: in this tab and in
+   * its storage, and shared with the browser's other tabs so a new one can
+   * retire it. Its number in memory only.
+   */
   function waitOn(request: Waiting, code: string) {
     setPairingCode(code);
     setWaiting(request);
@@ -343,6 +355,12 @@ export function Register(props: RegisterProps) {
     setLinkError(undefined);
     setStep("verify");
     writeStored(PENDING_KEY, request);
+    shareSignUp({
+      requestId: request.requestId,
+      claimSecret: request.claimSecret,
+      expiresAt: request.expiresAt,
+      email: request.email.toLowerCase(),
+    });
     startPolling();
   }
 
@@ -390,7 +408,13 @@ export function Register(props: RegisterProps) {
         displayName: displayName().trim() || undefined,
         turnstileToken: turnstileToken() ?? undefined,
       };
-      const previous = readStored<PreviousRegistration>(PREVIOUS_KEY);
+      // Another tab's live request for this address holds it until a begin
+      // retires it, so it goes first; else the request this tab left.
+      const other = sharedSignUp();
+      const previous: PreviousRegistration | null =
+        other && other.email === email().toLowerCase()
+          ? { requestId: other.requestId, claimSecret: other.claimSecret }
+          : readStored<PreviousRegistration>(PREVIOUS_KEY);
       if (previous) input.previous = previous;
       // What the browser put in the hidden field, if it has the API.
       const nonce = verificationNonce();
@@ -407,6 +431,7 @@ export function Register(props: RegisterProps) {
         if (input.emailVerificationToken) void loadVerificationNonce();
       }
       writeStored(PREVIOUS_KEY, null);
+      if (previous) unshareSignUp(previous.requestId);
       // A browser token that verified has confirmed the address already: the
       // first poll makes the account, and the person goes straight to the
       // passkey step without a "check your email" screen. Any other answer
@@ -497,6 +522,7 @@ export function Register(props: RegisterProps) {
     }
     stopPolling();
     writeStored(PENDING_KEY, null);
+    unshareSignUp(request.requestId);
     setLinkStatus("expired");
     throw new Error("The link expired");
   }
@@ -756,6 +782,7 @@ export function Register(props: RegisterProps) {
           {(request) => (
             <CheckEmailView
               purpose="sign-up"
+              productName={props.productName}
               email={request().email}
               pairingCode={pairingCode()}
               status={linkStatus()}

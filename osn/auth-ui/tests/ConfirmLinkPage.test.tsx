@@ -38,6 +38,31 @@ const STEP_UP_EXPIRED_BODY =
 const STEP_UP_EXPIRED_WARNING =
   "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions.";
 
+/** The lockout rule, as sign-up and email change state it: per address, three a day. */
+const ADDRESS_RULE = "After 3 wrong numbers in a day, links to this address stop for up to a day.";
+/** As recovery and step-up state it: per account, five in 15 minutes. */
+const ACCOUNT_RULE =
+  "After 5 wrong numbers in 15 minutes, links like this one stop for up to 15 minutes.";
+const RULE = {
+  "sign-up": ADDRESS_RULE,
+  recovery: ACCOUNT_RULE,
+  "step-up": ACCOUNT_RULE,
+  "email-change": ADDRESS_RULE,
+} as const satisfies Record<ConfirmLinkPurpose, string>;
+/** What the expired page adds: the rule, after the reason a link ends. */
+const expiredRule = (purpose: ConfirmLinkPurpose) =>
+  `A wrong number ends a link too. ${RULE[purpose]}`;
+
+/**
+ * The page's text without the lockout rule: fixed copy the same in every
+ * state, so what is left is what the page says about this attempt.
+ */
+function aboutThisAttempt(container: HTMLElement, purpose: ConfirmLinkPurpose): string {
+  return (container.textContent ?? "")
+    .replaceAll(expiredRule(purpose), "")
+    .replaceAll(RULE[purpose], "");
+}
+
 type OnConfirm = (pick: string | null) => Promise<ConfirmOutcome>;
 
 function candidate(number: string): HTMLButtonElement {
@@ -330,13 +355,13 @@ describe("ConfirmLinkPage — what each answer shows", () => {
     for (const answer of answers) {
       const pending = deferred<ConfirmOutcome>();
       const { container } = page(() => pending.promise);
-      expect(container.textContent).not.toMatch(WRONG);
+      expect(aboutThisAttempt(container, "sign-up")).not.toMatch(WRONG);
       fireEvent.click(candidate("0730"));
-      expect(container.textContent).not.toMatch(WRONG);
+      expect(aboutThisAttempt(container, "sign-up")).not.toMatch(WRONG);
       if (answer === "throws") pending.reject(new Error("wrong number"));
       else pending.resolve(answer);
       await settle();
-      expect(container.textContent).not.toMatch(WRONG);
+      expect(aboutThisAttempt(container, "sign-up")).not.toMatch(WRONG);
       cleanup();
     }
   });
@@ -784,13 +809,13 @@ describe("ConfirmLinkPage — typing the number", () => {
       const pending = deferred<ConfirmOutcome>();
       const { container } = typed(() => pending.promise);
       enter("12a");
-      expect(container.textContent).not.toMatch(WRONG);
+      expect(aboutThisAttempt(container, "recovery")).not.toMatch(WRONG);
       enter("4821");
       fireEvent.click(confirmButton());
       if (answer === "throws") pending.reject(new Error("wrong number"));
       else pending.resolve(answer);
       await settle();
-      expect(container.textContent).not.toMatch(WRONG);
+      expect(aboutThisAttempt(container, "recovery")).not.toMatch(WRONG);
       cleanup();
     }
   });
@@ -1041,10 +1066,13 @@ describe("ConfirmLinkPage — the words for each flow", () => {
 
       expect(heading().textContent).toBe(EXPIRED_HEADING);
       const body = purpose === "step-up" ? STEP_UP_EXPIRED_BODY : EXPIRED_BODY;
+      const rule = expiredRule(purpose);
       const lines = [...heading().parentElement!.querySelectorAll("p")].map((p) => p.textContent);
-      expect(lines).toEqual(warning ? [body, warning] : [body]);
+      expect(lines).toEqual(warning ? [body, rule, warning] : [body, rule]);
       expect(announcer(container).textContent).toBe(
-        warning ? `${EXPIRED_HEADING}. ${body} ${warning}` : `${EXPIRED_HEADING}. ${body}`,
+        warning
+          ? `${EXPIRED_HEADING}. ${body} ${rule} ${warning}`
+          : `${EXPIRED_HEADING}. ${body} ${rule}`,
       );
     },
   );
@@ -1197,7 +1225,9 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
     await settle();
     expect(announcer(container)).toBe(region);
     expect(region.isConnected).toBe(true);
-    expect(region.textContent).toBe(`${EXPIRED_HEADING}. ${EXPIRED_BODY}`);
+    expect(region.textContent).toBe(
+      `${EXPIRED_HEADING}. ${EXPIRED_BODY} ${expiredRule("sign-up")}`,
+    );
 
     cleanup();
     const again = render(() => (
@@ -1391,5 +1421,86 @@ describe("ConfirmLinkPage — around the page", () => {
 
     expect(typedConfirm.mock.calls).toEqual([["4821"], ["4821"], [null]]);
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("ConfirmLinkPage — the rule on wrong numbers", () => {
+  /** The text of every element `element` names in `aria-describedby`. */
+  function description(element: Element): string {
+    return (element.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .filter(Boolean)
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+  }
+
+  it.each(["sign-up", "email-change"] as const)(
+    "states %s's rule under the instruction, as the numbers' description, while the page asks",
+    async (purpose) => {
+      const answer = deferred<ConfirmOutcome>();
+      page(() => answer.promise, { purpose });
+
+      const group = screen.getByRole("group");
+      const rule = shown(RULE[purpose]);
+      expect(rule).toHaveLength(1);
+      expect(group.contains(rule[0]!)).toBe(true);
+      expect(description(group)).toBe(RULE[purpose]);
+      // Above the numbers, so it is read before a pick.
+      expect(
+        rule[0]!.compareDocumentPosition(candidate("4821")) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      fireEvent.click(candidate("4821"));
+      expect(shown(RULE[purpose])).toHaveLength(1);
+      answer.reject(new Error("down"));
+      await settle();
+      expect(shown(RULE[purpose])).toHaveLength(1);
+    },
+  );
+
+  it.each(["recovery", "step-up"] as const)(
+    "states %s's rule as the typed field's hint",
+    (purpose) => {
+      render(() => <ConfirmLinkPage purpose={purpose} typeNumber onConfirm={vi.fn<OnConfirm>()} />);
+      const field = screen.getByLabelText("Type the number shown on the screen where you started.");
+      expect(description(field)).toBe(RULE[purpose]);
+      expect(shown(RULE[purpose])).toHaveLength(1);
+    },
+  );
+
+  it("says the same on the expired page however it is reached, so it tells nothing of what happened", async () => {
+    const pickedWrong = page(() => Promise.resolve<ConfirmOutcome>("expired"));
+    fireEvent.click(candidate("4821"));
+    await settle();
+    const afterPick = [...heading().parentElement!.querySelectorAll("p")].map((p) => p.textContent);
+    pickedWrong.unmount();
+
+    render(() => (
+      <ConfirmLinkPage purpose="sign-up" initialOutcome="expired" onConfirm={vi.fn<OnConfirm>()} />
+    ));
+    const opened = [...heading().parentElement!.querySelectorAll("p")].map((p) => p.textContent);
+    cleanup();
+
+    render(() => (
+      <ConfirmLinkPage purpose="sign-up" candidates={["12"]} onConfirm={vi.fn<OnConfirm>()} />
+    ));
+    const unofferable = [...heading().parentElement!.querySelectorAll("p")].map(
+      (p) => p.textContent,
+    );
+
+    expect(afterPick).toEqual([EXPIRED_BODY, expiredRule("sign-up")]);
+    expect(opened).toEqual(afterPick);
+    expect(unofferable).toEqual(afterPick);
+  });
+
+  it.each([
+    ["confirmed", "confirmed" as const],
+    ["declined", "declined" as const],
+  ])("is not on the %s page", async (_, outcome) => {
+    page(() => Promise.resolve<ConfirmOutcome>(outcome));
+    if (outcome === "confirmed") fireEvent.click(candidate("4821"));
+    else fireEvent.click(decline());
+    await settle();
+    expect(screen.queryByText(/wrong number/)).toBeNull();
   });
 });

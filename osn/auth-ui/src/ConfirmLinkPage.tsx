@@ -7,6 +7,7 @@ import {
   batch,
   createMemo,
   createSignal,
+  createUniqueId,
   For,
   type JSX,
   Match,
@@ -17,6 +18,7 @@ import {
 } from "solid-js";
 
 import type { CheckEmailPurpose } from "./CheckEmailView";
+import { lockoutRule } from "./link-lockout";
 import { isPairingCode } from "./pairing-code";
 
 /** The flows that email a link: the same four the waiting view serves. */
@@ -161,6 +163,14 @@ const IF_NOT_ASKED = {
 } as const satisfies Record<ConfirmLinkPurpose, string>;
 
 /**
+ * What the expired page says of wrong numbers: that one ends a link, and the
+ * flow's lockout rule. The same on every expired page, so it says the rule and
+ * never whether a number was wrong or a lockout holds.
+ */
+const expiredRule = (purpose: ConfirmLinkPurpose) =>
+  `A wrong number ends a link too. ${lockoutRule(purpose)}`;
+
+/**
  * What the expired page adds for a flow whose unasked link is itself a warning:
  * an unasked step-up means someone else may be signed in, whatever became of
  * the link.
@@ -232,6 +242,12 @@ function offerable(candidates: Candidates | undefined): boolean {
  * - **It says who gets what.** Each flow's sentence says what confirming lets
  *   the device that asked do, and what to do if you did not ask. Step-up's
  *   expired page keeps its warning to sign out the other sessions.
+ * - **It states the lockout rule.** Wrong numbers stop a flow's links for a
+ *   while, and the waiting screen never says so, since the tab that began must
+ *   not learn what the reader did. This page, shown only to the link's holder,
+ *   states the rule as fixed copy: under the instruction while it asks (the
+ *   typed field's hint), and on every expired page. It never says whether a
+ *   number was wrong or a lockout holds.
  * - **The answers.** A number can be `confirmed`, a decline `declined`, and
  *   either `expired`; anything thrown, or any answer that does not fit what
  *   was sent, is an error. Try again sends the same number, or the same
@@ -265,6 +281,8 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
   const [pressed, setPressed] = createSignal<Pressed>();
 
   const [entry, setEntry] = createSignal("");
+
+  const ruleId = createUniqueId();
 
   const usable = createMemo(() => offerable(props.candidates));
 
@@ -422,7 +440,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
         return `${DECLINED_HEADING}. ${DECLINED_BODY[props.purpose]}`;
       case "expired": {
         const warning = EXPIRED_WARNING[props.purpose];
-        const said = `${EXPIRED_HEADING}. ${EXPIRED_BODY[props.purpose]}`;
+        const said = `${EXPIRED_HEADING}. ${EXPIRED_BODY[props.purpose]} ${expiredRule(props.purpose)}`;
         return warning ? `${said} ${warning}` : said;
       }
     }
@@ -477,6 +495,9 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
                 {EXPIRED_BODY[props.purpose]}
               </p>
+              <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
+                {expiredRule(props.purpose)}
+              </p>
               <Show when={EXPIRED_WARNING[props.purpose]}>
                 {(warning) => (
                   <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{warning()}</p>
@@ -493,10 +514,15 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               <div class="flex flex-col gap-2">
                 {/* One column at every width: a number runs to six digits, and
                     five of them do not fit a row of the card. */}
-                <fieldset class="flex min-w-0 flex-col gap-2">
+                <fieldset class="flex min-w-0 flex-col gap-2" aria-describedby={ruleId}>
                   <legend class="text-ui-sm text-ui-ink-secondary leading-ui-snug mb-2">
                     {PICK_LINE}
                   </legend>
+                  {/* Field's hint, under the instruction rather than under the
+                      numbers, so it is read before a pick. */}
+                  <p id={ruleId} class="text-ui-xs text-ui-ink-secondary leading-ui-snug">
+                    {lockoutRule(props.purpose)}
+                  </p>
                   <For each={props.candidates}>
                     {(candidate) => {
                       // A number keeps its digits while busy: the line under
@@ -530,7 +556,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               {/* A plain label, as every auth form field has. Not `OtpInput`:
                   its six boxes are a fixed length, and the number runs from
                   one digit to six, which the page does not know. */}
-              <Field labelTreatment="plain" label={TYPE_LINE}>
+              <Field labelTreatment="plain" label={TYPE_LINE} hint={lockoutRule(props.purpose)}>
                 {(field) => (
                   <Input
                     {...field}

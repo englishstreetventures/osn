@@ -1,5 +1,6 @@
-import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
+
+import { LoadFailed } from "./LoadFailed";
 
 /**
  * Cloudflare Turnstile widget — KEY-OPTIONAL Solid island for the OSN auth
@@ -14,6 +15,14 @@ import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js
  * parent form behaves exactly as before (Turnstile not configured). When set, it
  * lazily injects Cloudflare's `api.js`, renders the widget, and reports the
  * token via `onToken`. The sitekey is public; the secret lives only on osn-api.
+ *
+ * A challenge that cannot load — the script refused by a content blocker, an
+ * extension or a network filter, a load that never finishes, or the widget's
+ * own error — shows `LoadFailed`'s line: the causes a person can act on, the
+ * host's `alternative` if it gives one, and Try again, which loads the script
+ * afresh where it failed and renders the challenge again. Focus moves to the
+ * challenge as the line goes, so it never falls to the page. The form's submit
+ * stays the host's: with no token, it stays disabled.
  */
 
 const SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js";
@@ -40,38 +49,70 @@ function getTurnstile(): TurnstileApi | undefined {
   return (globalThis as { turnstile?: TurnstileApi }).turnstile;
 }
 
+/** The host the script loads from, named in the failed-load line. */
+const SCRIPT_HOST = new URL(SCRIPT_SRC).host;
+
+/**
+ * How long a load may take, from the moment it starts, before it counts as
+ * failed. A network that drops the request rather than refusing it would
+ * otherwise leave the form waiting with no word.
+ */
+const LOAD_DEADLINE_MS = 15_000;
+
+/** How often a load in flight looks for `window.turnstile`. */
+const LOAD_POLL_MS = 50;
+
 let scriptPromise: Promise<void> | null = null;
+
+/**
+ * Loads `api.js` and resolves when `window.turnstile` exists; calls while a
+ * load is in flight share it. Rejects when the script errors or the deadline
+ * passes. A failed load's element is removed, so the next call — Try again —
+ * appends a new script rather than waiting on one that will never run.
+ */
 function loadTurnstileScript(): Promise<void> {
   if (getTurnstile()) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
-  scriptPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
-    const onReady = () => {
-      const start = Date.now();
-      const tick = () => {
-        if (getTurnstile()) return resolve();
-        if (Date.now() - start > 10_000) return reject(new Error("turnstile load timeout"));
-        setTimeout(tick, 50);
-      };
-      tick();
-    };
-    if (existing) {
-      if (getTurnstile()) resolve();
-      else existing.addEventListener("load", onReady, { once: true });
-      return;
+  let script = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
+  const attempt = new Promise<void>((resolve, reject) => {
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onError = () => finish(new Error("turnstile script error"));
+    function finish(error?: Error) {
+      clearTimeout(timer);
+      script?.removeEventListener("error", onError);
+      if (error) reject(error);
+      else resolve();
     }
-    const script = document.createElement("script");
-    script.id = SCRIPT_ID;
-    script.src = SCRIPT_SRC;
-    script.async = true;
-    script.defer = true;
-    script.addEventListener("load", onReady, { once: true });
-    script.addEventListener("error", () => reject(new Error("turnstile script error")), {
-      once: true,
-    });
-    document.head.appendChild(script);
+    function look() {
+      if (getTurnstile()) return finish();
+      if (Date.now() - started >= LOAD_DEADLINE_MS) {
+        return finish(new Error("turnstile load timeout"));
+      }
+      timer = setTimeout(look, LOAD_POLL_MS);
+    }
+    if (!script) {
+      script = document.createElement("script");
+      script.id = SCRIPT_ID;
+      script.src = SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+    script.addEventListener("error", onError, { once: true });
+    look();
   });
-  return scriptPromise;
+  scriptPromise = attempt;
+  // Only a load in flight is shared: once it settles, `window.turnstile`
+  // answers the next call, or a new script is loaded.
+  const settled = () => {
+    if (scriptPromise === attempt) scriptPromise = null;
+  };
+  attempt.then(settled, () => {
+    settled();
+    script?.remove();
+  });
+  return attempt;
 }
 
 export interface TurnstileWidgetProps {
@@ -93,6 +134,12 @@ export interface TurnstileWidgetProps {
    * invoke it unconditionally.
    */
   onReady?: (controls: { reset: () => void }) => void;
+  /**
+   * One sentence naming a way on that needs no challenge, added to the line a
+   * failed load shows: `SignIn`'s recovery code. Absent where there is none,
+   * as on `Register`.
+   */
+  alternative?: string;
   theme?: "light" | "dark" | "auto";
   class?: string;
 }
@@ -108,15 +155,39 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
   const labelId = createUniqueId();
   let container: HTMLDivElement | undefined;
   let widgetId: string | undefined;
+  let disposed = false;
+  // Each load is numbered, so the answer to one that Try again replaced is
+  // dropped.
+  let attempts = 0;
 
-  onMount(() => {
+  function removeWidget() {
+    const ts = getTurnstile();
+    if (ts && widgetId !== undefined) {
+      try {
+        ts.remove(widgetId);
+      } catch {
+        // Already torn down.
+      }
+    }
+    widgetId = undefined;
+  }
+
+  function fail() {
+    setFailed(true);
+    props.onToken(null);
+  }
+
+  function show() {
     const key = siteKey();
     if (!key || !container) return;
+    const attempt = ++attempts;
+    const current = () => !disposed && attempt === attempts;
     loadTurnstileScript()
       .then(() => {
+        if (!current()) return;
         const ts = getTurnstile();
         if (!ts || !container) {
-          setFailed(true);
+          fail();
           return;
         }
         widgetId = ts.render(container, {
@@ -129,10 +200,7 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
           },
           "expired-callback": () => props.onToken(null),
           "timeout-callback": () => props.onToken(null),
-          "error-callback": () => {
-            setFailed(true);
-            props.onToken(null);
-          },
+          "error-callback": fail,
         });
         // Hand the parent a reset() bound to THIS widget instance so it can
         // force a fresh token after the current one is redeemed (single-use).
@@ -150,38 +218,55 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
             }
           },
         });
-        return;
       })
       .catch(() => {
-        setFailed(true);
-        props.onToken(null);
+        if (current()) fail();
       });
-  });
+  }
+
+  /** Try again: drops the line, puts focus on the challenge, and loads and renders it afresh. */
+  function retry() {
+    setFailed(false);
+    removeWidget();
+    container?.focus();
+    show();
+  }
+
+  onMount(show);
 
   onCleanup(() => {
-    const ts = getTurnstile();
-    if (ts && widgetId) {
-      try {
-        ts.remove(widgetId);
-      } catch {
-        // Already torn down.
-      }
-    }
+    disposed = true;
+    removeWidget();
   });
+
+  const failureLine = () =>
+    [
+      `Couldn't load the verification challenge. A content blocker, a browser extension or a network that blocks ${SCRIPT_HOST} can stop it. Turn the blocker off for this site, or use another network.`,
+      props.alternative,
+    ]
+      .filter(Boolean)
+      .join(" ");
 
   return (
     <Show when={siteKey()}>
       <div class={props.class}>
-        <div ref={container} aria-labelledby={labelId} />
+        {/* A group named by the label below, and where Try again puts focus:
+            `tabindex="-1"` takes it from code, never from Tab, and it draws no
+            mark, since it is where focus is put, not a control. */}
+        <div
+          ref={container}
+          role="group"
+          aria-labelledby={labelId}
+          tabindex="-1"
+          class="focus:outline-none"
+        />
         <span id={labelId} class="sr-only">
           Human verification challenge
         </span>
         <Show when={failed()}>
-          <Notice tone="danger" size="inline" alert class="mt-2">
-            Couldn&apos;t load the verification challenge. Reload and try again. If it keeps failing
-            (an ad blocker or network filter may be blocking it), recovery-code sign-in still works
-            — it isn&apos;t gated by this challenge.
-          </Notice>
+          <div class="mt-2">
+            <LoadFailed lead={failureLine()} error={undefined} onRetry={retry} />
+          </div>
         </Show>
       </div>
     </Show>

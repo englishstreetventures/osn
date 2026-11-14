@@ -42,6 +42,7 @@ import type { RegistrationClient } from "@osn/client";
 import { toast } from "@shared/toast";
 
 // Import after mocks so the component picks them up.
+import { hasPendingSignUp } from "../src/pending-sign-up";
 import { Register } from "../src/Register";
 import {
   CONNECTION,
@@ -153,6 +154,7 @@ describe("Register component", () => {
     hoisted.adoptSession.mockReset();
     hoisted.startRegistration.mockReset();
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -376,6 +378,197 @@ describe("Register component", () => {
       />
     ));
   }
+
+  describe("a sign-up shared across the browser's tabs", () => {
+    const SHARED_KEY = "osn.signup.live";
+
+    /** The shared entry as stored, or null. */
+    function shared(): Record<string, unknown> | null {
+      return JSON.parse(localStorage.getItem(SHARED_KEY) ?? "null") as Record<
+        string,
+        unknown
+      > | null;
+    }
+
+    /** Another tab's begun sign-up for `email`, as that tab stored it. */
+    function storeShared(email: string, n = 1, expiresAt = begun(n).expiresAt) {
+      localStorage.setItem(
+        SHARED_KEY,
+        JSON.stringify({
+          requestId: begun(n).requestId,
+          claimSecret: begun(n).claimSecret,
+          expiresAt,
+          email,
+        }),
+      );
+    }
+
+    /** A new tab: nothing in this tab's session storage, the dialog mounted afresh. */
+    function newTab() {
+      sessionStorage.clear();
+      return renderRegister();
+    }
+
+    it("keeps the live request, without its number, where a new tab can read it", async () => {
+      // Once: `begun()` reads the clock, which the wait below moves on.
+      const request = begun();
+      stub.beginRegistration.mockResolvedValue(request);
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs("Alice@Example.com");
+      expect(shared()).toEqual({
+        requestId: request.requestId,
+        claimSecret: request.claimSecret,
+        expiresAt: request.expiresAt,
+        email: "alice@example.com",
+      });
+      expect(JSON.stringify(shared())).not.toContain(request.pairingCode);
+    });
+
+    it("retires another tab's request for the same address on begin, so a link goes at once", async () => {
+      storeShared("alice@example.com", 1);
+      stub.beginRegistration.mockResolvedValue(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      newTab();
+      expect(screen.getByRole("button", { name: /Send verification link/i })).toBeTruthy();
+      await submitDetailsAs("ALICE@example.com");
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        claimSecret: begun(1).claimSecret,
+      });
+      expect(shared()?.requestId).toBe(begun(2).requestId);
+    });
+
+    it("leaves another tab's request for a different address alone", async () => {
+      storeShared("bob@example.com", 1);
+      stub.beginRegistration.mockResolvedValue(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      newTab();
+      await submitDetailsAs("alice@example.com");
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+    });
+
+    it("ignores and removes an entry that has expired", async () => {
+      storeShared("alice@example.com", 1, Math.floor(Date.now() / 1000) - 1);
+      stub.beginRegistration.mockResolvedValue(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      newTab();
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+      await submitDetailsAs("alice@example.com");
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toBeUndefined();
+    });
+
+    it("is swept by the check hosts make on every load, once it has expired", () => {
+      storeShared("alice@example.com", 1, Math.floor(Date.now() / 1000) - 1);
+      expect(hasPendingSignUp()).toBe(false);
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+    });
+
+    it("removes the entry once the account is made", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue(completed());
+      renderRegister();
+      await submitDetailsAs();
+      expect(shared()).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Enroll credential/i }));
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+    });
+
+    it("removes the entry when the request is gone", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+    });
+
+    it("never removes or rewrites a newer tab's entry when its own request ends", async () => {
+      stub.beginRegistration.mockResolvedValue(begun(1));
+      const answer = deferred<unknown>();
+      stub.registrationStatus.mockReturnValueOnce(answer.promise);
+      renderRegister();
+      await submitDetailsAs();
+      // Another tab began for the same address and retired this tab's request.
+      storeShared("alice@example.com", 2);
+      await vi.advanceTimersByTimeAsync(2_000);
+      answer.resolve({ status: "expired" });
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(shared()?.requestId).toBe(begun(2).requestId);
+    });
+
+    it("does not bring back an entry another tab removed, when this tab is reloaded", async () => {
+      const { pairingCode, ...request } = begun();
+      sessionStorage.setItem(
+        "osn.signup.pending",
+        JSON.stringify({ ...request, email: "alice@example.com", handle: "alice" }),
+      );
+      stub.registrationStatus.mockResolvedValue({ status: "pending", pairingCode });
+      renderRegister();
+      expect(screen.getByText(/Check your email/)).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(localStorage.getItem(SHARED_KEY)).toBeNull();
+    });
+
+    it("keeps the entry on Start again, so the next begin, in any tab, retires it", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      const first = renderRegister();
+      await submitDetailsAs();
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      expect(shared()?.requestId).toBe(begun(1).requestId);
+      first.unmount();
+
+      newTab();
+      await submitDetailsAs();
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        claimSecret: begun(1).claimSecret,
+      });
+    });
+
+    it("signs up as before when local storage throws on every call", async () => {
+      // Session storage works; only the shared handle is refused.
+      const methods = ["getItem", "setItem", "removeItem"] as const;
+      const calls = methods.map((name) => {
+        const original = Storage.prototype[name] as (...args: unknown[]) => unknown;
+        return vi.spyOn(Storage.prototype, name).mockImplementation(function (
+          this: Storage,
+          ...args: unknown[]
+        ) {
+          if (this === localStorage) throw new DOMException("denied", "SecurityError");
+          return original.apply(this, args) as never;
+        });
+      });
+      try {
+        stub.beginRegistration.mockResolvedValue(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        renderRegister();
+        await submitDetailsAs();
+        expect(screen.queryByText(/could(n't| not)/i)).toBeNull();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(stub.registrationStatus).toHaveBeenCalledWith({
+          requestId: begun().requestId,
+          claimSecret: begun().claimSecret,
+        });
+      } finally {
+        for (const spy of calls) spy.mockRestore();
+      }
+    });
+
+    it("names the product where it says to look in the junk folder", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(screen.getByText(/^Can't find it\?/).textContent).toBe(
+        "Can't find it? Look in your junk or spam folder for an email about Musubi.",
+      );
+    });
+  });
 
   describe("waiting for the link", () => {
     it("begins with the form values and waits on the link, polling with the request it got", async () => {
