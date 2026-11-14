@@ -11,7 +11,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[step-up]]"
   - "[[email-verification-api]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Emailed links
@@ -34,7 +34,7 @@ A flow may keep its own pending state beside it (sign-up's is
 |---|---|---|
 | Request id | The link's path, the tab, both routes' paths | `signup_`, `recovery_`, `stepup_` or `emailchange_` + 12 hex. The prefix tells the link's page which flow it is, without a read |
 | Link secret | The email only, in the link's **fragment** | 256 random bits. A fragment is never sent to a server, so it reaches no log and no referrer |
-| Claim secret | The tab that began, in memory or this tab's `sessionStorage`, never a cookie | 256 random bits. Whoever holds it gets the flow's result (sign-up: the account's session; step-up: a step-up token) |
+| Claim secret | The tab that began, in memory or this tab's `sessionStorage`, never a cookie. A live sign-up's is also in the browser's `localStorage` for the request's ten-minute life, so a new tab can retire it ([[#Sign-up]]) | 256 random bits. Whoever holds it gets the flow's result (sign-up: the account's session; step-up: a step-up token), but only once the link's reader has confirmed it with the number |
 | Pairing number | The tab that began shows it | Two digits. The confirm step requires the number shown on the waiting screen (see Pairing below) |
 
 The store entry (`email_link` ceremony store, keyed by request id) holds only
@@ -156,7 +156,11 @@ before it mails, reads, replaces or spends anything
   exactly as typed, lowercased: three in 24 hours and no more sign-up links go
   to that address until the window passes, while begin answers as ever.
   Another `+tag` variant, or another of Gmail's forms, keeps its own count.
-  Recovery counts per account ([[#Recovery]]).
+  Recovery counts per account ([[#Recovery]]). The tab that began is never
+  told; the link's page, which only the link's holder sees, states each flow's
+  rule as fixed copy ("After 3 wrong numbers in a day, links to this address
+  stop for up to a day.") under its instruction and on every expired page,
+  never whether it was met ([[component-library]] §ConfirmLinkPage).
 - **"I didn't ask for this"** (`pairingPick: "none"`) ends the request too,
   confirmed or not, counts nothing against the reader, and answers
   `declined`. The entry stays, marked `declined`, until it expires, so the same
@@ -296,6 +300,28 @@ before it mails, reads, replaces or spends anything
   and at once when the tab comes back into view. A full ten-minute wait is about
   62 polls: one Worker request each, plus at most one CORS preflight per ten
   minutes (`maxAge: 600`).
+- **A new tab can start again at once.** The address a live request holds
+  stays held until the request ends, and a begin for it mails nothing, so a
+  person who starts again from a new tab or window, or after closing the
+  waiting one, would wait up to ten minutes. So `Register` also keeps the
+  newest live request it began — request id, claim secret, expiry and the
+  address, lowercased; never the number — in the browser's `localStorage`
+  (`osn.signup.live`, `osn/auth-ui/src/pending-sign-up.ts`). A begin in any tab
+  for that same address sends it as `previous`, which retires it, and the link
+  goes at once. The owner chose this on #2231, though it means the claim
+  secret outlives the tab. The secret alone gets nothing: a poll with it gets
+  the session only after the link's reader has confirmed with the number, and
+  only once, so the tab that began, still polling, takes it first, and no
+  other tab polls with the entry: it only retires it. What remains is a shared
+  computer: a person who began, closed every tab and then confirmed the link
+  elsewhere within the request's ten minutes leaves an entry that someone at
+  the same browser could read out of storage by hand and poll with for the
+  session. Only the tab whose begin made the request writes the entry; it is
+  removed, while it still names that request, when the account is made, when
+  the request is gone and by the begin that retires it, and one that has
+  expired is removed on the next visit. Tabs send each other nothing else: a
+  tab whose request another tab retired learns it from its next poll, which
+  answers `expired`.
 - **A browser token can stand in for the link.** With the Email Verification
   API flag on, a begin may carry a token the browser got from the address's
   mail provider. One that verifies confirms a free address's request at
