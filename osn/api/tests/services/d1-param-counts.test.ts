@@ -231,6 +231,32 @@ describe("account erasure and export", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("the soft delete makes the same statements whatever the profile count", () => {
+    const { layer, captured } = createCapturingTestLayer();
+    return Effect.gen(function* () {
+      // The handles to hold bind as one JSON list, so 1 profile and 5 make
+      // the same statements with the same number of parameters.
+      const statementsFor = (profiles: number) =>
+        Effect.gen(function* () {
+          const { accountId } = yield* seedAccountWithProfiles(profiles);
+          captured.length = 0;
+          yield* accountErasure.requestErasure({
+            accountId,
+            cancel: null,
+            heldHandleDigest: auth.heldHandleDigest,
+          });
+          return captured.map((c) => [c.sql, c.params.length] as const);
+        });
+
+      const one = yield* statementsFor(1);
+      const five = yield* statementsFor(5);
+
+      expect(five).toEqual(one);
+      // The list, the account, the empty release and the time.
+      expect(paramCounts(captured, 'insert into "handle_holds"')).toEqual([4]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("the export binds an account's profile ids once per list", () => {
     const { layer, captured, db } = createCapturingTestLayer();
     return Effect.gen(function* () {

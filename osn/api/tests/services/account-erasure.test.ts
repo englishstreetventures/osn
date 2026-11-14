@@ -184,6 +184,36 @@ const holdRows = Effect.gen(function* () {
   );
 });
 
+/** A test database whose statements can be held ({@link holdQueries}). */
+function held() {
+  const { db, email } = createTestLayerWithSqlite();
+  const queries = holdQueries(db);
+  return {
+    layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+    hold: queries.hold,
+  };
+}
+
+/** The account's deletion job, if any. */
+const jobRow = (accountId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const rows = yield* Effect.promise(() =>
+      db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+    );
+    return rows[0];
+  });
+
+/** The account's row, if any. */
+const accountRow = (accountId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const rows = yield* Effect.promise(() =>
+      db.select().from(accounts).where(eq(accounts.id, accountId)),
+    );
+    return rows[0];
+  });
+
 describe("account-erasure: requestErasure", () => {
   it.effect(
     "soft-deletes the account, redacts identity, keeps credentials and the cancel session",
@@ -489,6 +519,92 @@ describe("account-erasure: requestErasure", () => {
       }).pipe(Effect.provide(layer));
     },
   );
+
+  it.effect(
+    "a soft delete that fails at its redaction answers the failure, and so does a retry",
+    () => {
+      // Red on tombstoning before the redaction: on bun:sqlite the job and the
+      // tombstone stand when the redaction fails, and the re-read answers a
+      // deletion already pending while the profiles keep their names.
+      const { layer, sqlite } = createTestLayerWithSqlite();
+      sqlite.run(
+        "CREATE TRIGGER refuse_redaction BEFORE UPDATE OF handle ON users BEGIN SELECT RAISE(ABORT, 'refused'); END",
+      );
+      return Effect.gen(function* () {
+        const { accountId } = yield* seedAccountAndProfile();
+
+        const first = yield* Effect.flip(
+          accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest }),
+        );
+        const retry = yield* Effect.flip(
+          accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest }),
+        );
+
+        expect(first._tag).toBe("AccountErasureDbError");
+        expect(retry._tag).toBe("AccountErasureDbError");
+        expect((yield* accountRow(accountId))?.deletedAt).toBeNull();
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.effect(
+    "a profile already holding another's redacted handle does not stop that one's soft delete, and a cancel puts it back",
+    () =>
+      // Red on redacting to `deleted_<suffix>` alone: the UNIQUE index on
+      // `users.handle` refuses it, and the account can never be deleted.
+      Effect.gen(function* () {
+        const { accountId, profileId } = yield* seedAccountAndProfile();
+        const suffix = profileId.replace("usr_", "");
+        const squatter = yield* seedAccountAndProfile("squat@example.com", `deleted_${suffix}`);
+
+        const result = yield* accountErasure.requestErasure({
+          accountId,
+          cancel: null,
+          heldHandleDigest: digest,
+        });
+
+        expect(result.newlyScheduled).toBe(true);
+        const { db } = yield* Db;
+        const handleOf = (id: string) =>
+          Effect.promise(async () => {
+            const [row] = await db
+              .select({ handle: users.handle })
+              .from(users)
+              .where(eq(users.id, id));
+            return row?.handle;
+          });
+        const redacted = yield* handleOf(profileId);
+        expect(redacted).toMatch(new RegExp(`^deleted_${suffix}_[0-9a-f]{8}$`));
+        expect(redacted).toHaveLength(29);
+        expect(yield* handleOf(squatter.profileId)).toBe(`deleted_${suffix}`);
+
+        expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+        expect(yield* handleOf(profileId)).toBe("alice");
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.live("a Pulse join that lands while the job insert is held leaves Pulse to be purged", () => {
+    // Red on deciding the bridge marks from a read before the batch: the join
+    // is not in that read, the job marks Pulse not applicable, and the
+    // fan-out never asks Pulse to erase the account.
+    const h = held();
+    return Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+
+      const insert = h.hold(/^insert into "deletion_jobs"/);
+      const erasure = yield* Effect.forkChild(
+        accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest }),
+      );
+      yield* Effect.promise(() => insert.reached);
+      expect(yield* appEnroll.joinApp(accountId, "pulse")).toEqual({ enrolled: true });
+      insert.release();
+      expect((yield* Fiber.join(erasure)).newlyScheduled).toBe(true);
+
+      const job = yield* jobRow(accountId);
+      expect(job?.pulseDoneAt).toBeNull();
+      expect(job?.zapDoneAt).toBe(-1);
+    }).pipe(Effect.provide(h.layer));
+  });
 });
 
 describe("account-erasure: cancelErasure", () => {
@@ -1471,6 +1587,47 @@ describe("account-erasure: hard-delete sweep isolation", () => {
     },
   );
 
+  it.effect(
+    "a pass stops after three hard deletes fail in a row, and says so once, at warning, with no ids",
+    () => {
+      // Red on going on after every failure: a cap or an outage would spend a
+      // claim, a stamp and a false failure count on every job left.
+      const log = capture();
+      return Effect.gen(function* () {
+        const completed = vi.spyOn(metrics, "metricAccountDeletionCompleted");
+        const broken = [];
+        for (const n of [1, 2, 3, 4]) {
+          const account = yield* seedAccountAndProfile(`broken${n}@example.com`, `broken${n}`);
+          yield* dueJob(account.accountId, 2_000 + n, "{not json");
+          broken.push(account);
+        }
+        const fine = yield* seedAccountAndProfile("fine@example.com", "fine");
+        yield* dueJob(fine.accountId, 3_000);
+
+        expect(yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 })).toEqual({
+          purged: 0,
+        });
+
+        expect(completed.mock.calls).toEqual([
+          ["hard_failed", "sweeper"],
+          ["hard_failed", "sweeper"],
+          ["hard_failed", "sweeper"],
+        ]);
+        expect(yield* accountExists(fine.accountId)).toBe(true);
+        expect((yield* jobRow(broken[3]!.accountId))?.hardDeleteFailedAt).toBeNull();
+        const stopped = log.lines.filter((line) =>
+          JSON.stringify(line.message).includes("account.deletion hard delete sweep stopped"),
+        );
+        expect(stopped).toHaveLength(1);
+        expect(stopped[0]!.level).toBe("WARN");
+        const written = JSON.stringify(log.lines);
+        for (const account of [...broken, fine]) {
+          expect(written).not.toContain(account.accountId);
+        }
+      }).pipe(Effect.provide(createTestLayer()), Effect.provide(log.layer));
+    },
+  );
+
   it.effect("a failure to stamp the failed job is logged, and the pass goes on", () => {
     const log = capture();
     const { layer, sqlite } = createTestLayerWithSqlite();
@@ -1530,24 +1687,34 @@ describe("account-erasure: fan-out sweep grace gating (S-H1)", () => {
 });
 
 describe("app-enrollments service", () => {
-  it.effect("joinApp + listActiveApps + leaveApp lifecycle", () =>
+  /** The apps `accountId` has an open enrolment in. */
+  const openApps = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db
+          .select({ app: appEnrollments.app })
+          .from(appEnrollments)
+          .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt))),
+      );
+      return rows.map((row) => row.app);
+    });
+
+  it.effect("joinApp + leaveApp lifecycle", () =>
     Effect.gen(function* () {
       const { accountId } = yield* seedAccountAndProfile();
       // Initially nothing.
-      let active = yield* appEnroll.listActiveApps(accountId);
-      expect(active).toEqual([]);
+      expect(yield* openApps(accountId)).toEqual([]);
       // Join Pulse (idempotent on second call).
       const r1 = yield* appEnroll.joinApp(accountId, "pulse");
       expect(r1.enrolled).toBe(true);
       const r2 = yield* appEnroll.joinApp(accountId, "pulse");
       expect(r2.enrolled).toBe(false);
-      active = yield* appEnroll.listActiveApps(accountId);
-      expect(active).toEqual(["pulse"]);
+      expect(yield* openApps(accountId)).toEqual(["pulse"]);
       // Leave.
       const left = yield* appEnroll.leaveApp(accountId, "pulse");
       expect(left.closed).toBe(true);
-      active = yield* appEnroll.listActiveApps(accountId);
-      expect(active).toEqual([]);
+      expect(yield* openApps(accountId)).toEqual([]);
       // Re-join writes a fresh row (history preserved).
       const r3 = yield* appEnroll.joinApp(accountId, "pulse");
       expect(r3.enrolled).toBe(true);
@@ -1556,6 +1723,24 @@ describe("app-enrollments service", () => {
         db.select().from(appEnrollments).where(eq(appEnrollments.accountId, accountId)),
       );
       expect(allRows).toHaveLength(2);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("joinApp writes nothing for an account whose deletion is pending", () =>
+    // Red on inserting with no look at the account: the open row lands after
+    // the soft delete closed the enrolments and marked the bridges, so
+    // neither the job nor a cancel knows of it.
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+      yield* accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest });
+
+      expect(yield* appEnroll.joinApp(accountId, "pulse")).toEqual({ enrolled: false });
+
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db.select().from(appEnrollments).where(eq(appEnrollments.accountId, accountId)),
+      );
+      expect(rows).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -1590,15 +1775,6 @@ describe("account-erasure: a cancel and a purge", () => {
 
   const purgesOf = (accountId: string) => purged.filter((id) => id === accountId).length;
 
-  function held() {
-    const { db, email } = createTestLayerWithSqlite();
-    const queries = holdQueries(db);
-    return {
-      layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
-      hold: queries.hold,
-    };
-  }
-
   /** An account scheduled for erasure, enrolled in both apps when `bridges`. */
   const scheduled = (handle: string, bridges: boolean) =>
     Effect.gen(function* () {
@@ -1613,24 +1789,6 @@ describe("account-erasure: a cancel and a purge", () => {
         heldHandleDigest: digest,
       });
       return { accountId, pastWindowMs: (scheduledFor + 1) * 1_000 };
-    });
-
-  const accountRow = (accountId: string) =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const rows = yield* Effect.promise(() =>
-        db.select().from(accounts).where(eq(accounts.id, accountId)),
-      );
-      return rows[0];
-    });
-
-  const jobRow = (accountId: string) =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const rows = yield* Effect.promise(() =>
-        db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
-      );
-      return rows[0];
     });
 
   const cancelEvents = (accountId: string) =>
@@ -1860,5 +2018,70 @@ describe("account-erasure: a cancel and a purge", () => {
       expect(new Set(ids).size).toBe(2);
       for (const id of ids) expect(id).toMatch(EVENT_ID);
     }).pipe(Effect.provide(h.layer));
+  });
+
+  /** Runs `effect` with `Date` frozen at one instant, so every write lands in one second. */
+  const inOneSecond = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-11-15T00:00:00Z"));
+      }),
+      () => effect,
+      () => Effect.sync(() => vi.useRealTimers()),
+    );
+
+  it.live(
+    "a cancel that read a job since cancelled and asked for again in the same second leaves the new one",
+    () => {
+      // Red on naming the job by its `soft_deleted_at`: the new job shares the
+      // second, so the stale cancel's delete removes it and clears the
+      // tombstone of a deletion the person asked for after that cancel.
+      const h = held();
+      return inOneSecond(
+        Effect.gen(function* () {
+          const { accountId } = yield* scheduled("ce9", false);
+
+          const remove = h.hold(/^delete from "deletion_jobs"/);
+          const stale = yield* Effect.forkChild(
+            Effect.result(accountErasure.cancelErasure(accountId)),
+          );
+          yield* Effect.promise(() => remove.reached);
+          expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+          yield* accountErasure.requestErasure({
+            accountId,
+            cancel: null,
+            heldHandleDigest: digest,
+          });
+          remove.release();
+
+          expect(yield* Fiber.join(stale)).toMatchObject({
+            _tag: "Success",
+            success: { cancelled: false },
+          });
+          expect(yield* jobRow(accountId)).toBeDefined();
+          expect((yield* accountRow(accountId))?.deletedAt).not.toBeNull();
+          expect(yield* cancelEvents(accountId)).toHaveLength(1);
+        }),
+      ).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live("the cancels of two jobs asked for in the same second each write an event", () => {
+    // Red on deriving the event's id from `soft_deleted_at`: the second job's
+    // cancel finds the first's id taken and records nothing.
+    const h = held();
+    return inOneSecond(
+      Effect.gen(function* () {
+        const { accountId } = yield* scheduled("ce10", false);
+        expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+        yield* accountErasure.requestErasure({ accountId, cancel: null, heldHandleDigest: digest });
+        expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+
+        const ids = (yield* cancelEvents(accountId)).map((event) => event.id);
+        expect(ids).toHaveLength(2);
+        expect(new Set(ids).size).toBe(2);
+      }),
+    ).pipe(Effect.provide(h.layer));
   });
 });

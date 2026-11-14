@@ -57,7 +57,7 @@ import {
   safeErrorSummary,
   withAccountDeletion,
 } from "../metrics";
-import { listActiveApps, leaveApp } from "./app-enrollments";
+import { leaveApp } from "./app-enrollments";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -173,16 +173,19 @@ interface RequestErasureOutput {
 const newId = (prefix: string): string =>
   `${prefix}${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
+/** A deletion job's `job_id`: random, so no two jobs share one. */
+const newJobId = (): string => `djob_${crypto.randomUUID().replace(/-/g, "")}`;
+
 /**
  * The id of the `account_deletion_cancelled` event for one deletion job, from
- * the account and the job's `soft_deleted_at`: the same for every cancel of
- * that job, so the table's key lets one of them record it. A job requested in
- * the same second as an earlier one of the same account shares that id, and
- * its cancel finds it taken and records nothing. The shape of every event id
- * (`sev_` and 12 hex), which the acknowledge route requires.
+ * the account and the job's `job_id`: the same for every cancel of that job,
+ * so the table's key lets one of them record it, and a different one for
+ * every job. A job written before `job_id` existed is named by its
+ * `soft_deleted_at` instead. The shape of every event id (`sev_` and 12 hex),
+ * which the acknowledge route requires.
  */
-const cancelEventId = (accountId: string, softDeletedAt: number): string =>
-  `sev_${createHash("sha256").update(`${accountId}:${softDeletedAt}`).digest("hex").slice(0, 12)}`;
+const cancelEventId = (accountId: string, job: string | number): string =>
+  `sev_${createHash("sha256").update(`${accountId}:${job}`).digest("hex").slice(0, 12)}`;
 
 /** A subquery of the ids of every profile of `accountId`. */
 const profilesOf = (db: DbService["db"], accountId: string) =>
@@ -218,19 +221,44 @@ const standingDeletion = (accountId: string) =>
     return rows[0]?.hardDeleteAt ?? null;
   });
 
+/** What a redacted profile's handle begins with: `deleted_` and the suffix of its id. */
+const redactedPrefix = sql`'deleted_' || replace(${users.id}, 'usr_', '')`;
+
+/**
+ * A profile's redacted handle: `deleted_<id suffix>`, or, while another
+ * profile already has that (one registered before the prefix was reserved),
+ * the same followed by `_` and 8 random hex digits — 29 characters, within
+ * the 30 a handle may have. Decided in the statement that writes it.
+ */
+const redactedHandle = sql`CASE WHEN EXISTS (
+    SELECT 1 FROM users other WHERE other.handle = ${redactedPrefix} AND other.id <> ${users.id})
+  THEN ${redactedPrefix} || '_' || lower(hex(randomblob(4)))
+  ELSE ${redactedPrefix} END`;
+
+/**
+ * `pulse_done_at` or `zap_done_at` for a new job, decided in the statement
+ * that writes it: NULL while the account has an open enrolment in `app`, so
+ * the fan-out reaches it, else the not-applicable sentinel.
+ */
+const bridgeMark = (accountId: string, app: AppEnrollmentApp, column: AnySQLiteColumn) =>
+  sql`CASE WHEN EXISTS (
+      SELECT 1 FROM app_enrollments e
+      WHERE e.account_id = ${accountId} AND e.app = ${app} AND e.left_at IS NULL)
+    THEN NULL ELSE ${NOT_APPLICABLE_SENTINEL} END`.as(column.name);
+
 /**
  * Soft-deletes the account: writes the deletion job with what a cancel puts
- * back, tombstones the account, redacts every profile's handle, display name
- * and avatar, holds each profile's handle, revokes every session but the
- * requesting device's, and closes the app enrolments. Passkeys, recovery
- * codes and authenticators stay until the hard delete, so a person who can
- * still sign in can cancel: a session of a tombstoned account is limited to
- * the deletion status, the data download and the cancel.
+ * back, redacts every profile's handle, display name and avatar, holds each
+ * profile's handle, revokes every session but the requesting device's,
+ * closes the app enrolments and, last, tombstones the account. Passkeys,
+ * recovery codes and authenticators stay until the hard delete, so a person
+ * who can still sign in can cancel: a session of a tombstoned account is
+ * limited to the deletion status, the data download and the cancel.
  *
- * Returns the standing deletion's date if a job already exists. When another
- * request's job lands between this one's read and its batch, the batch fails
- * on the job's key and this answers that deletion too, `newlyScheduled:
- * false`; any other failure is the error.
+ * Returns the standing deletion's date when the account's job exists and the
+ * account is tombstoned. When another request's job lands between this one's
+ * read and its batch, the batch fails on the job's key and this answers that
+ * deletion too, `newlyScheduled: false`; any other failure is the error.
  *
  * The cross-service fan-out runs later, from the sweeper, once the grace
  * window has closed.
@@ -243,76 +271,64 @@ export const requestErasure = (
     const { db } = yield* Db;
     const now = Math.floor(Date.now() / 1_000);
 
-    // Idempotency check: existing job → return current scheduled timestamp.
-    const existing = yield* Effect.tryPromise({
+    // One read: the account (none means it does not exist), its job if any,
+    // and each profile's handle (a lone NULL handle: no profiles).
+    const rows = yield* Effect.tryPromise({
       try: () =>
-        db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)).limit(1),
+        db
+          .select({
+            deletedAt: accounts.deletedAt,
+            hardDeleteAt: deletionJobs.hardDeleteAt,
+            handle: users.handle,
+          })
+          .from(accounts)
+          .leftJoin(deletionJobs, eq(deletionJobs.accountId, accounts.id))
+          .leftJoin(users, eq(users.accountId, accounts.id))
+          .where(eq(accounts.id, accountId)),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
-    if (existing[0]) {
-      return {
-        accountId,
-        scheduledFor: existing[0].hardDeleteAt,
-        newlyScheduled: false,
-      };
-    }
-
-    // Pre-resolve enrolled apps so the deletion job knows whether to track
-    // each bridge or pre-mark it done.
-    const enrolledApps = yield* listActiveApps(accountId).pipe(
-      Effect.mapError((e) => new AccountErasureDbError({ cause: e })),
-    );
-    const enrolledSet = new Set(enrolledApps);
-
-    // Confirm the account exists (and is not already tombstoned via the
-    // accounts.deleted_at column without a deletion_jobs row — defensive).
-    const accountRow = yield* Effect.tryPromise({
-      try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
-      catch: (cause) => new AccountErasureDbError({ cause }),
-    });
-    const account = accountRow[0];
+    const account = rows[0];
     if (!account) {
       return yield* Effect.fail(new AccountNotFoundError({ accountId }));
+    }
+    // A deletion stands only once its job and its tombstone are both written:
+    // the tombstone is the batch's last statement. A job alone (bun:sqlite,
+    // whose batch runs one statement at a time, can leave one) goes on to the
+    // batch, which fails on the job's key and answers the failure.
+    if (account.hardDeleteAt !== null && account.deletedAt !== null) {
+      return { accountId, scheduledFor: account.hardDeleteAt, newlyScheduled: false };
     }
 
     // The handles to hold, as digests. A profile made after this read and
     // before the batch is in the restore record (built in SQL below) but has
     // no hold.
-    const held = (yield* Effect.tryPromise({
-      try: () =>
-        db.select({ handle: users.handle }).from(users).where(eq(users.accountId, accountId)),
-      catch: (cause) => new AccountErasureDbError({ cause }),
-    })).map((row) => heldHandleDigest(row.handle));
+    const held = rows.flatMap((row) => (row.handle === null ? [] : [heldHandleDigest(row.handle)]));
 
     const hardDeleteAt = now + ACCOUNT_DELETION_GRACE_SECONDS;
     const storedChoices =
       choices !== undefined && Object.keys(choices).length > 0 ? JSON.stringify(choices) : null;
 
     // `email_changes` and `security_events` rows stay, as legal-obligation
-    // records (Art. 6(1)(c)), here and at hard delete. Hard delete keeps their
-    // `account_id` as it is: neither table has a foreign key to `accounts`, so
-    // the account row goes with the audit rows still naming it.
+    // records (Art. 6(1)(c)+(f)), here and at hard delete. Hard delete keeps
+    // their `account_id` as it is: neither table has a foreign key to
+    // `accounts`, so the account row goes with the audit rows still naming it.
     const statements: BatchItem<"sqlite">[] = [
       // 1. The deletion job, first: a second request's job already standing
       //    stops the batch here, before anything else is written, on either
-      //    driver. Bridges not enrolled now are pre-marked done with a
-      //    sentinel so the sweeper does not call services the user never
-      //    used. `restore` is built from the rows as this statement reads
-      //    them: each profile before redaction, and the open enrolments.
+      //    driver. Its random `job_id` names this job alone. Each bridge is
+      //    marked here, from the enrolments as this statement reads them: one
+      //    the account has no open enrolment in is pre-marked done with a
+      //    sentinel, so the sweeper does not call services the user never
+      //    used. `restore` is built from the same rows: each profile before
+      //    redaction, and the open enrolments.
       db.insert(deletionJobs).select(
         db
           .select({
             accountId: bound(accountId, deletionJobs.accountId),
             softDeletedAt: bound(now, deletionJobs.softDeletedAt),
             hardDeleteAt: bound(hardDeleteAt, deletionJobs.hardDeleteAt),
-            pulseDoneAt: bound(
-              enrolledSet.has("pulse") ? null : NOT_APPLICABLE_SENTINEL,
-              deletionJobs.pulseDoneAt,
-            ),
-            zapDoneAt: bound(
-              enrolledSet.has("zap") ? null : NOT_APPLICABLE_SENTINEL,
-              deletionJobs.zapDoneAt,
-            ),
+            pulseDoneAt: bridgeMark(accountId, "pulse", deletionJobs.pulseDoneAt),
+            zapDoneAt: bridgeMark(accountId, "zap", deletionJobs.zapDoneAt),
             reason: bound(reason, deletionJobs.reason),
             cancelSessionId: bound(cancel?.sessionId ?? null, deletionJobs.cancelSessionId),
             restore: sql<string>`json_object(
@@ -327,17 +343,15 @@ export const requestErasure = (
               "restore",
             ),
             choices: bound(storedChoices, deletionJobs.choices),
+            jobId: bound(newJobId(), deletionJobs.jobId),
           })
           .from(accounts)
           .where(eq(accounts.id, accountId)),
       ),
 
-      // 2. Tombstone the account row.
-      db.update(accounts).set({ deletedAt: now }).where(eq(accounts.id, accountId)),
-
-      // 3. Redact identity on every profile owned by this account.
-      //    Handle becomes `deleted_<usrId-suffix>` (preserves uniqueness),
-      //    display name + avatar are nulled.
+      // 2. Redact identity on every profile owned by this account: the
+      //    handle becomes its redacted form ({@link redactedHandle}), display
+      //    name and avatar are nulled.
       //
       //    One bulk UPDATE with a SQL expression, not a statement per
       //    profile, so the batch's statement count stays the same
@@ -345,28 +359,36 @@ export const requestErasure = (
       db
         .update(users)
         .set({
-          handle: sql`'deleted_' || replace(${users.id}, 'usr_', '')`,
+          handle: redactedHandle,
           displayName: null,
           avatarUrl: null,
           updatedAt: new Date(),
         })
         .where(eq(users.accountId, accountId)),
 
-      // 4. Hold each handle: no one may take it while the deletion is pending
+      // 3. Hold each handle: no one may take it while the deletion is pending
       //    or for 30 days after the hard delete. A row already standing on one
       //    of these digests is an old hold past its release (a live one would
       //    have refused the handle to this account); it goes first, so the
-      //    inserts do not meet it on the key.
+      //    insert does not meet it on the key. One insert for every handle,
+      //    whatever the profile count.
       ...(held.length > 0
         ? [
             db.delete(handleHolds).where(inArray(handleHolds.handle, jsonEachIn(held))),
-            ...held.map((handle) =>
-              db.insert(handleHolds).values({ handle, accountId, releaseAt: null, createdAt: now }),
+            db.insert(handleHolds).select(
+              db
+                .select({
+                  handle: sql<string>`held.value`.as("handle"),
+                  accountId: bound(accountId, handleHolds.accountId),
+                  releaseAt: bound(null, handleHolds.releaseAt),
+                  createdAt: bound(now, handleHolds.createdAt),
+                })
+                .from(sql`json_each(${JSON.stringify(held)}) held`),
             ),
           ]
         : []),
 
-      // 5. Revoke all sessions EXCEPT the requesting device's: its family, as
+      // 4. Revoke all sessions EXCEPT the requesting device's: its family, as
       //    the route's check found it, so a refresh of that session in
       //    another tab, finished or in flight, does not sign it out. Every
       //    session of a tombstoned account, this one included, mints only
@@ -393,7 +415,7 @@ export const requestErasure = (
             )
         : db.delete(rotatedSessions).where(eq(rotatedSessions.accountId, accountId)),
 
-      // 6. Audit event.
+      // 5. Audit event.
       db.insert(securityEvents).values({
         id: newId("sev_"),
         accountId,
@@ -402,13 +424,17 @@ export const requestErasure = (
         acknowledgedAt: null,
       }),
 
-      // 7. Close every active app enrollment (idempotent — the leaveApp
+      // 6. Close every active app enrollment (idempotent — the leaveApp
       //    service helper handles a second call as a no-op, but during
       //    full-account delete we know they should all close).
       db
         .update(appEnrollments)
         .set({ leftAt: now })
         .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt))),
+
+      // 7. Tombstone the account row, last: a job and a tombstone together
+      //    mean every statement before it ran, on either driver.
+      db.update(accounts).set({ deletedAt: now }).where(eq(accounts.id, accountId)),
     ];
 
     const raced = yield* Effect.tryPromise({
@@ -421,7 +447,8 @@ export const requestErasure = (
       // Another request's deletion may have landed since the read above. Its
       // job alone is not enough to answer from: on bun:sqlite this request's
       // own job insert may have run before a later statement failed. The
-      // tombstone says the deletion that job stands for was written.
+      // tombstone, written last, says the deletion that job stands for was
+      // written whole.
       Effect.catch((error) =>
         standingDeletion(accountId).pipe(
           Effect.flatMap((scheduledFor) =>
@@ -469,9 +496,9 @@ const otherEnrolment = alias(appEnrollments, "other_enrolment");
  * read and the write refuses the cancel, and one that comes after the write
  * finds no job to purge.
  *
- * A profile is put back only while it still has its redacted handle and the
- * handle it had is free in `users` and `organisations`; otherwise it keeps the
- * redacted form. An enrolment is reopened only while it is closed at the soft
+ * A profile is put back only while it still has a redacted handle (either
+ * form the soft delete writes) and the handle it had is free in `users` and
+ * `organisations`; otherwise it keeps the redacted form. An enrolment is reopened only while it is closed at the soft
  * delete's time and the account has no other open enrolment in that app. A
  * job written before the restore record existed (`restore` NULL) cancels with
  * none of this.
@@ -501,14 +528,17 @@ export const cancelErasure = (
       return { cancelled: false };
     }
 
-    // The job goes first: the job this request read (its `soft_deleted_at`),
-    // and only while no sweep has claimed it and the window is open. Every
-    // later statement runs only once no job stands, and the event only while
-    // the account row exists. The event's id is the job's own, so a job's
-    // cancellation is recorded once: a second cancel of the same job finds the
-    // id taken and writes nothing. So a refused cancel writes nothing, whether
-    // a sweep, another cancel or a new request came first.
-    const { softDeletedAt, restore: record } = existing[0];
+    // The job goes first: the job this request read, by its `job_id`, and
+    // only while no sweep has claimed it and the window is open. A job written
+    // before `job_id` existed is named by its `soft_deleted_at`, and only
+    // while the job standing has no `job_id` either, so a cancel of it never
+    // removes a newer job. Every later statement runs only once no job stands,
+    // and the event only while the account row exists. The event's id is the
+    // job's own, so a job's cancellation is recorded once: a second cancel of
+    // the same job finds the id taken and writes nothing. So a refused cancel
+    // writes nothing, whether a sweep, another cancel or a new request came
+    // first.
+    const { softDeletedAt, jobId, restore: record } = existing[0];
     const jobGone = notExists(
       db
         .select({ one: sql`1` })
@@ -520,7 +550,9 @@ export const cancelErasure = (
       .where(
         and(
           eq(deletionJobs.accountId, accountId),
-          eq(deletionJobs.softDeletedAt, softDeletedAt),
+          jobId !== null
+            ? eq(deletionJobs.jobId, jobId)
+            : and(isNull(deletionJobs.jobId), eq(deletionJobs.softDeletedAt, softDeletedAt)),
           isNull(deletionJobs.purgeStartedAt),
           gt(deletionJobs.hardDeleteAt, now),
         ),
@@ -534,7 +566,7 @@ export const cancelErasure = (
       .select(
         db
           .select({
-            id: bound(cancelEventId(accountId, softDeletedAt), securityEvents.id),
+            id: bound(cancelEventId(accountId, jobId ?? softDeletedAt), securityEvents.id),
             accountId: bound(accountId, securityEvents.accountId),
             kind: bound("account_deletion_cancelled", securityEvents.kind),
             createdAt: bound(now, securityEvents.createdAt),
@@ -560,7 +592,10 @@ export const cancelErasure = (
           .where(
             and(
               eq(users.accountId, accountId),
-              sql`${users.handle} = 'deleted_' || replace(${users.id}, 'usr_', '')`,
+              // Redacted: `deleted_<id suffix>`, alone or with the random
+              // tail the soft delete adds when another profile had that.
+              // `substr`, not LIKE, whose `_` matches any character.
+              sql`substr(${users.handle}, 1, length(${redactedPrefix})) = ${redactedPrefix}`,
               sql`${handle} IS NOT NULL`,
               jobGone,
               notExists(
@@ -704,8 +739,11 @@ export const organisationDefaultChoice = (org: OwnedOrganisation): "transfer" | 
 
 /**
  * `organisation_members` of `orgId` whose profile belongs to an account other
- * than `accountId`, best successor first: admins before members, then the
- * longest-standing, then by id. `column` picks what the subquery answers.
+ * than `accountId`, best successor first: admins before members ('admin'
+ * sorts before 'member', the only two roles the triggers allow), then the
+ * longest-standing, then by id. That is the order of
+ * `org_members_succession_idx`, so the read walks the index and stops at the
+ * first member from another account. `column` picks what the subquery answers.
  */
 const successorRow = (
   column: "id" | "profile_id",
@@ -714,7 +752,7 @@ const successorRow = (
 ) =>
   sql`(SELECT m.${sql.raw(column)} FROM organisation_members m JOIN users u ON u.id = m.profile_id
     WHERE m.organisation_id = ${orgId} AND u.account_id <> ${accountId}
-    ORDER BY m.role = 'admin' DESC, m.created_at, m.id LIMIT 1)`;
+    ORDER BY m.role, m.created_at, m.id LIMIT 1)`;
 
 /**
  * The profile `orgId` passes to at the hard delete of `accountId`: the
@@ -1088,6 +1126,14 @@ const recordHardDeleteFailure = (accountId: string, nowSec: number, cause: Cause
   });
 
 /**
+ * How many hard deletes in a row may fail before a pass stops: past that the
+ * cause is more likely the database (an outage, or the Worker's per-invocation
+ * query cap) than the accounts, and each further attempt would spend calls
+ * and count a failure no account caused.
+ */
+const HARD_DELETE_FAILURES_BEFORE_STOP = 3;
+
+/**
  * Single sweeper pass. Hard-deletes every account whose deletion_jobs row
  * has crossed `hard_delete_at` AND has both bridges done (or pre-marked
  * not-applicable). Returns the count of hard-deletes performed.
@@ -1095,7 +1141,8 @@ const recordHardDeleteFailure = (accountId: string, nowSec: number, cause: Cause
  * Reads jobs that have never failed first, then the least recently failed,
  * each group by `hard_delete_at`. One account's failure, a defect included,
  * is logged, counted and stamped on its job, and the pass goes on to the
- * next account.
+ * next account, until {@link HARD_DELETE_FAILURES_BEFORE_STOP} fail in a
+ * row: the pass then stops, logs that once, and leaves the rest to the next.
  *
  * Runs every 6 h: from the Worker's cron `scheduled` handler when deployed,
  * and from a `setInterval` in the Bun dev server. Safe to run concurrently —
@@ -1140,19 +1187,30 @@ export const runHardDeleteSweep = (
     });
 
     let purged = 0;
+    let failedInARow = 0;
     for (const row of ready) {
+      if (failedInARow === HARD_DELETE_FAILURES_BEFORE_STOP) {
+        yield* Effect.logWarning("account.deletion hard delete sweep stopped", {
+          failedInARow,
+        });
+        break;
+      }
       const outcome = yield* hardDeleteAccount(row, nowSec).pipe(
+        Effect.map((done) => ({ failed: false, done })),
         Effect.catchCause((cause) =>
-          recordHardDeleteFailure(row.accountId, nowSec, cause).pipe(Effect.as(NOTHING_DELETED)),
+          recordHardDeleteFailure(row.accountId, nowSec, cause).pipe(
+            Effect.as({ failed: true, done: NOTHING_DELETED }),
+          ),
         ),
       );
-      if (!outcome.deleted) continue;
+      failedInARow = outcome.failed ? failedInARow + 1 : 0;
+      if (!outcome.done.deleted) continue;
       metricAccountDeletionCompleted("hard", "sweeper");
-      if (outcome.transfers.length > 0) {
-        metricAccountDeletionOrganisation("transferred", outcome.transfers.length);
+      if (outcome.done.transfers.length > 0) {
+        metricAccountDeletionOrganisation("transferred", outcome.done.transfers.length);
       }
-      if (outcome.orgsDeleted > 0)
-        metricAccountDeletionOrganisation("deleted", outcome.orgsDeleted);
+      if (outcome.done.orgsDeleted > 0)
+        metricAccountDeletionOrganisation("deleted", outcome.done.orgsDeleted);
       purged += 1;
     }
     return { purged };
@@ -1161,9 +1219,9 @@ export const runHardDeleteSweep = (
 /**
  * Removes all PII-bearing rows referencing this account, then the account
  * itself, in one batch, and answers what it did. Audit rows in
- * `security_events` and `email_changes` are intentionally preserved to
- * satisfy GDPR Art. 6(1)(c) legal-obligation retention (12 mo / 90 d windows
- * defined in `wiki/compliance/retention.md`).
+ * `security_events` and `email_changes` are intentionally preserved, under
+ * GDPR Art. 6(1)(c)+(f) (12 mo / 90 d windows defined in
+ * `wiki/compliance/retention.md`).
  *
  * A job the sweep read unclaimed is claimed first ({@link claimPurge}), at
  * `nowSec`, the sweep's clock; if a cancel landed since the sweep read it,
@@ -1297,8 +1355,8 @@ export const hardDeleteAccount = (
         .update(oauthClients)
         .set({ disabledAt: Math.floor(Date.now() / 1_000), ownerAccountId: null })
         .where(eq(oauthClients.ownerAccountId, accountId)),
-      // Kept on purpose, as legal-obligation records (Art. 6(1)(c)), for
-      // the retention window wiki/compliance/retention.md sets for each:
+      // Kept on purpose, as security records (Art. 6(1)(c)+(f)), for the
+      // retention window wiki/compliance/retention.md sets for each:
       //   - security_events   — 12 months
       //   - email_changes     — 90 days
       // Both retain the now-orphaned `account_id`. PII linkage is broken
