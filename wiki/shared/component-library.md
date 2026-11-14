@@ -2166,6 +2166,7 @@ it.
 | `onChangeEmail` | "Start again": back to the address, kept, from the first moment. Absent, no button |
 | `resendWaitSeconds` | Seconds before Resend unlocks, after the view appears and after each press. 30 by default; anything not a positive number means no wait |
 | `pairingCode` | The number the page the link opens asks the person to type (recovery, step-up) or pick (sign-up, email change), from the host; the view never makes one. Drawn only when it is one to six digits, 0-9 (`isPairingCode` in `osn/auth-ui/src/pairing-code.ts`); anything else draws nothing. Absent, the view is as it was without one |
+| `productName` | The product the email is about. Sign-up and recovery show, above Resend once the first wait ends, "Can't find it? Look in your junk or spam folder for an email about {productName}."; absent, the line names no product. Every link email's subject carries the instance's name, so the line holds on every tier; it names no sender, since production's has no display name |
 
 What it draws, in musubi's sizes through the contract: an `h3` at
 `text-ui-base` medium ("Check your email", or "Your link has expired"); one
@@ -2175,7 +2176,9 @@ link does, which an expired link drops; the number, when there is one, at
 `leading-ui-tight`), medium, in the body ink and tabular figures, with "Pick
 this number on the page the link opens." under it in the secondary ink ("Type
 this number…" on recovery and step-up, whose pages ask the person to type it), which an
-expired link also drops; then Resend and "Start again"
+expired link also drops; for sign-up and recovery, once the first wait ends,
+the junk-mail line at `text-ui-sm` in the secondary ink, outside the live
+region; then Resend and "Start again"
 as small ghost buttons, 40px tall below `md` (musubi's phone touch height,
 through `max-md:h-10` at the call site) and `Button`'s own 32px from `md` up. An
 expired link's Resend becomes the filled pill, "Send a new link". No code box
@@ -2324,11 +2327,26 @@ person sees and hears around it. Its look follows `musubi/social/DESIGN.md` and
 | `initialOutcome` | `"confirmed"` or `"expired"`: opens the page on that answer, with nothing to pick and no call. `candidates` may then be left out |
 | `typeNumber` | `true`: one field to type the number in, in place of the numbers to pick. `onConfirm` receives the entry exactly as typed. Never with `candidates`. The props type requires one of `candidates`, `initialOutcome` and `typeNumber` |
 
+The page states each flow's lockout rule as fixed copy, from `LINK_LOCKOUT`
+in [link-lockout.ts](../../osn/auth-ui/src/link-lockout.ts), a copy of the
+numbers osn-api enforces that `tests/link-lockout.contract.test.ts` holds to
+them: sign-up and email change "After 3 wrong numbers in a day, links to this
+address stop for up to a day.", recovery and step-up "After 5 wrong numbers in
+15 minutes, links like this one for this account stop for up to 15 minutes." It
+says the rule, never whether a number was wrong or a lockout holds, so the
+waiting screen in the tab that began can go on answering as for an address
+nobody was mailed ([[email-links]]). A host that cannot tell the flow passes
+`showLockoutRule={false}`, and the page states none: Musubi's `/verify` page
+does for a link whose id names no flow.
+
 What it draws, in musubi's sizes through the contract: the shared `Card`
 (`padding="lg"`: the surface, the hairline, the 16px corner); an `h1` at
 `text-ui-base` medium; the sentences at `text-ui-sm` in the secondary ink; the
 numbers in a `<fieldset>` whose `<legend>` is "Pick the number shown on the
-screen where you started.", one column of full-width `outline` Buttons 48px
+screen where you started.", with the lockout rule 6px under it in a Field
+hint's look (`text-ui-xs`, secondary ink) as the fieldset's description, then,
+8px under the rule, one
+column of full-width `outline` Buttons 48px
 tall, each number at `text-ui-xl` medium in tabular figures, the size the
 waiting screen draws it; under them "I didn't ask for this", a full-width
 `ghost` `sm` Button, 44px below `md` and 32px from it. Try again and Continue are
@@ -2338,17 +2356,18 @@ the number shown on the screen where you started.", sits 6px over one shared
 `Input` (`size="touch"`: 46px
 with 16px type below 640px, so a phone does not zoom, 44px above; `face="code"`:
 mono with wide tracking, for a value checked character by character;
-`fill="ink"`, because it sits on the card rather than the page's ground), then a
+`fill="ink"`, because it sits on the card rather than the page's ground), the
+lockout rule as the field's hint, then a
 full-width Confirm, 40px and 44px like Try again, then the decline.
 
 | State | Heading | Body | Buttons |
 | --- | --- | --- | --- |
-| ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and that "I didn't ask for this" is below | the numbers, or the field and Confirm (disabled until it holds one to six digits); I didn't ask for this |
+| ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and that "I didn't ask for this" is below; the lockout rule under the instruction | the numbers, or the field and Confirm (disabled until it holds one to six digits); I didn't ask for this |
 | confirming | Confirm this email | The same; "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds, "This is taking longer than usual. Keep this page open." | the one that started the call busy — the number tapped, Confirm ("Confirming…"), I didn't ask for this ("Cancelling…") or Try again — and every other one disabled, the field still holding the entry |
 | error | Confirm this email | The same, "You picked {n}." or "You typed {n}.", then a danger `Notice` with `alert` — "We couldn't confirm this email just now.", or "We couldn't cancel this just now." — directly above Try again, the action it follows (`osn/auth-ui/DESIGN.md` §7) | the numbers, or the field, disabled; I didn't ask for this, still open; Try again |
 | confirmed | Confirmed | "Go back to where you started to …" and "You can close this page", or "Continue to …" with `onContinue` | none, or Continue |
 | declined | Cancelled | "Nothing was confirmed. You can close this page." and, for sign-up, recovery and email change, "If you did ask for it, go back to where you started and choose Start again." (step-up: someone else may be signed in, so sign out the other sessions) | none |
-| expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, choose Start again there (step-up: ask for a new link there), since a sign-up, recovery or email-change waiting screen keeps waiting after a refusal, as for an address nobody was mailed. The same words for every refusal; step-up adds that if you didn't ask for this link, someone else may be signed in, so sign out the other sessions | none |
+| expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, choose Start again there (step-up: ask for a new link there), since a sign-up, recovery or email-change waiting screen keeps waiting after a refusal, as for an address nobody was mailed. Then "A wrong number ends a link too." and the flow's lockout rule. The same words for every refusal; step-up adds that if you didn't ask for this link, someone else may be signed in, so sign out the other sessions | none |
 
 - **Only a tap confirms.** Mail scanners open links before people do, so
   nothing on mount, on a prop change or on a timer calls `onConfirm`. Tapping a

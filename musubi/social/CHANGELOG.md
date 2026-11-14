@@ -1,5 +1,19 @@
 # @osn/social
 
+## 0.22.2
+
+### Patch Changes
+
+- 12bb72c: `@osn/auth-ui`: three states where a person signing up could get stuck now have a way forward. `CheckEmailView` takes `productName` and, for sign-up and recovery, says above Resend once its first wait ends to look in the junk or spam folder for an email about the product; `Register` passes its `productName`, and `RecoveryLoginForm` takes one, which `SignIn` passes. `ConfirmLinkPage` states each flow's wrong-number lockout as fixed copy under its instruction and on every expired page, from `LINK_LOCKOUT` (`src/link-lockout.ts`), which a new `repo` test project (`test:repo`) holds to osn-api's constants; `showLockoutRule={false}` leaves it out where the host cannot tell the flow. `TurnstileWidget` names the causes of a challenge that cannot load and offers Try again, which loads the script afresh where it failed and renders the challenge again; a load unfinished 15 seconds after it started counts as failed; a host may add an `alternative` sentence (`SignIn` and `RecoveryLoginForm` name the recovery code); the package exports a `./TurnstileWidget` subpath. `@musubi/social`'s `/verify/:requestId` placeholder holds the taller ready card (590px below `md`, 560px from it), and a link whose id names no flow states no lockout rule. `@tools/lab` adds the TurnstileWidget stories and shows the new copy in the CheckEmailView and ConfirmLinkPage stories.
+- Updated dependencies [12bb72c]
+  - @osn/auth-ui@5.0.1
+
+## 0.22.1
+
+### Patch Changes
+
+- a48ccfc: A failed profile switch, connection action or organisation create now shows plain words in its toast. A call that fails because the session ended says "Your session has ended. Sign in again."; any other failure shows the server's message, or the action's fixed sentence when there is none. The connections page's remove, accept, reject, cancel and unblock follow the same rule.
+
 ## 0.22.0
 
 ### Minor Changes

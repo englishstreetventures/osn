@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 # Identity Model
 
@@ -167,7 +167,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 
 **Sliding-window expiry:** when less than half the TTL remains (< 15 days), the session's `expiresAt` is extended by the full TTL from now. This matches the Copenhagen Book's recommended pattern.
 
-**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]). `POST /logout` exposes it. A passkey added or deleted ends the account's other devices instead: `invalidateOtherAccountSessions(accountId, keepSessionHash)` deletes every session outside the caller's family ([[sessions]]).
+**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]). `POST /logout` exposes it, and every route that sets a new session cookie ends the device of the cookie the request carried the same way, once the new session exists (`endReplacedSession`; [[sessions#Endpoints]]). A passkey added or deleted ends the account's other devices instead: `invalidateOtherAccountSessions(accountId, keepSessionHash)` deletes every session outside the caller's family ([[sessions]]).
 
 **Sessions table:**
 

@@ -800,6 +800,7 @@ export function Register(props: RegisterProps) {
             <ViewStep host={props.host} onCancel={dismiss()} cancelDisabled={busyNow()}>
               <CheckEmailView
                 purpose="sign-up"
+                productName={props.productName}
                 email={request().email}
                 pairingCode={pairingCode()}
                 status={linkStatus()}

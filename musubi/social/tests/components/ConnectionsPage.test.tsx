@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
+import { AuthExpiredError, GraphClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { toast } from "@shared/toast";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Mock the graph client before importing the page under test so the
@@ -81,6 +83,7 @@ async function renderConnectionsPage() {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup();
   vi.clearAllMocks();
 });
@@ -159,5 +162,60 @@ describe("<ConnectionsPage /> — sent requests", () => {
     fireEvent.click(screen.getByText("Sent"));
     const emptyState = await screen.findByText("No outgoing connection requests.");
     expect(emptyState).toBeDefined();
+  });
+});
+
+describe("<ConnectionsPage /> — failed actions", () => {
+  it.each([
+    [new AuthExpiredError({}), "Your session has ended. Sign in again."],
+    [new GraphClientError("Pending request not found", 400), "Pending request not found"],
+    [new GraphClientError("", 400), "Failed to remove connection"],
+  ])("toasts the right words when a removal fails", async (err, expected) => {
+    await renderConnectionsPage();
+    mocks.removeConnection.mockRejectedValue(err);
+    const spy = vi.spyOn(toast, "error");
+
+    fireEvent.click(screen.getByText("Remove"));
+    await screen.findByText(/Remove Bob Jones as a friend\?/);
+    const removeButtons = screen.getAllByText("Remove");
+    fireEvent.click(removeButtons[removeButtons.length - 1]);
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
+  });
+});
+
+describe("<ConnectionsPage /> — fallback sentences", () => {
+  it.each([
+    ["Pending", "Accept", "Failed to accept request"],
+    ["Pending", "Decline", "Failed to reject request"],
+    ["Sent", "Cancel", "Failed to cancel request"],
+    ["Blocked", "Unblock", "Failed to unblock"],
+  ])("falls back on the %s tab's %s button", async (tab, button, expected) => {
+    await renderConnectionsPage();
+    const row = {
+      handle: "carol",
+      displayName: "Carol Smith",
+      requestedAt: new Date().toISOString(),
+    };
+    mocks.listPendingRequests.mockResolvedValue({ pending: [row] });
+    mocks.listSentRequests.mockResolvedValue({ sent: [row] });
+    mocks.listBlocks.mockResolvedValue({
+      blocks: [{ handle: "carol", displayName: "Carol Smith" }],
+    });
+    for (const fn of [
+      mocks.acceptConnection,
+      mocks.rejectConnection,
+      mocks.removeConnection,
+      mocks.unblockProfile,
+    ]) {
+      fn.mockRejectedValue(new GraphClientError("", 400));
+    }
+    const spy = vi.spyOn(toast, "error");
+
+    fireEvent.click(screen.getByText(tab));
+    await screen.findByText(tab === "Blocked" ? "@carol" : "Carol Smith");
+    fireEvent.click(screen.getByText(button));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
   });
 });

@@ -1,6 +1,6 @@
 import { AuthHeader } from "@osn/auth-ui/AuthHeader";
 import { DialogActions } from "@osn/auth-ui/DialogActions";
-import type { PublicProfile } from "@osn/client";
+import { type PublicProfile } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Dialog } from "@shared/ui/ui/dialog";
 import { createSignal, For, Show } from "solid-js";
 
+import { describeActionError } from "../lib/action-error";
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
 
@@ -33,7 +34,7 @@ export function ProfileSwitcherDialog(props: {
       props.onOpenChange(false);
       toast.success(`Switched to @${result.profile.handle}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to switch profile");
+      toast.error(describeActionError(err, "Failed to switch profile"));
     } finally {
       setSwitching(false);
     }

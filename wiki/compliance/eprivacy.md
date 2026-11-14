@@ -10,7 +10,7 @@ related:
   - "[[cire-consent]]"
   - "[[cire-envelope]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-14
 ---
 
 # EU ePrivacy Directive (Cookie Law)
@@ -64,7 +64,7 @@ Per the EDPB Guidelines 2/2023:
 | `localStorage` on the cire host and vendor portals: `cire.host.theme`, `cire.host.haptics`, `cire.vendor.theme`, `cire.vendor.haptics`, and on the host portal `cire.host.rail`, `cire.import-help.seen.v1` and `cire:getting-started-dismissed:<weddingId>` | No expiry; the theme choice, haptics `on` or `off`, `collapsed` for a module rail collapsed to its icons, `1` for a CSV format guide already shown, and `1` for a dismissed checklist, whose key carries the wedding id. None holds an identifier but the last, which holds the wedding id | Borderline — request-driven UX state, generally accepted as exempt under "user-friendly design" tests | Written only when the user picks a theme, turns haptics on or off, collapses the module rail (expanding it removes the key), first opens an import panel, or dismisses the getting-started checklist. Sign-out clears none of these keys. |
 | `localStorage:@osn/client:account_session` | Whether a session is held, the active profile id, and a random id for the sign-in | ✓ Strictly necessary | First-party only. Holds no token: access and ID tokens stay in the page's memory ([[identity-model#Client Storage Model]]). The sign-in id is never sent anywhere; it only lets another tab tell that a sign-out or a new sign-in happened. |
 | `sessionStorage:osn.signup.pending` (Musubi, wherever `@osn/auth-ui`'s `Register` runs) | Tab-scoped, gone when the tab closes; the sign-up this tab waits on: its request id and claim secret, the address and handle typed, and when it expires. No birthdate and no pairing number | ✓ Strictly necessary: it keeps a sign-up the person started alive across a reload or a phone discarding the tab while they read their mail | Written by `Register` when a sign-up link is sent; removed when the account is made, the request expires or is ended, or the person cancels or changes the address ([[email-links]]). |
-| `sessionStorage:osn.signup.previous` (same) | Tab-scoped, gone when the tab closes; the request id and claim secret of a sign-up this tab began and left | ✓ Strictly necessary: the next sign-up from this tab ends that request, so the address is not held by a request nobody waits on | Written by `Register` when it leaves a request: Cancel, "Use a different email", or "Send a new link" once one expired; removed once the next sign-up's begin is answered, or the account is made ([[email-links]]). |
+| `sessionStorage:osn.signup.previous` (same) | Tab-scoped, gone when the tab closes; the request id and claim secret of a sign-up this tab began and left | ✓ Strictly necessary: the next sign-up from this tab ends that request, so the address is not held by a request nobody waits on | Written by `Register` when it leaves a request: Cancel, "Start again", or "Send a new link" once one expired; removed once the next sign-up's begin is answered, or the account is made ([[email-links]]). |
 | `localStorage:@pulse/web:*` (theme, last-tab, draft-event) | UX state | Borderline — request-driven UX state, generally accepted as exempt under "user-friendly design" tests | Document on the privacy notice anyway. |
 | iOS Keychain (planned) | Refresh / session tokens on native | ✓ Strictly necessary | iOS Keychain / Android Keystore equivalent. |
 

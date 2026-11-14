@@ -18,6 +18,7 @@ import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SectionTabs } from "../components/SectionTabs";
 import { SignedOutNote } from "../components/SignedOutNote";
+import { describeActionError } from "../lib/action-error";
 import { graphClient } from "../lib/api";
 import { PRODUCT_NAME } from "../lib/auth";
 import { usePageTitle } from "../lib/page-title";
@@ -110,8 +111,8 @@ export function ConnectionsPage() {
       await graphClient.removeConnection(target.handle);
       toast.success(`Removed @${target.handle}`);
       refetchConnections();
-    } catch {
-      toast.error("Failed to remove connection");
+    } catch (err) {
+      toast.error(describeActionError(err, "Failed to remove connection"));
     }
   }
 
@@ -121,8 +122,8 @@ export function ConnectionsPage() {
       toast.success(`Accepted @${handle}`);
       refetchPending();
       refetchConnections();
-    } catch {
-      toast.error("Failed to accept request");
+    } catch (err) {
+      toast.error(describeActionError(err, "Failed to accept request"));
     }
   }
 
@@ -130,8 +131,8 @@ export function ConnectionsPage() {
     try {
       await graphClient.rejectConnection(handle);
       refetchPending();
-    } catch {
-      toast.error("Failed to reject request");
+    } catch (err) {
+      toast.error(describeActionError(err, "Failed to reject request"));
     }
   }
 
@@ -140,8 +141,8 @@ export function ConnectionsPage() {
       await graphClient.removeConnection(handle);
       toast.success(`Cancelled request to @${handle}`);
       refetchSent();
-    } catch {
-      toast.error("Failed to cancel request");
+    } catch (err) {
+      toast.error(describeActionError(err, "Failed to cancel request"));
     }
   }
 
@@ -149,8 +150,8 @@ export function ConnectionsPage() {
     try {
       await graphClient.unblockProfile(handle);
       toast.success(`Unblocked @${handle}`);
-    } catch {
-      toast.error("Failed to unblock");
+    } catch (err) {
+      toast.error(describeActionError(err, "Failed to unblock"));
     }
   }
 

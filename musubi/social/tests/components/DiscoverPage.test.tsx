@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+import { AuthExpiredError, GraphClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,6 +81,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup();
   vi.clearAllMocks();
 });
@@ -128,5 +131,38 @@ describe("<DiscoverPage />", () => {
     renderDiscover();
     const link = await screen.findByText("Search for someone");
     expect(link.getAttribute("href")).toBe("/search");
+  });
+
+  it("words an ended session as a sentence in the toast", async () => {
+    mocks.suggestConnections.mockResolvedValue({
+      suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 2 })],
+    });
+    mocks.sendConnectionRequest.mockRejectedValue(new AuthExpiredError({}));
+    const spy = vi.spyOn(toast, "error");
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Connect"));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("Your session has ended. Sign in again."));
+  });
+
+  it.each([
+    [
+      "shows the error's own message for an ordinary failure",
+      "Connection already exists",
+      "Connection already exists",
+    ],
+    [
+      "falls back to the fixed sentence when the error has no message",
+      "",
+      "Failed to send request",
+    ],
+  ])("%s", async (_name, message, expected) => {
+    mocks.suggestConnections.mockResolvedValue({
+      suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 2 })],
+    });
+    mocks.sendConnectionRequest.mockRejectedValue(new GraphClientError(message, 400));
+    const spy = vi.spyOn(toast, "error");
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Connect"));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expected));
   });
 });

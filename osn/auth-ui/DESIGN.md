@@ -15,7 +15,7 @@ with the issue that brings the code to the rule.
 **What the package exports.** One subpath per view in `package.json`
 (`ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
 `RecoveryCodesView`, `Register`, `SecurityEventsBanner`,
-`SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`), one for `AuthHeader`,
+`SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`, `TurnstileWidget`), one for `AuthHeader`,
 the title row every dialog shares, one for `DialogActions`, every dialog's
 footer (§4: Musubi draws its own dialogs with these two), and a barrel,
 `src/index.ts`, which also carries `RecoveryLoginForm`, `TurnstileWidget`,
@@ -52,20 +52,20 @@ Musubi's own dialogs take their header and footer from it (`AuthHeader`,
 | --- | --- | --- |
 | `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`, `host`: `"dialog"` with `onCancel`, or `"page"` with an optional `onCancel` and `cancelLabel`; `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
 | `Register` | `client` (`RegistrationClient`), `productName`, `onCancel`, `host`: `"dialog"`, or `"page"` with an optional `cancelLabel`; `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster`; the `Dialog`'s context with `host="dialog"` |
-| `RecoveryLoginForm` | `client` (`RecoveryClient`), `host`: `"dialog"` with `onDismiss` (the dialog's Cancel), or `"page"`; `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`; `onSuccess`, `onCancel` (back to sign-in) | `AuthProvider` |
+| `RecoveryLoginForm` | `client` (`RecoveryClient`), `host`: `"dialog"` with `onDismiss` (the dialog's Cancel), or `"page"`; `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`, `productName`; `onSuccess`, `onCancel` (back to sign-in) | `AuthProvider` |
 | `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add a passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly` | — |
 | `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly` | `Toaster` |
 | `RecoveryCodesView` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `onSaved` | — |
 | `SecurityEventsBanner` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `onVisibleCountChange` | — |
 | `SessionsView` | `client` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
-| `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
-| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
+| `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode`, `productName` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
+| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue`, `showLockoutRule` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `warning`, `purpose` | — |
 | `AuthHeader` | `title`, `host`: `"dialog"`, or `"page"` with optional `onCancel`, `cancelLabel`, `cancelDisabled` | the `Dialog`'s context, with `host="dialog"` |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
-| `TurnstileWidget` | `siteKey`, `onToken`; `onReady`, `theme`, `class` | — |
+| `TurnstileWidget` | `siteKey`, `onToken`; `onReady`, `alternative`, `theme`, `class` | — |
 
 The clients come from `@osn/client`. A view takes no access token: the host
 builds each authenticated client with its auth runtime's `authFetch`
@@ -161,7 +161,10 @@ already set at one width, and it is read here, never typed or copied here.
 
 `ConfirmLinkPage` follows the rule too. Its `h1` is `text-ui-base font-medium`,
 the step `CheckEmailView`'s heading takes, because the card is the page's whole
-content; its lines `text-ui-sm` with `leading-ui-snug`. Each number it offers is
+content; its lines `text-ui-sm` with `leading-ui-snug`. The lockout rule under
+the instruction is a Field hint, `text-ui-xs` in the secondary ink, whether
+`Field` draws it (the typed field) or the page does (the numbers); on the
+expired page it is a line like the others. Each number it offers is
 `text-ui-xl font-medium leading-ui-tight tabular-nums` inside its Button, the
 size and figures the waiting screen draws the number in, so the person matches
 like with like. The number picked, repeated in "You picked {n}.", is
@@ -277,19 +280,29 @@ As built:
 - **`CheckEmailView`** is a `flex-col gap-4` column for a step inside a dialog:
   its `h3`; the sentence in its live region, with any error line 8px under
   it (`flex-col gap-2`); the line about opening the link; when there is one, the number over its caption
-  (`flex-col gap-1`), unboxed; then Resend and "Start again" as
+  (`flex-col gap-1`), unboxed; for sign-up and recovery, once the first wait
+  ends, the junk-mail line; then Resend and "Start again" as
   full-width `ghost` `sm` Buttons, 40px tall below `md` (`max-md:h-10`).
+  The junk-mail line arrives above the buttons, not under them: in a sheet
+  anchored to the bottom the buttons stay put, and in a frame that grows
+  downward a tap aimed at Resend as it unlocks lands on the line, never on
+  "Start again".
 - **`ConfirmLinkPage`** is a shared `Card` (`padding="lg"`) holding a
   `flex-col gap-6` column for a bare route; the host draws the `<main>` around
   it. Its `h1` and sentences (`gap-2`); then, while it asks, a `<fieldset>`
-  whose `<legend>` is the instruction, the numbers in one column at every width
+  whose `<legend>` is the instruction, then the lockout rule as the
+  fieldset's description (`aria-describedby`), 6px under the legend and 8px
+  over the numbers, as a Field's hint sits nearer what it names, and above
+  them so it is read before a pick (with no rule, the legend sits 8px over
+  the numbers), then the numbers in one column at every width
   as full-width `outline` Buttons 48px tall (`h-12`), and under them "I didn't
   ask for this" as a full-width `ghost` `sm` Button, 44px below `md`
   (`max-md:h-11`); then the line about the number picked, the slow line and
   the error `Notice`; then Try again or Continue, full-width default `lg`
   Buttons, 44px below `md`. With `typeNumber`, the numbers give way to a
   `Field` with a plain label 6px above one `Input` (`size="touch"`,
-  `face="code"`, `fill="ink"`), then a full-width default `lg` Confirm, 44px
+  `face="code"`, `fill="ink"`) and the lockout rule as its hint under it,
+  then a full-width default `lg` Confirm, 44px
   below `md`, above the decline.
   Left-aligned.
 - **The banner** (`SecurityEventsBanner`) is one `rounded-ui-md` box with
@@ -371,14 +384,14 @@ besides the default:
 | `ConfirmLinkPage` | Button, Card, Field, Input, Notice | `outline`, `ghost` |
 | `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput; `ViewStep` | `secondary` |
 | `ProfileOnboarding` | Button, Card, Dialog; `AuthHeader` | `ghost` |
-| `TurnstileWidget` | Notice | — |
+| `TurnstileWidget` | Notice (through `LoadFailed`) | — |
 
 **Drawn by hand.** Besides those parts, the views draw these controls
 themselves:
 
 - `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
   error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
-  in a failed load. It keeps the line's ink and is underlined, so the action
+  in a failed load, a settings list's or the verification challenge's. It keeps the line's ink and is underlined, so the action
   never relies on colour alone, and takes Button's focus ring (§9).
   `LoadFailed` (`src/LoadFailed.tsx`, internal) is the failed-load line built
   on it (§7).
@@ -450,7 +463,7 @@ own.
 | --- | --- |
 | No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
 | Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification link" ("Sending…"). When a wait ended because someone took the handle, "That handle was taken while you waited. Choose another." under the handle, which takes focus |
-| Verify | `CheckEmailView` for sign-up: the address, the request's number, Resend ("Sending…") and "Start again" (back to Details with the fields kept, from the first moment). After the link's reader declines or picks a wrong number the view keeps waiting, as for an address nobody was mailed, and the link's page sends the person back here to "Start again". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
+| Verify | `CheckEmailView` for sign-up: the address, the request's number, the junk-mail line naming `productName` once Resend unlocks, Resend ("Sending…") and "Start again" (back to Details with the fields kept, from the first moment). After the link's reader declines or picks a wrong number the view keeps waiting, as for an address nobody was mailed, and the link's page sends the person back here to "Start again". Its error line is the copy map's sentence for a failed Resend, or "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again." once the request has sent every link it may; once the link expires, "Send a new link" goes back to Details with the fields kept |
 | Passkey | "Add a passkey or security key so you can sign back in. This is required to finish creating your account."; the enrolment's error line; "Add a passkey" ("Waiting for your passkey…") |
 | Done | "You're all set. Loading {productName}…" |
 
@@ -461,7 +474,7 @@ own.
 | Choose | "Pick how you'd like to prove this account is yours."; "Email me a link" and "Use your authenticator app" where the browser can run a passkey ceremony and the host passed both enrolment props, otherwise an info `Notice` ("The other ways back in need a passkey ceremony, which this browser can't run.") over a list of ways forward; "Use a recovery code", the step's action; "Back to sign in" |
 | Recovery code | "Email or @handle", "Recovery code"; "Sign in with recovery code" ("Signing in…"); Back |
 | Email, identify | "We'll send a link to the address on the account. Open it on any device to get back in here."; "Email address on the account", the Turnstile challenge; "Send the link" ("Sending…"); Back |
-| Email, waiting | `CheckEmailView` for recovery: "If {address} has an account, a link is on its way.", the request's number, Resend after 120 seconds, "Start again" (back to the address, kept, from the first moment; after a decline or a wrong number the view keeps waiting, as for an address with no account); Back. Its error line says "We've sent all the links we can for this request. Use the newest one, or go back and start again." or "We couldn't send a new link just now. Try again in a moment."; once the link expires, "Send a new link" goes back to the address. A reload of the tab returns here, and `SignIn` opens on its recovery view |
+| Email, waiting | `CheckEmailView` for recovery: "If {address} has an account, a link is on its way.", the request's number, the junk-mail line naming the `productName` `SignIn` passes, once Resend unlocks, Resend after 120 seconds, "Start again" (back to the address, kept, from the first moment; after a decline or a wrong number the view keeps waiting, as for an address with no account); Back. Its error line says "We've sent all the links we can for this request. Use the newest one, or go back and start again." or "We couldn't send a new link just now. Try again in a moment."; once the link expires, "Send a new link" goes back to the address. A reload of the tab returns here, and `SignIn` opens on its recovery view |
 | Authenticator | "Email or @handle", "Code from your authenticator app" and the code boxes; Continue ("Checking…"); Back |
 | Enrol | "Add a passkey to get back in", what a recovery session is; "Add a passkey" ("Waiting for your passkey…", "Try again" after an error), "Start again" after an error |
 | Enrolled | "You're back in"; "Sign in with your new passkey" |
@@ -556,10 +569,11 @@ says "If that address has an account, …".
 | State | What shows |
 | --- | --- |
 | Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery and step-up, whose pages ask the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Start again" when the host passes `onChangeEmail`, from the first moment |
+| Resend unlocked (sign-up, recovery) | As Waiting, and above Resend, from the moment the first wait ends and through every Resend after it: "Can't find it? Look in your junk or spam folder for an email about {productName}." ("Can't find it? Look in your junk or spam folder." with no `productName`). The same words whether or not the address has an account. Outside the live region, so it is never read out, and it moves no focus. It names what the email is about, not its sender: production mails from an address with no display name, and every link email's subject carries the product's name |
 | Sending | "Sending a new link…"; Resend busy, reading "Sending…"; "Start again" disabled; no error line |
 | Sent again | "We sent a new link to {email}." (recovery: "If {email} has an account, a new link is on its way."), ending "Check the number again." when a number shows |
 | Error | The waiting copy, the number kept, and the host's `errorMessage` (or "Something went wrong. Try again in a moment.") under the sentence |
-| Expired | "Your link has expired"; "Ask for a new link to {email}."; no flow line and no number; "Send a new link" as the default Button, at once |
+| Expired | "Your link has expired"; "Ask for a new link to {email}."; no flow line, no number and no junk-mail line; "Send a new link" as the default Button, at once |
 
 **`ConfirmLinkPage`** — the page an emailed link opens. "{address}" is the
 host's `email`, or "this address". Each flow's sentence: sign-up "Confirming
@@ -567,17 +581,26 @@ lets the device that asked finish signing up with {address}."; recovery "…
 back into your account. It also signs out every other device."; step-up "… go
 ahead with something sensitive, such as adding a passkey or deleting the
 account."; email change "Confirming sets {address} as the email of the account
-that asked."
+that asked." Each flow's lockout rule, built from `LINK_LOCKOUT`
+(`src/link-lockout.ts`, the numbers osn-api enforces): sign-up and email change
+"After 3 wrong numbers in a day, links to this address stop for up to a day.";
+recovery and step-up "After 5 wrong numbers in 15 minutes, links like this one
+for this account stop for up to 15 minutes." Fixed copy, the same whatever
+happened: it states the rule, never whether a number was wrong or a lockout
+holds, so the waiting screen can keep answering as for an address nobody was
+mailed. A host that cannot tell the flow — Musubi's card for a link whose id
+names none — passes `showLockoutRule={false}`, and the page states no rule,
+since each flow's differs.
 
 | State | What shows |
 | --- | --- |
-| Ready | "Confirm this email"; the flow's sentence; "Only confirm if you asked for this. If you didn't, choose “I didn't ask for this” below." (step-up: "If you didn't, someone else may be signed in to your account. Choose … below, then sign out your other sessions."); "Pick the number shown on the screen where you started." and the numbers; "I didn't ask for this" |
-| Ready, typed (`typeNumber`) | As Ready, but "Type the number shown on the screen where you started." labels one field for up to six digits, and Confirm, disabled until the field holds one to six digits, comes before "I didn't ask for this"; Enter in the field does what Confirm does |
+| Ready | "Confirm this email"; the flow's sentence; "Only confirm if you asked for this. If you didn't, choose “I didn't ask for this” below." (step-up: "If you didn't, someone else may be signed in to your account. Choose … below, then sign out your other sessions."); "Pick the number shown on the screen where you started.", the flow's lockout rule under it, and the numbers; "I didn't ask for this" |
+| Ready, typed (`typeNumber`) | As Ready, but "Type the number shown on the screen where you started." labels one field for up to six digits, the flow's lockout rule its hint, and Confirm, disabled until the field holds one to six digits, comes before "I didn't ask for this"; Enter in the field does what Confirm does |
 | Confirming | The same; the control that started the call busy — the number tapped (its digits kept), Confirm ("Confirming…"), "I didn't ask for this" ("Cancelling…") or Try again ("Confirming…" or "Cancelling…", the same attempt again) — and every other one disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds "This is taking longer than usual. Keep this page open." |
 | Error | The same, the numbers (typed: the field) disabled and Confirm gone, "I didn't ask for this" still open; "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again, which sends the same attempt, while the decline sends `null` as a new one |
 | Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
 | Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page. If you did ask for it, go back to where you started and choose Start again." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
-| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again." (step-up's ends "If not, go back and ask for a new link.", since its waiting screen learns of the refusal and offers one, and adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions."). The same for every refusal, a list the page cannot offer included |
+| Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back to where you started and choose Start again." (step-up's ends "If not, go back and ask for a new link.", since its waiting screen learns of the refusal and offers one, and adds "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions." after the rule below). Then "A wrong number ends a link too." and the flow's lockout rule (none with `showLockoutRule={false}`), in the card and in what the page says aloud. The same for every refusal, a list the page cannot offer included |
 
 **`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
 "Create profile" ("Creating…"), Cancel when the host gives `onCancel`.
@@ -587,8 +610,18 @@ no earlier dismissal: the card "Add another profile", "Create profile", and
 a dismiss control when `dismissible`.
 
 **`TurnstileWidget`** — renders nothing without a site key; with one, the
-challenge, and "Couldn't load the verification challenge. Reload and try
-again. …" when it fails to load.
+challenge. When it cannot load — the script refused, a load still unfinished
+after 15 seconds, or the challenge's own error — `LoadFailed`'s line: "Couldn't
+load the verification challenge. A content blocker, a browser extension or a
+network that blocks challenges.cloudflare.com can stop it. Turn the blocker
+off for this site, or use another network.", then the host's `alternative`
+(`SignIn`: "Signing in with a recovery code doesn't need this challenge:
+choose “Lost your passkey?”."; `RecoveryLoginForm`: "A recovery code doesn't
+need this challenge: go back and choose “Use a recovery code”."; `Register`
+passes none, having no way round it), then "Try again". Try again loads the script afresh where it failed and
+renders the challenge again, with no wait of its own to show: the line goes,
+and comes back, read out again, if the next attempt fails too. The host's
+submit stays disabled until a token arrives.
 
 ## 7. Errors
 
@@ -695,7 +728,8 @@ wait, status `0` to check the connection, an ended session to sign in), and a
 heading stays. `RecoveryCodesView`'s read never throws at all: it carries the
 failure beside the count, so nothing reaches the host's error boundary, the
 generate button stays, and a rotation still asks first. `SecurityEventsBanner`
-fails soft, showing nothing (§6).
+fails soft, showing nothing (§6). `TurnstileWidget` draws the same line
+under its challenge, with its own sentences for the lead (§6).
 
 **Toasts are for success only** ("Signed in", "Email verified", "Welcome,
 @{handle}", "Authenticator app added", …). No view raises an error
@@ -859,6 +893,10 @@ when the view appears, and when a send ends with Resend holding focus and the
 wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
 (`focus:outline-none`): it is where focus is put, not a control.
 
+`TurnstileWidget`'s challenge is a group named "Human verification challenge"
+with `tabindex="-1"` and no focus mark; Try again puts focus there as the line
+holding it goes, so focus never falls to the page.
+
 `Register` puts focus on the handle field when a wait ends because the handle
 was taken: the waiting view that held focus is gone, and the handle field is
 where the alert asks the person to act.
@@ -902,6 +940,7 @@ new view takes its words from here, and a new action adds its row here.
 | Leave a dialog or view | "Cancel"; on a page, a host's `cancelLabel` where leaving means something else ("Sign in instead") | `DialogActions`, every dialog's footer; `AuthHeader` on a page (`cancelLabel` there only) |
 | Go back a step | "Back"; to sign-in "Back to sign in"; to the factors "Use another method"; redo "Start again" | `RecoveryLoginForm`, `StepUpDialog`, `CheckEmailView` |
 | Say no to a link | "I didn't ask for this", answered by "Cancelled" | `ConfirmLinkPage` |
+| Try a failed load again | "Try again", never "Retry" | `LoadFailed` in the settings panels, `TurnstileWidget` |
 
 A row's action names its item for a screen reader (`aria-label`), so two rows
 never offer two buttons of one name and the words seen stay the words heard
@@ -922,7 +961,7 @@ As built:
 - **No real-browser tier** in the package. **Lab stories** for
   `CheckEmailView`, `osn/auth-ui/CheckEmailView` in
   `tools/lab/src/stories/osn-auth-ui/check-email-view.story.tsx`: one per
-  state, every flow, a 320px phone, and the number at rest, on recovery and
+  state (Resend ready with the junk-mail line), every flow, a 320px phone, and the number at rest, on recovery and
   step-up, across a resend and on a phone; and for `ConfirmLinkPage`,
   `osn/auth-ui/ConfirmLinkPage` in `confirm-link-page.story.tsx`: one per
   state, three and five numbers, the decline, step-up's expired page, an
@@ -954,7 +993,14 @@ As built:
   (two rows, loading, failed, 320px), `TotpView` (none, set up, loading,
   failed, 320px), `RecoveryCodesView` (codes held, none, checking, status
   unread, 320px), `SessionsView` (two rows, loading) and
-  `SecurityEventsBanner` (one event, 320px).
+  `SecurityEventsBanner` (one event, 320px). And for `TurnstileWidget`,
+  `osn/auth-ui/TurnstileWidget` in `turnstile-widget.story.tsx`: a failed
+  load with Try again, with and without a host's `alternative`, against a
+  stand-in `window.turnstile`.
+- **The lockout rule against osn-api.** `tests/link-lockout.contract.test.ts`
+  imports osn-api's `REGISTRATION_LINK_LOCKOUT_*` and `RECOVERY_LOCKOUT_*` and
+  fails when `LINK_LOCKOUT` differs. It runs as the `repo` vitest project
+  (`test:repo`), whose turbo inputs name those two files.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
@@ -1186,8 +1232,9 @@ hands its host the outcome once its fade out has ended (§8), so the host's
 removal never cuts the fade short. `AuthHeader` adds no motion: a title it
 is given arrives at once, and it shows and hides with the dialog around it. What a skeleton
 stands for, a refused code's line and a step that replaces another arrive at
-once, with no fade (`musubi/social/DESIGN.md` §Motion), and so does a list
-that lands in place of its placeholder. A view never moves
+once, with no fade (`musubi/social/DESIGN.md` §Motion), and so do a list
+that lands in place of its placeholder, `CheckEmailView`'s junk-mail line and
+`TurnstileWidget`'s failed-load line. A view never moves
 a panel, a field or an error across the screen, and never loads an
 animation library. A motion a view needs that the host does not have goes into
 the host's `DESIGN.md` first.

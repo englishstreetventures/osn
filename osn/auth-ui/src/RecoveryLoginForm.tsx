@@ -98,6 +98,11 @@ interface RecoveryLoginFormBaseProps {
    * challenge and rides the token on `/login/recovery/email/begin`.
    */
   turnstileSiteKey?: string;
+  /**
+   * The product the recovery email is about, named on the emailed link's
+   * waiting screen where it says to look in the junk or spam folder.
+   */
+  productName?: string;
   onSuccess?: () => void;
   /**
    * Back to sign-in: "Back to sign in" on the chooser, shown only when this
@@ -857,6 +862,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
                   siteKey={props.turnstileSiteKey}
                   onToken={setTurnstileToken}
                   onReady={(c) => (resetTurnstile = c.reset)}
+                  alternative="A recovery code doesn't need this challenge: go back and choose “Use a recovery code”."
                 />
                 {errorLine()}
               </>
@@ -877,6 +883,7 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             // like any other.
             <CheckEmailView
               purpose="recovery"
+              productName={props.productName}
               email={waiting()?.email}
               status={linkStatus()}
               errorMessage={linkError()}
