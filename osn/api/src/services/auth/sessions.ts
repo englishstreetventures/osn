@@ -19,9 +19,11 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
   not,
   notExists,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { Effect } from "effect";
@@ -123,6 +125,25 @@ const accountScheduledForDeletion = (
   );
 
 /**
+ * True when `sessionHash` was rotated out longer than `ROTATION_GRACE_MS` ago
+ * and its rotation record is live: a replay of a token its device has moved
+ * on from. Reads `rotated_sessions` only, so a delete of `sessions` can use it.
+ */
+const rotatedOutPastGrace = (db: DbService["db"], sessionHash: string, nowMs: number) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(rotatedSessions)
+      .where(
+        and(
+          eq(rotatedSessions.tokenHash, sessionHash),
+          gt(rotatedSessions.expiresAt, nowMs),
+          lte(rotatedSessions.rotatedAt, nowMs - ROTATION_GRACE_MS),
+        ),
+      ),
+  );
+
+/**
  * Finds the session id whose per-profile binding equals `sessionBinding`.
  *
  * The comparison is constant-time even though the presented value arrives
@@ -162,9 +183,10 @@ export function createSessionsModule() {
    * replay of the token counts the reuse. Inside the window it is the
    * device's own race with its refresh, and nothing is counted.
    *
-   * A sign-in (`at` is `"sign-in"`) ends nothing of an account scheduled for
-   * deletion: that account's one family is the deletion's cancel handle, and
-   * its sessions and records are left as they are, reuse included.
+   * A sign-in (`at` is `"sign-in"`) leaves the family of an account scheduled
+   * for deletion live: that account's one family is the deletion's cancel
+   * handle. A token rotated out past the grace window is the exception: it is
+   * a replay, and reuse ends the handle here as it would at `/token`.
    *
    * Silently succeeds when the token names nothing (idempotent — don't leak
    * whether a session was valid). Otherwise the family's rotation records
@@ -199,9 +221,6 @@ export function createSessionsModule() {
                 .from(sessions)
                 .where(eq(sessions.id, sessionId)),
             ),
-            sparesCancelHandle
-              ? not(accountScheduledForDeletion(db, rotatedSessions.accountId))
-              : undefined,
           ),
         )
         .limit(1);
@@ -211,7 +230,10 @@ export function createSessionsModule() {
           and(
             inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
             sparesCancelHandle
-              ? not(accountScheduledForDeletion(db, sessions.accountId))
+              ? or(
+                  not(accountScheduledForDeletion(db, sessions.accountId)),
+                  rotatedOutPastGrace(db, sessionId, nowMs),
+                )
               : undefined,
           ),
         );

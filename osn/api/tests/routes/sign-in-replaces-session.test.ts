@@ -599,8 +599,31 @@ describe("a sign-in on a browser holding the cancel handle of an account schedul
 
     expect(res.status).toBe(200);
     expect(h.familyRows(leaving.familyId!)).toBe(1);
-    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
     expect((await h.grant(sessionCookieOf(res)!)).status).toBe(200);
+    // The handle renews for its own profile, and naming none, as the
+    // account's own page does from a reload or a cold start.
+    const own = await grantFor(h, leaving.token, leaving.profile.id);
+    expect(own.status).toBe(200);
+    expect((await h.grant(sessionCookieOf(own)!)).status).toBe(200);
+  });
+
+  it("ends the handle as reuse when the cookie was rotated out past the grace window", async () => {
+    // A token the handle's own renewals moved on from long ago is a replay,
+    // whatever request carries it: reuse detection ends the family here as
+    // `/token` would.
+    const h = makeHarness();
+    const leaving = await scheduledForDeletion(h);
+    const renewed = await grantFor(h, leaving.token, leaving.profile.id);
+    expect(renewed.status).toBe(200);
+    h.sqlite
+      .query("UPDATE rotated_sessions SET rotated_at = ? WHERE account_id = ?")
+      .run(Date.now() - 60_000, leaving.profile.accountId);
+
+    const res = await passkeySignIn(h, await withPasskey(h, "newcomer"), leaving.token);
+
+    expect(res.status).toBe(200);
+    expect(h.familyRows(leaving.familyId!)).toBe(0);
+    expect((await grantFor(h, sessionCookieOf(renewed)!, leaving.profile.id)).status).toBe(400);
   });
 
   it("refuses the handle's cookie a renewal for the profile the new sign-in holds", async () => {
