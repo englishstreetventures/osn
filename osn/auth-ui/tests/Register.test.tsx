@@ -1087,6 +1087,50 @@ describe("Register component", () => {
       expect(localStorage.getItem(LIVE)).toBeNull();
     });
 
+    it("leaves another tab's entry in place when a begin that carried it is refused, and does not send it again", async () => {
+      seedLive(3);
+      stub.beginRegistration
+        .mockRejectedValueOnce(apiError("PLANTED-refused", 400, "invalid_request"))
+        .mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.checkHandle.mockResolvedValue({ available: true });
+      renderRegister();
+      fillEmail("alice@example.com");
+      fillHandle("alice");
+      fillBirthdate("1990-01-01");
+      await vi.advanceTimersByTimeAsync(350);
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(stub.beginRegistration.mock.calls[0]![0].previous).toEqual({
+        requestId: begun(3).requestId,
+        retireSecret: begun(3).retireSecret,
+      });
+      expect(live()?.requestId).toBe(begun(3).requestId);
+
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toBeUndefined();
+    });
+
+    it("sends the request this tab left when it was for the address typed, though another tab's entry is newer", async () => {
+      stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      renderRegister();
+      await submitDetailsAs();
+      fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      // Another tab began since, for another address.
+      seedLive(3);
+      fillEmail("ALICE@example.com");
+      await vi.advanceTimersByTimeAsync(350);
+      fireEvent.click(screen.getByRole("button", { name: /Send verification link/i }));
+      await waitFor(() => expect(stub.beginRegistration).toHaveBeenCalledTimes(2));
+      expect(stub.beginRegistration.mock.calls[1]![0].previous).toEqual({
+        requestId: begun(1).requestId,
+        retireSecret: begun(1).retireSecret,
+      });
+    });
+
     it.each([
       ["a 400 drops it", apiError("PLANTED-refused", 400, "invalid_request"), true],
       ["a 429 keeps it", apiError("PLANTED-limited", 429, "rate_limited"), false],

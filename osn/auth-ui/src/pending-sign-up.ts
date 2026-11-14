@@ -26,9 +26,10 @@ export interface Waiting extends Omit<BegunRegistration, "pairingCode" | "retire
  */
 export const PENDING_KEY = "osn.signup.pending";
 /**
- * A sign-up this tab began and left (Cancel, a different email): its request
- * and retire secret. The next begin sends it as `previous`, which retires it,
- * so the address is not held by a request nobody waits on.
+ * A sign-up this tab began and left (Cancel, a different email): its request,
+ * retire secret and the address it was for. The next begin for that address
+ * sends it as `previous`, which retires it, so the address is not held by a
+ * request nobody waits on. Per tab, like the wait it was.
  */
 export const PREVIOUS_KEY = "osn.signup.previous";
 /**
@@ -106,18 +107,29 @@ function asPrevious(value: Partial<PreviousRegistration> | null): PreviousRegist
   return { requestId, retireSecret };
 }
 
+/** The request this tab left, and the address it was for when that is known. */
+export interface LeftRequest {
+  readonly previous: PreviousRegistration;
+  readonly email: string | null;
+}
+
 /** The request this tab left, when it has the shape begin takes; anything else is removed. */
-export function storedPrevious(): PreviousRegistration | null {
-  const stored = readStored<Partial<PreviousRegistration>>(PREVIOUS_KEY);
+export function storedPrevious(): LeftRequest | null {
+  const stored = readStored<Partial<PreviousRegistration & { email: string }>>(PREVIOUS_KEY);
   const previous = asPrevious(stored);
   if (stored !== null && !previous) writeStored(PREVIOUS_KEY, null);
-  return previous;
+  if (!previous) return null;
+  return { previous, email: typeof stored?.email === "string" ? stored.email : null };
 }
 
 /** Keeps `request` as the one this tab's next begin retires; nothing without its retire secret. */
-export function keepPrevious(request: { requestId: string; retireSecret?: string }): void {
+export function keepPrevious(request: {
+  requestId: string;
+  retireSecret?: string;
+  email: string;
+}): void {
   const previous = asPrevious(request);
-  if (previous) writeStored(PREVIOUS_KEY, previous);
+  if (previous) writeStored(PREVIOUS_KEY, { ...previous, email: request.email });
 }
 
 /** Forgets the request this tab left, when it is `requestId`. */

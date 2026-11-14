@@ -1,6 +1,7 @@
 import {
   describeAuthError,
   type EmailVerificationNonce,
+  type PreviousRegistration,
   type RegistrationClient,
   type RegistrationStatus,
   type Session,
@@ -456,20 +457,36 @@ export function Register(props: RegisterProps) {
     props.onCancel();
   }
 
+  /** Requests a begin from this view sent as `previous` and had refused. */
+  const refusedPrevious = new Set<string>();
+
+  /**
+   * What a begin for `typed` sends as `previous`: the request this tab left
+   * when it was for that address; else the browser's live sign-up (another
+   * tab's, or this one's); else the request this tab left. osn-api retires it
+   * only when it is for the address typed, so this begin's link goes at once;
+   * for another address it is left alone. Never one this view had refused.
+   */
+  function previousFor(typed: string): PreviousRegistration | null {
+    const usable = (p: PreviousRegistration | null | undefined) =>
+      p && !refusedPrevious.has(p.requestId) ? p : null;
+    const left = storedPrevious();
+    const live = readLive();
+    const sameAsLeft = left?.email?.trim().toLowerCase() === typed.trim().toLowerCase();
+    return (
+      (sameAsLeft ? usable(left?.previous) : null) ??
+      usable(live && { requestId: live.requestId, retireSecret: live.retireSecret }) ??
+      usable(left?.previous)
+    );
+  }
+
   async function submitDetails(e: Event) {
     e.preventDefault();
     if (!detailsValid() || sending()) return;
     setSending(true);
     setDetailsError(null);
     const typed = email();
-    // The browser's live sign-up (another tab's, or this one's), else the
-    // request this tab left. osn-api retires it only when it is for the
-    // address typed here, so this begin's link goes at once; for another
-    // address it is left alone.
-    const live = readLive();
-    const previous = live
-      ? { requestId: live.requestId, retireSecret: live.retireSecret }
-      : storedPrevious();
+    const previous = previousFor(typed);
     try {
       const input: Parameters<RegistrationClient["beginRegistration"]>[0] = {
         email: typed,
@@ -520,11 +537,12 @@ export function Register(props: RegisterProps) {
       shareLive(request, "any");
     } catch (err) {
       // A refusal may be of `previous` itself, as an osn-api of another
-      // version reads it, so it is dropped and the next try goes without it.
-      // A rate limit or no answer keeps it.
+      // version reads it, so this view does not send it again, and the
+      // request this tab left is forgotten. Another tab's entry stays for that
+      // tab. A rate limit or no answer keeps it.
       if (previous && refused(err)) {
+        refusedPrevious.add(previous.requestId);
         forgetPrevious(previous.requestId);
-        clearLive(previous.requestId);
       }
       // The server answers a taken email or handle the same as a free one, so
       // this never says which; a 422 is the age gate, a 429 says to wait.
