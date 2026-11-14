@@ -776,18 +776,24 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
       await stepUpCancel.isDisabled(),
     );
     // Only the client's abort can fail the begin inside this step: the route
-    // lets it go only in `finally`, below.
-    let beginAborted = false;
+    // lets it go only in `finally`, below. Chromium names a request the page
+    // aborted `net::ERR_ABORTED`; the route's own `abort()` would read
+    // `net::ERR_FAILED`.
+    let beginFailure = "";
     await flow.step("add an authenticator app: the begin runs out its deadline", async () => {
       const failed = page.waitForEvent("requestfailed", {
         predicate: (request) => request.url() === stepUpBegin && request.method() === "POST",
       });
       await page.clock.fastForward(2_000);
-      beginAborted = (await failed).failure() !== null;
+      beginFailure = (await failed).failure()?.errorText ?? "";
       await expect(stepUpLine).toHaveText(`Error: ${CONNECTION}`);
       await expect(stepUpCancel).toBeEnabled();
     });
-    flow.check("step-up past its deadline: the page aborted the begin", true, beginAborted);
+    flow.check(
+      "step-up past its deadline: the page aborted the begin",
+      "net::ERR_ABORTED",
+      beginFailure,
+    );
     flow.check(
       "step-up past its deadline: the line says it could not connect",
       `Error: ${CONNECTION}`,

@@ -512,6 +512,23 @@ export const CodeRateLimited = state(
   [{ press: "Use your authenticator app" }, { type: "123456" }, { press: "Confirm" }],
 );
 
+export const CodeNoAnswer = state(
+  "a code check with no answer",
+  <>
+    No answer for the code, as when the step-up deadline passes: the boxes empty, and the line under
+    them asks for a new code. The boxes are not marked invalid.
+  </>,
+  {
+    client: client({
+      totpComplete: () => Promise.reject(new OsnApiError("fixture", 0)),
+    }),
+    runPasskeyCeremony: heldCeremony,
+    totpClient: authenticator,
+    purpose: "passkey_register",
+  },
+  [{ press: "Use your authenticator app" }, { type: "123456" }, { press: "Confirm" }],
+);
+
 const PHONE_STORIES = ["Factors", "EmailWaiting", "Code", "LongPasskeyName"] as const;
 
 /**

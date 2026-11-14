@@ -29,7 +29,14 @@ import {
 } from "solid-js";
 
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
-import { describedBy, fieldError, inputError, plainError, type FieldError } from "./error-lines";
+import {
+  describedBy,
+  fieldError,
+  inputError,
+  plainError,
+  statusOf,
+  type FieldError,
+} from "./error-lines";
 import { createLinkPoll, type LinkPollStep } from "./link-poll";
 import { describePasskeyError } from "./passkey-errors";
 
@@ -511,6 +518,10 @@ export function StepUpDialog(props: StepUpDialogProps) {
       });
       close(() => props.onToken(token));
     } catch (e) {
+      // With no answer the server may still have taken the code, and it
+      // counts the same code again toward the lockout, so none is kept to
+      // send again; the line asks for a new one.
+      if (statusOf(e) === 0) setCode("");
       setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
       setWaiting(null);

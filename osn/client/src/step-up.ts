@@ -42,11 +42,14 @@ import type { AuthFetch } from "./runtime";
  * (`./authorize.ts`) allows 10 s for one GET that renews nothing.
  *
  * Aborting does not un-send a request, so past the deadline the server may
- * already have acted. A step-up token it minted reaches nobody and expires.
- * An authenticator code it accepted is spent: the same code again is refused
- * as a replay and counts toward the lockout, so a retry needs the app's next
- * code. An `emailBegin` may still mail its link, which counts against the
- * account's daily step-up links, and after a lost `complete` answer the next
+ * already have acted. A `passkeyBegin` leaves only a parked challenge, which
+ * the next begin replaces. A step-up token it minted reaches nobody and
+ * expires. An authenticator code it accepted is spent: the same code again is
+ * refused as a replay and counts toward the lockout, so a retry needs a new
+ * code, which `describeAuthError` asks for in its `code` context. An
+ * `emailBegin` may still mail its link and an `emailResend` another, each
+ * counting against the account's daily step-up links, a Resend against the
+ * mailbox's daily Resends as well; after a lost `complete` answer the next
  * status poll finds the request `expired`.
  */
 export const STEP_UP_DEADLINE_MS = 15_000;

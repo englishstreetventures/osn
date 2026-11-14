@@ -135,10 +135,18 @@ Every `StepUpClient` call in `@osn/client` (`passkeyBegin`, `passkeyComplete`,
 call: a token renewal `authFetch` makes first, the request, its 401 retry and
 the body read. Past it the client aborts the request and the call rejects with
 a `StepUpError` at status `0`, as a request that reached no server does, so
-`describeAuthError` gives the connection sentence. `StepUpDialog` refuses
+`describeAuthError` gives the connection sentence; for an authenticator code
+its `code` sentence asks for a new code as well. `StepUpDialog` refuses
 Cancel, Escape, a press outside and going back while a passkey, link or code
-call it started runs; the deadline bounds that wait, and each works again once
-the call fails.
+call it started runs. The deadline bounds each call in that wait, and each way
+out works again once the call fails. For a passkey, the browser's own prompt
+between begin and complete is not a call, and this client sets it no deadline.
+
+The `musubi-passkey` E2E flow leaves the step-up's first passkey begin
+unanswered, moves the page clock past the deadline, and checks that the page
+aborted the begin, that the line says it could not connect and that Cancel
+works again; `tools/e2e/tests/flows.test.ts` holds the flow's copy of
+`STEP_UP_DEADLINE_MS` equal to the client's.
 
 The deadline is a timer, so it runs late where the page's timers do: a hidden
 tab's timers are batched, and a frozen tab runs none until it resumes. On
@@ -163,13 +171,15 @@ renewal and the call again. Most calls send one request. A call that needs
 every retry on a slow mobile link can still run out.
 
 Aborting does not un-send a request, so a call that failed at the deadline may
-already have acted on the server:
+already have acted on the server. A `passkeyBegin` leaves only a parked
+challenge, which the next begin replaces. The rest:
 
 | Call | What the server may have done | What the person does next |
 |---|---|---|
 | `passkeyComplete` | minted a step-up token that reaches nobody; it expires unused | runs the passkey again |
-| `totpComplete` | accepted the code and recorded its step | waits for the app's next code: the same code again is refused as a replay and counts toward the five-attempt lockout ([[totp#Throttling, and the one place this repo fails closed differently]]) |
+| `totpComplete` | accepted the code and recorded its step | enters a new code: the same code again is refused as a replay and counts toward the five-attempt lockout ([[totp#Throttling, and the one place this repo fails closed differently]]), so `StepUpDialog` empties the code boxes and its line asks for a new code |
 | `emailBegin` | mailed the link, spending one of the account's 10 step-up links a day ([[email-links#Step-up]]) | asks again |
+| `emailResend` | mailed another link, spending one of the 10 links a day and one of the mailbox's 3 Resends a day ([[email-links#Step-up]]) | waits for the link already sent before pressing Resend again |
 | `emailStatus` | handed over the token in a `complete` answer the tab never read | finds the request `expired` on the next poll, and sends a new link |
 
 The deadline does not end a token renewal. Renewal is single-flight and sends

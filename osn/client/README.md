@@ -23,7 +23,7 @@ takes an access token (the step-up gated ones take a `stepUpToken`).
 | `createRegistrationClient` | `register.ts` | `RegistrationError` | sign-up through an emailed link (`checkHandle`, `beginRegistration`, `registrationStatus`, `resendRegistrationLink`) and first-passkey enrolment; the completing status poll returns a `Session` |
 | `createEmailLinkClient` | `email-link.ts` | `EmailLinkError` | the calls the page an emailed link opens makes (`candidates`, `confirm`); `emailLinkPurpose(requestId)` reads a request id's flow |
 | `createLoginClient` | `login.ts` | `LoginError` | passkey sign-in (`passkeyBegin`, `passkeyComplete`); returns a `Session` and a `LoginProfile` |
-| `createStepUpClient` | `step-up.ts` | `StepUpError` | a fresh factor before a gated action: passkey, emailed code or authenticator app |
+| `createStepUpClient` | `step-up.ts` | `StepUpError` | a fresh factor before a gated action: passkey, emailed link or authenticator app |
 | `createPasskeysClient` | `passkeys.ts` | `PasskeysError` | list, rename, delete and add passkeys |
 | `createTotpClient` | `totp.ts` | `TotpError` | add, remove and read the authenticator app |
 | `createRecoveryClient` | `recovery.ts` | `RecoveryError` | recovery codes, sign-in by recovery code, emailed code or authenticator app, and undoing a recovery the owner did not start (`disown`) |
@@ -39,6 +39,8 @@ takes an access token (the step-up gated ones take a `stepUpToken`).
 A client that sends through `authFetch` lets a rejection about the session
 (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`,
 `StorageError`) and the caller's own abort reach the caller unchanged.
+`createStepUpClient` also ends each call still waiting after
+`STEP_UP_DEADLINE_MS` (15 s, exported) as a `StepUpError` at status `0`.
 
 ### The auth runtime and the session
 

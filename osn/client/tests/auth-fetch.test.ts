@@ -279,4 +279,21 @@ describe("withDeadline — the caller's own abort", () => {
     expect(request).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("F8: a call that has answered no longer reacts to the caller's abort", async () => {
+    const caller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const call = withDeadline(
+      FakeError,
+      1_000,
+      (signal) => {
+        seen = signal;
+        return Promise.resolve("answered");
+      },
+      caller.signal,
+    );
+    await expect(call).resolves.toBe("answered");
+    caller.abort(new DOMException("The person left", "AbortError"));
+    expect(seen?.aborted).toBe(false);
+  });
 });
