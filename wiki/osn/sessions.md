@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Session introspection + revocation
@@ -262,7 +262,7 @@ A transient failure keeps the session and the active profile. If the token in ha
 
 The runtime tells `onSessionChange` listeners `ended` before the call that asked for the renewal rejects, and it tells them the same when another tab's sign-out or sign-in ends this page's session (step 2). `AuthProvider` therefore drops any profile list that settles after the end, success or failure, so neither the old account's list nor an error about it lands on a signed-out page. A log out from the page itself tells no listener.
 
-`authFetch` rejects with what `fetch` rejected with when the request itself fails or is aborted, as a bare `fetch` does. The REST clients turn that failure into their own `OsnApiError` at status `0`, and pass an abort and the session rejections above (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`) through unchanged (`reach` in `osn/client/src/auth-fetch.ts`). Ending a session never calls `/logout`: a refusal means the issuer has let the session go already, and the marker is the issuer's to retract.
+`authFetch` rejects with what `fetch` rejected with when the request itself fails or is aborted, as a bare `fetch` does. The REST clients turn that failure into their own `OsnApiError` at status `0`, and pass the caller's own abort and the session rejections above (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`) through unchanged (`reach` in `osn/client/src/auth-fetch.ts`). The step-up client also ends a call still waiting after its deadline as a `StepUpError` at status `0`; a rejection that comes after that reaches no caller ([[step-up#Request deadline]]). Ending a session never calls `/logout`: a refusal means the issuer has let the session go already, and the marker is the issuer's to retract.
 
 **A session that changes while a request is out.** An answer is applied only for the session it was asked for. The service counts every time the page's session is replaced or ended (`setSession`, `logout` once `/logout` has answered, every `endSession`, another tab's sign-out or sign-in among them once this page hears of it), and each request notes the count when it leaves. When the answer arrives after the count has moved, it changes nothing and reaches no caller: the request is not renewed or sent again, a second 401 ends nothing, and the call rejects with `AuthExpiredError`. A renewal, bootstrap or grant started for the old session is never joined by a caller for the new one, which waits it out and sends its own grant; a grant whose session has gone sends no retry, and a renewal for it neither sets nor clears the renewal pause. Every write an answer makes to the session — a save, or the end on a second 401 — first reads the stored account, and if another tab has stored another sign-in or none since, ends this page's session as the storage event would, rather than write over or remove that tab's account (`superseded` in `osn/client/src/service.ts`). A held session's renewal (`refreshHeldSession`) belongs to no count: the page's session changing does not stop it.
 

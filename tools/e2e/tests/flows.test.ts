@@ -220,4 +220,19 @@ describe("flow sources", () => {
     expect(local).toContain('process.env.CIRE_E2E_CLIENT_ADDRESS === "1"');
     expect(local).toContain("localClientAddress(");
   });
+
+  // `musubi-passkey` moves the page clock to a second before the step-up's
+  // deadline, then past it, by its own copy of `STEP_UP_DEADLINE_MS`. With a
+  // copy above the client's, Cancel comes back before the "a second before"
+  // check; with one below, that check reads a moment well short of the
+  // deadline and passes without testing it.
+  test("musubi-passkey's step-up deadline is the client's", () => {
+    const declared = (...path: string[]) =>
+      readFileSync(join(import.meta.dirname, ...path), "utf8").match(
+        /\bconst STEP_UP_DEADLINE_MS = ([\d_]+);/,
+      )?.[1];
+    const client = declared("..", "..", "..", "osn", "client", "src", "step-up.ts");
+    expect(client).toBeDefined();
+    expect(declared("flows", "musubi-passkey.flow.ts")).toBe(client);
+  });
 });

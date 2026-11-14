@@ -23,7 +23,9 @@
  * holds the register send and enrol calls, the step-up's begin, the
  * authenticator's confirm and Pulse's revoke long enough to read each busy
  * button and see the ways out beside it disabled, and reads the authenticator
- * setup's two span labels.
+ * setup's two span labels. The step-up's first begin is never answered: past
+ * the client's deadline the page aborts it, the step-up says it could not
+ * connect and gives Cancel back, and the next try passes.
  *
  * The failures are made by answering one osn-api route in the page
  * (`refuse`), so no limiter or session on the stack is spent on them. Every
@@ -104,6 +106,13 @@ const JWT = /eyJ[\w-]+\.[\w-]+\./;
 const ACCESS_TOKEN_TTL_MS = 300_000;
 
 /**
+ * How long a step-up call waits before `@osn/client` gives up on it
+ * (`STEP_UP_DEADLINE_MS` in `osn/client/src/step-up.ts`; `flows.test.ts`
+ * holds the two equal).
+ */
+const STEP_UP_DEADLINE_MS = 15_000;
+
+/**
  * The policy the build writes (`contentSecurityPolicy` in
  * `musubi/social/vite.config.ts`), with each inline-script hash written as
  * `'sha256-…'`: scripts from Musubi itself, its one inline script (the theme
@@ -115,6 +124,7 @@ const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none
 
 /** `describeAuthError`'s sentences the flow reads (`osn/client/src/error-copy.ts`). */
 const WAIT = "Too many attempts. Wait a while, then try again.";
+const CONNECTION = "We couldn't connect. Check your connection and try again.";
 
 /**
  * A route handler that answers an osn-api request with `status` and the
@@ -704,10 +714,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   // Each step-up below is a passkey assertion the virtual authenticator
   // answers. The code is computed from the setup key the page shows, on the
   // suite clock the servers run on.
-  // The step-up's begin and the enrolment's confirm are each held until the
-  // button that started them has been read.
+  // The step-up's first begin is never answered: the page clock is moved
+  // past the client's deadline, and the step-up then passes on the next try.
+  // The enrolment's confirm is held until the button that started it has
+  // been read.
   const stepUpBegin = `${ORIGINS.osnApi}/step-up/passkey/begin`;
-  const stepUpHeld = holdMethod("POST");
   const stepUpCancel = page.getByRole("button", { name: "Cancel", exact: true });
   const emailFactor = page.getByRole("button", { name: "Email me a link" });
   // The emailed link, as far as its wait: one step-up email begin and no
@@ -728,9 +739,22 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     1,
     flow.count("POST osn-api /step-up/email/begin 200"),
   );
-  await page.route(stepUpBegin, stepUpHeld.handler);
+  const stepUpLine = page.getByRole("alert").filter({ hasText: "couldn't connect" });
+  // Kept, never answered, so it never reaches osn-api; the preflight and any
+  // other method go on.
+  let stalledBegin: Route | undefined;
+  const stallBegin = async (route: Route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    stalledBegin = route;
+  };
+  const pageNow = () => page.evaluate(() => Date.now());
+  await page.route(stepUpBegin, stallBegin);
   try {
+    // The page's time just before the begin leaves: its deadline falls no
+    // earlier than this plus `STEP_UP_DEADLINE_MS`.
+    let sentBy = 0;
     await flow.step("add an authenticator app: the step-up waits on begin", async () => {
+      sentBy = await pageNow();
       await page.getByRole("button", { name: "Use passkey" }).click();
       await expect(page.getByRole("button", { name: "Waiting for your passkey…" })).toBeVisible();
     });
@@ -741,10 +765,48 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
       "step-up passkey busy",
     );
     flow.check("step-up passkey busy: Cancel waits", true, await stepUpCancel.isDisabled());
+    await flow.step("add an authenticator app: a second before the deadline", async () => {
+      await page.clock.fastForward(
+        Math.max(0, sentBy + STEP_UP_DEADLINE_MS - 1_000 - (await pageNow())),
+      );
+    });
+    flow.check(
+      "step-up passkey busy: Cancel still waits a second before the deadline",
+      true,
+      await stepUpCancel.isDisabled(),
+    );
+    // Only the client's abort can fail the begin inside this step: the route
+    // lets it go only in `finally`, below.
+    let beginAborted = false;
+    await flow.step("add an authenticator app: the begin runs out its deadline", async () => {
+      const failed = page.waitForEvent("requestfailed", {
+        predicate: (request) => request.url() === stepUpBegin && request.method() === "POST",
+      });
+      await page.clock.fastForward(2_000);
+      beginAborted = (await failed).failure() !== null;
+      await expect(stepUpLine).toHaveText(`Error: ${CONNECTION}`);
+      await expect(stepUpCancel).toBeEnabled();
+    });
+    flow.check("step-up past its deadline: the page aborted the begin", true, beginAborted);
+    flow.check(
+      "step-up past its deadline: the line says it could not connect",
+      `Error: ${CONNECTION}`,
+      (await stepUpLine.textContent()) ?? "",
+    );
+    flow.check(
+      "step-up past its deadline: Cancel works again",
+      false,
+      await stepUpCancel.isDisabled(),
+    );
   } finally {
-    stepUpHeld.release();
-    await page.unroute(stepUpBegin, stepUpHeld.handler);
+    // The page has aborted it by now unless a step above failed first, so
+    // Playwright may count it as gone.
+    await stalledBegin?.abort().catch(() => undefined);
+    await page.unroute(stepUpBegin, stallBegin);
   }
+  await flow.step("add an authenticator app: the step-up again", async () => {
+    await page.getByRole("button", { name: "Use passkey" }).click();
+  });
   let secret = "";
   await flow.step("add an authenticator app: the setup key", async () => {
     secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
@@ -823,7 +885,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     flow.count("POST osn-api /step-up/passkey/complete 200"),
   );
 
-  // From here the page's clock runs ahead of the servers'. osn-api still takes
+  // The page's clock has run about 16 s ahead of the servers' since the
+  // step-up's deadline above; from here it runs far ahead. osn-api still takes
   // the old access token, so only the client can know it is stale. Each step
   // moves the page past its token's expiry and opens the Security tab, whose
   // three views each make an authenticated GET. The checks are counts and
