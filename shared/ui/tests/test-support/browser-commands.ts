@@ -53,6 +53,41 @@ export const movePointer = defineBrowserCommand<
 });
 
 /**
+ * Move the real pointer to the centre of an element and hold its button down,
+ * until `releasePointer`. A press is `:active` only while the browser holds a
+ * real button down on the element: a dispatched `pointerdown` or `mousedown`
+ * sets no `:active`, so a claim about how a pressed control looks needs real
+ * input. The box is read through the test's frame, as `movePointer` reads it.
+ */
+export const pressPointer = defineBrowserCommand<[{ selector: string }]>(
+  async (ctx, { selector }) => {
+    const box = await ctx.iframe.locator(selector).first().boundingBox();
+    if (!box) throw new Error(`nothing to press: ${selector}`);
+    await ctx.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await ctx.page.mouse.down();
+  },
+);
+
+/** Let go of the button `pressPointer` holds down, where the pointer is now. */
+export const releasePointer = defineBrowserCommand<[]>(async (ctx) => {
+  await ctx.page.mouse.up();
+});
+
+/**
+ * Hold a key down until `releaseKey` lets it go: `" "` holds Space, which a
+ * browser treats as a press on a focused button while it is held. Keys go to
+ * whatever has focus, so focus the element first.
+ */
+export const holdKey = defineBrowserCommand<[string]>(async (ctx, key) => {
+  await ctx.page.keyboard.down(key);
+});
+
+/** Let go of a key `holdKey` holds down. */
+export const releaseKey = defineBrowserCommand<[string]>(async (ctx, key) => {
+  await ctx.page.keyboard.up(key);
+});
+
+/**
  * Fail every request the calling test file's frame makes for a URL matching
  * `pattern` (a Playwright glob), as a dropped connection does, until
  * `allowRequests` is called with the same pattern. Other files' frames fetch as

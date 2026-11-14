@@ -52,9 +52,9 @@ exports[`Button outside a contrast theme > default, size default, at rest > comp
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -115,9 +115,9 @@ exports[`Button outside a contrast theme > default, size default, with keyboard 
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -166,9 +166,9 @@ exports[`Button outside a contrast theme > default, size icon, at rest > compute
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "18px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "36px",
 }
 `;
@@ -221,9 +221,9 @@ exports[`Button outside a contrast theme > default, size icon, with keyboard foc
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "18px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "36px",
 }
 `;
@@ -276,9 +276,9 @@ exports[`Button outside a contrast theme > default, size lg, at rest > computed 
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "32px 20px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "64px",
 }
 `;
@@ -335,9 +335,9 @@ exports[`Button outside a contrast theme > default, size lg, with keyboard focus
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "32px 20px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "64px",
 }
 `;
@@ -390,9 +390,9 @@ exports[`Button outside a contrast theme > default, size sm, at rest > computed 
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "12px 16px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "24px",
 }
 `;
@@ -449,9 +449,9 @@ exports[`Button outside a contrast theme > default, size sm, with keyboard focus
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "12px 16px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "24px",
 }
 `;
@@ -508,9 +508,9 @@ exports[`Button outside a contrast theme > destructive, size default, at rest > 
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -571,9 +571,9 @@ exports[`Button outside a contrast theme > destructive, size default, with keybo
   "text-emphasis-color": "rgb(255, 255, 255)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -612,9 +612,9 @@ exports[`Button outside a contrast theme > ghost, size default, at rest > comput
   "row-gap": "8px",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -658,9 +658,9 @@ exports[`Button outside a contrast theme > ghost, size default, with keyboard fo
   "row-gap": "8px",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -716,9 +716,9 @@ exports[`Button outside a contrast theme > ghostDanger, size default, at rest > 
   "text-emphasis-color": "rgb(74, 74, 88)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -778,9 +778,9 @@ exports[`Button outside a contrast theme > ghostDanger, size default, with keybo
   "text-emphasis-color": "rgb(74, 74, 88)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -837,9 +837,9 @@ exports[`Button outside a contrast theme > link, size default, at rest > compute
   "text-underline-offset": "4px",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -900,9 +900,9 @@ exports[`Button outside a contrast theme > link, size default, with keyboard foc
   "text-underline-offset": "4px",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -942,9 +942,9 @@ exports[`Button outside a contrast theme > link, size inline, at rest > computed
   "text-decoration-line": "underline",
   "text-emphasis-color": "rgb(37, 55, 166)",
   "text-underline-offset": "2px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
 }
 `;
 
@@ -987,9 +987,9 @@ exports[`Button outside a contrast theme > link, size inline, with keyboard focu
   "text-decoration-line": "underline",
   "text-emphasis-color": "rgb(37, 55, 166)",
   "text-underline-offset": "2px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
 }
 `;
 
@@ -1044,9 +1044,9 @@ exports[`Button outside a contrast theme > outline, size default, at rest > comp
   "row-gap": "8px",
   "text-wrap-mode": "nowrap",
   "transform-origin": "17px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "34px",
 }
 `;
@@ -1107,9 +1107,9 @@ exports[`Button outside a contrast theme > outline, size default, with keyboard 
   "row-gap": "8px",
   "text-wrap-mode": "nowrap",
   "transform-origin": "17px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "34px",
 }
 `;
@@ -1166,9 +1166,9 @@ exports[`Button outside a contrast theme > secondary, size default, at rest > co
   "text-emphasis-color": "rgb(26, 26, 34)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;
@@ -1229,9 +1229,9 @@ exports[`Button outside a contrast theme > secondary, size default, with keyboar
   "text-emphasis-color": "rgb(26, 26, 34)",
   "text-wrap-mode": "nowrap",
   "transform-origin": "16px 18px",
-  "transition-duration": "0.15s",
-  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to",
-  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1)",
+  "transition-duration": "0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.15s, 0.12s",
+  "transition-property": "color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, scale",
+  "transition-timing-function": "cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.22, 1, 0.36, 1)",
   "width": "32px",
 }
 `;

@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-14
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -330,6 +330,17 @@ utilities: its own stylesheet drops every duration to 1ms
 ([[component-library]] §Overlays: `Modal`).
 `overlay-motion.browser.test.tsx` holds each of these in Chromium
 ([[browser-tests]]).
+
+**A press is `--ui-dur-fast` on `--ui-ease-out`.** `Button` scales to 0.97
+while a pointer or a held Space presses it, and eases there and back on these
+two tokens; its colour fade keeps Tailwind's own 150ms and curve
+([[component-library]] §Press). The 0.97 has no token: the owner chose one
+press for every app that draws `Button` (2026-11-14, #2034), so no app has a
+value to set. The two scale tokens above do not reach it, so Musubi, which maps
+both to 1, still presses. Under `prefers-reduced-motion: reduce` the button
+does not scale at all: the rule sits behind `motion-safe:`, not in the
+`tokens.css` block above. `button-press.browser.test.tsx` holds it in
+Chromium.
 
 ## A `max-w-*` outside the built-in steps needs naming in the linter
 

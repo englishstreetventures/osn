@@ -495,9 +495,9 @@ writes the nine still frames at both sizes on a light and a dark ground to
 ### Button — a link inside a sentence, and a wait
 
 `Button` is a CVA component ([[#Variant components (Button, Badge)]]): seven
-variants, five sizes, `busy`, and the focus every one of them draws.
-`buttonVariants` carries every class but `busy`'s, so a link styled as a
-button looks the same.
+variants, five sizes, `busy`, the press, and the focus every one of them
+draws. `buttonVariants` carries every class but `busy`'s, so a link styled as
+a button looks and presses the same.
 
 #### Sizes
 
@@ -631,6 +631,45 @@ them per member, as the lab's Playground, `button.browser.test.tsx` and
 Keyboard focus draws a 2px `--ui-focus` ring, which is a box shadow, and hides the outline only while focused (`focus-visible:outline-hidden`) rather than removing it. A Windows contrast theme (forced colours) drops box shadows and paints that hidden outline in a system colour, 2px wide and 2px off, so focus stays visible there; outside the theme it computes as no outline at all. A pointer press draws neither. `buttonVariants` carries the classes, so a link styled as a button gets the same. The drawn `Checkbox` box, the drawn radio circle and the switch track spell their contrast-theme mark another way (`forced-colors:peer-focus-visible:outline-2`, whose colour is `currentColor`): the same style, width and offset, but the theme paints the checkbox's and `Button`'s in different system colours — under Chromium's emulation on macOS, `rgb(0, 0, 0)` for the box and `rgba(5, 0, 73, 0.8)` for `Button`. `Button`'s ring and outline are fixed at 2px and do not follow `--ui-focus-width` or `--ui-focus-offset`. The defaults are `base:` and so lose to any call site: an `outline-*` class passed to `Button`, or an unlayered app rule that sets `outline` on `:focus-visible`, takes the theme's only focus mark away. `shared/ui/tests/button.browser.test.tsx` holds the contrast theme; `shared/ui/tests/button-default.browser.test.tsx` holds every computed style outside it as a snapshot; and the `token-contract` browser tests in `@musubi/social` and `@pulse/web` check the outline under each app's own stylesheet. See [[browser-tests#Current coverage]].
 
 *Measured 2026-11-06 — a probe in `shared/ui`'s browser tier on macOS: under `emulateMedia({ forcedColors: "active" })`, Tab to a drawn `Checkbox` and to a `Button` and read `getComputedStyle(el).outlineColor` on the box and on the button*
+
+#### Press
+
+While a pointer or a held Space presses a `Button`, it scales to 0.97 on the
+press tokens, `--ui-dur-fast` (120ms) on `--ui-ease-out` ([[design-tokens]]
+§Motion), and eases back the same way when let go. Every app that draws this
+`Button` presses: Musubi, `@osn/auth-ui`'s views and pulse, the owner's choice
+of 2026-11-14 on #2034. Cire draws `@cire/ui`'s own `Button`, which does not
+press (#2178).
+
+- **`scale`, not `transform`.** A transform a call site sets stays, and the
+  two compose.
+- **Not while it cannot act.** Not while `disabled`, even where a caller's
+  `pointer-events-auto` lets the pointer reach it, and not while it says it is
+  unavailable (`aria-disabled`). `busy` sets `aria-disabled`, so a busy button,
+  which keeps keyboard focus and so still reaches `:active` while Space is held,
+  does not press.
+- **Not at `size="inline"`.** An `<a>` at `display: inline` cannot be
+  transformed, so the `<button>` spelling of the same link does not press
+  either, and a word never shrinks inside its sentence. Every other size draws
+  a box and presses, and so does a link wearing `buttonVariants` at one of them.
+- **Not under `prefers-reduced-motion: reduce`.** The rule sits behind
+  `motion-safe:`, so the button does not scale at all.
+- **The colours fade as before.** `transition-colors` fades ten colour
+  properties over Tailwind's 150ms on its own curve, and a transition takes one
+  list per longhand, matched by position. So the base string spells the three
+  longhands out (`transition-property`, `transition-duration`,
+  `transition-timing-function`): the same ten properties and `scale`, with the
+  press's duration and curve as the eleventh entry of each. A call site that
+  sets `transition-*` on a `Button` replaces the property list, so `scale`
+  drops out and the press jumps; a `duration-*` or `ease-*` class moves the
+  press off its tokens. Leave all three to the component.
+
+`shared/ui/tests/button-press.browser.test.tsx` holds each of these in
+Chromium, with real input, since a dispatched event sets no `:active`; the
+snapshot in `button-default.browser.test.tsx` holds the three lists. The lab's
+`shared/ui/Button` → `Press` story shows every case ([[component-lab]]).
+
+*Unverified — iOS Safari sets `:active` on a tap only when a touch listener sits on the element or an ancestor, and none of Musubi, pulse, `@osn/auth-ui` or `@shared/ui` adds one; whether a tap shows the press on an iPhone has not been tried.*
 
 ### `Field` — a label, a hint and errors, wired to the control
 
@@ -1137,8 +1176,8 @@ import { buttonVariants } from "@shared/ui/ui/button";
 </A>;
 ```
 
-Every size, the link inside a sentence, the `busy` wait and keyboard focus
-are in [[#Button — a link inside a sentence, and a wait]].
+Every size, the link inside a sentence, the `busy` wait, the press and
+keyboard focus are in [[#Button — a link inside a sentence, and a wait]].
 
 **`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse draws; Musubi maps 500 and draws no `Badge`, and the lab draws Musubi's 500 except in `BadgeWeights`' unmapped column, which lends `initial` ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
 
@@ -2238,8 +2277,9 @@ column never scrolls sideways.
   sentence reads "If ada@example.com has an account, a link is on its way". The
   other three say "We sent a link to …", as the code screens they replace did.
 - **No motion of its own.** It declares no transition or animation; `Button`'s
-  colour transition is the only motion, which `musubi/social/DESIGN.md` allows.
-  The countdown is text, so the view is the same under reduced motion.
+  colour fade and its press ([[#Press]]) are the only motion, which
+  `musubi/social/DESIGN.md` allows. The countdown is text, so the view is the
+  same under reduced motion, where the press does not scale.
 
 For a host:
 
@@ -2451,7 +2491,8 @@ full-width Confirm, 40px and 44px like Try again, then the decline.
 - **Left-aligned**, unlike `AuthorizePage`'s centred terminal cards, which hold
   one sentence each. This card holds two or three sentences and sometimes a
   `Notice` with its mark; centred, both edges go ragged and the mark floats.
-- **No motion of its own.** `Button`'s colour transition is the only one.
+- **No motion of its own.** `Button`'s colour fade and its press ([[#Press]])
+  are the only motion.
 
 On the light surface the numbers measure 14.55:1, 13.23:1 hovered; the legend
 6.58:1; "I didn't ask for this" 14.55:1; the focus ring 6.58:1. On the dark one:

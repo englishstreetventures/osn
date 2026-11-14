@@ -394,7 +394,8 @@ holds at 3:1. A focus mark appears at once, never animated.
 ## Motion
 
 The app adds colour and opacity transitions only, and no spatial motion of its
-own, with one exception: the orb a busy button draws (§The orb). Rows, tabs and controls fade their colours with `transition-ui-colors`
+own, with two exceptions, both `@shared/ui`'s `Button`'s: the orb a busy button
+draws (§The orb), and the press (below). Rows, tabs and controls fade their colours with `transition-ui-colors`
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
@@ -439,12 +440,27 @@ account menu, the profile switcher and the create-organisation dialog, and
 the half-way frame of the menu and the switcher closing, and finds no
 transform on any.
 
+**A button presses.** While a pointer or a held Space presses one of
+`@shared/ui`'s `Button`s, it scales to 0.97 over `--ui-dur-fast` (120ms) on
+`--ui-ease-out`, and eases back the same way when let go: the owner's decision
+on #2034 (2026-11-14), for every app that draws `Button`. It is the button's
+own, so a call site adds no class for it, and sets no `transition-*`,
+`duration-*` or `ease-*` on a `Button`, which would replace the press's
+timing. It sets `scale`, so a call site's `transform` stays. No press while a
+button is disabled, busy or `aria-disabled`, nor at `size="inline"`, a link
+inside a sentence (§Links), and under reduced motion no scale at all. The
+overlay scale tokens do not reach it: `App.css` maps both to 1 and buttons
+still press. The press is `Button`'s alone: the app's own rows, tabs and rail
+links do not scale. `wiki/shared/component-library.md` §Press has the rest,
+and `shared/ui/tests/button-press.browser.test.tsx` holds it.
+
 ## The orb
 
 A busy button (§Busy buttons) draws `@shared/ui`'s `Orb` before its label: a
 20px sphere of dots, state `working`, in the button's own text colour, so it
 reads on a filled button and on the page alike. It is the app's one canvas
-animation and its one motion that is not a colour or opacity change.
+animation, and with the press (§Motion) one of its two motions that are not a
+colour or opacity change.
 
 - **It stops.** It moves for five seconds at most, then holds one still frame,
   so it needs no pause control (WCAG 2.2.2). Under reduced motion it draws that
