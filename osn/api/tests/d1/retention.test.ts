@@ -77,9 +77,9 @@ describe("the 6-hourly cron's retention sweeps on D1", () => {
       d1
         .prepare(
           `INSERT INTO handle_holds (handle, account_id, release_at, created_at)
-           VALUES ('hold_released', NULL, ?1, 0),
-                  ('hold_erased', NULL, ?2, 0),
-                  ('hold_pending', 'acc_pending', NULL, 0)`,
+           VALUES (printf('%-64s', 'hold_released'), NULL, ?1, 0),
+                  (printf('%-64s', 'hold_erased'), NULL, ?2, 0),
+                  (printf('%-64s', 'hold_pending'), 'acc_pending', NULL, 0)`,
         )
         .bind(nowSec - 60, nowSec + day),
     ]);
@@ -100,7 +100,8 @@ describe("the 6-hourly cron's retention sweeps on D1", () => {
 
     expect(await keys("SELECT id AS k FROM security_events")).toEqual(["sev_fresh"]);
     expect(await keys("SELECT id AS k FROM email_changes")).toEqual(["ech_fresh"]);
-    expect(await keys("SELECT handle AS k FROM handle_holds")).toEqual([
+    // Each digest is 64 characters (a CHECK): a name padded with spaces.
+    expect(await keys("SELECT rtrim(handle) AS k FROM handle_holds")).toEqual([
       "hold_erased",
       "hold_pending",
     ]);

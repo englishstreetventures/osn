@@ -75,11 +75,12 @@ const SWEEPS = [
       sqlite.run(
         `${numbered}
          INSERT INTO handle_holds (handle, account_id, release_at, created_at)
-         SELECT ? || i, NULL, ?, 0 FROM n`,
+         SELECT printf('%-64s', ? || i), NULL, ?, 0 FROM n`,
         [count, prefix, at],
       ),
     keys: (sqlite: Sqlite) =>
-      (sqlite.query("SELECT handle AS k FROM handle_holds").all() as { k: string }[]).map(
+      // Each digest is 64 characters (a CHECK): a key padded with spaces.
+      (sqlite.query("SELECT rtrim(handle) AS k FROM handle_holds").all() as { k: string }[]).map(
         (r) => r.k,
       ),
   },
@@ -182,7 +183,7 @@ describe("the handle_holds sweep", () => {
       );
       sqlite.run(
         `INSERT INTO handle_holds (handle, account_id, release_at, created_at)
-         VALUES ('pending_hold', 'acc_pending', NULL, 0)`,
+         VALUES (printf('%-64s', 'pending_hold'), 'acc_pending', NULL, 0)`,
       );
       SWEEPS[2].seed(sqlite, "released_", 1, NOW_SEC - 1);
 

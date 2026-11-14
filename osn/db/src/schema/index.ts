@@ -7,6 +7,7 @@ import {
   unique,
   uniqueIndex,
   blob,
+  check,
 } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
@@ -686,7 +687,11 @@ export const organisationMembers = sqliteTable(
   },
   (t) => [
     unique("org_members_pair_idx").on(t.organisationId, t.profileId),
-    index("org_members_org_idx").on(t.organisationId),
+    // An organisation's members in succession order: admins first ('admin'
+    // sorts before 'member'), then the longest-standing, then by id. The
+    // hard delete's successor read walks it and stops at the first member
+    // from another account; a read on the organisation alone uses its prefix.
+    index("org_members_succession_idx").on(t.organisationId, t.role, t.createdAt, t.id),
     index("org_members_profile_idx").on(t.profileId),
   ],
 );
@@ -805,6 +810,13 @@ export const deletionJobs = sqliteTable(
      * so a job that keeps failing never stands in front of the rest.
      */
     hardDeleteFailedAt: integer("hard_delete_failed_at"),
+    /**
+     * A random id the soft delete writes with the row: names this one job, so
+     * a cancel that read it removes it and no later job of the account, even
+     * one requested in the same second. NULL on a row written before the
+     * column existed.
+     */
+    jobId: text("job_id"),
   },
   (t) => [
     // Sweeper scan: rows ready for hard-delete.
@@ -853,6 +865,10 @@ export const handleHolds = sqliteTable(
     index("handle_holds_account_idx").on(t.accountId),
     // The retention sweep's range: holds past their release.
     index("handle_holds_release_idx").on(t.releaseAt),
+    // Pending (an account, no release) or released (a release, no account):
+    // a row with neither would hold its handle for ever.
+    check("handle_holds_state_ck", sql`(account_id IS NULL) <> (release_at IS NULL)`),
+    check("handle_holds_handle_ck", sql`length(handle) = 64`),
   ],
 );
 

@@ -108,6 +108,29 @@ function normaliseDefault(value: string | null): string | null {
 const normaliseExpr = (raw: string): string =>
   raw.replaceAll(/[`"]/g, "").replaceAll(/\s+/g, " ").trim().replace(/;$/, "").toLowerCase();
 
+/**
+ * Each CHECK in a CREATE TABLE as `<constraint name> check(<expression>)`,
+ * normalised: the expression is read to its closing parenthesis, so one that
+ * holds parentheses of its own is taken whole.
+ */
+function checkClauses(tableSql: string): string[] {
+  const out: string[] = [];
+  const start = /(?:CONSTRAINT\s+([`"]?)(\w+)\1\s+)?CHECK\s*\(/gi;
+  for (let match = start.exec(tableSql); match; match = start.exec(tableSql)) {
+    let depth = 1;
+    let end = start.lastIndex;
+    while (end < tableSql.length && depth > 0) {
+      if (tableSql[end] === "(") depth += 1;
+      else if (tableSql[end] === ")") depth -= 1;
+      end += 1;
+    }
+    const expr = tableSql.slice(start.lastIndex, end - 1);
+    out.push(normaliseExpr(`${match[2] ?? ""} check(${expr})`));
+    start.lastIndex = end;
+  }
+  return out;
+}
+
 /** Order the LIST of indexes/FKs (arbitrary) without reordering anything inside one. */
 const sortByJson = <T>(items: T[]): T[] =>
   items.toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -261,14 +284,16 @@ describe("OSN DDL lockstep", () => {
       )
         .map((r) => normaliseExpr(r.sql))
         .toSorted();
+    // Each CHECK by its table, taken out of the table's SQL: the two surfaces
+    // spell the rest of a CREATE TABLE differently (quoting, `PRIMARY KEY NOT
+    // NULL`, named foreign keys).
     const checks = (db: Database): string[] =>
       (
         db
-          .query("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL")
-          .all() as Array<{ sql: string }>
+          .query("SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL")
+          .all() as Array<{ name: string; sql: string }>
       )
-        .filter((r) => /\bCHECK\s*\(/i.test(r.sql))
-        .map((r) => normaliseExpr(r.sql))
+        .flatMap((r) => checkClauses(r.sql).map((clause) => `${r.name}: ${clause}`))
         .toSorted();
 
     expect(nonTableObjects(emittedDb())).toEqual(nonTableObjects(migratedDb()));
