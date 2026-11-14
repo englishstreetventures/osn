@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+import { AuthExpiredError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -220,4 +222,31 @@ describe("<SearchPage />", () => {
     expect(screen.getByText(/Sign in to search/)).toBeDefined();
     expect(screen.queryByLabelText("Search people and organisations")).toBeNull();
   });
+
+  it.each([
+    ["connect", "none", "Connect", () => mocks.sendConnectionRequest],
+    ["accept", "pending_received", "Accept", () => mocks.acceptConnection],
+  ] as const)(
+    "words an ended session and an ordinary failure on %s",
+    async (_n, status, label, call) => {
+      mocks.search.mockResolvedValue({ people: [person("alice", status)], organisations: [] });
+      const spy = vi.spyOn(toast, "error");
+      renderPage();
+      await type("ali");
+      await waitFor(() => expect(screen.getByRole("button", { name: label })).toBeDefined());
+
+      call().mockRejectedValueOnce(new AuthExpiredError({}));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).toHaveBeenLastCalledWith("Your session has ended. Sign in again.");
+
+      call().mockRejectedValueOnce(new Error("boom"));
+      fireEvent.click(screen.getByRole("button", { name: label }));
+      await vi.advanceTimersByTimeAsync(0);
+      const shown = spy.mock.lastCall![0];
+      expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
+      expect(shown).not.toBe("Your session has ended. Sign in again.");
+      spy.mockRestore();
+    },
+  );
 });

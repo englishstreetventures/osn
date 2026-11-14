@@ -1,4 +1,4 @@
-import type { PublicProfile } from "@osn/client";
+import { describeAuthError, type PublicProfile } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
@@ -31,7 +31,7 @@ export function ProfileSwitcherDialog(props: {
       props.onOpenChange(false);
       toast.success(`Switched to @${result.profile.handle}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to switch profile");
+      toast.error(describeAuthError(err));
     } finally {
       setSwitching(false);
     }

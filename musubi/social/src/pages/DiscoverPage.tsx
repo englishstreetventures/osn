@@ -1,4 +1,4 @@
-import type { Suggestion } from "@osn/client";
+import { describeAuthError, type Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -48,7 +48,7 @@ export function DiscoverPage() {
       toast.success(`Request sent to @${handle}`);
       refetch();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send request");
+      toast.error(describeAuthError(err));
     } finally {
       setSending((s) => {
         const next = new Set(s);

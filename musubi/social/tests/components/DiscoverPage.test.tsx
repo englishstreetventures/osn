@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+import { AuthExpiredError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -128,5 +130,31 @@ describe("<DiscoverPage />", () => {
     renderDiscover();
     const link = await screen.findByText("Search for someone");
     expect(link.getAttribute("href")).toBe("/search");
+  });
+
+  it("words an ended session as a sentence in the toast", async () => {
+    mocks.suggestConnections.mockResolvedValue({
+      suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 2 })],
+    });
+    mocks.sendConnectionRequest.mockRejectedValue(new AuthExpiredError({}));
+    const spy = vi.spyOn(toast, "error");
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Connect"));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("Your session has ended. Sign in again."));
+    spy.mockRestore();
+  });
+
+  it("words an ordinary failure as a non-empty sentence in the toast", async () => {
+    mocks.suggestConnections.mockResolvedValue({
+      suggestions: [suggestion({ reason: "mutual_connections", mutualCount: 2 })],
+    });
+    mocks.sendConnectionRequest.mockRejectedValue(new Error("boom"));
+    const spy = vi.spyOn(toast, "error");
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Connect"));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const shown = spy.mock.calls[0]![0];
+    expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
+    spy.mockRestore();
   });
 });

@@ -1,7 +1,8 @@
-import type {
-  OrganisationSearchResult,
-  ProfileSearchResult,
-  SearchConnectionState,
+import {
+  describeAuthError,
+  type OrganisationSearchResult,
+  type ProfileSearchResult,
+  type SearchConnectionState,
 } from "@osn/client";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
@@ -43,7 +44,7 @@ export function useSearchActions(controller: SearchController) {
         controller.setConnectionStatus(handle, "pending_sent");
         toast.success(`Request sent to @${handle}`);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to send request");
+        toast.error(describeAuthError(err));
       }
     });
   }
@@ -55,7 +56,7 @@ export function useSearchActions(controller: SearchController) {
         controller.setConnectionStatus(handle, "connected");
         toast.success(`You and @${handle} are connected`);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to accept request");
+        toast.error(describeAuthError(err));
       }
     });
   }

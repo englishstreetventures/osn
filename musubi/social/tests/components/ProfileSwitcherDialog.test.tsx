@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
+import { AuthExpiredError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -96,5 +98,29 @@ describe("<ProfileSwitcherDialog />", () => {
     // Give any (incorrect) async work a tick to surface.
     await new Promise((r) => setTimeout(r, 0));
     expect(switchProfile).not.toHaveBeenCalled();
+  });
+
+  it("words an ended session as a sentence in the toast", async () => {
+    const spy = vi.spyOn(toast, "error");
+    renderSwitcher(
+      makeAuth(() => Promise.reject(new AuthExpiredError({}))),
+      () => {},
+    );
+    fireEvent.click(profileRow("bob"));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("Your session has ended. Sign in again."));
+    spy.mockRestore();
+  });
+
+  it("words an ordinary failure as a non-empty sentence in the toast", async () => {
+    const spy = vi.spyOn(toast, "error");
+    renderSwitcher(
+      makeAuth(() => Promise.reject(new Error("boom"))),
+      () => {},
+    );
+    fireEvent.click(profileRow("bob"));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const shown = spy.mock.calls[0]![0];
+    expect(typeof shown === "string" && shown.length > 0 && shown !== "boom").toBe(true);
+    spy.mockRestore();
   });
 });

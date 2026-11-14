@@ -1,3 +1,4 @@
+import { describeAuthError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -51,7 +52,7 @@ export function OrganisationsPage() {
       setDescription("");
       refetch();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create organisation");
+      toast.error(describeAuthError(err));
     } finally {
       setCreating(false);
     }
