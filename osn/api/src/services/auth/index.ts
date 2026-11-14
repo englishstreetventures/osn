@@ -197,6 +197,9 @@ export function createAuthService(config: AuthConfig) {
     listOwnedOidcClients: oidc.listOwnedClients,
     disableOwnedOidcClient: oidc.disableOwnedClient,
     hashSessionToken: (token: string) => hashSessionToken(token),
+    // The `handle_holds` digest, for the services outside auth that write or
+    // read holds: profile and organisation creation, and the soft delete.
+    heldHandleDigest: ctx.heldHandleDigest,
   };
 }
 

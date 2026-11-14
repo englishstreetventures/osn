@@ -18,6 +18,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import {
   cancelErasure,
   requestErasure,
@@ -55,7 +56,7 @@ let layer: Layer.Layer<Db | EmailService>;
 let mail: ReturnType<typeof makeLogEmailLive>;
 let auth: ReturnType<typeof createAuthService>;
 const graph = createGraphService();
-const org = createOrganisationService();
+const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
   Effect.runPromise(eff.pipe(Effect.provide(layer)));

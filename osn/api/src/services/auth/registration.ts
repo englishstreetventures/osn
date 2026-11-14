@@ -4,8 +4,8 @@
  * check.
  */
 
-import { accounts, users } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import { accounts, organisations, users } from "@osn/db/schema";
+import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
@@ -14,10 +14,11 @@ import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
 import { forkBackground } from "../../lib/background";
+import { heldHandleRow } from "../../lib/handle-hold";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricEmailLinkSend, withAuthRegister } from "../../metrics";
 import { spendEntry } from "./attempts";
-import { MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
+import { isReservedHandle, MIN_AGE_YEARS } from "./constants";
 import type { AuthContext } from "./context";
 import type { EmailLinkModule } from "./email-link";
 import type { EmailVerificationInput, EmailVerificationModule } from "./email-verification-token";
@@ -91,11 +92,47 @@ export function createRegistrationModule(
     stores,
     otpTtl,
     serverMac,
+    heldHandleDigest,
     registrationSendCap,
     registrationLinkLockoutStore,
     registrationFirstLinkCap,
   } = ctx;
   const { issueTokens } = tokens;
+
+  /**
+   * One `'handle'` row for each place `handle` is already spoken for: a
+   * profile, an organisation (the two share one namespace), and a live hold
+   * left by a deleted account. Separate single-table arms, each a seek on its
+   * unique index, rather than an OR across a join, which SQLite plans as a
+   * full scan. No per-arm LIMIT: SQLite refuses LIMIT inside a compound
+   * select's arms, and each arm yields at most one row anyway.
+   */
+  const handleArms = (db: DbService["db"], handle: string) =>
+    [
+      db
+        .select({ field: sql<string>`'handle'`.as("field") })
+        .from(users)
+        .where(eq(users.handle, handle)),
+      db
+        .select({ field: sql<string>`'handle'`.as("field") })
+        .from(organisations)
+        .where(eq(organisations.handle, handle)),
+      heldHandleRow(db, heldHandleDigest, handle, Math.floor(Date.now() / 1000)),
+    ] as const;
+
+  /**
+   * An `'email'` row if an account has `email`, and a `'handle'` row for each
+   * of {@link handleArms}: one UNION ALL of four terms, within D1's limit of
+   * five (`wiki/shared/d1-limits.md`).
+   */
+  const collisionProbe = (db: DbService["db"], email: string, handle: string) =>
+    unionAll(
+      db
+        .select({ field: sql<string>`'email'`.as("field") })
+        .from(accounts)
+        .where(eq(accounts.email, email)),
+      ...handleArms(db, handle),
+    );
 
   /**
    * Registers a new profile (and its owning account) directly, with no proof of
@@ -117,33 +154,16 @@ export function createRegistrationModule(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
 
-      if (RESERVED_HANDLES.has(handle)) {
+      if (isReservedHandle(handle)) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
       const { db } = yield* Db;
-      // A single round-trip uniqueness probe: UNION ALL of two
-      // single-table arms rather than `WHERE email = ? OR handle = ?` across
-      // the users⋈accounts join — an OR spanning two joined tables defeats
-      // SQLite's OR-optimization and plans as a full `users` scan, while each
-      // arm here is a seek on its UNIQUE index (accounts.email / users.handle).
-      // The email error takes priority (same order as the old two checks).
       const collisions = yield* Effect.tryPromise({
-        try: () =>
-          // No per-arm LIMIT: SQLite rejects LIMIT inside compound arms, and
-          // both columns are UNIQUE so each arm yields at most one row anyway.
-          unionAll(
-            db
-              .select({ field: sql<string>`'email'`.as("field") })
-              .from(accounts)
-              .where(eq(accounts.email, email)),
-            db
-              .select({ field: sql<string>`'handle'`.as("field") })
-              .from(users)
-              .where(eq(users.handle, handle)),
-          ),
+        try: () => collisionProbe(db, email, handle),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      // The email error takes priority.
       if (collisions.some((c) => c.field === "email")) {
         return yield* Effect.fail(new AuthError({ message: "Email already registered" }));
       }
@@ -199,26 +219,14 @@ export function createRegistrationModule(
     });
 
   /**
-   * Whether an account has `email` or a profile has `handle`, in one round
-   * trip: UNION ALL of two indexed single-table arms (see registerProfile for
-   * why not an OR across the join). Answers the same for either.
+   * Whether an account has `email`, or `handle` is taken or held (see
+   * {@link handleArms}), in one round trip. Answers the same for either.
    */
   const isTaken = (email: string, handle: string): Effect.Effect<boolean, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const collision = yield* Effect.tryPromise({
-        try: () =>
-          // No per-arm LIMIT — see registerProfile's probe.
-          unionAll(
-            db
-              .select({ hit: sql<number>`1`.as("hit") })
-              .from(accounts)
-              .where(eq(accounts.email, email)),
-            db
-              .select({ hit: sql<number>`1`.as("hit") })
-              .from(users)
-              .where(eq(users.handle, handle)),
-          ),
+        try: () => collisionProbe(db, email, handle),
         catch: (cause) => new DatabaseError({ cause }),
       });
       return collision.length > 0;
@@ -229,8 +237,8 @@ export function createRegistrationModule(
    * caller forks it. Everything it reads costs the answer nothing. The mail
    * goes to `address` as typed:
    *
-   *  - no link goes while an account has the address or a profile has the
-   *    handle — begin's probe, run again here, first, because the request may
+   *  - no link goes while an account has the address or the handle is taken
+   *    or held — begin's probe, run again here, first, because the request may
    *    have parked since begin ran it: a request that found the address held
    *    parks on a Resend once the sign-up holding it ends, and that sign-up
    *    may have ended by making the account. So the limits below are reached
@@ -397,7 +405,7 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AgeRestrictionError());
       }
 
-      if (RESERVED_HANDLES.has(handle)) {
+      if (isReservedHandle(handle)) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
@@ -733,7 +741,8 @@ export function createRegistrationModule(
     }).pipe(Effect.withSpan("auth.register.status"));
 
   /**
-   * Checks whether a handle is valid format and not yet taken.
+   * Checks whether a handle is valid format, not reserved, and not taken or
+   * held: available exactly when sign-up would accept it.
    */
   const checkHandle = (
     handle: string,
@@ -743,17 +752,16 @@ export function createRegistrationModule(
         Effect.tapError(() => Effect.sync(() => metricAuthHandleCheck("invalid"))),
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      if (RESERVED_HANDLES.has(handle)) {
+      if (isReservedHandle(handle)) {
         metricAuthHandleCheck("taken");
         return { available: false };
       }
-      // Availability only needs existence, not the profile — a single-column
-      // `users.handle` probe instead of `findProfileByHandle`'s account join
-      // (which exists to hydrate the email for its other callers). Keeps this
-      // high-frequency, debounced endpoint as light as possible.
+      // Availability only needs existence: one round trip over the three
+      // single-column arms, with no account join. Keeps this high-frequency,
+      // debounced endpoint as light as possible.
       const { db } = yield* Db;
       const existing = yield* Effect.tryPromise({
-        try: () => db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
+        try: () => unionAll(...handleArms(db, handle)),
         catch: (cause) => new DatabaseError({ cause }),
       });
       const taken = existing.length > 0;

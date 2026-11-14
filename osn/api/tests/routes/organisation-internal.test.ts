@@ -10,6 +10,7 @@ import {
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createInternalOrganisationRoutes } from "../../src/routes/organisation-internal";
 import { createAuthService } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
@@ -89,7 +90,7 @@ describe("internal organisation routes (ARC-protected)", () => {
     layer = createTestLayer();
     app = createInternalOrganisationRoutes(layer);
     auth = createAuthService(config);
-    org = createOrganisationService();
+    org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
   });
 
   // -------------------------------------------------------------------------
@@ -180,7 +181,7 @@ describe("internal organisation routes (ARC-protected)", () => {
       expect(json.organisations).toHaveLength(2);
       // The id + display fields are what cire-api's vendor portal renders and
       // addresses listings by, so assert them rather than just the count.
-      expect(json.organisations.map((o) => o.handle).sort()).toEqual(["acme", "globex"]);
+      expect(json.organisations.map((o) => o.handle).toSorted()).toEqual(["acme", "globex"]);
       for (const o of json.organisations) {
         expect(o.id).toMatch(/^org_/);
       }

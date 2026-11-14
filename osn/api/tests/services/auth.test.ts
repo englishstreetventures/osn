@@ -7,9 +7,11 @@ import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Deferred, Effect, Layer, Logger, References } from "effect";
 import { beforeAll } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
 import { createServerMac } from "../../src/services/auth/server-mac";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
+import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
@@ -36,6 +38,7 @@ function makeAuth() {
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
+const orgs = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
@@ -96,6 +99,30 @@ describe("registerProfile", () => {
       const error = yield* Effect.flip(auth.registerProfile("dan2@example.com", "dan"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Handle already taken");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // Profiles and organisations share one handle namespace.
+  it.effect("fails if an organisation has the handle", () =>
+    Effect.gen(function* () {
+      const dan = yield* auth.registerProfile("dan@example.com", "dan");
+      yield* orgs.createOrganisation(dan.id, "danorg", "Dan Org");
+      const error = yield* Effect.flip(auth.registerProfile("dan2@example.com", "danorg"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle already taken");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // A soft delete renames each profile to `deleted_` and its id's suffix. A
+  // live profile already holding that name would make the rename, and with
+  // it the deletion, fail.
+  it.effect("refuses a handle in the form a soft delete gives a profile", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        auth.registerProfile("dan@example.com", "deleted_0123456789ab"),
+      );
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle is reserved");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -173,6 +200,20 @@ describe("checkHandle", () => {
     Effect.gen(function* () {
       const result = yield* auth.checkHandle("admin");
       expect(result.available).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns available:false for an organisation's handle", () =>
+    Effect.gen(function* () {
+      const grace = yield* auth.registerProfile("grace@example.com", "grace");
+      yield* orgs.createOrganisation(grace.id, "graceorg", "Grace Org");
+      expect(yield* auth.checkHandle("graceorg")).toEqual({ available: false });
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns available:false for a handle in the form a soft delete gives", () =>
+    Effect.gen(function* () {
+      expect(yield* auth.checkHandle("deleted_0123456789ab")).toEqual({ available: false });
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -287,6 +328,31 @@ describe("sign-up through the emailed link", () => {
       );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("reserved");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects begin with AuthError on a handle in the form a soft delete gives", () => {
+    const { svc, recorded, layer } = makeAuth();
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        svc.beginRegistration("ok@example.com", "deleted_0123456789ab", "1990-01-01"),
+      );
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle is reserved");
+      expect(recorded()).toEqual([]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("begin mails nothing when an organisation has the handle", () => {
+    const { svc, recorded, layer } = makeAuth();
+    return Effect.gen(function* () {
+      const first = yield* svc.registerProfile("first@example.com", "first");
+      yield* orgs.createOrganisation(first.id, "firstorg", "First Org");
+      const result = yield* settle(
+        svc.beginRegistration("second@example.com", "firstorg", "1990-01-01"),
+      );
+      expect(result.requestId).toMatch(/^signup_/);
+      expect(recorded()).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
 

@@ -11,8 +11,10 @@ import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
+import { heldHandleRow } from "../lib/handle-hold";
 import { withProfileCrud } from "../metrics";
 import type { AuthService, PublicProfile } from "./auth";
+import { DELETED_HANDLE_PREFIX } from "./auth/constants";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -98,7 +100,8 @@ export function createProfileService(authService: AuthService) {
       yield* Schema.decodeUnknownEffect(HandleSchema)(handle).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      if (RESERVED_HANDLES.has(handle)) {
+      // The prefix is the form the soft delete gives a profile (`isReservedHandle`).
+      if (RESERVED_HANDLES.has(handle) || handle.startsWith(DELETED_HANDLE_PREFIX)) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
@@ -129,28 +132,36 @@ export function createProfileService(authService: AuthService) {
       // race-safe guard — a concurrent create racing the same handle
       // hits the constraint and is mapped to "Handle already taken" below. The
       // maxProfiles count check is best-effort: a rare simultaneous double-create
-      // could exceed the cap by one, which is not security-sensitive.
-      const [profileCount, existingHandle, existingOrgHandle] = yield* Effect.tryPromise({
-        try: () =>
-          Promise.all([
-            db
-              .select({ count: sql<number>`COUNT(*)` })
-              .from(users)
-              .where(eq(users.accountId, accountId)),
-            db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
-            db
-              .select({ id: organisations.id })
-              .from(organisations)
-              .where(eq(organisations.handle, handle))
-              .limit(1),
-          ]),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      // could exceed the cap by one, which is not security-sensitive. A handle
+      // a deleted account holds answers as a taken one.
+      const [profileCount, existingHandle, existingOrgHandle, heldHandle] =
+        yield* Effect.tryPromise({
+          try: () =>
+            Promise.all([
+              db
+                .select({ count: sql<number>`COUNT(*)` })
+                .from(users)
+                .where(eq(users.accountId, accountId)),
+              db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
+              db
+                .select({ id: organisations.id })
+                .from(organisations)
+                .where(eq(organisations.handle, handle))
+                .limit(1),
+              heldHandleRow(
+                db,
+                authService.heldHandleDigest,
+                handle,
+                Math.floor(Date.now() / 1000),
+              ),
+            ]),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
 
       if (profileCount[0]!.count >= account.maxProfiles) {
         return yield* Effect.fail(new AuthError({ message: "Maximum profiles reached" }));
       }
-      if (existingHandle.length > 0 || existingOrgHandle.length > 0) {
+      if (existingHandle.length > 0 || existingOrgHandle.length > 0 || heldHandle.length > 0) {
         return yield* Effect.fail(new AuthError({ message: "Handle already taken" }));
       }
 

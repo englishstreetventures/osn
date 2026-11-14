@@ -2,6 +2,7 @@ import { it, expect, describe } from "@effect/vitest";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
@@ -13,7 +14,7 @@ let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
 let profile: ReturnType<typeof createProfileService>;
 const graph = createGraphService();
-const org = createOrganisationService();
+const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
@@ -55,6 +56,17 @@ describe("createProfile", () => {
         const error = yield* Effect.flip(profile.createProfile(accountId, handle));
         expect(error._tag).toBe("AuthError");
       }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // A soft delete renames each profile to `deleted_` and its id's suffix,
+  // and profile ids are visible to other people.
+  it.effect("rejects a handle in the form a soft delete gives a profile", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* setupAccount("reserve@test.com", "reserver");
+      const error = yield* Effect.flip(profile.createProfile(accountId, "deleted_0123456789ab"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle is reserved");
     }).pipe(Effect.provide(createTestLayer())),
   );
 

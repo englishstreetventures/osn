@@ -60,6 +60,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -103,6 +104,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -127,6 +129,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -176,6 +179,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -257,6 +261,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 

@@ -130,6 +130,23 @@ export const RESERVED_HANDLES = new Set([
 ]);
 
 /**
+ * What the soft delete renames each of an account's profiles to, followed by
+ * the suffix of the profile's id (`deleted_<12 hex>`). Profile ids are visible
+ * to other people, so without this reservation anyone could take the handle a
+ * given profile will get, and that profile's deletion would then fail on the
+ * UNIQUE index on `users.handle`.
+ */
+export const DELETED_HANDLE_PREFIX = "deleted_";
+
+/**
+ * Whether no one may take `handle`: one of {@link RESERVED_HANDLES}, or in the
+ * form the soft delete gives a profile. Every check that creates or offers a
+ * handle consults it.
+ */
+export const isReservedHandle = (handle: string): boolean =>
+  RESERVED_HANDLES.has(handle) || handle.startsWith(DELETED_HANDLE_PREFIX);
+
+/**
  * Hard cap on concurrent sessions per account. An attacker who
  * compromises an account cannot inflate the revocation / list surface
  * beyond this limit; new sessions LRU-evict the oldest rather than
