@@ -11,6 +11,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./AuthHeader": "./src/AuthHeader.tsx",
     "./ChangeEmailForm": "./src/ChangeEmailForm.tsx",
     "./CheckEmailView": "./src/CheckEmailView.tsx",
     "./ConfirmLinkPage": "./src/ConfirmLinkPage.tsx",

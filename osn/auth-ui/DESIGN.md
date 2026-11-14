@@ -15,7 +15,8 @@ differ, with the issue that brings the code to the rule.
 **What the package exports.** One subpath per view in `package.json`
 (`ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
 `ProfileSwitcher`, `RecoveryCodesView`, `Register`, `SecurityEventsBanner`,
-`SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`) and a barrel,
+`SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`), one for `AuthHeader`,
+the title row the sign-in and create-account views share, and a barrel,
 `src/index.ts`, which also carries `RecoveryLoginForm`, `TurnstileWidget`,
 `turnstileEnabled` and the `RunPasskeyCeremony` / `RunPasskeyRegistration`
 types.
@@ -23,8 +24,10 @@ types.
 **Hosts today.** `@musubi/social` is the one workspace that depends on the
 package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
-Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
-(#2056) and `ProfileSwitcher` (#2045). Only their tests render them.
+Four parts mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
+(#2056), `ProfileSwitcher` (#2045) and `AuthHeader`, which `SignIn` and
+`Register` take up in #2045. Only their tests render them, and
+`AuthHeader`'s lab stories.
 
 **What a host supplies.**
 
@@ -53,6 +56,7 @@ Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 | `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
 | `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery, step-up) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `warning`, `purpose` | — |
+| `AuthHeader` | `title`, `host` (`"dialog"` or `"page"`); `onCancel`, `cancelLabel`, `cancelDisabled` | the `Dialog`'s context, with `host="dialog"` |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
 | `ProfileSwitcher` | `checkHandle`, `onSwitch`, `onCreate` | `AuthProvider`, `Toaster` |
@@ -124,6 +128,19 @@ the contract's title weight); its warning or reason is `DialogDescription`, and
 its other lines take `DialogDescription`'s look, `text-ui-base` in the
 secondary ink, so every line above the step reads as one. A call site may not
 restyle `DialogDescription` (`shadcn/no-restyle`).
+
+`AuthHeader` follows the rule. In a dialog its title is the dialog's
+`DialogTitle`; on a page it is an `h2` with `DialogTitle`'s classes,
+`text-ui-ink text-ui-md font-ui-title`, so the title reads the same in both
+hosts: 14px at 500 in Musubi. The page's own heading above it leads. Both
+hosts' titles break anywhere (`wrap-anywhere`) rather than widen the row, since the title
+carries the host's product name. `DialogTitle`
+(`shared/ui/src/ui/dialog.tsx`) is the one source of those classes; a change
+there is copied to the page's `h2`.
+`musubi/social/tests/components/AuthHeader.browser.test.tsx` fails when the
+two titles' computed font, size, weight, line height, letter spacing or colour
+differ, in light and dark (§11), and the lab's `BothHosts` story draws the two
+on one sheet.
 
 `CheckEmailView` follows the rule. Its heading is `text-ui-base font-medium`,
 its lines `text-ui-sm` with `leading-ui-snug`, and the number a host passes as
@@ -222,6 +239,18 @@ As built:
   §Responsive layout, Code boxes). Every button is 40px tall below `md`
   (`max-md:h-10`). "Use another method" is a standalone link, centred under
   the step's own action (§5).
+- **`AuthHeader`** is the title row of a sign-in or create-account view. In
+  a dialog (`host="dialog"`) it is a `DialogHeader` — 16px padding, a
+  hairline under it, `gap-3` — holding the `DialogTitle` and Cancel. On a
+  page (`host="page"`, `/authorize`) it is the same row with no padding or
+  rule (`flex items-center justify-between gap-3`), and the view sets the
+  space below it. The title comes first and wraps; Cancel sits at the row's
+  end, `sm`, 40px tall below `md` (`max-md:h-10`), and never shrinks. A
+  dialog holds one `AuthHeader` at a time: Kobalte gives every `DialogTitle`
+  in one dialog the same id, so with two mounted, the dialog loses its name
+  when either goes. A view whose title changes (`SignIn`'s "Recover your
+  account") passes the new `title` to the header it has, and a step inside a
+  view mounts no second one.
 - **Dialogs a view opens itself** — `ProfileOnboarding`'s "Create a new
   profile", `RecoveryCodesView`'s "Generate a new set?" and `ProfileSwitcher`'s
   two — use `@shared/ui`'s `DialogContent` with its default, centred
@@ -240,6 +269,7 @@ besides the default:
 | `Register` | Button, Field, InfoPopover, Input, Label, Notice, UsernameInput; `CheckEmailView` for the wait | `ghost` |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `ghost` |
 | `StepUpDialog` | Button, Dialog, Notice, OtpInput; `CheckEmailView` for the emailed link's wait | `outline`, `secondary`, `link` |
+| `AuthHeader` | Button, Dialog (`DialogHeader`, `DialogTitle`) | `secondary` (Cancel in a dialog, as every dialog's dismiss button), `ghost` (Cancel on a page, where it switches views and dismisses nothing) |
 | `PasskeysView` | Button, Input, Notice, Skeleton | `outline`, `ghost` |
 | `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
 | `RecoveryCodesView` | Button, Checkbox, Dialog, Notice, Skeleton | `outline`, `ghost` |
@@ -294,6 +324,13 @@ Cancel, Back and links among them, are `disabled` meanwhile, so nothing leaves
 the view while a call it started is in flight. Each button's other reasons to be `disabled` apply
 only while it is not busy. Each handler also returns early while its own call
 runs. Buttons named here with no label in brackets show no wait.
+
+**`AuthHeader`** — the title the view passes, with Cancel when the host
+passes `onCancel` and none otherwise. Cancel is `disabled` while
+`cancelDisabled` is set: the view sets it while a call it started runs, as
+above. Cancel calls `onCancel` and closes nothing itself; in a dialog,
+Escape and a press outside reach the host's `onOpenChange` instead, which
+runs the same handler only if the host routes it there.
 
 **`SignIn`** — heading "Sign in to {productName}", or "Recover your account"
 in the recovery view.
@@ -693,6 +730,10 @@ already moved to something the host put it on (its next step). After a
 removal the host decides where focus goes: a deleted passkey's row is gone, and
 `RecoveryCodesView`'s "Generate new set" goes with its closing dialog (#2045).
 
+`AuthHeader` draws no control by hand: its Cancel is `@shared/ui`'s Button,
+with Button's ring. In a dialog Cancel is the first control, so the dialog
+puts focus on it as it opens unless the view moves focus elsewhere.
+
 `CheckEmailView` draws no control by hand. Its heading takes focus from code
 when the view appears, and when a send ends with Resend holding focus and the
 wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
@@ -740,6 +781,10 @@ no product.
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
+- `AuthHeader`'s Cancel reads "Cancel" unless the host passes a
+  `cancelLabel` that is not blank, for a host where going back means something else, such as
+  "Sign in instead" where Cancel takes a create-account view back to
+  sign-in.
 - Going back: Cancel, Back, "Back to sign in", "Start again"
   (`CheckEmailView`, `RecoveryLoginForm`), "Use another method"
   (`StepUpDialog`, back to its factors).
@@ -777,7 +822,13 @@ As built:
   checking, refused and rate-limited, and a title naming a 64-character
   passkey), a `Phone` story that frames four of them at 320px, and a
   playground. A story that cannot find a button it presses says so on the
-  page. The other views get theirs in #2045.
+  page. And for `AuthHeader`, `osn/auth-ui/AuthHeader` in
+  `auth-header.story.tsx`: in the real sheet, sign-in and create-account
+  titles with Cancel, no Cancel, Cancel disabled and a long title, each with
+  a line reading the dialog's accessible name from the page; on a page, the
+  sign-in and create-account headers under a stand-in for the app's name;
+  `BothHosts`, the two hosts' titles on one sheet; four of them at 320px; and
+  a playground. The other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
@@ -843,6 +894,15 @@ As built:
   the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as the
   authenticator step opens, and on the wait's heading as the emailed link's
   wait opens.
+- **`AuthHeader` in the package tests** (`AuthHeader.test.tsx`, one case per
+  way it can fail): in a dialog, the dialog named by the title, renamed when
+  the title changes, and still named, by exactly one element, when one header
+  replaces another; Cancel calling `onCancel` once and never asking the
+  dialog to close; on a page, a level-2 heading with no dialog; no Cancel without
+  `onCancel`; the host's words for Cancel, and "Cancel" without them or with
+  blank ones; Cancel
+  refused while `cancelDisabled`; and Cancel never submitting a form it
+  sits in.
 - **The step-up sheet in the package tests** (`StepUpDialog.test.tsx`, one
   case per way it can fail): named by its title and described by its warning
   or reason; the `passkeyOnly` wait a busy button; Escape refused while the
@@ -896,6 +956,14 @@ As built:
   renders Musubi's `/verify/:requestId` page itself, and holds its own failed
   card, its busy Try again and its `Skeleton` placeholder against
   `ConfirmLinkPage`'s card.
+  `musubi/social/tests/components/AuthHeader.browser.test.tsx` renders
+  `AuthHeader` in Musubi's sheet and in `/authorize`'s column, light and dark:
+  at 320px a long title with no space in its product name wraps beside
+  Cancel, which stays 40px tall, unsqueezed and inside the padding, with
+  nothing scrolling sideways; both hosts' titles in the same computed type and
+  colour, 14px at 500; and Cancel drawn as a `secondary` Button in the dialog
+  and a `ghost` one on the page, each compared with a Button of that variant.
+  Shots at 320px in `e2e-artifacts/musubi-auth-header/`.
 
 ## 12. Motion
 
@@ -912,7 +980,8 @@ with no scale in Musubi, which maps both scale tokens to 1
 (`musubi/social/DESIGN.md` §Motion). The `Orb` and `Skeleton` stand still
 under reduced motion, and the overlays show and hide at once. `StepUpDialog`
 hands its host the outcome once its fade out has ended (§8), so the host's
-removal never cuts the fade short. What a skeleton
+removal never cuts the fade short. `AuthHeader` adds no motion: a title it
+is given arrives at once, and it shows and hides with the dialog around it. What a skeleton
 stands for, a refused code's line and a step that replaces another arrive at
 once, with no fade (`musubi/social/DESIGN.md` §Motion). `ProfileSwitcher`
 opens a `Dialog` and a `Popover` too, but no host draws it. A view never moves
