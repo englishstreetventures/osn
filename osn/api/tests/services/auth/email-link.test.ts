@@ -1064,3 +1064,33 @@ describe("the waiting screen's number among the sorted candidates", () => {
     },
   );
 });
+
+describe("the retire secret", () => {
+  it.live(
+    "is minted only for a request opened to be retired: no other request carries a retire digest",
+    () => {
+      const links = createEmailLinkModule(createAuthContext(base));
+      return Effect.gen(function* () {
+        for (const flow of ["recovery", "step_up", "email_change", "registration"] as const) {
+          const opened = yield* links.open(flow, `subject-${flow}`, 600_000);
+          expect(opened.entry.retireSecretHash).toBeUndefined();
+          expect(Object.keys(opened)).not.toContain("retireSecret");
+        }
+        const retirable = yield* links.openRetirable(
+          "registration",
+          "retirable@example.com",
+          600_000,
+        );
+        expect(retirable.entry.retireSecretHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(
+          yield* links.retire(
+            "registration",
+            retirable.requestId,
+            retirable.retireSecret,
+            () => true,
+          ),
+        ).toBe(true);
+      });
+    },
+  );
+});

@@ -37,7 +37,7 @@ sign-up's begin with a fifth, the retire secret:
 | Link secret | The email only, in the link's **fragment** | 256 random bits. A fragment is never sent to a server, so it reaches no log and no referrer |
 | Claim secret | The tab that began, in memory or this tab's `sessionStorage`, never a cookie | 256 random bits. Whoever holds it gets the flow's result (sign-up: the account's session; step-up: a step-up token) |
 | Pairing number | The tab that began shows it | Two digits. The confirm step requires the number shown on the waiting screen (see Pairing below) |
-| Retire secret (sign-up only) | The browser that began: this tab's `sessionStorage` and the browser's `localStorage`, for every tab of it | 256 random bits. It only ends the request, as a later begin's `previous` for the same address ([[#Sign-up]]). No poll, Resend, candidates read or confirm compares it, so it never yields the number, a link or the account. Every flow's request has one; only sign-up hands it out |
+| Retire secret (sign-up only) | The browser that began: this tab's `sessionStorage` and the browser's `localStorage`, for every tab of it | 256 random bits. It only ends the request, as a later begin's `previous` for the same address ([[#Sign-up]]). No poll, Resend, candidates read or confirm compares it, so it never yields the number, a link or the account. Only sign-up's requests have one: another flow's request carries no retire hash, and nothing can retire it |
 
 The store entry (`email_link` ceremony store, keyed by request id) holds only
 SHA-256 hashes of the secrets (a request with no retire hash cannot be
@@ -247,7 +247,9 @@ before it mails, reads, replaces or spends anything
   probe key) against this begin's, as probe keys, in constant time. A wrong
   secret, the claim secret in its place, an unknown request and a request for
   another address retire nothing, cost the one read and answer as a begin with
-  no `previous`. A claimed request is never retired.
+  no `previous`. A request whose link was confirmed but which no poll has
+  claimed yet is retired like any other, so a new tab after the waiting one
+  closed mails a new link at once; a claimed request is never retired.
 - **The browser shares the retire secret, never the claim secret.** While a
   request lives, `Register` keeps one entry in `localStorage`,
   `osn.signup.live`: the request id, its retire secret and its expiry.

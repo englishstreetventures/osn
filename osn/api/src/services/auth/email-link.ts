@@ -4,9 +4,9 @@
  * change.
  *
  * A flow opens a request and gets back a request id, a link secret, a claim
- * secret, a retire secret and a pairing number. Each secret is 256 random
- * bits, stored only as its SHA-256 hash; the pairing number is stored only as
- * a keyed digest.
+ * secret and a pairing number, and sign-up a retire secret too. Each secret
+ * is 256 random bits, stored only as its SHA-256 hash; the pairing number is
+ * stored only as a keyed digest.
  *
  * - The email carries `<frontend origin>/verify/<request id>#<link secret>`.
  *   The secret rides in the fragment, which no browser sends to any server, so
@@ -41,9 +41,10 @@
  *   differ.
  * - The retire secret ends the request ({@link retire}) and does nothing
  *   else: no poll, Resend, candidates read, confirm or claim compares it, so
- *   it never yields the number, a link or the flow's result. Sign-up hands it
- *   out so another tab of the same browser can end a request it did not
- *   begin; no other flow hands it out.
+ *   it never yields the number, a link or the flow's result. Only a request
+ *   opened with {@link openRetirable} has one, and sign-up's begin is its one
+ *   caller, so another tab of the same browser can end a sign-up it did not
+ *   begin.
  * - A claim records what the flow finishes with (the account and profile,
  *   and for recovery the id of the audit row it writes) and stays on the
  *   request until a poll has delivered the result, so a finish that failed
@@ -198,8 +199,6 @@ export interface EmailLinkConfirmInput {
 export interface OpenedEmailLink {
   readonly requestId: string;
   readonly claimSecret: string;
-  /** Ends the request ({@link retire}) and can do nothing else. */
-  readonly retireSecret: string;
   /** The number the tab that began shows, which the reader picks on the confirm page. */
   readonly pairingCode: string;
   /** The link to mail, secret included. */
@@ -208,6 +207,19 @@ export interface OpenedEmailLink {
   readonly expiresAt: number;
   /** The entry as written, for a write that must name the value it replaces. */
   readonly entry: EmailLinkChallenge;
+}
+
+/** A request opened to be retirable: as {@link OpenedEmailLink}, with its retire secret. */
+export interface RetirableEmailLink extends OpenedEmailLink {
+  /** Ends the request ({@link retire}) and can do nothing else. */
+  readonly retireSecret: string;
+}
+
+/** What a flow may set on a request it opens; see `EmailLinkChallenge`. */
+interface OpenExtra {
+  readonly signUp?: PendingSignUp;
+  readonly bound?: string;
+  readonly purpose?: string;
 }
 
 /**
@@ -670,22 +682,19 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * A registration request carries `signUp`, the sign-up it parks at
    * `subject`, so it can park later if it cannot now; a recovery, step-up or
    * email-change request is bound to `bound`, and a step-up request is for
-   * `purpose` (see `EmailLinkChallenge`).
+   * `purpose` (see `EmailLinkChallenge`). With `retireSecret`, the entry
+   * carries its hash and {@link retire} can end it; without, nothing can.
    */
-  const open = (
+  const openWith = (
     flow: EmailLinkFlow,
     subject: string,
     ttlMs: number,
-    extra: {
-      readonly signUp?: PendingSignUp;
-      readonly bound?: string;
-      readonly purpose?: string;
-    } = {},
+    extra: OpenExtra,
+    retireSecret: string | null,
   ): Effect.Effect<OpenedEmailLink, CoordinationError> =>
     Effect.gen(function* () {
       const requestId = genId(EMAIL_LINK_ID_PREFIX[flow]);
       const claimSecret = newSecret();
-      const retireSecret = newSecret();
       const linkSecret = newSecret();
       const pairingCode =
         EMAIL_LINK_PAIRING_MODE[flow] === "type"
@@ -698,11 +707,11 @@ export function createEmailLinkModule(ctx: AuthContext) {
         subject,
         mailSecretHashes: [sha256(linkSecret)],
         claimSecretHash: sha256(claimSecret),
-        retireSecretHash: sha256(retireSecret),
         pairingHash: serverMac.pairingDigest(requestId, pairingCode),
         status: "pending",
         expiresAt,
       };
+      if (retireSecret !== null) entry.retireSecretHash = sha256(retireSecret);
       if (extra.signUp) entry.signUp = extra.signUp;
       if (extra.bound !== undefined) entry.bound = extra.bound;
       if (extra.purpose !== undefined) entry.purpose = extra.purpose;
@@ -710,12 +719,37 @@ export function createEmailLinkModule(ctx: AuthContext) {
       return {
         requestId,
         claimSecret,
-        retireSecret,
         pairingCode,
         url: linkUrl(requestId, linkSecret),
         expiresAt,
         entry,
       };
+    });
+
+  /** Opens a request no retire secret can end ({@link openWith}). */
+  const open = (
+    flow: EmailLinkFlow,
+    subject: string,
+    ttlMs: number,
+    extra: OpenExtra = {},
+  ): Effect.Effect<OpenedEmailLink, CoordinationError> =>
+    openWith(flow, subject, ttlMs, extra, null);
+
+  /**
+   * Opens a request a later begin may end with its retire secret, and answers
+   * that secret beside what {@link open} answers. Sign-up's begin is the one
+   * caller.
+   */
+  const openRetirable = (
+    flow: EmailLinkFlow,
+    subject: string,
+    ttlMs: number,
+    extra: OpenExtra = {},
+  ): Effect.Effect<RetirableEmailLink, CoordinationError> =>
+    Effect.gen(function* () {
+      const retireSecret = newSecret();
+      const opened = yield* openWith(flow, subject, ttlMs, extra, retireSecret);
+      return { ...opened, retireSecret };
     });
 
   /**
@@ -1174,7 +1208,19 @@ export function createEmailLinkModule(ctx: AuthContext) {
       return yield* end(requestId, entry);
     });
 
-  return { open, markVerified, candidates, confirm, poll, claim, letGo, spend, resend, retire };
+  return {
+    open,
+    openRetirable,
+    markVerified,
+    candidates,
+    confirm,
+    poll,
+    claim,
+    letGo,
+    spend,
+    resend,
+    retire,
+  };
 }
 
 export type EmailLinkModule = ReturnType<typeof createEmailLinkModule>;
