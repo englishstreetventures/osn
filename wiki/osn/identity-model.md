@@ -248,7 +248,7 @@ sequenceDiagram
   participant DB as accounts + users + passkeys
 
   U->>API: POST /register/begin<br/>{ email, handle, birthdate, displayName }
-  API-->>U: 200 { requestId, claimSecret, retireSecret, pairingCode }
+  API-->>U: 200 { requestId, claimSecret, pairingCode }
   API-)M: email: /verify/<requestId>#<link secret>
   loop until confirmed
     U->>API: POST /register/:requestId/status { claimSecret }
