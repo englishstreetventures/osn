@@ -364,7 +364,11 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   // claim secret, as one nobody acted on, until it expires or is retired.
   const firstStatus = async () => {
     const url = `${ORIGINS.osnApi}/register/${link.requestId}/status`;
-    const response = await page.request.post(url, { data: { claimSecret: firstClaim } });
+    const response = await page.request.post(url, {
+      // As the page sends it: osn-api checks the Origin of every POST.
+      headers: { Origin: ORIGINS.musubi },
+      data: { claimSecret: firstClaim },
+    });
     flow.recordRequest("POST", url, response.status());
     return ((await response.json()) as { status?: string }).status ?? "";
   };
