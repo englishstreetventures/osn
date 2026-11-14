@@ -309,10 +309,44 @@ describe("the step-up sheet in Settings → Security", () => {
     await userEvent.click(within(sheet).getByRole("button", { name: "Use passkey" }));
     await waitFor(() => within(sheet).getByRole("button", { name: "Waiting for your passkey…" }));
     await userEvent.click(scrimOf(sheet), { position: { x: 100, y: 100 } });
-    // Long enough for the 80ms exit fade and the 300ms fallback after it.
+    // Long enough for the card's 80ms exit fade and the 300ms fallback after it.
     await new Promise((r) => setTimeout(r, 400));
     expect(screen.getByRole("dialog", { name: "Confirm it's you" })).toBe(sheet);
     expect(sheet.hasAttribute("data-closed")).toBe(false);
+  });
+});
+
+describe("the step-up's hand-over below md", () => {
+  // The sheet hands its outcome over when it unmounts, with a fallback timer
+  // for a tab that runs no animation. Below `md` its exit is the slide down,
+  // the longest it has; if that ever outran the fallback, the host would get
+  // the outcome while the sheet was still on screen.
+  it("cancels only once the sheet has slid out, at 390px", async () => {
+    await page.viewport(390, 844);
+    let goneAtHandOver: boolean | undefined;
+    const onCancel = vi.fn(() => {
+      goneAtHandOver = screen.queryByRole("dialog") === null;
+    });
+    render(() => (
+      <StepUpDialog
+        client={{} as StepUpClient}
+        onToken={() => {}}
+        onCancel={onCancel}
+        purpose="passkey_delete"
+      />
+    ));
+    const sheet = await waitFor(() => screen.getByRole("dialog", { name: "Confirm it's you" }));
+    await settle();
+    const runs: string[] = [];
+    const listen = (event: AnimationEvent) => {
+      if (event.target === sheet) runs.push(event.animationName);
+    };
+    document.addEventListener("animationstart", listen, true);
+    await userEvent.click(within(sheet).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(onCancel).toHaveBeenCalledOnce(), { timeout: 2000 });
+    document.removeEventListener("animationstart", listen, true);
+    expect(runs, "the sheet did not slide out").toContain("ui-sheet-exit");
+    expect(goneAtHandOver, "the outcome arrived while the sheet was on screen").toBe(true);
   });
 });
 

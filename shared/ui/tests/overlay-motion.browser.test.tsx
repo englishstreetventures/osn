@@ -786,6 +786,18 @@ describe("a sheet's slide", () => {
     }
   });
 
+  it("rises from its own height at 767px, the last width below md", async () => {
+    await atWidth(767);
+    const set = renderSheet();
+    const hold = holdSheet("ui-sheet-enter", fraction(0));
+    set(true);
+    const { panel, frame: seen, runs } = await hold.caught();
+    expect(Math.abs(seen.shift - seen.height), `held ${seen.shift}px down`).toBeLessThanOrEqual(1);
+    expect(movesOnly(seen.matrix), `held at ${seen.matrix}`).toBe(true);
+    release(runs);
+    await settled(panel);
+  });
+
   for (const width of [768, 1440]) {
     it(`is the card at ${width}px: the card's entry, and no slide`, async () => {
       await atWidth(width);
@@ -793,6 +805,7 @@ describe("a sheet's slide", () => {
       const moved = watchTransitions();
       const runs = watchAnimations();
       const panel = await openSheet(set);
+      const scrim = scrimOf(panel);
       set(false);
       await gone();
       moved.stop();
@@ -809,8 +822,23 @@ describe("a sheet's slide", () => {
         (r) => r.target === panel && ["transform", "translate"].includes(r.property),
       );
       expect(slid).toEqual([]);
+      // The scrim fades with the card's runs too, not the sheet's transition.
+      const scrimRuns = runs.started.filter((s) => s.target === scrim).map((s) => s.name);
+      expect(scrimRuns).toEqual(["ui-enter", "ui-exit"]);
+      expect(moved.ran.filter((r) => r.target === scrim && r.property === "opacity")).toEqual([]);
     });
   }
+
+  it("fades a centred Dialog's scrim with the card's runs at 390px", async () => {
+    render(OVERLAYS.dialog.view);
+    const runs = watchAnimations();
+    const panel = await openPanel(OVERLAYS.dialog);
+    const scrim = scrimOf(panel);
+    await OVERLAYS.dialog.close();
+    runs.stop();
+    const scrimRuns = runs.started.filter((s) => s.target === scrim).map((s) => s.name);
+    expect(scrimRuns).toEqual(["ui-enter", "ui-exit"]);
+  });
 
   it("hands focus back to what had it, after the slide out", async () => {
     render(DIALOG_SHEET.view);

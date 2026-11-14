@@ -441,8 +441,8 @@ fades in at its new place.
 Under reduced motion each one shows and hides at once (`tokens.css` sets the
 overlay animations and the sheet's transitions to `none`). Only cire's
 `accent` menu look closes at once, and Musubi draws none. On a browser older
-than Chrome 117 or Safari 17.5, which cannot read `@starting-style`, a sheet
-appears at once and still slides out.
+than Chrome 117, Firefox 129 or Safari 17.5, which cannot read
+`@starting-style`, a sheet appears at once and still slides out.
 `tools/e2e/tests/support/musubi-surfaces.ts` holds the first frame of the
 account menu, the profile switcher and the create-organisation dialog, and
 the half-way frame of the menu and the switcher closing: the menu and the

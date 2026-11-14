@@ -244,7 +244,7 @@ never `--ui-ease-out`: for the contract's curve write `ease-(--ui-ease-out)`
 | `--ui-ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | Something moving between two places |
 | `--ui-ease-exit` | `cubic-bezier(0.22, 1, 0.36, 1)` | A Kobalte overlay closing: a menu, a popover, `Dialog` as a card. `Modal`'s exit runs `ease-in`; a `Dialog` sheet below `md` leaves on `--ui-ease-sheet` |
 | `--ui-ease-sheet` | `cubic-bezier(0.32, 0.72, 0, 1)` | A `Dialog` sheet rising and leaving below `md`: quick off the mark, long to settle, as iOS sheets move |
-| `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` |
+| `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` as a card (a sheet below `md` slides instead) |
 | `--ui-scale-exit` | 0.98 | How small an overlay ends as it leaves, `Modal` included |
 | `--ui-distance-enter` | 24px | How far `Modal` rises into place |
 | `--ui-distance-exit` | 8px | How far `Modal` sinks as it leaves |
@@ -306,9 +306,10 @@ the current one contains), and Tailwind drops an empty `@keyframes`, so a run
 with no declaration never reaches the stylesheet. At `md` and up the sheet is
 the centred card and runs the card's keyframes. Carried across `md` while
 open, it does not slide: down across it, it sits on the bottom edge at once;
-up across it, the card's entry runs again. `@starting-style` needs Chrome 117
-and Safari 17.5, above the floor in [[frontend-patterns]] §Supported
-browsers; between the two a sheet appears at once and still slides out.
+up across it, the card's entry runs again. `@starting-style` needs Chrome 117,
+Firefox 129 and Safari 17.5, above the floor in [[frontend-patterns]]
+§Supported browsers; on a browser between the floor and those versions a
+sheet appears at once and still slides out.
 `Modal`, on the same rule, has the same gap. `overlay-motion.browser.test.tsx` holds the slide, its
 pace and curve, the scrim, the turn-rounds, the `md` crossing and reduced
 motion ([[browser-tests]]); `musubi-surfaces.ts` holds Musubi's profile

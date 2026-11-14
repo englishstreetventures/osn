@@ -120,6 +120,10 @@ const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a
  * longer of the two, or the outcome arrives while the sheet is still on its
  * way out. A tab the browser has hidden runs no animation, so its end never
  * comes; without this the token would wait for the person to come back.
+ *
+ * The outcome waits for the exit so that a host which removes the sheet on it
+ * never cuts the exit short. The host's own request starts only then, so a
+ * step-up below `md` reaches its host the slide's length after the confirm.
  */
 const EXIT_FALLBACK_MS = 300;
 

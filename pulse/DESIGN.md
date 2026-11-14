@@ -356,7 +356,8 @@ These rules govern `pulse/web`. The landing site's motion is in
   frame (`onboarding.css` and `explore/explore.css` hold the rule).
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
 - **Overlays grow and shrink.** Pulse maps no scale token, so `@shared/ui`'s
-  Dialog, Popover and menus open from the contract's 0.96 and close to 0.98
+  Dialog (but the share sheet, below), Popover and menus open from the
+  contract's 0.96 and close to 0.98
   (`wiki/shared/design-tokens.md` §Motion), and under reduced motion show and
   hide at once. The menus are the shared default look: a menu's separator is a
   1px `--ui-hairline` fill with no border.
@@ -367,8 +368,8 @@ These rules govern `pulse/web`. The landing site's motion is in
   no scale, its scrim fading on the same pace. Closed part-way up it turns
   round from where it is. The owner chose it for every sheet ("B: slide up",
   #2045, 2026-11-13). Under reduced motion it shows and hides at once; on a
-  browser older than Chrome 117 or Safari 17.5 it appears at once and still
-  slides out.
+  browser older than Chrome 117, Firefox 129 or Safari 17.5 it appears at once
+  and still slides out.
 
 Where the app does not follow this yet: these controls fade their focus mark
 with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
@@ -380,7 +381,7 @@ reduced motion.
 `tools/e2e/tests/support/pulse-menus.ts` holds both avatar menus' separators
 at 390 and 1440px in both schemes, and holds those menus and "More filters"
 opening from 0.96.
-`tests/styles/share-sheet-motion.browser.test.tsx` holds the share sheet at
+`pulse/web/tests/styles/share-sheet-motion.browser.test.tsx` holds the share sheet at
 390px under pulse's stylesheet: its first frame its own height below the
 edge, at full opacity and unscaled, over a clear scrim.
 

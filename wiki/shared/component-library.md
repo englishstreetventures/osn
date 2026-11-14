@@ -1177,7 +1177,8 @@ No call site sets it with a class: `shadcn/no-restyle` refuses typography on
 `shared/ui/tests/dialog-default.browser.test.tsx` holds what pulse draws today —
 the unmapped title's whole computed style as a snapshot written before the title
 read the token, and the panel entering from 0.96 over 120ms and leaving to 0.98
-over 80ms — so a `-u` that rewrites it changes pulse and needs the owner's
+over 80ms for its cards; its share sheet slides below `md` ("A sheet slides; a
+card fades", below) — so a `-u` that rewrites it changes pulse and needs the owner's
 approval. `dialog.browser.test.tsx` checks the title follows the token set on an
 ancestor. Musubi maps the token to 500 and `--ui-text-md` to its 14px title
 step, so its dialog titles draw 14px at 500. Overlays that fade without

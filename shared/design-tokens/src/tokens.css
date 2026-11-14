@@ -311,7 +311,8 @@
     --ui-ease-exit: cubic-bezier(0.22, 1, 0.36, 1);
     /* A `Dialog` sheet rising and leaving: quick off the mark, long to settle, as iOS sheets move. */
     --ui-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
-    /* How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog`. */
+    /* How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog`
+       as a card (a sheet below `md` slides instead). */
     --ui-scale-enter: 0.96;
     /* How small an overlay ends as it leaves, `Modal` included. Nearer 1 than the entry. */
     --ui-scale-exit: 0.98;
