@@ -391,6 +391,88 @@ describe("deleteProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // A delete reads before its batch writes (D1 has no interactive
+  // transaction), so another request can land in between. Each test holds
+  // one request at its batch and runs the other to the end first.
+  const heldLayer = () => {
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    return { queries, layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer) };
+  };
+
+  it.live("two deletes of an account's last two profiles leave one, still the default", () => {
+    const { queries, layer } = heldLayer();
+    return Effect.gen(function* () {
+      const { profile: main, accountId } = yield* setupAccount("pair@test.com", "pairuser");
+      const alt = yield* profile.createProfile(accountId, "pair_alt");
+
+      const batch = queries.hold(/^delete from "connections"/);
+      const first = yield* Effect.forkChild(
+        Effect.result(profile.deleteProfile(accountId, main.id)),
+      );
+      yield* Effect.promise(() => batch.reached);
+      expect(yield* profile.deleteProfile(accountId, alt.id)).toEqual({
+        defaultProfileId: main.id,
+      });
+      batch.release();
+
+      expect(yield* Fiber.join(first)).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "AuthError", message: "Cannot delete the last profile" },
+      });
+      expect(yield* defaultRows(accountId)).toEqual({ [main.id]: true });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live(
+    "a delete of the default landing after another profile is made the default keeps that one",
+    () => {
+      const { queries, layer } = heldLayer();
+      return Effect.gen(function* () {
+        const { profile: main, accountId } = yield* setupAccount("swap@test.com", "swapuser");
+        const older = yield* profile.createProfile(accountId, "swap_older");
+        const chosen = yield* profile.createProfile(accountId, "swap_chosen");
+        yield* setCreatedAt(older.id, "2026-01-01T00:00:00Z");
+
+        const batch = queries.hold(/^delete from "connections"/);
+        const deleting = yield* Effect.forkChild(
+          Effect.result(profile.deleteProfile(accountId, main.id)),
+        );
+        yield* Effect.promise(() => batch.reached);
+        yield* profile.setDefaultProfile(accountId, chosen.id);
+        batch.release();
+
+        expect(yield* Fiber.join(deleting)).toMatchObject({
+          _tag: "Success",
+          success: { defaultProfileId: chosen.id },
+        });
+        expect(yield* defaultRows(accountId)).toEqual({ [older.id]: false, [chosen.id]: true });
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.live(
+    "making a profile the default while it is deleted leaves the old default in place",
+    () => {
+      const { queries, layer } = heldLayer();
+      return Effect.gen(function* () {
+        const { profile: main, accountId } = yield* setupAccount("gone@test.com", "goneuser");
+        const gone = yield* profile.createProfile(accountId, "gone_alt");
+
+        const clear = queries.hold(/^update "users" set "is_default"/);
+        const choosing = yield* Effect.forkChild(
+          Effect.result(profile.setDefaultProfile(accountId, gone.id)),
+        );
+        yield* Effect.promise(() => clear.reached);
+        yield* profile.deleteProfile(accountId, gone.id);
+        clear.release();
+        yield* Fiber.join(choosing);
+
+        expect(yield* defaultRows(accountId)).toEqual({ [main.id]: true });
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
   it.effect("fails with nonexistent profile", () =>
     Effect.gen(function* () {
       const { accountId } = yield* setupAccount("delnone@test.com", "delnone");
