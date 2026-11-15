@@ -430,8 +430,10 @@ export function createOsnAuthLive(
        * Ends the session this service holds: clears the cache and, unless
        * `keepStored` (the stored account is another sign-in's), the stored
        * account, then tells the listeners — once, however many callers end it.
-       * It does not call `/logout`. A refusal means the issuer has already let
-       * the session go, and the session marker is the issuer's to retract.
+       * It does not call `/logout`: the cookie a refused grant carried can be
+       * another sign-in's live session (a sign-up still holding it, another
+       * tab's sign-in), which a logout would end. The session marker is the
+       * issuer's to retract.
        */
       const endSession = (keepStored = false) =>
         Effect.gen(function* () {
@@ -947,9 +949,11 @@ export function createOsnAuthLive(
             return next;
           }
 
-          // The issuer mints for the named profile only while the account
-          // owns it, so that profile has been deleted, or was never this
-          // account's. The request that needed its token is not sent.
+          // The issuer minted another profile than the one named. osn-api
+          // refuses a profile the account does not own, and mints the default
+          // profile instead of a named one the account owns only for a
+          // restricted recovery session or an account scheduled for deletion.
+          // The request that needed its token is not sent.
           if (account.activeProfileId !== wanted) {
             // The page has switched to another profile since, which holds its
             // own token: nothing to reset.
@@ -1060,8 +1064,8 @@ export function createOsnAuthLive(
       let inFlightBootstrap: Promise<BootstrapResult> | null = null;
 
       // `wanted` is the profile the page was on before the reload; the
-      // issuer mints for it while the account owns it, and for the default
-      // profile otherwise.
+      // issuer mints for it while the account owns it, and refuses the grant
+      // otherwise, which forgets the stored account below.
       // `signInId` is the stored account's on a reload; a cold start with no
       // stored account begins a new one.
       const doBootstrap = (wanted: string | undefined, signInId: string | undefined) =>
