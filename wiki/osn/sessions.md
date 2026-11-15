@@ -255,7 +255,7 @@ A session of an account whose deletion is pending (`accounts.deleted_at` set) mi
 
 Every other verifier pins `osn-access`, here and in Pulse, Zap and cire over JWKS, so each refuses the token with no change, as with `osn-recovery`. The audience is on the reserved OIDC client-id deny-list. `GET /authorize` resolves the session cookie rather than a token, so it reads the account itself and answers `access_denied` ([[oidc-provider]]). The session counts against `MAX_SESSIONS_PER_ACCOUNT` like any other, and it slides like an ordinary one.
 
-**How a cancel ends it.** A cancel clears `deleted_at` and writes no session. The next refresh mints `osn-access`. A pending-deletion token minted before the cancel is refused (401) at the deletion status, the export, the restore and the TOTP status once the account is no longer pending, so the client renews into an ordinary token.
+**How a cancel ends it.** A cancel clears `deleted_at` and writes no session. The next refresh mints `osn-access`. A pending-deletion token minted before the cancel is refused (401) at the deletion status, the export, the restore and the TOTP status once the deletion is cancelled, so the client renews into an ordinary token.
 
 **How a client knows.** The access token's `aud` is `osn-pending-deletion`, or `GET /account/deletion-status` answers `scheduled: true`. Nothing else in a response says so. A client that checks neither gets a 401 from the first ordinary route; `@osn/client`'s `authFetch` renews once, gets the same audience, and ends the session ([[#Renewal in the browser]]).
 
