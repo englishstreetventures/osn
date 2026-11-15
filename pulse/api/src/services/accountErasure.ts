@@ -20,7 +20,6 @@ import type {
 } from "@shared/observability/metrics";
 import {
   and,
-  asc,
   eq,
   exists,
   inArray,
