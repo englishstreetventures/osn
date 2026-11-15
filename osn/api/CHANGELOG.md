@@ -1,5 +1,14 @@
 # @osn/osn
 
+## 3.39.2
+
+### Patch Changes
+
+- 2dc810a: A sign-in on the browser holding the cancel handle of an account scheduled for deletion keeps that session live, so the account can still cancel, and marks it replaced in the new nullable `sessions.replaced_at` column; a token of it rotated out past the grace window still counts as reuse and ends it. A replaced session renews only for a profile its own account owns, whatever becomes of the deletion, and `/authorize` reads it as no session. An unmarked session of an account scheduled for deletion is refused a named profile its account does not own, and a renewal that read a session unmarked rotates nothing once a mark lands.
+- Updated dependencies [2dc810a]
+  - @osn/db@0.25.9
+  - @shared/crypto@0.14.34
+
 ## 3.39.1
 
 ### Patch Changes
