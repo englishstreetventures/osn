@@ -216,7 +216,40 @@ export function createProfileService(authService: AuthService) {
     targetProfileId: string,
   ): Effect.Effect<{ defaultProfileId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const profile = yield* authService.findProfileById(targetProfileId);
+      const { db } = yield* Db;
+
+      // Parallel pre-checks: the target, the account's default once the
+      // target is gone, and org ownership. The second read is the account's
+      // other default profile, else its oldest other profile; none means the
+      // target is the last. All three are keyed on what the caller sent, so
+      // they run together and the refusals below apply in order afterwards.
+      // They run BEFORE the write batch — D1 has no interactive transaction,
+      // so the read-then-write is split, and a delete or default change
+      // landing in between can make them stale.
+      const [profile, [successors, ownedOrgs]] = yield* Effect.all(
+        [
+          authService.findProfileById(targetProfileId),
+          Effect.tryPromise({
+            try: () =>
+              Promise.all([
+                db
+                  .select({ id: users.id, isDefault: users.isDefault })
+                  .from(users)
+                  .where(and(eq(users.accountId, accountId), ne(users.id, targetProfileId)))
+                  .orderBy(desc(users.isDefault), asc(users.createdAt))
+                  .limit(1),
+                db
+                  .select({ id: organisations.id })
+                  .from(organisations)
+                  .where(eq(organisations.ownerId, targetProfileId))
+                  .limit(1),
+              ]),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+        ],
+        { concurrency: "unbounded" },
+      );
+
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
@@ -225,33 +258,6 @@ export function createProfileService(authService: AuthService) {
           new AuthError({ message: "Profile does not belong to this account" }),
         );
       }
-
-      const { db } = yield* Db;
-
-      // Parallel pre-checks: the account's default once the target is gone,
-      // and org ownership. The first read is the account's other default
-      // profile, else its oldest other profile; none means the target is the
-      // last. It runs BEFORE the write batch — D1 has no interactive
-      // transaction, so the read-then-write is split, and a delete or default
-      // change landing in between can make it stale.
-      const [successors, ownedOrgs] = yield* Effect.tryPromise({
-        try: () =>
-          Promise.all([
-            db
-              .select({ id: users.id, isDefault: users.isDefault })
-              .from(users)
-              .where(and(eq(users.accountId, accountId), ne(users.id, targetProfileId)))
-              .orderBy(desc(users.isDefault), asc(users.createdAt))
-              .limit(1),
-            db
-              .select({ id: organisations.id })
-              .from(organisations)
-              .where(eq(organisations.ownerId, targetProfileId))
-              .limit(1),
-          ]),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
       const successor = successors[0];
       if (!successor) {
         return yield* Effect.fail(new AuthError({ message: "Cannot delete the last profile" }));
