@@ -168,6 +168,13 @@ test("musubi-step-up-email", async ({ page, browser, flow }) => {
     exported.some((line) => line.startsWith('{"section":"account"')),
   );
   flow.check("the export runs to its end", '{"end":true}', exported.at(-1) ?? "");
+  // Pulse verifies osn-api's signed call against the key osn-api publishes,
+  // with the kid's MAC checked: a refusal would leave a degraded line here.
+  flow.check(
+    "Pulse's section arrives undegraded",
+    false,
+    exported.some((line) => line.includes('"degraded":"pulse"')),
+  );
 
   // -------------------------------------------------------------------------
   // Email change, through a link to the new address, authorised by a passkey.
