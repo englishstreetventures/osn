@@ -462,7 +462,7 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    `D1: Read`, `Account Analytics: Read`).
 4. **Worker secrets**, new values made for the dev account, never production's:
    - osn-api: `DEV_LOGIN_SECRET` (at least 32 characters), `INTERNAL_SERVICE_SECRET`
-     (zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
+     (at least 32 characters; zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
      `OSN_PAIRWISE_SALT`, `OSN_SESSION_IP_PEPPER`, `OSN_TOTP_ENCRYPTION_KEY`,
      `RESEND_API_KEY`.
    - cire-api: `CIRE_API_ARC_KEY_ID` (a UUID), `CIRE_API_ARC_PRIVATE_KEY` (a
@@ -487,9 +487,10 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
      Zero Trust organisation; another account's token passes the name check
      and fails every browser host's smoke check.
 
-   The cire and musubi stacks refuse to deploy while a value breaks its dev
-   rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
-   `DEV_LOGIN_SECRET` or `CIRE_INTERNAL_REVOKE_SECRET` shorter than 32 characters
+   The cire, musubi and zap stacks refuse to deploy while a value breaks its
+   dev rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
+   `DEV_LOGIN_SECRET`, `CIRE_INTERNAL_REVOKE_SECRET` or `INTERNAL_SERVICE_SECRET`
+   shorter than 32 characters
    ([[infrastructure-as-code#GitHub Environment secrets]]).
 
    `secrets:check-github -- --tier dev` lists any missing Worker secret,

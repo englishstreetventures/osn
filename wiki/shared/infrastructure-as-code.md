@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-15
 ---
 
 # Infrastructure as code (Alchemy)
@@ -101,7 +101,7 @@ Each refusal is a `Data.TaggedError`. Every one names secret names, never values
 | `AdoptedLocationHintError` | `retainedD1Props()`, `retainedBucketProps()` | A location hint is declared on production, where the storage is adopted |
 | `ProductionNotAdoptedError` | `apiWorkerProps()`, `retainedD1Props()`, `retainedBucketProps()` | A production API Worker, database or bucket whose name is not in `PRODUCTION_ADOPTIONS`, checked after every other production rule; each builder takes the list as a second argument, which tests pass. A new production Worker, database or bucket is therefore a change to that list |
 | `ProductionScopeError` | `assertProductionScope()` | A production stack declares a logical id outside its `PRODUCTION_RESOURCE_KINDS` |
-| `MissingSecretsError` | `requireSecrets()` | A required secret is unset, empty or only whitespace (`missing`), any value has leading or trailing whitespace (`malformed`), or a value breaks a rule its tier sets (`breaksRule`): on dev, `STRIPE_SECRET_KEY` must start `sk_test_` or `rk_test_`, and `DEV_LOGIN_SECRET` and `CIRE_INTERNAL_REVOKE_SECRET` must each be at least 32 characters. Production reads no value, so it sets no rule |
+| `MissingSecretsError` | `requireSecrets()` | A required secret is unset, empty or only whitespace (`missing`), any value has leading or trailing whitespace (`malformed`), or a value breaks a rule its tier sets (`breaksRule`): on dev, `STRIPE_SECRET_KEY` must start `sk_test_` or `rk_test_`, and `DEV_LOGIN_SECRET`, `CIRE_INTERNAL_REVOKE_SECRET` and `INTERNAL_SERVICE_SECRET` must each be at least 32 characters. Production reads no value, so it sets no rule |
 | `NoWorkerOnTierError` | `tierSecrets()` | The Worker has no deployed script on that tier |
 | `UnretainedResourceError` | `assertRetained()`, `assertStackRetained()` | A resource a long-lived stage keeps would be deleted on destroy or replacement |
 | `ProductionSeedError` | `retainedD1Props()` | `importFiles` on production, whose data no seed may touch |
@@ -421,8 +421,9 @@ A tier can also set a rule for a value, which `requireSecrets()` checks after th
 | `STRIPE_SECRET_KEY` | starts `sk_test_` or `rk_test_` | A test-mode key only, so no dev deploy can move real money |
 | `DEV_LOGIN_SECRET` | at least 32 characters | It alone stands between a public route and the seeded owner's session ([[dev-environment#Passkey-less sign-in on local and dev]]) |
 | `CIRE_INTERNAL_REVOKE_SECRET` | at least 32 characters | It alone stands between a public route and ending any organiser's cire sessions ([[cire-auth]]) |
+| `INTERNAL_SERVICE_SECRET` | at least 32 characters | It bears the service-key registration routes, and it keys the MAC on every key id osn-api publishes, where anyone can test a guess at it offline ([[arc-tokens#osn-api as issuer — published outbound keys]]) |
 
-Production reads no value, so it sets no rule; osn-api and cire-api each treat a `CIRE_INTERNAL_REVOKE_SECRET` under 32 characters as unset. A value that breaks a rule fails the run, naming the secret and its rule, never the value.
+Production reads no value, so it sets no rule; osn-api and cire-api each treat a `CIRE_INTERNAL_REVOKE_SECRET` under 32 characters as unset, and osn-api, Pulse and Zap never key the kid MAC with an `INTERNAL_SERVICE_SECRET` under 32 characters. A value that breaks a rule fails the run, naming the secret and its rule, never the value.
 
 `requireSecrets()` runs in the stack body, which Alchemy evaluates for `plan` and `destroy` as well as `deploy`. Every Alchemy run for a dev or investigation stage therefore needs that stage's secrets, and its sites built for that stage's hosts ([[#Sites]]): tearing down an investigation stage needs the `dev` Environment's. The production stacks read no secret, so their jobs hold only the production credentials, and osn-api's smoke check its `INTERNAL_SERVICE_SECRET` ([[#Production sites]]).
 

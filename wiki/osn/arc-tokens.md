@@ -231,16 +231,22 @@ and each app fetches the one a token names:
    (`osn/api/src/lib/outbound-arc.ts`).
 2. Before it signs anything with it, it writes the public half to
    `arc_outbound_keys` (`publishOutboundKey`, which also deletes rows expired
-   more than a day ago). `arcAuthHeader` refuses to sign with a key not yet
-   written; a failed write leaves the key unwritten and the next call writes it.
+   more than a day ago), once per key: calls that arrive while the write runs
+   wait on that one write. `publishOutboundKey` answers the key it wrote, and
+   the call signs with that key (`arcAuthHeader`), never with whichever key the
+   isolate holds by then, so a key replaced in between still verifies.
+   `arcAuthHeader` refuses any key `publishOutboundKey` did not answer. A failed
+   write, or a key that failed to mint, is dropped, and the next call tries
+   again.
 3. `GET /.well-known/arc-jwks.json` serves the unexpired rows as a JWK Set, read
    fresh on every request (`cache-control: no-store`): a key written a moment
    ago must be in the next answer, or the app asking would refuse that `kid` for
    30 seconds. osn-db reads its primary (`readReplication: "disabled"`), so it is.
 4. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
    Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
-   lets osn-api use, and carry a `kid` whose MAC verifies and whose expiry has
-   not passed; only then is the key resolved, through the same bounded kid cache
+   lets osn-api use, and, when the app's secret can key the MAC, carry a `kid`
+   whose MAC verifies and whose expiry has not passed; only then is the key
+   resolved, through the same bounded kid cache
    the app uses for access-token keys, at `<issuer>/.well-known/arc-jwks.json`
    below the issuer origin it already pins. Then jose checks the signature
    (ES256 only), `iss`, `aud`, `exp` and `iat`, and the token's scope must hold
@@ -251,10 +257,20 @@ characters of HMAC-SHA256 under `INTERNAL_SERVICE_SECRET` over the uuid and the
 expiry (`@shared/crypto/arc-kid`). An app holding the secret refuses a `kid`
 whose MAC fails, or whose expiry has passed, before it fetches anything, so a
 stream of tokens with made-up or scraped `kid`s costs it no request to osn-api.
-The secret gates fetching only; a token is authenticated by its signature
-against the published key. A deployed osn-api without the secret refuses to
-boot. Locally, osn-api and the app hold it both or neither: an app holding it
-refuses osn-api's kids minted without it.
+On the ARC path the MAC gates fetching only; a token is authenticated by its
+signature against the published key. But the same secret is the bearer of the
+key-registration routes (`POST /graph/internal/register-service` on osn-api,
+`POST /internal/register-service` on Zap) and of `GET /health/coordination`,
+and every kid in the public key set is a message and its MAC under it, so
+anyone can test a guess at the secret offline. A short or human-chosen secret
+could be found that way, and with it a key registered under any service id
+and scope. So a secret shorter than 32 characters never keys the MAC, on
+either side: osn-api mints kids without a MAC and logs
+`osn.arc outbound key id carries no MAC` once per key, and Pulse and Zap
+treat it as unset and skip the check. A dev deploy refuses a shorter
+`INTERNAL_SERVICE_SECRET` ([[infrastructure-as-code]]). A deployed osn-api
+without the secret refuses to boot. Locally, osn-api and the app hold it both
+or neither: an app holding it refuses osn-api's kids minted without it.
 
 **What each app lets osn-api use.** Pulse: `account:erase`, `account:export`,
 `account:deletion-preview`, `account:sessions-revoke`; it takes ARC from no
