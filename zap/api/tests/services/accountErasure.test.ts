@@ -7,6 +7,7 @@ import { describe, expect } from "vitest";
 
 import { DELETED_SENDER, purgeAccount } from "../../src/services/accountErasure";
 import {
+  createCapturingTestLayer,
   createTestDb,
   createTestLayer,
   seedC2bChat,
@@ -220,6 +221,25 @@ describe("zap account erasure", () => {
       expect(second.kept).toHaveLength(1);
       expect(answered.kept).toEqual(second.kept);
     }).pipe(Effect.provide(layer));
+  });
+
+  it("reads once before its batch, and once after to answer, on a first erasure and a repeat", async () => {
+    const { layer, captured } = createCapturingTestLayer();
+    const reads = () => captured.filter((statement) => statement.sql.startsWith("select")).length;
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group", createdByProfileId: THEM });
+        yield* seedMember(chat.id, ME);
+        yield* seedMember(chat.id, THEM, "admin");
+        yield* seedMessage(chat.id, ME, "Y2lwaGVy", new Date());
+        captured.length = 0;
+        expect((yield* purgeAccount("acc_me", [ME])).kept).toHaveLength(1);
+        expect(reads()).toBe(2);
+        captured.length = 0;
+        expect((yield* purgeAccount("acc_me", [ME])).alreadyProcessed).toBe(true);
+        expect(captured).toHaveLength(1);
+      }).pipe(Effect.provide(layer)),
+    );
   });
 
   it.effect("binds each list once per statement, whatever its length", () =>
