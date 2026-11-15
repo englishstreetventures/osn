@@ -358,6 +358,12 @@ export function createOsnAuthLive(
       // undefined = not loaded, null = no session, AccountSession = loaded
       let cache: AccountSession | null | undefined;
 
+      // Profiles this page has deleted. A renewal that was out when one was
+      // deleted can come back with a token for it, minted before the delete
+      // committed; that token is never kept (`doRefresh`). Profile ids are
+      // never reused, so the set is never cleared.
+      const deletedProfiles = new Set<string>();
+
       // Moves whenever the session this page holds is replaced or ended
       // (`setSession`, `logout`, `endSession`), never when an answer refreshes
       // it in place. A request notes it before it leaves, and its answer is
@@ -941,6 +947,18 @@ export function createOsnAuthLive(
               new TokenRefreshError({ cause: "the granted token names no profile" }),
             );
           }
+          // The profile was deleted while the grant was out: its token is not
+          // kept, where a later delete could make it active again, and the
+          // request made as it is not sent. The delete has already made
+          // another profile active.
+          if (deletedProfiles.has(granted)) {
+            return yield* Effect.fail(
+              new ActiveProfileResetError({
+                profileId: account.activeProfileId,
+                message: "The profile this request was made as is gone; nothing was sent",
+              }),
+            );
+          }
           account.profileTokens[granted] = {
             accessToken: next.accessToken,
             expiresAt: next.expiresAt,
@@ -1494,6 +1512,7 @@ export function createOsnAuthLive(
           if (yield* superseded(mark)) return yield* Effect.fail(supersededError());
 
           const account = yield* currentAccount();
+          deletedProfiles.add(profileId);
           delete account.profileTokens[profileId];
           // Deleting the active profile makes another one active, never none:
           // the next grant must name a profile, or the issuer would mint for
