@@ -1,39 +1,29 @@
-import { eventRsvps } from "@pulse/db/schema";
+import { eventRsvps, events, pulseWebSessions } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { exportKeyToJwk, generateArcKeyPair, signArcToken } from "@shared/crypto/jwk";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { _resetServiceKeysForTests } from "../../src/lib/arc-middleware";
 import { createInternalRoutes, MAX_ACCOUNT_PROFILE_IDS } from "../../src/routes/internal";
 import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
+import { osnArc } from "../helpers/osn-arc";
 
 /**
- * Route-level coverage for the `/internal` group: the shared-secret
- * registration gates and the ARC-gated `account-deleted` purge, whose
- * handler was rewired to the factory-scoped `ManagedRuntime` with an
- * `as Effect.Effect<…, Db>` cast — the happy path proves that wiring.
+ * Route-level coverage for the `/internal` group, every route of which only
+ * osn-api calls, verified against the keys osn-api publishes: the deletion
+ * preview, the session end, the erasure and the export. Each refuses a call
+ * with no token, another service's token, a token for another audience, and a
+ * token without its own scope.
  */
 
-const SECRET = "test-internal-secret";
-const KID = "test-osn-kid";
+let arc: Awaited<ReturnType<typeof osnArc>>;
 
-let privateKey: CryptoKey;
-let publicKeyJwk: string;
-
-beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  privateKey = pair.privateKey;
-  publicKeyJwk = await exportKeyToJwk(pair.publicKey);
-});
-
-beforeEach(() => {
-  _resetServiceKeysForTests();
-  process.env.INTERNAL_SERVICE_SECRET = SECRET;
+beforeEach(async () => {
+  arc = await osnArc();
 });
 
 afterEach(() => {
-  delete process.env.INTERNAL_SERVICE_SECRET;
+  arc.restore();
 });
 
 function post(
@@ -54,105 +44,162 @@ function post(
   );
 }
 
-function registerBody() {
-  return {
-    serviceId: "osn-api",
-    keyId: KID,
-    publicKeyJwk,
-    allowedScopes: "account:erase",
-  };
-}
+const routes = () => createInternalRoutes(createTestLayer(), arc.verification);
 
-describe("internal routes — register-service gates", () => {
-  it("returns 501 when INTERNAL_SERVICE_SECRET is unset", async () => {
-    delete process.env.INTERNAL_SERVICE_SECRET;
-    const res = await post(
-      createInternalRoutes(createTestLayer()),
-      "/internal/register-service",
-      registerBody(),
-      `Bearer ${SECRET}`,
-    );
-    expect(res.status).toBe(501);
-  });
+const ROUTES = [
+  {
+    path: "/internal/account-deletion-preview",
+    scope: "account:deletion-preview",
+    body: { accountId: "acc_x", profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+  },
+  {
+    path: "/internal/account-sessions/revoke",
+    scope: "account:sessions-revoke",
+    body: { accountId: "acc_x", profileIds: ["usr_x"] },
+  },
+  {
+    path: "/internal/account-deleted",
+    scope: "account:erase",
+    body: { accountId: "acc_x", profileIds: ["usr_x"], choices: {}, deleteEverything: false },
+  },
+  {
+    path: "/internal/account-export",
+    scope: "account:export",
+    body: { account_id: "acc_x", profile_ids: ["usr_x"] },
+  },
+] as const;
 
-  it("returns 401 for a wrong shared secret", async () => {
-    const res = await post(
-      createInternalRoutes(createTestLayer()),
-      "/internal/register-service",
-      registerBody(),
-      "Bearer wrong-secret-oops",
-    );
-    expect(res.status).toBe(401);
-  });
+describe("internal routes — refusals", () => {
+  for (const route of ROUTES) {
+    it(`${route.path} refuses no token, another issuer, another audience and another scope`, async () => {
+      const app = routes();
+      const other = route.scope === "account:erase" ? "account:export" : "account:erase";
+      for (const auth of [
+        undefined,
+        await arc.token(route.scope, { iss: "cire-api" }),
+        await arc.token(route.scope, { aud: "zap-api" }),
+        await arc.token(other),
+      ]) {
+        expect((await post(app, route.path, route.body, auth)).status).toBe(401);
+      }
+      expect((await post(app, route.path, route.body, await arc.token(route.scope))).status).toBe(
+        200,
+      );
+    });
+  }
 
-  it("rejects scopes outside the inbound allowlist", async () => {
-    const res = await post(
-      createInternalRoutes(createTestLayer()),
-      "/internal/register-service",
-      { ...registerBody(), allowedScopes: "admin:everything" },
-      `Bearer ${SECRET}`,
-    );
-    expect(res.status).toBe(400);
+  it("no longer takes key registrations: osn-api publishes its keys instead", async () => {
+    const res = await post(routes(), "/internal/register-service", {}, "Bearer x");
+    expect(res.status).toBe(404);
   });
 });
 
-describe("internal routes — ARC-gated account-deleted purge", () => {
-  it("returns 401 without an ARC token", async () => {
-    const res = await post(createInternalRoutes(createTestLayer()), "/internal/account-deleted", {
-      accountId: "acc_x",
-      profileIds: ["usr_x"],
-    });
-    expect(res.status).toBe(401);
-  });
+describe("internal routes — the account deletion", () => {
+  const PROFILE = "usr_host";
+  const deletesAt = 1_900_000_000;
 
-  it("purges through the factory runtime with a valid ARC token", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    const reg = await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
-    expect(reg.status).toBe(200);
-
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "pulse-api",
-      scope: "account:erase",
-      kid: KID,
-    });
+  it("the preview answers the host's upcoming events with their choices", async () => {
+    const layer = createTestLayer();
+    const event = await Effect.runPromise(
+      seedEvent({
+        title: "Picnic",
+        startTime: new Date(Date.now() + 86_400_000),
+        createdByProfileId: PROFILE,
+      }).pipe(Effect.provide(layer)),
+    );
+    const app = createInternalRoutes(layer, arc.verification);
     const res = await post(
       app,
-      "/internal/account-deleted",
-      { accountId: "acc_gone", profileIds: ["usr_gone"] },
-      `ARC ${arc}`,
+      "/internal/account-deletion-preview",
+      { accountId: "acc_host", profileIds: [PROFILE], deletesAt },
+      await arc.token("account:deletion-preview"),
     );
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; purged: number };
-    expect(json.ok).toBe(true);
-    // `purged` counts processed profile IDs (one here, even with no seeded
-    // rows) — reaching it at all proves the handler ran the purge through
-    // runtime.runPromise against the test DB.
-    expect(json.purged).toBe(1);
+    const { openActions } = (await res.json()) as {
+      openActions: { id: string; defaultChoice: string; choices: { erasedOn: number | null }[] }[];
+    };
+    expect(openActions.map((a) => a.id)).toEqual([`pulse:event:${event.id}`]);
+    expect(openActions[0]!.defaultChoice).toBe("cancel");
+    expect(openActions[0]!.choices.map((c) => c.erasedOn)).toEqual([deletesAt + 14 * 86_400, null]);
   });
 
-  it("rejects an ARC token missing the account:erase scope", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await post(
-      app,
-      "/internal/register-service",
-      { ...registerBody(), allowedScopes: "graph:read" },
-      `Bearer ${SECRET}`,
+  it("the erasure takes the answers and answers what Pulse kept", async () => {
+    const layer = createTestLayer();
+    const kept = await Effect.runPromise(
+      seedEvent({
+        title: "Kept",
+        startTime: new Date(Date.now() + 86_400_000),
+        createdByProfileId: PROFILE,
+      }).pipe(Effect.provide(layer)),
     );
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "pulse-api",
-      scope: "graph:read",
-      kid: KID,
-    });
+    const gone = await Effect.runPromise(
+      seedEvent({
+        title: "Gone",
+        startTime: new Date(Date.now() + 86_400_000),
+        createdByProfileId: PROFILE,
+      }).pipe(Effect.provide(layer)),
+    );
+    const app = createInternalRoutes(layer, arc.verification);
     const res = await post(
       app,
       "/internal/account-deleted",
-      { accountId: "acc_x", profileIds: ["usr_x"] },
-      `ARC ${arc}`,
+      {
+        accountId: "acc_host",
+        profileIds: [PROFILE],
+        choices: { [`pulse:event:${gone.id}`]: { choice: "delete" } },
+        deleteEverything: false,
+        email: "host@example.com",
+      },
+      await arc.token("account:erase"),
     );
-    // requireArc reports every failure as an opaque 401 (no scope oracle).
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      kept: { what: string; erasedOn: number; requestUrl: null }[];
+    };
+    expect(body.kept).toHaveLength(1);
+    expect(body.kept[0]!.what).toBe("1 event you hosted, shown to its guests as cancelled");
+    const left = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.promise(() => db.select({ id: events.id }).from(events));
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(left.map((e) => e.id)).toEqual([kept.id]);
+  });
+
+  it("the session end deletes the profiles' web sessions", async () => {
+    const layer = createTestLayer();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.insert(pulseWebSessions).values({
+            id: "pws_1",
+            token: "hash-1",
+            osnProfileId: PROFILE,
+            osnSub: "sub",
+            expiresAt: new Date(Date.now() + 86_400_000),
+            createdAt: new Date(),
+          }),
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+    const res = await post(
+      createInternalRoutes(layer, arc.verification),
+      "/internal/account-sessions/revoke",
+      { accountId: "acc_host", profileIds: [PROFILE] },
+      await arc.token("account:sessions-revoke"),
+    );
+    expect(await res.json()).toEqual({ revoked: 1 });
+    const left = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.promise(() =>
+          db.select().from(pulseWebSessions).where(eq(pulseWebSessions.osnProfileId, PROFILE)),
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(left).toEqual([]);
   });
 });
 
@@ -176,50 +223,13 @@ const seedRsvp = (
   });
 
 describe("internal routes — ARC-gated account-export", () => {
-  async function registerExportKey(app: ReturnType<typeof createInternalRoutes>) {
-    const reg = await post(
-      app,
-      "/internal/register-service",
-      { ...registerBody(), allowedScopes: "account:export" },
-      `Bearer ${SECRET}`,
-    );
-    expect(reg.status).toBe(200);
+  async function exportToken(scope: string) {
+    return (await arc.token(scope)).replace(/^ARC /, "");
   }
-
-  function exportToken(scope: string) {
-    return signArcToken(privateKey, { iss: "osn-api", aud: "pulse-api", scope, kid: KID });
-  }
-
-  it("returns 401 without an ARC token", async () => {
-    const res = await post(createInternalRoutes(createTestLayer()), "/internal/account-export", {
-      account_id: "acc_x",
-      profile_ids: ["usr_x"],
-    });
-    expect(res.status).toBe(401);
-  });
-
-  it("rejects an ARC token with the wrong scope", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await post(
-      app,
-      "/internal/register-service",
-      { ...registerBody(), allowedScopes: "account:erase" },
-      `Bearer ${SECRET}`,
-    );
-    const arc = await exportToken("account:erase");
-    const res = await post(
-      app,
-      "/internal/account-export",
-      { account_id: "acc_x", profile_ids: ["usr_x"] },
-      `ARC ${arc}`,
-    );
-    expect(res.status).toBe(401);
-  });
 
   it("streams NDJSON lines for seeded rsvps / events / close-friends", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
-    await registerExportKey(app);
+    const app = createInternalRoutes(layer, arc.verification);
 
     const event = await Effect.runPromise(
       seedEvent({
@@ -237,12 +247,12 @@ describe("internal routes — ARC-gated account-export", () => {
       seedCloseFriend("usr_export", "usr_friend").pipe(Effect.provide(layer)),
     );
 
-    const arc = await exportToken("account:export");
+    const token = await exportToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
       { account_id: "acc_export", profile_ids: ["usr_export"] },
-      `ARC ${arc}`,
+      `ARC ${token}`,
     );
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/x-ndjson");
@@ -271,16 +281,15 @@ describe("internal routes — ARC-gated account-export", () => {
 
   it("refuses more profile ids than the erasure route accepts, before any read", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
-    await registerExportKey(app);
-    const arc = await exportToken("account:export");
+    const app = createInternalRoutes(layer, arc.verification);
+    const token = await exportToken("account:export");
     const tooMany = Array.from({ length: MAX_ACCOUNT_PROFILE_IDS + 1 }, (_, i) => `usr_${i}`);
 
     const res = await post(
       app,
       "/internal/account-export",
       { account_id: "acc_many", profile_ids: tooMany },
-      `ARC ${arc}`,
+      `ARC ${token}`,
     );
 
     expect(res.status).toBe(422);
@@ -294,14 +303,13 @@ describe("internal routes — ARC-gated account-export", () => {
   });
 
   it("returns 200 with an empty body when profile_ids is empty", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await registerExportKey(app);
-    const arc = await exportToken("account:export");
+    const app = routes();
+    const token = await exportToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
       { account_id: "acc_none", profile_ids: [] },
-      `ARC ${arc}`,
+      `ARC ${token}`,
     );
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("");

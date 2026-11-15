@@ -160,13 +160,57 @@ describe("pulse/api account erasure over real D1 (Miniflare)", () => {
     // real D1.
     await rawDb.run(insertManyViaJsonEach(events, hosted));
 
-    const out = await run(purgeAccount("acc_bulk", ["usr_bulk"]));
+    const out = await run(purgeAccount("acc_bulk", ["usr_bulk"], { deleteEverything: true }));
     expect(out).toMatchObject({ purged: 1, alreadyProcessed: false });
 
     // The whole point: the events are gone, which means the batch committed
     // rather than rolling back on a bind-cap error.
     const left = await rawDb.select({ id: events.id }).from(events).all();
     expect(left.filter((e) => e.id.startsWith("evt_bulk_"))).toHaveLength(0);
+  });
+
+  it("keeps an answered series' instance for its guests and deletes the series, on D1's foreign keys", async () => {
+    // The series has two instances: one answered cancel (kept, taken out of
+    // the series), one deleted with the series' own answer. The series row
+    // can go only once no event names it, which D1 enforces.
+    const { series } = await run(
+      createSeries(
+        {
+          title: "Kept and gone",
+          rrule: "FREQ=WEEKLY;COUNT=2",
+          dtstart: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+        },
+        { createdByProfileId: "usr_keep", createdByName: "Keeper", createdByAvatar: null },
+      ),
+    );
+    const instances = await rawDb
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.seriesId, series.id))
+      .all();
+    expect(instances).toHaveLength(2);
+    const [kept, gone] = instances.map((row) => row.id) as [string, string];
+
+    const out = await run(
+      purgeAccount("acc_keep", ["usr_keep"], {
+        answers: {
+          [`pulse:event:${kept}`]: { choice: "cancel" },
+          [`pulse:series:${series.id}`]: { choice: "delete" },
+        },
+      }),
+    );
+
+    expect(out.kept).toHaveLength(1);
+    const left = await rawDb
+      .select({ id: events.id, seriesId: events.seriesId, status: events.status })
+      .from(events)
+      .where(eq(events.createdByProfileId, "usr_keep"))
+      .all();
+    expect(left).toEqual([{ id: kept, seriesId: null, status: "cancelled" }]);
+    expect(gone).not.toBe(kept);
+    expect(
+      await rawDb.select().from(eventSeries).where(eq(eventSeries.id, series.id)).all(),
+    ).toEqual([]);
   });
 
   it("purgeAccount is idempotent via the replay ledger (batch insert on D1)", async () => {

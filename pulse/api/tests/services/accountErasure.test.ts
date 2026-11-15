@@ -4,11 +4,13 @@ import {
   eventComms,
   eventLineup,
   eventRsvps,
+  eventSeries,
   pulseAccountOnboarding,
   pulseCloseFriends,
   pulseDeletionJobs,
   pulseProfileAccounts,
   pulseUsers,
+  pulseWebSessions,
 } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { eq } from "drizzle-orm";
@@ -202,15 +204,141 @@ describe("pulse account-erasure: requestErasure", () => {
 });
 
 describe("pulse account-erasure: purgeAccount (full-account fan-out)", () => {
-  it.effect("hard-deletes hosted events + all personal data with no grace window", () =>
+  const DAY = 86_400;
+  const soon = () => new Date(Date.now() + DAY * 1_000);
+
+  const eventRow = (id: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const [row] = yield* Effect.promise(() => db.select().from(events).where(eq(events.id, id)));
+      return row;
+    });
+
+  const seedSeries = (id: string, createdByProfileId = PROFILE_ID) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const now = new Date();
+      yield* Effect.promise(() =>
+        db.insert(eventSeries).values({
+          id,
+          title: "Weekly run",
+          rrule: "FREQ=WEEKLY",
+          dtstart: now,
+          materializedThrough: now,
+          createdByProfileId,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+    });
+
+  it.effect(
+    "keeps an upcoming hosted event for its guests by default, and erases the person's own data",
+    () =>
+      Effect.gen(function* () {
+        const { eventId } = yield* seedPulseData();
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .insert(pulseAccountOnboarding)
+            .values({ accountId: ACCOUNT_ID, interests: '["music"]' }),
+        );
+        yield* Effect.promise(() =>
+          db.insert(pulseProfileAccounts).values({ profileId: PROFILE_ID, accountId: ACCOUNT_ID }),
+        );
+        const before = Math.floor(Date.now() / 1_000);
+
+        const result = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]);
+
+        const kept = yield* eventRow(eventId);
+        expect(kept).toMatchObject({ status: "cancelled", cancellationReason: "host_left" });
+        expect(kept!.hardDeleteAt).toBeGreaterThanOrEqual(before + 14 * DAY);
+        expect(result.kept).toEqual([
+          {
+            what: "1 event you hosted, shown to its guests as cancelled",
+            erasedOn: kept!.hardDeleteAt,
+            requestUrl: null,
+          },
+        ]);
+        // The person's own data is gone, the kept event's included: their RSVP
+        // and the message they sent on it.
+        for (const table of [eventRsvps, eventComms, pulseUsers, pulseCloseFriends]) {
+          expect(yield* Effect.promise(() => db.select().from(table))).toEqual([]);
+        }
+        expect(
+          yield* Effect.promise(() =>
+            db
+              .select()
+              .from(pulseAccountOnboarding)
+              .where(eq(pulseAccountOnboarding.accountId, ACCOUNT_ID)),
+          ),
+        ).toEqual([]);
+        expect(
+          yield* Effect.promise(() =>
+            db
+              .select()
+              .from(pulseProfileAccounts)
+              .where(eq(pulseProfileAccounts.profileId, PROFILE_ID)),
+          ),
+        ).toEqual([]);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("deletes an event answered delete: on itself, on its series, or for all events", () =>
+    Effect.gen(function* () {
+      yield* seedSeries("srs_1");
+      const own = yield* seedEvent({
+        title: "Own",
+        startTime: soon(),
+        createdByProfileId: PROFILE_ID,
+      });
+      const inSeries = yield* seedEvent({
+        title: "In series",
+        startTime: soon(),
+        createdByProfileId: PROFILE_ID,
+        seriesId: "srs_1",
+      });
+      const overridden = yield* seedEvent({
+        title: "Overridden",
+        startTime: soon(),
+        createdByProfileId: PROFILE_ID,
+        seriesId: "srs_1",
+      });
+      const byAll = yield* seedEvent({
+        title: "By all",
+        startTime: soon(),
+        createdByProfileId: PROFILE_ID,
+      });
+
+      const result = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID], {
+        answers: {
+          [`pulse:event:${own.id}`]: { choice: "delete" },
+          "pulse:series:srs_1": { choice: "delete" },
+          // Its own answer wins over its series'.
+          [`pulse:event:${overridden.id}`]: { choice: "cancel" },
+          // The rest: only "By all" has no answer of its own or its series'.
+          "pulse:events:all": { choice: "delete" },
+        },
+      });
+
+      expect(yield* eventRow(own.id)).toBeUndefined();
+      expect(yield* eventRow(inSeries.id)).toBeUndefined();
+      expect(yield* eventRow(byAll.id)).toBeUndefined();
+      expect(yield* eventRow(overridden.id)).toMatchObject({ status: "cancelled", seriesId: null });
+      expect(result.kept).toHaveLength(1);
+      // The series goes; its kept instance is out of it.
+      const { db } = yield* Db;
+      expect(yield* Effect.promise(() => db.select().from(eventSeries))).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("under delete everything deletes every hosted event and keeps nothing", () =>
     Effect.gen(function* () {
       const { eventId } = yield* seedPulseData();
       const { db } = yield* Db;
-      // Lineup + onboarding rows for the merge-introduced tables — these
-      // must be purged too.
       yield* Effect.promise(() =>
         db.insert(eventLineup).values({
-          id: "lnp_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+          id: "lnp_1",
           eventId,
           artistName: "DJ Test",
           role: "headliner",
@@ -218,48 +346,73 @@ describe("pulse account-erasure: purgeAccount (full-account fan-out)", () => {
           slotEnd: new Date(Date.now() + 3_600_000),
         }),
       );
-      yield* Effect.promise(() =>
-        db.insert(pulseAccountOnboarding).values({
-          accountId: ACCOUNT_ID,
-          interests: '["music"]',
-        }),
-      );
-      yield* Effect.promise(() =>
-        db.insert(pulseProfileAccounts).values({
-          profileId: PROFILE_ID,
-          accountId: ACCOUNT_ID,
-        }),
-      );
-
-      const result = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]);
-      expect(result.purged).toBe(1);
-
-      const remaining = yield* Effect.promise(() =>
-        db.select().from(events).where(eq(events.createdByProfileId, PROFILE_ID)),
-      );
-      expect(remaining).toHaveLength(0);
-      const lineup = yield* Effect.promise(() =>
-        db.select().from(eventLineup).where(eq(eventLineup.eventId, eventId)),
-      );
-      expect(lineup).toHaveLength(0);
-      const ob = yield* Effect.promise(() =>
-        db
-          .select()
-          .from(pulseAccountOnboarding)
-          .where(eq(pulseAccountOnboarding.accountId, ACCOUNT_ID)),
-      );
-      expect(ob).toHaveLength(0);
-      const pa = yield* Effect.promise(() =>
-        db
-          .select()
-          .from(pulseProfileAccounts)
-          .where(eq(pulseProfileAccounts.profileId, PROFILE_ID)),
-      );
-      expect(pa).toHaveLength(0);
+      const result = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID], {
+        answers: { [`pulse:event:${eventId}`]: { choice: "cancel" } },
+        deleteEverything: true,
+      });
+      expect(yield* eventRow(eventId)).toBeUndefined();
+      expect(yield* Effect.promise(() => db.select().from(eventLineup))).toEqual([]);
+      expect(result.kept).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("replay-protected — second call for the same account is a no-op", () =>
+  it.effect("deletes finished and cancelled hosted events whatever the answers", () =>
+    Effect.gen(function* () {
+      const finished = yield* seedEvent({
+        title: "Done",
+        startTime: new Date(Date.now() - DAY * 1_000),
+        status: "finished",
+        createdByProfileId: PROFILE_ID,
+      });
+      const cancelled = yield* seedEvent({
+        title: "Off",
+        startTime: soon(),
+        status: "cancelled",
+        createdByProfileId: PROFILE_ID,
+      });
+      const result = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]);
+      expect(yield* eventRow(finished.id)).toBeUndefined();
+      expect(yield* eventRow(cancelled.id)).toBeUndefined();
+      expect(result.kept).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("leaves another host's events and series alone", () =>
+    Effect.gen(function* () {
+      yield* seedSeries("srs_other", "usr_other");
+      const theirs = yield* seedEvent({
+        title: "Theirs",
+        startTime: soon(),
+        createdByProfileId: "usr_other",
+        seriesId: "srs_other",
+      });
+      yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID], { deleteEverything: true });
+      expect(yield* eventRow(theirs.id)).toMatchObject({
+        status: "upcoming",
+        seriesId: "srs_other",
+      });
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("ends the person's web sessions", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.insert(pulseWebSessions).values({
+          id: "pws_1",
+          token: "hash-1",
+          osnProfileId: PROFILE_ID,
+          osnSub: "sub",
+          expiresAt: new Date(Date.now() + DAY * 1_000),
+          createdAt: new Date(),
+        }),
+      );
+      yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]);
+      expect(yield* Effect.promise(() => db.select().from(pulseWebSessions))).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a repeat writes nothing and answers the same kept list", () =>
     Effect.gen(function* () {
       yield* seedPulseData();
       const first = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]);
@@ -267,6 +420,26 @@ describe("pulse account-erasure: purgeAccount (full-account fan-out)", () => {
       const second = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]);
       expect(second.alreadyProcessed).toBe(true);
       expect(second.purged).toBe(0);
+      expect(second.kept).toEqual(first.kept);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("answers one kept item for a long series, within the contract's bound", () =>
+    Effect.gen(function* () {
+      yield* seedSeries("srs_long");
+      for (let i = 0; i < 260; i += 1) {
+        yield* seedEvent({
+          title: `Week ${i}`,
+          startTime: new Date(Date.now() + (i + 1) * 7 * DAY * 1_000),
+          createdByProfileId: PROFILE_ID,
+          seriesId: "srs_long",
+        });
+      }
+      const result = yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]);
+      expect(result.kept).toHaveLength(1);
+      expect(result.kept[0]!.what).toBe(
+        "260 events you hosted, shown to their guests as cancelled",
+      );
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -274,6 +447,138 @@ describe("pulse account-erasure: purgeAccount (full-account fan-out)", () => {
     Effect.gen(function* () {
       const r = yield* accountErasure.purgeAccount(ACCOUNT_ID, []);
       expect(r.purged).toBe(0);
+      expect(r.kept).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+describe("pulse account-erasure: previewDeletion", () => {
+  const DELETES_AT = 1_900_000_000;
+  const soon = (days: number) => new Date(Date.now() + days * 86_400_000);
+
+  it.effect(
+    "lists one action per series and per other upcoming event, soonest first, cancel by default",
+    () =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        const now = new Date();
+        yield* Effect.promise(() =>
+          db.insert(eventSeries).values({
+            id: "srs_1",
+            title: "Weekly run",
+            rrule: "FREQ=WEEKLY",
+            dtstart: now,
+            materializedThrough: now,
+            createdByProfileId: PROFILE_ID,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
+        const picnic = yield* seedEvent({
+          title: "Picnic",
+          startTime: soon(1),
+          createdByProfileId: PROFILE_ID,
+        });
+        yield* seedEvent({
+          title: "Run 1",
+          startTime: soon(2),
+          createdByProfileId: PROFILE_ID,
+          seriesId: "srs_1",
+        });
+        yield* seedEvent({
+          title: "Run 2",
+          startTime: soon(9),
+          createdByProfileId: PROFILE_ID,
+          seriesId: "srs_1",
+        });
+        yield* seedEvent({
+          title: "Old",
+          startTime: soon(-1),
+          status: "finished",
+          createdByProfileId: PROFILE_ID,
+        });
+        yield* seedEvent({
+          title: "Off",
+          startTime: soon(3),
+          status: "cancelled",
+          createdByProfileId: PROFILE_ID,
+        });
+        yield* seedEvent({
+          title: "Not mine",
+          startTime: soon(1),
+          createdByProfileId: "usr_other",
+        });
+
+        const actions = yield* accountErasure.previewDeletion([PROFILE_ID], DELETES_AT);
+
+        expect(actions.map((a) => [a.id, a.label])).toEqual([
+          [
+            `pulse:event:${picnic.id}`,
+            `You host "Picnic", starting ${soon(1).toISOString().slice(0, 10)}.`,
+          ],
+          ["pulse:series:srs_1", 'You host 2 upcoming events of "Weekly run".'],
+        ]);
+        for (const action of actions) {
+          expect(action.defaultChoice).toBe("cancel");
+          expect(action.choices.map((c) => [c.choice, c.erasedOn])).toEqual([
+            ["cancel", DELETES_AT + 14 * 86_400],
+            ["delete", null],
+          ]);
+        }
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("lists nothing for a profile that hosts nothing", () =>
+    Effect.gen(function* () {
+      yield* seedEvent({ title: "Not mine", startTime: soon(1), createdByProfileId: "usr_other" });
+      expect(yield* accountErasure.previewDeletion([PROFILE_ID], DELETES_AT)).toEqual([]);
+      expect(yield* accountErasure.previewDeletion([], DELETES_AT)).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("past 100 actions, lists one action for every upcoming event", () =>
+    Effect.gen(function* () {
+      for (let i = 0; i < 101; i += 1) {
+        yield* seedEvent({
+          title: `E${i}`,
+          startTime: soon(i + 1),
+          createdByProfileId: PROFILE_ID,
+        });
+      }
+      const actions = yield* accountErasure.previewDeletion([PROFILE_ID], DELETES_AT);
+      expect(actions.map((a) => [a.id, a.label])).toEqual([
+        ["pulse:events:all", "You host 101 upcoming events."],
+      ]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+describe("pulse account-erasure: revokeWebSessions", () => {
+  it.effect("deletes the profiles' web sessions and nobody else's", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const session = (id: string, osnProfileId: string) => ({
+        id,
+        token: `hash-${id}`,
+        osnProfileId,
+        osnSub: "sub",
+        expiresAt: new Date(Date.now() + 86_400_000),
+        createdAt: new Date(),
+      });
+      yield* Effect.promise(() =>
+        db
+          .insert(pulseWebSessions)
+          .values([
+            session("pws_1", PROFILE_ID),
+            session("pws_2", PROFILE_ID),
+            session("pws_3", "usr_other"),
+          ]),
+      );
+      expect(yield* accountErasure.revokeWebSessions([PROFILE_ID])).toBe(2);
+      const left = yield* Effect.promise(() =>
+        db.select({ id: pulseWebSessions.id }).from(pulseWebSessions),
+      );
+      expect(left).toEqual([{ id: "pws_3" }]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

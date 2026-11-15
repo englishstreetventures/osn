@@ -141,7 +141,7 @@ describe("accountErasure.ts purgeAccount", () => {
     );
 
     const result = await Effect.runPromise(
-      purgeAccount("acc_host", [HOST]).pipe(Effect.provide(layer)),
+      purgeAccount("acc_host", [HOST], { deleteEverything: true }).pipe(Effect.provide(layer)),
     );
     expect(result).toMatchObject({ purged: 1, alreadyProcessed: false });
 
@@ -186,8 +186,9 @@ describe("accountErasure.ts purgeAccount", () => {
     expect(result).toMatchObject({ purged: 50, alreadyProcessed: false });
 
     expect(captured.length).toBeGreaterThan(0);
-    // The ledger insert binds three columns; nothing grows with the list.
-    expect(captured.filter((c) => c.params.length > 3).map((c) => c.sql)).toEqual([]);
+    // The kept-event update binds its six columns and the id list, the ledger
+    // insert three; nothing grows with the list.
+    expect(captured.filter((c) => c.params.length > 7).map((c) => c.sql)).toEqual([]);
     const closeFriends = findStatement(captured, 'delete from "pulse_close_friends"');
     expect(closeFriends.params).toHaveLength(2);
   });

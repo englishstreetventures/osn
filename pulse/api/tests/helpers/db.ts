@@ -74,6 +74,8 @@ export interface SeedEventInput {
   priceCurrency?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  /** The series the event is an instance of; the series row must exist. */
+  seriesId?: string | null;
 }
 
 /**
@@ -127,7 +129,7 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       allowInterested: input.allowInterested ?? true,
       commsChannels: JSON.stringify(input.commsChannels ?? ["email"]),
       chatId: input.chatId ?? null,
-      seriesId: null,
+      seriesId: input.seriesId ?? null,
       instanceOverride: false,
       createdByProfileId: input.createdByProfileId ?? "usr_alice",
       createdByName: input.createdByName ?? "Alice",
