@@ -1,5 +1,13 @@
 # @osn/ui
 
+## 6.1.1
+
+### Patch Changes
+
+- 3437d4a: `StepUpDialog` offers a passkey, the emailed link and an authenticator code for the new `account_restore` purpose, the factors `POST /account/restore` accepts.
+- Updated dependencies [3437d4a]
+  - @osn/client@4.0.0
+
 ## 6.1.0
 
 ### Minor Changes

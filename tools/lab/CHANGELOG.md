@@ -1,5 +1,14 @@
 # @tools/lab
 
+## 0.3.66
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+- Updated dependencies [3437d4a]
+  - @osn/auth-ui@6.1.1
+  - @osn/client@4.0.0
+
 ## 0.3.65
 
 ### Patch Changes

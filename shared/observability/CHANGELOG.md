@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.25.0
+
+### Minor Changes
+
+- 3437d4a: Add the attribute values account erasure reports: `StepUpPurpose` gains `account_restore`, `DeletionCompletedResult` gains `hard_failed` (a hard delete the sweep could not finish and will try again), and `AuthRateLimitedEndpoint` gains `account_deletion_preview`.
+
 ## 0.24.2
 
 ### Patch Changes
