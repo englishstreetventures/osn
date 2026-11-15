@@ -230,37 +230,46 @@ describe("refreshTokens: the profile a grant names", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.live("hands out no token for a profile deleted while the grant runs", () => {
-    const { db, sqlite, email } = createTestLayerWithSqlite();
-    const queries = holdQueries(db);
-    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
-    return Effect.gen(function* () {
-      const { profile, refreshToken } = yield* signIn("mid-delete@example.com", "middelete");
-      const second = yield* addProfile(profile.accountId, "middelete2");
+  /** The statements of a rotation, in the order `refreshTokens` runs them. */
+  const ROTATION_STEPS: ReadonlyArray<{ readonly step: string; readonly pattern: RegExp }> = [
+    { step: "insert of the new session", pattern: /^insert into "sessions"/ },
+    { step: "rotation record", pattern: /^insert into "rotated_sessions"/ },
+    { step: "swap", pattern: /^delete from "sessions"/ },
+  ];
 
-      const mint = queries.hold(/^insert into "sessions"/);
-      const grant = yield* Effect.forkChild(
-        Effect.result(auth.refreshTokens(refreshToken, second)),
-      );
-      yield* Effect.promise(() => mint.reached);
-      sqlite.run("DELETE FROM users WHERE id = ?", [second]);
-      mint.release();
-      const outcome = yield* Fiber.join(grant);
+  for (const { step, pattern } of ROTATION_STEPS) {
+    it.live(`hands out no token for a profile deleted while the grant is at its ${step}`, () => {
+      const { db, sqlite, email } = createTestLayerWithSqlite();
+      const queries = holdQueries(db);
+      const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+      return Effect.gen(function* () {
+        const { profile, refreshToken } = yield* signIn("mid-delete@example.com", "middelete");
+        const second = yield* addProfile(profile.accountId, "middelete2");
 
-      expect(outcome._tag).toBe("Failure");
-      if (outcome._tag === "Failure") {
-        expect(outcome.failure.message).toBe(ROTATION_RACE_MESSAGE);
-      }
-      const left = sqlite
-        .query("SELECT id FROM sessions WHERE account_id = ?")
-        .all(profile.accountId) as { id: string }[];
-      expect(left.map((row) => row.id)).toEqual([hashSessionToken(refreshToken)]);
-      expect(sqlite.query("SELECT token_hash FROM rotated_sessions").all()).toEqual([]);
-      // The retry reads the profile gone, and is refused.
-      const retry = yield* Effect.flip(auth.refreshTokens(refreshToken, second));
-      expect(retry.message).toBe("Invalid or expired session");
-    }).pipe(Effect.provide(layer));
-  });
+        const held = queries.hold(pattern);
+        const grant = yield* Effect.forkChild(
+          Effect.result(auth.refreshTokens(refreshToken, second)),
+        );
+        yield* Effect.promise(() => held.reached);
+        sqlite.run("DELETE FROM users WHERE id = ?", [second]);
+        held.release();
+        const outcome = yield* Fiber.join(grant);
+
+        expect(outcome._tag).toBe("Failure");
+        if (outcome._tag === "Failure") {
+          expect(outcome.failure.message).toBe(ROTATION_RACE_MESSAGE);
+        }
+        const left = sqlite
+          .query("SELECT id FROM sessions WHERE account_id = ?")
+          .all(profile.accountId) as { id: string }[];
+        expect(left.map((row) => row.id)).toEqual([hashSessionToken(refreshToken)]);
+        expect(sqlite.query("SELECT token_hash FROM rotated_sessions").all()).toEqual([]);
+        // The retry reads the profile gone, and is refused.
+        const retry = yield* Effect.flip(auth.refreshTokens(refreshToken, second));
+        expect(retry.message).toBe("Invalid or expired session");
+      }).pipe(Effect.provide(layer));
+    });
+  }
 
   it.effect("F22: a restricted recovery session ignores the profile it names", () =>
     Effect.gen(function* () {

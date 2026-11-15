@@ -962,8 +962,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // session does, and their retry renews.
       const refusedOnceMarked = replacedAt === null && !namedOwnLive;
       // The profile minted for is still this account's when the new session
-      // is written; one deleted since the read leaves the grant a rotation
-      // race, and its retry reads the profiles as they are.
+      // is written and when the old one is swapped out (the two are one batch
+      // on D1, separate statements on bun:sqlite); one deleted since the read
+      // leaves the grant a rotation race, and its retry reads the profiles as
+      // they are.
       const profileStands = exists(
         db
           .select({ one: sql`1` })
@@ -1040,7 +1042,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             .where(newRow),
         );
       // 3. The compare-and-swap: the old session goes only while the new one
-      //    stands. The grant succeeds only if both rows stood at this moment.
+      //    stands and the profile minted for is still the account's. The
+      //    grant succeeds only if all three held at this moment.
       const swap = () =>
         db.delete(sessions).where(
           and(
@@ -1051,6 +1054,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
                 .from(sessions)
                 .where(newRow),
             ),
+            profileStands,
           ),
         );
 
@@ -1136,8 +1140,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         // Lost: the old row was present at verify but gone, or the new one
         // gone, by the swap. A concurrent grant of this SAME token rotated it
         // (two tabs bootstrapping on reload, a cold-start bootstrap racing a
-        // 401-refresh, a retried grant), or a delete took the family or the
-        // account mid-grant. Never reuse: a replay of an already-rotated token
+        // 401-refresh, a retried grant), a delete took the family or the
+        // account mid-grant, or the profile minted for was deleted. Never reuse: a replay of an already-rotated token
         // fails `verifyRefreshToken` and goes down `detectReuse` instead. The
         // family is preserved; this grant removes what it wrote — its new row,
         // and its record when that record landed — and fails.
