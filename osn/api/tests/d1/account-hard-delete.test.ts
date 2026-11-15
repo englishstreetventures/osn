@@ -127,9 +127,21 @@ async function organisation(ownerId: string, handle: string, members: ReadonlyAr
 /** The hard delete's clock: Unix seconds, past every window these tests open. */
 const HARD_DELETE_AT = 2_000_000_000;
 
-/** Soft-deletes the account with `choices`, then hard-deletes it at {@link HARD_DELETE_AT}. */
+/** Marks every app done on the account's job, as the fan-out does once each has answered. */
+async function everyAppDone(accountId: string) {
+  await db
+    .update(deletionJobs)
+    .set({ pulseDoneAt: HARD_DELETE_AT - 1, zapDoneAt: HARD_DELETE_AT - 1 })
+    .where(eq(deletionJobs.accountId, accountId));
+}
+
+/**
+ * Soft-deletes the account with `choices`, marks every app done, then
+ * hard-deletes it at {@link HARD_DELETE_AT}.
+ */
 async function purge(accountId: string, choices?: ErasureChoices) {
   await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest, choices }));
+  await everyAppDone(accountId);
   const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
   return run(hardDeleteAccount(job!, HARD_DELETE_AT));
 }
@@ -188,11 +200,8 @@ describe("an account enrolled in an app, hard-deleted on D1", () => {
       { id: newId("aenr_"), accountId, app: "pulse", joinedAt: 1_000, leftAt: null },
     ]);
     await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest }));
-    // Enrolled in Pulse, so the job waits on its purge; the fan-out marks it.
-    await db
-      .update(deletionJobs)
-      .set({ pulseDoneAt: HARD_DELETE_AT - 1 })
-      .where(eq(deletionJobs.accountId, accountId));
+    // The job waits on every app; the fan-out marks each.
+    await everyAppDone(accountId);
     const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
 
     const result = await run(hardDeleteAccount(job!, HARD_DELETE_AT));
