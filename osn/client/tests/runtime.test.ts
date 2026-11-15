@@ -627,12 +627,11 @@ describe("authFetch on the page's runtime", () => {
   });
 
   it("F18: a stored account that names no profile renews naming the empty id, which is refused", async () => {
-    // osn-api refuses `profile_id=` by its pattern, before any grant
-    // (`osn/api/tests/routes/token-grant-profile.test.ts`), rather than
-    // minting the cookie account's default profile.
+    // osn-api refuses `profile_id=` before any grant, as it refuses a profile
+    // the account does not own (`osn/api/tests/routes/token-grant-profile.test.ts`),
+    // rather than minting the cookie account's default profile.
     const fetches = stubFetch({
-      token: (call) =>
-        namedProfile(call) === "" ? json(422, { type: "validation" }) : grant(call),
+      token: (call) => (namedProfile(call) === "" ? refused() : grant(call)),
     });
     const { runtime, changes, stored } = await harness({ active: "" });
 
@@ -647,8 +646,7 @@ describe("authFetch on the page's runtime", () => {
 
   it("F18b: ... and so does its reload, which loads no session and forgets the stored account", async () => {
     const fetches = stubFetch({
-      token: (call) =>
-        namedProfile(call) === "" ? json(422, { type: "validation" }) : grant(call),
+      token: (call) => (namedProfile(call) === "" ? refused() : grant(call)),
     });
     const { runtime, stored } = await harness({ active: "" });
 
@@ -945,6 +943,43 @@ describe("authFetch on the page's runtime", () => {
       expect(stored()).toBeNull();
     },
   );
+
+  it("F47: a renewal for a profile deleted while it was out keeps no token for it, and its request is not sent", async () => {
+    // The issuer minted for the profile before the delete committed.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const defaults = [THIRD, DEFAULT];
+    let apiCalls = 0;
+    const fetches = stubFetch({
+      token: async (call) => {
+        await released;
+        return grant(call);
+      },
+      api: (call) => {
+        if (call.url === `${ISSUER}/profiles/delete`) {
+          return json(200, { deleted: true, default_profile_id: defaults.shift() });
+        }
+        apiCalls += 1;
+        return apiCalls === 1 ? json(401) : json(200, { ok: true });
+      },
+    });
+    const { runtime } = await harness({ active: OTHER, token: token(OTHER, 120_000) });
+
+    const pending = rejection(runtime.authFetch(API));
+    await vi.waitFor(() => expect(fetches.to("/token")).toHaveLength(1));
+    await deleteProfile(runtime, OTHER);
+    release();
+    const err = await pending;
+
+    expect(tagOf(err)).toBe("ActiveProfileResetError");
+    expect(fetches.api()).toHaveLength(1);
+    // Had the renewal kept its token, deleting the active profile now would
+    // make the deleted one active again, as the profile it holds a token for.
+    await deleteProfile(runtime, THIRD);
+    expect(await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getActiveProfile()))).toBe(
+      DEFAULT,
+    );
+  });
 
   it("F31: concurrent refusals end the session once, and a throwing listener stops no other", async () => {
     const thrown: unknown[] = [];

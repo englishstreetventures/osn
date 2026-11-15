@@ -79,24 +79,25 @@ describe("POST /token profile_id", () => {
 
   // A page whose active profile id is empty sends it as `profile_id=`. Read as
   // "none", the grant would mint the cookie account's default profile for a
-  // page that may hold another account; refused, the page signs out.
-  it("refuses an empty profile_id before any grant, rather than reading it as none", async () => {
-    const { app, grants } = recordingApp();
+  // page that may hold another account. Refused like a grant naming a profile
+  // the account does not own, the marker goes with it, so the next cold load
+  // does not take up the cookie's account either.
+  it.each([
+    ["an empty profile_id", ""],
+    ["a value that is not a profile id", "usr_0123456789ab' OR 1=1"],
+  ])(
+    "refuses %s before any grant, and retracts the marker but not the session cookie",
+    async (_name, profileId) => {
+      const { app, grants } = recordingApp();
 
-    const res = await grant(app, { profile_id: "" });
+      const res = await grant(app, { profile_id: profileId });
 
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
-    expect(grants).toEqual([]);
-  });
-
-  it("refuses a value that is not a profile id, before any grant", async () => {
-    const { app, grants } = recordingApp();
-
-    const res = await grant(app, { profile_id: "usr_0123456789ab' OR 1=1" });
-
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
-    expect(grants).toEqual([]);
-  });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error?: string }).error).toBe("invalid_grant");
+      const cookies = res.headers.getSetCookie();
+      expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+      expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(false);
+      expect(grants).toEqual([]);
+    },
+  );
 });

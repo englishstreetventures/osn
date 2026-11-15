@@ -15178,7 +15178,6 @@
                     "type": "string"
                   },
                   "profile_id": {
-                    "pattern": "^usr_[a-z0-9_]{1,64}$",
                     "type": "string"
                   }
                 },
@@ -15195,7 +15194,6 @@
                     "type": "string"
                   },
                   "profile_id": {
-                    "pattern": "^usr_[a-z0-9_]{1,64}$",
                     "type": "string"
                   }
                 },
@@ -15212,7 +15210,6 @@
                     "type": "string"
                   },
                   "profile_id": {
-                    "pattern": "^usr_[a-z0-9_]{1,64}$",
                     "type": "string"
                   }
                 },
