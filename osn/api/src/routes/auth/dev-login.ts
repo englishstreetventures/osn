@@ -207,6 +207,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
       }
       if (!profile) return null;
 
+      // `findProfileById` finds no account whose deletion is pending.
       const session = yield* auth.issueTokens(
         profile.id,
         profile.accountId,
@@ -215,6 +216,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
         profile.displayName,
         undefined,
         sessionMetaFrom(headers, socketIp),
+        null,
       );
       return { profile, session };
     });

@@ -31,6 +31,7 @@ import {
 import {
   CHALLENGE_CLAIM_MARGIN_MS,
   CHALLENGE_TTL_MS,
+  DELETED_HANDLE_PREFIX,
   MAX_PASSKEYS_PER_ACCOUNT,
   RECOVERY_ENROLMENT_PASSKEY_CEILING,
 } from "./constants";
@@ -265,6 +266,13 @@ export function createPasskeysModule(
         }
       }
 
+      // The authenticator keeps this label for the credential's life, so a
+      // profile the soft delete renamed (`deleted_…`) is labelled with the
+      // account's email rather than a name a cancel would replace.
+      const label = profile.handle.startsWith(DELETED_HANDLE_PREFIX)
+        ? account.email
+        : `@${profile.handle}`;
+
       const options = yield* Effect.tryPromise({
         try: () =>
           generateRegistrationOptions({
@@ -273,8 +281,8 @@ export function createPasskeysModule(
             // A copy, so the bytes sit on a plain ArrayBuffer whichever runtime
             // typed the encoder.
             userID: new Uint8Array(textEncoder.encode(account.passkeyUserId)),
-            userName: `@${profile.handle}`,
-            userDisplayName: profile.displayName ?? `@${profile.handle}`,
+            userName: label,
+            userDisplayName: profile.displayName ?? label,
             attestationType: "none",
             excludeCredentials: existingPasskeys.map((pk) => ({
               id: pk.credentialId,
@@ -985,6 +993,8 @@ export function createPasskeysModule(
             : Effect.void,
         ),
       );
+      // Every finder above reads the account row, so `accountDeletedAt` rides
+      // along and choosing the token's audience needs no further read.
       const session = yield* issueTokens(
         profile.id,
         profile.accountId,
@@ -993,6 +1003,7 @@ export function createPasskeysModule(
         profile.displayName,
         undefined,
         sessionMeta,
+        profile.accountDeletedAt,
       );
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("passkey"));

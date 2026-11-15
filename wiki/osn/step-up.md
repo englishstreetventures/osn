@@ -8,7 +8,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-15
 ---
 
 # Step-up (sudo) tokens
@@ -18,8 +18,8 @@ The most sensitive endpoints require short-lived, high-assurance tokens. A stole
 ## When step-up is required
 
 There are **four** allow-lists, not three, and only three of them are config
-knobs. `recoveryGenerateAllowedAmr` is read by five separate verifiers despite
-its name, so widening it widens all five — the table below is by gate rather
+knobs. `recoveryGenerateAllowedAmr` is read by six separate verifiers despite
+its name, so widening it widens all six — the table below is by gate rather
 than by knob for exactly that reason.
 
 | Gate | Allow-list | `webauthn` | `otp` | `totp` |
@@ -27,6 +27,7 @@ than by knob for exactly that reason.
 | `POST /recovery/generate` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `DELETE /account` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `GET /account/export` (DSAR) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
+| `POST /account/restore` (cancel a pending deletion) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /account/security-events/:id/ack` + `/ack-all` | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `/internal/step-up/verify` (Pulse / Zap app delete) | `recoveryGenerateAllowedAmr` | yes | yes | **yes** |
 | `POST /passkey/register/{begin,complete}` | `passkeyRegisterAllowedAmr` | yes | yes | **yes** |
@@ -217,6 +218,7 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 | `recovery_generate` | `POST /recovery/generate` |
 | `account_delete` | account deletion |
 | `account_export` | account export |
+| `account_restore` | `POST /account/restore`, which cancels a pending deletion |
 | `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` |
 | `passkey_register` | `POST /passkey/register/{begin,complete}` past the first credential |
 | `passkey_delete` | `DELETE /passkeys/:id` **and** `PATCH /passkeys/:id` — rename shares the claim |
@@ -228,6 +230,8 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 The union lives in `StepUpPurpose` (`shared/observability/src/metrics/attrs.ts`), mirrored client-side as `StepUpPurpose` in `@osn/client` so the browser SDK stays free of a server dep. `StepUpDialog` takes a `purpose` prop and forwards it to whichever `/complete` route the user picks.
 
 A gate that names a purpose rejects a **purposeless** token too — there is no accept-legacy fallback, so any new client of such a gate must send `purpose`.
+
+**A pending-deletion session mints two purposes only.** The step-up routes admit the access token of an account whose deletion is pending ([[sessions#The pending-deletion session]]) for `account_export` and `account_restore`, and for nothing else: passkey and TOTP complete refuse it with no purpose or another one, before the challenge is taken or the code counted; email begin refuses another purpose; and email status and resend answer `expired`, sending nothing, for a link begun for another purpose, one begun before the deletion included. Passkey begin takes no purpose and only parks a challenge, so it admits the token. Tests: `osn/api/tests/routes/pending-deletion-session.test.ts`.
 
 ## Token shape
 

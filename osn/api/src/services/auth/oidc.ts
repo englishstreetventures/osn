@@ -25,7 +25,7 @@
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-import { oauthAuthorizationCodes, oauthClients, oauthConsents } from "@osn/db/schema";
+import { accounts, oauthAuthorizationCodes, oauthClients, oauthConsents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { rowsChanged } from "@shared/db-utils";
 import { and, eq, isNull, lte } from "drizzle-orm";
@@ -841,6 +841,48 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     });
 
   /**
+   * For `/authorize`: whether the account may sign in to a relying party at
+   * all (it exists and no deletion is pending), and its live consent for
+   * `clientId` as {@link findConsent} answers it, in one statement. Null when
+   * the account is gone or its deletion is pending.
+   */
+  const findAuthorizingConsent = (
+    accountId: string,
+    clientId: string,
+  ): Effect.Effect<
+    { consent: { id: string; profileId: string; scope: string } | null } | null,
+    DatabaseError,
+    Db
+  > =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              deletedAt: accounts.deletedAt,
+              id: oauthConsents.id,
+              profileId: oauthConsents.profileId,
+              scope: oauthConsents.scope,
+              revokedAt: oauthConsents.revokedAt,
+            })
+            .from(accounts)
+            .leftJoin(
+              oauthConsents,
+              and(eq(oauthConsents.accountId, accounts.id), eq(oauthConsents.clientId, clientId)),
+            )
+            .where(eq(accounts.id, accountId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const row = rows[0];
+      if (!row || row.deletedAt !== null) return null;
+      if (row.id === null || row.profileId === null || row.scope === null) return { consent: null };
+      if (row.revokedAt !== null) return { consent: null };
+      return { consent: { id: row.id, profileId: row.profileId, scope: row.scope } };
+    });
+
+  /**
    * Records (or widens) a consent. Returns `true` when this is the first link
    * between the account and the relying party, or a re-link after a revoke,
    * which are the events worth counting — later re-authorizations are not new
@@ -1499,7 +1541,21 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       }
 
       const { accountId, authTime } = session;
-      const consent = yield* findConsent(accountId, request.client.clientId);
+
+      // An account whose deletion is pending signs in to no relying party,
+      // first-party or not: refused here, before either branch below can
+      // record a consent or mint a code, with the refusal every relying party
+      // already handles. The account and its consent come from one read.
+      const authorizing = yield* findAuthorizingConsent(accountId, request.client.clientId);
+      if (authorizing === null) {
+        return {
+          kind: "error" as const,
+          code: "access_denied" as const,
+          description: "Access denied",
+        };
+      }
+
+      const { consent } = authorizing;
       const consentUsable =
         consent !== null && scopeCovers(consent.scope, request.scope) && !prompts.has("consent");
 

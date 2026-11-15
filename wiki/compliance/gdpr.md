@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-15
 ---
 
 # GDPR + UK GDPR
@@ -60,7 +60,7 @@ high-impact ones, in priority order:
 
 1. **Account-level data export endpoint** — `GET /account/export` (auth + step-up gated). JSON bundle including: account row, all profiles, social-graph edges, blocks, RSVPs (via Pulse ARC fan-out), chat membership (via Zap ARC fan-out), security events, sessions metadata, recovery-code usage history. Streaming JSON (multi-MB plausible). Rate-limited 1/day/account. Owner: Identity team.
 
-2. **Account-level erasure endpoint** — `DELETE /account` (auth + step-up gated, second confirmation, 7-day soft-delete window, then hard delete). Cascades via ARC to Pulse + Zap. Replaces user-visible profile rows with a deletion tombstone (`deleted_account_<id>` placeholder so RSVP histories remain queryable for the host without naming the deleted user).
+2. **Account-level erasure endpoint** — `DELETE /account` (auth + step-up gated, second confirmation, 7-day soft-delete window, then hard delete). Cascades via ARC to Pulse; Zap has no receiver and is never called ([[dsar]]). Redacts each profile at the soft delete (handle `deleted_<id>`, display name and avatar cleared) and deletes it at the hard delete; the flow is in [[dsar]].
 
 3. **Photon geocoder keystroke leak** — proxy through `@pulse/api` so Photon never sees the user IP, debounce server-side, and add a one-time consent dialog on first use ("Location lookups are sent to Photon, an open-source geocoder, to convert what you type into coordinates").
 
@@ -70,7 +70,7 @@ high-impact ones, in priority order:
 
 6. **DSAR runbook** — an operational doc that covers ID verification, the 30-day clock, the unverified-request response, the "manifestly unfounded" denial path, and where to log requests for audit. See [[dsar]].
 
-7. **Retention enforcement** — schedule documented + tested deletes for: dev OTP/magic store sweep, security_events older than 12 months, sessions older than 30 days (already auto-expire), Grafana logs (already 50 GB rolling), Pulse RSVPs of cancelled events, deletion tombstones older than 30 days. Cron job in `osn/api` or sidecar. See [[retention]].
+7. **Retention enforcement** — schedule documented + tested deletes for: dev OTP/magic store sweep, security_events older than 12 months, sessions older than 30 days (already auto-expire), Grafana logs (already 50 GB rolling), Pulse RSVPs of cancelled events. Built for osn-api: `security_events` past 12 months, `email_changes` past 90 days and released handle holds, on its 6-hourly cron. See [[retention]].
 
 8. **DPIA template + filings** — one for Pulse event special-category exposure, one for Zap M3 org-chat transcripts (before M3 ships), one for Zap M4 locality channels (before M4 ships), and the **cire guest-data DPIA** ([[dpia/cire-guest-data]]) **filed with the cire merge — the gating dietary-consent affordance (the dietary consent gate) shipped PR #123; sign-off now turns only on the residual retention items**.
 

@@ -111,6 +111,9 @@ export function createAuthService(config: AuthConfig) {
     verifyRefreshToken: tokens.verifyRefreshToken,
     verifyAccessToken: tokens.verifyAccessToken,
     verifyRecoveryAccessToken: tokens.verifyRecoveryAccessToken,
+    // The pending-deletion audience; `resolveAccountWindowPrincipal` is its
+    // one caller.
+    verifyPendingDeletionAccessToken: tokens.verifyPendingDeletionAccessToken,
     switchProfile: profileSwitch.switchProfile,
     listAccountProfiles: profileSwitch.listAccountProfiles,
     beginPasskeyRegistration: passkeys.beginPasskeyRegistration,
@@ -168,6 +171,7 @@ export function createAuthService(config: AuthConfig) {
     completeStepUpTotp: totp.completeStepUpTotp,
     verifyStepUpForAccountDelete: stepUp.verifyStepUpForAccountDelete,
     verifyStepUpForAccountExport: stepUp.verifyStepUpForAccountExport,
+    verifyStepUpForAccountRestore: stepUp.verifyStepUpForAccountRestore,
     verifyStepUpForExternalPurpose: stepUp.verifyStepUpForExternalPurpose,
     issueStepUpToken: stepUp.issueStepUpToken,
     listAccountSessions: sessions.listAccountSessions,
@@ -197,6 +201,9 @@ export function createAuthService(config: AuthConfig) {
     listOwnedOidcClients: oidc.listOwnedClients,
     disableOwnedOidcClient: oidc.disableOwnedClient,
     hashSessionToken: (token: string) => hashSessionToken(token),
+    // The `handle_holds` digest, for the services outside auth that write or
+    // read holds: profile and organisation creation, and the soft delete.
+    heldHandleDigest: ctx.heldHandleDigest,
   };
 }
 

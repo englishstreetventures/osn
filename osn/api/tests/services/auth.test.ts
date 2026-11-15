@@ -1,15 +1,18 @@
 import { createHash } from "node:crypto";
 
 import { it, expect, describe } from "@effect/vitest";
-import { passkeys } from "@osn/db/schema";
+import { handleHolds, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Deferred, Effect, Layer, Logger, References } from "effect";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
+import * as authConstants from "../../src/services/auth/constants";
 import { createServerMac } from "../../src/services/auth/server-mac";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
+import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
@@ -36,6 +39,7 @@ function makeAuth() {
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
+const orgs = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
@@ -96,6 +100,30 @@ describe("registerProfile", () => {
       const error = yield* Effect.flip(auth.registerProfile("dan2@example.com", "dan"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Handle already taken");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // Profiles and organisations share one handle namespace.
+  it.effect("fails if an organisation has the handle", () =>
+    Effect.gen(function* () {
+      const dan = yield* auth.registerProfile("dan@example.com", "dan");
+      yield* orgs.createOrganisation(dan.id, "danorg", "Dan Org");
+      const error = yield* Effect.flip(auth.registerProfile("dan2@example.com", "danorg"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle already taken");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // A soft delete renames each profile to `deleted_` and its id's suffix. A
+  // live profile already holding that name would make the rename, and with
+  // it the deletion, fail.
+  it.effect("refuses a handle in the form a soft delete gives a profile", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        auth.registerProfile("dan@example.com", "deleted_0123456789ab"),
+      );
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle is reserved");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -173,6 +201,20 @@ describe("checkHandle", () => {
     Effect.gen(function* () {
       const result = yield* auth.checkHandle("admin");
       expect(result.available).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns available:false for an organisation's handle", () =>
+    Effect.gen(function* () {
+      const grace = yield* auth.registerProfile("grace@example.com", "grace");
+      yield* orgs.createOrganisation(grace.id, "graceorg", "Grace Org");
+      expect(yield* auth.checkHandle("graceorg")).toEqual({ available: false });
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns available:false for a handle in the form a soft delete gives", () =>
+    Effect.gen(function* () {
+      expect(yield* auth.checkHandle("deleted_0123456789ab")).toEqual({ available: false });
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -287,6 +329,31 @@ describe("sign-up through the emailed link", () => {
       );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("reserved");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects begin with AuthError on a handle in the form a soft delete gives", () => {
+    const { svc, recorded, layer } = makeAuth();
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        svc.beginRegistration("ok@example.com", "deleted_0123456789ab", "1990-01-01"),
+      );
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle is reserved");
+      expect(recorded()).toEqual([]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("begin mails nothing when an organisation has the handle", () => {
+    const { svc, recorded, layer } = makeAuth();
+    return Effect.gen(function* () {
+      const first = yield* svc.registerProfile("first@example.com", "first");
+      yield* orgs.createOrganisation(first.id, "firstorg", "First Org");
+      const result = yield* settle(
+        svc.beginRegistration("second@example.com", "firstorg", "1990-01-01"),
+      );
+      expect(result.requestId).toMatch(/^signup_/);
+      expect(recorded()).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
 
@@ -509,6 +576,126 @@ describe("sign-up through the emailed link", () => {
         "someone-else@example.com",
       );
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
+  });
+
+  /**
+   * A sign-up begun and confirmed on a free handle, then finished after
+   * `takeHandle` has run. Answers what the finishing poll said, and how many
+   * account and profile rows the address and the handle then have.
+   */
+  const finishAfter = (
+    address: string,
+    handle: string,
+    takeHandle: (
+      svc: ReturnType<typeof createAuthService>,
+    ) => Effect.Effect<unknown, unknown, Db | EmailService>,
+  ) => {
+    const { layer, sqlite, email } = createTestLayerWithSqlite();
+    const svc = createAuthService(config);
+    const count = (query: string, value: string) =>
+      (sqlite.query(query).get(value) as { n: number }).n;
+    return Effect.gen(function* () {
+      const begun = yield* settle(svc.beginRegistration(address, handle, "1990-01-01"));
+      const link = latestLinkTo(email.recorded(), address)!;
+      yield* svc.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      yield* takeHandle(svc);
+
+      const done = yield* settle(svc.registrationStatus(begun.requestId, begun.claimSecret));
+      return {
+        done,
+        accounts: count("SELECT count(*) AS n FROM accounts WHERE email = ?", address),
+        profiles: count("SELECT count(*) AS n FROM users WHERE handle = ?", handle),
+      };
+    }).pipe(Effect.provide(layer));
+  };
+
+  it.effect("a handle held while the person waited answers conflict and writes nothing", () =>
+    Effect.gen(function* () {
+      const outcome = yield* finishAfter("heldwait@example.com", "heldwait", (svc) =>
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          yield* Effect.promise(() =>
+            db.insert(handleHolds).values({
+              handle: svc.heldHandleDigest("heldwait"),
+              accountId: null,
+              releaseAt: Math.floor(Date.now() / 1000) + 86_400,
+              createdAt: Math.floor(Date.now() / 1000),
+            }),
+          );
+        }),
+      );
+      expect(outcome).toEqual({ done: { status: "conflict" }, accounts: 0, profiles: 0 });
+    }),
+  );
+
+  it.effect(
+    "a sign-up begun on a handle reserved since answers conflict and writes nothing",
+    () => {
+      // Red on finishing with no look at the reserved names: a sign-up begun
+      // before a name was reserved creates a profile no one may now have,
+      // and a `deleted_` one would make another profile's deletion fail.
+      const notYetReserved = vi.spyOn(authConstants, "isReservedHandle").mockReturnValue(false);
+      return Effect.gen(function* () {
+        const outcome = yield* finishAfter("parked@example.com", "deleted_0123456789ab", () =>
+          Effect.sync(() => notYetReserved.mockRestore()),
+        );
+        expect(outcome).toEqual({ done: { status: "conflict" }, accounts: 0, profiles: 0 });
+      }).pipe(Effect.ensuring(Effect.sync(() => notYetReserved.mockRestore())));
+    },
+  );
+
+  it.effect(
+    "a handle an organisation took while the person waited answers conflict and writes nothing",
+    () =>
+      Effect.gen(function* () {
+        const outcome = yield* finishAfter("orgwait@example.com", "orgwait", (svc) =>
+          Effect.gen(function* () {
+            const owner = yield* svc.registerProfile("org-owner@example.com", "orgowner");
+            yield* orgs.createOrganisation(owner.id, "orgwait", "Org Wait");
+          }),
+        );
+        expect(outcome).toEqual({ done: { status: "conflict" }, accounts: 0, profiles: 0 });
+      }),
+  );
+
+  // The guard answers before the keys clash: with the handle held since, a
+  // retry of a claim whose rows an earlier poll committed inserts nothing and
+  // meets no UNIQUE index. Its own profile is still there, so it finishes.
+  it.effect("a claim an earlier poll committed still finishes once the handle is held", () => {
+    const { layer, sqlite, email } = createTestLayerWithSqlite();
+    const svc = createAuthService(config);
+    return Effect.gen(function* () {
+      const begun = yield* settle(
+        svc.beginRegistration("committed@example.com", "committed", "1990-01-01"),
+      );
+      const link = latestLinkTo(email.recorded(), "committed@example.com")!;
+      yield* svc.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      // The rows are written, then the call reports a fault, as a batch whose
+      // answer was lost on the way back does.
+      sqlite.run(`
+        CREATE TRIGGER report_users_insert_committed AFTER INSERT ON users
+        BEGIN SELECT RAISE(FAIL, 'D1_ERROR: Network connection lost.'); END;
+      `);
+      const failed = yield* Effect.flip(
+        settle(svc.registrationStatus(begun.requestId, begun.claimSecret)),
+      );
+      sqlite.run("DROP TRIGGER report_users_insert_committed");
+      expect(failed._tag).toBe("DatabaseError");
+      const profile = yield* svc.findProfileByEmail("committed@example.com");
+      sqlite.run(
+        "INSERT INTO handle_holds (handle, account_id, release_at, created_at) VALUES (?, NULL, ?, 0)",
+        [svc.heldHandleDigest("committed"), Math.floor(Date.now() / 1000) + 86_400],
+      );
+
+      const done = yield* settle(svc.registrationStatus(begun.requestId, begun.claimSecret));
+      expect(done.status === "complete" && done.profileId).toBe(profile?.id);
+    }).pipe(Effect.provide(layer));
   });
 
   // A non-uniqueness constraint failure at the write must surface as

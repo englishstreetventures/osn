@@ -1,6 +1,7 @@
+import type { StepUpPurpose } from "@shared/observability/metrics";
 import { Elysia, t } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
+import { resolveAccountWindowPrincipal } from "../../lib/auth-derive";
 import { EMAIL_LINK_SECRET_PATTERN, emailLinkIdPattern } from "../../services/auth/email-link";
 import type { AuthRouteContext } from "./context";
 import {
@@ -13,6 +14,7 @@ import {
 const PURPOSE = t.Union([
   t.Literal("account_delete"),
   t.Literal("account_export"),
+  t.Literal("account_restore"),
   t.Literal("pulse_app_delete"),
   t.Literal("zap_app_delete"),
   t.Literal("recovery_generate"),
@@ -24,28 +26,57 @@ const PURPOSE = t.Union([
   t.Literal("totp_disable"),
 ]);
 
+/**
+ * The purposes a session of an account whose deletion is pending may mint a
+ * step-up for: the export and the cancel, the two things such a session is
+ * for. Its token is refused for every other purpose, and for none.
+ */
+const PENDING_DELETION_PURPOSES: ReadonlySet<StepUpPurpose> = new Set<StepUpPurpose>([
+  "account_export",
+  "account_restore",
+]);
+
+/** Whether a caller may mint a step-up token naming `purpose` (or none). */
+const purposeAdmitted = (caller: { pendingDeletion: boolean }, purpose?: StepUpPurpose) =>
+  !caller.pendingDeletion || (purpose !== undefined && PENDING_DELETION_PURPOSES.has(purpose));
+
 export function createStepUpRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl, sessionMetaFrom } = ctx;
 
   /**
-   * The caller's account and profile from an ordinary access token, with the
-   * token's `osn_sid` binding for the live-session gate, or null for no
-   * token, a token of any other audience (a restricted recovery session is
-   * refused here) and a profile that is gone.
+   * The caller's account and profile, with the token's `osn_sid` binding for
+   * the live-session gate, or null.
+   *
+   * An ordinary access token resolves through `findProfileById`, which finds
+   * no profile of an account whose deletion is pending. A pending-deletion
+   * token resolves only while its account's deletion is still pending, and
+   * comes back with `pendingDeletion` set, for the route to hold to
+   * {@link PENDING_DELETION_PURPOSES}. Any other audience (a restricted
+   * recovery session's among them) and a profile that is gone answer null.
    */
   const callerAccount = async (
     authorization: string | undefined,
-  ): Promise<{ accountId: string; profileId: string; sessionBinding: string | null } | null> => {
-    const claims = await resolveAccessTokenPrincipal(auth, authorization);
+  ): Promise<{
+    accountId: string;
+    profileId: string;
+    sessionBinding: string | null;
+    pendingDeletion: boolean;
+  } | null> => {
+    const claims = await resolveAccountWindowPrincipal(auth, authorization);
     if (!claims) return null;
-    const profile = await run(auth.findProfileById(claims.profileId));
-    return profile
-      ? {
-          accountId: profile.accountId,
-          profileId: profile.id,
-          sessionBinding: claims.sessionBinding,
-        }
-      : null;
+    const profile = await run(
+      claims.pendingDeletion
+        ? auth.findProfileByIdIncludingTombstoned(claims.profileId)
+        : auth.findProfileById(claims.profileId),
+    );
+    if (!profile) return null;
+    if (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null) return null;
+    return {
+      accountId: profile.accountId,
+      profileId: profile.id,
+      sessionBinding: claims.sessionBinding,
+      pendingDeletion: claims.pendingDeletion,
+    };
   };
 
   return (
@@ -57,7 +88,9 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
       // access token so the account is known up-front; each ceremony's state
       // is scoped to the caller's account. A minted token is bound to the
       // family of the caller's live session, and no gate accepts it once that
-      // family has no live session.
+      // family has no live session. A session of an account whose deletion is
+      // pending mints only for export and restore (`callerAccount`,
+      // `PENDING_DELETION_PURPOSES`).
       // -------------------------------------------------------------------------
       .post(
         "/step-up/passkey/begin",
@@ -73,13 +106,10 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
-              set.status = 401;
-              return { error: "unauthorized" };
-            }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
+            // No purpose here: begin only parks a challenge, and complete
+            // holds a pending-deletion caller to its purposes.
+            const caller = await callerAccount(headers.authorization);
+            if (!caller) {
               set.status = 401;
               return { error: "unauthorized" };
             }
@@ -87,15 +117,15 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             // token whose session has ended would overwrite the live one's.
             const staleErr = await ctx.liveSessionGate(
               "step_up_passkey_begin",
-              profile.accountId,
-              claims,
+              caller.accountId,
+              caller,
               headers.cookie,
             );
             if (staleErr) {
               set.status = 409;
               return staleErr;
             }
-            return await run(auth.beginStepUpPasskey(profile.accountId));
+            return await run(auth.beginStepUpPasskey(caller.accountId));
           } catch (e) {
             const { status, body: errBody } = handleError(e);
             set.status = status;
@@ -129,13 +159,9 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
-              set.status = 401;
-              return { error: "unauthorized" };
-            }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
+            const caller = await callerAccount(headers.authorization);
+            // Before the challenge is taken: a refused purpose leaves it parked.
+            if (!caller || !purposeAdmitted(caller, body.purpose)) {
               set.status = 401;
               return { error: "unauthorized" };
             }
@@ -144,8 +170,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             // session found here is the one the minted token is bound to.
             const live = await ctx.liveSession(
               "step_up_passkey_complete",
-              profile.accountId,
-              claims,
+              caller.accountId,
+              caller,
               headers.cookie,
             );
             if (live.sessionHash === null) {
@@ -154,7 +180,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             }
             const result = await run(
               auth.completeStepUpPasskey(
-                { accountId: profile.accountId, familyId: live.familyId },
+                { accountId: caller.accountId, familyId: live.familyId },
                 body.assertion,
                 body.purpose,
               ),
@@ -179,6 +205,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               t.Union([
                 t.Literal("account_delete"),
                 t.Literal("account_export"),
+                t.Literal("account_restore"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
                 t.Literal("recovery_generate"),
@@ -230,7 +257,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
           }
           try {
             const caller = await callerAccount(headers.authorization);
-            if (!caller) {
+            if (!caller || !purposeAdmitted(caller, body.purpose)) {
               set.status = 401;
               return { error: "unauthorized" };
             }
@@ -320,12 +347,15 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               set.status = 409;
               return live.refusal;
             }
+            // A pending-deletion caller finishes only a link begun for one of
+            // its purposes; any other reads as expired.
             const result = await run(
               auth.stepUpEmailStatus(
                 { accountId, familyId: live.familyId },
                 caller.profileId,
                 params.requestId,
                 body.claimSecret,
+                caller.pendingDeletion ? PENDING_DELETION_PURPOSES : undefined,
               ),
             );
             if (result.status !== "complete") return result;
@@ -408,6 +438,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
                 params.requestId,
                 body.claimSecret,
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
+                caller.pendingDeletion ? PENDING_DELETION_PURPOSES : undefined,
               ),
             );
           } catch (e) {
@@ -453,13 +484,9 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
-              set.status = 401;
-              return { error: "unauthorized" };
-            }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
+            const caller = await callerAccount(headers.authorization);
+            // Before the code is checked: a refused purpose counts no guess.
+            if (!caller || !purposeAdmitted(caller, body.purpose)) {
               set.status = 401;
               return { error: "unauthorized" };
             }
@@ -468,8 +495,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             // session found here is the one the minted token is bound to.
             const live = await ctx.liveSession(
               "step_up_totp_complete",
-              profile.accountId,
-              claims,
+              caller.accountId,
+              caller,
               headers.cookie,
             );
             if (live.sessionHash === null) {
@@ -478,7 +505,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             }
             const result = await run(
               auth.completeStepUpTotp(
-                { accountId: profile.accountId, familyId: live.familyId },
+                { accountId: caller.accountId, familyId: live.familyId },
                 body.code,
                 body.purpose,
               ),
@@ -501,6 +528,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               t.Union([
                 t.Literal("account_delete"),
                 t.Literal("account_export"),
+                t.Literal("account_restore"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
                 t.Literal("recovery_generate"),

@@ -104,6 +104,7 @@ const STEP_UP_ACTION = {
   security_event_ack: "dismiss a security alert",
   account_delete: "delete the account",
   account_export: "download a copy of the account's data",
+  account_restore: "cancel the account's deletion",
   totp_enroll: "set up an authenticator app",
   totp_disable: "remove the authenticator app",
   pulse_app_delete: "delete the account's Pulse data",
@@ -792,12 +793,15 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    *    it too. Any other failure keeps the claim and lets go of it, so the next
    *    poll takes over at once; a token minted by a poll that did not spend
    *    the request is never answered, and its single-use id is never seen.
+   *  - With `purposes` given, the request's purpose must be one of them;
+   *    another is refused before the claim, and the request is left as it was.
    */
   const finishStepUp = (
     minting: MintingSession,
     profileId: string,
     requestId: string,
     link: EmailLinkChallenge,
+    purposes: ReadonlySet<StepUpPurpose> | undefined,
   ): Effect.Effect<StepUpEmailStatus, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       const { accountId } = minting;
@@ -807,7 +811,8 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
         address === null ||
         link.bound !== addressDigest(address) ||
         purpose === undefined ||
-        !isStepUpPurpose(purpose)
+        !isStepUpPurpose(purpose) ||
+        (purposes !== undefined && !purposes.has(purpose))
       ) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired link" }));
       }
@@ -842,14 +847,18 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * with the step-up token, once. `expired` for every refusal: an unknown,
    * expired, declined or other-flow request, a wrong claim secret, another
    * account's request, a poll that lost the claim or found another holding
-   * it, and an account whose address has changed since. A poll that fails
-   * after the claim leaves the request for the next poll.
+   * it, an account whose address has changed since, and, when `purposes` is
+   * given, a request begun for a purpose outside it (the routes pass the
+   * purposes a session of an account whose deletion is pending may mint
+   * for). A poll that fails after the claim leaves the request for the next
+   * poll.
    */
   const stepUpEmailStatus = (
     minting: MintingSession,
     profileId: string,
     requestId: string,
     claimSecret: string,
+    purposes?: ReadonlySet<StepUpPurpose>,
   ): Effect.Effect<StepUpEmailStatus, DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       const { accountId } = minting;
@@ -860,7 +869,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
           : ({ status: "pending", pairingCode: polled.pairingCode } as const);
       }
       if (polled.state === "expired") return LINK_EXPIRED;
-      return yield* finishStepUp(minting, profileId, requestId, polled.entry).pipe(
+      return yield* finishStepUp(minting, profileId, requestId, polled.entry, purposes).pipe(
         Effect.catchTag("AuthError", () => Effect.succeed(LINK_EXPIRED)),
       );
     }).pipe(Effect.withSpan("auth.step_up.email_status"));
@@ -871,13 +880,15 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * that began. `sent` (also for a request already confirmed, which the next
    * poll finishes), `limit` once the request has sent all it may, `expired`
    * for every refusal. A link goes only to the address the request began for,
-   * while the account still has it.
+   * while the account still has it. With `purposes` given, a request begun for
+   * a purpose outside it is refused, `expired`, and no link goes.
    */
   const resendStepUpEmail = (
     accountId: string,
     requestId: string,
     claimSecret: string,
     sessionMeta?: SessionMeta,
+    purposes?: ReadonlySet<StepUpPurpose>,
   ): Effect.Effect<
     { status: "sent" | "limit" | "expired" },
     DatabaseError | CoordinationError,
@@ -888,8 +899,14 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
       if (resent.state === "expired") return LINK_EXPIRED;
       if (resent.state === "limit") return { status: "limit" } as const;
       if (resent.state === "confirmed") return { status: "sent" } as const;
-      const address = yield* accountEmail(accountId);
       const purpose = resent.purpose;
+      if (
+        purposes !== undefined &&
+        !(purpose !== undefined && isStepUpPurpose(purpose) && purposes.has(purpose))
+      ) {
+        return LINK_EXPIRED;
+      }
+      const address = yield* accountEmail(accountId);
       if (
         address !== null &&
         resent.bound === addressDigest(address) &&
@@ -1191,6 +1208,27 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     });
 
   /**
+   * Step-up verifier for `POST /account/restore`, which cancels a pending
+   * deletion. The same factors as export and delete (passkey, the emailed
+   * link, an authenticator code), for the same reason: the person cancelling
+   * may have lost every passkey.
+   *
+   * Requires the token's `purpose` claim to be `"account_restore"`.
+   */
+  const verifyStepUpForAccountRestore = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        recoveryGenerateAllowedAmr,
+        "account_restore",
+      );
+    });
+
+  /**
    * Cross-service step-up verifier — called by Pulse / Zap via the
    * ARC-gated `/internal/step-up/verify` endpoint. Requires a matching
    * {@link StepUpPurpose} so a token minted for one app cannot be
@@ -1255,6 +1293,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     verifyStepUpForRecoveryGenerate,
     verifyStepUpForAccountDelete,
     verifyStepUpForAccountExport,
+    verifyStepUpForAccountRestore,
     verifyStepUpForExternalPurpose,
   };
 }

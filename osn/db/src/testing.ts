@@ -119,6 +119,13 @@ function emitCreateTable(table: SQLiteTable): string {
     );
   }
 
+  // A CHECK binds every writer, both drivers included; without it a test
+  // database accepts a row production refuses. Guarded by
+  // tests/ddl-lockstep.test.ts.
+  for (const ck of cfg.checks) {
+    parts.push(`  CONSTRAINT "${ck.name}" CHECK(${DIALECT.sqlToQuery(ck.value).sql})`);
+  }
+
   return `CREATE TABLE "${cfg.name}" (\n${parts.join(",\n")}\n);`;
 }
 

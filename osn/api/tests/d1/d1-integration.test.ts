@@ -6,6 +6,7 @@ import {
   appEnrollments,
   connections,
   deletionJobs,
+  handleHolds,
   organisationMembers,
   organisations,
   passkeys,
@@ -30,6 +31,7 @@ import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../src/lib/unique-constraint";
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import {
@@ -274,6 +276,7 @@ beforeEach(async () => {
   // or `users`, must be cleared before those parent rows.
   for (const table of [
     deletionJobs,
+    handleHolds,
     securityEvents,
     sessions,
     passkeys,
@@ -297,6 +300,7 @@ describe("osn/api account erasure over real D1 (Miniflare)", () => {
       requestErasure({
         accountId: ACCOUNT_ID,
         cancel: { sessionId: "ses_keep", familyId: "fam_keep" },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
       }),
     );
     expect(out.newlyScheduled).toBe(true);
@@ -314,6 +318,7 @@ describe("osn/api account erasure over real D1 (Miniflare)", () => {
       requestErasure({
         accountId: ACCOUNT_ID,
         cancel: { sessionId: "ses_keep", familyId: "fam_keep" },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
       }),
     );
     const cancelled = await run(cancelErasure(ACCOUNT_ID));

@@ -14,6 +14,7 @@ import { Effect, Layer, Logger } from "effect";
 import { Miniflare } from "miniflare";
 
 import { handler } from "../../src/index";
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { requestErasure, runHardDeleteSweep } from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
 import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
@@ -428,6 +429,7 @@ describe("account erasure on D1", () => {
               .where(eq(sessions.id, hashSessionToken(kept.refreshToken)))
           )[0]!.familyId,
         },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
       }),
     );
 

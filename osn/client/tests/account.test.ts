@@ -80,6 +80,30 @@ describe("createAccountClient", () => {
     });
   });
 
+  it("deleteAccount's 409 carries the open actions' code", async () => {
+    fetchMock.mockResolvedValue(ok({ error: "open_actions", open_actions: [] }, 409));
+    await expect(
+      client.deleteAccount({ confirmHandle: "alice", stepUpToken: "eyJtok" }),
+    ).rejects.toMatchObject({ name: "AccountError", status: 409, code: "open_actions" });
+  });
+
+  it("cancelAccountDeletion's 403 carries step_up_required", async () => {
+    fetchMock.mockResolvedValue(ok({ error: "step_up_required" }, 403));
+    await expect(client.cancelAccountDeletion({ stepUpToken: "stale" })).rejects.toMatchObject({
+      name: "AccountError",
+      status: 403,
+      code: "step_up_required",
+    });
+  });
+
+  it("getAccountDeletionPreview refuses an answer without open_actions", async () => {
+    fetchMock.mockResolvedValue(ok({ actions: [] }));
+    await expect(client.getAccountDeletionPreview()).rejects.toMatchObject({
+      name: "AccountError",
+      status: 200,
+    });
+  });
+
   it("surfaces the server error message via AccountError", async () => {
     fetchMock.mockResolvedValue(ok({ error: "step_up_required" }, 403));
     await expect(

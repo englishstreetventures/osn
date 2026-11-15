@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-15
 ---
 
 # OIDC provider
@@ -112,7 +112,9 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **A restricted recovery session is not a signed-in session.** `/authorize` resolves the visitor from the HttpOnly **session cookie**, not from an access token — so the `osn-recovery` audience, which every access-token verifier rejects, does not reach this decision at all, and a recovery session sets that cookie because passkey enrolment needs it. `verifyRefreshToken` therefore refuses a restricted session unless the caller explicitly asks for one, and token refresh is the only caller that does. Without that default a user midway through account recovery — holding a session that may enrol a passkey and nothing else — could complete an authorization here and be signed into every relying party, which is full access at pulse, cire and zap from a session that has none at the issuer. A recovery cookie is treated exactly like no cookie: `reason=login`, or `login_required` under `prompt=none`. See [[sessions#The restricted recovery session]].
 
-**Reserved client ids do not exist.** `RESERVED_OIDC_CLIENT_IDS` (`osn-access`, `osn-recovery`, `osn-step-up`, and the ARC S2S audiences) is enforced in `findClient` — a row seeded under such a name reads as absent everywhere at once. Self-serve registration cannot collide by construction (`client_id` is server-generated), so the lookup guard covers hand-seeded rows. OIDC access tokens carry a `typ: "at+jwt"` header (RFC 9068), so no verifier can mistake one for an ID token or a first-party token even before checking `aud`.
+**An account whose deletion is pending signs in to no relying party.** Its session cookie is a real one ([[sessions#The pending-deletion session]]), so the cookie alone would reach both code paths: an existing consent's, and the first-party auto-consent. Once the session resolves and no interaction is demanded, the decision reads the account and answers `access_denied` while its `deleted_at` is set, for every client, before either path records a consent or mints a code. The approve route reads the profile with `findProfileById`, which finds no profile of such an account, so the consent screen cannot mint one either. Tests: `osn/api/tests/routes/oidc.test.ts` ("GET /authorize for an account whose deletion is pending").
+
+**Reserved client ids do not exist.** `RESERVED_OIDC_CLIENT_IDS` (`osn-access`, `osn-recovery`, `osn-pending-deletion`, `osn-step-up`, and the ARC S2S audiences) is enforced in `findClient` — a row seeded under such a name reads as absent everywhere at once. Self-serve registration cannot collide by construction (`client_id` is server-generated), so the lookup guard covers hand-seeded rows. OIDC access tokens carry a `typ: "at+jwt"` header (RFC 9068), so no verifier can mistake one for an ID token or a first-party token even before checking `aud`.
 
 **Authorization responses name their issuer.** Every redirect back to a relying party, success or failure, carries an `iss` parameter (RFC 9207), advertised in discovery, so a client talking to several providers can tell which one answered.
 

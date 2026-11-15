@@ -1,19 +1,25 @@
 import { it, expect, describe } from "@effect/vitest";
-import { Effect } from "effect";
+import { users } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
+import { requestErasure } from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
 import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
 let profile: ReturnType<typeof createProfileService>;
 const graph = createGraphService();
-const org = createOrganisationService();
+const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
@@ -57,6 +63,48 @@ describe("createProfile", () => {
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // A soft delete renames each profile to `deleted_` and its id's suffix,
+  // and profile ids are visible to other people.
+  it.effect("rejects a handle in the form a soft delete gives a profile", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* setupAccount("reserve@test.com", "reserver");
+      const error = yield* Effect.flip(profile.createProfile(accountId, "deleted_0123456789ab"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Handle is reserved");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.live("a profile whose insert waits while the account's soft delete commits is refused", () => {
+    // Red on inserting with no look at the account: the profile lands after
+    // the soft delete's redaction and holds, unredacted and unheld, on an
+    // account whose deletion is pending.
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+    return Effect.gen(function* () {
+      const { accountId } = yield* setupAccount("race@test.com", "racer");
+
+      const insert = queries.hold(/^insert into "users"/);
+      const create = yield* Effect.forkChild(
+        Effect.result(profile.createProfile(accountId, "racer_alt")),
+      );
+      yield* Effect.promise(() => insert.reached);
+      yield* requestErasure({ accountId, cancel: null, heldHandleDigest: auth.heldHandleDigest });
+      insert.release();
+
+      expect(yield* Fiber.join(create)).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "AuthError", message: "Account not found" },
+      });
+      const { db: read } = yield* Db;
+      const handles = yield* Effect.promise(() =>
+        read.select({ handle: users.handle }).from(users).where(eq(users.accountId, accountId)),
+      );
+      expect(handles).toHaveLength(1);
+      expect(handles[0]!.handle).toMatch(/^deleted_/);
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("creates profile without displayName", () =>
     Effect.gen(function* () {
@@ -257,7 +305,7 @@ describe("deleteProfile", () => {
       yield* org.createOrganisation(main.id, "ownedorg", "Owned Org");
       const error = yield* Effect.flip(profile.deleteProfile(accountId, main.id));
       expect(error._tag).toBe("AuthError");
-      expect(error.message).toContain("Transfer organisation ownership");
+      expect(error.message).toBe("Delete the organisations this profile owns before deleting it");
     }).pipe(Effect.provide(createTestLayer())),
   );
 

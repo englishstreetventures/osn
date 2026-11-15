@@ -181,6 +181,7 @@ export type StepUpPurpose =
   | "security_event_ack"
   | "account_delete"
   | "account_export"
+  | "account_restore"
   | "totp_enroll"
   | "totp_disable"
   | "pulse_app_delete"
@@ -361,8 +362,11 @@ export type DeletionRequestResult =
   | "rate_limited"
   | "error";
 
-/** Final disposition of a completed deletion lifecycle event. */
-export type DeletionCompletedResult = "soft" | "hard" | "cancelled";
+/**
+ * Final disposition of a deletion lifecycle event. `hard_failed`: a hard
+ * delete the sweep tried and could not finish; the sweep tries it again later.
+ */
+export type DeletionCompletedResult = "soft" | "hard" | "hard_failed" | "cancelled";
 
 /** Source that triggered a deletion completion event. */
 export type DeletionCompletedSource = "user" | "sweeper" | "minor_runbook" | "admin";
@@ -508,6 +512,7 @@ export type AuthRateLimitedEndpoint =
   | "account_delete"
   | "account_restore"
   | "account_deletion_status"
+  | "account_deletion_preview"
   | "oidc_authorize"
   | "oidc_authorize_context"
   | "oidc_authorize_decision"

@@ -8,7 +8,7 @@ import {
 import { Layer } from "effect";
 import { Elysia } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
+import { resolveAccountWindowPrincipal } from "../lib/auth-derive";
 import type { CookieSessionConfig } from "../lib/cookie-session";
 import { createLiveSessionCheck } from "../lib/live-session";
 import { arcFetchStream } from "../lib/outbound-arc";
@@ -52,6 +52,10 @@ function exportFileName(instanceName: string): string {
  * contract and `[[wiki/compliance/dsar]]` for the locked spec). The step-up
  * token rides the `x-step-up-token` header (a GET has no body) and must carry
  * `purpose: "account_export"`.
+ *
+ * Reachable from a session of an account whose deletion is pending (its
+ * `osn-pending-deletion` token), while the deletion is still pending: the
+ * person can take a copy of their data before it goes.
  */
 export function createAccountExportRoutes(
   authConfig: AuthConfig,
@@ -118,14 +122,20 @@ export function createAccountExportRoutes(
       }
 
       try {
-        const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+        const claims = await resolveAccountWindowPrincipal(auth, headers.authorization);
         if (!claims) {
           set.status = 401;
           metricAccountExportRequested("unauthorized");
           return { error: "unauthorized" };
         }
-        const profile = await run(auth.findProfileById(claims.profileId));
-        if (!profile) {
+        // An ordinary token finds no profile of an account whose deletion is
+        // pending; a pending-deletion token finds one only while it is.
+        const profile = await run(
+          claims.pendingDeletion
+            ? auth.findProfileByIdIncludingTombstoned(claims.profileId)
+            : auth.findProfileById(claims.profileId),
+        );
+        if (!profile || (claims.pendingDeletion && (profile.accountDeletedAt ?? null) === null)) {
           set.status = 401;
           metricAccountExportRequested("unauthorized");
           return { error: "unauthorized" };

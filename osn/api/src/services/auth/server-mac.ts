@@ -11,11 +11,16 @@
  * flight, which live ten minutes (`otpTtl`): their pairing number is no longer
  * among the candidates the confirm page shows, so a person begins again; and
  * voids the Email Verification API nonces in flight, which live ten minutes,
- * so a token sent with one takes the emailed link instead.
+ * so a token sent with one takes the emailed link instead. The pepper also
+ * keys the handle holds (`lib/handle-hold.ts`): rotating it makes every row in
+ * `handle_holds` stop matching its handle, so each held handle becomes free
+ * before its hold ends.
  *
  * With no pepper (local dev and tests), the key is random and made once per
  * service, never a fixed one: a fixed key in the source would make every
- * digest reversible by anyone who reads it.
+ * digest reversible by anyone who reads it. The handle-hold key is the one
+ * exception to "per service": it is made once per process, so a hold written
+ * through one service is found through the others.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";

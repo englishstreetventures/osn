@@ -7,12 +7,16 @@ import {
   users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch, driverErrorText } from "@shared/db-utils";
-import { and, asc, eq, ne, or, sql } from "drizzle-orm";
+import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
+import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
+import { bound } from "../lib/bound";
+import { handleArms } from "../lib/handle-hold";
 import { withProfileCrud } from "../metrics";
 import type { AuthService, PublicProfile } from "./auth";
+import { DELETED_HANDLE_PREFIX } from "./auth/constants";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -98,7 +102,8 @@ export function createProfileService(authService: AuthService) {
       yield* Schema.decodeUnknownEffect(HandleSchema)(handle).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      if (RESERVED_HANDLES.has(handle)) {
+      // The prefix is the form the soft delete gives a profile (`isReservedHandle`).
+      if (RESERVED_HANDLES.has(handle) || handle.startsWith(DELETED_HANDLE_PREFIX)) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
@@ -129,42 +134,52 @@ export function createProfileService(authService: AuthService) {
       // race-safe guard — a concurrent create racing the same handle
       // hits the constraint and is mapped to "Handle already taken" below. The
       // maxProfiles count check is best-effort: a rare simultaneous double-create
-      // could exceed the cap by one, which is not security-sensitive.
-      const [profileCount, existingHandle, existingOrgHandle] = yield* Effect.tryPromise({
-        try: () =>
-          Promise.all([
+      // could exceed the cap by one, which is not security-sensitive. A handle
+      // a deleted account holds answers as a taken one.
+      const [profileCount, spokenFor] = yield* Effect.tryPromise({
+        try: () => {
+          const [profile, organisation, hold] = handleArms(
+            db,
+            authService.heldHandleDigest,
+            handle,
+          );
+          return Promise.all([
             db
               .select({ count: sql<number>`COUNT(*)` })
               .from(users)
               .where(eq(users.accountId, accountId)),
-            db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
-            db
-              .select({ id: organisations.id })
-              .from(organisations)
-              .where(eq(organisations.handle, handle))
-              .limit(1),
-          ]),
+            unionAll(profile, organisation, hold),
+          ]);
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
 
       if (profileCount[0]!.count >= account.maxProfiles) {
         return yield* Effect.fail(new AuthError({ message: "Maximum profiles reached" }));
       }
-      if (existingHandle.length > 0 || existingOrgHandle.length > 0) {
+      if (spokenFor.length > 0) {
         return yield* Effect.fail(new AuthError({ message: "Handle already taken" }));
       }
 
-      yield* Effect.tryPromise({
+      // Selected from the account row while its deletion is not pending: a
+      // soft delete that commits after the reads above, whose redaction and
+      // holds cannot see this profile, leaves nothing for this insert to write.
+      const inserted = yield* Effect.tryPromise({
         try: () =>
-          db.insert(users).values({
-            id,
-            accountId,
-            handle,
-            displayName: dn,
-            isDefault: false,
-            createdAt: ts,
-            updatedAt: ts,
-          }),
+          db.insert(users).select(
+            db
+              .select({
+                id: bound(id, users.id),
+                accountId: bound(accountId, users.accountId),
+                handle: bound(handle, users.handle),
+                displayName: bound(dn, users.displayName),
+                isDefault: bound(false, users.isDefault),
+                createdAt: bound(ts, users.createdAt),
+                updatedAt: bound(ts, users.updatedAt),
+              })
+              .from(accounts)
+              .where(and(eq(accounts.id, accountId), isNull(accounts.deletedAt))),
+          ),
         catch: (cause) => {
           // UNIQUE constraint is the final safety net against a handle race.
           const msg = driverErrorText(cause);
@@ -174,6 +189,9 @@ export function createProfileService(authService: AuthService) {
           return new DatabaseError({ cause });
         },
       });
+      if (rowsChanged(inserted) === 0) {
+        return yield* Effect.fail(new AuthError({ message: "Account not found" }));
+      }
 
       return { id, handle, email: account.email, displayName: dn, avatarUrl: null };
     }).pipe(withProfileCrud("create"));
@@ -181,7 +199,7 @@ export function createProfileService(authService: AuthService) {
   /**
    * Deletes a profile and cascade-deletes all owned social graph data.
    * Cannot delete the last profile on an account or a profile that owns
-   * an organisation (ownership must be transferred first).
+   * an organisation (the organisation must be deleted first).
    *
    * Cross-DB data (Pulse RSVPs, Zap chat members) is not cleaned up here —
    * orphaned rows are inert. A `profile.deleted` domain event will handle
@@ -227,7 +245,7 @@ export function createProfileService(authService: AuthService) {
       if (ownedOrgs.length > 0) {
         return yield* Effect.fail(
           new AuthError({
-            message: "Transfer organisation ownership before deleting this profile",
+            message: "Delete the organisations this profile owns before deleting it",
           }),
         );
       }

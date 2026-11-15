@@ -2,6 +2,7 @@ import type { Db } from "@osn/db/service";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createGraphRoutes } from "../../src/routes/graph";
 import { createRecommendationRoutes } from "../../src/routes/recommendations";
 import { createAuthService } from "../../src/services/auth";
@@ -171,7 +172,9 @@ describe("recommendations routes", () => {
     const alice = await registerAndGetToken("a@e.com", "alice");
     const bob = await registerAndGetToken("b@e.com", "bob");
     const org = await runWithLayer(
-      createOrganisationService().createOrganisation(alice.profileId, "acme", "Acme Inc"),
+      createOrganisationService({
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      }).createOrganisation(alice.profileId, "acme", "Acme Inc"),
     );
     await runWithLayer(
       createOrganisationService().addMember(org.id, alice.profileId, bob.profileId, "member"),
@@ -429,7 +432,9 @@ describe("recommendations routes", () => {
     it("returns matching organisations alongside people", async () => {
       const alice = await registerAndGetToken("a@e.com", "alice");
       await runWithLayer(
-        createOrganisationService().createOrganisation(alice.profileId, "acme", "Acme Inc"),
+        createOrganisationService({
+          heldHandleDigest: makeHeldHandleDigest(undefined),
+        }).createOrganisation(alice.profileId, "acme", "Acme Inc"),
       );
 
       const { status, json } = await search(alice.token, "q=acme");
@@ -447,7 +452,9 @@ describe("recommendations routes", () => {
 
     it("derives orgLimit as half of limit when the caller omits it", async () => {
       const alice = await registerAndGetToken("a@e.com", "alice");
-      const orgService = createOrganisationService();
+      const orgService = createOrganisationService({
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      });
       for (let i = 0; i < 5; i++) {
         await runWithLayer(orgService.createOrganisation(alice.profileId, `acme${i}`, `Acme ${i}`));
       }

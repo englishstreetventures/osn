@@ -8,7 +8,7 @@ related:
   - "[[sessions]]"
   - "[[identity-model]]"
   - "[[email-links]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-15
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -146,6 +146,30 @@ route ends a recovery therefore has to name the factor it verified — that
 argument is how the endpoints in §B connect to this gate. The emailed link
 names `otp`: a one-time secret sent to the mailbox. The value keeps that name
 because passkey rows store it as their provenance ([[step-up#Credential provenance]]).
+
+### Recovery of an account whose deletion is pending
+
+Recovery works the same while an account's deletion is pending, and ends the
+same way, in a passkey enrolment. The soft delete redacts every handle, so TOTP
+recovery, which also accepts a handle, finds the account only by its email, as
+email recovery always does. The restricted recovery session may enrol a
+passkey: `resolvePasskeyEnrollPrincipal` resolves the profile of such an
+account for an `osn-recovery` token only, and an `osn-access` token of such an
+account still finds none. The enrolment lifts the restriction, and the
+session's next refresh mints a pending-deletion token
+([[sessions#The pending-deletion session]]). That token reaches the deletion
+status, the export and the cancel; the cancel needs an `account_restore`
+step-up, which the new passkey, the emailed link or an authenticator code
+satisfies. The authenticator shows the new passkey under the account's email,
+not the redacted `deleted_<id>` handle.
+
+So **mailbox access alone can stop an erasure**: email recovery, enrol a
+passkey, step up, cancel. It follows from keeping credentials through the
+deletion window ([[dsar]]): recovery deletes every session of the account, so
+without it a person whose only way back is their mailbox could never cancel.
+Every notice about the account goes to that same mailbox. Tests:
+`osn/api/tests/routes/pending-deletion-session.test.ts` ("recovery of an
+account whose deletion is pending").
 
 ### C. Recovery is loud — most of which already exists
 

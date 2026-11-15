@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-15
 ---
 # Identity Model
 
@@ -129,9 +129,9 @@ Never rewrite the file to recover. By then `osn-db-dev` has almost always applie
 
 **Key invariants:**
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
-- Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first.
+- Org ownership is per-profile, and it changes in one place only: the hard delete of the owner's account passes each organisation it owns to the successor the person named, else the longest-standing other admin, else the longest-standing other member (made admin), and deletes it when there is none or the person chose `delete` ([[dsar#Organisations the person owns]]). No route transfers ownership, and `deleteProfile` refuses a profile that owns an organisation.
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
-- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. The owner needs no such guard: `ownerId` never changes.
+- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. `ownerId` changes only at the hard delete of the owner's account, in the batch that also deletes that owner's membership rows. So `addMember`'s owner-only admin grant, which inserts from the caller's own admin row, grants nothing after a stale read of the owner; and `updateMemberRole` writes only while `organisations.owner_id` is still the caller, and otherwise refuses with the message the checks give now.
 
 ## Token Model
 
@@ -148,8 +148,9 @@ Never rewrite the file to recover. By then `osn-db-dev` has almost always applie
 
 | `aud` | Minted by | Accepted by |
 |---|---|---|
-| `osn-access` | login, `/token` refresh, `/profiles/switch` | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
+| `osn-access` | login, `/token` refresh, `/profiles/switch`, for an account whose deletion is not pending | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
 | `osn-recovery` | a restricted recovery session | `resolvePasskeyEnrollPrincipal` **only** — i.e. `/passkey/register/begin` and `/complete`, and nothing else anywhere |
+| `osn-pending-deletion` | login and `/token` refresh, for an account whose deletion is pending (`accounts.deleted_at` set) | `resolveAccountWindowPrincipal` **only** — `GET /account/deletion-status`, `GET /account/export`, `POST /account/restore`, the `already_pending` answer of `DELETE /account`, `GET /totp/status`, and the step-up routes for `account_export` and `account_restore`. See [[sessions#The pending-deletion session]] |
 | `osn-step-up` | `/step-up/*/complete` | the step-up verifiers, purpose-bound — see [[step-up]] |
 | a relying party's `client_id` | the OIDC token endpoint (`typ: at+jwt`) | that relying party. Never a first-party route |
 
@@ -179,7 +180,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `created_at` | `integer` | Unix seconds |
 | `restricted_until` | `integer` nullable | Non-null only on a restricted recovery session, where it equals `expires_at`. Drives **rotation**, not request-time authorisation — see [[sessions#The restricted recovery session]] |
 | `restricted_amr` | `text` nullable | The RFC 8176 factor that minted a restricted recovery session (`otp` / `totp` / `webauthn`). What the passkey-enrolment bypass is checked against, so the step-up it skips is priced at the ceremony actually performed. NULL on every ordinary session |
-| `replaced_at` | `integer` nullable | Set by a sign-in on the browser holding the cancel handle of an account scheduled for deletion: the family stays live but renews only for its own account's profiles, and `GET /authorize` reads it as no session. Copied across rotations, never cleared — see [[sessions#Endpoints]] |
+| `replaced_at` | `integer` nullable | Set by a sign-in on the browser holding the cancel handle of a deletion job that predates the restore record (`deletion_jobs.restore` NULL), whose account has no credential left: the family stays live but renews only for its own account's profiles, and `GET /authorize` reads it as no session. Every other family a sign-in replaces ends. Copied across rotations, never cleared — see [[sessions#Endpoints]]; removed with englishstreetventures/osn#2299 |
 
 Two profile management endpoints:
 - `POST /profiles/switch` — Bearer access token, target `profile_id` in the body; receive a new access token for that profile, bound to the caller's session. That session must be live, named by the session cookie or the token's `osn_sid`, or the answer is `409 session_stale` ([[sessions#Access-token session binding (`osn_sid`)]]). Per-account rate limited (20 switches/hr).

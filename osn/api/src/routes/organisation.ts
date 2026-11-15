@@ -97,7 +97,7 @@ export function createOrganisationRoutes(
   }
 
   const auth = createAuthService(authConfig);
-  const org = createOrganisationService();
+  const org = createOrganisationService({ heldHandleDigest: auth.heldHandleDigest });
 
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 

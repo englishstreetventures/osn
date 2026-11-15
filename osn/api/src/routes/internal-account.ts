@@ -51,6 +51,18 @@ const errorTag = (err: unknown): string => {
 };
 
 /**
+ * The service each app's enrolment belongs to, by its ARC issuer
+ * (`pulse/api/src/app.ts` and `zap/api/src/app.ts` `SERVICE_NAME`). A join
+ * or leave is written only for the calling service's own app: the join's
+ * refusal for a pending deletion sends that app's purge back on the job, so
+ * one service must not be able to move another's.
+ */
+const APP_ISSUER = { pulse: "pulse-api", zap: "zap-api" } as const satisfies Record<
+  "pulse" | "zap",
+  string
+>;
+
+/**
  * Wire shape for one answered address. Snake_case on the wire like the rest of
  * the internal routes; the parameter carries the anonymous type and the return
  * stays inferred (same shape as `orgSummary` in organisation-internal.ts).
@@ -167,6 +179,11 @@ export function createInternalAccountRoutes(
           SCOPE_APP_ENROLLMENT_WRITE,
         );
         if (!caller) return { error: "Unauthorized" };
+        // Same 401 as a missing token: only the app's own service.
+        if (caller.iss !== APP_ISSUER[body.app]) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
 
         // ARC authenticates "Pulse / Zap made this call". User intent was
         // proved by the matching `/internal/step-up/verify` call earlier
@@ -209,6 +226,11 @@ export function createInternalAccountRoutes(
           SCOPE_APP_ENROLLMENT_WRITE,
         );
         if (!caller) return { error: "Unauthorized" };
+        // Same 401 as a missing token: only the app's own service.
+        if (caller.iss !== APP_ISSUER[body.app]) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
 
         try {
           const result = await run(joinApp(body.account_id, body.app));

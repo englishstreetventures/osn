@@ -20,23 +20,24 @@ import {
   notExists,
   sql,
 } from "drizzle-orm";
-import { Clock, Effect } from "effect";
+import { Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
 import { bound } from "../../lib/bound";
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
 import {
-  metricRetentionSweep,
   metricSessionFamilyRevoked,
   metricSessionReuseDetected,
   metricSessionRotationRace,
   withAuthTokenRefresh,
   withSessionRotation,
 } from "../../metrics";
+import { expiredChunk, runRetentionSweep } from "../retention";
 import {
   ACCESS_TOKEN_AUDIENCE,
   LAST_USED_AT_COALESCE_MS,
   MAX_SESSIONS_PER_ACCOUNT,
+  PENDING_DELETION_TOKEN_AUDIENCE,
   RECOVERY_SESSION_TTL_SEC,
   RECOVERY_TOKEN_AUDIENCE,
   ROTATED_SESSION_SWEEP_CHUNK,
@@ -67,7 +68,7 @@ export const ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING = 200;
  * (`osn/api/wrangler.toml` sets it for staging and production; the Worker's
  * `scheduled` handler reads it). Unset: {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS},
  * which keeps a Workers Free tier inside its 50 D1 queries per invocation,
- * shared by the four sweeps of one cron tick. A whole number from 1 to
+ * shared by every sweep of one cron tick. A whole number from 1 to
  * {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING}: that number, which keeps a
  * Workers Paid tier well inside its 1,000. Anything else is `"invalid"`, for
  * the caller to log and replace with the default.
@@ -80,23 +81,15 @@ export function rotatedSweepMaxChunks(raw: string | undefined): number | "invali
 }
 
 /**
- * Deletes expired `rotated_sessions` rows, in chunks of
- * {@link ROTATED_SESSION_SWEEP_CHUNK} and at most `maxChunks` of them (the
- * tier's cap, {@link rotatedSweepMaxChunks}), so one run's writes and
- * statements stay bounded however far behind the table is. A pass that ends
- * on a full chunk has left expired rows behind, and says so in a warning, so
- * a backlog shows in the Worker's logs. A row is expired once
- * `expires_at <= now`: past that, reuse detection ignores it.
- *
- * Each chunk is `DELETE … WHERE rowid IN (SELECT rowid … LIMIT n)`: the
- * subquery binds the same few values whatever the chunk size, never one per
- * row, and its `expires_at` range can use `rotated_sessions_expires_idx`.
- * Between two chunks it waits {@link ROTATED_SESSION_SWEEP_PAUSE_MS}, so
- * requests waiting to write run in between; it never waits after the last.
- * Each pass, failed or not, adds the rows it deleted to
- * `osn.retention.rows_deleted` and its time to `osn.retention.cycle.duration`,
- * both under `table: "rotated_sessions"` (the sweeper design contract in
- * `wiki/compliance/retention.md`).
+ * Deletes expired `rotated_sessions` rows through `runRetentionSweep`, in
+ * chunks of {@link ROTATED_SESSION_SWEEP_CHUNK} with a
+ * {@link ROTATED_SESSION_SWEEP_PAUSE_MS} pause between two, and at most
+ * `maxChunks` of them (the tier's cap, {@link rotatedSweepMaxChunks}). A pass
+ * that ends on a full chunk logs `auth.session.rotated_sweep ended on a full
+ * chunk`. A row is expired once `expires_at <= now`: past that, reuse
+ * detection ignores it. The chunk's `expires_at` range can use
+ * `rotated_sessions_expires_idx`. Each pass, failed or not, is counted under
+ * `table: "rotated_sessions"`.
  *
  * Standalone so the Workers `scheduled` handler and the Bun sweeper can run it
  * beside the account-deletion sweeps.
@@ -104,51 +97,37 @@ export function rotatedSweepMaxChunks(raw: string | undefined): number | "invali
 export const runRotatedSessionSweep = (
   opts: { nowMs?: number; maxChunks?: number } = {},
 ): Effect.Effect<{ deleted: number }, DatabaseError, Db> =>
-  Effect.gen(function* () {
-    const { db } = yield* Db;
-    const nowMs = opts.nowMs ?? Date.now();
-    const maxChunks = opts.maxChunks ?? ROTATED_SESSION_SWEEP_MAX_CHUNKS;
-    const startedAt = yield* Clock.currentTimeMillis;
-    let deleted = 0;
-    const deleteChunk = Effect.tryPromise({
-      try: () =>
-        db.delete(rotatedSessions).where(
-          inArray(
-            sql`rowid`,
-            db
-              .select({ rowid: sql<number>`rowid` })
-              .from(rotatedSessions)
-              .where(lte(rotatedSessions.expiresAt, nowMs))
-              .limit(ROTATED_SESSION_SWEEP_CHUNK),
-          ),
-        ),
-      catch: (cause) => new DatabaseError({ cause }),
-    });
-    yield* Effect.gen(function* () {
-      for (let chunk = 0; chunk < maxChunks; chunk++) {
-        if (chunk > 0) yield* Effect.sleep(ROTATED_SESSION_SWEEP_PAUSE_MS);
-        const changed = rowsChanged(yield* deleteChunk);
-        deleted += changed;
-        if (changed < ROTATED_SESSION_SWEEP_CHUNK) return;
-      }
-      // Every chunk came back full, so expired rows are likely still there.
-      yield* Effect.logWarning("auth.session.rotated_sweep ended on a full chunk").pipe(
-        Effect.annotateLogs({ chunks: maxChunks, deleted }),
-      );
-    }).pipe(
-      Effect.ensuring(
-        Effect.gen(function* () {
-          const endedAt = yield* Clock.currentTimeMillis;
-          metricRetentionSweep("rotated_sessions", deleted, (endedAt - startedAt) / 1000);
-        }),
+  Effect.suspend(() =>
+    runRetentionSweep({
+      table: "rotated_sessions",
+      chunk: expiredChunk(
+        rotatedSessions,
+        lte(rotatedSessions.expiresAt, opts.nowMs ?? Date.now()),
       ),
-    );
-    return { deleted };
-  }).pipe(Effect.withSpan("auth.session.rotated_sweep"));
+      chunkSize: ROTATED_SESSION_SWEEP_CHUNK,
+      maxChunks: opts.maxChunks ?? ROTATED_SESSION_SWEEP_MAX_CHUNKS,
+      pauseMs: ROTATED_SESSION_SWEEP_PAUSE_MS,
+      span: "auth.session.rotated_sweep",
+      fullChunkWarning: "auth.session.rotated_sweep ended on a full chunk",
+    }),
+  );
 
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;
-  const { findDefaultProfile, findProfileById } = profiles;
+  const { findAccountById, findDefaultProfile, findProfileById } = profiles;
+
+  /**
+   * The audience of an access token for a session: a restricted recovery
+   * session's own, whatever else holds; else the pending-deletion audience
+   * while the account's deletion is pending (`deletedAt` not null); else the
+   * ordinary one.
+   */
+  const audienceFor = (restricted: boolean, deletedAt: number | null): string =>
+    restricted
+      ? RECOVERY_TOKEN_AUDIENCE
+      : deletedAt !== null
+        ? PENDING_DELETION_TOKEN_AUDIENCE
+        : ACCESS_TOKEN_AUDIENCE;
 
   // -------------------------------------------------------------------------
   // Token issuance
@@ -159,8 +138,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * (via `issueTokens`) and token refresh / profile switch (standalone).
    *
    * `audience` decides what the token can reach. It defaults to
-   * {@link ACCESS_TOKEN_AUDIENCE}; the only other value it is ever given is
-   * {@link RECOVERY_TOKEN_AUDIENCE}, for a restricted recovery session.
+   * {@link ACCESS_TOKEN_AUDIENCE}; the only other values it is ever given are
+   * {@link RECOVERY_TOKEN_AUDIENCE}, for a restricted recovery session, and
+   * {@link PENDING_DELETION_TOKEN_AUDIENCE}, for a session of an account whose
+   * deletion is pending (see `audienceFor`).
    *
    * `ttlSec` shortens the configured lifetime — see {@link sessionBoundTtl},
    * which is the only thing that ever passes it.
@@ -441,9 +422,21 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
      * the token's audience alone.
      */
     restrictedAmr: RecoveryFactorAmr | null,
+    /**
+     * The account's `deleted_at` as the caller read it, which decides whether
+     * an unrestricted session's token is pending-deletion. `undefined` when
+     * the caller did not read it: then it is read here, once. A restricted
+     * session's audience does not depend on it, so it is never read for one.
+     */
+    accountDeletedAt: number | null | undefined,
   ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const restricted = restrictedAmr !== null;
+      const deletedAt = restricted
+        ? null
+        : accountDeletedAt !== undefined
+          ? accountDeletedAt
+          : ((yield* findAccountById(accountId))?.deletedAt ?? null);
       // Generate opaque session token + store SHA-256 hash in DB. This runs
       // BEFORE the access token is signed: the JWT carries a binding to the
       // session it was minted from (`osn_sid`).
@@ -464,7 +457,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         handle,
         displayName,
         deriveSessionBinding(sessionId, profileId),
-        restricted ? RECOVERY_TOKEN_AUDIENCE : ACCESS_TOKEN_AUDIENCE,
+        audienceFor(restricted, deletedAt),
         sessionBoundTtl(restrictedUntil, nowSec),
       );
       const fam = familyId ?? genId("sfam_");
@@ -499,7 +492,13 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       };
     });
 
-  /** Ordinary, unrestricted session issuance. See {@link issueSession}. */
+  /**
+   * Ordinary, unrestricted session issuance. See {@link issueSession}.
+   *
+   * `accountDeletedAt` is the account's `deleted_at` when the caller has read
+   * the account row already (every sign-in finder returns it as
+   * `ProfileWithEmail.accountDeletedAt`); left out, it is read here.
+   */
   const issueTokens = (
     profileId: string,
     accountId: string,
@@ -508,8 +507,19 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     displayName: string | null,
     familyId?: string,
     sessionMeta?: SessionMeta,
+    accountDeletedAt?: number | null,
   ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
-    issueSession(profileId, accountId, email, handle, displayName, familyId, sessionMeta, null);
+    issueSession(
+      profileId,
+      accountId,
+      email,
+      handle,
+      displayName,
+      familyId,
+      sessionMeta,
+      null,
+      accountDeletedAt,
+    );
 
   /**
    * Issues a **restricted recovery session**: the session account recovery
@@ -561,6 +571,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         undefined,
         sessionMeta,
         amr,
+        undefined,
       );
     });
 
@@ -647,9 +658,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
 
-      // Nor is a cancel handle a sign-in on its browser replaced
-      // (`replaced_at`): another account holds that browser now, so
-      // `/authorize` must not read it as signed in. Same error again.
+      // Nor is a session marked replaced (`replaced_at`): a sign-in over the
+      // cancel handle of a deletion job that predates the restore record
+      // (`deletion-job-shape.ts`) marks it and leaves it live; another account
+      // holds that browser now, so `/authorize` must not read it as signed in.
+      // Same error again.
       if (session.replacedAt !== null && !options?.allowReplaced) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
@@ -871,6 +884,12 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * the grant says nothing about which profiles exist. A restricted recovery
    * session ignores `profileId`: it mints only for the default profile, on
    * its own audience.
+   *
+   * An unrestricted session of an account whose deletion is pending gets the
+   * pending-deletion audience, read from the account at this grant: a named
+   * profile found by `findProfileById` belongs to a live account, and the
+   * default profile carries its account's `deleted_at`. So a cancel needs no
+   * session write; the next grant is ordinary again.
    */
   const refreshTokens = (
     sessionToken: string,
@@ -894,10 +913,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         profileId !== undefined && restrictedUntil === null
           ? yield* findProfileById(profileId)
           : null;
-      // A cancel handle a sign-in on its browser replaced (`replaced_at`) stays
-      // live so its account can still cancel the deletion, and renews only
-      // for a profile its own account owns. A grant naming another profile,
-      // or none, comes from a page on the browser the other account now
+      // A session marked replaced (`replaced_at`: the cancel handle of a
+      // deletion job that predates the restore record, which a sign-in on its
+      // browser marked and left live) renews only for a profile its own
+      // account owns. A grant naming another
+      // profile, or none, may come from a page on a browser another account
       // holds: refused before anything rotates, so that page is signed out
       // rather than renewed as this account. Cancelling the deletion leaves
       // the mark.
@@ -907,10 +927,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       ) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
-      // Unmarked, a session of an account scheduled for deletion (a row from
-      // before the mark existed, or a handle no sign-in has replaced) is still
-      // refused a named profile its account does not own. Read only when the
-      // named profile is not a live account's own.
+      // Unmarked, a session of an account scheduled for deletion (any session
+      // of a job with a restore record, a handle of an older job no sign-in
+      // has replaced, or a row from before the mark existed) is still refused
+      // a named profile its account does not own. Read only when the named
+      // profile is not a live account's own.
       const namedOwnLive = named !== null && named.accountId === accountId;
       if (
         replacedAt === null &&
@@ -950,7 +971,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         profile.handle,
         profile.displayName,
         deriveSessionBinding(newSessionId, profile.id),
-        restrictedUntil === null ? ACCESS_TOKEN_AUDIENCE : RECOVERY_TOKEN_AUDIENCE,
+        audienceFor(restrictedUntil !== null, profile.accountDeletedAt ?? null),
         sessionBoundTtl(restrictedUntil, nowSec),
       );
 
@@ -958,10 +979,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const oldRow = eq(sessions.id, oldSessionId);
       const newRow = eq(sessions.id, newSessionId);
       // Unmarked at the read, and naming no live profile of its own account:
-      // every grant the mark would refuse, and also an account scheduled for
-      // deletion naming its own profile, which `findProfileById` hides. That
-      // one loses a race with the mark as a rotation race, as any session
-      // does, and its retry renews.
+      // every grant the mark would refuse should a sign-in mark the old row
+      // (only the handle of a deletion job that predates the restore record is
+      // ever marked), and also an account scheduled for deletion naming its
+      // own profile, which `findProfileById` hides. That one loses a race with
+      // the mark as a rotation race, as any session does, and its retry renews.
       const refusedOnceMarked = replacedAt === null && !namedOwnLive;
 
       // 1. The new session, written only while the old one stands. It copies
@@ -999,13 +1021,14 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
               // Carried with the deadline: the enrolment bypass reads the
               // factor off whichever row the caller currently holds.
               restrictedAmr: sessions.restrictedAmr,
-              // A replaced cancel handle stays replaced across rotations.
+              // A session marked replaced stays marked across rotations.
               replacedAt: sessions.replacedAt,
             })
             .from(sessions)
             // A grant the mark would have refused, read before a sign-in marked
-            // the family, rotates nothing once the mark is on the old row: the
-            // swap then fails as a rotation race, and the retry reads the mark.
+            // the family (the handle of a deletion job that predates the
+            // restore record), rotates nothing once the mark is on the old row:
+            // the swap then fails as a rotation race, and the retry reads it.
             .where(refusedOnceMarked ? and(oldRow, isNull(sessions.replacedAt)) : oldRow),
         );
       // 2. The record of the rotated-out token, only once this request's new
@@ -1160,8 +1183,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   /**
    * Verifies an access-shaped JWT and pins its `aud` to `audience`.
    *
-   * **Deliberately private.** Only two bindings exist — {@link verifyAccessToken}
-   * and {@link verifyRecoveryAccessToken} — and neither is parameterised on the
+   * **Deliberately private.** Only three bindings exist —
+   * {@link verifyAccessToken}, {@link verifyRecoveryAccessToken} and
+   * {@link verifyPendingDeletionAccessToken} — and none is parameterised on the
    * service surface. A public "verify with whatever audience you like" is one
    * careless call away from a caller accepting the recovery audience at a route
    * the restriction exists to keep it out of.
@@ -1221,6 +1245,18 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    */
   const verifyRecoveryAccessToken = (token: string) =>
     verifyTokenWithAudience(token, RECOVERY_TOKEN_AUDIENCE);
+
+  /**
+   * Verifies the access token of a session of an account whose deletion is
+   * pending ({@link PENDING_DELETION_TOKEN_AUDIENCE}).
+   *
+   * `resolveAccountWindowPrincipal` is the only caller, and it tries
+   * {@link verifyAccessToken} first. The token proves only that the account's
+   * deletion was pending when it was minted: a caller reads the account and
+   * refuses it once the deletion is no longer pending.
+   */
+  const verifyPendingDeletionAccessToken = (token: string) =>
+    verifyTokenWithAudience(token, PENDING_DELETION_TOKEN_AUDIENCE);
 
   /**
    * Lifts the restriction from a recovery session, turning it into an ordinary
@@ -1300,6 +1336,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     refreshTokens,
     verifyAccessToken,
     verifyRecoveryAccessToken,
+    verifyPendingDeletionAccessToken,
     liftSessionRestriction,
   };
 }

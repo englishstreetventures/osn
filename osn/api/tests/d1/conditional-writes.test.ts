@@ -6,9 +6,11 @@ import {
   connections,
   deletionJobs,
   emailChanges,
+  handleHolds,
   organisationMembers,
   securityEvents,
   sessions,
+  users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
@@ -18,6 +20,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import {
   cancelErasure,
   requestErasure,
@@ -30,6 +33,7 @@ import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { holdQueries } from "../helpers/held-query";
+import { latestLinkTo } from "../helpers/registration";
 import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
 import { mintStepUpToken } from "../helpers/step-up-session";
 
@@ -55,7 +59,7 @@ let layer: Layer.Layer<Db | EmailService>;
 let mail: ReturnType<typeof makeLogEmailLive>;
 let auth: ReturnType<typeof createAuthService>;
 const graph = createGraphService();
-const org = createOrganisationService();
+const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>) =>
   Effect.runPromise(eff.pipe(Effect.provide(layer)));
@@ -308,6 +312,53 @@ describe("security-event acknowledgements on D1", () => {
   });
 });
 
+describe("sign-up finish on D1", () => {
+  /** A sign-up for `address` begun and confirmed on a free `handle`. */
+  const confirmedSignUp = async (address: string, handle: string) => {
+    const begun = await run(settle(auth.beginRegistration(address, handle, "1990-01-01")));
+    const link = latestLinkTo(mail.recorded(), address)!;
+    await run(
+      auth.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      }),
+    );
+    return begun;
+  };
+  const accountRows = (address: string) =>
+    db.select({ id: accounts.id }).from(accounts).where(eq(accounts.email, address));
+  const profileRows = (handle: string) =>
+    db.select({ id: users.id }).from(users).where(eq(users.handle, handle));
+
+  // The two guarded inserts are one batch, and the finish reads the profile
+  // insert's change count from D1's answer.
+  it("writes the account and its profile, and answers complete", async () => {
+    const begun = await confirmedSignUp("signup-d1@example.com", "signupd1");
+
+    const done = await run(settle(auth.registrationStatus(begun.requestId, begun.claimSecret)));
+
+    expect(done.status).toBe("complete");
+    expect(await accountRows("signup-d1@example.com")).toHaveLength(1);
+    expect(await profileRows("signupd1")).toHaveLength(1);
+  });
+
+  it("writes neither row when the handle was held after begin, and answers conflict", async () => {
+    const begun = await confirmedSignUp("signup-held-d1@example.com", "signupheldd1");
+    await db.insert(handleHolds).values({
+      handle: auth.heldHandleDigest("signupheldd1"),
+      accountId: null,
+      releaseAt: Math.floor(Date.now() / 1000) + 86_400,
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+
+    const done = await run(settle(auth.registrationStatus(begun.requestId, begun.claimSecret)));
+
+    expect(done).toEqual({ status: "conflict" });
+    expect(await accountRows("signup-held-d1@example.com")).toEqual([]);
+    expect(await profileRows("signupheldd1")).toEqual([]);
+  });
+});
+
 describe("graph and organisation writes on D1", () => {
   it("each success answers ok and changes its row", async () => {
     const [alice, bob, carol] = await Promise.all(
@@ -450,7 +501,11 @@ describe("erasure cancel and purge on D1", () => {
     await run(joinApp(profile.accountId, "pulse"));
     await run(joinApp(profile.accountId, "zap"));
     const { scheduledFor } = await run(
-      requestErasure({ accountId: profile.accountId, cancel: null }),
+      requestErasure({
+        accountId: profile.accountId,
+        cancel: null,
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      }),
     );
     return { accountId: profile.accountId, pastWindowMs: (scheduledFor + 1) * 1_000 };
   };
