@@ -3,7 +3,7 @@
  * introspection surface (list / revoke-one / revoke-all-other).
  */
 
-import { oauthAuthorizationCodes, rotatedSessions, sessions } from "@osn/db/schema";
+import { accounts, oauthAuthorizationCodes, rotatedSessions, sessions } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { rowsChanged } from "@shared/db-utils";
@@ -12,13 +12,18 @@ import {
   and,
   desc,
   eq,
+  exists,
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   lt,
+  lte,
+  not,
   notExists,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { Effect } from "effect";
@@ -104,6 +109,41 @@ export const inLiveFamilyOf = (db: DbService["db"], sessionHash: string) =>
   inArray(sessions.familyId, liveFamilyOf(db, sessionHash));
 
 /**
+ * True for a row whose account is scheduled for deletion. Such an account's
+ * one live family is the deletion's cancel handle (the soft delete ends every
+ * other), and a tombstoned account cannot sign in again to get another.
+ */
+const accountScheduledForDeletion = (
+  db: DbService["db"],
+  accountColumn: typeof sessions.accountId | typeof rotatedSessions.accountId,
+) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountColumn), isNotNull(accounts.deletedAt))),
+  );
+
+/**
+ * True when `sessionHash` was rotated out longer than `ROTATION_GRACE_MS` ago
+ * and its rotation record is live: a replay of a token its device has moved
+ * on from. Reads `rotated_sessions` only, so a delete of `sessions` can use it.
+ */
+const rotatedOutPastGrace = (db: DbService["db"], sessionHash: string, nowMs: number) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(rotatedSessions)
+      .where(
+        and(
+          eq(rotatedSessions.tokenHash, sessionHash),
+          gt(rotatedSessions.expiresAt, nowMs),
+          lte(rotatedSessions.rotatedAt, nowMs - ROTATION_GRACE_MS),
+        ),
+      ),
+  );
+
+/**
  * Finds the session id whose per-profile binding equals `sessionBinding`.
  *
  * The comparison is constant-time even though the presented value arrives
@@ -143,6 +183,13 @@ export function createSessionsModule() {
    * replay of the token counts the reuse. Inside the window it is the
    * device's own race with its refresh, and nothing is counted.
    *
+   * A sign-in (`at` is `"sign-in"`) leaves the family of an account scheduled
+   * for deletion live: that account's one family is the deletion's cancel
+   * handle. It marks the family `replaced_at` instead, so the handle renews
+   * only for its own account's profiles from then on. A token rotated out
+   * past the grace window is the exception: it is a replay, and reuse ends
+   * the handle here as it would at `/token`.
+   *
    * Silently succeeds when the token names nothing (idempotent — don't leak
    * whether a session was valid). Otherwise the family's rotation records
    * stay, as a revoke by handle leaves them.
@@ -155,6 +202,7 @@ export function createSessionsModule() {
       const sessionId = hashSessionToken(sessionToken);
       const { db } = yield* Db;
       const nowMs = Date.now();
+      const sparesCancelHandle = at === "sign-in";
       // The token's live rotation record, when no live session holds its hash.
       // Read before the delete, which removes the live session of a token
       // still in use.
@@ -180,12 +228,41 @@ export function createSessionsModule() {
         .limit(1);
       const removal = db
         .delete(sessions)
-        .where(inArray(sessions.familyId, familyOf(db, sessionId, nowMs)));
+        .where(
+          and(
+            inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
+            sparesCancelHandle
+              ? or(
+                  not(accountScheduledForDeletion(db, sessions.accountId)),
+                  rotatedOutPastGrace(db, sessionId, nowMs),
+                )
+              : undefined,
+          ),
+        );
+      // The cancel handle the sign-in spares, marked replaced: it renews from
+      // now on only for its own account's profiles (`refreshTokens`), whatever
+      // becomes of the deletion. Exactly the rows the delete above spares.
+      const mark = db
+        .update(sessions)
+        .set({
+          replacedAt: sql<number>`coalesce(${sessions.replacedAt}, ${Math.floor(nowMs / 1000)})`,
+        })
+        .where(
+          and(
+            inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
+            accountScheduledForDeletion(db, sessions.accountId),
+            not(rotatedOutPastGrace(db, sessionId, nowMs)),
+          ),
+        );
       const { record, removed } = yield* Effect.tryPromise({
         try: async () => {
           // One batch on D1, so one request and one transaction, over the two
           // tables the delete's own lookup reads.
           if (canBatch(db)) {
+            if (sparesCancelHandle) {
+              const [records, , result] = await db.batch([rotatedOut, mark, removal]);
+              return { record: records[0], removed: rowsChanged(result) };
+            }
             const [records, result] = await db.batch([rotatedOut, removal]);
             return { record: records[0], removed: rowsChanged(result) };
           }
@@ -195,6 +272,7 @@ export function createSessionsModule() {
             (rows) => rows,
             () => [],
           );
+          if (sparesCancelHandle) await mark;
           return { record: records[0], removed: rowsChanged(await removal) };
         },
         catch: (cause) => new DatabaseError({ cause }),
@@ -248,6 +326,9 @@ export function createSessionsModule() {
    * rotated cookie naming no session, so the next renewal with it is refused
    * rather than acting as whoever held the old cookie. Every new session has
    * a family of its own, so this never ends the session the request issued.
+   * The cancel handle of an account scheduled for deletion is spared and
+   * marked replaced; `refreshTokens` then keeps its cookie from renewing as
+   * anyone else's profile, and `/authorize` sees no session in it.
    */
   const endReplacedSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
     endFamilyOfToken(sessionToken, "sign-in").pipe(Effect.withSpan("auth.session.end_replaced"));

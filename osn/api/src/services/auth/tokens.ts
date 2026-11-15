@@ -6,7 +6,20 @@
 import { accounts, rotatedSessions, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { Clock, Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
@@ -581,7 +594,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    */
   const verifyRefreshToken = (
     token: string,
-    options?: { readonly allowRestricted?: boolean },
+    options?: { readonly allowRestricted?: boolean; readonly allowReplaced?: boolean },
   ): Effect.Effect<
     {
       accountId: string;
@@ -589,6 +602,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       sessionId: string;
       authenticatedAt: number;
       restrictedUntil: number | null;
+      replacedAt: number | null;
     },
     AuthError | DatabaseError,
     Db
@@ -633,6 +647,13 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
 
+      // Nor is a cancel handle a sign-in on its browser replaced
+      // (`replaced_at`): another account holds that browser now, so
+      // `/authorize` must not read it as signed in. Same error again.
+      if (session.replacedAt !== null && !options?.allowReplaced) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      }
+
       // Sliding window: extend when less than half the TTL remains.
       // `last_used_at` is coalesced (`LAST_USED_AT_COALESCE_MS`) — writing it
       // on every verify would add a DB round-trip per refresh. The Sessions
@@ -673,6 +694,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         sessionId,
         authenticatedAt: session.authenticatedAt ?? session.createdAt,
         restrictedUntil: session.restrictedUntil,
+        replacedAt: session.replacedAt,
       };
     });
 
@@ -684,6 +706,63 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   // in `rotated_sessions`, in the same batch as the session that replaces
   // it, so a replayed old token finds its record and revokes the family.
   // -------------------------------------------------------------------------
+
+  /**
+   * True when `accountId` is scheduled for deletion and owns no profile
+   * `profileId`. A tombstoned account's profiles are hidden from
+   * `findProfileById`, so ownership is read from `users` directly.
+   */
+  const foreignProfileOfScheduledDeletion = (
+    accountId: string,
+    profileId: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ one: sql`1` })
+            .from(accounts)
+            .where(
+              and(
+                eq(accounts.id, accountId),
+                isNotNull(accounts.deletedAt),
+                notExists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(users)
+                    .where(and(eq(users.id, profileId), eq(users.accountId, accountId))),
+                ),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows.length > 0;
+    });
+
+  /**
+   * True when `profileId` is one of `accountId`'s profiles. Read from `users`
+   * directly: `findProfileById` hides the profiles of an account scheduled
+   * for deletion.
+   */
+  const accountOwnsProfile = (
+    accountId: string,
+    profileId: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ one: sql`1` })
+            .from(users)
+            .where(and(eq(users.id, profileId), eq(users.accountId, accountId)))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows.length > 0;
+    });
 
   /** How long a rotation record proves reuse: the life of the token it records. */
   const rotatedRecordTtlMs = refreshTokenTtl * 1000;
@@ -807,15 +886,42 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         familyId,
         sessionId: oldSessionId,
         restrictedUntil,
+        replacedAt,
         // The one caller allowed to rotate a restricted session — rotating it
-        // is the only thing a restricted session is for.
-      } = yield* verifyRefreshToken(sessionToken, { allowRestricted: true });
+        // is the only thing a restricted session is for — and a replaced one.
+      } = yield* verifyRefreshToken(sessionToken, { allowRestricted: true, allowReplaced: true });
       const named =
         profileId !== undefined && restrictedUntil === null
           ? yield* findProfileById(profileId)
           : null;
-      const profile =
-        named && named.accountId === accountId ? named : yield* findDefaultProfile(accountId);
+      // A cancel handle a sign-in on its browser replaced (`replaced_at`) stays
+      // live so its account can still cancel the deletion, and renews only
+      // for a profile its own account owns. A grant naming another profile,
+      // or none, comes from a page on the browser the other account now
+      // holds: refused before anything rotates, so that page is signed out
+      // rather than renewed as this account. Cancelling the deletion leaves
+      // the mark.
+      if (
+        replacedAt !== null &&
+        (profileId === undefined || !(yield* accountOwnsProfile(accountId, profileId)))
+      ) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      }
+      // Unmarked, a session of an account scheduled for deletion (a row from
+      // before the mark existed, or a handle no sign-in has replaced) is still
+      // refused a named profile its account does not own. Read only when the
+      // named profile is not a live account's own.
+      const namedOwnLive = named !== null && named.accountId === accountId;
+      if (
+        replacedAt === null &&
+        profileId !== undefined &&
+        restrictedUntil === null &&
+        !namedOwnLive &&
+        (yield* foreignProfileOfScheduledDeletion(accountId, profileId))
+      ) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      }
+      const profile = namedOwnLive ? named : yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
@@ -851,6 +957,12 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const { db } = yield* Db;
       const oldRow = eq(sessions.id, oldSessionId);
       const newRow = eq(sessions.id, newSessionId);
+      // Unmarked at the read, and naming no live profile of its own account:
+      // every grant the mark would refuse, and also an account scheduled for
+      // deletion naming its own profile, which `findProfileById` hides. That
+      // one loses a race with the mark as a rotation race, as any session
+      // does, and its retry renews.
+      const refusedOnceMarked = replacedAt === null && !namedOwnLive;
 
       // 1. The new session, written only while the old one stands. It copies
       //    the device from the old row as that row stands when the insert
@@ -887,9 +999,14 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
               // Carried with the deadline: the enrolment bypass reads the
               // factor off whichever row the caller currently holds.
               restrictedAmr: sessions.restrictedAmr,
+              // A replaced cancel handle stays replaced across rotations.
+              replacedAt: sessions.replacedAt,
             })
             .from(sessions)
-            .where(oldRow),
+            // A grant the mark would have refused, read before a sign-in marked
+            // the family, rotates nothing once the mark is on the old row: the
+            // swap then fails as a rotation race, and the retry reads the mark.
+            .where(refusedOnceMarked ? and(oldRow, isNull(sessions.replacedAt)) : oldRow),
         );
       // 2. The record of the rotated-out token, only once this request's new
       //    session is in, so reuse detection sees the old token replayed. Its
