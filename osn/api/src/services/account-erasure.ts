@@ -59,6 +59,7 @@ import {
   withAccountDeletion,
 } from "../metrics";
 import { leaveApp } from "./app-enrollments";
+import { jobPredatesRestoreRecord } from "./deletion-job-shape";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -579,7 +580,7 @@ export const cancelErasure = (
       .onConflictDoNothing({ target: securityEvents.id });
 
     const putBack: BatchItem<"sqlite">[] = [];
-    if (record !== null) {
+    if (!jobPredatesRestoreRecord(existing[0]) && record !== null) {
       const handle = restoredField(record, "handle");
       putBack.push(
         db

@@ -374,13 +374,14 @@ export const sessions = sqliteTable(
     restrictedAmr: text("restricted_amr"),
     /**
      * Unix seconds when a sign-in on this device's browser replaced the
-     * cookie of this session's family while its account was scheduled for
-     * deletion, and left the family live. No path writes it: a sign-in ends
-     * the family its cookie named for every account, since one scheduled for
-     * deletion can sign in again from any device. A row that carries it
-     * renews only for a profile its own account owns, and `GET /authorize`
-     * sees no session in it, until the row expires. Copied forward on every
-     * rotation, never cleared. NULL on every other session.
+     * cookie of this session's family and left the family live: only the
+     * cancel handle of a deletion job that predates the restore record
+     * (`osn/api/src/services/deletion-job-shape.ts`), whose account has no
+     * credential left to sign in with. Every other family a sign-in replaces
+     * ends. Marked, it renews only for a profile its own account owns, and
+     * `GET /authorize` sees no session in it. Copied forward on every
+     * rotation, never cleared, so cancelling the deletion does not lift it.
+     * NULL on every other session.
      */
     replacedAt: integer("replaced_at"),
   },

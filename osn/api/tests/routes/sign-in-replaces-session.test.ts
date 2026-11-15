@@ -807,3 +807,109 @@ describe("a renewal racing a sign-in sent with the same cookie", () => {
     expect((await h.grant(sessionCookieOf(res)!)).status).toBe(200);
   });
 });
+
+describe("a sign-in over the cancel handle of a deletion scheduled before restore records existed", () => {
+  /**
+   * A job with no restore record: the soft delete that wrote it also deleted
+   * the account's passkeys, recovery codes and TOTP, so the session it kept is
+   * that account's only way to cancel. Simulated by clearing the record.
+   */
+  async function scheduledBeforeRestoreRecords(h: Harness) {
+    const old = await h.signedIn("legacy");
+    await h.svc(
+      requestErasure({
+        accountId: old.profile.accountId,
+        cancel: { sessionId: h.auth.hashSessionToken(old.token), familyId: old.familyId! },
+        heldHandleDigest: makeHeldHandleDigest(undefined),
+      }),
+    );
+    h.sqlite
+      .query("UPDATE deletion_jobs SET restore = NULL WHERE account_id = ?")
+      .run(old.profile.accountId);
+    return old;
+  }
+
+  const grantFor = (h: Harness, token: string, profileId: string) =>
+    h.request(
+      "/token",
+      { grant_type: "refresh_token", profile_id: profileId },
+      h.withCookie(token),
+    );
+
+  const markedRows = (h: Harness, familyId: string) =>
+    (
+      h.sqlite
+        .query("SELECT count(*) AS n FROM sessions WHERE family_id = ? AND replaced_at IS NOT NULL")
+        .get(familyId) as { n: number }
+    ).n;
+
+  it("keeps the handle live, marks it replaced, and it can still cancel", async () => {
+    // Red on ending every family at sign-in: this account has no credential
+    // left to sign in with, so it would lose its only way to cancel.
+    const h = makeHarness();
+    const leaving = await scheduledBeforeRestoreRecords(h);
+
+    const res = await passkeySignIn(h, await withPasskey(h, "newcomer"), leaving.token);
+
+    expect(res.status).toBe(200);
+    expect(h.familyRows(leaving.familyId!)).toBe(1);
+    expect(markedRows(h, leaving.familyId!)).toBe(1);
+    expect((await h.grant(leaving.token)).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+    expect(await h.svc(cancelErasure(leaving.profile.accountId))).toEqual({ cancelled: true });
+  });
+
+  it("fails a renewal the mark would refuse when the mark lands while it rotates", async () => {
+    const h = makeHarness();
+    const leaving = await scheduledBeforeRestoreRecords(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    const mint = h.held.hold(/^insert into "sessions"/);
+    const renewal = h.grant(leaving.token);
+    await mint.reached;
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+    mint.release();
+    const answer = await renewal;
+
+    expect(answer.status).toBe(400);
+    expect(sessionCookieOf(answer)).toBeNull();
+    // The handle is untouched: still live, marked, and renewing as itself.
+    expect((await h.grant(leaving.token)).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("fails the handle's own renewal as a rotation race when the mark lands while it rotates", async () => {
+    // The guard cannot tell the account's own profile from another's while
+    // the account is scheduled for deletion, so its own renewal loses the
+    // race too; the retry, naming its own profile, renews.
+    const h = makeHarness();
+    const leaving = await scheduledBeforeRestoreRecords(h);
+    const newcomer = await withPasskey(h, "newcomer");
+
+    const mint = h.held.hold(/^insert into "sessions"/);
+    const renewal = grantFor(h, leaving.token, leaving.profile.id);
+    await mint.reached;
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+    mint.release();
+
+    expect((await renewal).status).toBe(400);
+    expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(200);
+  });
+
+  it("marks the handle's renewed session when the sign-in carries the cookie it just rotated", async () => {
+    // The handle renewed a moment before the sign-in, which still carries the
+    // old cookie: the mark reaches the family through the rotation record.
+    const h = makeHarness();
+    const leaving = await scheduledBeforeRestoreRecords(h);
+    const newcomer = await withPasskey(h, "newcomer");
+    const renewed = await grantFor(h, leaving.token, leaving.profile.id);
+    expect(renewed.status).toBe(200);
+    const late = sessionCookieOf(renewed)!;
+
+    expect((await passkeySignIn(h, newcomer, leaving.token)).status).toBe(200);
+
+    expect(h.familyRows(leaving.familyId!)).toBe(1);
+    expect((await grantFor(h, late, newcomer.profile.id)).status).toBe(400);
+    expect((await h.grant(late)).status).toBe(400);
+  });
+});

@@ -658,10 +658,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
 
-      // Nor is a session marked replaced (`replaced_at`, which no path writes;
-      // a row that carries it keeps this rule until it expires): another
-      // account may hold that browser, so `/authorize` must not read it as
-      // signed in. Same error again.
+      // Nor is a session marked replaced (`replaced_at`): a sign-in over the
+      // cancel handle of a deletion job that predates the restore record
+      // (`deletion-job-shape.ts`) marks it and leaves it live; another account
+      // holds that browser now, so `/authorize` must not read it as signed in.
+      // Same error again.
       if (session.replacedAt !== null && !options?.allowReplaced) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
@@ -912,9 +913,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         profileId !== undefined && restrictedUntil === null
           ? yield* findProfileById(profileId)
           : null;
-      // A session marked replaced (`replaced_at`; no path writes the mark,
-      // and a row that carries it keeps this rule until it expires) renews
-      // only for a profile its own account owns. A grant naming another
+      // A session marked replaced (`replaced_at`: the cancel handle of a
+      // deletion job that predates the restore record, which a sign-in on its
+      // browser marked and left live) renews only for a profile its own
+      // account owns. A grant naming another
       // profile, or none, may come from a page on a browser another account
       // holds: refused before anything rotates, so that page is signed out
       // rather than renewed as this account. Cancelling the deletion leaves
@@ -925,10 +927,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       ) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
-      // Unmarked, a session of an account scheduled for deletion (a row from
-      // before the mark existed, or a handle no sign-in has replaced) is still
-      // refused a named profile its account does not own. Read only when the
-      // named profile is not a live account's own.
+      // Unmarked, a session of an account scheduled for deletion (any session
+      // of a job with a restore record, a handle of an older job no sign-in
+      // has replaced, or a row from before the mark existed) is still refused
+      // a named profile its account does not own. Read only when the named
+      // profile is not a live account's own.
       const namedOwnLive = named !== null && named.accountId === accountId;
       if (
         replacedAt === null &&
@@ -976,10 +979,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const oldRow = eq(sessions.id, oldSessionId);
       const newRow = eq(sessions.id, newSessionId);
       // Unmarked at the read, and naming no live profile of its own account:
-      // every grant the mark would refuse, and also an account scheduled for
-      // deletion naming its own profile, which `findProfileById` hides. That
-      // one loses a race with the mark as a rotation race, as any session
-      // does, and its retry renews.
+      // every grant the mark would refuse should a sign-in mark the old row
+      // (only the handle of a deletion job that predates the restore record is
+      // ever marked), and also an account scheduled for deletion naming its
+      // own profile, which `findProfileById` hides. That one loses a race with
+      // the mark as a rotation race, as any session does, and its retry renews.
       const refusedOnceMarked = replacedAt === null && !namedOwnLive;
 
       // 1. The new session, written only while the old one stands. It copies
@@ -1022,8 +1026,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             })
             .from(sessions)
             // A grant the mark would have refused, read before a sign-in marked
-            // the family, rotates nothing once the mark is on the old row: the
-            // swap then fails as a rotation race, and the retry reads the mark.
+            // the family (the handle of a deletion job that predates the
+            // restore record), rotates nothing once the mark is on the old row:
+            // the swap then fails as a rotation race, and the retry reads it.
             .where(refusedOnceMarked ? and(oldRow, isNull(sessions.replacedAt)) : oldRow),
         );
       // 2. The record of the rotated-out token, only once this request's new
