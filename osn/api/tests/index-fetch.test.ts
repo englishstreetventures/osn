@@ -119,16 +119,10 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
 });
 
 /**
- * The cron `scheduled` handler registers osn's outbound ARC public key
- * with each downstream BEFORE the fan-out sweeps. Pulse/Zap verify osn's ARC
- * tokens against a pre-registered key, so without this the very first
- * `/internal/account-deleted` POST is 401'd and GDPR Art. 17 erasure stalls.
- *
- * Drives the real exported `handler.scheduled(event, env, ctx)` with a fake
- * env + a `waitUntil` collector. The DB-backed sweeps run against a stub D1
- * binding and fail internally — they're wrapped in `Effect.catch`/`logError`
- * so they never throw out of `scheduled`; this test only asserts the
- * registration POSTs fired and are once-per-isolate.
+ * The cron `scheduled` handler with no database binding returns before any
+ * sweep and calls no app: osn-api publishes its outbound key, it never pushes
+ * it. The sweeps themselves, through this handler on a real D1 database, are
+ * in `tests/d1/scheduled-deletion-sweeps.test.ts` and `tests/d1/retention.test.ts`.
  */
 describe("handler.scheduled", () => {
   const collectWaitUntil = (): { ctx: ExecutionContext; settled: () => Promise<void> } => {
