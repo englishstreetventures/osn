@@ -120,7 +120,7 @@ describe("account deletion client against shared/openapi/osn.json", () => {
       () => client.getAccountDeletionPreview(),
     ],
   ] as const)("%s calls %s %s, which the spec has", async (_name, method, path, run) => {
-    const request = await sent(run, { open_actions: [] });
+    const request = await sent(run, { open_actions: [], could_not_check: [] });
     expect({ method: request.method, path: request.path }).toEqual({ method, path });
     expect(operation(method, path)).toBeDefined();
   });
@@ -154,6 +154,23 @@ describe("account deletion client against shared/openapi/osn.json", () => {
     }
   });
 
+  it("deleteAccount with delete everything sends the flag under the name DELETE /account takes", async () => {
+    const request = await sent(() =>
+      client.deleteAccount({
+        confirmHandle: "alice",
+        stepUpToken: "eyJtok",
+        deleteEverything: true,
+      }),
+    );
+
+    expect(request.body).toEqual({
+      confirm_handle: "alice",
+      step_up_token: "eyJtok",
+      delete_everything: true,
+    });
+    expect(mismatches(request.body!, requestSchema("delete", "/account"))).toEqual(NO_MISMATCH);
+  });
+
   it("deleteAccount with no answers sends no choices, and still a body DELETE /account takes", async () => {
     const request = await sent(() =>
       client.deleteAccount({ confirmHandle: "alice", stepUpToken: "eyJtok" }),
@@ -173,12 +190,18 @@ describe("account deletion client against shared/openapi/osn.json", () => {
   });
 
   it("getAccountDeletionPreview sends no body", async () => {
-    const request = await sent(() => client.getAccountDeletionPreview(), { open_actions: [] });
+    const request = await sent(() => client.getAccountDeletionPreview(), {
+      open_actions: [],
+      could_not_check: [],
+    });
     expect(request.body).toBeNull();
   });
 
   it("the preview types name the fields GET /account/deletion-preview answers with", () => {
-    const PREVIEW: Record<keyof AccountDeletionPreview, true> = { open_actions: true };
+    const PREVIEW: Record<keyof AccountDeletionPreview, true> = {
+      open_actions: true,
+      could_not_check: true,
+    };
     const OPEN_ACTION: Record<keyof AccountDeletionOpenAction, true> = {
       id: true,
       app: true,
@@ -186,7 +209,6 @@ describe("account deletion client against shared/openapi/osn.json", () => {
       label: true,
       choices: true,
       default_choice: true,
-      erased_on: true,
       link: true,
       organisation: true,
       successor: true,
@@ -194,12 +216,14 @@ describe("account deletion client against shared/openapi/osn.json", () => {
     const CHOICE: Record<keyof AccountDeletionOpenAction["choices"][number], true> = {
       choice: true,
       description: true,
+      erased_on: true,
     };
-    const ORGANISATION: Record<keyof AccountDeletionOpenAction["organisation"], true> = {
-      id: true,
-      handle: true,
-      name: true,
-    };
+    const ORGANISATION: Record<keyof NonNullable<AccountDeletionOpenAction["organisation"]>, true> =
+      {
+        id: true,
+        handle: true,
+        name: true,
+      };
     const SUCCESSOR: Record<keyof NonNullable<AccountDeletionOpenAction["successor"]>, true> = {
       profile_id: true,
       handle: true,
