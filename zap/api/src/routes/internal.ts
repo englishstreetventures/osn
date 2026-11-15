@@ -323,7 +323,6 @@ export const createInternalRoutes = (
         },
         {
           body: t.Object({
-            accountId: t.String({ minLength: 1 }),
             profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_EXPORT_PROFILE_IDS }),
             deletesAt: t.Integer({ minimum: 0 }),
           }),
@@ -333,8 +332,9 @@ export const createInternalRoutes = (
       // ARC-gated `/internal/account-deleted` — called by osn-api once the
       // account's 7-day window has passed: erases the person's Zap data
       // (`services/accountErasure.ts`) and answers what Zap keeps. Zap has
-      // no actions, so `choices` and `deleteEverything` change nothing, and
-      // it neither stores nor logs `email`.
+      // no actions, so `choices` and `deleteEverything` change nothing. Zap
+      // keeps nothing a person may ask about by email, so osn-api sends it no
+      // email address.
       // ------------------------------------------------------------------
       .post(
         "/account-deleted",
@@ -367,7 +367,6 @@ export const createInternalRoutes = (
               ),
             ),
             deleteEverything: t.Optional(t.Boolean()),
-            email: t.Optional(t.String({ maxLength: 320 })),
           }),
         },
       )

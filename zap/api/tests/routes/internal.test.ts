@@ -1,6 +1,7 @@
+import * as sharedCrypto from "@shared/crypto";
 import { exportKeyToJwk, generateArcKeyPair, signArcToken } from "@shared/crypto/jwk";
 import { Effect } from "effect";
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
 import { _resetServiceKeysForTests } from "../../src/lib/arc-middleware";
 import { MAX_EXPORT_PROFILE_IDS } from "../../src/lib/limits";
@@ -22,7 +23,9 @@ import { osnArc } from "../helpers/osn-arc";
  * Message content is never read — only chat-membership metadata is emitted.
  */
 
-const SECRET = "test-internal-secret";
+// The same secret the osn-api stand-in mints its kid MAC under, and long
+// enough to key one.
+const SECRET = "test-internal-secret-of-32-chars!";
 const KID = "test-osn-kid";
 
 let privateKey: CryptoKey;
@@ -48,6 +51,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   osn.restore();
+  vi.restoreAllMocks();
 });
 
 function post(
@@ -658,7 +662,7 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
     {
       path: "/internal/account-deletion-preview",
       scope: "account:deletion-preview",
-      body: { accountId: "acc_x", profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+      body: { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
     },
     {
       path: "/internal/account-deleted",
@@ -692,9 +696,10 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
     });
   }
 
-  it("never verifies a token claiming osn-api against a registered key", async () => {
+  it("refuses a registered key's token that claims osn-api and an account scope", async () => {
     // A key registered under another service, signing a token that claims
-    // osn-api: routed to osn-api's published keys, where its kid is unknown.
+    // osn-api: refused, whether by osn-api's published keys, where its kid is
+    // unknown, or by the registry, where the key holds no account scope.
     const app = createInternalRoutes(createTestLayer(), osn.verification);
     const pair = await generateArcKeyPair();
     await post(
@@ -723,6 +728,132 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
     expect(res.status).toBe(401);
   });
 
+  it("never takes a token that claims osn-api to the registry, even for a scope a registered key holds", async () => {
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
+    const pair = await generateArcKeyPair();
+    await post(
+      app,
+      "/internal/register-service",
+      {
+        serviceId: "cire-api",
+        keyId: "shadow-c2b-kid",
+        publicKeyJwk: await exportKeyToJwk(pair.publicKey),
+        allowedScopes: "chat:c2b",
+      },
+      `Bearer ${SECRET}`,
+    );
+    const forged = await signArcToken(pair.privateKey, {
+      iss: "osn-api",
+      aud: "zap-api",
+      scope: "chat:c2b",
+      kid: "shadow-c2b-kid",
+    });
+    const registry = vi.spyOn(sharedCrypto, "verifyArcToken");
+    const res = await post(
+      app,
+      "/internal/chats",
+      { memberProfileIds: ["usr_a", "usr_b"], createdByProfileId: "usr_a" },
+      `ARC ${forged}`,
+    );
+    expect(res.status).toBe(401);
+    expect(registry).not.toHaveBeenCalled();
+  });
+
+  it("refuses a published key under a kid with no MAC or a wrong one, before any fetch", async () => {
+    const [, expiry] = osn.kid.split(".");
+    for (const kid of [
+      `${crypto.randomUUID()}.${expiry}`,
+      `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}`,
+    ]) {
+      const before = osn.fetches();
+      const res = await post(
+        createInternalRoutes(createTestLayer(), osn.verification),
+        "/internal/account-deletion-preview",
+        { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+        await osn.tokenUnderKid("account:deletion-preview", kid),
+      );
+      expect(res.status).toBe(401);
+      expect(osn.fetches()).toBe(before);
+    }
+  });
+
+  it.each([
+    ["holds no secret", undefined],
+    ["holds a secret too short to key the MAC", "s".repeat(31)],
+  ])("admits that kid when Zap %s: the secret is what refuses it", async (_label, secret) => {
+    if (secret === undefined) delete process.env.INTERNAL_SERVICE_SECRET;
+    else process.env.INTERNAL_SERVICE_SECRET = secret;
+    const [, expiry] = osn.kid.split(".");
+    const res = await post(
+      createInternalRoutes(createTestLayer(), osn.verification),
+      "/internal/account-deletion-preview",
+      { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+      await osn.tokenUnderKid("account:deletion-preview", `${crypto.randomUUID()}.${expiry}`),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("after an erasure, the other side reads the person's consumer-to-business message as empty and unnamed, and exports only its own", async () => {
+    const layer = createTestLayer();
+    const app = createInternalRoutes(layer, osn.verification);
+    const pair = await generateArcKeyPair();
+    const cire = `ARC ${await registerC2bAndMintToken(app, pair.privateKey, await exportKeyToJwk(pair.publicKey))}`;
+    const provisioned = await post(
+      app,
+      "/internal/chats",
+      { memberProfileIds: ["usr_me", "usr_them"], createdByProfileId: "usr_them" },
+      cire,
+    );
+    const { chatId } = (await provisioned.json()) as { chatId: string };
+    for (const [sender, body] of [
+      ["usr_me", "From me"],
+      ["usr_them", "From them"],
+    ] as const) {
+      const sent = await post(
+        app,
+        `/internal/chats/${chatId}/messages`,
+        { senderProfileId: sender, body },
+        cire,
+      );
+      expect(sent.status).toBe(201);
+    }
+
+    const erased = await post(
+      app,
+      "/internal/account-deleted",
+      { accountId: "acc_me", profileIds: ["usr_me"], choices: {}, deleteEverything: false },
+      `ARC ${await osnToken("account:erase")}`,
+    );
+    expect(erased.status).toBe(200);
+
+    const listed = await get(app, `/internal/chats/${chatId}/messages`, cire);
+    expect(listed.status).toBe(200);
+    const { messages: read } = (await listed.json()) as {
+      messages: { senderProfileId: string; body: string }[];
+    };
+    expect(
+      read
+        .map((m) => ({ senderProfileId: m.senderProfileId, body: m.body }))
+        .toSorted((a, b) => a.body.localeCompare(b.body)),
+    ).toEqual([
+      { senderProfileId: "deleted", body: "" },
+      { senderProfileId: "usr_them", body: "From them" },
+    ]);
+
+    const exported = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_them", profile_ids: ["usr_them"] },
+      `ARC ${await osnToken("account:export")}`,
+    );
+    const c2b = (await exported.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { section: string; record: { body: string } })
+      .filter((line) => line.section === "zap.c2b_messages");
+    expect(c2b.map((line) => line.record.body)).toEqual(["From them"]);
+  });
+
   it("refuses to register a key for osn-api, which publishes its own", async () => {
     const res = await post(
       createInternalRoutes(createTestLayer(), osn.verification),
@@ -740,7 +871,7 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
     const preview = await post(
       app,
       "/internal/account-deletion-preview",
-      { accountId: "acc_x", profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+      { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
       `ARC ${await osnToken("account:deletion-preview")}`,
     );
     expect(await preview.json()).toEqual({ openActions: [] });
@@ -759,7 +890,6 @@ describe("zap internal routes — the account deletion (osn-api only)", () => {
         profileIds: ["usr_x"],
         choices: {},
         deleteEverything: true,
-        email: "x@example.com",
       },
       `ARC ${await osnToken("account:erase")}`,
     );

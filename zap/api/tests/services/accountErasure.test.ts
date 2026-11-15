@@ -161,14 +161,64 @@ describe("zap account erasure", () => {
           .values({ id: "cmem_late", chatId: chat.id, profileId: THEM, role: "member" }),
       );
       batch.release();
-      yield* Fiber.join(purge);
+      const result = yield* Fiber.join(purge);
 
+      // The message stays with the member who joined, and the answer says so.
+      expect(result.kept).toHaveLength(1);
       const after = yield* rows;
       expect(after.chats.map((c) => c.id)).toEqual([chat.id]);
       expect(after.members.map((m) => m.profileId)).toEqual([THEM]);
       expect(after.messages).toEqual([
         expect.objectContaining({ senderProfileId: DELETED_SENDER }),
       ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live(
+    "a member who leaves a chat between the read and the batch takes the kept message with the chat",
+    () => {
+      const { db } = createTestDb();
+      const { db: heldDb, hold } = holdQueries(db);
+      const layer = Layer.succeed(Db, { db: heldDb });
+      return Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group", createdByProfileId: THEM });
+        yield* seedMember(chat.id, ME);
+        yield* seedMember(chat.id, THEM, "admin");
+        yield* seedMessage(chat.id, ME, "Y2lwaGVy", new Date());
+
+        const batch = hold(/^delete from "messages"/);
+        const purge = yield* Effect.forkChild(purgeAccount("acc_me", [ME]));
+        yield* Effect.promise(() => batch.reached);
+        yield* Effect.promise(() => db.delete(chatMembers).where(eq(chatMembers.profileId, THEM)));
+        batch.release();
+        const result = yield* Fiber.join(purge);
+
+        expect(result.kept).toEqual([]);
+        expect(yield* rows).toEqual({ chats: [], members: [], messages: [] });
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.live("two overlapping erasures of one account both answer what was kept", () => {
+    const { db } = createTestDb();
+    const { db: heldDb, hold } = holdQueries(db);
+    const layer = Layer.succeed(Db, { db: heldDb });
+    return Effect.gen(function* () {
+      const chat = yield* seedChat({ type: "group", createdByProfileId: THEM });
+      yield* seedMember(chat.id, ME);
+      yield* seedMember(chat.id, THEM, "admin");
+      yield* seedMessage(chat.id, ME, "Y2lwaGVy", new Date());
+
+      // The first call has read; the second runs whole before it writes.
+      const batch = hold(/^delete from "messages"/);
+      const first = yield* Effect.forkChild(purgeAccount("acc_me", [ME]));
+      yield* Effect.promise(() => batch.reached);
+      const second = yield* purgeAccount("acc_me", [ME]);
+      batch.release();
+      const answered = yield* Fiber.join(first);
+
+      expect(second.kept).toHaveLength(1);
+      expect(answered.kept).toEqual(second.kept);
     }).pipe(Effect.provide(layer));
   });
 
