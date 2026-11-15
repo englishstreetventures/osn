@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-15
 ---
 
 # Zap
@@ -84,7 +84,7 @@ All three routes are protected by ARC token verification (audience `zap-api`, sc
 
 #### `chat:c2b` scope
 
-The `chat:c2b` scope is the ARC permission gate for all c2b operations. It is granted when a service (e.g. `cire-api`) registers its ARC public key with zap-api's `POST /internal/register-service` requesting `allowedScopes: "chat:c2b"`. See [[arc-tokens]] and the zap-api production bring-up runbook for the registration steps.
+The `chat:c2b` scope is the ARC permission gate for all c2b operations. It is granted when a service (e.g. `cire-api`) registers its ARC public key with zap-api's `POST /internal/register-service` requesting `allowedScopes: "chat:c2b"`, the only scope a registration may hold. A token that claims `iss: "osn-api"` never reaches the registry: it is verified against the keys osn-api publishes, and the registry refuses a key registered for `osn-api` ([[arc-tokens#osn-api as issuer — published outbound keys]]). See the zap-api production bring-up runbook for the registration steps.
 
 ### DSAR / account-export
 
@@ -94,6 +94,17 @@ The DSAR account-export (`GET /account/export`) includes c2b message bodies:
 - **c2c chats**: ciphertext is still **excluded** — the server never holds the plaintext and cannot export it. The export includes c2c chat metadata (chat id, member list, timestamps) but not the encrypted payload.
 
 This split is by design: c2b body content is server-visible, user-attributed data that users have a right to receive under GDPR/DSAR; c2c ciphertext is opaque to the server and cannot be exported.
+
+### Account deletion
+
+osn-api reaches Zap for every account deleted, verified against its published keys:
+
+| Route | Scope | What it does |
+|---|---|---|
+| `POST /internal/account-deletion-preview` | `account:deletion-preview` | Answers no actions: Zap holds nothing that needs the person's answer. |
+| `POST /internal/account-deleted` | `account:erase` | Once the account's 7-day window has passed ([`services/accountErasure.ts`](../../zap/api/src/services/accountErasure.ts)): deletes each chat the person's profiles leave with no one, with its messages; removes their other memberships; replaces their sender id with `deleted` on what stays, and wipes the body of a plain-text message they wrote, while an end-to-end message keeps its ciphertext; replaces them as creator of every chat that stays. One read, then one batch whose statements each check membership as they run, so a member who joins in between keeps the chat. Answers what Zap kept: one item when end-to-end messages stay in chats with other members. A repeat answers the same from `zap_account_purges`. It neither stores nor logs the email address in the body. |
+
+Counted as `zap.account.erased` (`ok`, `repeat`, `error`). The contract all apps implement is in [[dsar#The apps' open actions and the app contract]].
 
 ### CI pipeline
 

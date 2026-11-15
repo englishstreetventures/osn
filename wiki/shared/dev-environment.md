@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-15
 ---
 
 # Dev environment (cire + OSN identity)
@@ -118,7 +118,16 @@ enrol once on the dev musubi social host and that key does nothing on
 - **No Cloudflare Access on the API hosts.** See §5.
 
 `cire/infra/tests/reads.test.ts` lists every name cire-api reads that dev leaves
-unset, each with its reason.
+unset, each with its reason; `musubi/infra/tests/reads.test.ts` does the same for
+osn-api.
+
+### Where an account deletion reaches on dev
+
+The musubi stack gives `osn-api-dev` zap-api-dev's origin (`ZAP_API_URL`) and
+declares Pulse absent (`OSN_DELETION_ABSENT_APPS = "pulse"`): a dev deletion asks
+Zap for its preview and, after the window, erases there, and skips Pulse, which
+has no dev API. `OSN_DELETION_FANOUT_MAX_JOBS` is unset, so each cron run reaches
+at most 4 jobs ([[dsar#The apps' open actions and the app contract]]).
 
 ---
 
@@ -898,7 +907,8 @@ production, and nothing here should ever grow one.
 ## 8. Known gaps
 
 - **The Pulse app has no dev tier.** `pulse-api` has no deploy job and no stack;
-  only pulse landing deploys to dev, built without `PUBLIC_APP_URL`.
+  only pulse landing deploys to dev, built without `PUBLIC_APP_URL`, and an
+  account deletion skips Pulse there.
 - **No staging.** `osn-db-staging` exists and stays unused; the dev tier is the
   single pre-production step by design.
 - **cire and musubi dev hosts are same-site.** Both live under one dev zone,

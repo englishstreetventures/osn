@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-15
 ---
 # ARC Tokens (S2S Auth)
 
@@ -217,30 +217,63 @@ Worker secrets, `CIRE_API_ARC_PRIVATE_KEY` (a raw JWK string) and
   replace one, set a new `CIRE_API_ARC_KEY_ID` with its new
   `CIRE_API_ARC_PRIVATE_KEY` in the `dev` Environment and dispatch **Deploy**.
 
-### osn-api as issuer — outbound key registration (deletion fan-out)
+### osn-api as issuer — published outbound keys
 
-The flow above has `pulse-api` / `zap-api` registering **with** osn-api. The
-reverse also holds: when osn-api fans out a full-account erasure it acts as the
-ARC **issuer**, POSTing `/internal/account-deleted` to Pulse + Zap with
-`scope: account:erase`. Because those downstreams verify against a
-**pre-registered** key (Pulse's `arc-middleware.ts` looks the `kid` up in an
-in-memory registry seeded by `POST /internal/register-service`; there is **no**
-JWKS-by-kid pull), osn-api must first publish *its own* outbound ARC public key
-to each downstream — otherwise the first `/internal/account-deleted` POST is
-401'd and the GDPR Art. 17 erasure stalls.
+osn-api calls apps as an ARC **issuer**: the account deletion's preview
+(`account:deletion-preview`), erasure (`account:erase`) and session end
+(`account:sessions-revoke`, Pulse only), and the account export
+(`account:export`) ([[dsar#The apps' open actions and the app contract]]).
+Apps do not take a registration from osn-api. osn-api **publishes** its keys
+and each app fetches the one a token names:
 
-- **Bun path** (`local.ts`): `startOutboundKeyRotation()` in
-  `osn/api/src/lib/outbound-arc.ts` registers with Pulse + Zap at boot and
-  self-reschedules rotation via an unref'd `setTimeout`.
-- **Workers path** (`osn/api/src/index.ts` `scheduled`): a workerd isolate has
-  no boot hook, so `registerOutboundKeysOnce()` runs inside the cron
-  `scheduled` handler, **before** the fan-out sweeps, registering once per
-  isolate (a module-level latch stops it re-POSTing on later ticks; the
-  downstream upsert makes a repeat harmless anyway). The handler logs a
-  registration failure via `Effect.logError` and swallows it, so a short
-  downstream outage never aborts the sweeps — the next tick retries (the latch
-  only flips on full success). The lazy key init in `outbound-arc.ts` only *mints* the keypair; it
-  does **not** publish the public key, so this explicit registration is required.
+1. Each osn-api isolate mints an ES256 key pair the first time it calls an app,
+   good for 24 hours and replaced two hours before its end
+   (`osn/api/src/lib/outbound-arc.ts`).
+2. Before it signs anything with it, it writes the public half to
+   `arc_outbound_keys` (`publishOutboundKey`, which also deletes rows expired
+   more than a day ago). `arcAuthHeader` refuses to sign with a key not yet
+   written; a failed write leaves the key unwritten and the next call writes it.
+3. `GET /.well-known/arc-jwks.json` serves the unexpired rows as a JWK Set, read
+   fresh on every request (`cache-control: no-store`): a key written a moment
+   ago must be in the next answer, or the app asking would refuse that `kid` for
+   30 seconds. osn-db reads its primary (`readReplication: "disabled"`), so it is.
+4. The app verifies with `verifyOsnArcToken` (`@shared/osn-auth-client/arc`,
+   Worker-safe): the token must claim `iss: "osn-api"`, ask for a scope the app
+   lets osn-api use, and carry a `kid` whose MAC verifies and whose expiry has
+   not passed; only then is the key resolved, through the same bounded kid cache
+   the app uses for access-token keys, at `<issuer>/.well-known/arc-jwks.json`
+   below the issuer origin it already pins. Then jose checks the signature
+   (ES256 only), `iss`, `aud`, `exp` and `iat`, and the token's scope must hold
+   the route's.
+
+**The key id.** `<uuid>.<expiry>.<MAC>`, the MAC the first 22 base64url
+characters of HMAC-SHA256 under `INTERNAL_SERVICE_SECRET` over the uuid and the
+expiry (`@shared/crypto/arc-kid`). An app holding the secret refuses a `kid`
+whose MAC fails, or whose expiry has passed, before it fetches anything, so a
+stream of tokens with made-up or scraped `kid`s costs it no request to osn-api.
+The secret gates fetching only; a token is authenticated by its signature
+against the published key. A deployed osn-api without the secret refuses to
+boot. Locally, osn-api and the app hold it both or neither: an app holding it
+refuses osn-api's kids minted without it.
+
+**What each app lets osn-api use.** Pulse: `account:erase`, `account:export`,
+`account:deletion-preview`, `account:sessions-revoke`; it takes ARC from no
+other service, so it holds no key registry. Zap: `account:erase`,
+`account:export`, `account:deletion-preview`. Zap routes a token by the issuer
+it claims before reading anything else: `osn-api` goes to the published keys
+and never to its registry, which refuses a key registered for `osn-api` and
+holds `chat:c2b` keys for cire-api only.
+
+**Trust.** Whoever can write osn-db's `arc_outbound_keys`, or answer for
+osn-api's origin, can mint tokens an app accepts as osn-api's. The same write
+access already reaches every account (a session row), and the same origin
+already vouches for every access token, so neither gains a power it lacks.
+
+**Revoking a key.** Delete its `arc_outbound_keys` row. Apps stop accepting it
+when their cached copy lapses, within five minutes. The isolate holding it
+keeps signing with it, and its calls are refused, until a redeploy starts fresh
+isolates with new keys. osn-api never signs with a key past its expiry, and a
+token lives five minutes.
 
 ### Key revocation
 
@@ -272,7 +305,7 @@ Revocation is immediate *in the process that performs it* (it calls `evictPublic
 
 `verifyArcToken` accepts an optional `expectedIssuer`. When supplied, jose enforces that the signed `iss` claim equals it. The OSN ARC middleware (`requireArc`) passes the issuer it resolved the key for (`peeked.iss`), so the signed `iss` is **cryptographically** bound to the `kid`→issuer DB mapping, not just checked via the DB lookup. A token whose signed `iss` differs from the service its `kid` is registered under is rejected at verification.
 
-Pulse's in-memory ARC receiver (`pulse/api/src/lib/arc-middleware.ts`) also passes the registered issuer as `expectedIssuer`; its pre-existing explicit `payload.iss !== registered.issuer` check is retained as defence-in-depth and can be dropped one release later.
+Zap's in-memory registry (`zap/api/src/lib/arc-middleware.ts`) also passes the registered issuer as `expectedIssuer`, with an explicit `payload.iss !== registered.issuer` check as well. osn-api's tokens to an app are pinned to `iss: "osn-api"` by `verifyOsnArcToken` ([[#osn-api as issuer — published outbound keys]]).
 
 `expectedIssuer` is **optional** for backward compatibility — omitting it leaves `iss` unenforced (existing crypto-level behaviour).
 
@@ -321,7 +354,7 @@ ARC token metrics live in `shared/crypto/src/arc-metrics.ts`:
 - `arc.token.issued` — counter by issuer/audience
 - `arc.token.verification` — counter by result (ok, expired, bad_signature, unknown_issuer, revoked_key, scope_denied, audience_mismatch, malformed)
 - All issuer/audience values pass through `safeIssuer()` to prevent cardinality explosion
-- `verifyArcToken` self-reports its outcomes; receiver middlewares whose early-exit branches reject **before** `verifyArcToken` runs must record the counter themselves. Pulse's `requireArc` does: missing/malformed token → `malformed`, kid not in registry → `unknown_issuer`, kid revoked or registration expired → `revoked_key`, registry scope denial → `scope_denied`. No double-count — paths that reach `verifyArcToken` are only counted there.
+- `verifyArcToken` self-reports its outcomes; receiver middlewares whose early-exit branches reject **before** `verifyArcToken` runs must record the counter themselves. Zap's registry path does: missing/malformed token → `malformed`, kid not in registry → `unknown_issuer`, kid revoked or registration expired → `revoked_key`, registry scope denial → `scope_denied`. `verifyOsnArcToken` records every outcome of an osn-api token itself (a kid that fails its MAC, or that osn-api does not publish, is `unknown_issuer`). No double-count — paths that reach `verifyArcToken` are only counted there.
 
 ## Source Files
 
