@@ -30,6 +30,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { mintStepUpToken } from "../helpers/step-up-session";
+
 // No unit test can produce a real WebAuthn attestation or assertion, so only
 // the two verifiers are stubbed: `generate*Options` still plant real
 // challenges, and the challenge lookup this file is about runs for real.
@@ -181,7 +183,7 @@ async function withTotp(h: Harness, email: string, handle: string): Promise<Uint
     ),
   );
   const authorization = `Bearer ${tokens.accessToken}`;
-  const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+  const stepUp = await h.svc(mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"));
   const begun = await h.app.handle(
     new Request("http://localhost/totp/enroll/begin", {
       method: "POST",

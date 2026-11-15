@@ -1,5 +1,5 @@
 import { DbLive, type Db } from "@osn/db/service";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
@@ -12,6 +12,7 @@ import {
 import * as accountErasure from "../services/account-erasure";
 import { joinApp } from "../services/app-enrollments";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { isAuthError } from "../services/auth/errors";
 
 const AUDIENCE = "osn-api";
 const SCOPE_STEP_UP_VERIFY = "step-up:verify";
@@ -37,6 +38,18 @@ const SCOPE_ACCOUNT_EMAIL_READ = "account:email-read";
  */
 const EMAIL_READ_ISSUER = "cire-api";
 
+/** The one service that may spend each downstream deletion purpose. */
+const PURPOSE_ISSUER = {
+  pulse_app_delete: "pulse-api",
+  zap_app_delete: "zap-api",
+} as const;
+
+/** The tag of a failure a route runner threw, for a log line: one of a fixed set of error classes. */
+const errorTag = (err: unknown): string => {
+  const tag = err && typeof err === "object" && "_tag" in err ? err._tag : undefined;
+  return typeof tag === "string" ? tag : "unknown";
+};
+
 /**
  * Wire shape for one answered address. Snake_case on the wire like the rest of
  * the internal routes; the parameter carries the anonymous type and the return
@@ -50,8 +63,12 @@ function wireEmail(e: ProfileEmail) {
  * Internal endpoints called by other OSN services (Pulse, Zap, cire) over ARC:
  *
  *   POST /internal/step-up/verify — verifies that a user-supplied step-up
- *   token is valid for the requested purpose, account, and AMR. Single
- *   source of truth for step-up jti consumption across the platform.
+ *   token is valid for the requested purpose and AMR, that it is of the
+ *   account owning the profile the calling service verified, and that the
+ *   session family that minted it still has a live session. Each purpose is
+ *   spendable by its own app only. Single source of truth for step-up jti
+ *   consumption across the platform. No user session reaches OSN on this
+ *   hop, so the token's own binding is the session check.
  *
  *   POST /internal/app-enrollment/leave — flips `app_enrollments.left_at`
  *   to mark a user as having left an app. Idempotent.
@@ -91,6 +108,11 @@ export function createInternalAccountRoutes(
           SCOPE_STEP_UP_VERIFY,
         );
         if (!caller) return { error: "Unauthorized" };
+        // Each app spends only the purpose of its own deletion, refused before
+        // the token is read, so nothing is claimed.
+        if (caller.iss !== PURPOSE_ISSUER[body.purpose]) {
+          return { ok: false as const, reason: "invalid" as const };
+        }
 
         try {
           // The response returns the verified accountId derived from the token's
@@ -98,29 +120,39 @@ export function createInternalAccountRoutes(
           // rather than trusting a client-supplied accountId from the
           // request body. The accountId never appears in any user-facing
           // surface (P6 invariant — accountId must not leak to clients).
-          const result = await run(auth.verifyStepUpForExternalPurpose(body.token, body.purpose));
+          // `profile_id` is the profile the service verified its caller as;
+          // the token must be of the account that owns it.
+          const result = await run(
+            auth.verifyStepUpForExternalPurpose(body.token, body.purpose, body.profile_id),
+          );
           return { ok: true as const, account_id: result.accountId };
         } catch (err) {
-          // The catch block surfaces a structured `reason` so callers can map distinct
+          // A database fault is a 500, not a refusal: the token was not judged.
+          if (!isAuthError(err)) {
+            await run(
+              Effect.logError("internal step-up verify failed").pipe(
+                Effect.annotateLogs({ tag: errorTag(err) }),
+              ),
+            );
+            set.status = 500;
+            return { error: "internal_error" };
+          }
+          // A refusal surfaces a structured `reason` so callers can map distinct
           // failures to precise client-facing errors. Specific result types
           // are recorded in `osn.auth.step_up.verified` by verifyStepUpToken.
-          const message =
-            err && typeof err === "object" && "message" in err && typeof err.message === "string"
-              ? err.message
-              : "";
-          let reason: "consumed" | "invalid" = "invalid";
-          if (message === "Step-up token already used") reason = "consumed";
+          const reason: "consumed" | "invalid" =
+            err.message === "Step-up token already used" ? "consumed" : "invalid";
           return { ok: false as const, reason };
         }
       },
       {
         body: t.Object({
           token: t.String({ minLength: 1 }),
-          purpose: t.Union([
-            t.Literal("pulse_app_delete"),
-            t.Literal("zap_app_delete"),
-            t.Literal("account_delete"),
-          ]),
+          // The downstream apps' own deletions only. Account deletion spends
+          // its token at `DELETE /account`, behind the caller's live session.
+          purpose: t.Union([t.Literal("pulse_app_delete"), t.Literal("zap_app_delete")]),
+          // No real `usr_*` id is anywhere near 64 characters.
+          profile_id: t.String({ minLength: 1, maxLength: 64 }),
         }),
       },
     )

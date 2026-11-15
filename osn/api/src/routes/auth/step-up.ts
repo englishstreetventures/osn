@@ -55,7 +55,9 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
       // that mint a short-lived JWT required for sensitive operations
       // (recovery generate, email change). All routes authenticate via Bearer
       // access token so the account is known up-front; each ceremony's state
-      // is scoped to the caller's account.
+      // is scoped to the caller's account. A minted token is bound to the
+      // family of the caller's live session, and no gate accepts it once that
+      // family has no live session.
       // -------------------------------------------------------------------------
       .post(
         "/step-up/passkey/begin",
@@ -138,19 +140,24 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               return { error: "unauthorized" };
             }
             // Before the challenge is taken: a token whose session has ended
-            // mints nothing and leaves the parked challenge in place.
-            const staleErr = await ctx.liveSessionGate(
+            // mints nothing and leaves the parked challenge in place. The
+            // session found here is the one the minted token is bound to.
+            const live = await ctx.liveSession(
               "step_up_passkey_complete",
               profile.accountId,
               claims,
               headers.cookie,
             );
-            if (staleErr) {
+            if (live.sessionHash === null) {
               set.status = 409;
-              return staleErr;
+              return live.refusal;
             }
             const result = await run(
-              auth.completeStepUpPasskey(profile.accountId, body.assertion, body.purpose),
+              auth.completeStepUpPasskey(
+                { accountId: profile.accountId, familyId: live.familyId },
+                body.assertion,
+                body.purpose,
+              ),
             );
             return {
               step_up_token: result.stepUpToken,
@@ -301,20 +308,21 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             }
             const { accountId } = caller;
             // Before the request is read: a confirmed one is claimed and spent
-            // by the poll that finds it.
-            const staleErr = await ctx.liveSessionGate(
+            // by the poll that finds it. The session found here is the one the
+            // minted token is bound to.
+            const live = await ctx.liveSession(
               "step_up_email_status",
               accountId,
               caller,
               headers.cookie,
             );
-            if (staleErr) {
+            if (live.sessionHash === null) {
               set.status = 409;
-              return staleErr;
+              return live.refusal;
             }
             const result = await run(
               auth.stepUpEmailStatus(
-                accountId,
+                { accountId, familyId: live.familyId },
                 caller.profileId,
                 params.requestId,
                 body.claimSecret,
@@ -456,19 +464,24 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               return { error: "unauthorized" };
             }
             // Before the code is checked: a token whose session has ended
-            // mints nothing, records no TOTP step and counts no guess.
-            const staleErr = await ctx.liveSessionGate(
+            // mints nothing, records no TOTP step and counts no guess. The
+            // session found here is the one the minted token is bound to.
+            const live = await ctx.liveSession(
               "step_up_totp_complete",
               profile.accountId,
               claims,
               headers.cookie,
             );
-            if (staleErr) {
+            if (live.sessionHash === null) {
               set.status = 409;
-              return staleErr;
+              return live.refusal;
             }
             const result = await run(
-              auth.completeStepUpTotp(profile.accountId, body.code, body.purpose),
+              auth.completeStepUpTotp(
+                { accountId: profile.accountId, familyId: live.familyId },
+                body.code,
+                body.purpose,
+              ),
             );
             return {
               step_up_token: result.stepUpToken,

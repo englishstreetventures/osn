@@ -202,7 +202,10 @@ export type StepUpVerifyResult =
   // an older credential or change the account email. Distinct from
   // `amr_not_allowed` so a dashboard separates "wrong factor" from "right
   // factor, wrong provenance" — those need different answers from the user.
-  | "provenance_blocked";
+  | "provenance_blocked"
+  // The session family that minted the token has no live session left: the
+  // device signed out, or was revoked or swept, before the token was spent.
+  | "session_ended";
 
 /** Session-management actions initiated by the caller. */
 export type SessionAction = "list" | "revoke" | "revoke_all";

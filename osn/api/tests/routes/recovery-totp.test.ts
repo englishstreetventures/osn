@@ -39,6 +39,7 @@ import {
 } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createAuthRoutes } from "../helpers/routes";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 let config: AuthConfig;
 
@@ -106,7 +107,7 @@ async function enrolTotp(
   accountId: string,
   accessToken: string,
 ): Promise<Uint8Array> {
-  const stepUp = await svc(auth.issueStepUpToken(accountId, "passkey", "totp_enroll"));
+  const stepUp = await svc(mintStepUpToken(auth, accountId, "passkey", "totp_enroll"));
   const begun = (await (
     await app.handle(
       json("/totp/enroll/begin", {

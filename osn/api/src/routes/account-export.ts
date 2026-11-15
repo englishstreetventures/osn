@@ -22,6 +22,7 @@ import {
   type ExportDownstream,
 } from "../services/account-export";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { isAuthError } from "../services/auth/errors";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import { errorResponse, stepUpRequiredResponse } from "./auth/response-schemas";
 
@@ -153,6 +154,9 @@ export function createAccountExportRoutes(
         try {
           await run(auth.verifyStepUpForAccountExport(profile.accountId, stepUpToken));
         } catch (e) {
+          // A refused token asks for a fresh step-up; a database fault in the
+          // verifier is the route's 500, never "step up again".
+          if (!isAuthError(e)) throw e;
           set.status = 403;
           metricAccountExportRequested("step_up_failed");
           const { body: errBody } = handleError(e);

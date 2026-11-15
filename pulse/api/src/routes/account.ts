@@ -58,9 +58,10 @@ export const createAccountRoutes = (
         // osn-api's verified `sub` claim on the step-up token rather than
         // accepting one in the request body. The accountId is never
         // visible client-side (P6 invariant — no external observer can
-        // correlate two profiles to the same account).
+        // correlate two profiles to the same account). osn-api refuses a
+        // token that is not of the account owning the caller's profile.
         const verify = await Effect.runPromise(
-          verifyStepUp(stepUpToken, "pulse_app_delete").pipe(
+          verifyStepUp(stepUpToken, "pulse_app_delete", claims.profileId).pipe(
             Effect.catch(() => Effect.succeed({ ok: false } as const)),
           ),
         );

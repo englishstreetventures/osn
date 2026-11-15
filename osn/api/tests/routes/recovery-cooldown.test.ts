@@ -32,6 +32,7 @@ import {
   MAX_PASSKEYS_PER_ACCOUNT,
   RECOVERY_ENROLMENT_PASSKEY_CEILING,
 } from "../../src/services/auth/constants";
+import { completePasskeyStepUp, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * Every `metricRecoveryDisown` call, in order.
@@ -182,7 +183,8 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
     );
     await h.svc(h.auth.beginStepUpPasskey(profile.accountId));
     const { stepUpToken: registerToken } = await h.svc(
-      h.auth.completeStepUpPasskey(
+      completePasskeyStepUp(
+        h.auth,
         profile.accountId,
         fakeAssertion(first!.credentialId),
         "passkey_register",
@@ -208,7 +210,8 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
     // The owner asserts a credential that predates it. Unrestricted.
     await h.svc(h.auth.beginStepUpPasskey(profile.accountId));
     const { stepUpToken } = await h.svc(
-      h.auth.completeStepUpPasskey(
+      completePasskeyStepUp(
+        h.auth,
         profile.accountId,
         fakeAssertion(owned[0]!.credentialId),
         "passkey_delete",
@@ -271,7 +274,8 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
 
     await h.svc(h.auth.beginStepUpPasskey(profile.accountId));
     const first = await h.svc(
-      h.auth.completeStepUpPasskey(
+      completePasskeyStepUp(
+        h.auth,
         profile.accountId,
         fakeAssertion(fresh.credentialId),
         "passkey_delete",
@@ -304,7 +308,8 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
     );
     await h.svc(h.auth.beginStepUpPasskey(profile.accountId));
     const second = await h.svc(
-      h.auth.completeStepUpPasskey(
+      completePasskeyStepUp(
+        h.auth,
         profile.accountId,
         fakeAssertion(fresh.credentialId),
         "passkey_delete",
@@ -324,7 +329,7 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
     const profile = await h.svc(h.auth.registerProfile("cd-ec@example.com", "cdec"));
 
     // No recovery on record: the ordinary path is untouched.
-    const before = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const before = await h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"));
     await h.svc(h.auth.verifyStepUpForEmailChange(profile.accountId, before));
 
     await h.svc(
@@ -335,7 +340,7 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
           .where(eq(accounts.id, profile.accountId)),
       ),
     );
-    const inside = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const inside = await h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"));
     const err = await h.svc(h.auth.verifyStepUpForEmailChange(profile.accountId, inside)).then(
       () => null,
       (e: unknown) => e,
@@ -350,7 +355,7 @@ describe("the cooldown is asymmetric — the owner acts, the recovery waits", ()
           .where(eq(accounts.id, profile.accountId)),
       ),
     );
-    const after = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const after = await h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"));
     await h.svc(h.auth.verifyStepUpForEmailChange(profile.accountId, after));
   });
 });
@@ -411,7 +416,7 @@ describe("one recovery per account per 72 hours", () => {
 
     // The owner's printed codes still work, inside that window.
     const stepUp = await h.svc(
-      h.auth.issueStepUpToken(profile.accountId, "otp", "recovery_generate"),
+      mintStepUpToken(h.auth, profile.accountId, "otp", "recovery_generate"),
     );
     const generated = await h.svc(
       h.auth.generateRecoveryCodesForAccount(profile.accountId).pipe(Effect.tap(() => Effect.void)),
@@ -449,7 +454,7 @@ describe("one recovery per account per 72 hours", () => {
     expect(row!.lastRecoveredAt).not.toBeNull();
 
     // And the window it opened is live: an otp step-up cannot change the email.
-    const token = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const token = await h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"));
     const err = await h.svc(h.auth.verifyStepUpForEmailChange(profile.accountId, token)).then(
       () => null,
       (e: unknown) => e,
@@ -749,7 +754,8 @@ describe("POST /recovery/disown", () => {
     const owned = rows.find((r) => r.provenanceAmr === "webauthn")!;
     await h.svc(h.auth.beginStepUpPasskey(profile.accountId));
     const { stepUpToken } = await h.svc(
-      h.auth.completeStepUpPasskey(
+      completePasskeyStepUp(
+        h.auth,
         profile.accountId,
         fakeAssertion(owned.credentialId),
         "passkey_register",
@@ -848,7 +854,7 @@ describe("the provenance gate through the routes", () => {
   async function deleteToken(h: ReturnType<typeof makeApp>, accountId: string, credId: string) {
     await h.svc(h.auth.beginStepUpPasskey(accountId));
     const { stepUpToken } = await h.svc(
-      h.auth.completeStepUpPasskey(accountId, fakeAssertion(credId), "passkey_delete"),
+      completePasskeyStepUp(h.auth, accountId, fakeAssertion(credId), "passkey_delete"),
     );
     return stepUpToken;
   }
@@ -960,7 +966,7 @@ describe("the provenance gate through the routes", () => {
           body: JSON.stringify({
             claimSecret: request.claimSecret,
             step_up_token: await h.svc(
-              h.auth.issueStepUpToken(acct.profile.accountId, "otp", "email_change"),
+              mintStepUpToken(h.auth, acct.profile.accountId, "otp", "email_change"),
             ),
           }),
         }),

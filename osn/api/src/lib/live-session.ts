@@ -47,11 +47,23 @@ export function createLiveSessionCheck(deps: {
    * The session is named by the HttpOnly cookie or the token's `osn_sid`
    * binding, never by request input, and must be unrestricted and unexpired
    * (`resolveLiveOrdinarySession`). A route that needs the session afterwards
-   * (to bind a token to it, or to spare it from a sweep) uses the hash
-   * answered here rather than reading the cookie again. Call it inside the
+   * (to bind a token to it, or to spare it from a sweep) uses the hash and
+   * family answered here rather than reading the cookie again: the step-up
+   * mint routes bind the token they mint to this family. Call it inside the
    * route's `try` and before any step that reads, spends, writes or revokes
    * anything, so a refusal changes nothing and a database failure becomes the
    * route's 500.
+   *
+   * What it does not close: it is a read, and the write the route makes after
+   * it does not repeat it. A session that ends between the two — a logout, a
+   * revoke, sign-out-everywhere, reuse detection — does not stop a request
+   * already past this check. The same holds for a step-up token's binding to
+   * the family that minted it (`verifyStepUpToken`): that family is read
+   * before the token's single-use id is claimed in the coordination store,
+   * which cannot join the database, so a family that ends after the read
+   * does not stop the spend. The window runs from the read to the route's
+   * last write, one to four round trips, and a caller inside it already
+   * holds a live session and, for a spend, an unspent step-up token.
    */
   async function liveSession(
     endpoint: LiveSessionGateEndpoint,

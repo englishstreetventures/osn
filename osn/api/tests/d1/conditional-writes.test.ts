@@ -31,6 +31,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { holdQueries } from "../helpers/held-query";
 import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * The writes that name the row as their request read it, on real D1. D1 takes
@@ -99,8 +100,8 @@ describe("email change on D1", () => {
       newEmail: "seed-new@example.com",
       completedAt: nowSec,
     });
-    const tokenA = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
-    const tokenB = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const tokenA = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
+    const tokenB = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
 
     const requestA = await confirmed(profile.accountId, "ec-d1-a@example.com");
     // A's commit batch waits, after its claim and preflight have read one change.
@@ -168,8 +169,8 @@ describe("email change on D1", () => {
   // once B has moved it: the address B replaced is the one mailed, once.
   it("refuses a change whose preflight address another change has since replaced", async () => {
     const profile = await run(auth.registerProfile("ec-d1-stale@example.com", "ecd1stale"));
-    const tokenA = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
-    const tokenB = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const tokenA = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
+    const tokenB = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
 
     const requestA = await confirmed(profile.accountId, "ec-d1-stale-a@example.com");
     const commitA = hold(/^update "accounts" set "email"/);
@@ -229,7 +230,7 @@ describe("email change on D1", () => {
 
   it("rolls the change back with its security event, and mails no notice", async () => {
     const profile = await run(auth.registerProfile("ec-d1-roll@example.com", "ecd1roll"));
-    const token = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const token = await run(mintStepUpToken(auth, profile.accountId, "otp", "email_change"));
     const request = await confirmed(profile.accountId, "ec-d1-roll-new@example.com");
     await db.run(
       sql.raw(`CREATE TRIGGER ec_d1_event_fault BEFORE INSERT ON security_events
@@ -282,10 +283,10 @@ describe("security-event acknowledgements on D1", () => {
     const { events } = await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
     expect(events).toHaveLength(2);
 
-    const one = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
+    const one = await run(mintStepUpToken(auth, profile.accountId, "otp", "security_event_ack"));
     const single = await run(auth.acknowledgeSecurityEvent(profile.accountId, events[0]!.id, one));
     expect(single.acknowledged).toBe(true);
-    const again = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
+    const again = await run(mintStepUpToken(auth, profile.accountId, "otp", "security_event_ack"));
     const repeat = await run(
       auth.acknowledgeSecurityEvent(profile.accountId, events[0]!.id, again),
     );
@@ -299,7 +300,7 @@ describe("security-event acknowledgements on D1", () => {
       createdAt: Math.floor(Date.now() / 1000) - 60,
       acknowledgedAt: null,
     });
-    const rest = await run(auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"));
+    const rest = await run(mintStepUpToken(auth, profile.accountId, "otp", "security_event_ack"));
     const all = await run(auth.acknowledgeAllSecurityEvents(profile.accountId, rest));
     expect(all.acknowledged).toBe(1);
     const left = await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));

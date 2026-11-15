@@ -13,6 +13,7 @@ import { Effect } from "effect";
 import type { createAuthService } from "../../src/services/auth";
 import { settle, settledHandle } from "./background";
 import { linkIn, type EmailedLink } from "./registration";
+import { mintingSession } from "./step-up-session";
 
 type App = { handle(request: Request): Promise<Response> };
 type AuthService = ReturnType<typeof createAuthService>;
@@ -132,7 +133,10 @@ export const profileOf = (auth: AuthService, accountId: string) =>
     return profile.id;
   });
 
-/** A step-up token for `purpose`, minted through the emailed link over the service. */
+/**
+ * A step-up token for `purpose`, minted through the emailed link over the
+ * service, bound to a live session seeded for the purpose.
+ */
 export const stepUpThroughService = (
   auth: AuthService,
   accountId: string,
@@ -150,7 +154,12 @@ export const stepUpThroughService = (
     if (confirmed !== "confirmed") return yield* Effect.die(new Error(`confirm: ${confirmed}`));
     const profileId = yield* profileOf(auth, accountId);
     const status = yield* settle(
-      auth.stepUpEmailStatus(accountId, profileId, begun.requestId, begun.claimSecret),
+      auth.stepUpEmailStatus(
+        yield* mintingSession(accountId),
+        profileId,
+        begun.requestId,
+        begun.claimSecret,
+      ),
     );
     if (status.status !== "complete") {
       return yield* Effect.die(new Error(`step-up status: ${status.status}`));

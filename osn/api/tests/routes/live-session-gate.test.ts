@@ -37,6 +37,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { LiveSessionGateEndpoint } from "../../src/metrics";
 import { settledHandle } from "../helpers/background";
 import { confirmLinkThroughRoutes, linkForRequest } from "../helpers/step-up-link";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 // A real WebAuthn ceremony needs an authenticator no route test can drive, so
 // only the two verifiers are stubbed: every other step of both ceremonies —
@@ -95,7 +96,7 @@ const { deriveSessionBinding, sessionHandleFromHash, signJwt } =
   await import("../../src/services/auth/helpers");
 const { createAccountErasureRoutes } = await import("../../src/routes/account-erasure");
 const { createAccountExportRoutes } = await import("../../src/routes/account-export");
-const { createDefaultCeremonyStores, createInMemoryAccountCap } =
+const { createDefaultCeremonyStores, createInMemoryAccountCap, createInMemoryJtiStore } =
   await import("../../src/services/auth/stores");
 const { cookieName } = await import("../../src/lib/cookie-session");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
@@ -254,7 +255,7 @@ async function logOut(h: Harness, refreshToken: string): Promise<void> {
  * current step. Returns the code for the next step, which nothing has used.
  */
 async function enrolTotp(h: Harness, profile: Profile, accessToken: string): Promise<string> {
-  const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+  const stepUp = await h.svc(mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"));
   const begun = await post(h, "/totp/enroll/begin", {
     token: accessToken,
     body: { step_up_token: stepUp },
@@ -279,7 +280,7 @@ async function enrolTotp(h: Harness, profile: Profile, accessToken: string): Pro
 async function enrolPasskey(h: Harness, profile: Profile): Promise<string> {
   // A step-up token, which a registration past the first needs.
   const stepUp = await h.svc(
-    h.auth.issueStepUpToken(profile.accountId, "passkey", "passkey_register"),
+    mintStepUpToken(h.auth, profile.accountId, "passkey", "passkey_register"),
   );
   await h.svc(h.auth.beginPasskeyRegistration(profile.accountId, stepUp));
   await h.svc(
@@ -312,7 +313,7 @@ const assertionFor = (credentialId: string) =>
   }) as never;
 
 const recoveryStepUp = (h: Harness, profile: Profile) =>
-  h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "recovery_generate"));
+  h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "recovery_generate"));
 
 const codeIds = async (h: Harness, profile: Profile) =>
   (
@@ -409,7 +410,9 @@ describe("a logged-out session's access token", () => {
     expect(await codeIds(h, profile)).toEqual(original);
 
     // The same step-up token still works for a live session: the refusal did
-    // not spend its single-use id.
+    // not spend its single-use id. Its minting session (`recoveryStepUp`
+    // seeds one) is a third session, still live; a token minted by `ended`
+    // would be refused here too.
     const live = await openSession(h, profile);
     const replaced = await post(h, "/recovery/generate", {
       token: live.accessToken,
@@ -808,7 +811,7 @@ describe("a logged-out session's access token, at the email change routes", () =
     expect(mailTo(h, "lsg-ecb-b@example.com")).toBe(0);
 
     await confirmLink(h, pending);
-    const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const stepUp = await h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"));
     const done = await post(h, `/account/email/${pending.requestId}/complete`, {
       token: live.accessToken,
       cookie: cookieFor(live.refreshToken),
@@ -853,7 +856,7 @@ describe("a logged-out session's access token, at the email change routes", () =
     const ended = await openSession(h, profile);
     const begun = await beginEmailChange(h, ended.accessToken, "lsg-ecc-new@example.com");
     await confirmLink(h, begun);
-    const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const stepUp = await h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"));
     await logOut(h, ended.refreshToken);
     const complete = (token: string) =>
       post(h, `/account/email/${begun.requestId}/complete`, {
@@ -881,7 +884,7 @@ describe("a logged-out session's access token, at the email change routes", () =
     const other = await openSession(h, profile);
     const begun = await beginEmailChange(h, caller.accessToken, "lsg-ecs-new@example.com");
     await confirmLink(h, begun);
-    const stepUp = await h.svc(h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    const stepUp = await h.svc(mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"));
 
     const done = await post(h, `/account/email/${begun.requestId}/complete`, {
       token: caller.accessToken,
@@ -1024,7 +1027,7 @@ describe("a logged-out session's access token, minting a session or a factor", (
     const profile = await registerAccount(h, "lsg-tec@example.com", "lsgtec");
     const ended = await openSession(h, profile);
     const stepUp = await h.svc(
-      h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+      mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"),
     );
     const begun = await post(h, "/totp/enroll/begin", {
       token: ended.accessToken,
@@ -1119,7 +1122,7 @@ describe("a logged-out session's access token, at the routes that enrol or regis
     const h = makeApp();
     const { profile, ended, live } = await endedAndLive(h, "lsg-teb@example.com", "lsgteb");
     const stepUp = () =>
-      h.svc(h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"));
+      h.svc(mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"));
     const begun = await post(h, "/totp/enroll/begin", {
       token: live.accessToken,
       body: { step_up_token: await stepUp() },
@@ -1276,7 +1279,7 @@ const GATED: readonly GatedCall[] = [
         body: {
           claimSecret: begun.claimSecret,
           step_up_token: await h.svc(
-            h.auth.issueStepUpToken(profile.accountId, "otp", "email_change"),
+            mintStepUpToken(h.auth, profile.accountId, "otp", "email_change"),
           ),
         },
         ok: 200,
@@ -1311,7 +1314,7 @@ const GATED: readonly GatedCall[] = [
       path: "/totp/enroll/begin",
       body: {
         step_up_token: await h.svc(
-          h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+          mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"),
         ),
       },
       ok: 200,
@@ -1324,7 +1327,7 @@ const GATED: readonly GatedCall[] = [
         token: live.accessToken,
         body: {
           step_up_token: await h.svc(
-            h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+            mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"),
           ),
         },
       });
@@ -1360,7 +1363,7 @@ const GATED: readonly GatedCall[] = [
       body: {
         confirm_handle: profile.handle,
         step_up_token: await h.svc(
-          h.auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+          mintStepUpToken(h.auth, profile.accountId, "otp", "account_delete"),
         ),
       },
       ok: 202,
@@ -1375,7 +1378,7 @@ const GATED: readonly GatedCall[] = [
         body: {
           confirm_handle: profile.handle,
           step_up_token: await h.svc(
-            h.auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+            mintStepUpToken(h.auth, profile.accountId, "otp", "account_delete"),
           ),
         },
       });
@@ -1391,7 +1394,7 @@ const GATED: readonly GatedCall[] = [
       path: "/account/export",
       headers: {
         "x-step-up-token": await h.svc(
-          h.auth.issueStepUpToken(profile.accountId, "otp", "account_export"),
+          mintStepUpToken(h.auth, profile.accountId, "otp", "account_export"),
         ),
       },
       ok: 200,
@@ -1411,7 +1414,7 @@ const GATED: readonly GatedCall[] = [
         path: `/account/security-events/${id}/ack`,
         body: {
           step_up_token: await h.svc(
-            h.auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"),
+            mintStepUpToken(h.auth, profile.accountId, "otp", "security_event_ack"),
           ),
         },
         ok: 200,
@@ -1424,7 +1427,7 @@ const GATED: readonly GatedCall[] = [
       path: "/account/security-events/ack-all",
       body: {
         step_up_token: await h.svc(
-          h.auth.issueStepUpToken(profile.accountId, "otp", "security_event_ack"),
+          mintStepUpToken(h.auth, profile.accountId, "otp", "security_event_ack"),
         ),
       },
       ok: 200,
@@ -1439,7 +1442,7 @@ const GATED: readonly GatedCall[] = [
         path: "/totp",
         body: {
           step_up_token: await h.svc(
-            h.auth.issueStepUpToken(profile.accountId, "otp", "totp_disable"),
+            mintStepUpToken(h.auth, profile.accountId, "otp", "totp_disable"),
           ),
         },
         ok: 200,
@@ -1532,7 +1535,7 @@ const passkeyMutationStepUp = (
   target: { id: string; createdAt: Date | number },
 ) =>
   h.svc(
-    h.auth.issueStepUpToken(profile.accountId, "passkey", "passkey_delete", {
+    mintStepUpToken(h.auth, profile.accountId, "passkey", "passkey_delete", {
       id: target.id,
       provenance: "webauthn",
       createdAt:
@@ -1738,7 +1741,7 @@ describe("the revocation routes, and the sessions they spare", () => {
       body: {
         confirm_handle: profile.handle,
         step_up_token: await h.svc(
-          h.auth.issueStepUpToken(profile.accountId, "otp", "account_delete"),
+          mintStepUpToken(h.auth, profile.accountId, "otp", "account_delete"),
         ),
       },
     });
@@ -1761,7 +1764,7 @@ describe("a restricted recovery session that has ended", () => {
       .delete(sessions)
       .where(eq(sessions.id, h.auth.hashSessionToken(recovery.refreshToken)));
     const stepUp = await h.svc(
-      h.auth.issueStepUpToken(profile.accountId, "passkey", "passkey_register"),
+      mintStepUpToken(h.auth, profile.accountId, "passkey", "passkey_register"),
     );
 
     staleRefusals.length = 0;
@@ -1782,5 +1785,177 @@ describe("a restricted recovery session that has ended", () => {
       body: { profileId: profile.id, step_up_token: stepUp },
     });
     expect(begun.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A step-up token is bound to the family of the session that minted it. The
+// gates above check the CALLER's session; this checks the MINTING session's,
+// so a token outlives neither the sign-out nor the revocation of the device
+// that minted it, whichever live session of the account presents it.
+// ---------------------------------------------------------------------------
+
+/** A single-use guard that records every step-up token id a gate claims. */
+function recordingJtiGuard() {
+  const claimed: string[] = [];
+  const store = createInMemoryJtiStore();
+  return {
+    claimed,
+    stepUpJtiStore: {
+      consume: (jti: string, ttlMs: number) => {
+        claimed.push(jti);
+        return store.consume(jti, ttlMs);
+      },
+    },
+  };
+}
+
+/** The single-use id a step-up token carries. */
+const jtiOf = (token: string): string =>
+  (JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8")) as { jti: string })
+    .jti;
+
+type OpenSession = Awaited<ReturnType<typeof openSession>>;
+
+/** The response, once it is known to carry `status`; throws naming the status it did carry. */
+async function expectStatus(pending: Promise<Response>, status: number): Promise<Response> {
+  const res = await pending;
+  if (res.status !== status) throw new Error(`answered ${res.status}, not ${status}`);
+  return res;
+}
+
+/**
+ * Each route that mints a step-up token, driven by one session's access
+ * token alone, so the session it binds to is the one that token names. A
+ * passkey is enrolled before any session opens (an enrolment with no caller
+ * session revokes them all); an authenticator app through the minting
+ * session itself.
+ */
+const MINTS = [
+  {
+    name: "POST /step-up/passkey/complete",
+    passkey: true,
+    mint: async (h: Harness, _profile: Profile, by: OpenSession, credentialId: string | null) => {
+      await expectStatus(post(h, "/step-up/passkey/begin", { token: by.accessToken }), 200);
+      const res = await expectStatus(
+        post(h, "/step-up/passkey/complete", {
+          token: by.accessToken,
+          body: { assertion: assertionFor(credentialId!), purpose: "recovery_generate" },
+        }),
+        200,
+      );
+      return ((await res.json()) as { step_up_token: string }).step_up_token;
+    },
+  },
+  {
+    name: "POST /step-up/email/:requestId/status",
+    passkey: false,
+    mint: async (h: Harness, _profile: Profile, by: OpenSession) => {
+      const begun = await expectStatus(
+        post(h, "/step-up/email/begin", {
+          token: by.accessToken,
+          body: { purpose: "recovery_generate" },
+        }),
+        200,
+      );
+      const request = (await begun.json()) as Begun;
+      await confirmLink(h, request);
+      const res = await post(h, `/step-up/email/${request.requestId}/status`, {
+        token: by.accessToken,
+        body: { claimSecret: request.claimSecret },
+      });
+      const body = (await res.json()) as { status: string; step_up_token?: string };
+      if (body.status !== "complete" || !body.step_up_token) {
+        throw new Error(`step-up status answered ${JSON.stringify(body)}`);
+      }
+      return body.step_up_token;
+    },
+  },
+  {
+    name: "POST /step-up/totp/complete",
+    passkey: false,
+    mint: async (h: Harness, profile: Profile, by: OpenSession) => {
+      const code = await enrolTotp(h, profile, by.accessToken);
+      const res = await expectStatus(
+        post(h, "/step-up/totp/complete", {
+          token: by.accessToken,
+          body: { code, purpose: "recovery_generate" },
+        }),
+        200,
+      );
+      return ((await res.json()) as { step_up_token: string }).step_up_token;
+    },
+  },
+] as const;
+
+/** `POST /recovery/generate` spending `stepUpToken`, from session `by`. */
+const generateCodes = (h: Harness, by: OpenSession, stepUpToken: string) =>
+  post(h, "/recovery/generate", {
+    token: by.accessToken,
+    cookie: cookieFor(by.refreshToken),
+    body: { step_up_token: stepUpToken },
+  });
+
+describe("a step-up token, once the session that minted it has ended", () => {
+  it.each(MINTS.map((row, i) => [row.name, row, i] as const))(
+    "minted by %s, is refused to another live session of the account, and nothing is spent",
+    async (_name, row, i) => {
+      // Red on removing the family check from `verifyStepUpToken`, or on its
+      // reading the caller's family instead of the token's: the caller's own
+      // session is live, so only the minting session's family can refuse it.
+      const guard = recordingJtiGuard();
+      const h = makeApp({ stepUpJtiStore: guard.stepUpJtiStore });
+      const profile = await registerAccount(h, `lsg-bind${i}@example.com`, `lsgbind${i}`);
+      const credentialId = row.passkey ? await enrolPasskey(h, profile) : null;
+      const minter = await openSession(h, profile);
+      const other = await openSession(h, profile);
+      const stepUpToken = await row.mint(h, profile, minter, credentialId);
+      const codesBefore = await codeIds(h, profile);
+      await logOut(h, minter.refreshToken);
+
+      expect(await answerOf(await generateCodes(h, other, stepUpToken))).toEqual({
+        status: 400,
+        body: { error: "invalid_request" },
+      });
+      expect(await codeIds(h, profile)).toEqual(codesBefore);
+      expect(guard.claimed).not.toContain(jtiOf(stepUpToken));
+    },
+  );
+});
+
+describe("a step-up token, while the session that minted it is live", () => {
+  it.each(MINTS.map((row, i) => [row.name, row, i] as const))(
+    "minted by %s, is served to another live session of the account",
+    async (_name, row, i) => {
+      // Red on a mint route binding anything but the family its live-session
+      // check resolved (the session's hash, say).
+      const h = makeApp();
+      const profile = await registerAccount(h, `lsg-live${i}@example.com`, `lsglive${i}`);
+      const credentialId = row.passkey ? await enrolPasskey(h, profile) : null;
+      const minter = await openSession(h, profile);
+      const other = await openSession(h, profile);
+      const stepUpToken = await row.mint(h, profile, minter, credentialId);
+
+      const served = await generateCodes(h, other, stepUpToken);
+      expect(served.status).toBe(200);
+    },
+  );
+
+  it("is served after the minting session renews its tokens: the family outlives the row", async () => {
+    // Red on binding the token to the minting session's row rather than its
+    // family: a renewal replaces the row, roughly every access-token life,
+    // well inside a step-up token's five minutes.
+    const h = makeApp();
+    const profile = await registerAccount(h, "lsg-renew@example.com", "lsgrenew");
+    const minter = await openSession(h, profile);
+    const stepUpToken = await MINTS[2].mint(h, profile, minter);
+    const renewed = await h.svc(h.auth.refreshTokens(minter.refreshToken));
+    // The row the token was minted under is gone; its family is not.
+    expect(await sessionIds(h, profile)).not.toContain(
+      h.auth.hashSessionToken(minter.refreshToken),
+    );
+
+    const served = await generateCodes(h, renewed, stepUpToken);
+    expect(served.status).toBe(200);
   });
 });
