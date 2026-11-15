@@ -91,7 +91,8 @@ let grants = 0;
 /**
  * What `/token` answers: a fresh token for the profile the grant named, as
  * osn-api does for a profile the account owns, or for the default profile.
- * `sub` overrides it, standing for a profile the account no longer owns.
+ * `sub` overrides it, standing for an issuer that renews another profile than
+ * the one named.
  */
 function grant(call?: Call, claims?: { sub?: string }): Response {
   grants += 1;
@@ -256,8 +257,8 @@ describe("authFetch on the page's runtime", () => {
   });
 
   it("F5: a grant for the default profile when another was named resets to it and sends nothing", async () => {
-    // osn-api mints for the default profile when the account no longer owns
-    // the one named.
+    // osn-api does this for a restricted recovery session, or an account
+    // scheduled for deletion, naming a profile the account owns.
     const fetches = stubFetch({ token: (call) => grant(call, { sub: DEFAULT }) });
     const { runtime, changes, stored } = await harness({ active: OTHER });
 
