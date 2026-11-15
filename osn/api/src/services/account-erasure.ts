@@ -326,8 +326,13 @@ export const requestErasure = (
     const held = rows.flatMap((row) => (row.handle === null ? [] : [heldHandleDigest(row.handle)]));
 
     const hardDeleteAt = now + ACCOUNT_DELETION_GRACE_SECONDS;
+    // A deletion of everything stores no answers: the apps and the hard
+    // delete each apply their soonest-erasing rule instead. The database
+    // refuses the pair too.
     const storedChoices =
-      choices !== undefined && Object.keys(choices).length > 0 ? JSON.stringify(choices) : null;
+      !deleteEverything && choices !== undefined && Object.keys(choices).length > 0
+        ? JSON.stringify(choices)
+        : null;
 
     // `email_changes` and `security_events` rows stay, as legal-obligation
     // records (Art. 6(1)(c)+(f)), here and at hard delete. Hard delete keeps

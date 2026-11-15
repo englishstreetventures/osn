@@ -428,6 +428,34 @@ describe("the hard delete waits for every app, on D1", () => {
     expect(await db.select().from(users).where(eq(users.id, profileId))).toHaveLength(1);
   });
 
+  // The fan-out claims a job before it calls any app, so a job the hard delete
+  // meets with an app still pending has usually been claimed already, and the
+  // claim no longer guards it: only the batch's job delete does, and D1 rolls
+  // the whole batch back when the account's delete then fails on the job.
+  it.each([
+    ["an app still pending", 1_700_000_000, null],
+    ["the old not-enrolled mark", 1_700_000_000, -1],
+  ])(
+    "erases nothing of a job the fan-out already claimed while it has %s",
+    async (_label, pulse, zap) => {
+      const { accountId, profileId, job } = await withMarks(`claimed${String(zap)}`, pulse, zap);
+      await db
+        .update(deletionJobs)
+        .set({ purgeStartedAt: HARD_DELETE_AT - 60 })
+        .where(eq(deletionJobs.accountId, accountId));
+      const claimed = { ...job, purgeStartedAt: HARD_DELETE_AT - 60 };
+      const outcome = await Effect.runPromise(
+        Effect.result(hardDeleteAccount(claimed, HARD_DELETE_AT).pipe(Effect.provide(layer))),
+      );
+      expect(outcome._tag).toBe("Failure");
+      expect(await db.select().from(accounts).where(eq(accounts.id, accountId))).toHaveLength(1);
+      expect(await db.select().from(users).where(eq(users.id, profileId))).toHaveLength(1);
+      expect(
+        await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+      ).toHaveLength(1);
+    },
+  );
+
   it("erases the account once every app is done, a skipped app included", async () => {
     const { accountId, job } = await withMarks("bothdone", 1_700_000_000, 1_700_000_001);
     expect((await run(hardDeleteAccount(job, HARD_DELETE_AT))).deleted).toBe(true);

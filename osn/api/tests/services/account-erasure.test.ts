@@ -602,6 +602,47 @@ describe("account-erasure: requestErasure", () => {
       expect(job?.choices).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  it.effect(
+    "stores no answers when the deletion is of everything, whatever the caller passes",
+    () =>
+      Effect.gen(function* () {
+        const { accountId } = yield* seedAccountAndProfile();
+        yield* accountErasure.requestErasure({
+          accountId,
+          cancel: null,
+          heldHandleDigest: digest,
+          reason: "admin",
+          deleteEverything: true,
+          choices: { "osn:organisation:org_1": { choice: "delete" } },
+        });
+        const job = yield* jobRow(accountId);
+        expect(job?.deleteEverything).toBe(true);
+        expect(job?.choices).toBeNull();
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it("the database refuses a job that deletes everything and holds answers, on insert and on update", () => {
+    const { sqlite } = createTestLayerWithSqlite();
+    sqlite.run(
+      "INSERT INTO accounts (id, email, passkey_user_id, created_at, updated_at) VALUES ('acc_pair', 'pair@example.com', 'pku_pair', 1, 1)",
+    );
+    const refusal = "a deletion job that deletes everything holds no choices";
+    const add = sqlite.query(
+      "INSERT INTO deletion_jobs (account_id, soft_deleted_at, hard_delete_at, delete_everything, choices) VALUES ('acc_pair', 1, 2, ?, ?)",
+    );
+    expect(() => add.run(1, "{}")).toThrow(refusal);
+    add.run(1, null);
+    expect(() =>
+      sqlite.run("UPDATE deletion_jobs SET choices = '{}' WHERE account_id = 'acc_pair'"),
+    ).toThrow(refusal);
+    sqlite.run(
+      "UPDATE deletion_jobs SET delete_everything = 0, choices = '{}' WHERE account_id = 'acc_pair'",
+    );
+    expect(() =>
+      sqlite.run("UPDATE deletion_jobs SET delete_everything = 1 WHERE account_id = 'acc_pair'"),
+    ).toThrow(refusal);
+  });
 });
 
 describe("account-erasure: cancelErasure", () => {
