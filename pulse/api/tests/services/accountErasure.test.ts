@@ -14,16 +14,18 @@ import {
 } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 
 import * as accountErasure from "../../src/services/accountErasure";
 import { updateEvent } from "../../src/services/events";
 import {
   createCapturingTestLayer,
   createTestLayer,
+  createTestLayerWithDb,
   seedEvent,
   statementKinds,
 } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 const ACCOUNT_ID = "acc_pulse_test_account";
 const PROFILE_ID = "usr_pulse_test_profile";
@@ -332,6 +334,134 @@ describe("pulse account-erasure: purgeAccount (full-account fan-out)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("an event's series answer comes before the answer for all events", () =>
+    Effect.gen(function* () {
+      yield* seedSeries("srs_kept");
+      const inSeries = yield* seedEvent({
+        title: "Weekly",
+        startTime: soon(),
+        createdByProfileId: PROFILE_ID,
+        seriesId: "srs_kept",
+      });
+      const alone = yield* seedEvent({
+        title: "Alone",
+        startTime: soon(),
+        createdByProfileId: PROFILE_ID,
+      });
+
+      yield* accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID], {
+        answers: {
+          "pulse:series:srs_kept": { choice: "cancel" },
+          "pulse:events:all": { choice: "delete" },
+        },
+      });
+
+      expect(yield* eventRow(inSeries.id)).toMatchObject({ status: "cancelled" });
+      expect(yield* eventRow(alone.id)).toBeUndefined();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  /** A test database whose statements can be held, with a layer over the held handle. */
+  const held = () => {
+    const { db } = createTestLayerWithDb();
+    const queries = holdQueries(db);
+    return { ...queries, layer: Layer.succeed(Db, { db: queries.db }) };
+  };
+
+  it("deletes, and does not report, a kept event a guest's visit marked finished after the read", async () => {
+    const h = held();
+    const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(h.layer)));
+    const event = await run(
+      seedEvent({ title: "Ends", startTime: soon(), createdByProfileId: PROFILE_ID }),
+    );
+
+    // The batch's first statement: the read is done, nothing written yet.
+    const batch = h.hold(/^delete from "event_rsvps"/);
+    const purge = run(accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]));
+    await batch.reached;
+    await run(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.update(events).set({ status: "finished" }).where(eq(events.id, event.id)),
+        );
+      }),
+    );
+    batch.release();
+
+    expect((await purge).kept).toEqual([]);
+    expect(await run(eventRow(event.id))).toBeUndefined();
+  });
+
+  it("keeps, and reports, a cancellation made after the read as it was made", async () => {
+    const h = held();
+    const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(h.layer)));
+    const event = await run(
+      seedEvent({ title: "Left", startTime: soon(), createdByProfileId: PROFILE_ID }),
+    );
+    const leftUntil = Math.floor(Date.now() / 1_000) + 3 * DAY;
+
+    const batch = h.hold(/^delete from "event_rsvps"/);
+    const purge = run(accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]));
+    await batch.reached;
+    await run(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(events)
+            .set({
+              status: "cancelled",
+              cancelledAt: 1_000,
+              cancellationReason: "host_left",
+              hardDeleteAt: leftUntil,
+            })
+            .where(eq(events.id, event.id)),
+        );
+      }),
+    );
+    batch.release();
+
+    expect((await purge).kept).toEqual([
+      {
+        what: "1 event you hosted, shown to its guests as cancelled",
+        erasedOn: leftUntil,
+        requestUrl: null,
+      },
+    ]);
+    expect(await run(eventRow(event.id))).toMatchObject({
+      status: "cancelled",
+      cancelledAt: 1_000,
+      hardDeleteAt: leftUntil,
+    });
+  });
+
+  it("two overlapping erasures of one account both answer the same kept list", async () => {
+    const h = held();
+    const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(h.layer)));
+    const event = await run(
+      seedEvent({ title: "Kept", startTime: soon(), createdByProfileId: PROFILE_ID }),
+    );
+
+    // The first call has read the ledger and the events; the second runs
+    // whole before the first writes anything.
+    const batch = h.hold(/^delete from "event_rsvps"/);
+    const first = run(accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]));
+    await batch.reached;
+    const second = await run(accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]));
+    const cancelledAt = (await run(eventRow(event.id)))!.cancelledAt;
+    batch.release();
+
+    const answered = await first;
+    expect(second.kept).toHaveLength(1);
+    expect(answered.kept).toEqual(second.kept);
+    // The first call's late writes leave the second's cancellation as it was.
+    expect(await run(eventRow(event.id))).toMatchObject({ status: "cancelled", cancelledAt });
+  });
+
   it.effect("under delete everything deletes every hosted event and keeps nothing", () =>
     Effect.gen(function* () {
       const { eventId } = yield* seedPulseData();
@@ -536,6 +666,42 @@ describe("pulse account-erasure: previewDeletion", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it("reads at most 101 rows, one per series or other event, however many events the host holds", async () => {
+    const { layer, captured } = createCapturingTestLayer();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        for (let i = 0; i < 120; i += 1) {
+          yield* seedEvent({
+            title: `E${i}`,
+            startTime: soon(i + 1),
+            createdByProfileId: PROFILE_ID,
+          });
+        }
+        captured.length = 0;
+        const actions = yield* accountErasure.previewDeletion([PROFILE_ID], DELETES_AT);
+        expect(actions.map((a) => a.label)).toEqual(["You host 120 upcoming events."]);
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.sql).toMatch(/group by .* limit \?$/);
+    expect(captured[0]!.params.at(-1)).toBe(101);
+  });
+
+  it.effect("lists 100 events as 100 actions", () =>
+    Effect.gen(function* () {
+      for (let i = 0; i < 100; i += 1) {
+        yield* seedEvent({
+          title: `E${i}`,
+          startTime: soon(i + 1),
+          createdByProfileId: PROFILE_ID,
+        });
+      }
+      const actions = yield* accountErasure.previewDeletion([PROFILE_ID], DELETES_AT);
+      expect(actions).toHaveLength(100);
+      expect(actions.every((a) => a.id.startsWith("pulse:event:"))).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("past 100 actions, lists one action for every upcoming event", () =>
     Effect.gen(function* () {
       for (let i = 0; i < 101; i += 1) {
@@ -603,6 +769,43 @@ describe("pulse account-erasure: cancellation + sweepers", () => {
       expect(edited.title).toBe("Back");
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  it("a leave cancel that lands as the account erasure runs leaves the erasure's kept event cancelled", async () => {
+    const { db } = createTestLayerWithDb();
+    const h = holdQueries(db);
+    const layer = Layer.succeed(Db, { db: h.db });
+    const run = <A, E>(effect: Effect.Effect<A, E, Db>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(layer)));
+    const now = Math.floor(Date.now() / 1_000);
+    const event = await run(
+      seedEvent({
+        title: "Kept",
+        startTime: new Date(Date.now() + 86_400_000),
+        createdByProfileId: PROFILE_ID,
+      }),
+    );
+    await db.insert(pulseDeletionJobs).values({
+      profileId: PROFILE_ID,
+      accountId: ACCOUNT_ID,
+      softDeletedAt: now,
+      hardDeleteAt: now + 7 * 86_400,
+      enrollmentNotifyDoneAt: null,
+      reason: "user_request",
+    });
+
+    // The cancel has read its job and is about to write.
+    const write = h.hold(/^update "events"/);
+    const cancel = run(accountErasure.cancelErasure(PROFILE_ID));
+    await write.reached;
+    const purged = await run(accountErasure.purgeAccount(ACCOUNT_ID, [PROFILE_ID]));
+    expect(purged.kept).toHaveLength(1);
+    write.release();
+    await cancel;
+
+    const [row] = await db.select().from(events).where(eq(events.id, event.id));
+    expect(row).toMatchObject({ status: "cancelled", cancellationReason: "host_left" });
+    expect(row!.hardDeleteAt).toBe(purged.kept[0]!.erasedOn);
+  });
 
   it.effect("hard-delete sweeper removes deletion-jobs past the grace window", () =>
     Effect.gen(function* () {

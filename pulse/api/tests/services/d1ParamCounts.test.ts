@@ -123,7 +123,7 @@ describe("series.ts materializeInstances", () => {
 // ---------------------------------------------------------------------------
 
 describe("accountErasure.ts purgeAccount", () => {
-  it("purges an account with 150 hosted events (past the old 100-id cliff) via 1-param deletes", async () => {
+  it("purges an account with 150 hosted events (past the old 100-id cliff) via fixed-param deletes", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const HOST = "usr_host";
 
@@ -154,7 +154,9 @@ describe("accountErasure.ts purgeAccount", () => {
     expect(remaining).toHaveLength(0);
 
     // Keyed on the event-id column: the profile-id deletes on the same tables
-    // also use json_each.
+    // also use json_each. Each binds the ids to delete and the ids to keep as
+    // one JSON parameter each, and the status that turns a kept event into
+    // one to delete: three, whatever the event count.
     for (const [table, column] of [
       ['"event_rsvps"', '"event_rsvps"."event_id"'],
       ['"event_comms"', '"event_comms"."event_id"'],
@@ -162,7 +164,7 @@ describe("accountErasure.ts purgeAccount", () => {
       ['"events"', '"events"."id"'],
     ] as const) {
       const stmt = findStatement(captured, "delete from " + table, column, "json_each");
-      expect(stmt.params, `${table} delete should bind 1 param`).toHaveLength(1);
+      expect(stmt.params, `${table} delete should bind 3 params`).toHaveLength(3);
     }
   });
 
@@ -186,9 +188,9 @@ describe("accountErasure.ts purgeAccount", () => {
     expect(result).toMatchObject({ purged: 50, alreadyProcessed: false });
 
     expect(captured.length).toBeGreaterThan(0);
-    // The kept-event update binds its six columns and the id list, the ledger
-    // insert three; nothing grows with the list.
-    expect(captured.filter((c) => c.params.length > 7).map((c) => c.sql)).toEqual([]);
+    // The kept-event update binds its six columns, the id list and the two
+    // statuses it skips, the ledger insert three; nothing grows with the list.
+    expect(captured.filter((c) => c.params.length > 9).map((c) => c.sql)).toEqual([]);
     const closeFriends = findStatement(captured, 'delete from "pulse_close_friends"');
     expect(closeFriends.params).toHaveLength(2);
   });

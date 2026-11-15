@@ -67,7 +67,6 @@ export const createInternalRoutes = (
         },
         {
           body: t.Object({
-            accountId: t.String({ minLength: 1 }),
             profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_ACCOUNT_PROFILE_IDS }),
             deletesAt: t.Integer({ minimum: 0 }),
           }),
@@ -96,7 +95,6 @@ export const createInternalRoutes = (
         },
         {
           body: t.Object({
-            accountId: t.String({ minLength: 1 }),
             profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_ACCOUNT_PROFILE_IDS }),
           }),
         },
@@ -105,9 +103,8 @@ export const createInternalRoutes = (
       // ARC-gated `/internal/account-deleted` — called by osn-api once the
       // account's 7-day window has passed, with the person's answers to
       // Pulse's actions. Erases Pulse's data of the profiles and answers what
-      // Pulse keeps (`purgeAccount`). `email` is part of the contract for
-      // apps that keep data a person may ask about; Pulse neither stores nor
-      // logs it.
+      // Pulse keeps (`purgeAccount`). Pulse keeps nothing a person may ask
+      // about by email, so osn-api sends it no email address.
       // ------------------------------------------------------------------
       .post(
         "/account-deleted",
@@ -140,7 +137,6 @@ export const createInternalRoutes = (
               ),
             ),
             deleteEverything: t.Optional(t.Boolean()),
-            email: t.Optional(t.String({ maxLength: 320 })),
           }),
         },
       )

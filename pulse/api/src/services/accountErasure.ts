@@ -22,6 +22,7 @@ import {
   and,
   asc,
   eq,
+  exists,
   inArray,
   isNotNull,
   isNull,
@@ -217,16 +218,19 @@ export const cancelErasure = (
       // Atomic batch (D1) / sequential (bun:sqlite) — pure writes, no read.
       try: () =>
         commitBatch(db, [
-          db.delete(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, profileId)),
           // Every hosted event the leave scheduled for hard delete is
-          // unscheduled, whatever its status: only the leave sets
-          // `hardDeleteAt`, and it is the column the sweeper deletes by. One
-          // the leave cancelled (`host_left`) is restored to `upcoming` — the
-          // next read derives its real status from its times. One the
-          // organiser cancelled, before the leave or since (a series cancel
-          // takes a host-left instance over), stays cancelled. SQLite
-          // evaluates every SET expression against the row before the update,
-          // so each CASE sees the original reason.
+          // unscheduled, whatever its status, while the leave's job still
+          // stands. The leave and the account erasure both set
+          // `hardDeleteAt`, the column the sweeper deletes by; the erasure
+          // deletes the leave's job in the batch that sets it, so an event
+          // the erasure keeps for its guests is never unscheduled here. This
+          // runs before the job delete below, which its check reads. One the
+          // leave cancelled (`host_left`) is restored to `upcoming` — the next
+          // read derives its real status from its times. One the organiser
+          // cancelled, before the leave or since (a series cancel takes a
+          // host-left instance over), stays cancelled. SQLite evaluates every
+          // SET expression against the row before the update, so each CASE
+          // sees the original reason.
           db
             .update(events)
             .set({
@@ -236,7 +240,19 @@ export const cancelErasure = (
               hardDeleteAt: null,
               updatedAt: new Date(),
             })
-            .where(and(eq(events.createdByProfileId, profileId), isNotNull(events.hardDeleteAt))),
+            .where(
+              and(
+                eq(events.createdByProfileId, profileId),
+                isNotNull(events.hardDeleteAt),
+                exists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(pulseDeletionJobs)
+                    .where(eq(pulseDeletionJobs.profileId, profileId)),
+                ),
+              ),
+            ),
+          db.delete(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, profileId)),
         ]),
       catch: (cause) => new PulseErasureDbError({ cause }),
     });
@@ -451,21 +467,27 @@ const quoted = (title: string): string =>
 const dayOf = (date: Date): string => date.toISOString().slice(0, 10);
 
 /**
- * The upcoming events `profileIds` host: not finished and not cancelled,
- * soonest first, each with its series' title when it belongs to one.
+ * The upcoming events `profileIds` host, not finished and not cancelled, as
+ * the preview lists them: one row per series (at its soonest instance, with
+ * its count) and one per other event, soonest first, at most
+ * {@link MAX_PREVIEW_ACTIONS} + 1 rows whatever the host holds. Each row also
+ * carries how many such rows there are in all and how many events.
  */
-const upcomingHostedEvents = (profileIds: ReadonlyArray<string>) =>
+const upcomingHostedGroups = (profileIds: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const { db } = yield* Db;
+    const firstStart = sql<Date>`min(${events.startTime})`.mapWith(events.startTime);
     return yield* Effect.tryPromise({
       try: () =>
         db
           .select({
-            id: events.id,
-            title: events.title,
-            startTime: events.startTime,
+            id: sql<string>`coalesce(${events.seriesId}, ${events.id})`,
             seriesId: events.seriesId,
-            seriesTitle: eventSeries.title,
+            title: sql<string>`CASE WHEN ${events.seriesId} IS NULL THEN ${events.title} ELSE coalesce(${eventSeries.title}, ${events.title}) END`,
+            firstStart,
+            count: sql<number>`count(*)`,
+            groups: sql<number>`count(*) OVER ()`,
+            total: sql<number>`sum(count(*)) OVER ()`,
           })
           .from(events)
           .leftJoin(eventSeries, eq(eventSeries.id, events.seriesId))
@@ -475,7 +497,9 @@ const upcomingHostedEvents = (profileIds: ReadonlyArray<string>) =>
               notInArray(events.status, ["finished", "cancelled"]),
             ),
           )
-          .orderBy(asc(events.startTime), asc(events.id)),
+          .groupBy(sql`coalesce(${events.seriesId}, ${events.id})`)
+          .orderBy(sql`min(${events.startTime})`, sql`coalesce(${events.seriesId}, ${events.id})`)
+          .limit(MAX_PREVIEW_ACTIONS + 1),
       catch: (cause) => new PulseErasureDbError({ cause }),
     });
   });
@@ -508,7 +532,7 @@ export const previewDeletion = (
 ): Effect.Effect<ReadonlyArray<DeletionOpenAction>, PulseErasureDbError, Db> =>
   Effect.gen(function* () {
     if (profileIds.length === 0) return [];
-    const hosted = yield* upcomingHostedEvents(profileIds);
+    const groups = yield* upcomingHostedGroups(profileIds);
     const choices = choicesFor(deletesAt);
     const action = (id: string, label: string): DeletionOpenAction => ({
       id,
@@ -518,38 +542,22 @@ export const previewDeletion = (
       defaultChoice: "cancel",
       link: null,
     });
-    // Each series once, at its soonest instance, with its count; each other
-    // event on its own.
-    const series = new Map<string, { title: string; count: number }>();
-    const order: Array<{ seriesId: string } | { event: (typeof hosted)[number] }> = [];
-    for (const event of hosted) {
-      if (event.seriesId === null) {
-        order.push({ event });
-        continue;
-      }
-      const known = series.get(event.seriesId);
-      if (known) known.count += 1;
-      else {
-        series.set(event.seriesId, { title: event.seriesTitle ?? event.title, count: 1 });
-        order.push({ seriesId: event.seriesId });
-      }
+    const first = groups[0];
+    if (!first) return [];
+    if (first.groups > MAX_PREVIEW_ACTIONS) {
+      return [action("pulse:events:all", `You host ${first.total} upcoming events.`)];
     }
-    if (order.length > MAX_PREVIEW_ACTIONS) {
-      return [action("pulse:events:all", `You host ${hosted.length} upcoming events.`)];
-    }
-    return order.map((entry) => {
-      if ("event" in entry) {
-        return action(
-          `pulse:event:${entry.event.id}`,
-          `You host ${quoted(entry.event.title)}, starting ${dayOf(entry.event.startTime)}.`,
-        );
-      }
-      const { title, count } = series.get(entry.seriesId)!;
-      return action(
-        `pulse:series:${entry.seriesId}`,
-        `You host ${count} upcoming event${count === 1 ? "" : "s"} of ${quoted(title)}.`,
-      );
-    });
+    return groups.map((group) =>
+      group.seriesId === null
+        ? action(
+            `pulse:event:${group.id}`,
+            `You host ${quoted(group.title)}, starting ${dayOf(group.firstStart)}.`,
+          )
+        : action(
+            `pulse:series:${group.seriesId}`,
+            `You host ${group.count} upcoming event${group.count === 1 ? "" : "s"} of ${quoted(group.title)}.`,
+          ),
+    );
   }).pipe(Effect.withSpan("pulse.account_erasure.preview"));
 
 /**
@@ -624,11 +632,18 @@ export interface PurgeAccountResult {
  * messages and lineup. Under `deleteEverything` every hosted event is deleted.
  * Finished and cancelled events, the person's series, RSVPs, close friends,
  * messages sent, Pulse profile, onboarding, profile-to-account rows, Pulse
- * leave jobs and web sessions are deleted. One read, then one batch, the
- * ledger row last, so a batch that fails leaves nothing marked done.
+ * leave jobs and web sessions are deleted. The ledger and the hosted events
+ * are read together, then one batch writes, the ledger row last, so a batch
+ * that fails leaves nothing marked done.
  *
- * Idempotent: a repeat for the same account writes nothing and answers what
- * Pulse keeps, recomputed from the kept events still standing.
+ * Each write checks the event's state when it runs: an event read as
+ * upcoming that a guest's visit has since marked finished is deleted, not
+ * kept, and one cancelled since keeps that cancellation. The kept list is
+ * read back from the events as written.
+ *
+ * Idempotent: a repeat for the same account, or a second call that overlaps
+ * the first, writes nothing more and answers what Pulse keeps, read from the
+ * kept events still standing.
  */
 export const purgeAccount = (
   accountId: string,
@@ -639,50 +654,57 @@ export const purgeAccount = (
     const { db } = yield* Db;
     const answers = options.answers ?? {};
 
-    // Replay-protection ledger. The first call for an accountId commits the
-    // work and the ledger row in one batch; later calls find the row and
-    // write nothing.
-    const existing = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({ accountId: pulseAccountPurges.accountId })
-          .from(pulseAccountPurges)
-          .where(eq(pulseAccountPurges.accountId, accountId))
-          .limit(1),
-      catch: (cause) => new PulseErasureDbError({ cause }),
-    });
+    // Replay-protection ledger, read with the hosted events. The first call
+    // for an accountId commits the work and the ledger row in one batch;
+    // later calls find the row and write nothing. D1 has no interactive
+    // transaction, so which events stay for their guests and which go is
+    // decided from this read, and each write below checks it again when it
+    // runs; the account is tombstoned, so no event is created in between.
+    const [existing, hosted] = yield* Effect.all(
+      [
+        Effect.tryPromise({
+          try: () =>
+            db
+              .select({ accountId: pulseAccountPurges.accountId })
+              .from(pulseAccountPurges)
+              .where(eq(pulseAccountPurges.accountId, accountId))
+              .limit(1),
+          catch: (cause) => new PulseErasureDbError({ cause }),
+        }),
+        profileIds.length === 0
+          ? Effect.succeed([])
+          : Effect.tryPromise({
+              try: () =>
+                db
+                  .select({ id: events.id, status: events.status, seriesId: events.seriesId })
+                  .from(events)
+                  .where(inArray(events.createdByProfileId, jsonEachIn(profileIds))),
+              catch: (cause) => new PulseErasureDbError({ cause }),
+            }),
+      ],
+      { concurrency: "unbounded" },
+    );
     if (existing[0]) {
       const kept = profileIds.length === 0 ? [] : yield* keptOf(profileIds);
       return { purged: 0, alreadyProcessed: true, kept };
     }
 
+    const ledger = (processedAt: number) =>
+      db
+        .insert(pulseAccountPurges)
+        .values({ accountId, processedAt, profileCount: profileIds.length })
+        .onConflictDoNothing({ target: pulseAccountPurges.accountId });
+
     if (profileIds.length === 0) {
       // Empty profile list still records a ledger entry so a follow-up
       // call with an unexpected non-empty list can't sneak through.
       yield* Effect.tryPromise({
-        try: () =>
-          db.insert(pulseAccountPurges).values({
-            accountId,
-            processedAt: Math.floor(Date.now() / 1_000),
-            profileCount: 0,
-          }),
+        try: () => ledger(Math.floor(Date.now() / 1_000)),
         catch: (cause) => new PulseErasureDbError({ cause }),
       });
       return { purged: 0, alreadyProcessed: false, kept: [] };
     }
 
-    // Every hosted event, read once: which stay for their guests, which go.
-    // D1 has no interactive transaction, so the decision is made here and the
-    // batch below writes it; the account is tombstoned, so no event can be
-    // created between the read and the batch.
-    const hosted = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({ id: events.id, status: events.status, seriesId: events.seriesId })
-          .from(events)
-          .where(inArray(events.createdByProfileId, jsonEachIn(profileIds))),
-      catch: (cause) => new PulseErasureDbError({ cause }),
-    });
     const keptIds: string[] = [];
     const deletedIds: string[] = [];
     for (const event of hosted) {
@@ -696,41 +718,47 @@ export const purgeAccount = (
     const now = Math.floor(Date.now() / 1_000);
     const keepUntil = now + EVENT_CANCELLATION_WINDOW_SECONDS;
 
+    // The events that go now: those read to go, and any read to stay that a
+    // guest's visit has marked finished since. Each statement checks it when
+    // it runs. Bound as one JSON parameter each, whatever the count (D1 takes
+    // at most 100 parameters a statement).
+    const goes = or(
+      inArray(events.id, jsonEachIn(deletedIds)),
+      and(inArray(events.id, jsonEachIn(keptIds)), eq(events.status, "finished")),
+    );
+    const going = db.select({ id: events.id }).from(events).where(goes);
+
     yield* Effect.tryPromise({
       // Atomic batch (D1) / sequential (bun:sqlite). The replay-protection
       // ledger insert is the LAST statement so partial completion can't leave a
       // half-purged account marked as "done" (on D1 the whole batch rolls back).
       try: () =>
         commitBatch(db, [
+          // The events that go, each with its RSVPs, messages and lineup.
+          db.delete(eventRsvps).where(inArray(eventRsvps.eventId, going)),
+          db.delete(eventComms).where(inArray(eventComms.eventId, going)),
+          db.delete(eventLineup).where(inArray(eventLineup.eventId, going)),
+          db.delete(events).where(goes),
           // Kept for their guests: cancelled because the host left, deleted
           // by the event-cancellation sweep 14 days on, and out of the
-          // series, which goes below.
-          ...(keptIds.length > 0
-            ? [
-                db
-                  .update(events)
-                  .set({
-                    status: "cancelled",
-                    cancelledAt: now,
-                    cancellationReason: "host_left",
-                    hardDeleteAt: keepUntil,
-                    seriesId: null,
-                    updatedAt: new Date(now * 1_000),
-                  })
-                  .where(inArray(events.id, jsonEachIn(keptIds))),
-              ]
-            : []),
-          // The rest go now, each with its RSVPs, messages and lineup. Bound
-          // as one JSON parameter each, whatever the count (D1 takes at most
-          // 100 parameters a statement).
-          ...(deletedIds.length > 0
-            ? [
-                db.delete(eventRsvps).where(inArray(eventRsvps.eventId, jsonEachIn(deletedIds))),
-                db.delete(eventComms).where(inArray(eventComms.eventId, jsonEachIn(deletedIds))),
-                db.delete(eventLineup).where(inArray(eventLineup.eventId, jsonEachIn(deletedIds))),
-                db.delete(events).where(inArray(events.id, jsonEachIn(deletedIds))),
-              ]
-            : []),
+          // series, which goes below. Only while still upcoming: one
+          // cancelled since keeps its own cancellation.
+          db
+            .update(events)
+            .set({
+              status: "cancelled",
+              cancelledAt: now,
+              cancellationReason: "host_left",
+              hardDeleteAt: keepUntil,
+              seriesId: null,
+              updatedAt: new Date(now * 1_000),
+            })
+            .where(
+              and(
+                inArray(events.id, jsonEachIn(keptIds)),
+                notInArray(events.status, ["finished", "cancelled"]),
+              ),
+            ),
           // The person's series: every instance is gone or out of it by now.
           db
             .delete(eventSeries)
@@ -765,12 +793,10 @@ export const purgeAccount = (
             .delete(pulseWebSessions)
             .where(inArray(pulseWebSessions.osnProfileId, jsonEachIn(profileIds))),
 
-          // Replay-protection ledger entry — last, see note above.
-          db.insert(pulseAccountPurges).values({
-            accountId,
-            processedAt: now,
-            profileCount: profileIds.length,
-          }),
+          // Replay-protection ledger entry — last, see note above. A second
+          // call that overlapped this one finds the row written and writes
+          // nothing.
+          ledger(now),
         ]),
       catch: (cause) => new PulseErasureDbError({ cause }),
     });
@@ -779,7 +805,7 @@ export const purgeAccount = (
     return {
       purged: profileIds.length,
       alreadyProcessed: false,
-      kept: keptItems(keptIds.length, keptIds.length > 0 ? keepUntil : null),
+      kept: yield* keptOf(profileIds),
     };
   }).pipe(Effect.withSpan("pulse.account_erasure.purge"));
 

@@ -12,6 +12,7 @@ import { Miniflare } from "miniflare";
 import {
   cancelErasure,
   getDeletionStatus,
+  previewDeletion,
   purgeAccount,
   requestErasure,
 } from "../../src/services/accountErasure";
@@ -211,6 +212,50 @@ describe("pulse/api account erasure over real D1 (Miniflare)", () => {
     expect(
       await rawDb.select().from(eventSeries).where(eq(eventSeries.id, series.id)).all(),
     ).toEqual([]);
+  });
+
+  it("previews a series as one action and folds past 100 actions, grouped in one read on D1", async () => {
+    const { series } = await run(
+      createSeries(
+        {
+          title: "Grouped",
+          rrule: "FREQ=WEEKLY;COUNT=3",
+          dtstart: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+        },
+        { createdByProfileId: "usr_group", createdByName: "Grouper", createdByAvatar: null },
+      ),
+    );
+    const actions = await run(previewDeletion(["usr_group"], 1_900_000_000));
+    expect(actions.map((a) => [a.id, a.label])).toEqual([
+      [`pulse:series:${series.id}`, 'You host 3 upcoming events of "Grouped".'],
+    ]);
+
+    const now = new Date(Date.now() + 86_400_000);
+    await rawDb.run(
+      insertManyViaJsonEach(
+        events,
+        Array.from({ length: 101 }, (_, i) => ({
+          id: `evt_fold_${i}`,
+          title: `Fold ${i}`,
+          startTime: now,
+          status: "upcoming" as const,
+          visibility: "public" as const,
+          guestListVisibility: "public" as const,
+          joinPolicy: "open" as const,
+          allowInterested: true,
+          commsChannels: '["email"]',
+          instanceOverride: false,
+          createdByProfileId: "usr_group",
+          createdByName: "Grouper",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      ),
+    );
+    const folded = await run(previewDeletion(["usr_group"], 1_900_000_000));
+    expect(folded.map((a) => [a.id, a.label])).toEqual([
+      ["pulse:events:all", "You host 104 upcoming events."],
+    ]);
   });
 
   it("purgeAccount is idempotent via the replay ledger (batch insert on D1)", async () => {

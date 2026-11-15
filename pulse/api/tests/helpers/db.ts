@@ -7,10 +7,15 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
 
 export function createTestLayer() {
+  return createTestLayerWithDb().layer;
+}
+
+/** The same layer, with the drizzle handle behind it, for a test that wraps or writes it directly. */
+export function createTestLayerWithDb() {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
   const db = drizzle({ client: sqlite });
-  return Layer.succeed(Db, { db });
+  return { layer: Layer.succeed(Db, { db }), db };
 }
 
 /** One statement drizzle sent to bun:sqlite: its SQL text and bound parameters. */

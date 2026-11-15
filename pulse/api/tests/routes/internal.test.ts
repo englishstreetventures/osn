@@ -50,12 +50,12 @@ const ROUTES = [
   {
     path: "/internal/account-deletion-preview",
     scope: "account:deletion-preview",
-    body: { accountId: "acc_x", profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+    body: { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
   },
   {
     path: "/internal/account-sessions/revoke",
     scope: "account:sessions-revoke",
-    body: { accountId: "acc_x", profileIds: ["usr_x"] },
+    body: { profileIds: ["usr_x"] },
   },
   {
     path: "/internal/account-deleted",
@@ -88,6 +88,40 @@ describe("internal routes — refusals", () => {
     });
   }
 
+  it("refuses a published key under a kid with no MAC or a wrong one, before any fetch", async () => {
+    const [, expiry] = arc.kid.split(".");
+    for (const kid of [
+      `${crypto.randomUUID()}.${expiry}`,
+      `${crypto.randomUUID()}.${expiry}.${"A".repeat(22)}`,
+    ]) {
+      const before = arc.fetches();
+      const res = await post(
+        routes(),
+        "/internal/account-deletion-preview",
+        { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+        await arc.tokenUnderKid("account:deletion-preview", kid),
+      );
+      expect(res.status).toBe(401);
+      expect(arc.fetches()).toBe(before);
+    }
+  });
+
+  it.each([
+    ["holds no secret", undefined],
+    ["holds a secret too short to key the MAC", "s".repeat(31)],
+  ])("admits that kid when Pulse %s: the secret is what refuses it", async (_label, secret) => {
+    if (secret === undefined) delete process.env.INTERNAL_SERVICE_SECRET;
+    else process.env.INTERNAL_SERVICE_SECRET = secret;
+    const [, expiry] = arc.kid.split(".");
+    const res = await post(
+      routes(),
+      "/internal/account-deletion-preview",
+      { profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+      await arc.tokenUnderKid("account:deletion-preview", `${crypto.randomUUID()}.${expiry}`),
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("no longer takes key registrations: osn-api publishes its keys instead", async () => {
     const res = await post(routes(), "/internal/register-service", {}, "Bearer x");
     expect(res.status).toBe(404);
@@ -111,7 +145,7 @@ describe("internal routes — the account deletion", () => {
     const res = await post(
       app,
       "/internal/account-deletion-preview",
-      { accountId: "acc_host", profileIds: [PROFILE], deletesAt },
+      { profileIds: [PROFILE], deletesAt },
       await arc.token("account:deletion-preview"),
     );
     expect(res.status).toBe(200);
@@ -148,7 +182,6 @@ describe("internal routes — the account deletion", () => {
         profileIds: [PROFILE],
         choices: { [`pulse:event:${gone.id}`]: { choice: "delete" } },
         deleteEverything: false,
-        email: "host@example.com",
       },
       await arc.token("account:erase"),
     );
@@ -187,7 +220,7 @@ describe("internal routes — the account deletion", () => {
     const res = await post(
       createInternalRoutes(layer, arc.verification),
       "/internal/account-sessions/revoke",
-      { accountId: "acc_host", profileIds: [PROFILE] },
+      { profileIds: [PROFILE] },
       await arc.token("account:sessions-revoke"),
     );
     expect(await res.json()).toEqual({ revoked: 1 });
