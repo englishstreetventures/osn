@@ -1160,6 +1160,20 @@ describe("the apps' open actions", () => {
     expect(body.error).toBe("stale_choices");
     expect(body.open_actions.map((a) => a.id)).toEqual(["pulse:event:evt_2"]);
     expect(await p.job()).toBeUndefined();
+    // The refusal spent no step-up: answers to the fresh preview go through
+    // with the same token.
+    const retried = await p.attempt({
+      choices: [{ action: "pulse:event:evt_2", choice: "delete" }],
+    });
+    expect(retried.status).toBe(202);
+  });
+
+  it("DELETE /account takes delete everything with an empty list of answers", async () => {
+    pulseHolds(hosted("evt_1", null));
+    const p = await person();
+    const res = await p.attempt({ delete_everything: true, choices: [] });
+    expect(res.status).toBe(202);
+    expect((await p.job())!.deleteEverything).toBe(true);
   });
 
   it("DELETE /account with delete everything stores the flag and no answers, whatever waits", async () => {
