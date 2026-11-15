@@ -7,17 +7,22 @@ import { Elysia, t } from "elysia";
 
 import {
   PERMITTED_INBOUND_SCOPES,
+  ReservedServiceIdError,
   ServiceKeyMismatchError,
   registerServiceKey,
   requireArc,
   revokeServiceKey,
 } from "../lib/arc-middleware";
+import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import { MAX_CHAT_MEMBERS, MAX_EXPORT_PROFILE_IDS } from "../lib/limits";
+import { purgeAccount } from "../services/accountErasure";
 import { provisionC2bChat } from "../services/chats";
 import { sendC2bMessage, listC2bMessages } from "../services/messages";
 
 const AUDIENCE = "zap-api";
 const SCOPE_ACCOUNT_EXPORT = "account:export";
+const SCOPE_ACCOUNT_ERASE = "account:erase";
+const SCOPE_DELETION_PREVIEW = "account:deletion-preview";
 // Bounds the DSAR c2b-body fetch to keep the export within Worker memory/CPU.
 // A follow-up may paginate if a real account exceeds this.
 const MAX_EXPORT_C2B_MESSAGES = 5_000;
@@ -141,13 +146,25 @@ const loadC2bMessages = (
   }).pipe(Effect.withSpan("zap.internal.account_export_c2b_messages"));
 
 /**
- * Internal zap-api endpoints — ARC-gated (account-export) and
+ * Internal zap-api endpoints — ARC-gated (osn-api's account export and
+ * account deletion, cire-api's consumer-to-business chats) and
  * shared-secret-gated (register-service / service-keys/:keyId revoke).
  */
-export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
+export const createInternalRoutes = (
+  dbLayer: Layer.Layer<DbType> = DbLive,
+  verification: OsnTokenVerification = DEFAULT_VERIFICATION,
+) => {
   // Layer graph built once per factory (convention: build the runtime once,
   // never per request) — mirrors pulse/api's internal router.
   const runtime = ManagedRuntime.make(dbLayer);
+  // osn-api's tokens verify against the keys it publishes under the issuer
+  // Zap pins. INTERNAL_SERVICE_SECRET gates fetching them (a made-up kid is
+  // refused first); read per request, as workerd fills `process.env` only
+  // inside a handler.
+  const osnArc = () => ({
+    osnIssuer: verification.issuer,
+    kidSecret: process.env.INTERNAL_SERVICE_SECRET || undefined,
+  });
   return (
     new Elysia({ prefix: "/internal" })
       // ------------------------------------------------------------------
@@ -195,6 +212,10 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
               set.status = 409;
               return { error: "kid_serviceid_mismatch" };
             }
+            if (e instanceof ReservedServiceIdError) {
+              set.status = 400;
+              return { error: "service_id_reserved" };
+            }
             set.status = 400;
             return { error: "Invalid public key JWK" };
           }
@@ -240,6 +261,7 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
             set,
             AUDIENCE,
             SCOPE_ACCOUNT_EXPORT,
+            osnArc(),
           );
           if (!caller) return { error: "Unauthorized" };
 
@@ -280,13 +302,87 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
         },
       )
       // ------------------------------------------------------------------
+      // ARC-gated `/internal/account-deletion-preview` — called by osn-api
+      // when the person previews, or asks for, their account's deletion.
+      // Zap holds nothing that needs their answer.
+      // ------------------------------------------------------------------
+      .post(
+        "/account-deletion-preview",
+        async ({ headers, set }) => {
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            AUDIENCE,
+            SCOPE_DELETION_PREVIEW,
+            osnArc(),
+          );
+          if (!caller) return { error: "Unauthorized" };
+          return { openActions: [] };
+        },
+        {
+          body: t.Object({
+            accountId: t.String({ minLength: 1 }),
+            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_EXPORT_PROFILE_IDS }),
+            deletesAt: t.Integer({ minimum: 0 }),
+          }),
+        },
+      )
+      // ------------------------------------------------------------------
+      // ARC-gated `/internal/account-deleted` — called by osn-api once the
+      // account's 7-day window has passed: erases the person's Zap data
+      // (`services/accountErasure.ts`) and answers what Zap keeps. Zap has
+      // no actions, so `choices` and `deleteEverything` change nothing, and
+      // it neither stores nor logs `email`.
+      // ------------------------------------------------------------------
+      .post(
+        "/account-deleted",
+        async ({ body, headers, set }) => {
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            AUDIENCE,
+            SCOPE_ACCOUNT_ERASE,
+            osnArc(),
+          );
+          if (!caller) return { error: "Unauthorized" };
+          try {
+            const result = await runtime.runPromise(purgeAccount(body.accountId, body.profileIds));
+            return { kept: result.kept };
+          } catch {
+            set.status = 500;
+            return { error: "internal_error" };
+          }
+        },
+        {
+          body: t.Object({
+            accountId: t.String({ minLength: 1 }),
+            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_EXPORT_PROFILE_IDS }),
+            choices: t.Optional(
+              t.Record(
+                t.String({ maxLength: 128 }),
+                t.Object({ choice: t.String({ maxLength: 32 }) }),
+                { maxProperties: 500 },
+              ),
+            ),
+            deleteEverything: t.Optional(t.Boolean()),
+            email: t.Optional(t.String({ maxLength: 320 })),
+          }),
+        },
+      )
+      // ------------------------------------------------------------------
       // ARC-gated `/internal/chats` — called by cire-api to provision
       // consumer-to-business chats (scope: `chat:c2b`).
       // ------------------------------------------------------------------
       .post(
         "/chats",
         async ({ body, headers, set }) => {
-          const caller = await requireArc(headers.authorization, set, AUDIENCE, "chat:c2b");
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            AUDIENCE,
+            "chat:c2b",
+            osnArc(),
+          );
           if (!caller) return { error: "Unauthorized" };
 
           const result = await runtime.runPromise(
@@ -328,7 +424,13 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
       .post(
         "/chats/:chatId/messages",
         async ({ body, headers, params, set }) => {
-          const caller = await requireArc(headers.authorization, set, AUDIENCE, "chat:c2b");
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            AUDIENCE,
+            "chat:c2b",
+            osnArc(),
+          );
           if (!caller) return { error: "Unauthorized" };
 
           const result = await runtime.runPromise(
@@ -387,7 +489,13 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
       .get(
         "/chats/:chatId/messages",
         async ({ headers, params, query, set }) => {
-          const caller = await requireArc(headers.authorization, set, AUDIENCE, "chat:c2b");
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            AUDIENCE,
+            "chat:c2b",
+            osnArc(),
+          );
           if (!caller) return { error: "Unauthorized" };
 
           const limit = query.limit;

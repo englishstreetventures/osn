@@ -14,6 +14,7 @@ import {
   seedC2bMessage,
   seedMessage,
 } from "../helpers/db";
+import { osnArc } from "../helpers/osn-arc";
 
 /**
  * Route-level coverage for the `/internal` group: the shared-secret
@@ -33,13 +34,20 @@ beforeAll(async () => {
   publicKeyJwk = await exportKeyToJwk(pair.publicKey);
 });
 
-beforeEach(() => {
+let osn: Awaited<ReturnType<typeof osnArc>>;
+
+/** A token osn-api signed with its published key, without the `ARC ` prefix. */
+const osnToken = async (scope: string, claims: { iss?: string; aud?: string } = {}) =>
+  (await osn.token(scope, claims)).replace(/^ARC /, "");
+
+beforeEach(async () => {
   _resetServiceKeysForTests();
+  osn = await osnArc();
   process.env.INTERNAL_SERVICE_SECRET = SECRET;
 });
 
 afterEach(() => {
-  delete process.env.INTERNAL_SERVICE_SECRET;
+  osn.restore();
 });
 
 function post(
@@ -62,10 +70,10 @@ function post(
 
 function registerBody() {
   return {
-    serviceId: "osn-api",
+    serviceId: "cire-api",
     keyId: KID,
     publicKeyJwk,
-    allowedScopes: "account:export",
+    allowedScopes: "chat:c2b",
   };
 }
 
@@ -73,7 +81,7 @@ describe("zap internal routes — register-service gates", () => {
   it("returns 501 when INTERNAL_SERVICE_SECRET is unset", async () => {
     delete process.env.INTERNAL_SERVICE_SECRET;
     const res = await post(
-      createInternalRoutes(createTestLayer()),
+      createInternalRoutes(createTestLayer(), osn.verification),
       "/internal/register-service",
       registerBody(),
       `Bearer ${SECRET}`,
@@ -83,7 +91,7 @@ describe("zap internal routes — register-service gates", () => {
 
   it("returns 401 for a wrong shared secret", async () => {
     const res = await post(
-      createInternalRoutes(createTestLayer()),
+      createInternalRoutes(createTestLayer(), osn.verification),
       "/internal/register-service",
       registerBody(),
       "Bearer wrong-secret-oops",
@@ -93,7 +101,7 @@ describe("zap internal routes — register-service gates", () => {
 
   it("rejects scopes outside the inbound allowlist", async () => {
     const res = await post(
-      createInternalRoutes(createTestLayer()),
+      createInternalRoutes(createTestLayer(), osn.verification),
       "/internal/register-service",
       { ...registerBody(), allowedScopes: "admin:everything" },
       `Bearer ${SECRET}`,
@@ -104,30 +112,26 @@ describe("zap internal routes — register-service gates", () => {
 
 describe("zap internal routes — ARC-gated account-export", () => {
   it("returns 401 without an ARC token", async () => {
-    const res = await post(createInternalRoutes(createTestLayer()), "/internal/account-export", {
-      account_id: "acc_x",
-      profile_ids: ["usr_x"],
-    });
+    const res = await post(
+      createInternalRoutes(createTestLayer(), osn.verification),
+      "/internal/account-export",
+      {
+        account_id: "acc_x",
+        profile_ids: ["usr_x"],
+      },
+    );
     expect(res.status).toBe(401);
   });
 
   it("exports chat memberships as NDJSON with a valid ARC token", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
-
-    const reg = await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
-    expect(reg.status).toBe(200);
+    const app = createInternalRoutes(layer, osn.verification);
 
     // Seed a chat + membership for the profile being exported.
     const chat = await Effect.runPromise(seedChat({ type: "group" }).pipe(Effect.provide(layer)));
     await Effect.runPromise(seedMember(chat.id, "usr_gone", "admin").pipe(Effect.provide(layer)));
 
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
@@ -152,15 +156,9 @@ describe("zap internal routes — ARC-gated account-export", () => {
   });
 
   it("returns an empty body for an empty profile set", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
 
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
@@ -172,19 +170,8 @@ describe("zap internal routes — ARC-gated account-export", () => {
   });
 
   it("rejects an ARC token missing the account:export scope", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await post(
-      app,
-      "/internal/register-service",
-      { ...registerBody(), allowedScopes: "account:erase" },
-      `Bearer ${SECRET}`,
-    );
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:erase",
-      kid: KID,
-    });
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
+    const arc = await osnToken("account:erase");
     const res = await post(
       app,
       "/internal/account-export",
@@ -197,10 +184,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
 
   it("includes c2b message bodies in the export but not c2c ciphertext", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
-
-    const reg = await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
-    expect(reg.status).toBe(200);
+    const app = createInternalRoutes(layer, osn.verification);
 
     // Seed a c2b chat with two members and two plaintext messages.
     const c2bChat = await Effect.runPromise(
@@ -232,12 +216,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
       ),
     );
 
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
@@ -281,10 +260,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
 
   it("c2b export is bounded and ordered newest-first (P-W1 hardening)", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
-
-    const reg = await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
-    expect(reg.status).toBe(200);
+    const app = createInternalRoutes(layer, osn.verification);
 
     const c2bChat = await Effect.runPromise(
       seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
@@ -307,12 +283,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
       seedC2bMessage(c2bChat.id, "usr_bounded", "msg-newest", t2).pipe(Effect.provide(layer)),
     );
 
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
@@ -345,8 +316,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
     // The c2b read also binds the chat class and its row limit, so the id
     // list has to cost one parameter for the read to fit D1's 100 at the cap.
     const { layer, captured } = createCapturingTestLayer();
-    const app = createInternalRoutes(layer);
-    await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
+    const app = createInternalRoutes(layer, osn.verification);
     const profileIds = Array.from({ length: MAX_EXPORT_PROFILE_IDS }, (_, i) => `usr_cap_${i}`);
     const c2bChat = await Effect.runPromise(
       seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
@@ -361,12 +331,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
     );
     captured.length = 0;
 
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
@@ -383,15 +348,9 @@ describe("zap internal routes — ARC-gated account-export", () => {
   });
 
   it("rejects profile_ids over the export cap with 400", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
 
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const arc = await osnToken("account:export");
     const overCap = Array.from({ length: MAX_EXPORT_PROFILE_IDS + 1 }, (_, i) => `usr_${i}`);
     const res = await post(
       app,
@@ -407,8 +366,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
 
   it("keeps two distinct c2b messages that share a body and same-second createdAt (groupBy, not DISTINCT)", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
-    await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
+    const app = createInternalRoutes(layer, osn.verification);
 
     const c2bChat = await Effect.runPromise(
       seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
@@ -429,12 +387,7 @@ describe("zap internal routes — ARC-gated account-export", () => {
       seedC2bMessage(c2bChat.id, "usr_dup", "same body text", second).pipe(Effect.provide(layer)),
     );
 
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/account-export",
@@ -510,16 +463,20 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
   // ── 401 guards ──────────────────────────────────────────────────────────
 
   it("POST /internal/chats → 401 without any token", async () => {
-    const res = await post(createInternalRoutes(createTestLayer()), "/internal/chats", {
-      memberProfileIds: ["usr_a", "usr_b"],
-      createdByProfileId: "usr_a",
-    });
+    const res = await post(
+      createInternalRoutes(createTestLayer(), osn.verification),
+      "/internal/chats",
+      {
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      },
+    );
     expect(res.status).toBe(401);
   });
 
   it("POST /internal/chats/:id/messages → 401 without any token", async () => {
     const res = await post(
-      createInternalRoutes(createTestLayer()),
+      createInternalRoutes(createTestLayer(), osn.verification),
       "/internal/chats/chat_fake/messages",
       { senderProfileId: "usr_a", body: "hello" },
     );
@@ -528,27 +485,16 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
 
   it("GET /internal/chats/:id/messages → 401 without any token", async () => {
     const res = await get(
-      createInternalRoutes(createTestLayer()),
+      createInternalRoutes(createTestLayer(), osn.verification),
       "/internal/chats/chat_fake/messages",
     );
     expect(res.status).toBe(401);
   });
 
   it("POST /internal/chats → 401 with an account:export-scoped token (wrong scope)", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    // Register with account:export — not chat:c2b.
-    await post(
-      app,
-      "/internal/register-service",
-      { serviceId: "osn-api", keyId: KID, publicKeyJwk, allowedScopes: "account:export" },
-      `Bearer ${SECRET}`,
-    );
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
+    // osn-api may use account:export here, never chat:c2b.
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/chats",
@@ -559,19 +505,8 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
   });
 
   it("POST /internal/chats/:id/messages → 401 with an account:export-scoped token (wrong scope)", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await post(
-      app,
-      "/internal/register-service",
-      { serviceId: "osn-api", keyId: KID, publicKeyJwk, allowedScopes: "account:export" },
-      `Bearer ${SECRET}`,
-    );
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
+    const arc = await osnToken("account:export");
     const res = await post(
       app,
       "/internal/chats/chat_fake/messages",
@@ -582,25 +517,14 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
   });
 
   it("GET /internal/chats/:id/messages → 401 with an account:export-scoped token (wrong scope)", async () => {
-    const app = createInternalRoutes(createTestLayer());
-    await post(
-      app,
-      "/internal/register-service",
-      { serviceId: "osn-api", keyId: KID, publicKeyJwk, allowedScopes: "account:export" },
-      `Bearer ${SECRET}`,
-    );
-    const arc = await signArcToken(privateKey, {
-      iss: "osn-api",
-      aud: "zap-api",
-      scope: "account:export",
-      kid: KID,
-    });
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
+    const arc = await osnToken("account:export");
     const res = await get(app, "/internal/chats/chat_fake/messages", `ARC ${arc}`);
     expect(res.status).toBe(401);
   });
 
   it("GET /internal/chats/:id/messages → 422 with a non-numeric limit param", async () => {
-    const app = createInternalRoutes(createTestLayer());
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
     const arc = await registerC2bAndMintToken(app, privateKey, publicKeyJwk);
     const res = await get(app, "/internal/chats/chat_fake/messages", `ARC ${arc}`, {
       limit: "abc",
@@ -613,7 +537,7 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
   // ── provision ────────────────────────────────────────────────────────────
 
   it("POST /internal/chats → 201 + chatId with a valid chat:c2b token", async () => {
-    const app = createInternalRoutes(createTestLayer());
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
     const arc = await registerC2bAndMintToken(app, privateKey, publicKeyJwk);
 
     const res = await post(
@@ -632,7 +556,7 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
 
   it("POST messages → 201, GET messages returns the body", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
+    const app = createInternalRoutes(layer, osn.verification);
     const arc = await registerC2bAndMintToken(app, privateKey, publicKeyJwk);
 
     // Provision a c2b chat first.
@@ -678,7 +602,7 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
 
   it("GET messages with an unknown before cursor → 400", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
+    const app = createInternalRoutes(layer, osn.verification);
     const arc = await registerC2bAndMintToken(app, privateKey, publicKeyJwk);
 
     const provRes = await post(
@@ -708,7 +632,7 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
 
   it("POST messages to a c2c chat → 409", async () => {
     const layer = createTestLayer();
-    const app = createInternalRoutes(layer);
+    const app = createInternalRoutes(layer, osn.verification);
     const arc = await registerC2bAndMintToken(app, privateKey, publicKeyJwk);
 
     // Seed a c2c (default class) chat with a member.
@@ -726,5 +650,128 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
       `ARC ${arc}`,
     );
     expect(res.status).toBe(409);
+  });
+});
+
+describe("zap internal routes — the account deletion (osn-api only)", () => {
+  const ROUTES = [
+    {
+      path: "/internal/account-deletion-preview",
+      scope: "account:deletion-preview",
+      body: { accountId: "acc_x", profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+    },
+    {
+      path: "/internal/account-deleted",
+      scope: "account:erase",
+      body: { accountId: "acc_x", profileIds: ["usr_x"], choices: {}, deleteEverything: false },
+    },
+  ] as const;
+
+  for (const route of ROUTES) {
+    it(`${route.path} refuses no token, another issuer, another audience, another scope, and cire-api's key`, async () => {
+      const app = createInternalRoutes(createTestLayer(), osn.verification);
+      const pair = await generateArcKeyPair();
+      const cire = await registerC2bAndMintToken(
+        app,
+        pair.privateKey,
+        await exportKeyToJwk(pair.publicKey),
+      );
+      const other = route.scope === "account:erase" ? "account:export" : "account:erase";
+      for (const auth of [
+        undefined,
+        `ARC ${await osnToken(route.scope, { iss: "cire-api" })}`,
+        `ARC ${await osnToken(route.scope, { aud: "pulse-api" })}`,
+        `ARC ${await osnToken(other)}`,
+        `ARC ${cire}`,
+      ]) {
+        expect((await post(app, route.path, route.body, auth)).status).toBe(401);
+      }
+      expect(
+        (await post(app, route.path, route.body, `ARC ${await osnToken(route.scope)}`)).status,
+      ).toBe(200);
+    });
+  }
+
+  it("never verifies a token claiming osn-api against a registered key", async () => {
+    // A key registered under another service, signing a token that claims
+    // osn-api: routed to osn-api's published keys, where its kid is unknown.
+    const app = createInternalRoutes(createTestLayer(), osn.verification);
+    const pair = await generateArcKeyPair();
+    await post(
+      app,
+      "/internal/register-service",
+      {
+        serviceId: "cire-api",
+        keyId: "shadow-kid",
+        publicKeyJwk: await exportKeyToJwk(pair.publicKey),
+        allowedScopes: "chat:c2b",
+      },
+      `Bearer ${SECRET}`,
+    );
+    const forged = await signArcToken(pair.privateKey, {
+      iss: "osn-api",
+      aud: "zap-api",
+      scope: "account:erase",
+      kid: "shadow-kid",
+    });
+    const res = await post(
+      app,
+      "/internal/account-deleted",
+      { accountId: "acc_x", profileIds: ["usr_x"] },
+      `ARC ${forged}`,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("refuses to register a key for osn-api, which publishes its own", async () => {
+    const res = await post(
+      createInternalRoutes(createTestLayer(), osn.verification),
+      "/internal/register-service",
+      { ...registerBody(), serviceId: "osn-api" },
+      `Bearer ${SECRET}`,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "service_id_reserved" });
+  });
+
+  it("the preview answers no actions, and the erasure what Zap kept", async () => {
+    const layer = createTestLayer();
+    const app = createInternalRoutes(layer, osn.verification);
+    const preview = await post(
+      app,
+      "/internal/account-deletion-preview",
+      { accountId: "acc_x", profileIds: ["usr_x"], deletesAt: 1_900_000_000 },
+      `ARC ${await osnToken("account:deletion-preview")}`,
+    );
+    expect(await preview.json()).toEqual({ openActions: [] });
+
+    const chat = await Effect.runPromise(seedChat({ type: "group" }).pipe(Effect.provide(layer)));
+    await Effect.runPromise(seedMember(chat.id, "usr_x", "admin").pipe(Effect.provide(layer)));
+    await Effect.runPromise(seedMember(chat.id, "usr_y", "member").pipe(Effect.provide(layer)));
+    await Effect.runPromise(
+      seedMessage(chat.id, "usr_x", "c2lwaGVy", new Date()).pipe(Effect.provide(layer)),
+    );
+    const erased = await post(
+      app,
+      "/internal/account-deleted",
+      {
+        accountId: "acc_x",
+        profileIds: ["usr_x"],
+        choices: {},
+        deleteEverything: true,
+        email: "x@example.com",
+      },
+      `ARC ${await osnToken("account:erase")}`,
+    );
+    expect(erased.status).toBe(200);
+    expect(await erased.json()).toEqual({
+      kept: [
+        {
+          what: "Encrypted messages you sent in chats that still have other members, without your name",
+          erasedOn: null,
+          requestUrl: null,
+        },
+      ],
+    });
   });
 });

@@ -27,6 +27,7 @@ const ZAP_METRICS = {
   wsConnections: "zap.ws.connections",
   wsMessagesDelivered: "zap.ws.messages.delivered",
   accessDenied: "zap.access.denied",
+  accountErased: "zap.account.erased",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,11 @@ type AccessDeniedReason = "not_member" | "blocked" | "not_found" | "wrong_class"
 type AccessDeniedAttrs = {
   surface: AccessDeniedSurface;
   reason: AccessDeniedReason;
+};
+
+/** An account erasure osn-api sent: done now, a repeat of one done, or failed. */
+type AccountErasedAttrs = {
+  result: "ok" | "repeat" | "error";
 };
 
 // ---------------------------------------------------------------------------
@@ -164,3 +170,12 @@ export const metricAccessDenied = (
   surface: AccessDeniedSurface,
   reason: AccessDeniedReason,
 ): void => accessDenied.inc({ surface, reason });
+
+const accountErased = createCounter<AccountErasedAttrs>({
+  name: ZAP_METRICS.accountErased,
+  description: "Account erasures osn-api's deletion fan-out sent to Zap",
+  unit: "{account}",
+});
+
+export const metricAccountErased = (result: AccountErasedAttrs["result"]): void =>
+  accountErased.inc({ result });

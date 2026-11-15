@@ -4,18 +4,25 @@ import {
   verifyArcToken,
   type ArcTokenPayload,
 } from "@shared/crypto";
+import {
+  OSN_ARC_ISSUER,
+  peekArcIssuer,
+  verifyOsnArcToken,
+  type OsnArcVerification,
+} from "@shared/osn-auth-client/arc";
 
 /**
- * Lightweight in-memory ARC verifier for zap-api.
+ * ARC (service-to-service) verification for zap-api.
  *
- * Zap only needs to accept ARC tokens from a small known set of issuers
- * (osn-api today) so a full `service_accounts` schema would be overkill.
- * Public keys are registered at runtime by the issuing service via
- * `POST /internal/register-service` (same shared-secret bootstrap as
- * `osn/api/src/routes/graph-internal.ts` and `pulse/api`).
+ * A token is routed by the issuer it claims, before anything else is read.
+ * One claiming `osn-api` is verified against the keys osn-api publishes
+ * (`@shared/osn-auth-client/arc`) and never against the registry below, so a
+ * key registered here can never stand in for osn-api. Any other issuer
+ * (cire-api, for `chat:c2b`) is verified against the in-memory registry,
+ * filled by `POST /internal/register-service` under the shared
+ * `INTERNAL_SERVICE_SECRET`.
  *
- * Single source of truth: every ARC route on zap-api calls `requireArc`,
- * which consults the in-memory registry below.
+ * Single source of truth: every ARC route on zap-api calls `requireArc`.
  */
 
 interface RegisteredKey {
@@ -43,7 +50,16 @@ export class ServiceKeyMismatchError extends Error {
   }
 }
 
+/** The registry refuses keys for osn-api, whose keys it publishes itself. */
+export class ReservedServiceIdError extends Error {
+  constructor() {
+    super("osn-api publishes its own ARC keys; none is registered here");
+    this.name = "ReservedServiceIdError";
+  }
+}
+
 export async function registerServiceKey(input: RegisterServiceKeyInput): Promise<void> {
+  if (input.serviceId === OSN_ARC_ISSUER) throw new ReservedServiceIdError();
   // Refuse to overwrite a kid registered to a different serviceId.
   // The single INTERNAL_SERVICE_SECRET is the trust root across services;
   // without this guard, a holder could pivot across services by reusing
@@ -132,11 +148,18 @@ function peekKid(token: string): string | null {
   }
 }
 
+/** Every scope Zap lets osn-api use: the account export and the account deletion. */
+export const PERMITTED_OSN_SCOPES: ReadonlySet<string> = new Set([
+  "account:export",
+  "account:erase",
+  "account:deletion-preview",
+]);
+
 /**
  * ARC token verification guard for Zap Elysia routes. Mirrors the API
  * shape of osn-api's `requireArc` so route bodies look the same:
  *
- *   const caller = await requireArc(headers.authorization, set, AUDIENCE, SCOPE);
+ *   const caller = await requireArc(headers.authorization, set, AUDIENCE, SCOPE, osnArc);
  *   if (!caller) return { error: "Unauthorized" };
  */
 export async function requireArc(
@@ -144,7 +167,20 @@ export async function requireArc(
   set: { status?: number | string },
   expectedAudience: string,
   requiredScope: string,
+  osnArc: OsnArcVerification,
 ): Promise<ArcCaller | null> {
+  if (peekArcIssuer(authorization) === OSN_ARC_ISSUER) {
+    const verdict = await verifyOsnArcToken(authorization, osnArc, {
+      audience: expectedAudience,
+      scope: requiredScope,
+      allowedScopes: PERMITTED_OSN_SCOPES,
+    });
+    if (!verdict.ok) {
+      set.status = 401;
+      return null;
+    }
+    return { iss: OSN_ARC_ISSUER, aud: expectedAudience, scope: requiredScope };
+  }
   // The early-exit branches below reject before `verifyArcToken` runs
   // (which self-reports its own outcomes, incl. "ok"), so each one records
   // the shared `arc.token.verification` counter itself — otherwise
@@ -210,8 +246,9 @@ export async function requireArc(
 }
 
 /**
- * `account:export`/`account:erase` power the DSAR fan-out; `chat:c2b` lets a
- * trusted service (cire-api) provision consumer-to-business chats and CRUD
- * their server-visible messages via `/internal/chats*`.
+ * Scopes a registered key may hold: `chat:c2b` lets a trusted service
+ * (cire-api) provision consumer-to-business chats and CRUD their
+ * server-visible messages via `/internal/chats*`. osn-api's scopes are
+ * {@link PERMITTED_OSN_SCOPES}, through its published keys.
  */
-export const PERMITTED_INBOUND_SCOPES = new Set(["account:export", "account:erase", "chat:c2b"]);
+export const PERMITTED_INBOUND_SCOPES = new Set(["chat:c2b"]);
