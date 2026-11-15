@@ -63,8 +63,13 @@ const { holdQueries } = await import("../helpers/held-query");
 const { mintStepUpToken } = await import("../helpers/step-up-session");
 const { cancelErasure, requestErasure } = await import("../../src/services/account-erasure");
 const { makeHeldHandleDigest } = await import("../../src/lib/handle-hold");
-const { beginThroughRoutes, confirmThroughRoutes, latestLinkTo, statusThroughRoutes } =
-  await import("../helpers/registration");
+const {
+  beginThroughRoutes,
+  confirmThroughRoutes,
+  latestLinkTo,
+  registerThroughRoutes,
+  statusThroughRoutes,
+} = await import("../helpers/registration");
 const { beginRecoveryThroughRoutes, latestRecoveryLinkTo, recoveryStatusThroughRoutes } =
   await import("../helpers/recovery-link");
 
@@ -737,6 +742,50 @@ describe("a sign-in on a browser holding a session of an account scheduled for d
     expect(sessionCookieOf(swapped)).toBeNull();
     // The sign-in ended it: it renews for no profile, its own included.
     expect((await grantFor(h, leaving.token, leaving.profile.id)).status).toBe(400);
+  });
+});
+
+describe("a sign-up held at its passkey step, and the page of the account before it", () => {
+  // Someone signed in as A starts a sign-up from the same browser. The
+  // completing status poll sets B's cookie; the page still holds A, and the
+  // sign-up holds B's session until a passkey is enrolled. A renewal from A's
+  // page then carries B's cookie and names A's profile.
+  it("refuses the renewal and rotates nothing, so the page is signed out rather than acting as B", async () => {
+    const h = makeHarness();
+    const before = await h.signedIn("before");
+    const signedUp = await registerThroughRoutes(h.app, h.recorded, "after@example.com", "after", {
+      headers: h.withCookie(before.token),
+    });
+    const fresh = signedUp.cookies
+      .map((line) => /^osn_session=([^;]+)/.exec(line)?.[1])
+      .find((token) => token !== undefined)!;
+    expect(fresh).toBeDefined();
+
+    const renewal = await h.request(
+      "/token",
+      { grant_type: "refresh_token", profile_id: before.profile.id },
+      h.withCookie(fresh),
+    );
+
+    expect(renewal.status).toBe(400);
+    // The body @osn/client reads as a refused grant, which ends the page's
+    // session (osn/client/tests/runtime.test.ts, F9).
+    expect(await renewal.json()).toEqual({
+      error: "invalid_grant",
+      message: "AuthError: Invalid or expired session",
+    });
+    expect(sessionCookieOf(renewal)).toBeNull();
+    expect(
+      renewal.headers.getSetCookie().some((line) => line.startsWith("osn_has_session=;")),
+    ).toBe(true);
+    // Nothing rotated: B's session stands under its own id, with no record.
+    const freshHash = h.auth.hashSessionToken(fresh);
+    expect(h.sqlite.query("SELECT id FROM sessions WHERE id = ?").all(freshHash)).toHaveLength(1);
+    expect(
+      h.sqlite.query("SELECT token_hash FROM rotated_sessions WHERE token_hash = ?").all(freshHash),
+    ).toEqual([]);
+    // A page that names no profile, or B's, renews as B and shows it.
+    expect((await h.grant(fresh)).status).toBe(200);
   });
 });
 

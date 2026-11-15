@@ -11,13 +11,13 @@ import {
   desc,
   eq,
   exists,
+  getTableColumns,
   gt,
   inArray,
   isNotNull,
   isNull,
   lte,
   ne,
-  notExists,
   sql,
 } from "drizzle-orm";
 import { Effect } from "effect";
@@ -114,7 +114,7 @@ export const runRotatedSessionSweep = (
 
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;
-  const { findAccountById, findDefaultProfile, findProfileById } = profiles;
+  const { findAccountById, findDefaultProfile } = profiles;
 
   /**
    * The audience of an access token for a session: a restricted recovery
@@ -721,60 +721,36 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   // -------------------------------------------------------------------------
 
   /**
-   * True when `accountId` is scheduled for deletion and owns no profile
-   * `profileId`. A tombstoned account's profiles are hidden from
-   * `findProfileById`, so ownership is read from `users` directly.
+   * The profile `profileId` names, with its account's email, last recovery and
+   * deletion mark, in one statement. Unlike `findProfileById` it also finds a
+   * profile of an account scheduled for deletion, so a refresh reads who owns
+   * a named profile and whether it may mint for it from the one row.
    */
-  const foreignProfileOfScheduledDeletion = (
-    accountId: string,
+  const findNamedProfile = (
     profileId: string,
-  ): Effect.Effect<boolean, DatabaseError, Db> =>
+  ): Effect.Effect<
+    (ProfileWithEmail & { accountDeletedAt: number | null }) | null,
+    DatabaseError,
+    Db
+  > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ one: sql`1` })
-            .from(accounts)
-            .where(
-              and(
-                eq(accounts.id, accountId),
-                isNotNull(accounts.deletedAt),
-                notExists(
-                  db
-                    .select({ one: sql`1` })
-                    .from(users)
-                    .where(and(eq(users.id, profileId), eq(users.accountId, accountId))),
-                ),
-              ),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      return rows.length > 0;
-    });
-
-  /**
-   * True when `profileId` is one of `accountId`'s profiles. Read from `users`
-   * directly: `findProfileById` hides the profiles of an account scheduled
-   * for deletion.
-   */
-  const accountOwnsProfile = (
-    accountId: string,
-    profileId: string,
-  ): Effect.Effect<boolean, DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({ one: sql`1` })
+            .select({
+              ...getTableColumns(users),
+              email: accounts.email,
+              lastRecoveredAt: accounts.lastRecoveredAt,
+              accountDeletedAt: accounts.deletedAt,
+            })
             .from(users)
-            .where(and(eq(users.id, profileId), eq(users.accountId, accountId)))
+            .innerJoin(accounts, eq(users.accountId, accounts.id))
+            .where(eq(users.id, profileId))
             .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return rows.length > 0;
+      return rows[0] ?? null;
     });
 
   /** How long a rotation record proves reuse: the life of the token it records. */
@@ -879,17 +855,24 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * account that lands at any point of a rotation leaves no session behind it.
    *
    * The access token is for `profileId` when the session's account owns that
-   * profile, and for the account's default profile otherwise — a profile that
-   * is gone, or another account's, gets the same answer as naming none, so
-   * the grant says nothing about which profiles exist. A restricted recovery
-   * session ignores `profileId`: it mints only for the default profile, on
-   * its own audience.
+   * profile, and for the account's default profile when the grant names none.
+   * A grant naming a profile the account does not own — another account's, or
+   * one that is gone — is refused before anything rotates or is minted: the
+   * page that sent it holds a profile the cookie's account cannot act as, so
+   * it is signed out rather than renewed as that account. Both cases send the
+   * same statement and fail with the same error, so the refusal says nothing
+   * about which profiles exist. A profile deleted while the grant runs fails it
+   * as a rotation race: the new session is written only while the profile it
+   * was minted for is still the account's, so no token for it is handed out.
+   * Two sessions mint for the default profile although they name one their
+   * account owns: a restricted recovery session, which mints only for it and
+   * on its own audience, and a session of an account scheduled for deletion.
    *
    * An unrestricted session of an account whose deletion is pending gets the
    * pending-deletion audience, read from the account at this grant: a named
-   * profile found by `findProfileById` belongs to a live account, and the
-   * default profile carries its account's `deleted_at`. So a cancel needs no
-   * session write; the next grant is ordinary again.
+   * profile is minted for only while its account is live, and the default
+   * profile carries its account's `deleted_at`. So a cancel needs no session
+   * write; the next grant is ordinary again.
    */
   const refreshTokens = (
     sessionToken: string,
@@ -909,39 +892,31 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         // The one caller allowed to rotate a restricted session — rotating it
         // is the only thing a restricted session is for — and a replaced one.
       } = yield* verifyRefreshToken(sessionToken, { allowRestricted: true, allowReplaced: true });
-      const named =
-        profileId !== undefined && restrictedUntil === null
-          ? yield* findProfileById(profileId)
-          : null;
+      const named = profileId === undefined ? null : yield* findNamedProfile(profileId);
+      // A grant naming a profile the session's account does not own comes from
+      // a page holding a profile this cookie's account cannot act as: refused
+      // before anything rotates, so that page is signed out. Counted as
+      // `forbidden`: the cookie is live, the grant is not.
+      if (profileId !== undefined && named?.accountId !== accountId) {
+        return yield* Effect.fail(
+          new AuthError({ message: "Invalid or expired session", metricResult: "forbidden" }),
+        );
+      }
       // A session marked replaced (`replaced_at`: the cancel handle of a
       // deletion job that predates the restore record, which a sign-in on its
-      // browser marked and left live) renews only for a profile its own
-      // account owns. A grant naming another
-      // profile, or none, may come from a page on a browser another account
-      // holds: refused before anything rotates, so that page is signed out
-      // rather than renewed as this account. Cancelling the deletion leaves
-      // the mark.
-      if (
-        replacedAt !== null &&
-        (profileId === undefined || !(yield* accountOwnsProfile(accountId, profileId)))
-      ) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      // browser marked and left live) renews only naming a profile its own
+      // account owns. A grant naming none may come from a page on a browser
+      // another account holds: refused like the grant above. Cancelling the
+      // deletion leaves the mark.
+      if (replacedAt !== null && profileId === undefined) {
+        return yield* Effect.fail(
+          new AuthError({ message: "Invalid or expired session", metricResult: "forbidden" }),
+        );
       }
-      // Unmarked, a session of an account scheduled for deletion (any session
-      // of a job with a restore record, a handle of an older job no sign-in
-      // has replaced, or a row from before the mark existed) is still refused
-      // a named profile its account does not own. Read only when the named
-      // profile is not a live account's own.
-      const namedOwnLive = named !== null && named.accountId === accountId;
-      if (
-        replacedAt === null &&
-        profileId !== undefined &&
-        restrictedUntil === null &&
-        !namedOwnLive &&
-        (yield* foreignProfileOfScheduledDeletion(accountId, profileId))
-      ) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
-      }
+      // The named profile is minted for only when this session may act as it:
+      // an unrestricted session of an account not scheduled for deletion.
+      const namedOwnLive =
+        named !== null && named.accountDeletedAt === null && restrictedUntil === null;
       const profile = namedOwnLive ? named : yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
@@ -978,13 +953,23 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const { db } = yield* Db;
       const oldRow = eq(sessions.id, oldSessionId);
       const newRow = eq(sessions.id, newSessionId);
-      // Unmarked at the read, and naming no live profile of its own account:
-      // every grant the mark would refuse should a sign-in mark the old row
-      // (only the handle of a deletion job that predates the restore record is
-      // ever marked), and also an account scheduled for deletion naming its
-      // own profile, which `findProfileById` hides. That one loses a race with
-      // the mark as a rotation race, as any session does, and its retry renews.
+      // Unmarked at the read, and not minting for the profile it named: every
+      // grant the mark would refuse should a sign-in mark the old row (only the
+      // handle of a deletion job that predates the restore record is ever
+      // marked), which is one naming no profile, and also one naming its own
+      // profile from a restricted session or an account scheduled for
+      // deletion. Those lose a race with the mark as a rotation race, as any
+      // session does, and their retry renews.
       const refusedOnceMarked = replacedAt === null && !namedOwnLive;
+      // The profile minted for is still this account's when the new session
+      // is written; one deleted since the read leaves the grant a rotation
+      // race, and its retry reads the profiles as they are.
+      const profileStands = exists(
+        db
+          .select({ one: sql`1` })
+          .from(users)
+          .where(and(eq(users.id, profile.id), eq(users.accountId, sessions.accountId))),
+      );
 
       // 1. The new session, written only while the old one stands. It copies
       //    the device from the old row as that row stands when the insert
@@ -1029,7 +1014,13 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             // the family (the handle of a deletion job that predates the
             // restore record), rotates nothing once the mark is on the old row:
             // the swap then fails as a rotation race, and the retry reads it.
-            .where(refusedOnceMarked ? and(oldRow, isNull(sessions.replacedAt)) : oldRow),
+            .where(
+              and(
+                oldRow,
+                profileStands,
+                refusedOnceMarked ? isNull(sessions.replacedAt) : undefined,
+              ),
+            ),
         );
       // 2. The record of the rotated-out token, only once this request's new
       //    session is in, so reuse detection sees the old token replayed. Its
