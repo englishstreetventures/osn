@@ -336,7 +336,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.23.5",
+      "version": "0.23.6",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -368,7 +368,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.40.0",
+      "version": "3.40.1",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.16",
@@ -400,7 +400,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "6.1.1",
+      "version": "6.1.2",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -422,7 +422,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "4.0.0",
+      "version": "4.0.1",
       "dependencies": {
         "effect": "4.1.2",
       },
@@ -898,7 +898,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.66",
+      "version": "0.3.67",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@osn/auth-ui": "workspace:*",
