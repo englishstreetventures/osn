@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import openapi from "../../../shared/openapi/osn.json";
 import {
+  AccountError,
   createAccountClient,
   type AccountClient,
   type AccountDeletionOpenAction,
@@ -195,6 +196,19 @@ describe("account deletion client against shared/openapi/osn.json", () => {
       could_not_check: [],
     });
     expect(request.body).toBeNull();
+  });
+
+  it("getAccountDeletionPreview refuses an answer without the list of apps it could not ask", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ open_actions: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    await expect(client.getAccountDeletionPreview()).rejects.toBeInstanceOf(AccountError);
   });
 
   it("the preview types name the fields GET /account/deletion-preview answers with", () => {
