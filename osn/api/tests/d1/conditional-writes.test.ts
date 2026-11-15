@@ -521,11 +521,12 @@ describe("erasure cancel and purge on D1", () => {
   it("a cancel that lands while the fan-out is held before its claim stops the purge", async () => {
     const { accountId, pastWindowMs } = await scheduled("ced1first");
 
-    const body = hold(/from "accounts" inner join "deletion_jobs"/);
+    // The fan-out reads the job, then claims it: held at the claim.
+    const claim = hold(/^update "deletion_jobs" set "purge_started_at"/);
     const sweep = run(runFanOutRetrySweep({ nowMs: pastWindowMs, config }));
-    await body.reached;
+    await claim.reached;
     expect(await run(cancelErasure(accountId))).toEqual({ cancelled: true });
-    body.release();
+    claim.release();
     await sweep;
 
     expect(purgesOf(accountId)).toBe(0);
