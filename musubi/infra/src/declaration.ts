@@ -176,6 +176,37 @@ const SITES = {
   },
 } satisfies Readonly<Record<MusubiSite, MusubiSiteSpec>>;
 
+/**
+ * The apps osn-api's account deletion reaches, each by the `StageHosts` key of
+ * its API Worker, or null for an app with no API Worker on any tier. Read by
+ * `deletionAppsConfig` (osn/api/src/services/deletion-apps.ts).
+ */
+export const DELETION_APP_HOSTS = {
+  // pulse-api has no deployed tier (wiki/shared/dev-environment.md §1).
+  pulse: null,
+  zap: "zapApi",
+} as const satisfies Readonly<Record<"pulse" | "zap", keyof StageHosts | null>>;
+
+/** osn-api's deletion vars: each app's address, or its declaration as absent. */
+interface DeletionAppVars {
+  readonly PULSE_API_URL?: string;
+  readonly ZAP_API_URL?: string;
+  readonly OSN_DELETION_ABSENT_APPS?: string;
+}
+
+/**
+ * osn-api's deletion vars on a tier with `hosts`: Zap's API origin, and Pulse,
+ * which has no API Worker, named in `OSN_DELETION_ABSENT_APPS` so osn-api
+ * skips it instead of failing closed. tests/deletion-apps.test.ts fails when
+ * an app gains an API host and this does not follow.
+ */
+export function deletionAppVars(hosts: StageHosts): DeletionAppVars {
+  return {
+    ZAP_API_URL: origin(hosts[DELETION_APP_HOSTS.zap]),
+    OSN_DELETION_ABSENT_APPS: "pulse",
+  };
+}
+
 /** osn-api's logical id, the dev one, which keys its state row on every stage. */
 export const API_LOGICAL_IDS = { osn_api: "OsnApi" } as const satisfies Readonly<
   Partial<Record<ApiSurface, string>>
@@ -251,6 +282,8 @@ export function musubiProductionApis(input: {
         OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "100",
         CIRE_INTERNAL_REVOKE_URL: origin(hosts.cireApi),
         CIRE_OIDC_CLIENT_ID: "cid_cire",
+        ...deletionAppVars(hosts),
+        OSN_DELETION_FANOUT_MAX_JOBS: "50",
       },
       bindings: {
         DB: { kind: "d1" },
@@ -420,6 +453,8 @@ export function musubiDeclaration(input: {
         // CIRE_API_ORIGIN and CIRE_OIDC_CLIENT_ID (cire/infra/tests/cross-stack.test.ts).
         CIRE_INTERNAL_REVOKE_URL: origin(hosts.cireApi),
         CIRE_OIDC_CLIENT_ID: "cid_cire",
+        // Where the account deletion reaches each app on this tier.
+        ...deletionAppVars(hosts),
       },
       bindings: {
         DB: { kind: "d1" },

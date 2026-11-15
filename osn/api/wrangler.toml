@@ -171,8 +171,8 @@ head_sampling_rate = 1
 # ── Scheduled maintenance (cron) ─────────────────────────────────────────────
 # Replaces the Bun `setInterval` deletion sweeper. Cadence matches the Bun
 # SWEEPER_INTERVAL default (6 h) — runs the account-erasure fan-out-retry +
-# hard-delete sweeps. ARC outbound-key rotation is NOT cron'd: it lazily inits
-# on first outbound use (see `lib/outbound-arc.ts`).
+# hard-delete sweeps. The outbound ARC key needs no cron: each isolate mints and
+# publishes its own before its first outbound call (see `lib/outbound-arc.ts`).
 [triggers]
 crons = ["0 */6 * * *"]
 
@@ -322,6 +322,16 @@ OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS = "100"
 # skip warning.
 CIRE_INTERNAL_REVOKE_URL = "https://api.cireweddings.com"
 CIRE_OIDC_CLIENT_ID = "cid_cire"
+# Where the account deletion reaches each app (src/services/deletion-apps.ts,
+# `deletionAppsConfig`). pulse-api has no production Worker, so Pulse is
+# declared absent and skipped; an app with neither a URL nor that declaration
+# holds every deletion here. The musubi stack declares the same values
+# (musubi/infra/tests/deletion-apps.test.ts).
+ZAP_API_URL = "https://zap.cireweddings.com"
+OSN_DELETION_ABSENT_APPS = "pulse"
+# Deletion jobs one fan-out pass reaches, and accounts one hard-delete pass
+# erases (src/index.ts `scheduled`). Unset, as on dev (Workers Free), it is 4.
+OSN_DELETION_FANOUT_MAX_JOBS = "50"
 # Email is sent via Resend (RESEND_API_KEY secret, §1.1) — confirmed delivering
 # from hello@cireweddings.com on 2026-06-18. Email is REQUIRED in prod: if
 # RESEND_API_KEY is ever absent osn-api fails closed at startup rather than
@@ -445,7 +455,8 @@ crons = ["0 */6 * * *"]
 #                              skipped (unset here) or refused with 503 (unset
 #                              on cire-api). Generate with
 #                              `openssl rand -base64 32`.
-#   PULSE_API_URL / ZAP_API_URL deletion fan-out targets (optional; also [vars])
+#   PULSE_API_URL / ZAP_API_URL vars, never secrets: where the account deletion
+#                              reaches each app; see [env.production.vars].
 #   TRUSTED_PROXY_COUNT        legacy XFF proxy-hop count. IGNORED in deployed
 #                              tiers: the Workers entry sets trustCloudflare for
 #                              non-local, so per-IP keying uses cf-connecting-ip

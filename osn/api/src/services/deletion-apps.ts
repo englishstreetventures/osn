@@ -136,9 +136,15 @@ export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
     }
     absent.add(trimmed);
   }
+  // Each read by name, so a check of what osn-api reads
+  // (musubi/infra/tests/reads.test.ts) sees every one.
+  const given = {
+    PULSE_API_URL: env.PULSE_API_URL,
+    ZAP_API_URL: env.ZAP_API_URL,
+  } satisfies Record<DeletionAppEntry["urlVariable"], string | undefined>;
   const urls: Partial<Record<DeletionApp, string>> = {};
   for (const entry of DELETION_APPS) {
-    const url = env[entry.urlVariable]?.trim();
+    const url = given[entry.urlVariable]?.trim();
     if (!url) continue;
     if (absent.has(entry.app)) {
       throw new DeletionAppsConfigError(
