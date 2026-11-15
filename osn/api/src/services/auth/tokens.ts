@@ -658,9 +658,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
 
-      // Nor is a cancel handle a sign-in on its browser replaced
-      // (`replaced_at`): another account holds that browser now, so
-      // `/authorize` must not read it as signed in. Same error again.
+      // Nor is a session marked replaced (`replaced_at`, which no path writes;
+      // a row that carries it keeps this rule until it expires): another
+      // account may hold that browser, so `/authorize` must not read it as
+      // signed in. Same error again.
       if (session.replacedAt !== null && !options?.allowReplaced) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
@@ -911,10 +912,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         profileId !== undefined && restrictedUntil === null
           ? yield* findProfileById(profileId)
           : null;
-      // A cancel handle a sign-in on its browser replaced (`replaced_at`) stays
-      // live so its account can still cancel the deletion, and renews only
-      // for a profile its own account owns. A grant naming another profile,
-      // or none, comes from a page on the browser the other account now
+      // A session marked replaced (`replaced_at`; no path writes the mark,
+      // and a row that carries it keeps this rule until it expires) renews
+      // only for a profile its own account owns. A grant naming another
+      // profile, or none, may come from a page on a browser another account
       // holds: refused before anything rotates, so that page is signed out
       // rather than renewed as this account. Cancelling the deletion leaves
       // the mark.
@@ -1016,7 +1017,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
               // Carried with the deadline: the enrolment bypass reads the
               // factor off whichever row the caller currently holds.
               restrictedAmr: sessions.restrictedAmr,
-              // A replaced cancel handle stays replaced across rotations.
+              // A session marked replaced stays marked across rotations.
               replacedAt: sessions.replacedAt,
             })
             .from(sessions)

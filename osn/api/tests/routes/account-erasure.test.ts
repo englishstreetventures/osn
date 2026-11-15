@@ -566,6 +566,32 @@ describe("POST /account/restore asks for an account_restore step-up", () => {
       }),
     );
 
+  it("a database fault while the step-up token's session is checked is a 500, not a step-up refusal", async () => {
+    // Red on the route answering every verifier failure as 403
+    // `step_up_required`: a fault would read as "step up again".
+    const base = createTestLayerWithSqlite();
+    const held = holdQueries(base.db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: held.db }), base.email.layer);
+    const { auth, profile, app, authed } = await seed(layer);
+    await requestDeletion(app, authed, {
+      confirm_handle: profile.handle,
+      step_up_token: await stepUpFor(auth, profile.accountId, "account_delete", layer),
+    });
+    const stepUpToken = await stepUpFor(auth, profile.accountId, "account_restore", layer);
+    // The verifier's lookup of the token's session family, and no other read.
+    const lookup = held.hold(/"family_id" = \?/);
+    const answered = restore(app, authed, { step_up_token: stepUpToken });
+    await Promise.race([lookup.reached, answered]);
+    base.sqlite.run("DROP TABLE sessions");
+    lookup.release();
+
+    const res = await answered;
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 500,
+      body: { error: "internal_error" },
+    });
+  });
+
   it("refuses without one, and with one for another purpose, and cancels with one", async () => {
     const layer = createTestLayer();
     const { auth, profile, app, authed } = await seed(layer);

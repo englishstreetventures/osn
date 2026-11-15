@@ -375,11 +375,12 @@ export const sessions = sqliteTable(
     /**
      * Unix seconds when a sign-in on this device's browser replaced the
      * cookie of this session's family while its account was scheduled for
-     * deletion. Such a family is the deletion's cancel handle, so the sign-in
-     * leaves it live instead of ending it; from then on it renews only for a
-     * profile its own account owns, and `GET /authorize` sees no session in
-     * it. Copied forward on every rotation, and never cleared, so cancelling
-     * the deletion does not lift it. NULL on every other session.
+     * deletion, and left the family live. No path writes it: a sign-in ends
+     * the family its cookie named for every account, since one scheduled for
+     * deletion can sign in again from any device. A row that carries it
+     * renews only for a profile its own account owns, and `GET /authorize`
+     * sees no session in it, until the row expires. Copied forward on every
+     * rotation, never cleared. NULL on every other session.
      */
     replacedAt: integer("replaced_at"),
   },

@@ -455,6 +455,9 @@ export function createAccountErasureRoutes(
             try {
               await run(auth.verifyStepUpForAccountRestore(profile.accountId, stepUpToken));
             } catch (e) {
+              // A refused token asks for a fresh step-up; a database fault in the
+              // verifier is the route's 500, never "step up again".
+              if (!isAuthError(e)) throw e;
               set.status = 403;
               const { body: errBody } = handleError(e);
               return { error: "step_up_required", detail: errBody };

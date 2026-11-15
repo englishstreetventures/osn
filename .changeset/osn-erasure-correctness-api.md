@@ -18,3 +18,5 @@ Make account erasure undoable for the whole seven-day window, keep deleted handl
 - The six-hourly cron sweeps `security_events` past 12 months, `email_changes` past 90 days and handle holds past their release, in chunks of 500, at most two a run, through one shared `runRetentionSweep`. The Bun dev server runs the same sweeps, the OIDC code sweep included.
 
 `/internal/app-enrollment/join` and `/leave` write only for the calling service's own app (`pulse-api` for `pulse`, `zap-api` for `zap`); a token from any other service gets 401. A hard delete runs only while both app purges read done at the moment it claims and writes; a refused join that sends an app's purge back rolls the batch back.
+
+A sign-in ends the family its cookie named for every account, an account scheduled for deletion and its cancel handle included: the account can sign in again from any device. No path marks a session `replaced_at`; a row that carries the mark keeps its renewal rule until it expires. `POST /account/restore` answers a database fault while it checks the step-up token as a 500, not `step_up_required`.

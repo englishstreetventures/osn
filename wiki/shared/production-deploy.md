@@ -16,7 +16,7 @@ related:
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-15
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1174,11 +1174,11 @@ included:
 
 > [!warning]
 > **Rolling osn-api back past `sessions.replaced_at` lifts the limit on a replaced
-> cancel handle.** A sign-in on the browser holding the cancel handle of an account
-> scheduled for deletion keeps that family live and marks it `replaced_at`; the
-> Worker from that release on renews it only for its own account's profiles and
-> `/authorize` reads it as no session. A Worker built before it ignores the column,
-> so a marked handle renews as any session does again. The risk is accepted. Before
+> cancel handle.** The current Worker writes no mark: a sign-in ends the family its
+> cookie named for every account. A row that carries the mark, from a release that
+> wrote it, renews only for its own account's profiles and `/authorize` reads it as
+> no session. A Worker built before the column ignores it, so a marked row renews as
+> any session does again. The risk is accepted. Before
 > a hand rollback past that release, the owner counts the marked rows (`bunx wrangler
 > d1 execute osn-db-prod --env production --remote --command "SELECT count(*) FROM
 > sessions WHERE replaced_at IS NOT NULL"`, counts only) and, when any is left,
