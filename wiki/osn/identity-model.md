@@ -87,7 +87,7 @@ The `users` table is the **public-facing identity**. This is what other profiles
 | `handle` | `text UNIQUE` | `@handle` — immutable social identity |
 | `displayName` | `text` | Nullable display name |
 | `avatarUrl` | `text` | Nullable avatar URL |
-| `isDefault` | `boolean` | Exactly one per account; auto-selected on login |
+| `isDefault` | `boolean` | Exactly one per account; auto-selected on login. A partial unique index (`users_one_default_per_account`) refuses a second; a profile delete keeps one even when another delete or default change lands at once |
 | `createdAt` | `timestamp` | |
 | `updatedAt` | `timestamp` | |
 

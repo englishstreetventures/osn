@@ -99,6 +99,11 @@ export const users = sqliteTable(
     // keeps it stable if the unique constraint ever changes shape.
     index("users_handle_idx").on(t.handle),
     uniqueIndex("users_handle_unique").on(t.handle),
+    // At most one default profile per account. Every writer clears the old
+    // default before it sets a new one, in one batch, so none trips it.
+    uniqueIndex("users_one_default_per_account")
+      .on(t.accountId)
+      .where(sql`${t.isDefault} = 1`),
   ],
 );
 
