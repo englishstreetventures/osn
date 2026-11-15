@@ -12,6 +12,7 @@ import { and, asc, desc, eq, exists, inArray, isNull, ne, notExists, or, sql } f
 import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
+import { canBatch } from "../lib/batch";
 import { bound } from "../lib/bound";
 import { handleArms } from "../lib/handle-hold";
 import { withProfileCrud } from "../metrics";
@@ -265,6 +266,9 @@ export function createProfileService(authService: AuthService) {
       //    exactly one whichever request lands first.
       // Child rows go before the profile row (FK safety). Atomic batch on
       // D1; sequential on bun:sqlite, where each statement still checks.
+      // The batch ends with a read of what it did: the target first if it is
+      // still there (it was the account's last profile), otherwise the
+      // account's default.
       const others = alias(users, "others");
       const otherProfileRemains = exists(
         db
@@ -274,73 +278,70 @@ export function createProfileService(authService: AuthService) {
       );
       const current = alias(users, "current_default");
       const oldest = alias(users, "oldest");
-      yield* Effect.tryPromise({
-        try: () =>
-          commitBatch(db, [
-            db
-              .delete(connections)
-              .where(
-                and(
-                  or(
-                    eq(connections.requesterId, targetProfileId),
-                    eq(connections.addresseeId, targetProfileId),
-                  ),
-                  otherProfileRemains,
-                ),
+      const writes = [
+        db
+          .delete(connections)
+          .where(
+            and(
+              or(
+                eq(connections.requesterId, targetProfileId),
+                eq(connections.addresseeId, targetProfileId),
               ),
-            db
-              .delete(blocks)
-              .where(
-                and(
-                  or(eq(blocks.blockerId, targetProfileId), eq(blocks.blockedId, targetProfileId)),
-                  otherProfileRemains,
-                ),
+              otherProfileRemains,
+            ),
+          ),
+        db
+          .delete(blocks)
+          .where(
+            and(
+              or(eq(blocks.blockerId, targetProfileId), eq(blocks.blockedId, targetProfileId)),
+              otherProfileRemains,
+            ),
+          ),
+        db
+          .delete(organisationMembers)
+          .where(and(eq(organisationMembers.profileId, targetProfileId), otherProfileRemains)),
+        db.delete(users).where(and(eq(users.id, targetProfileId), otherProfileRemains)),
+        db
+          .update(users)
+          .set({ isDefault: true, updatedAt: now() })
+          .where(
+            and(
+              inArray(
+                users.id,
+                db
+                  .select({ id: oldest.id })
+                  .from(oldest)
+                  .where(eq(oldest.accountId, accountId))
+                  .orderBy(asc(oldest.createdAt), asc(oldest.id))
+                  .limit(1),
               ),
-            db
-              .delete(organisationMembers)
-              .where(and(eq(organisationMembers.profileId, targetProfileId), otherProfileRemains)),
-            db.delete(users).where(and(eq(users.id, targetProfileId), otherProfileRemains)),
-            db
-              .update(users)
-              .set({ isDefault: true, updatedAt: now() })
-              .where(
-                and(
-                  inArray(
-                    users.id,
-                    db
-                      .select({ id: oldest.id })
-                      .from(oldest)
-                      .where(eq(oldest.accountId, accountId))
-                      .orderBy(asc(oldest.createdAt), asc(oldest.id))
-                      .limit(1),
-                  ),
-                  notExists(
-                    db
-                      .select({ id: current.id })
-                      .from(current)
-                      .where(and(eq(current.accountId, accountId), eq(current.isDefault, true))),
-                  ),
-                ),
+              notExists(
+                db
+                  .select({ id: current.id })
+                  .from(current)
+                  .where(and(eq(current.accountId, accountId), eq(current.isDefault, true))),
               ),
-          ]),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      // What the batch did: the target first if it is still there (it was
-      // the account's last profile), otherwise the account's default.
+            ),
+          ),
+      ] as const;
+      const outcome = db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.accountId, accountId))
+        .orderBy(
+          desc(sql`${users.id} = ${targetProfileId}`),
+          desc(users.isDefault),
+          asc(users.createdAt),
+          asc(users.id),
+        )
+        .limit(1);
       const after = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({ id: users.id })
-            .from(users)
-            .where(eq(users.accountId, accountId))
-            .orderBy(
-              desc(sql`${users.id} = ${targetProfileId}`),
-              desc(users.isDefault),
-              asc(users.createdAt),
-              asc(users.id),
-            )
-            .limit(1),
+        try: async () => {
+          if (canBatch(db)) return (await db.batch([...writes, outcome]))[5];
+          await commitBatch(db, [...writes]);
+          return await outcome;
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
       const first = after[0];
