@@ -28,9 +28,13 @@ interface ValueRule {
  * takes only a test-mode key, so no dev deploy can move real money; and the
  * dev sign-in secret and the organiser-session revoke secret, each of which
  * alone stands between a public route and someone else's session, are long
- * enough that guessing them is hopeless. Production reads no value (its
- * secrets stay on the Workers), so it sets no rule; osn-api and cire-api each
- * treat a revoke secret under 32 characters as unset.
+ * enough that guessing them is hopeless. So is the service secret, which
+ * bears the key-registration routes and keys the MAC on every kid osn-api
+ * publishes, so anyone can test a guess at it offline. Production reads no
+ * value (its secrets stay on the Workers), so it sets no rule; osn-api and
+ * cire-api each treat a revoke secret under 32 characters as unset, and
+ * osn-api, Pulse and Zap never key the kid MAC with a shorter service
+ * secret.
  */
 const AT_LEAST_32: ValueRule = {
   rule: "at least 32 characters",
@@ -48,6 +52,7 @@ const TIER_VALUE_RULES = {
     ],
     ["DEV_LOGIN_SECRET", AT_LEAST_32],
     ["CIRE_INTERNAL_REVOKE_SECRET", AT_LEAST_32],
+    ["INTERNAL_SERVICE_SECRET", AT_LEAST_32],
   ]),
   production: new Map<string, ValueRule>(),
 } satisfies Record<Tier, ReadonlyMap<string, ValueRule>>;
