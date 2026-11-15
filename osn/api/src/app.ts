@@ -11,6 +11,7 @@ import type { CoordinationStores } from "./lib/coordination";
 import { createOriginGuard } from "./lib/origin-guard";
 import { createAccountErasureRoutes } from "./routes/account-erasure";
 import { createAccountExportRoutes } from "./routes/account-export";
+import { createArcJwksRoutes } from "./routes/arc-jwks";
 import { createAuthRoutes } from "./routes/auth";
 import type { DevLoginConfig } from "./routes/auth/dev-login";
 import { createGraphRoutes } from "./routes/graph";
@@ -23,6 +24,7 @@ import { createProfileRoutes } from "./routes/profile";
 import { createRecommendationRoutes } from "./routes/recommendations";
 import type { AuthConfig } from "./services/auth";
 import type { CireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
+import type { DeletionAppsConfig } from "./services/deletion-apps";
 
 /**
  * Everything the Elysia composition below references. Built once at boot (Bun
@@ -160,6 +162,12 @@ export interface AppDeps {
    */
   cireOrganiserRevoke: CireOrganiserRevokeConfig;
   /**
+   * Where the account deletion's preview, session end and export reach each
+   * app (`PULSE_API_URL`, `ZAP_API_URL`, `OSN_DELETION_ABSENT_APPS`), and the
+   * ARC kid secret their calls carry. See `services/deletion-apps`.
+   */
+  deletionApps: DeletionAppsConfig;
+  /**
    * Elysia ahead-of-time handler compilation. AOT uses `new Function(...)`,
    * which workerd forbids ("Code generation from strings disallowed"). The Bun
    * path leaves this `true` (default, faster); the Workers entry passes `false`.
@@ -218,6 +226,7 @@ export function createApp(deps: AppDeps) {
     turnstileVerifier,
     devLogin,
     cireOrganiserRevoke,
+    deletionApps,
     aot,
   } = deps;
 
@@ -367,6 +376,7 @@ export function createApp(deps: AppDeps) {
         cookieConfig,
         clientIpConfig,
         appRuntime,
+        deletionApps,
       ),
     )
     .use(
@@ -379,8 +389,10 @@ export function createApp(deps: AppDeps) {
         accountExportIpLimiter,
         clientIpConfig,
         appRuntime,
+        deletionApps,
       ),
     )
+    .use(createArcJwksRoutes(DbLive, observabilityLayer, appRuntime))
     .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime));
 }
 

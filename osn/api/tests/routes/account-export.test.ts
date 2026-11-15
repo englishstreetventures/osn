@@ -2,11 +2,14 @@ import { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { decodeProtectedHeader, importJWK, jwtVerify } from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 
+import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
 import { createAccountExportRoutes } from "../../src/routes/account-export";
 import { exportLines, type ExportDownstream } from "../../src/services/account-export";
 import { createAuthService } from "../../src/services/auth";
+import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/deletion-apps";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
@@ -61,7 +64,7 @@ function makeApp(
   layer: TestLayer,
   opts: {
     exportLimiter?: RateLimiterBackend;
-    downstreams?: ExportDownstream[];
+    apps?: DeletionAppsConfig;
   } = {},
 ) {
   return createAccountExportRoutes(
@@ -73,7 +76,7 @@ function makeApp(
     undefined,
     { trustedProxyCount: 1 },
     undefined,
-    opts.downstreams ?? [],
+    opts.apps ?? NO_DELETION_APPS,
   );
 }
 
@@ -228,7 +231,7 @@ describe("GET /account/export — download name", () => {
       undefined,
       { trustedProxyCount: 1 },
       undefined,
-      [],
+      NO_DELETION_APPS,
     );
     const res = await app.handle(
       new Request("http://localhost/account/export", {
@@ -403,13 +406,7 @@ describe("GET /account/export — bundle", () => {
       undefined,
       { trustedProxyCount: 1 },
       undefined,
-      [
-        {
-          namespace: "pulse",
-          url: "http://127.0.0.1:0/internal/account-export",
-          audience: "pulse-api",
-        },
-      ],
+      { ...NO_DELETION_APPS, urls: { pulse: "http://127.0.0.1:0" } },
     );
     const res = await app.handle(
       new Request("http://localhost/account/export", {
@@ -513,5 +510,70 @@ describe("GET /account/export — bundle", () => {
     expect(lines.some((l) => l.section === "pulse.events_hosted")).toBe(true);
     expect(lines[lines.length - 1]).toEqual({ end: true });
     await runtime.dispose();
+  });
+});
+
+/**
+ * An app's section arrives whole only when the app can verify osn-api's call
+ * against the key osn-api publishes: the stand-in below admits a token only
+ * when its kid names a row of `arc_outbound_keys` whose key verifies it.
+ */
+describe("GET /account/export — an app verifies osn-api's call against the published key", () => {
+  it("the app's section arrives undegraded", async () => {
+    // A key another test published went to another database.
+    _resetOutboundKeyForTests();
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const { auth, profile, accessToken } = await seed(layer);
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const token = (request.headers.get("authorization") ?? "").replace(/^ARC /, "");
+        try {
+          const { kid } = decodeProtectedHeader(token);
+          const row = sqlite
+            .query("SELECT public_key_jwk FROM arc_outbound_keys WHERE key_id = ?")
+            .get(kid ?? "") as { public_key_jwk: string } | null;
+          if (!row) return new Response("unknown key", { status: 401 });
+          await jwtVerify(token, await importJWK(JSON.parse(row.public_key_jwk), "ES256"), {
+            issuer: "osn-api",
+            audience: "zap-api",
+          });
+        } catch {
+          return new Response("refused", { status: 401 });
+        }
+        return new Response(
+          `${JSON.stringify({ section: "zap.chats", record: { chatId: "c1" } })}\n`,
+        );
+      },
+    });
+    try {
+      const app = makeApp(layer, {
+        apps: {
+          ...NO_DELETION_APPS,
+          urls: { zap: `http://localhost:${server.port}` },
+          arc: { kidSecret: "test-internal-secret" },
+        },
+      });
+      const res = await app.handle(
+        new Request("http://localhost/account/export", {
+          headers: {
+            ...IP_HEADERS,
+            Authorization: `Bearer ${accessToken}`,
+            "x-step-up-token": await mintStepUp(auth, profile.accountId, layer),
+          },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const lines = (await res.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(lines.filter((line) => "degraded" in line)).toEqual([]);
+      expect(lines).toContainEqual({ section: "zap.chats", record: { chatId: "c1" } });
+      expect(lines.some((line) => "degraded" in line)).toBe(false);
+    } finally {
+      void server.stop(true);
+      _resetOutboundKeyForTests();
+    }
   });
 });

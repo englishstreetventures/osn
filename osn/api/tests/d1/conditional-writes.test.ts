@@ -32,6 +32,7 @@ import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
+import { appStandIns } from "../helpers/deletion-apps";
 import { holdQueries } from "../helpers/held-query";
 import { latestLinkTo } from "../helpers/registration";
 import { confirmedEmailChange, NO_LIVE_SESSION } from "../helpers/step-up-link";
@@ -473,28 +474,15 @@ describe("session revoke on D1", () => {
 });
 
 describe("erasure cancel and purge on D1", () => {
-  let server: ReturnType<typeof Bun.serve>;
-  const purged: string[] = [];
-  let urls: { pulseApiUrl: string; zapApiUrl: string };
+  const apps = appStandIns();
+  const config = apps.config();
 
-  beforeAll(() => {
-    server = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const body = (await request.json()) as { accountId: string };
-        purged.push(body.accountId);
-        return Response.json({ ok: true });
-      },
-    });
-    const base = `http://localhost:${server.port}`;
-    urls = { pulseApiUrl: base, zapApiUrl: base };
-  });
+  afterAll(() => apps.stop());
 
-  afterAll(() => {
-    void server.stop(true);
-  });
-
-  const purgesOf = (accountId: string) => purged.filter((id) => id === accountId).length;
+  const purgesOf = (accountId: string) =>
+    apps.calls.filter(
+      (call) => call.path === "/internal/account-deleted" && call.body.accountId === accountId,
+    ).length;
 
   const scheduled = async (handle: string) => {
     const profile = await run(auth.registerProfile(`${handle}@example.com`, handle));
@@ -521,7 +509,7 @@ describe("erasure cancel and purge on D1", () => {
     const batch = hold(/^delete from "deletion_jobs"/);
     const cancel = outcomeOf(cancelErasure(accountId));
     await batch.reached;
-    await run(runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls }));
+    await run(runFanOutRetrySweep({ nowMs: pastWindowMs, config }));
     expect(purgesOf(accountId)).toBe(2);
     batch.release();
 
@@ -533,8 +521,8 @@ describe("erasure cancel and purge on D1", () => {
   it("a cancel that lands while the fan-out is held before its claim stops the purge", async () => {
     const { accountId, pastWindowMs } = await scheduled("ced1first");
 
-    const body = hold(/^select "id" from "users"/);
-    const sweep = run(runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls }));
+    const body = hold(/from "accounts" inner join "deletion_jobs"/);
+    const sweep = run(runFanOutRetrySweep({ nowMs: pastWindowMs, config }));
     await body.reached;
     expect(await run(cancelErasure(accountId))).toEqual({ cancelled: true });
     body.release();

@@ -101,6 +101,7 @@ describe("buildAppDeps OSN_ORIGIN non-local guard (S-L5)", () => {
           OSN_JWT_PUBLIC_KEY: pubB64,
           OSN_SESSION_IP_PEPPER: "x".repeat(32),
           OSN_PAIRWISE_SALT: "p".repeat(32),
+          INTERNAL_SERVICE_SECRET: "i".repeat(32),
           OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
         },
         nonLocalParts(),
@@ -125,6 +126,7 @@ describe("buildAppDeps TOTP-encryption-key non-local guard", () => {
     OSN_JWT_PUBLIC_KEY: pubB64,
     OSN_SESSION_IP_PEPPER: "x".repeat(32),
     OSN_PAIRWISE_SALT: "p".repeat(32),
+    INTERNAL_SERVICE_SECRET: "i".repeat(32),
   });
 
   it("throws in non-local when OSN_TOTP_ENCRYPTION_KEY is absent", async () => {
@@ -280,6 +282,7 @@ describe("handler.fetch without the COORDINATION binding", () => {
     OSN_JWT_PUBLIC_KEY: pubB64,
     OSN_SESSION_IP_PEPPER: "x".repeat(32),
     OSN_PAIRWISE_SALT: "p".repeat(32),
+    INTERNAL_SERVICE_SECRET: "i".repeat(32),
     OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
     CLOUDFLARE_ACCOUNT_ID: "acct",
     CLOUDFLARE_EMAIL_API_TOKEN: "tok",
@@ -323,6 +326,7 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
       OSN_JWT_PUBLIC_KEY: pubB64,
       OSN_SESSION_IP_PEPPER: "x".repeat(32),
       OSN_PAIRWISE_SALT: "p".repeat(32),
+      INTERNAL_SERVICE_SECRET: "i".repeat(32),
       OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
       COORDINATION: createFakeNamespace().ns,
       ...userTierBindings(),

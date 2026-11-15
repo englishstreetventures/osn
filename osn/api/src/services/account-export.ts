@@ -30,6 +30,8 @@ import { jsonEachIn } from "@shared/db-utils";
 import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 
+import { appTarget, DELETION_APPS, type DeletionAppsConfig } from "./deletion-apps";
+
 const {
   accounts,
   blocks,
@@ -81,26 +83,33 @@ const EXPORT_SECTIONS = [
 export interface ExportDownstream {
   /** Bundle namespace + degraded-line label, e.g. "pulse" | "zap". */
   readonly namespace: string;
-  /** Full URL of the downstream's `/internal/account-export` endpoint. */
-  readonly url: string;
+  /**
+   * Full URL of the downstream's `/internal/account-export` endpoint, or null
+   * on a deployed tier that names no address for it: its section is then a
+   * degraded line.
+   */
+  readonly url: string | null;
   /** ARC audience of the downstream, e.g. "pulse-api" | "zap-api". */
   readonly audience: string;
 }
 
-const DEFAULT_PULSE_API_URL = "http://localhost:3001";
-const DEFAULT_ZAP_API_URL = "http://localhost:3002";
-
-/** The default fan-out targets (Pulse + Zap), resolved from env. */
-export function defaultExportDownstreams(env?: {
-  pulseApiUrl?: string;
-  zapApiUrl?: string;
-}): ExportDownstream[] {
-  const pulse = env?.pulseApiUrl ?? process.env.PULSE_API_URL ?? DEFAULT_PULSE_API_URL;
-  const zap = env?.zapApiUrl ?? process.env.ZAP_API_URL ?? DEFAULT_ZAP_API_URL;
-  return [
-    { namespace: "pulse", url: `${pulse}/internal/account-export`, audience: "pulse-api" },
-    { namespace: "zap", url: `${zap}/internal/account-export`, audience: "zap-api" },
-  ];
+/**
+ * The apps the export asks for their sections, from the deletion's app
+ * settings: every app this tier runs. An app the tier does not run has no
+ * section; one a deployed tier names no address for is a degraded line.
+ */
+export function exportDownstreams(config: DeletionAppsConfig): ExportDownstream[] {
+  return DELETION_APPS.flatMap((entry): ExportDownstream[] => {
+    const target = appTarget(config, entry.app);
+    if (target.kind === "skip") return [];
+    return [
+      {
+        namespace: entry.app,
+        url: target.kind === "url" ? `${target.url}/internal/account-export` : null,
+        audience: entry.audience,
+      },
+    ];
+  });
 }
 
 const jsonLine = (o: unknown): string => `${JSON.stringify(o)}\n`;
@@ -188,6 +197,10 @@ async function* fanOutSection(
   profileIds: string[],
   fetchStream: (ds: ExportDownstream, body: unknown) => Promise<Response>,
 ): AsyncGenerator<string> {
+  if (ds.url === null) {
+    yield jsonLine({ degraded: ds.namespace, reason: "not_configured" });
+    return;
+  }
   try {
     const res = await fetchStream(ds, { account_id: accountId, profile_ids: profileIds });
     // Defence-in-depth: the default `fetchStream` (`arcFetchStream`) already

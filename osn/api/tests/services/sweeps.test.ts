@@ -3,6 +3,7 @@ import { handleHolds } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { Effect, Logger } from "effect";
 
+import { NO_DELETION_APPS } from "../../src/services/deletion-apps";
 import { runLocalSweeps } from "../../src/services/sweeps";
 import { createTestLayerWithSqlite } from "../helpers/db";
 
@@ -33,7 +34,7 @@ describe("runLocalSweeps", () => {
           .values({ handle: "a".repeat(64), accountId: null, releaseAt: nowSec - 1, createdAt: 0 }),
       );
 
-      yield* runLocalSweeps({});
+      yield* runLocalSweeps(NO_DELETION_APPS, 4);
 
       expect(yield* Effect.promise(() => db.select().from(handleHolds))).toEqual([]);
       // Each failed sweep logged once, at error, and no other sweep failed.

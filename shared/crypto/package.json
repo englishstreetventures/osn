@@ -11,6 +11,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./arc-kid": "./src/arc-kid.ts",
+    "./arc-metrics": "./src/arc-metrics.ts",
     "./jwk": "./src/jwk.ts",
     "./recovery": "./src/recovery.ts",
     "./testing": "./src/testing.ts",

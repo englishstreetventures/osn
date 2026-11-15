@@ -23,14 +23,13 @@ import {
 import type { DeletionJob } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { commitBatch, jsonEachIn, rowsChanged } from "@shared/db-utils";
-import type { AppEnrollmentApp, DeletionFanoutService } from "@shared/observability/metrics";
+import type { AppEnrollmentApp } from "@shared/observability/metrics";
 import {
   and,
   asc,
   eq,
   gt,
   inArray,
-  isNotNull,
   isNull,
   lte,
   ne,
@@ -41,17 +40,16 @@ import {
   type SQL,
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { alias, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
-import { Cause, Data, Effect } from "effect";
+import { alias, type AnySQLiteColumn, type SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
+import { Cause, Data, Effect, Option } from "effect";
 
 import { canBatch } from "../lib/batch";
 import { bound } from "../lib/bound";
 import type { HeldHandleDigest } from "../lib/handle-hold";
-import { arcPostJsonEffect } from "../lib/outbound-arc";
 import {
   metricAccountDeletionCompleted,
   metricAccountDeletionFanout,
-  metricAccountDeletionFanoutPendingAge,
+  metricAccountDeletionFanoutOldestAge,
   metricAccountDeletionOrganisation,
   metricSecurityEventRecorded,
   metricSessionSecurityInvalidation,
@@ -59,6 +57,18 @@ import {
   withAccountDeletion,
 } from "../metrics";
 import { leaveApp } from "./app-enrollments";
+import {
+  appTarget,
+  choicesForApp,
+  DELETION_APPS,
+  sendAccountDeleted,
+  type AccountDeletedBody,
+  type AppOpenAction,
+  type AppPreview,
+  type DeletionAppEntry,
+  type DeletionAppsConfig,
+  type KeptItem,
+} from "./deletion-apps";
 import { jobPredatesRestoreRecord } from "./deletion-job-shape";
 
 // ---------------------------------------------------------------------------
@@ -71,37 +81,29 @@ const ACCOUNT_DELETION_GRACE_SECONDS = 7 * 24 * 60 * 60;
 /** How long an erased account's handles stay held after its hard delete: 30 days. */
 const HANDLE_HOLD_AFTER_ERASURE_SECONDS = 30 * 24 * 60 * 60;
 
-/** Per-bridge timeout — locked by `wiki/compliance/dsar.md` line 96. */
-const FANOUT_TIMEOUT_MS = 10_000;
-
-/** Sentinel timestamp used when a bridge target is not enrolled at soft-delete time. */
-const NOT_APPLICABLE_SENTINEL = -1;
+/** The window in seconds, for the date a preview tells apps the fan-out will run. */
+export const DELETION_WINDOW_SECONDS = ACCOUNT_DELETION_GRACE_SECONDS;
 
 /**
- * Downstream service base URLs for the deletion fan-out. Threaded in by the
- * caller (Bun `local.ts` reads `process.env`; the Workers `scheduled` handler
- * reads the `env` binding) because on workerd these arrive via wrangler `[vars]`
- * — module-top `process.env` reads are not reliable for bindings there. Falls
- * back to the local dev ports when unset.
+ * An app's mark on a job reads done: a positive time. NULL is pending, and so
+ * is `-1`, the "not enrolled" mark a job written before every account went to
+ * every app holds; such a job is sent to that app now.
  */
-interface FanOutUrls {
-  pulseApiUrl?: string;
-  zapApiUrl?: string;
-}
+const markDone = (column: AnySQLiteColumn): SQL => sql`coalesce(${column}, 0) > 0`;
 
-/** The two resolved bridge bases, after defaults and env fallbacks are applied. */
-interface FanOutBaseUrls {
-  pulse: string;
-  zap: string;
-}
+/** An app's mark on a job reads pending: NULL or the old `-1`. */
+const markPending = (column: AnySQLiteColumn): SQL => sql`coalesce(${column}, 0) <= 0`;
 
-const DEFAULT_PULSE_API_URL = "http://localhost:3001";
-const DEFAULT_ZAP_API_URL = "http://localhost:3002";
+/** Every app's mark reads done. */
+const allAppsDone = (): SQL | undefined =>
+  and(...DELETION_APPS.map((entry) => markDone(entry.done)));
 
-const resolveFanOutUrls = (urls: FanOutUrls = {}): FanOutBaseUrls => ({
-  pulse: urls.pulseApiUrl ?? process.env.PULSE_API_URL ?? DEFAULT_PULSE_API_URL,
-  zap: urls.zapApiUrl ?? process.env.ZAP_API_URL ?? DEFAULT_ZAP_API_URL,
-});
+/** Some app's mark reads pending. */
+const someAppPending = (): SQL | undefined =>
+  or(...DELETION_APPS.map((entry) => markPending(entry.done)));
+
+/** Whether `mark`, as read, is pending. */
+const isPending = (mark: number | null): boolean => mark === null || mark <= 0;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -118,11 +120,6 @@ export class AccountNotFoundError extends Data.TaggedError("AccountNotFoundError
 export class DeletionAlreadyPendingError extends Data.TaggedError("DeletionAlreadyPendingError")<{
   readonly accountId: string;
   readonly scheduledFor: number;
-}> {}
-
-class BridgePurgeError extends Data.TaggedError("BridgePurgeError")<{
-  readonly service: DeletionFanoutService;
-  readonly cause: unknown;
 }> {}
 
 /** A deletion job's stored `choices` that cannot be read. */
@@ -162,6 +159,11 @@ interface RequestErasureInput {
    * none stores NULL.
    */
   readonly choices?: ErasureChoices;
+  /**
+   * The person chose to delete everything: stored on the job and sent to
+   * every app, which erases their data soonest; `choices` is then empty.
+   */
+  readonly deleteEverything?: boolean;
 }
 
 interface RequestErasureOutput {
@@ -170,6 +172,8 @@ interface RequestErasureOutput {
   readonly scheduledFor: number;
   /** True if this call inserted a new tombstone; false if one already existed. */
   readonly newlyScheduled: boolean;
+  /** The account's profiles as this call read them; empty when it scheduled nothing. */
+  readonly profileIds: ReadonlyArray<string>;
 }
 
 const newId = (prefix: string): string =>
@@ -188,6 +192,19 @@ const newJobId = (): string => `djob_${crypto.randomUUID().replace(/-/g, "")}`;
  */
 const cancelEventId = (accountId: string, job: string | number): string =>
   `sev_${createHash("sha256").update(`${accountId}:${job}`).digest("hex").slice(0, 12)}`;
+
+/** The ids of every profile of `accountId`, for the apps a preview asks. */
+export const profileIdsOf = (
+  accountId: string,
+): Effect.Effect<ReadonlyArray<string>, AccountErasureDbError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const rows = yield* Effect.tryPromise({
+      try: () => db.select({ id: users.id }).from(users).where(eq(users.accountId, accountId)),
+      catch: (cause) => new AccountErasureDbError({ cause }),
+    });
+    return rows.map((row) => row.id);
+  });
 
 /** A subquery of the ids of every profile of `accountId`. */
 const profilesOf = (db: DbService["db"], accountId: string) =>
@@ -238,17 +255,6 @@ const redactedHandle = sql`CASE WHEN EXISTS (
   ELSE ${redactedPrefix} END`;
 
 /**
- * `pulse_done_at` or `zap_done_at` for a new job, decided in the statement
- * that writes it: NULL while the account has an open enrolment in `app`, so
- * the fan-out reaches it, else the not-applicable sentinel.
- */
-const bridgeMark = (accountId: string, app: AppEnrollmentApp, column: AnySQLiteColumn) =>
-  sql`CASE WHEN EXISTS (
-      SELECT 1 FROM app_enrollments e
-      WHERE e.account_id = ${accountId} AND e.app = ${app} AND e.left_at IS NULL)
-    THEN NULL ELSE ${NOT_APPLICABLE_SENTINEL} END`.as(column.name);
-
-/**
  * Soft-deletes the account: writes the deletion job with what a cancel puts
  * back, redacts every profile's handle, display name and avatar, holds each
  * profile's handle, revokes every session but the requesting device's,
@@ -269,7 +275,14 @@ export const requestErasure = (
   input: RequestErasureInput,
 ): Effect.Effect<RequestErasureOutput, AccountNotFoundError | AccountErasureDbError, Db> =>
   Effect.gen(function* () {
-    const { accountId, cancel, reason = "user_request", heldHandleDigest, choices } = input;
+    const {
+      accountId,
+      cancel,
+      reason = "user_request",
+      heldHandleDigest,
+      choices,
+      deleteEverything = false,
+    } = input;
     const { db } = yield* Db;
     const now = Math.floor(Date.now() / 1_000);
 
@@ -281,6 +294,7 @@ export const requestErasure = (
           .select({
             deletedAt: accounts.deletedAt,
             hardDeleteAt: deletionJobs.hardDeleteAt,
+            profileId: users.id,
             handle: users.handle,
           })
           .from(accounts)
@@ -298,7 +312,12 @@ export const requestErasure = (
     // whose batch runs one statement at a time, can leave one) goes on to the
     // batch, which fails on the job's key and answers the failure.
     if (account.hardDeleteAt !== null && account.deletedAt !== null) {
-      return { accountId, scheduledFor: account.hardDeleteAt, newlyScheduled: false };
+      return {
+        accountId,
+        scheduledFor: account.hardDeleteAt,
+        newlyScheduled: false,
+        profileIds: [],
+      };
     }
 
     // The handles to hold, as digests. A profile made after this read and
@@ -317,20 +336,18 @@ export const requestErasure = (
     const statements: BatchItem<"sqlite">[] = [
       // 1. The deletion job, first: a second request's job already standing
       //    stops the batch here, before anything else is written, on either
-      //    driver. Its random `job_id` names this job alone. Each bridge is
-      //    marked here, from the enrolments as this statement reads them: one
-      //    the account has no open enrolment in is pre-marked done with a
-      //    sentinel, so the sweeper does not call services the user never
-      //    used. `restore` is built from the same rows: each profile before
-      //    redaction, and the open enrolments.
+      //    driver. Its random `job_id` names this job alone. Every app's mark
+      //    starts NULL: the fan-out reaches every app for every account.
+      //    `restore` is built from the rows this statement reads: each
+      //    profile before redaction, and the open enrolments.
       db.insert(deletionJobs).select(
         db
           .select({
             accountId: bound(accountId, deletionJobs.accountId),
             softDeletedAt: bound(now, deletionJobs.softDeletedAt),
             hardDeleteAt: bound(hardDeleteAt, deletionJobs.hardDeleteAt),
-            pulseDoneAt: bridgeMark(accountId, "pulse", deletionJobs.pulseDoneAt),
-            zapDoneAt: bridgeMark(accountId, "zap", deletionJobs.zapDoneAt),
+            pulseDoneAt: bound(null, deletionJobs.pulseDoneAt),
+            zapDoneAt: bound(null, deletionJobs.zapDoneAt),
             reason: bound(reason, deletionJobs.reason),
             cancelSessionId: bound(cancel?.sessionId ?? null, deletionJobs.cancelSessionId),
             restore: sql<string>`json_object(
@@ -346,6 +363,7 @@ export const requestErasure = (
             ),
             choices: bound(storedChoices, deletionJobs.choices),
             jobId: bound(newJobId(), deletionJobs.jobId),
+            deleteEverything: bound(deleteEverything, deletionJobs.deleteEverything),
           })
           .from(accounts)
           .where(eq(accounts.id, accountId)),
@@ -460,7 +478,7 @@ export const requestErasure = (
       ),
     );
     if (raced !== null) {
-      return { accountId, scheduledFor: raced, newlyScheduled: false };
+      return { accountId, scheduledFor: raced, newlyScheduled: false, profileIds: [] };
     }
 
     // Side-effect metrics outside the tx so a failed metric never aborts the
@@ -469,7 +487,12 @@ export const requestErasure = (
     metricSessionSecurityInvalidation("session_revoke_all");
     metricAccountDeletionCompleted("soft", "user");
 
-    return { accountId, scheduledFor: hardDeleteAt, newlyScheduled: true };
+    return {
+      accountId,
+      scheduledFor: hardDeleteAt,
+      newlyScheduled: true,
+      profileIds: rows.flatMap((row) => (row.profileId === null ? [] : [row.profileId])),
+    };
   }).pipe(withAccountDeletion("soft"));
 
 /** One field of a profile's entry in a restore record, for the `users` row being updated. */
@@ -831,56 +854,102 @@ export interface ErasureChoiceAnswer {
   readonly successorProfileId: string | undefined;
 }
 
+/** An open action an app answered in the preview, with the app it came from. */
+export interface AppAction {
+  readonly app: AppPreview["app"];
+  readonly action: AppOpenAction;
+}
+
 /** What {@link checkErasureChoices} found. */
 export type ErasureChoicesCheck =
   | { readonly kind: "ok"; readonly choices: ErasureChoices }
   /** An answer that names an action of the account and is not one of its choices. */
   | { readonly kind: "invalid"; readonly action: string }
-  /** Organisations with no default and no answer: the person must choose. */
-  | { readonly kind: "open"; readonly open: ReadonlyArray<OwnedOrganisation> };
+  /**
+   * An answer to an app action the fresh preview does not list: the preview
+   * changed under the person, and their answer would be lost.
+   */
+  | { readonly kind: "stale" }
+  /** Actions with choices, no default and no answer: the person must choose. */
+  | {
+      readonly kind: "open";
+      readonly organisations: ReadonlyArray<OwnedOrganisation>;
+      readonly appActions: ReadonlyArray<AppAction>;
+    };
+
+/** The app an answer's action id belongs to, if it is an app's. */
+const appOfAction = (action: string): AppPreview["app"] | null =>
+  DELETION_APPS.find((entry) => action.startsWith(`${entry.app}:`))?.app ?? null;
 
 /**
  * Checks the answers to a deletion's open actions against the organisations
- * the account owns ({@link listOwnedOrganisations}). An answer to an action
- * the account does not have is ignored. An answer is refused when its action
- * is answered twice, when its choice is not one the organisation allows, or
- * when it names a successor who is not a member of that organisation from
- * another account (one read, for every named successor at once). Then every
- * organisation with no default must have an answer. On success answers the
+ * the account owns ({@link listOwnedOrganisations}) and the actions each app
+ * answered in a fresh preview. An action id starting `osn:organisation:` is an
+ * organisation's, one starting `<app>:` for an app the deletion reaches is
+ * that app's, and any other is ignored, as is an organisation the account does
+ * not own.
+ *
+ * In order: an answer is refused (`invalid`) when its action is answered
+ * twice, its choice is not one the action offers, or it names a successor who
+ * is not a member of that organisation from another account (one read, for
+ * every named successor at once); then an answer to an app action the fresh
+ * preview does not list makes the whole set `stale`; then every action with
+ * choices and no default must have an answer (`open`). On success answers the
  * choices to store, keyed by action id.
  */
 export const checkErasureChoices = (
   accountId: string,
   owned: ReadonlyArray<OwnedOrganisation>,
+  apps: ReadonlyArray<AppPreview>,
   answers: ReadonlyArray<ErasureChoiceAnswer>,
 ): Effect.Effect<ErasureChoicesCheck, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const byAction = new Map(owned.map((org) => [organisationActionId(org.orgId), org]));
+    const appActions: AppAction[] = apps.flatMap((preview) =>
+      preview.status === "checked"
+        ? preview.actions.map((action) => ({ app: preview.app, action }))
+        : [],
+    );
+    const byAppAction = new Map(appActions.map((entry) => [entry.action.id, entry.action]));
     const chosen = new Map<string, ErasureChoice>();
     const named: Array<{ action: string; orgId: string; profileId: string }> = [];
+    let stale = false;
     for (const answer of answers) {
+      if (chosen.has(answer.action)) return { kind: "invalid", action: answer.action } as const;
       const org = byAction.get(answer.action);
-      if (!org) continue;
-      const allowed = organisationChoices(org) as ReadonlyArray<string>;
-      if (chosen.has(answer.action) || !allowed.includes(answer.choice)) {
-        return { kind: "invalid", action: answer.action } as const;
-      }
-      if (answer.choice === "successor") {
-        if (answer.successorProfileId === undefined) {
+      if (org) {
+        const allowed = organisationChoices(org) as ReadonlyArray<string>;
+        if (!allowed.includes(answer.choice)) {
           return { kind: "invalid", action: answer.action } as const;
         }
-        named.push({
-          action: answer.action,
-          orgId: org.orgId,
-          profileId: answer.successorProfileId,
-        });
-        chosen.set(answer.action, {
-          choice: answer.choice,
-          successorProfileId: answer.successorProfileId,
-        });
-      } else {
-        chosen.set(answer.action, { choice: answer.choice });
+        if (answer.choice === "successor") {
+          if (answer.successorProfileId === undefined) {
+            return { kind: "invalid", action: answer.action } as const;
+          }
+          named.push({
+            action: answer.action,
+            orgId: org.orgId,
+            profileId: answer.successorProfileId,
+          });
+          chosen.set(answer.action, {
+            choice: answer.choice,
+            successorProfileId: answer.successorProfileId,
+          });
+        } else {
+          chosen.set(answer.action, { choice: answer.choice });
+        }
+        continue;
       }
+      if (appOfAction(answer.action) === null) continue;
+      const action = byAppAction.get(answer.action);
+      if (!action) {
+        stale = true;
+        continue;
+      }
+      if (!action.choices.some((choice) => choice.choice === answer.choice)) {
+        return { kind: "invalid", action: answer.action } as const;
+      }
+      chosen.set(answer.action, { choice: answer.choice });
     }
 
     if (named.length > 0) {
@@ -908,11 +977,23 @@ export const checkErasureChoices = (
       if (stranger) return { kind: "invalid", action: stranger.action } as const;
     }
 
-    const open = owned.filter(
+    if (stale) return { kind: "stale" } as const;
+
+    const openOrganisations = owned.filter(
       (org) =>
         organisationDefaultChoice(org) === null && !chosen.has(organisationActionId(org.orgId)),
     );
-    if (open.length > 0) return { kind: "open", open } as const;
+    const openAppActions = appActions.filter(
+      ({ action }) =>
+        action.choices.length > 0 && action.defaultChoice === null && !chosen.has(action.id),
+    );
+    if (openOrganisations.length > 0 || openAppActions.length > 0) {
+      return {
+        kind: "open",
+        organisations: openOrganisations,
+        appActions: openAppActions,
+      } as const;
+    }
     return { kind: "ok", choices: Object.fromEntries(chosen) } as const;
   });
 
@@ -920,56 +1001,134 @@ export const checkErasureChoices = (
 // Cross-service fan-out
 // ---------------------------------------------------------------------------
 
-interface BridgeBody {
+/** A stored `choices` value that cannot be read: the fan-out of that job fails until it is fixed. */
+class StoredChoicesUnreadable extends Data.TaggedError("StoredChoicesUnreadable")<{
+  readonly cause: unknown;
+}> {}
+
+/** Each stored answer's choice, by action id; anything else in the record is left out. */
+const storedAnswers = (
+  stored: string | null,
+): Effect.Effect<Record<string, { readonly choice: string }>, StoredChoicesUnreadable> =>
+  Effect.try({
+    try: () => {
+      if (stored === null) return {};
+      const parsed: unknown = JSON.parse(stored);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new TypeError("stored choices are not an object");
+      }
+      const answers: Record<string, { readonly choice: string }> = {};
+      for (const [action, answer] of Object.entries(parsed)) {
+        const choice = (answer as { readonly choice?: unknown } | null)?.choice;
+        if (typeof choice === "string") answers[action] = { choice };
+      }
+      return answers;
+    },
+    catch: (cause) => new StoredChoicesUnreadable({ cause }),
+  });
+
+/** What every app is sent about one job, before its own choices are picked out. */
+interface FanOutJobBody {
   readonly accountId: string;
-  readonly profileIds: string[];
+  readonly profileIds: ReadonlyArray<string>;
+  readonly answers: Readonly<Record<string, { readonly choice: string }>>;
+  readonly deleteEverything: boolean;
+  readonly email: string;
 }
 
-const buildBridgeBody = (accountId: string): Effect.Effect<BridgeBody, AccountErasureDbError, Db> =>
+/**
+ * The job's account: its profiles, its email address and the job's answers,
+ * in one read. None when the job is gone (a cancel landed since the sweep read
+ * it); then nothing is sent.
+ */
+const readFanOutBody = (
+  accountId: string,
+): Effect.Effect<
+  Option.Option<FanOutJobBody>,
+  AccountErasureDbError | StoredChoicesUnreadable,
+  Db
+> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
-      try: () => db.select({ id: users.id }).from(users).where(eq(users.accountId, accountId)),
+      try: () =>
+        db
+          .select({
+            profileId: users.id,
+            email: accounts.email,
+            choices: deletionJobs.choices,
+            deleteEverything: deletionJobs.deleteEverything,
+          })
+          .from(accounts)
+          .innerJoin(deletionJobs, eq(deletionJobs.accountId, accounts.id))
+          .leftJoin(users, eq(users.accountId, accounts.id))
+          .where(eq(accounts.id, accountId)),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
-    return { accountId, profileIds: rows.map((r) => r.id) };
+    const first = rows[0];
+    if (!first) return Option.none();
+    const answers = yield* storedAnswers(first.choices);
+    return Option.some({
+      accountId,
+      profileIds: rows.flatMap((row) => (row.profileId === null ? [] : [row.profileId])),
+      answers,
+      deleteEverything: first.deleteEverything,
+      email: first.email,
+    });
   });
 
-const dispatchBridge = (
-  service: DeletionFanoutService,
-  url: string,
-  scope: string,
-  body: BridgeBody,
-): Effect.Effect<void, BridgePurgeError> =>
-  arcPostJsonEffect(`${url}/internal/account-deleted`, body, {
-    audience: service === "pulse" ? "pulse-api" : "zap-api",
-    scope,
-    timeoutMs: FANOUT_TIMEOUT_MS,
-  }).pipe(
-    Effect.tap(() => Effect.sync(() => metricAccountDeletionFanout(service, "ok"))),
-    Effect.tapError((cause) =>
-      Effect.sync(() => {
-        const result = cause instanceof Error && cause.name === "AbortError" ? "timeout" : "error";
-        metricAccountDeletionFanout(service, result);
-      }),
-    ),
-    Effect.mapError((cause) => new BridgePurgeError({ service, cause })),
-    Effect.asVoid,
-  );
+/** The JSON path of `app`'s entry in `app_outcomes`. */
+const outcomePath = (app: DeletionAppEntry["app"]): string => `$.${app}`;
 
-const markBridgeDone = (
-  service: DeletionFanoutService,
+/**
+ * Marks the fan-out done with `entry`'s app and records what it reported, in
+ * one statement, only while the mark still reads pending: a mark already set
+ * is never overwritten, and neither is that app's outcome.
+ */
+const markAppDone = (
+  entry: DeletionAppEntry,
   accountId: string,
+  outcome:
+    | { readonly status: "done"; readonly kept: ReadonlyArray<KeptItem> }
+    | { readonly status: "skipped" },
 ): Effect.Effect<void, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const now = Math.floor(Date.now() / 1_000);
-    const updates = service === "pulse" ? { pulseDoneAt: now } : { zapDoneAt: now };
+    const values: SQLiteUpdateSetSource<typeof deletionJobs> = {
+      appOutcomes: sql`json_set(coalesce(${deletionJobs.appOutcomes}, '{}'), ${outcomePath(entry.app)}, json(${JSON.stringify(outcome)}))`,
+    };
+    values[entry.doneKey] = now;
     yield* Effect.tryPromise({
-      try: () => db.update(deletionJobs).set(updates).where(eq(deletionJobs.accountId, accountId)),
+      try: () =>
+        db
+          .update(deletionJobs)
+          .set(values)
+          .where(and(eq(deletionJobs.accountId, accountId), markPending(entry.done))),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
   });
+
+/** Stamps the job's `fanout_failed_at`, so the next pass reads it after every job that has not failed. */
+const stampFanOutFailure = (accountId: string, nowSec: number): Effect.Effect<void, never, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.tryPromise({
+      try: () =>
+        db
+          .update(deletionJobs)
+          .set({ fanoutFailedAt: nowSec })
+          .where(eq(deletionJobs.accountId, accountId)),
+      catch: (cause) => new AccountErasureDbError({ cause }),
+    });
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError(
+        "account.deletion fan-out failure not recorded",
+        safeErrorSummary(Cause.squash(cause)),
+      ),
+    ),
+  );
 
 /**
  * Marks the account's purge as begun, before a sweep purges anything, and
@@ -978,14 +1137,13 @@ const markBridgeDone = (
  * has passed by `nowSec`. A cancel that comes after is refused; one that came
  * before has removed the job, and this answers false.
  *
- * For the hard delete (`bridgesDone`), the mark is written only while both
- * bridges still read done: an app join refused since the sweep read the job
- * may have put one back to NULL, and then the fan-out runs first.
+ * For the hard delete (`appsDone`), the mark is written only while every
+ * app's mark reads done.
  */
 const claimPurge = (
   accountId: string,
   nowSec: number,
-  { bridgesDone = false }: { readonly bridgesDone?: boolean } = {},
+  { appsDone = false }: { readonly appsDone?: boolean } = {},
 ): Effect.Effect<boolean, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -999,8 +1157,7 @@ const claimPurge = (
               eq(deletionJobs.accountId, accountId),
               isNull(deletionJobs.purgeStartedAt),
               lte(deletionJobs.hardDeleteAt, nowSec),
-              bridgesDone ? isNotNull(deletionJobs.pulseDoneAt) : undefined,
-              bridgesDone ? isNotNull(deletionJobs.zapDoneAt) : undefined,
+              appsDone ? allAppsDone() : undefined,
             ),
           ),
       catch: (cause) => new AccountErasureDbError({ cause }),
@@ -1009,44 +1166,87 @@ const claimPurge = (
   });
 
 /**
- * Runs the cross-service fan-out for a still-pending deletion job, for the
- * retry sweeper (every bridge without `*_done_at` set). A job the sweep read
- * unclaimed is claimed first ({@link claimPurge}), at `nowSec`, the sweep's
- * clock; if the claim answers false (a cancel landed since the sweep read
- * the job) nothing is sent. A job already claimed by an earlier pass is not
- * written again.
- *
- * Per-bridge result is captured via Effect.result so a failing bridge does
- * not abort the parent — sweeper picks up the unfinished half on its next
- * cycle.
+ * Finishes the fan-out with one app: skipped where the tier does not run it,
+ * sent and recorded where it does. Answers whether the app is finished; a
+ * failure is counted and logged, with no ids, and the mark stays pending.
+ */
+const finishApp = (
+  config: DeletionAppsConfig,
+  entry: DeletionAppEntry,
+  body: FanOutJobBody,
+): Effect.Effect<boolean, never, Db> => {
+  const target = appTarget(config, entry.app);
+  const failed = (reason: string, cause: unknown) =>
+    Effect.logWarning("account.deletion fan-out to an app failed", {
+      app: entry.app,
+      reason,
+      ...safeErrorSummary(cause),
+    }).pipe(Effect.as(false));
+  if (target.kind === "unconfigured") {
+    metricAccountDeletionFanout(entry.app, "error");
+    return Effect.logError("account.deletion app has no URL on a deployed tier", {
+      app: entry.app,
+    }).pipe(Effect.as(false));
+  }
+  if (target.kind === "skip") {
+    return markAppDone(entry, body.accountId, { status: "skipped" }).pipe(
+      Effect.tap(() => {
+        metricAccountDeletionFanout(entry.app, "skipped");
+        return Effect.logInfo("account.deletion fan-out skipped an app this tier does not run", {
+          app: entry.app,
+        });
+      }),
+      Effect.as(true),
+      Effect.catch((cause) => failed("mark_failed", cause)),
+    );
+  }
+  const sent: AccountDeletedBody = {
+    accountId: body.accountId,
+    profileIds: body.profileIds,
+    choices: choicesForApp(entry.app, body.answers),
+    deleteEverything: body.deleteEverything,
+    email: body.email,
+  };
+  return sendAccountDeleted(config, entry, target.url, sent).pipe(
+    Effect.tapError((error) =>
+      Effect.sync(() => metricAccountDeletionFanout(entry.app, error.result)),
+    ),
+    Effect.flatMap((kept) => markAppDone(entry, body.accountId, { status: "done", kept })),
+    Effect.tap(() => Effect.sync(() => metricAccountDeletionFanout(entry.app, "ok"))),
+    Effect.as(true),
+    Effect.catch((cause) => failed("not_finished", cause)),
+  );
+};
+
+/** A job as the fan-out reads it. */
+type FanOutJob = Pick<DeletionJob, "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt">;
+
+const markOf = (job: FanOutJob, entry: DeletionAppEntry): number | null => job[entry.doneKey];
+
+/**
+ * Runs the fan-out for one job: every app whose mark reads pending, all at
+ * once. A job the sweep read unclaimed is claimed first ({@link claimPurge}),
+ * at `nowSec`, the sweep's clock; if the claim answers false (a cancel landed
+ * since the sweep read the job) nothing is sent. A job already claimed by an
+ * earlier pass is not claimed again. When any app is not finished, the job's
+ * `fanout_failed_at` is stamped and the next pass tries that app again.
  */
 const runFanOut = (
-  job: Pick<DeletionJob, "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt">,
-  urls: FanOutUrls,
+  job: FanOutJob,
+  config: DeletionAppsConfig,
   nowSec: number,
-): Effect.Effect<void, AccountErasureDbError, Db> =>
+): Effect.Effect<void, AccountErasureDbError | StoredChoicesUnreadable, Db> =>
   Effect.gen(function* () {
-    const { pulse, zap } = resolveFanOutUrls(urls);
-    const body = yield* buildBridgeBody(job.accountId);
+    const body = yield* readFanOutBody(job.accountId);
+    if (Option.isNone(body)) return;
     if (job.purgeStartedAt === null && !(yield* claimPurge(job.accountId, nowSec))) return;
-    const tasks: Array<Effect.Effect<void, never, Db>> = [];
-    if (job.pulseDoneAt === null) {
-      tasks.push(
-        dispatchBridge("pulse", pulse, "account:erase", body).pipe(
-          Effect.flatMap(() => markBridgeDone("pulse", job.accountId)),
-          Effect.catch(() => Effect.void),
-        ),
-      );
-    }
-    if (job.zapDoneAt === null) {
-      tasks.push(
-        dispatchBridge("zap", zap, "account:erase", body).pipe(
-          Effect.flatMap(() => markBridgeDone("zap", job.accountId)),
-          Effect.catch(() => Effect.void),
-        ),
-      );
-    }
-    yield* Effect.all(tasks, { concurrency: "unbounded" });
+    const finished = yield* Effect.all(
+      DELETION_APPS.filter((entry) => isPending(markOf(job, entry))).map((entry) =>
+        finishApp(config, entry, body.value),
+      ),
+      { concurrency: "unbounded" },
+    );
+    if (finished.some((done) => !done)) yield* stampFanOutFailure(job.accountId, nowSec);
   });
 
 // ---------------------------------------------------------------------------
@@ -1143,9 +1343,9 @@ const recordHardDeleteFailure = (accountId: string, nowSec: number, cause: Cause
 const HARD_DELETE_FAILURES_BEFORE_STOP = 3;
 
 /**
- * Single sweeper pass. Hard-deletes every account whose deletion_jobs row
- * has crossed `hard_delete_at` AND has both bridges done (or pre-marked
- * not-applicable). Returns the count of hard-deletes performed.
+ * Single sweeper pass. Hard-deletes, at most `batchSize` of them, every
+ * account whose deletion_jobs row has crossed `hard_delete_at` AND whose every
+ * app mark reads done. Returns the count of hard-deletes performed.
  *
  * Reads jobs that have never failed first, then the least recently failed,
  * each group by `hard_delete_at`. One account's failure, a defect included,
@@ -1166,11 +1366,10 @@ export const runHardDeleteSweep = (
     const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1_000);
 
     // The gating predicate is in SQL, not a filter after the read: a handful
-    // of permanently-stuck bridges (NULL `*_done_at`) would otherwise fill the
+    // of permanently-stuck apps (a pending mark) would otherwise fill the
     // batch and starve the rows whose fan-out is complete. SQLite uses the
-    // `deletion_jobs_hard_delete_idx` for `hard_delete_at` and falls back to
-    // a sequential scan over the small NULL-checks — the candidate set is
-    // tiny (only in-flight deletions).
+    // `deletion_jobs_hard_delete_idx` for `hard_delete_at` and checks the
+    // marks row by row; the candidate set is only in-flight deletions.
     const ready = yield* Effect.tryPromise({
       try: () =>
         db
@@ -1180,13 +1379,7 @@ export const runHardDeleteSweep = (
             choices: deletionJobs.choices,
           })
           .from(deletionJobs)
-          .where(
-            and(
-              lte(deletionJobs.hardDeleteAt, nowSec),
-              sql`${deletionJobs.pulseDoneAt} IS NOT NULL`,
-              sql`${deletionJobs.zapDoneAt} IS NOT NULL`,
-            ),
-          )
+          .where(and(lte(deletionJobs.hardDeleteAt, nowSec), allAppsDone()))
           .orderBy(
             sql`${deletionJobs.hardDeleteFailedAt} ASC NULLS FIRST`,
             asc(deletionJobs.hardDeleteAt),
@@ -1263,7 +1456,7 @@ export const hardDeleteAccount = (
     const { named, deletes } = yield* readStoredChoices(job.choices);
     if (
       job.purgeStartedAt === null &&
-      !(yield* claimPurge(accountId, nowSec, { bridgesDone: true }))
+      !(yield* claimPurge(accountId, nowSec, { appsDone: true }))
     ) {
       return NOTHING_DELETED;
     }
@@ -1357,20 +1550,11 @@ export const hardDeleteAccount = (
         .set({ accountId: null, releaseAt: nowSec + HANDLE_HOLD_AFTER_ERASURE_SECONDS })
         .where(eq(handleHolds.accountId, accountId)),
       // 9. The job, the clients the account registered, the account. The
-      //    job goes only while both bridges still read done: an app join
-      //    refused since the sweep read it may have put one back to NULL.
-      //    Then the job stays, the `accounts` delete below fails on the job's
-      //    foreign key, and D1 rolls the whole batch back, so the fan-out
-      //    reaches the app before the account is erased.
-      db
-        .delete(deletionJobs)
-        .where(
-          and(
-            eq(deletionJobs.accountId, accountId),
-            isNotNull(deletionJobs.pulseDoneAt),
-            isNotNull(deletionJobs.zapDoneAt),
-          ),
-        ),
+      //    job goes only while every app's mark still reads done; otherwise
+      //    it stays, the `accounts` delete below fails on the job's foreign
+      //    key, and D1 rolls the whole batch back, so the fan-out reaches
+      //    every app before the account is erased.
+      db.delete(deletionJobs).where(and(eq(deletionJobs.accountId, accountId), allAppsDone())),
       // Clients the account REGISTERED (owner side): disable them and
       // sever the ownership link. The rows themselves stay — other users'
       // consents reference them by client_id, and once unlinked they hold
@@ -1417,65 +1601,123 @@ export const hardDeleteAccount = (
     return { deleted: true, transfers, orgsDeleted: dropped };
   });
 
+/** Jobs one fan-out pass reaches, and accounts one hard-delete pass erases, by default. */
+export const DELETION_SWEEP_DEFAULT_MAX_JOBS = 4;
+
 /**
- * Fan-out sweeper pass — the SOLE driver of cross-service purges.
- *
- * Bridges fire only once the 7-day grace window has elapsed
- * (`hard_delete_at <= now`). Purging Pulse / Zap at soft-delete time would
- * destroy app data the user was promised they could get back by
- * cancelling, and the per-account purge ledger on the Pulse side would
- * then block any future re-purge after a restore-then-redelete.
- *
- * Also serves as the retry path: rows whose earlier fan-out attempt
- * failed keep their NULL `*_done_at` and are re-dispatched each cycle.
- * Captures the age of each pending row so dashboards can spot a
- * chronically-stuck bridge.
+ * The per-run job cap from `OSN_DELETION_FANOUT_MAX_JOBS`: the default when
+ * unset, `"invalid"` (and the caller uses the default) when not a whole number
+ * from 1 to 200. The default fits one cron run inside Workers Free's 50 D1
+ * queries with every other sweep at its cap (`wiki/shared/free-tier-limits.md`).
  */
-export const runFanOutRetrySweep = (
-  opts: { batchSize?: number; nowMs?: number } & FanOutUrls = {},
-): Effect.Effect<{ retried: number }, AccountErasureDbError, Db> =>
+export const deletionSweepMaxJobs = (raw: string | undefined): number | "invalid" => {
+  if (raw === undefined || raw.trim() === "") return DELETION_SWEEP_DEFAULT_MAX_JOBS;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 200 ? parsed : "invalid";
+};
+
+/** An app's oldest unfinished job past this age is logged as overdue. */
+const FANOUT_OVERDUE_SECONDS = 86_400;
+
+/**
+ * Records, for each app, how long ago its oldest unfinished job became due
+ * (0 when it has none), and logs an app whose oldest is more than a day old.
+ * One read over every due job.
+ */
+const recordOldestPending = (nowSec: number): Effect.Effect<void, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    const batchSize = opts.batchSize ?? 100;
-    const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1_000);
-
-    const pending = yield* Effect.tryPromise({
+    const rows = yield* Effect.tryPromise({
       try: () =>
         db
-          .select({
-            accountId: deletionJobs.accountId,
-            hardDeleteAt: deletionJobs.hardDeleteAt,
-            pulseDoneAt: deletionJobs.pulseDoneAt,
-            zapDoneAt: deletionJobs.zapDoneAt,
-            purgeStartedAt: deletionJobs.purgeStartedAt,
-          })
-          .from(deletionJobs)
-          .where(
-            and(
-              lte(deletionJobs.hardDeleteAt, nowSec),
-              or(isNull(deletionJobs.pulseDoneAt), isNull(deletionJobs.zapDoneAt)),
+          .select(
+            Object.fromEntries(
+              DELETION_APPS.map((entry) => [
+                entry.app,
+                sql<
+                  number | null
+                >`min(CASE WHEN ${markPending(entry.done)} THEN ${deletionJobs.hardDeleteAt} END)`,
+              ]),
             ),
           )
-          .limit(batchSize),
+          .from(deletionJobs)
+          .where(lte(deletionJobs.hardDeleteAt, nowSec)),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
+    const oldest = rows[0] ?? {};
+    for (const entry of DELETION_APPS) {
+      const due = oldest[entry.app];
+      const age = typeof due === "number" ? Math.max(0, nowSec - due) : 0;
+      metricAccountDeletionFanoutOldestAge(entry.app, age);
+      if (age > FANOUT_OVERDUE_SECONDS) {
+        yield* Effect.logWarning("account.deletion fan-out overdue", {
+          app: entry.app,
+          ageSeconds: age,
+        });
+      }
+    }
+  });
 
-    // Bounded concurrency. Sequential `for ... yield*` would take
-    // 100 × 20s = ~33 minutes per cycle worst-case (each row dispatches
-    // two 10s-timeout HTTP calls). Per-row failures are already isolated
-    // inside `runFanOut` via `Effect.catch`, so concurrency is safe.
+/**
+ * Fan-out sweeper pass, the only thing that reaches the apps for an erasure.
+ *
+ * Reads at most `maxJobs` jobs whose window has passed and whose mark for some
+ * app reads pending (NULL, or `-1` on a job written before every account went
+ * to every app): never-failed jobs first, then the least recently failed,
+ * each group by `hard_delete_at`, so a job an app keeps failing never stands
+ * in front of the rest. Each job's pending apps are called at once; an app
+ * that does not finish leaves its mark pending for the next pass. Records the
+ * age of each app's oldest unfinished job (§6 of the deletion design).
+ *
+ * Apps are reached only once the window has passed: erasing app data at the
+ * soft delete would destroy what a cancel promises to give back.
+ */
+export const runFanOutRetrySweep = (opts: {
+  readonly config: DeletionAppsConfig;
+  readonly maxJobs?: number;
+  readonly nowMs?: number;
+}): Effect.Effect<{ retried: number }, AccountErasureDbError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const maxJobs = opts.maxJobs ?? DELETION_SWEEP_DEFAULT_MAX_JOBS;
+    const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1_000);
+
+    const [pending] = yield* Effect.all(
+      [
+        Effect.tryPromise({
+          try: () =>
+            db
+              .select({
+                accountId: deletionJobs.accountId,
+                pulseDoneAt: deletionJobs.pulseDoneAt,
+                zapDoneAt: deletionJobs.zapDoneAt,
+                purgeStartedAt: deletionJobs.purgeStartedAt,
+              })
+              .from(deletionJobs)
+              .where(and(lte(deletionJobs.hardDeleteAt, nowSec), someAppPending()))
+              .orderBy(
+                sql`${deletionJobs.fanoutFailedAt} ASC NULLS FIRST`,
+                asc(deletionJobs.hardDeleteAt),
+              )
+              .limit(maxJobs),
+          catch: (cause) => new AccountErasureDbError({ cause }),
+        }),
+        recordOldestPending(nowSec),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    // Each job's failure, a defect included, is logged with no ids and the
+    // next job still runs.
     yield* Effect.forEach(
       pending,
-      (row) => {
-        // Age = time since the grace window expired (when fan-out became
-        // eligible), NOT since soft-delete — otherwise every sample would
-        // saturate at ≥7 days and the stuck-bridge signal would be lost.
-        const age = nowSec - row.hardDeleteAt;
-        if (row.pulseDoneAt === null) metricAccountDeletionFanoutPendingAge("pulse", age);
-        if (row.zapDoneAt === null) metricAccountDeletionFanoutPendingAge("zap", age);
-        return runFanOut(row, { pulseApiUrl: opts.pulseApiUrl, zapApiUrl: opts.zapApiUrl }, nowSec);
-      },
-      { concurrency: 8, discard: true },
+      (job) =>
+        runFanOut(job, opts.config, nowSec).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError("account.deletion fan-out of a job failed", failureSummary(cause)),
+          ),
+        ),
+      { concurrency: 4, discard: true },
     );
     return { retried: pending.length };
   });
