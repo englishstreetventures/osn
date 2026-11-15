@@ -41,7 +41,7 @@ import {
 } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { alias, type AnySQLiteColumn, type SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
-import { Cause, Data, Effect, Option } from "effect";
+import { Cause, Data, Effect } from "effect";
 
 import { canBatch } from "../lib/batch";
 import { bound } from "../lib/bound";
@@ -1036,54 +1036,32 @@ interface FanOutJobBody {
   readonly email: string;
 }
 
-/**
- * The job's account: its profiles, its email address and the job's answers,
- * in one read. None when the job is gone (a cancel landed since the sweep read
- * it); then nothing is sent.
- */
-const readFanOutBody = (
-  accountId: string,
-): Effect.Effect<
-  Option.Option<FanOutJobBody>,
-  AccountErasureDbError | StoredChoicesUnreadable,
-  Db
-> =>
-  Effect.gen(function* () {
-    const { db } = yield* Db;
-    const rows = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({
-            profileId: users.id,
-            email: accounts.email,
-            choices: deletionJobs.choices,
-            deleteEverything: deletionJobs.deleteEverything,
-          })
-          .from(accounts)
-          .innerJoin(deletionJobs, eq(deletionJobs.accountId, accounts.id))
-          .leftJoin(users, eq(users.accountId, accounts.id))
-          .where(eq(accounts.id, accountId)),
-      catch: (cause) => new AccountErasureDbError({ cause }),
-    });
-    const first = rows[0];
-    if (!first) return Option.none();
-    const answers = yield* storedAnswers(first.choices);
-    return Option.some({
-      accountId,
-      profileIds: rows.flatMap((row) => (row.profileId === null ? [] : [row.profileId])),
-      answers,
-      deleteEverything: first.deleteEverything,
-      email: first.email,
-    });
+/** The profile ids the fan-out read holds as a JSON array; anything else fails the job. */
+const readProfileIds = (
+  stored: string,
+): Effect.Effect<ReadonlyArray<string>, AccountErasureDbError> =>
+  Effect.try({
+    try: () => {
+      const parsed: unknown = JSON.parse(stored);
+      if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === "string")) {
+        throw new TypeError("profile ids are not an array of strings");
+      }
+      return parsed as ReadonlyArray<string>;
+    },
+    catch: (cause) => new AccountErasureDbError({ cause }),
   });
 
 /** The JSON path of `app`'s entry in `app_outcomes`. */
 const outcomePath = (app: DeletionAppEntry["app"]): string => `$.${app}`;
 
+/** `{ "status": "skipped" }`, as `app_outcomes` records an app the tier does not run. */
+const SKIPPED_OUTCOME = JSON.stringify({ status: "skipped" });
+
 /**
  * Marks the fan-out done with `entry`'s app and records what it reported, in
  * one statement, only while the mark still reads pending: a mark already set
- * is never overwritten, and neither is that app's outcome.
+ * is never overwritten, and neither is that app's outcome. Answers whether
+ * this call wrote the mark.
  */
 const markAppDone = (
   entry: DeletionAppEntry,
@@ -1091,7 +1069,7 @@ const markAppDone = (
   outcome:
     | { readonly status: "done"; readonly kept: ReadonlyArray<KeptItem> }
     | { readonly status: "skipped" },
-): Effect.Effect<void, AccountErasureDbError, Db> =>
+): Effect.Effect<boolean, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const now = Math.floor(Date.now() / 1_000);
@@ -1099,7 +1077,7 @@ const markAppDone = (
       appOutcomes: sql`json_set(coalesce(${deletionJobs.appOutcomes}, '{}'), ${outcomePath(entry.app)}, json(${JSON.stringify(outcome)}))`,
     };
     values[entry.doneKey] = now;
-    yield* Effect.tryPromise({
+    const marked = yield* Effect.tryPromise({
       try: () =>
         db
           .update(deletionJobs)
@@ -1107,6 +1085,7 @@ const markAppDone = (
           .where(and(eq(deletionJobs.accountId, accountId), markPending(entry.done))),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
+    return rowsChanged(marked) === 1;
   });
 
 /** Stamps the job's `fanout_failed_at`, so the next pass reads it after every job that has not failed. */
@@ -1138,20 +1117,33 @@ const stampFanOutFailure = (accountId: string, nowSec: number): Effect.Effect<vo
  * before has removed the job, and this answers false.
  *
  * For the hard delete (`appsDone`), the mark is written only while every
- * app's mark reads done.
+ * app's mark reads done. For the fan-out, each app in `skipped` (one the tier
+ * does not run) is marked done, its outcome `skipped`, in the same statement:
+ * no fan-out has written a mark on a job not yet claimed.
  */
 const claimPurge = (
   accountId: string,
   nowSec: number,
-  { appsDone = false }: { readonly appsDone?: boolean } = {},
+  {
+    appsDone = false,
+    skipped = [],
+  }: { readonly appsDone?: boolean; readonly skipped?: ReadonlyArray<DeletionAppEntry> } = {},
 ): Effect.Effect<boolean, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
+    const values: SQLiteUpdateSetSource<typeof deletionJobs> = { purgeStartedAt: nowSec };
+    if (skipped.length > 0) {
+      values.appOutcomes = sql`json_set(coalesce(${deletionJobs.appOutcomes}, '{}'), ${sql.join(
+        skipped.map((entry) => sql`${outcomePath(entry.app)}, json(${SKIPPED_OUTCOME})`),
+        sql`, `,
+      )})`;
+      for (const entry of skipped) values[entry.doneKey] = nowSec;
+    }
     const claimed = yield* Effect.tryPromise({
       try: () =>
         db
           .update(deletionJobs)
-          .set({ purgeStartedAt: nowSec })
+          .set(values)
           .where(
             and(
               eq(deletionJobs.accountId, accountId),
@@ -1165,10 +1157,21 @@ const claimPurge = (
     return rowsChanged(claimed) === 1;
   });
 
+/** Counts and logs an app the fan-out marked skipped. */
+const recordSkipped = (entry: DeletionAppEntry): Effect.Effect<void> =>
+  Effect.suspend(() => {
+    metricAccountDeletionFanout(entry.app, "skipped");
+    return Effect.logInfo("account.deletion fan-out skipped an app this tier does not run", {
+      app: entry.app,
+    });
+  });
+
 /**
  * Finishes the fan-out with one app: skipped where the tier does not run it,
  * sent and recorded where it does. Answers whether the app is finished; a
  * failure is counted and logged, with no ids, and the mark stays pending.
+ * The result is counted only when this call wrote the mark: a mark another
+ * pass wrote first, or a job gone since, counts nothing.
  */
 const finishApp = (
   config: DeletionAppsConfig,
@@ -1190,45 +1193,52 @@ const finishApp = (
   }
   if (target.kind === "skip") {
     return markAppDone(entry, body.accountId, { status: "skipped" }).pipe(
-      Effect.tap(() => {
-        metricAccountDeletionFanout(entry.app, "skipped");
-        return Effect.logInfo("account.deletion fan-out skipped an app this tier does not run", {
-          app: entry.app,
-        });
-      }),
+      Effect.tap((marked) => (marked ? recordSkipped(entry) : Effect.void)),
       Effect.as(true),
       Effect.catch((cause) => failed("mark_failed", cause)),
     );
   }
-  const sent: AccountDeletedBody = {
+  const base: AccountDeletedBody = {
     accountId: body.accountId,
     profileIds: body.profileIds,
     choices: choicesForApp(entry.app, body.answers),
     deleteEverything: body.deleteEverything,
-    email: body.email,
   };
+  const sent: AccountDeletedBody = entry.receivesEmail ? { ...base, email: body.email } : base;
   return sendAccountDeleted(config, entry, target.url, sent).pipe(
     Effect.tapError((error) =>
       Effect.sync(() => metricAccountDeletionFanout(entry.app, error.result)),
     ),
     Effect.flatMap((kept) => markAppDone(entry, body.accountId, { status: "done", kept })),
-    Effect.tap(() => Effect.sync(() => metricAccountDeletionFanout(entry.app, "ok"))),
+    Effect.tap((marked) =>
+      Effect.sync(() => {
+        if (marked) metricAccountDeletionFanout(entry.app, "ok");
+      }),
+    ),
     Effect.as(true),
     Effect.catch((cause) => failed("not_finished", cause)),
   );
 };
 
-/** A job as the fan-out reads it. */
-type FanOutJob = Pick<DeletionJob, "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt">;
+/** A job as the fan-out reads it: its marks, its claim, and what every app is sent. */
+interface FanOutJob extends Pick<
+  DeletionJob,
+  "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt" | "choices" | "deleteEverything"
+> {
+  readonly email: string;
+  /** The account's profile ids, a JSON array. */
+  readonly profileIds: string;
+}
 
 const markOf = (job: FanOutJob, entry: DeletionAppEntry): number | null => job[entry.doneKey];
 
 /**
  * Runs the fan-out for one job: every app whose mark reads pending, all at
  * once. A job the sweep read unclaimed is claimed first ({@link claimPurge}),
- * at `nowSec`, the sweep's clock; if the claim answers false (a cancel landed
- * since the sweep read the job) nothing is sent. A job already claimed by an
- * earlier pass is not claimed again. When any app is not finished, the job's
+ * at `nowSec`, the sweep's clock, and the claim marks each app the tier does
+ * not run as skipped; if the claim answers false (a cancel landed since the
+ * sweep read the job) nothing is sent. A job already claimed by an earlier
+ * pass is not claimed again. When any app is not finished, the job's
  * `fanout_failed_at` is stamped and the next pass tries that app again.
  */
 const runFanOut = (
@@ -1237,13 +1247,22 @@ const runFanOut = (
   nowSec: number,
 ): Effect.Effect<void, AccountErasureDbError | StoredChoicesUnreadable, Db> =>
   Effect.gen(function* () {
-    const body = yield* readFanOutBody(job.accountId);
-    if (Option.isNone(body)) return;
-    if (job.purgeStartedAt === null && !(yield* claimPurge(job.accountId, nowSec))) return;
+    const body: FanOutJobBody = {
+      accountId: job.accountId,
+      profileIds: yield* readProfileIds(job.profileIds),
+      answers: yield* storedAnswers(job.choices),
+      deleteEverything: job.deleteEverything,
+      email: job.email,
+    };
+    let pending = DELETION_APPS.filter((entry) => isPending(markOf(job, entry)));
+    if (job.purgeStartedAt === null) {
+      const skipped = pending.filter((entry) => appTarget(config, entry.app).kind === "skip");
+      if (!(yield* claimPurge(job.accountId, nowSec, { skipped }))) return;
+      yield* Effect.forEach(skipped, recordSkipped, { discard: true });
+      pending = pending.filter((entry) => !skipped.includes(entry));
+    }
     const finished = yield* Effect.all(
-      DELETION_APPS.filter((entry) => isPending(markOf(job, entry))).map((entry) =>
-        finishApp(config, entry, body.value),
-      ),
+      pending.map((entry) => finishApp(config, entry, body)),
       { concurrency: "unbounded" },
     );
     if (finished.some((done) => !done)) yield* stampFanOutFailure(job.accountId, nowSec);
@@ -1685,15 +1704,20 @@ export const runFanOutRetrySweep = (opts: {
     const [pending] = yield* Effect.all(
       [
         Effect.tryPromise({
-          try: () =>
+          try: (): Promise<FanOutJob[]> =>
             db
               .select({
                 accountId: deletionJobs.accountId,
                 pulseDoneAt: deletionJobs.pulseDoneAt,
                 zapDoneAt: deletionJobs.zapDoneAt,
                 purgeStartedAt: deletionJobs.purgeStartedAt,
+                choices: deletionJobs.choices,
+                deleteEverything: deletionJobs.deleteEverything,
+                email: accounts.email,
+                profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${deletionJobs.accountId})`,
               })
               .from(deletionJobs)
+              .innerJoin(accounts, eq(accounts.id, deletionJobs.accountId))
               .where(and(lte(deletionJobs.hardDeleteAt, nowSec), someAppPending()))
               .orderBy(
                 sql`${deletionJobs.fanoutFailedAt} ASC NULLS FIRST`,
@@ -1707,14 +1731,17 @@ export const runFanOutRetrySweep = (opts: {
       { concurrency: "unbounded" },
     );
 
-    // Each job's failure, a defect included, is logged with no ids and the
-    // next job still runs.
+    // Each job's failure, a defect included, is logged with no ids and
+    // stamped on its job, so the next pass reads it after every job that has
+    // not failed; the next job still runs.
     yield* Effect.forEach(
       pending,
       (job) =>
         runFanOut(job, opts.config, nowSec).pipe(
           Effect.catchCause((cause) =>
-            Effect.logError("account.deletion fan-out of a job failed", failureSummary(cause)),
+            Effect.logError("account.deletion fan-out of a job failed", failureSummary(cause)).pipe(
+              Effect.andThen(stampFanOutFailure(job.accountId, nowSec)),
+            ),
           ),
         ),
       { concurrency: 4, discard: true },

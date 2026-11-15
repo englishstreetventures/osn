@@ -1844,13 +1844,14 @@ describe("account-erasure: a cancel and a purge", () => {
     return Effect.gen(function* () {
       const { accountId, pastWindowMs } = yield* scheduled("ce2", true);
 
-      const body = h.hold(/from "accounts" inner join "deletion_jobs"/);
+      // The fan-out reads the job, then claims it: held at the claim.
+      const claim = h.hold(/^update "deletion_jobs" set "purge_started_at"/);
       const sweep = yield* Effect.forkChild(
         accountErasure.runFanOutRetrySweep({ nowMs: pastWindowMs, config }),
       );
-      yield* Effect.promise(() => body.reached);
+      yield* Effect.promise(() => claim.reached);
       expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
-      body.release();
+      claim.release();
       yield* Fiber.join(sweep);
 
       expect(purgesOf(accountId)).toBe(0);
