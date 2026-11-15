@@ -222,7 +222,9 @@ describe("account-erasure routes — response bodies", () => {
     const first = await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
       ),
     });
     expect(first.status).toBe(202);
@@ -256,7 +258,11 @@ describe("account-erasure routes — response bodies", () => {
     const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
     const { auth, profile, app, authed } = await seed(layer);
     const stepUp = () =>
-      Effect.runPromise(mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)));
+      Effect.runPromise(
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
+      );
     const [heldToken, otherToken] = [await stepUp(), await stepUp()];
 
     const insert = queries.hold(/^insert into "deletion_jobs"/);
@@ -344,7 +350,9 @@ describe("account-erasure routes — response bodies", () => {
     await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
       ),
     });
 
@@ -382,7 +390,9 @@ describe("account-erasure routes — response bodies", () => {
     await requestDeletion(app, authed, {
       confirm_handle: profile.handle,
       step_up_token: await Effect.runPromise(
-        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(Effect.provide(layer)),
+        mintStepUpToken(auth, profile.accountId, "otp", "account_delete").pipe(
+          Effect.provide(layer),
+        ),
       ),
     });
 
@@ -392,7 +402,9 @@ describe("account-erasure routes — response bodies", () => {
         headers: {
           ...authed,
           "x-step-up-token": await Effect.runPromise(
-            mintStepUpToken(auth, profile.accountId, "otp", "account_restore").pipe(Effect.provide(layer)),
+            mintStepUpToken(auth, profile.accountId, "otp", "account_restore").pipe(
+              Effect.provide(layer),
+            ),
           ),
         },
       }),
@@ -530,10 +542,8 @@ describe("account-erasure routes refuse a missing, forged or recovery bearer", (
 });
 
 /** Runs a service effect on `layer`. */
-const runOn = <A, E, R>(
-  layer: Layer.Layer<Db | EmailService>,
-  effect: Effect.Effect<A, E, R>,
-) => Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
+const runOn = <A, E, R>(layer: Layer.Layer<Db | EmailService>, effect: Effect.Effect<A, E, R>) =>
+  Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, E, never>);
 
 const stepUpFor = (
   auth: ReturnType<typeof createAuthService>,
@@ -825,7 +835,7 @@ describe("the organisations an account owns", () => {
     const solo = await runOn(h.layer, h.orgs.createOrganisation(h.profile.id, "solo", "Solo"));
     const soloAction = `osn:organisation:${solo.id}`;
     const acmeAnswer = { action: `osn:organisation:${h.acme.id}`, choice: "delete" };
-    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete");
+    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete", h.layer);
     const attempt = (choices: unknown[]) =>
       requestDeletion(h.app, h.authed, {
         confirm_handle: h.profile.handle,
@@ -862,7 +872,7 @@ describe("the organisations an account owns", () => {
     await runOn(h.layer, h.orgs.addMember(beta.id, h.profile.id, carol.id, "member"));
     const acmeAction = `osn:organisation:${h.acme.id}`;
     const betaAction = `osn:organisation:${beta.id}`;
-    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete");
+    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete", h.layer);
     const attempt = (betaSuccessor: string) =>
       requestDeletion(h.app, h.authed, {
         confirm_handle: h.profile.handle,
@@ -884,7 +894,7 @@ describe("the organisations an account owns", () => {
   it("DELETE /account takes 200 choices and refuses 201 at the body schema", async () => {
     const h = await owner();
     const action = `osn:organisation:${h.acme.id}`;
-    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete");
+    const token = await stepUpFor(h.auth, h.profile.accountId, "account_delete", h.layer);
     // Answers to actions the account does not have, which the route ignores.
     const ignored = (n: number) =>
       Array.from({ length: n }, (_, i) => ({

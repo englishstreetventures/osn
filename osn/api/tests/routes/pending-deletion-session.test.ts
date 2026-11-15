@@ -651,7 +651,7 @@ describe("the export and status a pending-deletion token reaches", () => {
     expect((await status.json()) as { enrolled?: boolean }).toMatchObject({ enrolled: true });
 
     const stepUp = await h.svc(
-      h.auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll"),
+      mintStepUpToken(h.auth, profile.accountId, "passkey", "totp_enroll"),
     );
     const enrol = await h.post("/totp/enroll/begin", { step_up_token: stepUp }, bearer(pending));
     expect(enrol.status).toBe(401);
