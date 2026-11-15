@@ -7,7 +7,7 @@ import type { OsnTokenVerification } from "../../src/lib/jwks";
 /** The osn-api origin these tests pin. */
 export const OSN_ISSUER = "http://osn.test";
 
-const SECRET = "test-internal-secret";
+const SECRET = "test-internal-secret-of-32-chars!";
 
 /**
  * An osn-api stand-in for ARC: one published key at

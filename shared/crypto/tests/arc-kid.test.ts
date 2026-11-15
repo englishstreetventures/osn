@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { checkArcKid, mintArcKid } from "../src/arc-kid";
 
-const SECRET = "test-internal-secret";
+const SECRET = "test-internal-secret-of-32-chars!";
+
+afterEach(() => vi.restoreAllMocks());
 const NOW = 1_900_000_000;
 
 describe("ARC key ids that carry their expiry and a MAC", () => {
@@ -50,5 +52,23 @@ describe("ARC key ids that carry their expiry and a MAC", () => {
   it("a checker holding the secret refuses a kid minted without one", async () => {
     const kid = await mintArcKid(undefined, NOW + 60);
     expect(await checkArcKid(kid, SECRET, NOW)).toBe(false);
+  });
+
+  it("never keys the MAC with a secret shorter than 32 characters, on either side", async () => {
+    const short = "s".repeat(31);
+    const kid = await mintArcKid(short, NOW + 60);
+    expect(kid.split(".")).toHaveLength(2);
+    expect(await checkArcKid(kid, short, NOW)).toBe(true);
+    expect(await checkArcKid("anything", short, NOW)).toBe(true);
+    expect((await mintArcKid("s".repeat(32), NOW + 60)).split(".")).toHaveLength(3);
+  });
+
+  it("drops a MAC key whose import failed, so the next kid imports it again", async () => {
+    const secret = "a-secret-whose-first-import-fails";
+    const importKey = vi.spyOn(crypto.subtle, "importKey");
+    importKey.mockRejectedValueOnce(new Error("import failed"));
+    await expect(mintArcKid(secret, NOW + 60)).rejects.toThrow("import failed");
+    const kid = await mintArcKid(secret, NOW + 60);
+    expect(await checkArcKid(kid, secret, NOW)).toBe(true);
   });
 });

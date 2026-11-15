@@ -1,3 +1,4 @@
+import { arcKidMacSecret } from "@shared/crypto/arc-kid";
 import { jsonEachIn } from "@shared/db-utils";
 import { chatMembers, chats, messages } from "@zap/db/schema";
 import { DbLive, Db, type Db as DbType } from "@zap/db/service";
@@ -159,11 +160,12 @@ export const createInternalRoutes = (
   const runtime = ManagedRuntime.make(dbLayer);
   // osn-api's tokens verify against the keys it publishes under the issuer
   // Zap pins. INTERNAL_SERVICE_SECRET gates fetching them (a made-up kid is
-  // refused first); read per request, as workerd fills `process.env` only
+  // refused first); one shorter than 32 characters is treated as absent and
+  // gates nothing. Read per request, as workerd fills `process.env` only
   // inside a handler.
   const osnArc = () => ({
     osnIssuer: verification.issuer,
-    kidSecret: process.env.INTERNAL_SERVICE_SECRET || undefined,
+    kidSecret: arcKidMacSecret(process.env.INTERNAL_SERVICE_SECRET),
   });
   return (
     new Elysia({ prefix: "/internal" })

@@ -10,9 +10,9 @@
  * and the same trust.
  *
  * Before any fetch the token must claim `iss: "osn-api"`, ask for a scope the
- * app lets osn-api use, and, when the app holds `INTERNAL_SERVICE_SECRET`,
- * carry a kid whose MAC verifies and whose expiry has not passed
- * (`@shared/crypto/arc-kid`). A token failing any of these costs no fetch.
+ * app lets osn-api use, and, when the app holds an `INTERNAL_SERVICE_SECRET`
+ * of at least 32 characters, carry a kid whose MAC verifies and whose expiry
+ * has not passed (`@shared/crypto/arc-kid`). A token failing any of these costs no fetch.
  * Then jose checks the signature (ES256 only), `iss`, `aud`, `exp` and `iat`,
  * and the token's scope must hold the route's.
  *
@@ -36,7 +36,10 @@ export const OSN_ARC_JWKS_PATH = "/.well-known/arc-jwks.json";
 export interface OsnArcVerification {
   /** osn-api's origin: the issuer the app pins for access tokens. */
   readonly osnIssuer: string;
-  /** `INTERNAL_SERVICE_SECRET` when this app holds it; the kid MAC check is skipped without it. */
+  /**
+   * `INTERNAL_SERVICE_SECRET` when this app holds it; the kid MAC check is
+   * skipped without it, and with one shorter than 32 characters.
+   */
   readonly kidSecret: string | undefined;
 }
 

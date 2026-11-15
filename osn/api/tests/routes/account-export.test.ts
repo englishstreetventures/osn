@@ -551,7 +551,7 @@ describe("GET /account/export — an app verifies osn-api's call against the pub
         apps: {
           ...NO_DELETION_APPS,
           urls: { zap: `http://localhost:${server.port}` },
-          arc: { kidSecret: "test-internal-secret" },
+          arc: { kidSecret: "test-internal-secret-of-32-chars!" },
         },
       });
       const res = await app.handle(

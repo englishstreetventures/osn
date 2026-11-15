@@ -11,7 +11,11 @@ import { Elysia } from "elysia";
 import { resolveAccountWindowPrincipal } from "../lib/auth-derive";
 import type { CookieSessionConfig } from "../lib/cookie-session";
 import { createLiveSessionCheck } from "../lib/live-session";
-import { arcFetchStream, publishOutboundKey } from "../lib/outbound-arc";
+import {
+  arcFetchStream,
+  OutboundKeyNotPublishedError,
+  publishOutboundKey,
+} from "../lib/outbound-arc";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountExportRequested } from "../metrics";
@@ -187,22 +191,25 @@ export function createAccountExportRoutes(
 
         const { db } = await run(Db);
         // Every app verifies osn-api's call against the key it publishes, so
-        // the key is written before the stream signs anything. A failure here
-        // leaves each app's section degraded rather than failing the export.
-        if (downstreams.some((ds) => ds.url !== null)) {
-          await run(publishOutboundKey(deletionApps.arc)).catch(() => undefined);
-        }
+        // the key is written before the stream signs anything, and the stream
+        // signs with that key. A failure here leaves each app's section
+        // degraded rather than failing the export.
+        const key = downstreams.some((ds) => ds.url !== null)
+          ? await run(publishOutboundKey(deletionApps.arc)).catch(() => null)
+          : null;
         const stream = ndjsonStream(
           exportLines({
             db,
             accountId: profile.accountId,
             downstreams,
             fetchStream: (ds, body) =>
-              arcFetchStream(ds.url ?? "", body, {
-                audience: ds.audience,
-                scope: "account:export",
-                timeoutMs: 10_000,
-              }),
+              key === null
+                ? Promise.reject(new OutboundKeyNotPublishedError())
+                : arcFetchStream(key, ds.url ?? "", body, {
+                    audience: ds.audience,
+                    scope: "account:export",
+                    timeoutMs: 10_000,
+                  }),
           }),
         );
         metricAccountExportRequested("ok");

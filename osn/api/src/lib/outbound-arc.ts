@@ -12,14 +12,18 @@
  * (`@shared/crypto/arc-kid`), so an app refuses a made-up kid before it
  * fetches the set.
  *
- * A key is replaced two hours before its expiry; the next publish writes the
- * new one. Nothing signs with a key past its expiry, and a token lives five
- * minutes, so apps need not re-check a key's expiry themselves.
+ * {@link publishOutboundKey} answers the key it published, and every
+ * signature is made with that key ({@link arcAuthHeader}), never with
+ * whichever key the isolate holds by then: a key replaced in between is
+ * still in the set. A key is replaced two hours before its expiry; the next
+ * publish writes the new one. Nothing signs with a key past its expiry, and a
+ * token lives five minutes, so apps need not re-check a key's expiry
+ * themselves.
  */
 import { arcOutboundKeys } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import { Db, type DbService } from "@osn/db/service";
 import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
-import { mintArcKid } from "@shared/crypto/arc-kid";
+import { arcKidMacSecret, mintArcKid } from "@shared/crypto/arc-kid";
 import { commitBatch } from "@shared/db-utils";
 import { gt, lt } from "drizzle-orm";
 import { Data, Effect } from "effect";
@@ -36,7 +40,10 @@ const EXPIRED_KEY_GRACE_SECONDS = 86_400;
 
 /** What signing needs from the deployment. */
 export interface OutboundArcConfig {
-  /** `INTERNAL_SERVICE_SECRET`: the kid MAC key. Unset only on a local run. */
+  /**
+   * `INTERNAL_SERVICE_SECRET`: the kid MAC key. Unset only on a local run. A
+   * value shorter than 32 characters keys no MAC (`@shared/crypto/arc-kid`).
+   */
   readonly kidSecret: string | undefined;
 }
 
@@ -45,13 +52,25 @@ export class OutboundKeyPublishError extends Data.TaggedError("OutboundKeyPublis
   readonly cause: unknown;
 }> {}
 
-/** A signature was asked for before the current key was published: a bug in the caller. */
+/** A signature was asked for with a key {@link publishOutboundKey} did not answer: a bug in the caller. */
 export class OutboundKeyNotPublishedError extends Error {
   constructor() {
     super("osn-api's outbound ARC key is not published; publish it before signing");
     this.name = "OutboundKeyNotPublishedError";
   }
 }
+
+/**
+ * A key whose public half is in the published set, as
+ * {@link publishOutboundKey} answers it: the only thing
+ * {@link arcAuthHeader} signs with.
+ */
+export interface PublishedOutboundKey {
+  readonly keyId: string;
+}
+
+/** The private half of each key {@link publishOutboundKey} answered; nothing else can sign. */
+const signingKeys = new WeakMap<PublishedOutboundKey, CryptoKey>();
 
 interface OutboundKey {
   readonly privateKey: CryptoKey;
@@ -65,7 +84,12 @@ interface KeyState {
   readonly key: Promise<OutboundKey>;
   /** Unix seconds. */
   readonly expiresAt: number;
-  published: boolean;
+  /**
+   * The write of the key's public half: one per key, shared by every caller
+   * while it runs and kept once it has; cleared when it fails, so the next
+   * caller writes again.
+   */
+  publishing: Promise<PublishedOutboundKey> | null;
 }
 
 let state: KeyState | null = null;
@@ -82,7 +106,13 @@ function mint(config: OutboundArcConfig): KeyState {
     const publicKeyJwk = await exportKeyToJwk(pair.publicKey);
     return { privateKey: pair.privateKey, publicKeyJwk, keyId, expiresAt };
   })();
-  return { key, expiresAt, published: false };
+  const minted: KeyState = { key, expiresAt, publishing: null };
+  // A key that failed to mint is dropped, so the next call mints another
+  // rather than failing on this one until its rotation.
+  key.catch(() => {
+    if (state === minted) state = null;
+  });
+  return minted;
 }
 
 /** The isolate's key, replaced when it is within the rotation buffer of its expiry. */
@@ -93,58 +123,83 @@ function currentState(config: OutboundArcConfig): KeyState {
   return state;
 }
 
+/** Writes `current`'s public half, deleting rows that expired more than a day ago. */
+async function writePublicHalf(
+  db: DbService["db"],
+  current: KeyState,
+): Promise<PublishedOutboundKey> {
+  const key = await current.key;
+  const now = nowSeconds();
+  await commitBatch(db, [
+    db
+      .delete(arcOutboundKeys)
+      .where(lt(arcOutboundKeys.expiresAt, now - EXPIRED_KEY_GRACE_SECONDS)),
+    db
+      .insert(arcOutboundKeys)
+      .values({
+        keyId: key.keyId,
+        publicKeyJwk: key.publicKeyJwk,
+        createdAt: now,
+        expiresAt: key.expiresAt,
+      })
+      .onConflictDoNothing({ target: arcOutboundKeys.keyId }),
+  ]);
+  const published: PublishedOutboundKey = { keyId: key.keyId };
+  signingKeys.set(published, key.privateKey);
+  return published;
+}
+
 /**
- * Writes the current key's public half, once per key per isolate, and deletes
- * rows that expired more than a day ago. Every caller that finds the key not
- * yet written writes it itself (the insert ignores a row already there), so no
- * request waits on another's write. On failure the key stays unpublished and
- * the next call tries again.
+ * Writes the current key's public half, once per key per isolate, and answers
+ * that key: the caller signs with it. Callers that arrive while the write runs
+ * wait on the same write, so concurrent first calls cost one batch. On
+ * failure the key stays unpublished and the next call writes it again.
  */
 export const publishOutboundKey = (
   config: OutboundArcConfig,
-): Effect.Effect<void, OutboundKeyPublishError, Db> =>
+): Effect.Effect<PublishedOutboundKey, OutboundKeyPublishError, Db> =>
   Effect.gen(function* () {
     const current = currentState(config);
-    if (current.published) return;
     const { db } = yield* Db;
-    yield* Effect.tryPromise({
-      try: async () => {
-        const key = await current.key;
-        const now = nowSeconds();
-        await commitBatch(db, [
-          db
-            .delete(arcOutboundKeys)
-            .where(lt(arcOutboundKeys.expiresAt, now - EXPIRED_KEY_GRACE_SECONDS)),
-          db
-            .insert(arcOutboundKeys)
-            .values({
-              keyId: key.keyId,
-              publicKeyJwk: key.publicKeyJwk,
-              createdAt: now,
-              expiresAt: key.expiresAt,
-            })
-            .onConflictDoNothing({ target: arcOutboundKeys.keyId }),
-        ]);
-      },
+    let publishing = current.publishing;
+    const writesNow = publishing === null;
+    if (publishing === null) {
+      const write = writePublicHalf(db, current);
+      write.catch(() => {
+        if (current.publishing === write) current.publishing = null;
+      });
+      current.publishing = write;
+      publishing = write;
+    }
+    if (writesNow && config.kidSecret !== undefined && !arcKidMacSecret(config.kidSecret)) {
+      yield* Effect.logWarning(
+        "osn.arc outbound key id carries no MAC: INTERNAL_SERVICE_SECRET is too short to key one",
+      );
+    }
+    const pending = publishing;
+    return yield* Effect.tryPromise({
+      try: () => pending,
       catch: (cause) => new OutboundKeyPublishError({ cause }),
     });
-    current.published = true;
   }).pipe(Effect.withSpan("osn.arc.publish_outbound_key"));
 
 /**
  * The `Authorization: ARC <token>` value for `audience` and `scope`, signed
- * with the current key. Throws {@link OutboundKeyNotPublishedError} when that
- * key is not yet published: every app would refuse the token.
+ * with `key`. Throws {@link OutboundKeyNotPublishedError} for a key
+ * {@link publishOutboundKey} did not answer: every app would refuse the token.
  */
-export async function arcAuthHeader(audience: string, scope: string): Promise<string> {
-  const current = state;
-  if (!current?.published) throw new OutboundKeyNotPublishedError();
-  const { privateKey, keyId } = await current.key;
+export async function arcAuthHeader(
+  key: PublishedOutboundKey,
+  audience: string,
+  scope: string,
+): Promise<string> {
+  const privateKey = signingKeys.get(key);
+  if (!privateKey) throw new OutboundKeyNotPublishedError();
   const token = await getOrCreateArcToken(privateKey, {
     iss: OSN_ARC_ISSUER,
     aud: audience,
     scope,
-    kid: keyId,
+    kid: key.keyId,
   });
   return `ARC ${token}`;
 }
@@ -167,12 +222,17 @@ export interface ArcCall {
   readonly timeoutMs?: number;
 }
 
-async function arcPost(url: string, body: unknown, call: ArcCall): Promise<Response> {
+async function arcPost(
+  key: PublishedOutboundKey,
+  url: string,
+  body: unknown,
+  call: ArcCall,
+): Promise<Response> {
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: await arcAuthHeader(call.audience, call.scope),
+      authorization: await arcAuthHeader(key, call.audience, call.scope),
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(call.timeoutMs ?? 10_000),
@@ -191,8 +251,8 @@ export type JsonValue =
   | { readonly [member: string]: JsonValue };
 
 /**
- * POSTs JSON to an app with an ARC token, after publishing the current key,
- * and answers the parsed body, not yet checked: the caller decodes it against
+ * POSTs JSON to an app with an ARC token signed by the key it has just
+ * published, and answers the parsed body, not yet checked: the caller decodes it against
  * the contract. On Workers, Cloudflare traces the call as a `fetch` span in
  * the request's trace.
  */
@@ -203,10 +263,10 @@ export const arcPostJsonEffect = (
   config: OutboundArcConfig,
 ): Effect.Effect<JsonValue, Error | OutboundKeyPublishError, Db> =>
   publishOutboundKey(config).pipe(
-    Effect.flatMap(() =>
+    Effect.flatMap((key) =>
       Effect.tryPromise({
         try: async (): Promise<JsonValue> =>
-          (await (await arcPost(url, body, call)).json()) as JsonValue,
+          (await (await arcPost(key, url, body, call)).json()) as JsonValue,
         catch: (cause) =>
           cause instanceof Error ? cause : new Error(`outbound ARC POST ${url} failed`),
       }),
@@ -216,10 +276,16 @@ export const arcPostJsonEffect = (
 /**
  * Like {@link arcPostJsonEffect} but answers the raw {@link Response}, so the
  * account export can pipe an app's NDJSON section through without buffering
- * it. The caller publishes the key first. Throws on a non-2xx status.
+ * it. Signs with `key`, which the caller has published. Throws on a non-2xx
+ * status.
  */
-export function arcFetchStream(url: string, body: unknown, call: ArcCall): Promise<Response> {
-  return arcPost(url, body, call);
+export function arcFetchStream(
+  key: PublishedOutboundKey,
+  url: string,
+  body: unknown,
+  call: ArcCall,
+): Promise<Response> {
+  return arcPost(key, url, body, call);
 }
 
 /** Reading the published keys failed. */

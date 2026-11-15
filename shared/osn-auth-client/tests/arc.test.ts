@@ -15,7 +15,7 @@ import { clearJwksCache } from "../src/jwks-cache";
 
 const ISSUER = "https://id.osn.test";
 const JWKS_URL = `${ISSUER}${OSN_ARC_JWKS_PATH}`;
-const SECRET = "test-internal-secret";
+const SECRET = "test-internal-secret-of-32-chars!";
 const AUDIENCE = "zap-api";
 const SCOPE = "account:erase";
 const ALLOWED = new Set(["account:erase", "account:export"]);
@@ -178,7 +178,7 @@ describe("verifyOsnArcToken", () => {
         `${uuid}.${expiry}.${"A".repeat(22)}`,
         crypto.randomUUID(),
         await mintArcKid(SECRET, now - 1),
-        await mintArcKid("another-secret", now + 3600),
+        await mintArcKid("another-secret-also-of-32-characters", now + 3600),
       ]) {
         expect(await verify(await token({ privateKey: key.privateKey, kid }))).toEqual({
           ok: false,
@@ -186,6 +186,17 @@ describe("verifyOsnArcToken", () => {
         });
       }
       expect(fetches).toBe(0);
+    });
+
+    it("admits a kid with no MAC when this app's secret is too short to key one", async () => {
+      const short = "s".repeat(31);
+      const pair = await generateKeyPair("ES256");
+      const kid = await mintArcKid(short, Math.floor(Date.now() / 1000) + 3600);
+      expect(kid.split(".")).toHaveLength(2);
+      published.push({ ...(await exportJWK(pair.publicKey)), kid, alg: "ES256", use: "sig" });
+      expect(await verify(await token({ privateKey: pair.privateKey, kid }), short)).toEqual({
+        ok: true,
+      });
     });
 
     it("skips the check when this app holds no secret", async () => {

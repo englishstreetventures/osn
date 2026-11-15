@@ -31,7 +31,7 @@ describe("requireOsnArc", () => {
       await requireOsnArc(
         await arc.token("graph:read"),
         set,
-        { osnIssuer: arc.verification.issuer, kidSecret: "test-internal-secret" },
+        { osnIssuer: arc.verification.issuer, kidSecret: "test-internal-secret-of-32-chars!" },
         "graph:read",
       ),
     ).toBe(false);
@@ -44,7 +44,7 @@ describe("requireOsnArc", () => {
       await requireOsnArc(
         await arc.token("account:erase"),
         set,
-        { osnIssuer: arc.verification.issuer, kidSecret: "test-internal-secret" },
+        { osnIssuer: arc.verification.issuer, kidSecret: "test-internal-secret-of-32-chars!" },
         "account:erase",
       ),
     ).toBe(true);
