@@ -862,8 +862,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * it is signed out rather than renewed as that account. Both cases send the
    * same statement and fail with the same error, so the refusal says nothing
    * about which profiles exist. A profile deleted while the grant runs fails it
-   * as a rotation race: the new session is written only while the profile it
-   * was minted for is still the account's, so no token for it is handed out.
+   * as a rotation race: the old session is swapped out only while the profile
+   * the new token was minted for is still the account's, so no token for it is
+   * handed out.
    * Two sessions mint for the default profile although they name one their
    * account owns: a restricted recovery session, which mints only for it and
    * on its own audience, and a session of an account scheduled for deletion.
@@ -961,11 +962,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // deletion. Those lose a race with the mark as a rotation race, as any
       // session does, and their retry renews.
       const refusedOnceMarked = replacedAt === null && !namedOwnLive;
-      // The profile minted for is still this account's when the new session
-      // is written and when the old one is swapped out (the two are one batch
-      // on D1, separate statements on bun:sqlite); one deleted since the read
-      // leaves the grant a rotation race, and its retry reads the profiles as
-      // they are.
+      // The profile minted for is still this account's when the old session
+      // is swapped out, the statement that decides the grant; one deleted
+      // since the read leaves the grant a rotation race, and its retry reads
+      // the profiles as they are.
       const profileStands = exists(
         db
           .select({ one: sql`1` })
@@ -1016,13 +1016,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             // the family (the handle of a deletion job that predates the
             // restore record), rotates nothing once the mark is on the old row:
             // the swap then fails as a rotation race, and the retry reads it.
-            .where(
-              and(
-                oldRow,
-                profileStands,
-                refusedOnceMarked ? isNull(sessions.replacedAt) : undefined,
-              ),
-            ),
+            .where(refusedOnceMarked ? and(oldRow, isNull(sessions.replacedAt)) : oldRow),
         );
       // 2. The record of the rotated-out token, only once this request's new
       //    session is in, so reuse detection sees the old token replayed. Its
@@ -1141,8 +1135,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         // gone, by the swap. A concurrent grant of this SAME token rotated it
         // (two tabs bootstrapping on reload, a cold-start bootstrap racing a
         // 401-refresh, a retried grant), a delete took the family or the
-        // account mid-grant, or the profile minted for was deleted. Never reuse: a replay of an already-rotated token
-        // fails `verifyRefreshToken` and goes down `detectReuse` instead. The
+        // account mid-grant, or the profile minted for was deleted. Never
+        // reuse: a replay of an already-rotated token fails
+        // `verifyRefreshToken` and goes down `detectReuse` instead. The
         // family is preserved; this grant removes what it wrote — its new row,
         // and its record when that record landed — and fails.
         yield* Effect.tryPromise({
