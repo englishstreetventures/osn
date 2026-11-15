@@ -309,18 +309,85 @@ describe("deleteProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("promotes another profile to default if deleted profile was default", () =>
+  // The answer names the account's default profile once the deleted one is
+  // gone: the profile a client that deleted its active profile names next.
+
+  /** Each of the account's profiles and whether it is the default. */
+  const defaultRows = (accountId: string) =>
     Effect.gen(function* () {
-      const { profile: main, accountId } = yield* setupAccount("prom@test.com", "promuser");
-      yield* profile.createProfile(accountId, "prom_alt");
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db
+          .select({ id: users.id, isDefault: users.isDefault })
+          .from(users)
+          .where(eq(users.accountId, accountId)),
+      );
+      return Object.fromEntries(rows.map((r) => [r.id, r.isDefault]));
+    });
 
-      // Main is default, delete it
-      yield* profile.deleteProfile(accountId, main.id);
+  /**
+   * Sets a profile's `created_at`. It holds whole seconds, so profiles made in
+   * one test tie, and only explicit values tell oldest from newest.
+   */
+  const setCreatedAt = (profileId: string, iso: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db
+          .update(users)
+          .set({ createdAt: new Date(iso) })
+          .where(eq(users.id, profileId)),
+      );
+    });
 
-      // The alt should now be default
-      const { profiles } = yield* auth.listAccountProfiles(accountId);
-      expect(profiles).toHaveLength(1);
-      expect(profiles[0]!.handle).toBe("prom_alt");
+  it.effect(
+    "deleting the default answers the oldest remaining profile and makes it the default",
+    () =>
+      Effect.gen(function* () {
+        const { profile: main, accountId } = yield* setupAccount("prom@test.com", "promuser");
+        const newer = yield* profile.createProfile(accountId, "prom_newer");
+        const older = yield* profile.createProfile(accountId, "prom_older");
+        yield* setCreatedAt(newer.id, "2026-02-01T00:00:00Z");
+        yield* setCreatedAt(older.id, "2026-01-01T00:00:00Z");
+
+        const result = yield* profile.deleteProfile(accountId, main.id);
+
+        expect(result).toEqual({ defaultProfileId: older.id });
+        expect(yield* defaultRows(accountId)).toEqual({ [older.id]: true, [newer.id]: false });
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "deleting another profile answers the default, unchanged, even when it is not the oldest",
+    () =>
+      Effect.gen(function* () {
+        const { profile: main, accountId } = yield* setupAccount("keep@test.com", "keepuser");
+        const oldest = yield* profile.createProfile(accountId, "keep_oldest");
+        const gone = yield* profile.createProfile(accountId, "keep_gone");
+        yield* setCreatedAt(oldest.id, "2020-01-01T00:00:00Z");
+
+        const result = yield* profile.deleteProfile(accountId, gone.id);
+
+        expect(result).toEqual({ defaultProfileId: main.id });
+        expect(yield* defaultRows(accountId)).toEqual({ [main.id]: true, [oldest.id]: false });
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("an account with no default profile gets the oldest remaining one as its default", () =>
+    Effect.gen(function* () {
+      const { profile: main, accountId } = yield* setupAccount("nodef@test.com", "nodefuser");
+      const gone = yield* profile.createProfile(accountId, "nodef_gone");
+      const oldest = yield* profile.createProfile(accountId, "nodef_oldest");
+      yield* setCreatedAt(oldest.id, "2020-01-01T00:00:00Z");
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.update(users).set({ isDefault: false }).where(eq(users.accountId, accountId)),
+      );
+
+      const result = yield* profile.deleteProfile(accountId, gone.id);
+
+      expect(result).toEqual({ defaultProfileId: oldest.id });
+      expect(yield* defaultRows(accountId)).toEqual({ [oldest.id]: true, [main.id]: false });
     }).pipe(Effect.provide(createTestLayer())),
   );
 

@@ -11253,12 +11253,16 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "default_profile_id": {
+                      "type": "string"
+                    },
                     "deleted": {
                       "type": "boolean"
                     }
                   },
                   "required": [
-                    "deleted"
+                    "deleted",
+                    "default_profile_id"
                   ],
                   "type": "object"
                 }

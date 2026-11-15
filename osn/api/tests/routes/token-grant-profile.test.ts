@@ -77,6 +77,19 @@ describe("POST /token profile_id", () => {
     expect(grants).toEqual([["ses_live", undefined]]);
   });
 
+  // A page whose active profile id is empty sends it as `profile_id=`. Read as
+  // "none", the grant would mint the cookie account's default profile for a
+  // page that may hold another account; refused, the page signs out.
+  it("refuses an empty profile_id before any grant, rather than reading it as none", async () => {
+    const { app, grants } = recordingApp();
+
+    const res = await grant(app, { profile_id: "" });
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(grants).toEqual([]);
+  });
+
   it("refuses a value that is not a profile id, before any grant", async () => {
     const { app, grants } = recordingApp();
 

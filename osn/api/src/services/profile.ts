@@ -8,7 +8,7 @@ import {
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
@@ -201,6 +201,12 @@ export function createProfileService(authService: AuthService) {
    * Cannot delete the last profile on an account or a profile that owns
    * an organisation (the organisation must be deleted first).
    *
+   * Returns the account's default profile once this one is gone: the default
+   * as it was, or, when the deleted profile was the default or the account
+   * had none, the oldest remaining profile, made the default here. A client
+   * that deleted the profile it was acting as names this one in its next
+   * grant.
+   *
    * Cross-DB data (Pulse RSVPs, Zap chat members) is not cleaned up here —
    * orphaned rows are inert. A `profile.deleted` domain event will handle
    * cross-service cleanup in a later phase.
@@ -208,7 +214,7 @@ export function createProfileService(authService: AuthService) {
   const deleteProfile = (
     accountId: string,
     targetProfileId: string,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ defaultProfileId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const profile = yield* authService.findProfileById(targetProfileId);
       if (!profile) {
@@ -222,14 +228,21 @@ export function createProfileService(authService: AuthService) {
 
       const { db } = yield* Db;
 
-      // Parallel pre-checks: profile count + org ownership
-      const [countResult, ownedOrgs] = yield* Effect.tryPromise({
+      // Parallel pre-checks: the account's default once the target is gone,
+      // and org ownership. The first read is the account's other default
+      // profile, else its oldest other profile; none means the target is the
+      // last. It runs BEFORE the write batch — D1 has no interactive
+      // transaction, so the read-then-write is split, and a delete or default
+      // change landing in between can make it stale.
+      const [successors, ownedOrgs] = yield* Effect.tryPromise({
         try: () =>
           Promise.all([
             db
-              .select({ count: sql<number>`COUNT(*)` })
+              .select({ id: users.id, isDefault: users.isDefault })
               .from(users)
-              .where(eq(users.accountId, accountId)),
+              .where(and(eq(users.accountId, accountId), ne(users.id, targetProfileId)))
+              .orderBy(desc(users.isDefault), asc(users.createdAt))
+              .limit(1),
             db
               .select({ id: organisations.id })
               .from(organisations)
@@ -239,7 +252,8 @@ export function createProfileService(authService: AuthService) {
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      if (countResult[0]!.count <= 1) {
+      const successor = successors[0];
+      if (!successor) {
         return yield* Effect.fail(new AuthError({ message: "Cannot delete the last profile" }));
       }
       if (ownedOrgs.length > 0) {
@@ -250,27 +264,11 @@ export function createProfileService(authService: AuthService) {
         );
       }
 
-      const wasDefault = profile.isDefault;
-
-      // When the deleted profile was the default, pick its successor (oldest
-      // remaining profile) BEFORE the write batch — D1 has no interactive
-      // transaction, so the read-then-write is split. Including the promotion
-      // update in the same batch keeps "account always has a default" atomic on
-      // D1 (the batch is all-or-nothing).
-      let promoteId: string | undefined;
-      if (wasDefault) {
-        const remaining = yield* Effect.tryPromise({
-          try: () =>
-            db
-              .select({ id: users.id })
-              .from(users)
-              .where(and(eq(users.accountId, accountId), ne(users.id, targetProfileId)))
-              .orderBy(asc(users.createdAt))
-              .limit(1),
-          catch: (cause) => new DatabaseError({ cause }),
-        });
-        promoteId = remaining[0]?.id;
-      }
+      // Not the default yet only when the target was the default, or the
+      // account had none: promoted in the same batch as the delete, which
+      // keeps "account always has a default" atomic on D1 (the batch is
+      // all-or-nothing).
+      const promoteId = successor.isDefault ? undefined : successor.id;
 
       // Atomic cascade delete + default-promotion. Child rows
       // are deleted before the profile row (FK safety); the promotion update (if
@@ -306,6 +304,7 @@ export function createProfileService(authService: AuthService) {
           ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      return { defaultProfileId: successor.id };
     }).pipe(withProfileCrud("delete"));
 
   /**

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 
 import {
   ActiveProfileResetError,
@@ -14,6 +14,7 @@ import { sessionFetch } from "./session-fetch";
 import { Storage } from "./storage";
 import {
   decodeCreateProfileResponse,
+  decodeDeleteProfileResponse,
   decodeListProfilesResponse,
   decodeStoredAccount,
   decodeSwitchProfileResponse,
@@ -287,6 +288,14 @@ export interface OsnAuthService {
     displayName?: string,
   ) => Effect.Effect<PublicProfile, ProfileManagementError | AuthExpiredError | StorageError>;
 
+  /**
+   * Deletes a profile of the account. Deleting the active profile makes
+   * another profile active, never none, so the next grant still names one:
+   * a profile this page holds a token for, else the account's default
+   * profile as the issuer's answer names it. An answer that names none
+   * leaves the deleted profile active, without a token; its next grant is
+   * refused, and that ends the session.
+   */
   readonly deleteProfile: (
     profileId: string,
   ) => Effect.Effect<void, ProfileManagementError | AuthExpiredError | StorageError>;
@@ -899,11 +908,15 @@ export function createOsnAuthLive(
           const mark: Mark = { generation, signInId: account.signInId };
 
           // The session token is in the HttpOnly cookie; send credentials:
-          // include. The grant names the active profile, so the issuer mints
-          // for it rather than for the account's default profile. `wanted` is
-          // read now: a switch can change the active profile while the grant
-          // is out, and the answer is about the profile the grant named.
-          const wanted = account.activeProfileId || undefined;
+          // include. The grant always names the active profile, so the issuer
+          // mints for it, and refuses it when the cookie's account does not
+          // own it — the cookie can be another account's. A grant naming none
+          // would be minted for the cookie account's default profile, whoever
+          // that is. An empty id goes out as `profile_id=`, which the issuer
+          // refuses. `wanted` is read now: a switch can change the active
+          // profile while the grant is out, and the answer is about the
+          // profile the grant named.
+          const wanted = account.activeProfileId;
           const answer = yield* Effect.result(sharedTokenGrant(wanted, generation));
 
           // The session was replaced or ended while the grant was out, here or
@@ -937,14 +950,11 @@ export function createOsnAuthLive(
           account.hasSession = true;
           account.scopes = next.scopes;
           account.idToken = next.idToken;
-          // No active profile left (the active one was deleted): the grant's
-          // profile is active now, as after a reload.
-          if (!account.activeProfileId) account.activeProfileId = granted;
 
           // The issuer minted what the grant asked for. A switch that landed
           // meanwhile stays: the token is stored, and the request that needed
           // it goes out as the profile it was made as.
-          if (wanted === undefined || granted === wanted || account.activeProfileId === granted) {
+          if (granted === wanted || account.activeProfileId === granted) {
             yield* saveAccountSession(account);
             return next;
           }
@@ -1065,7 +1075,8 @@ export function createOsnAuthLive(
 
       // `wanted` is the profile the page was on before the reload; the
       // issuer mints for it while the account owns it, and refuses the grant
-      // otherwise, which forgets the stored account below.
+      // otherwise, which forgets the stored account below. Only a cold start,
+      // when the page holds no account, names none.
       // `signInId` is the stored account's on a reload; a cold start with no
       // stored account begins a new one.
       const doBootstrap = (wanted: string | undefined, signInId: string | undefined) =>
@@ -1173,12 +1184,11 @@ export function createOsnAuthLive(
 
           // No valid token in hand. If the account still holds a server
           // session, the refresh cookie should rehydrate it, as the profile
-          // the page was on.
+          // the page was on. The grant always names it, as a renewal's does
+          // (`doRefresh`), so the issuer refuses it when the cookie is
+          // another account's.
           if (account.hasSession) {
-            return yield* bootstrapFromCookie(
-              account.activeProfileId || undefined,
-              account.signInId,
-            );
+            return yield* bootstrapFromCookie(account.activeProfileId, account.signInId);
           }
           return null;
         });
@@ -1474,20 +1484,27 @@ export function createOsnAuthLive(
       const deleteProfile = (profileId: string) =>
         Effect.gen(function* () {
           const mark = yield* markNow();
-          // The body is not used: a success is enough.
-          yield* profileRequest(
+          // A success is enough: the answer only names the account's default
+          // profile, and decoding it never fails the delete.
+          const answer = yield* profileRequest(
             "/profiles/delete",
             { method: "POST", body: JSON.stringify({ profile_id: profileId }) },
-            () => undefined,
+            decodeDeleteProfileResponse,
           );
           if (yield* superseded(mark)) return yield* Effect.fail(supersededError());
 
           const account = yield* currentAccount();
           delete account.profileTokens[profileId];
-          // Deleting the active profile makes another one active, or none
+          // Deleting the active profile makes another one active, never none:
+          // the next grant must name a profile, or the issuer would mint for
+          // the cookie account's default, whichever account that is. A
+          // profile this page holds a token for needs no grant; else the
+          // account's default, as the answer names it; else the deleted
+          // profile stays, without a token, and its next grant is refused.
           if (account.activeProfileId === profileId) {
-            const remaining = Object.keys(account.profileTokens);
-            account.activeProfileId = remaining.length > 0 ? remaining[0]! : "";
+            const held = Object.keys(account.profileTokens)[0];
+            account.activeProfileId =
+              held ?? Option.getOrUndefined(answer)?.default_profile_id ?? profileId;
           }
           yield* saveAccountSession(account);
         });
