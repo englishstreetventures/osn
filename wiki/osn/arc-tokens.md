@@ -370,7 +370,7 @@ ARC token metrics live in `shared/crypto/src/arc-metrics.ts`:
 - `arc.token.issued` — counter by issuer/audience
 - `arc.token.verification` — counter by result (ok, expired, bad_signature, unknown_issuer, revoked_key, scope_denied, audience_mismatch, malformed)
 - All issuer/audience values pass through `safeIssuer()` to prevent cardinality explosion
-- `verifyArcToken` self-reports its outcomes; receiver middlewares whose early-exit branches reject **before** `verifyArcToken` runs must record the counter themselves. Zap's registry path does: missing/malformed token → `malformed`, kid not in registry → `unknown_issuer`, kid revoked or registration expired → `revoked_key`, registry scope denial → `scope_denied`. `verifyOsnArcToken` records every outcome of an osn-api token itself (a kid that fails its MAC, or that osn-api does not publish, is `unknown_issuer`). No double-count — paths that reach `verifyArcToken` are only counted there.
+- `verifyArcToken` self-reports its outcomes; receiver middlewares whose early-exit branches reject **before** `verifyArcToken` runs must record the counter themselves. Zap's registry path does: a missing or malformed token counts as `malformed`, a kid not in the registry as `unknown_issuer`, a revoked kid or an expired registration as `revoked_key`, and a registry scope denial as `scope_denied`. `verifyOsnArcToken` records every outcome of an osn-api token itself (a kid that fails its MAC, or that osn-api does not publish, is `unknown_issuer`). No double-count — paths that reach `verifyArcToken` are only counted there.
 
 ## Source Files
 
