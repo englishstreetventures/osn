@@ -5,15 +5,18 @@
  * part through two ARC calls:
  *
  * - `POST /internal/account-deletion-preview`, scope `account:deletion-preview`,
- *   with `{ accountId, profileIds, deletesAt }`, answering
+ *   with `{ profileIds, deletesAt }`, answering
  *   `{ openActions: [{ id, kind, label, choices: [{ choice, description,
  *   erasedOn }], defaultChoice, link }] }`: what the app holds that needs an
  *   answer. Every id starts with `<app>:`.
  * - `POST /internal/account-deleted`, scope `account:erase`, with
- *   `{ accountId, profileIds, choices, deleteEverything, email }` once the
- *   window has passed, answering `{ kept: [{ what, erasedOn, requestUrl }] }`:
- *   what the app keeps, until when, and where to ask about it. A repeat of the
- *   call answers the same.
+ *   `{ accountId, profileIds, choices, deleteEverything }` once the window has
+ *   passed, and `email` too for an app that receives it
+ *   ({@link DeletionAppEntry.receivesEmail}), answering
+ *   `{ kept: [{ what, erasedOn, requestUrl }] }`: what the app keeps, until
+ *   when, and where to ask about it. A repeat of the call answers the same.
+ *   `accountId` keys the app's record of the erasure; no other call carries
+ *   it.
  *
  * Adding an app is one more entry in {@link DELETION_APPS}, its `*_done_at`
  * column on `deletion_jobs`, its URL variable, and its host in the stacks.
@@ -48,6 +51,12 @@ export interface DeletionAppEntry {
   readonly urlVariable: "PULSE_API_URL" | "ZAP_API_URL";
   /** Whether the soft delete ends the person's sessions there. */
   readonly endsSessionsAtSoftDelete: boolean;
+  /**
+   * Whether the erasure sends the app the account's email address: only an
+   * app that keeps data after the erasure which a person may ask about by
+   * email needs it to prove a later request.
+   */
+  readonly receivesEmail: boolean;
 }
 
 export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
@@ -58,6 +67,7 @@ export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
     doneKey: "pulseDoneAt",
     urlVariable: "PULSE_API_URL",
     endsSessionsAtSoftDelete: true,
+    receivesEmail: false,
   },
   {
     app: "zap",
@@ -66,6 +76,7 @@ export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
     doneKey: "zapDoneAt",
     urlVariable: "ZAP_API_URL",
     endsSessionsAtSoftDelete: false,
+    receivesEmail: false,
   },
 ];
 
@@ -86,7 +97,17 @@ export interface DeletionAppsConfig {
   readonly absent: ReadonlySet<DeletionApp>;
   /** What signing the calls needs. */
   readonly arc: OutboundArcConfig;
+  /** How long one app has to answer a preview: its own key fetch may take 5 s. */
+  readonly previewTimeoutMs: number;
+  /** How long one app has to finish an erasure, or to end the person's sessions. */
+  readonly fanoutTimeoutMs: number;
 }
+
+/** {@link DeletionAppsConfig.previewTimeoutMs} on every tier. */
+const PREVIEW_TIMEOUT_MS = 8_000;
+
+/** {@link DeletionAppsConfig.fanoutTimeoutMs} on every tier. */
+const FANOUT_TIMEOUT_MS = 10_000;
 
 /**
  * The deletion's apps when the caller names none: every app skipped, as on a
@@ -97,6 +118,8 @@ export const NO_DELETION_APPS: DeletionAppsConfig = {
   urls: {},
   absent: new Set(),
   arc: { kidSecret: undefined },
+  previewTimeoutMs: PREVIEW_TIMEOUT_MS,
+  fanoutTimeoutMs: FANOUT_TIMEOUT_MS,
 };
 
 /** The variables {@link deletionAppsConfig} reads. */
@@ -116,12 +139,30 @@ export class DeletionAppsConfigError extends Error {
   }
 }
 
+/** Plain HTTP reaches only this machine, where the local and E2E stacks run. */
+const isLoopbackHost = (hostname: string): boolean =>
+  hostname === "localhost" ||
+  hostname.endsWith(".localhost") ||
+  hostname === "127.0.0.1" ||
+  hostname === "[::1]";
+
+/**
+ * Whether the deletion may send a token and the person's data to `url`:
+ * `https:` anywhere, and `http:` only to a loopback host on a local run.
+ */
+const isUsableAppUrl = (url: string, local: boolean): boolean => {
+  if (!URL.canParse(url)) return false;
+  const { protocol, hostname } = new URL(url);
+  return protocol === "https:" || (local && protocol === "http:" && isLoopbackHost(hostname));
+};
+
 /**
  * The deletion's app settings from the deployment's variables, with no
  * fallback address. Throws {@link DeletionAppsConfigError} for a name in
  * `OSN_DELETION_ABSENT_APPS` that is no app, an app both given a URL and
- * declared absent, or a deployed tier without `INTERNAL_SERVICE_SECRET`,
- * whose calls every app would refuse.
+ * declared absent, an app URL that is not `https:` (or, on a local run,
+ * `http:` to a loopback host), or a deployed tier without
+ * `INTERNAL_SERVICE_SECRET`, whose calls every app would refuse.
  */
 export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
   const local = !env.OSN_ENV || env.OSN_ENV === "local";
@@ -151,6 +192,11 @@ export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
         `${entry.urlVariable} is set but OSN_DELETION_ABSENT_APPS declares ${entry.app} absent`,
       );
     }
+    if (!isUsableAppUrl(url, local)) {
+      throw new DeletionAppsConfigError(
+        `${entry.urlVariable} must be an https: URL${local ? ", or http: to a loopback host" : ""}`,
+      );
+    }
     urls[entry.app] = url.replace(/\/+$/, "");
   }
   const kidSecret = env.INTERNAL_SERVICE_SECRET || undefined;
@@ -159,7 +205,14 @@ export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
       "INTERNAL_SERVICE_SECRET must be set: apps refuse osn-api's ARC calls without its key-id MAC",
     );
   }
-  return { local, urls, absent, arc: { kidSecret } };
+  return {
+    local,
+    urls,
+    absent,
+    arc: { kidSecret },
+    previewTimeoutMs: PREVIEW_TIMEOUT_MS,
+    fanoutTimeoutMs: FANOUT_TIMEOUT_MS,
+  };
 }
 
 /** How the deletion reaches one app on this tier. */
@@ -270,9 +323,6 @@ function checkActions(
 // Preview
 // ---------------------------------------------------------------------------
 
-/** How long one app has to answer a preview: its own key fetch may take 5 s. */
-const PREVIEW_TIMEOUT_MS = 8_000;
-
 /** One app's part of a deletion preview. */
 export type AppPreview =
   | {
@@ -285,7 +335,6 @@ export type AppPreview =
 
 /** What a preview asks each app about. */
 export interface DeletionPreviewInput {
-  readonly accountId: string;
   readonly profileIds: ReadonlyArray<string>;
   /** Unix seconds the fan-out will reach the apps, if the deletion is asked for now. */
   readonly deletesAt: number;
@@ -314,8 +363,12 @@ const previewOne = (
   }
   return arcPostJsonEffect(
     `${target.url}/internal/account-deletion-preview`,
-    { accountId: input.accountId, profileIds: input.profileIds, deletesAt: input.deletesAt },
-    { audience: entry.audience, scope: "account:deletion-preview", timeoutMs: PREVIEW_TIMEOUT_MS },
+    { profileIds: input.profileIds, deletesAt: input.deletesAt },
+    {
+      audience: entry.audience,
+      scope: "account:deletion-preview",
+      timeoutMs: config.previewTimeoutMs,
+    },
     config.arc,
   ).pipe(
     Effect.flatMap((raw) =>
@@ -357,9 +410,6 @@ export const previewDeletionApps = (
 // Fan-out
 // ---------------------------------------------------------------------------
 
-/** How long one app has to finish an erasure. */
-const FANOUT_TIMEOUT_MS = 10_000;
-
 /** What the fan-out sends one app. */
 export interface AccountDeletedBody {
   readonly accountId: string;
@@ -367,7 +417,8 @@ export interface AccountDeletedBody {
   /** The person's answers to this app's actions only, by action id. */
   readonly choices: Readonly<Record<string, { readonly choice: string }>>;
   readonly deleteEverything: boolean;
-  readonly email: string;
+  /** Only for an app that receives it ({@link DeletionAppEntry.receivesEmail}). */
+  readonly email?: string;
 }
 
 /** An app did not finish the erasure: unreachable, an error, or an answer outside the contract. */
@@ -387,7 +438,7 @@ export const sendAccountDeleted = (
   arcPostJsonEffect(
     `${url}/internal/account-deleted`,
     body,
-    { audience: entry.audience, scope: "account:erase", timeoutMs: FANOUT_TIMEOUT_MS },
+    { audience: entry.audience, scope: "account:erase", timeoutMs: config.fanoutTimeoutMs },
     config.arc,
   ).pipe(
     Effect.flatMap((raw) =>
@@ -425,7 +476,6 @@ export function choicesForApp(
  */
 export const endAppSessions = (
   config: DeletionAppsConfig,
-  accountId: string,
   profileIds: ReadonlyArray<string>,
 ): Effect.Effect<void, never, Db> =>
   Effect.all(
@@ -434,11 +484,11 @@ export const endAppSessions = (
       if (target.kind !== "url") return Effect.void;
       return arcPostJsonEffect(
         `${target.url}/internal/account-sessions/revoke`,
-        { accountId, profileIds },
+        { profileIds },
         {
           audience: entry.audience,
           scope: "account:sessions-revoke",
-          timeoutMs: FANOUT_TIMEOUT_MS,
+          timeoutMs: config.fanoutTimeoutMs,
         },
         config.arc,
       ).pipe(

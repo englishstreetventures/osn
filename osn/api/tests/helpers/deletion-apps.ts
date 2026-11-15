@@ -64,6 +64,8 @@ export function appStandIns(answer: (call: AppCall) => AppAnswer | undefined = (
       urls: { pulse: `${base}/pulse`, zap: `${base}/zap` },
       absent: new Set(),
       arc: { kidSecret: "test-internal-secret-of-32-chars!" },
+      previewTimeoutMs: 8_000,
+      fanoutTimeoutMs: 10_000,
       ...overrides,
     }),
     stop: () => void server.stop(true),

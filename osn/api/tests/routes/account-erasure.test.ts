@@ -1029,8 +1029,12 @@ describe("the apps' open actions", () => {
     return { ...seeded, layer, attempt, job };
   }
 
-  const callsTo = (path: string, accountId: string) =>
-    apps.calls.filter((call) => call.path === path && call.body.accountId === accountId);
+  /** The calls to `path` about `profileId`: no preview or session end names the account. */
+  const callsTo = (path: string, profileId: string) =>
+    apps.calls.filter(
+      (call) =>
+        call.path === path && (call.body.profileIds as string[] | undefined)?.includes(profileId),
+    );
 
   it("GET /account/deletion-preview lists each app's actions in the route's field names", async () => {
     pulseHolds(hosted("evt_1"));
@@ -1056,10 +1060,11 @@ describe("the apps' open actions", () => {
       ],
       could_not_check: [],
     });
-    const [call] = callsTo("/internal/account-deletion-preview", p.profile.accountId).filter(
+    const [call] = callsTo("/internal/account-deletion-preview", p.profile.id).filter(
       (c) => c.app === "pulse",
     );
     expect(call!.body.profileIds).toEqual([p.profile.id]);
+    expect(call!.body).not.toHaveProperty("accountId");
     expect(call!.body.deletesAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 6 * 86_400);
   });
 
@@ -1081,7 +1086,7 @@ describe("the apps' open actions", () => {
     });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "choices_with_delete_everything" });
-    expect(callsTo("/internal/account-deletion-preview", p.profile.accountId)).toEqual([]);
+    expect(callsTo("/internal/account-deletion-preview", p.profile.id)).toEqual([]);
   });
 
   it("DELETE /account is held while an app cannot be asked, before the answers and the step-up", async () => {
@@ -1181,10 +1186,11 @@ describe("the apps' open actions", () => {
     const p = await person();
     expect((await p.attempt()).status).toBe(202);
     await vi.waitFor(() =>
-      expect(callsTo("/internal/account-sessions/revoke", p.profile.accountId)).toHaveLength(1),
+      expect(callsTo("/internal/account-sessions/revoke", p.profile.id)).toHaveLength(1),
     );
-    const [call] = callsTo("/internal/account-sessions/revoke", p.profile.accountId);
+    const [call] = callsTo("/internal/account-sessions/revoke", p.profile.id);
     expect(call).toMatchObject({ app: "pulse", body: { profileIds: [p.profile.id] } });
+    expect(call!.body).not.toHaveProperty("accountId");
     expect(call!.authorization).toMatch(/^ARC /);
   });
 

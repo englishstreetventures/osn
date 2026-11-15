@@ -191,18 +191,22 @@ export function createAccountErasureRoutes(
   });
 
   /**
-   * The account's organisations and every app's open actions, all asked at
-   * once, as if the deletion were requested now.
+   * The account's organisations and every app's open actions, as if the
+   * deletion were requested now. The organisations are read while the
+   * profile ids are read and the apps asked.
    */
-  const preview = (accountId: string, profileIds: ReadonlyArray<string>) =>
+  const preview = (accountId: string) =>
     Effect.all(
       [
         accountErasure.listOwnedOrganisations(accountId),
-        previewDeletionApps(deletionApps, {
-          accountId,
-          profileIds,
-          deletesAt: Math.floor(Date.now() / 1_000) + accountErasure.DELETION_WINDOW_SECONDS,
-        }),
+        accountErasure.profileIdsOf(accountId).pipe(
+          Effect.flatMap((profileIds) =>
+            previewDeletionApps(deletionApps, {
+              profileIds,
+              deletesAt: Math.floor(Date.now() / 1_000) + accountErasure.DELETION_WINDOW_SECONDS,
+            }),
+          ),
+        ),
       ],
       { concurrency: "unbounded" },
     ).pipe(Effect.withSpan("account.deletion.preview"));
@@ -241,8 +245,7 @@ export function createAccountErasureRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const profileIds = await run(accountErasure.profileIdsOf(profile.accountId));
-            const [owned, apps] = await run(preview(profile.accountId, profileIds));
+            const [owned, apps] = await run(preview(profile.accountId));
             return previewBody(owned, apps);
           } catch (e) {
             const { status, body: errBody } = handleError(e);
@@ -352,8 +355,7 @@ export function createAccountErasureRoutes(
             // A fresh preview of the organisations and every app, before the
             // step-up token is read, so a refusal here spends nothing. An app
             // that cannot be asked holds the deletion until it answers.
-            const profileIds = await run(accountErasure.profileIdsOf(profile.accountId));
-            const [owned, apps] = await run(preview(profile.accountId, profileIds));
+            const [owned, apps] = await run(preview(profile.accountId));
             const fresh = previewBody(owned, apps);
             if (fresh.could_not_check.length > 0) {
               set.status = 409;
@@ -437,9 +439,7 @@ export function createAccountErasureRoutes(
             // person's own sessions in an app that keeps them end now, in the
             // background; the app's erasure deletes any that survive.
             if (result.newlyScheduled) {
-              await run(
-                forkBackground(endAppSessions(deletionApps, profile.accountId, result.profileIds)),
-              );
+              await run(forkBackground(endAppSessions(deletionApps, result.profileIds)));
             }
 
             set.status = 202;
