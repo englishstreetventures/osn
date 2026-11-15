@@ -178,3 +178,110 @@ describe("internal account emails", () => {
     expect(res.status).toBe(422);
   });
 });
+
+/**
+ * POST /internal/app-enrollment/{join,leave}: an app's enrolment, and the
+ * deletion job's purge mark a refused join puts back, are written only by
+ * that app's own service, whose issuer the ARC signature proves.
+ */
+describe("internal app enrolment writes", () => {
+  let layer: ReturnType<typeof createTestLayer>;
+  let app: ReturnType<typeof createInternalAccountRoutes>;
+
+  const runWithLayer = <A>(eff: Effect.Effect<A, unknown, DbTag>): Promise<A> =>
+    Effect.runPromise(eff.pipe(Effect.provide(layer)) as Effect.Effect<A, never, never>);
+
+  async function tokenFor(serviceId: string): Promise<string> {
+    const scopes = "app-enrollment:write";
+    const kp = await generateArcKeyPair();
+    const pubJwk = await exportKeyToJwk(kp.publicKey);
+    const now = new Date();
+    const keyId = crypto.randomUUID();
+    await runWithLayer(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .insert(serviceAccounts)
+            .values({ serviceId, allowedScopes: scopes, createdAt: now, updatedAt: now })
+            .onConflictDoUpdate({
+              target: serviceAccounts.serviceId,
+              set: { allowedScopes: scopes },
+            }),
+        );
+        yield* Effect.promise(() =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId,
+            publicKeyJwk: pubJwk,
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          }),
+        );
+      }),
+    );
+    return createArcToken(kp.privateKey, {
+      iss: serviceId,
+      aud: "osn-api",
+      scope: scopes,
+      kid: keyId,
+    });
+  }
+
+  async function seedAccount(): Promise<string> {
+    const accountId = "acc_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = new Date();
+    await runWithLayer(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.insert(accounts).values({
+            id: accountId,
+            email: `${accountId}@example.com`,
+            passkeyUserId: crypto.randomUUID(),
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
+      }),
+    );
+    return accountId;
+  }
+
+  const send = (path: "join" | "leave", token: string, body: object) =>
+    app.handle(
+      new Request(`http://localhost/internal/app-enrollment/${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: `ARC ${token}` },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  beforeEach(() => {
+    clearPublicKeyCache();
+    layer = createTestLayer();
+    app = createInternalAccountRoutes(config, layer);
+  });
+
+  it.each(["join", "leave"] as const)(
+    "%s refuses a service writing another app's enrolment, and admits its own",
+    async (path) => {
+      const accountId = await seedAccount();
+      const pulse = await tokenFor("pulse-api");
+
+      const other = await send(path, pulse, { account_id: accountId, app: "zap" });
+      expect(other.status).toBe(401);
+
+      const own = await send(path, pulse, { account_id: accountId, app: "pulse" });
+      expect(own.status).toBe(200);
+    },
+  );
+
+  it("refuses a service that is not an app", async () => {
+    const accountId = await seedAccount();
+    const cire = await tokenFor("cire-api");
+    const res = await send("join", cire, { account_id: accountId, app: "pulse" });
+    expect(res.status).toBe(401);
+  });
+});

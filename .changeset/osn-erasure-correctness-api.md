@@ -16,3 +16,5 @@ Make account erasure undoable for the whole seven-day window, keep deleted handl
 - Two deletes at once answer one scheduled and one `already_pending`, and a repeat during the window answers `already_pending`.
 - `/authorize` refuses an account whose deletion is pending with `access_denied`, for every client, before it records a consent or mints a code.
 - The six-hourly cron sweeps `security_events` past 12 months, `email_changes` past 90 days and handle holds past their release, in chunks of 500, at most two a run, through one shared `runRetentionSweep`. The Bun dev server runs the same sweeps, the OIDC code sweep included.
+
+`/internal/app-enrollment/join` and `/leave` write only for the calling service's own app (`pulse-api` for `pulse`, `zap-api` for `zap`); a token from any other service gets 401. A hard delete runs only while both app purges read done at the moment it claims and writes; a refused join that sends an app's purge back rolls the batch back.

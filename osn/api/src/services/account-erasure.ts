@@ -30,6 +30,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
@@ -975,10 +976,15 @@ const markBridgeDone = (
  * the job still exists, no other sweep has marked it, and its grace window
  * has passed by `nowSec`. A cancel that comes after is refused; one that came
  * before has removed the job, and this answers false.
+ *
+ * For the hard delete (`bridgesDone`), the mark is written only while both
+ * bridges still read done: an app join refused since the sweep read the job
+ * may have put one back to NULL, and then the fan-out runs first.
  */
 const claimPurge = (
   accountId: string,
   nowSec: number,
+  { bridgesDone = false }: { readonly bridgesDone?: boolean } = {},
 ): Effect.Effect<boolean, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -992,6 +998,8 @@ const claimPurge = (
               eq(deletionJobs.accountId, accountId),
               isNull(deletionJobs.purgeStartedAt),
               lte(deletionJobs.hardDeleteAt, nowSec),
+              bridgesDone ? isNotNull(deletionJobs.pulseDoneAt) : undefined,
+              bridgesDone ? isNotNull(deletionJobs.zapDoneAt) : undefined,
             ),
           ),
       catch: (cause) => new AccountErasureDbError({ cause }),
@@ -1252,7 +1260,10 @@ export const hardDeleteAccount = (
     const { db } = yield* Db;
     const { accountId } = job;
     const { named, deletes } = yield* readStoredChoices(job.choices);
-    if (job.purgeStartedAt === null && !(yield* claimPurge(accountId, nowSec))) {
+    if (
+      job.purgeStartedAt === null &&
+      !(yield* claimPurge(accountId, nowSec, { bridgesDone: true }))
+    ) {
       return NOTHING_DELETED;
     }
 
@@ -1344,8 +1355,21 @@ export const hardDeleteAccount = (
         .update(handleHolds)
         .set({ accountId: null, releaseAt: nowSec + HANDLE_HOLD_AFTER_ERASURE_SECONDS })
         .where(eq(handleHolds.accountId, accountId)),
-      // 9. The job, the clients the account registered, the account.
-      db.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+      // 9. The job, the clients the account registered, the account. The
+      //    job goes only while both bridges still read done: an app join
+      //    refused since the sweep read it may have put one back to NULL.
+      //    Then the job stays, the `accounts` delete below fails on the job's
+      //    foreign key, and D1 rolls the whole batch back, so the fan-out
+      //    reaches the app before the account is erased.
+      db
+        .delete(deletionJobs)
+        .where(
+          and(
+            eq(deletionJobs.accountId, accountId),
+            isNotNull(deletionJobs.pulseDoneAt),
+            isNotNull(deletionJobs.zapDoneAt),
+          ),
+        ),
       // Clients the account REGISTERED (owner side): disable them and
       // sever the ownership link. The rows themselves stay — other users'
       // consents reference them by client_id, and once unlinked they hold

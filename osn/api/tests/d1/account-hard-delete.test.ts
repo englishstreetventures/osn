@@ -26,6 +26,7 @@ import {
   hardDeleteAccount,
   requestErasure,
 } from "../../src/services/account-erasure";
+import { joinApp } from "../../src/services/app-enrollments";
 import { holdQueries } from "../helpers/held-query";
 
 /**
@@ -186,8 +187,15 @@ describe("an account enrolled in an app, hard-deleted on D1", () => {
       { id: newId("aenr_"), accountId, app: "zap", joinedAt: 1_000, leftAt: 2_000 },
       { id: newId("aenr_"), accountId, app: "pulse", joinedAt: 1_000, leftAt: null },
     ]);
+    await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest }));
+    // Enrolled in Pulse, so the job waits on its purge; the fan-out marks it.
+    await db
+      .update(deletionJobs)
+      .set({ pulseDoneAt: HARD_DELETE_AT - 1 })
+      .where(eq(deletionJobs.accountId, accountId));
+    const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
 
-    const result = await purge(accountId);
+    const result = await run(hardDeleteAccount(job!, HARD_DELETE_AT));
 
     expect(result.deleted).toBe(true);
     expect(await accountGone(accountId)).toBe(true);
@@ -372,5 +380,52 @@ describe("two deletions of one account at once on D1", () => {
     expect(
       await db.select().from(handleHolds).where(eq(handleHolds.accountId, accountId)),
     ).toHaveLength(1);
+  });
+});
+
+describe("an app join that lands while the hard delete is in flight, on D1", () => {
+  it("rolls the whole batch back, so the fan-out reaches the app first", async () => {
+    // Red on deleting the job whatever its marks: the batch then erases the
+    // account with the app's purge still owed, and nothing asks the app again.
+    const { accountId, profileId } = await person("joinrace");
+    await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest }));
+    const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
+    expect(job!.pulseDoneAt).toBe(-1);
+
+    const batch = hold(/^delete from "app_enrollments"/);
+    const purging = run(Effect.result(hardDeleteAccount(job!, HARD_DELETE_AT)));
+    await batch.reached;
+    expect(await run(joinApp(accountId, "pulse"))).toEqual({ enrolled: false });
+    batch.release();
+    const outcome = await purging;
+
+    expect(outcome._tag).toBe("Failure");
+    expect(await db.select().from(accounts).where(eq(accounts.id, accountId))).toHaveLength(1);
+    expect(await db.select().from(users).where(eq(users.id, profileId))).toHaveLength(1);
+    const [after] = await db
+      .select({ pulse: deletionJobs.pulseDoneAt, zap: deletionJobs.zapDoneAt })
+      .from(deletionJobs)
+      .where(eq(deletionJobs.accountId, accountId));
+    expect(after).toEqual({ pulse: null, zap: -1 });
+  });
+
+  it("a join that lands before the claim leaves the job unclaimed", async () => {
+    const { accountId } = await person("joinclaim");
+    await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest }));
+    const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
+
+    const claim = hold(/^update "deletion_jobs" set "purge_started_at"/);
+    const purging = run(hardDeleteAccount(job!, HARD_DELETE_AT));
+    await claim.reached;
+    await run(joinApp(accountId, "pulse"));
+    claim.release();
+
+    expect((await purging).deleted).toBe(false);
+    const [after] = await db
+      .select()
+      .from(deletionJobs)
+      .where(eq(deletionJobs.accountId, accountId));
+    expect(after!.purgeStartedAt).toBeNull();
+    expect(await db.select().from(accounts).where(eq(accounts.id, accountId))).toHaveLength(1);
   });
 });
