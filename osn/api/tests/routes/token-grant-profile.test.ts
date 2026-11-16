@@ -1,7 +1,8 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CookieSessionConfig } from "../../src/lib/cookie-session";
+import * as metrics from "../../src/metrics";
 import type { AuthRouteContext } from "../../src/routes/auth/context";
 import { DEV_PRINCIPAL } from "../../src/routes/auth/dev-login";
 import { createTokenRoutes } from "../../src/routes/auth/tokens";
@@ -46,6 +47,10 @@ function grant(app: ReturnType<typeof createTokenRoutes>, fields: Record<string,
   );
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("POST /token profile_id", () => {
   it("hands the named profile to the grant", async () => {
     const { app, grants } = recordingApp();
@@ -89,6 +94,7 @@ describe("POST /token profile_id", () => {
     "refuses %s before any grant, and retracts the marker but not the session cookie",
     async (_name, profileId) => {
       const { app, grants } = recordingApp();
+      const counted = vi.spyOn(metrics, "metricAuthTokenRefreshRefused");
 
       const res = await grant(app, { profile_id: profileId });
 
@@ -98,6 +104,8 @@ describe("POST /token profile_id", () => {
       expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
       expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(false);
       expect(grants).toEqual([]);
+      // Counted as the service counts its own refusal of what a grant asked.
+      expect(counted).toHaveBeenCalledTimes(1);
     },
   );
 });

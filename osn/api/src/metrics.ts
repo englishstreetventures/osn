@@ -613,6 +613,16 @@ export const withSessionRotation = <A, E, Ctx>(
     ),
   );
 
+/**
+ * A token grant the route refuses before the service runs, for what it asked
+ * (a `profile_id` that is no profile id): counted on the two counters the
+ * service counts its own such refusal on, as `forbidden`.
+ */
+export const metricAuthTokenRefreshRefused = (): void => {
+  authTokenRefresh.inc({ result: "forbidden" });
+  authSessionRotations.inc({ result: "forbidden" });
+};
+
 export const metricSessionReuseDetected = (): void => authSessionReuseDetected.inc({});
 
 export const metricSessionRotationRace = (): void => authSessionRotationRace.inc({});
