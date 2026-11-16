@@ -721,7 +721,7 @@ token ([[design-tokens]] §Motion; cire's `--dur-*` in a cire app):
 }
 ```
 
-Chrome 117, Safari 17.4 and Firefox 129 run it; an older engine drops the
+Chrome 117, Safari 17.5 and Firefox 129 run it; an older engine drops the
 `transition` declaration and toggles at once, which degrades rather than
 breaks. Give the closed state `pointer-events: none`, or the fading box still
 takes a tap.

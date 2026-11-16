@@ -91,6 +91,7 @@ export const CONTRACT_SCALAR_TOKENS = {
     "--ui-ease-out",
     "--ui-ease-in-out",
     "--ui-ease-exit",
+    "--ui-ease-sheet",
     "--ui-scale-enter",
     "--ui-scale-exit",
     "--ui-distance-enter",
