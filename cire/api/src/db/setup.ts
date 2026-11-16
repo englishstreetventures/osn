@@ -11,6 +11,7 @@ import {
 import type { EnvelopeId } from "@cire/envelope";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import type { DesignId } from "@cire/invite-designs";
+import { hashRecoveryCode } from "@shared/crypto/recovery";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -1184,10 +1185,11 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Eight weddings for the E2E suite's organiser flows, each on Gold, and one
- * whose guests open an envelope. The dev profile, which osn-api's `/dev/login`
- * signs in as, owns all but `wed_e2e_rs_helper`, where it is a helper, and
- * `wed_e2e_envelope`, which has no seat:
+ * The weddings for the E2E suite's organiser flows, each on Gold but
+ * `wed_e2e_enquiries`, on Crimson, and three with no seat whose guests open an
+ * envelope (`seedE2eEnvelope`). The dev profile, which osn-api's `/dev/login`
+ * signs in as, owns every seated one but `wed_e2e_rs_helper`, where it is a
+ * helper:
  *
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
@@ -1230,8 +1232,16 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2, all three having
  *   said yes — and an after party, inviting Ada, with no plan yet; for setting
  *   out and seating an event's chart.
- * - `wed_e2e_envelope`: on Crimson, with the Wax seal envelope and a hero
- *   title, for the guest's opening of the envelope.
+ * - `wed_e2e_settings`: two households and two live unlock codes, for
+ *   redeeming a code, re-minting the family codes and deleting and restoring
+ *   the wedding (`seedE2eSettings`).
+ * - `wed_e2e_enquiries`: on Crimson, with two live directory listings, one
+ *   unclaimed and one whose enquiry has a quote, for enquiring with a vendor
+ *   and adding a quote to the budget (`seedE2eEnquiries`).
+ * - `wed_e2e_legacy_event`: an event saved before the editor checked one
+ *   (`seedE2eLegacyEvent`).
+ *
+ * The envelope weddings have no seat (`seedE2eEnvelope`).
  *
  * It also gives Bo, of the sample wedding's Sampleton household, an address
  * his hosts added, so the member-step flow can check the invitation shows it
@@ -1743,8 +1753,176 @@ function seedE2eOrganiser(db: TestDb): void {
   }
 
   seedE2eSeating(db, now);
+  seedE2eSettings(db, now);
+  seedE2eEnquiries(db, now);
   seedE2eEnvelope(db, now);
   seedE2eLegacyEvent(db, now);
+}
+
+/**
+ * `wed_e2e_settings`, for {@link seedE2eOrganiser}: a Gold wedding the dev
+ * profile owns alone, for `cire-checklist-holders`' settings steps, which
+ * redeem codes on it, re-mint its family codes and delete and restore it, so
+ * no other flow's wedding is changed by any of them.
+ *
+ * - Two households of one guest each. Nguyen's code has been sent, so the
+ *   re-mint warns that a family already holds a code that will stop working.
+ * - Two live unlock codes, one use each, stored as `hashRecoveryCode` of the
+ *   code as `scripts/mint-unlock-code.ts` stores them: a Gold one, which the
+ *   wedding already holds, so redeeming it is refused and spends nothing, and
+ *   a Crimson one, which raises the wedding to Crimson.
+ */
+function seedE2eSettings(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_settings";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "settings-wedding",
+      displayName: "Settings Wedding",
+      tier: "gold",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_settings_owner", now);
+  const households = [
+    { id: "fam_e2e_settings_nguyen", code: "NGUYEN-E2E-ST01", name: "Nguyen", sent: true },
+    { id: "fam_e2e_settings_patel", code: "PATEL-E2E-ST02", name: "Patel", sent: false },
+  ];
+  households.forEach((household, sortOrder) => {
+    db.insert(schema.families)
+      .values({
+        id: household.id,
+        weddingId,
+        publicId: household.code,
+        familyName: household.name,
+        codeSharedAt: household.sent ? now : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(schema.guests)
+      .values({
+        id: `gst_e2e_settings_${household.name.toLowerCase()}`,
+        familyId: household.id,
+        firstName: household.name === "Nguyen" ? "Linh" : "Ravi",
+        lastName: household.name,
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  });
+  db.insert(schema.unlockCodes)
+    .values([
+      {
+        id: "ulc_e2e_settings_gold",
+        codeHash: hashRecoveryCode("e2e0-901d-0000-0001"),
+        tier: "gold",
+        maxRedemptions: 1,
+        createdBy: "script:e2e-seed",
+        createdAt: now,
+      },
+      {
+        id: "ulc_e2e_settings_crimson",
+        codeHash: hashRecoveryCode("e2e0-c41f-0000-0002"),
+        tier: "crimson",
+        maxRedemptions: 1,
+        createdBy: "script:e2e-seed",
+        createdAt: now,
+      },
+    ])
+    .run();
+}
+
+/**
+ * `wed_e2e_enquiries`, for {@link seedE2eOrganiser}: a Crimson wedding, the
+ * tier the vendor directory and enquiries need, that the dev profile owns
+ * alone, for `cire-registry-money`'s enquiry steps. Two listings are live in
+ * the directory:
+ *
+ * - Willow & Fern Florals, unclaimed and not yet in the wedding. An enquiry to
+ *   it waits on the listing (`pending_body`) until the vendor claims it, so
+ *   sending one needs no vendor chat, which this stack does not run.
+ * - Harbour Strings, claimed, whose enquiry from this wedding the vendor has
+ *   already answered with a $4,800 quote. A quote reaches a couple only
+ *   through the vendor chat, so it is seeded; Add to budget reads the quote
+ *   from the enquiry row and needs no chat either.
+ *
+ * Directory listings are not a wedding's own rows, but only the E2E stack seeds
+ * these two, and no other flow opens the directory.
+ */
+function seedE2eEnquiries(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_enquiries";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "enquiries-wedding",
+      displayName: "Enquiries Wedding",
+      tier: "crimson",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_enquiries_owner", now);
+  db.insert(schema.directoryVendors)
+    .values([
+      {
+        id: "dir_e2e_enq_florals",
+        name: "Willow & Fern Florals",
+        description: "Seasonal flowers, arranged loose.",
+        locationText: "Sydney",
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "dir_e2e_enq_strings",
+        ownerOrgId: "org_e2e_harbour_strings",
+        claimedByProfileId: "usr_e2e_harbour",
+        name: "Harbour Strings",
+        description: "A string quartet for the ceremony and the drinks after.",
+        locationText: "Sydney",
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    .run();
+  db.insert(schema.directoryVendorCategories)
+    .values([
+      { directoryVendorId: "dir_e2e_enq_florals", category: "florals" },
+      { directoryVendorId: "dir_e2e_enq_strings", category: "music_entertainment" },
+    ])
+    .run();
+  db.insert(schema.vendors)
+    .values({
+      id: "vnd_e2e_enq_strings",
+      weddingId,
+      directoryVendorId: "dir_e2e_enq_strings",
+      name: "Harbour Strings",
+      category: "music_entertainment",
+      status: "quoted",
+      quotedMinor: 480_000,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.vendorEnquiries)
+    .values({
+      id: "enq_e2e_strings",
+      weddingId,
+      directoryVendorId: "dir_e2e_enq_strings",
+      vendorId: "vnd_e2e_enq_strings",
+      zapChatId: "chat_e2e_harbour_strings",
+      status: "quoted",
+      createdBy: DEV_OWNER_PROFILE_ID,
+      quotedMinor: 480_000,
+      lastMessageAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 }
 
 /**
