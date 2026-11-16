@@ -65,8 +65,8 @@
     "@changesets/cli": "^3.0.3",
     "@oxlint/plugins": "1.90.0",
     "@shadcn/lint": "0.2.3",
-    "@stryker-mutator/core": "10.0.0",
-    "@stryker-mutator/vitest-runner": "10.0.0",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
     "bun-types": "1.4.4",
     "lefthook": "2.2.2",
     "oxlint": "1.90.0",
@@ -107,7 +107,6 @@
     "zod": "^4.6.6"
   },
   "patchedDependencies": {
-    "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch",
     "drizzle-orm@1.0.0-rc.5": "patches/drizzle-orm@1.0.0-rc.5.patch",
     "@alchemy.run/cloudflare@2.0.0-beta.85": "patches/@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch"
   }

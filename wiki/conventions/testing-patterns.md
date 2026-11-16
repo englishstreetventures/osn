@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-16
 ---
 
 # Testing Patterns
@@ -635,12 +635,10 @@ What the configs depend on, and what breaks without it:
   strict `^7` or `^8`. A root `overrides` entry for `@babel/core` forces one
   version on both and breaks one of them: under `^7` Stryker crashes while
   instrumenting.
-- **The vitest runner is patched for Vitest 5**
-  (`patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch`). Stryker filters
-  the tests to run per mutant by name, and Vitest 5 joins a test's suite chain
-  with ` > ` where the runner joins it with a space, so unpatched every mutant
-  runs no tests and survives. A run reporting `Ran 0.00 tests per mutant` is
-  that failure. Bounded until englishstreetventures/osn#1520 lands.
+- **The vitest runner must be 10.1.1 or later.** Stryker filters the tests to
+  run per mutant by name, and Vitest 5 joins a test's suite chain with ` > `;
+  an earlier runner joins it with a space, so every mutant runs no tests and
+  survives. A run reporting `Ran 0.00 tests per mutant` is that failure.
 - **Every vitest config names `@stryker-mutator/vitest-runner` in `plugins`.**
   Bun's isolated install hides the runner from Stryker's plugin discovery, which
   fails with "Cannot find TestRunner plugin".
