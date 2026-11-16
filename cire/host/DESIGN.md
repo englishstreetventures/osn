@@ -240,8 +240,8 @@ region a reader moves to, or data; a line that only decorates is not drawn
 (the owner's choice). The RSVPs view draws no
 intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
 reader moving by headings the name the visible intros of Households and Edit
-give theirs. Its download is the bar's icon button after the reply key (§4,
-One pill language).
+give theirs. Its download ends the bar's first row, after the event strip,
+and on a phone the search row (§4, One pill language).
 
 **An eyebrow over a heading says what the screen does not** (the owner's
 choice, englishstreetventures/osn#1991). Where the module's header, the open
@@ -529,15 +529,30 @@ one row:
   the ink turns the body ink, with a gold edge; while what it opens is open it
   stands on the raised surface in the body ink and its hairline, whatever the
   pointer does (the owner's choice). It is an icon button that
-  stands alone in a page's chrome — the reply key, the guest list's and the
-  RSVP page's Downloads, Add household on a narrow panel and the
-  getting-started guide's Dismiss. A row's icon action, repeated once per
+  stands alone in a page's chrome — the reply key, Add household on a narrow
+  panel and the getting-started guide's Dismiss. A row's icon action, repeated once per
   row — a household's four actions and its "⋯" — is `quiet` at `icon`: the
   same circle, its hover a gold edge and readable gold, held while what it
   opens is open. `round` stays the guest sheet's ×. A dialog's or a drawer's
   own × — the event drawer's Close, the module drawer's Close modules —
   stays `bare`: it belongs to the frame it closes, not to a bar of the page's pills, and a
   hairline circle in a panel's head would read as one more of its actions.
+- **A page's download** is one button wherever it is drawn
+  (`DownloadButton`, `src/components/CsvExportButton.tsx`): `outline` at
+  `sm`, the 28px pill, led by the `download` glyph at 14px, stroke 1.75, and
+  its words, "Download <what> CSV" — events, guests, RSVPs, gifts, seating
+  (the owner's choice, englishstreetventures/osn#2357: "Button should have
+  both icon and 'Download events CSV'"). Each page offers one, for the list
+  it shows: the Households tab the guest list alone, the RSVP sheet being the
+  RSVPs tab's. It sits at the top right — beside the intro on Events and
+  Households, at the end of the view bar's first row on RSVPs, beside Print
+  on the seating chart — and under the gift log on the registry. While the
+  file is fetched its words read "Exporting <what>…" and it is `disabled`,
+  so a second press spends nothing from the owner's export limit; a toast
+  says how it went (the chart says it in its own live region). In a row with
+  no room for its words, the RSVP page's phone search row, its words become
+  hidden text and the pill a 28px circle, as a marked `LinkPill` does, the
+  words its name and its tooltip.
 - **A block pressed to choose** — the code-style and re-mint radio cards
   (14px), a design or an envelope card (16px, both `invite/picker-card.ts`) — is marked as `choice` marks an answer, at
   its own corner: a gold edge and a 2px ring at 60%, no wash; under the
@@ -1680,8 +1695,8 @@ cannot hover it. Where the badges are icons with nothing written beside them —
 the RSVP meta line's provenance — one button in the view bar opens a key that
 names every one, with what it says: "What the reply icons mean", a 28px
 `info` glyph on the bar's icon button (`bar` at `icon`), the last control in
-the bar's second row (on a phone, in the search row) but for the owner's
-download after it, on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
+the bar's second row (on a phone, in the search row, the owner's download
+after it), on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
 Depth). One stop for the page, not one per row.
 
 On a guest's meta line (§Names and meta lines) a provenance badge is an icon
@@ -1930,9 +1945,10 @@ height with a placeholder the size of each (§4, Skeletons), so the bar is the
 same height while the RSVP replies load as after, at both widths. A module
 with one view has no bar.
 
-**What each Guests tab lends it.** RSVPs: a divider and the event strip in the
-first row; the slim search and the reply filter in the second; on a phone the
-search and the sort select in the second and the reply filter in a third.
+**What each Guests tab lends it.** RSVPs: a divider, the event strip and an
+owner's download in the first row; the slim search, the reply filter and the
+reply key in the second; on a phone the search, the sort select, the key and
+the download in the second and the reply filter in a third.
 Households: the count and the search in the first row, and on a phone the
 search alone. Edit: a divider, the mode switch and Add household, icons alone
 below 36rem. "Showing n of m" and the tallies stay in the panel, under the bar.

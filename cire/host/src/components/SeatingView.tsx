@@ -57,6 +57,7 @@ import {
 } from "../lib/seating-api";
 import { sameButOrder } from "../lib/sortable-rows";
 import { haptic } from "../lib/touch-feedback";
+import { DownloadButton } from "./CsvExportButton";
 import { FilterSelect } from "./FilterField";
 import ReorderControls from "./ReorderControls";
 
@@ -370,7 +371,12 @@ export default function SeatingView(props: SeatingViewProps) {
     });
   });
 
+  // One download at a time, as every page download runs: the button is
+  // `disabled` until this settles, so a second press spends no second call
+  // from the owner's export rate limit.
+  const [downloading, setDownloading] = createSignal(false);
   async function downloadCsv() {
+    setDownloading(true);
     try {
       await downloadLockedExport(
         authFetch,
@@ -380,6 +386,8 @@ export default function SeatingView(props: SeatingViewProps) {
       );
     } catch {
       say("Could not download the seating chart. Try again.");
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -432,9 +440,12 @@ export default function SeatingView(props: SeatingViewProps) {
               Print
             </Button>
             <Show when={props.canManage}>
-              <Button variant="outline" size="sm" onClick={() => void downloadCsv()}>
-                Download seating CSV
-              </Button>
+              <DownloadButton
+                label="Download seating CSV"
+                busyLabel="Exporting seating…"
+                busy={downloading()}
+                onClick={() => void downloadCsv()}
+              />
             </Show>
           </div>
         </div>

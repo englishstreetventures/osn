@@ -392,7 +392,7 @@ const HOLLOW: Record<string, Hollow> = {
     module: "guests",
     sub: "list",
     held: "guests",
-    actions: 2,
+    actions: 1,
     arrived: (scope) => scope.querySelector("[role=group][aria-labelledby]") !== null,
     barCount: true,
     // The list's frame, the head strip, a household's bar and its rule.
