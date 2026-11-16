@@ -36,7 +36,7 @@ const VARIANTS = {
     "base:border base:border-ui-hairline-strong base:bg-ui-ground base:hover:bg-ui-surface-sunk base:hover:text-ui-ink",
   secondary: "base:bg-ui-surface-sunk base:text-ui-ink base:hover:bg-ui-surface-sunk/80",
   ghost: "base:hover:bg-ui-surface-sunk base:hover:text-ui-ink",
-  ghostDanger: "base:text-ui-ink-secondary base:hover:bg-ui-surface-sunk base:hover:text-ui-danger",
+  ghostDanger: "base:text-ui-ink-secondary base:hover:text-ui-danger",
   link: "base:text-ui-accent-ink base:underline-offset-4 base:hover:underline",
 } as const;
 

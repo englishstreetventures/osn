@@ -1,5 +1,6 @@
 import { describeAuthError } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
@@ -87,7 +88,7 @@ export function ConnectedAppsSection() {
               <div class="flex flex-col gap-2">
                 <For each={apps()}>
                   {(conn) => (
-                    <div class="border-border rounded-card flex items-center justify-between gap-3 border px-4 py-3">
+                    <Card radius="md" padding="sm" class="flex items-center justify-between gap-3">
                       <div class="flex min-w-0 items-center gap-3">
                         <Show when={safeAvatarUrl(conn.logoUrl)}>
                           {(url) => (
@@ -117,7 +118,7 @@ export function ConnectedAppsSection() {
                       >
                         {revoking() === conn.clientId ? "Revoking…" : "Revoke"}
                       </Button>
-                    </div>
+                    </Card>
                   )}
                 </For>
               </div>

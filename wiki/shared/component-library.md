@@ -1179,6 +1179,12 @@ import { buttonVariants } from "@shared/ui/ui/button";
 Every size, the link inside a sentence, the `busy` wait, the press and
 keyboard focus are in [[#Button — a link inside a sentence, and a wait]].
 
+`ghostDanger` is muted ink at rest and `--ui-danger` ink on hover, with no
+hover fill: red text on `--ui-surface-sunk` measures 4.34:1 in Musubi's light
+theme, under the 4.5:1 floor, so the ink alone marks hover and the red sits on
+the page or card the button already stands on. `ghost` keeps its fill, since
+its ink stays `--ui-ink`.
+
 **`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse draws; Musubi maps 500 and draws no `Badge`, and the lab draws Musubi's 500 except in `BadgeWeights`' unmapped column, which lends `initial` ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
