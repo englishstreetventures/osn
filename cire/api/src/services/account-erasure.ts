@@ -71,7 +71,7 @@ export const DELETED_PROFILE = "deleted";
 /**
  * Weddings the person owns that one erasure call takes, each its own batch.
  * Counting every statement singly, a call makes at most 1 (the read of owned
- * weddings) + 3 per wedding + 23 (the account's clean-up), inside the 50 D1
+ * weddings) + 3 per wedding + 22 (the account's clean-up), inside the 50 D1
  * queries one Worker invocation may make on Workers Free.
  */
 export const MAX_OWNED_WEDDINGS_PER_CALL = 3;
@@ -114,14 +114,11 @@ export interface KeptItem {
   readonly requestUrl: string | null;
 }
 
-export type DeletionAnswers = Readonly<Record<string, { readonly choice: string }>>;
-
 export type ErasureResult =
   | { readonly status: "done"; readonly kept: ReadonlyArray<KeptItem> }
   | { readonly status: "not_finished" };
 
 class AccountErasureError extends Data.TaggedError("AccountErasureError")<{
-  readonly op: "preview" | "wedding" | "account";
   readonly reason: string;
 }> {}
 
@@ -173,7 +170,6 @@ function preview(input: {
   readonly organiserOrigin: string;
 }): Effect.Effect<ReadonlyArray<OpenAction>, AccountErasureError, DbService> {
   return Effect.gen(function* () {
-    if (input.profileIds.length === 0) return [];
     const db = yield* DbService;
     const sole = yield* Effect.tryPromise({
       try: () =>
@@ -195,7 +191,7 @@ function preview(input: {
             .limit(MAX_PREVIEW_ACTIONS + 1)
             .all(),
         ),
-      catch: (e) => new AccountErasureError({ op: "preview", reason: String(e) }),
+      catch: (e) => new AccountErasureError({ reason: String(e) }),
     });
 
     const origin = httpsOrigin(input.organiserOrigin);
@@ -226,16 +222,14 @@ function preview(input: {
 // Erase
 // ---------------------------------------------------------------------------
 
+/**
+ * The account and its profiles. The person's answers are not an input: the
+ * one answer cire offers is `delete`, and a wedding left with no owner is
+ * deleted whatever was answered.
+ */
 interface EraseInput {
   readonly accountId: string;
   readonly profileIds: ReadonlyArray<string>;
-  /**
-   * The person's answers, and whether they chose to delete everything. Neither
-   * changes what cire does: the one answer cire offers is `delete`, and a
-   * wedding left with no owner is deleted whatever was answered.
-   */
-  readonly choices: DeletionAnswers;
-  readonly deleteEverything: boolean;
   readonly now?: Date;
 }
 
@@ -286,7 +280,7 @@ function eraseOwnedWedding(
             )
             .returning({ id: weddings.id }),
         ]),
-      catch: (e) => new AccountErasureError({ op: "wedding", reason: String(e) }),
+      catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
       Effect.tapError((err) =>
         Effect.logError("account erasure: a wedding's batch failed").pipe(
@@ -470,7 +464,7 @@ function eraseAccountRows(input: EraseInput) {
             .from(weddingHosts)
             .where(and(inProfiles(weddingHosts.osnProfileId, p), eq(weddingHosts.role, "owner"))),
         ]),
-      catch: (e) => new AccountErasureError({ op: "account", reason: String(e) }),
+      catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
       Effect.tapError((err) =>
         Effect.logError("account erasure: the account's clean-up failed").pipe(
@@ -490,34 +484,30 @@ function eraseAccountRows(input: EraseInput) {
  * everything else of the account. cire keeps nothing about the person, so a
  * finished call answers no kept item. Answers `not_finished` while owned
  * weddings remain or a seat was made owner since the first read; osn-api calls
- * again. Removing a person's cire data while they keep their account calls
- * this too, behind the same preview refusal.
+ * again.
  */
 function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const owned =
-      input.profileIds.length === 0
-        ? []
-        : yield* Effect.tryPromise({
-            try: () =>
-              Promise.resolve(
-                db
-                  .select({ weddingId: weddingHosts.weddingId })
-                  .from(weddingHosts)
-                  .where(
-                    and(
-                      inProfiles(weddingHosts.osnProfileId, input.profileIds),
-                      eq(weddingHosts.role, "owner"),
-                    ),
-                  )
-                  .groupBy(weddingHosts.weddingId)
-                  .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddingHosts.weddingId))
-                  .limit(MAX_OWNED_WEDDINGS_PER_CALL + 1)
-                  .all(),
+    const owned = yield* Effect.tryPromise({
+      try: () =>
+        Promise.resolve(
+          db
+            .select({ weddingId: weddingHosts.weddingId })
+            .from(weddingHosts)
+            .where(
+              and(
+                inProfiles(weddingHosts.osnProfileId, input.profileIds),
+                eq(weddingHosts.role, "owner"),
               ),
-            catch: (e) => new AccountErasureError({ op: "wedding", reason: String(e) }),
-          });
+            )
+            .groupBy(weddingHosts.weddingId)
+            .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddingHosts.weddingId))
+            .limit(MAX_OWNED_WEDDINGS_PER_CALL + 1)
+            .all(),
+        ),
+      catch: (e) => new AccountErasureError({ reason: String(e) }),
+    });
 
     const now = input.now ?? new Date();
     for (const { weddingId } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {

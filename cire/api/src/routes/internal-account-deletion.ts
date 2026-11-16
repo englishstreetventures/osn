@@ -137,17 +137,13 @@ export const createInternalAccountDeletionRoutes = (
         const decoded = Schema.decodeUnknownOption(ErasureBody)(raw);
         if (Option.isNone(decoded)) return badRequest(set);
         const body = decoded.value;
-        const choices = body.choices ?? {};
-        if (Object.keys(choices).length > MAX_CHOICES) return badRequest(set);
+        // The answers change nothing cire does (`services/account-erasure.ts`);
+        // they are checked against the contract and go no further.
+        if (Object.keys(body.choices ?? {}).length > MAX_CHOICES) return badRequest(set);
 
         const result = await runCire(
           accountErasureService
-            .erase({
-              accountId: body.accountId,
-              profileIds: body.profileIds,
-              choices,
-              deleteEverything: body.deleteEverything ?? false,
-            })
+            .erase({ accountId: body.accountId, profileIds: body.profileIds })
             .pipe(
               Effect.catchTag("AccountErasureError", () =>
                 Effect.succeed({ status: "error" } as const),

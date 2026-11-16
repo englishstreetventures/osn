@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   directoryVendors,
+  guestAccountLinks,
   hostRsvpNotices,
   organiserSessions,
   ownerNoticeBudget,
@@ -15,13 +16,14 @@ import { Effect } from "effect";
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import {
   accountErasureService,
-  DELETED_PROFILE,
   MAX_OWNED_WEDDINGS_PER_CALL,
 } from "../../src/services/account-erasure";
-import { beforeStatement } from "../test-helpers";
+import { beforeStatement, failStatements, recordStatements } from "../test-helpers";
 import { fullWeddingStatements } from "../test-helpers/full-wedding";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { insertWedding } from "../test-helpers/wedding";
 
 /**
@@ -38,6 +40,8 @@ const P = "usr_erased";
 const P2 = "usr_erased_second";
 const OTHER = "usr_other";
 const EDITOR = "usr_editor";
+/** What a column that cannot be NULL holds once the profile it named is erased. */
+const DELETED = "deleted";
 
 function makeDb(): TestDb {
   return createDb(":memory:");
@@ -91,27 +95,25 @@ const preview = (db: TestDb, profileIds: readonly string[] = [P], origin = PORTA
     }),
   );
 
-function erase(
-  db: TestDb,
-  opts: {
-    choices?: Record<string, { choice: string }>;
-    deleteEverything?: boolean;
-    profileIds?: readonly string[];
-    now?: Date;
-  } = {},
-) {
+function erase(db: TestDb, opts: { profileIds?: readonly string[]; now?: Date } = {}) {
   const result = run(
     db,
     accountErasureService.erase({
       accountId: ACCOUNT,
       profileIds: opts.profileIds ?? [P],
-      choices: opts.choices ?? {},
-      deleteEverything: opts.deleteEverything ?? false,
       now: opts.now ?? NOW,
     }),
   );
   return { result };
 }
+
+/** What the erasure did to the weddings the person owned, as its metric counts them. */
+const weddingOutcomes = async () => ({
+  deleted: await counterValue(CIRE_METRICS.accountDeletionWeddings, { outcome: "deleted" }),
+  seatRemoved: await counterValue(CIRE_METRICS.accountDeletionWeddings, {
+    outcome: "seat_removed",
+  }),
+});
 
 const seatsOf = (db: TestDb, weddingId: string) =>
   db
@@ -177,19 +179,56 @@ describe("accountErasureService.preview", () => {
     ]);
   });
 
-  it("F14: an organiser portal that is not https gives no link", async () => {
+  it("F13: a hundred weddings the account alone owns are listed one by one", async () => {
     const db = makeDb();
-    wedding(db, "w1", [P]);
-    const [action] = await preview(db, [P], "http://localhost:4322");
-    expect(action?.link).toBeNull();
+    for (let i = 0; i < 100; i += 1) wedding(db, `w${String(i).padStart(3, "0")}`, [P]);
+    const actions = await preview(db);
+    expect(actions).toHaveLength(100);
+    expect(actions.every((a) => a.kind === "wedding_sole_owner")).toBe(true);
   });
+
+  it.each([["http://localhost:4322"], ["not an origin"]])(
+    "F14: an organiser portal that is not https (%s) gives no link",
+    async (origin) => {
+      const db = makeDb();
+      wedding(db, "w1", [P]);
+      const [action] = await preview(db, [P], origin);
+      expect(action?.link).toBeNull();
+    },
+  );
 
   it("F44: a long wedding name stays inside the contract's 500 characters", async () => {
     const db = makeDb();
     wedding(db, "w1", [P], { name: "y".repeat(600) });
     const [action] = await preview(db);
     expect(action?.label.length).toBeLessThanOrEqual(500);
+    expect(action?.label).toContain(`"${"y".repeat(120)}…"`);
     expect(action?.choices[0]?.description.length).toBeLessThanOrEqual(500);
+  });
+
+  it("F44: a name at its write-time limit of 120 characters is quoted whole", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P], { name: "z".repeat(120) });
+    const [action] = await preview(db);
+    expect(action?.label).toContain(`"${"z".repeat(120)}"`);
+  });
+
+  it("an account with no profiles has nothing open", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P]);
+    expect(await preview(db, [])).toEqual([]);
+  });
+
+  it("a failed read fails the preview, for the route to answer 500", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P]);
+    failStatements(db, (statement) => /from "wedding_hosts"/i.test(statement));
+    const exit = await Effect.runPromiseExit(
+      accountErasureService
+        .preview({ profileIds: [P], deletesAt: NOW_S, organiserOrigin: PORTAL })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    expect(exit._tag).toBe("Failure");
   });
 });
 
@@ -208,38 +247,53 @@ const liveWithNoOwner = (db: TestDb) =>
     .map((row) => row.id);
 
 describe("accountErasureService.erase — weddings the person owns", () => {
-  it.each([
-    ["answered delete", { choices: { "cire:wedding:w1": { choice: "delete" } } }],
-    ["deleting everything", { deleteEverything: true }],
-    ["with no answer stored", {}],
-  ] as const)(
-    "F15, F16, F17: a wedding the person alone owns is deleted with their seat, %s",
-    async (_label, opts) => {
-      const db = makeDb();
-      wedding(db, "w1", [P]);
-      seat(db, "w1", EDITOR, "editor", P);
-      db.insert(hostRsvpNotices).values({ weddingId: "w1", osnProfileId: P, updatedAt: NOW }).run();
+  // The person's answers never reach this service: whatever they answered,
+  // or if they answered nothing (F15, F16, F17), the rows decide. The route
+  // test sends each form.
+  it("F15, F16, F17: a wedding the person alone owns is deleted with their seat", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P]);
+    seat(db, "w1", EDITOR, "editor", P);
+    db.insert(hostRsvpNotices).values({ weddingId: "w1", osnProfileId: P, updatedAt: NOW }).run();
+    const before = await weddingOutcomes();
 
-      expect(await erase(db, opts).result).toEqual({ status: "done", kept: [] });
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
 
-      const row = weddingRow(db, "w1");
-      expect(row?.deletedAt).toEqual(NOW);
-      expect(row?.deletedByOsnProfileId).toBeNull();
-      expect(seatsOf(db, "w1")).toEqual([{ profile: EDITOR, role: "editor" }]);
-      expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
-      expect(liveWithNoOwner(db)).toEqual([]);
-    },
-  );
+    const row = weddingRow(db, "w1");
+    expect(row?.deletedAt).toEqual(NOW);
+    expect(row?.deletedByOsnProfileId).toBeNull();
+    expect(seatsOf(db, "w1")).toEqual([{ profile: EDITOR, role: "editor" }]);
+    expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
+    expect(liveWithNoOwner(db)).toEqual([]);
+    expect(await weddingOutcomes()).toEqual({
+      deleted: before.deleted + 1,
+      seatRemoved: before.seatRemoved,
+    });
+  });
+
+  it("F10: a wedding whose owners are all the account's profiles is deleted, every seat with it", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, P2]);
+    expect(await erase(db, { profileIds: [P, P2] }).result).toEqual({ status: "done", kept: [] });
+    expect(seatsOf(db, "w1")).toEqual([]);
+    expect(weddingRow(db, "w1")?.deletedAt).toEqual(NOW);
+    expect(liveWithNoOwner(db)).toEqual([]);
+  });
 
   it("F19: a wedding with another owner loses the person's seat and nothing else", async () => {
     const db = makeDb();
     wedding(db, "w1", [P, OTHER]);
     db.insert(hostRsvpNotices).values({ weddingId: "w1", osnProfileId: P, updatedAt: NOW }).run();
-    const { result } = erase(db, { deleteEverything: true });
+    const before = await weddingOutcomes();
+    const { result } = erase(db);
     expect(await result).toEqual({ status: "done", kept: [] });
     expect(seatsOf(db, "w1")).toEqual([{ profile: OTHER, role: "owner" }]);
     expect(weddingRow(db, "w1")?.deletedAt).toBeNull();
     expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
+    expect(await weddingOutcomes()).toEqual({
+      deleted: before.deleted,
+      seatRemoved: before.seatRemoved + 1,
+    });
   });
 
   it("F20: the other owner leaving before the batch makes the person the only owner: deleted", async () => {
@@ -281,7 +335,12 @@ describe("accountErasureService.erase — weddings the person owns", () => {
       .run();
 
     expect(await erase(db).result).toEqual({ status: "not_finished" });
-    // The account's own rows wait for the call that finishes.
+    // The cap's worth of weddings lost the seat; the rest, and the account's
+    // own rows, wait for the call that finishes.
+    const stillSeated = Array.from({ length: count }, (_, i) => `w${i}`).filter((id) =>
+      seatsOf(db, id).some((s) => s.profile === P),
+    );
+    expect(stillSeated).toHaveLength(count - MAX_OWNED_WEDDINGS_PER_CALL);
     expect(db.select().from(organiserSessions).all()).toHaveLength(1);
 
     expect(await erase(db).result).toEqual({ status: "done", kept: [] });
@@ -289,6 +348,45 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     for (let i = 0; i < count; i += 1) {
       expect(seatsOf(db, `w${i}`)).toEqual([{ profile: OTHER, role: "owner" }]);
     }
+  });
+
+  it("F22: exactly the per-call cap of weddings finishes in one call", async () => {
+    const db = makeDb();
+    for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P, OTHER]);
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+  });
+
+  it("F22: a call at the cap stays inside the 50 D1 queries one Worker invocation may make", async () => {
+    const db = makeDb();
+    for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P]);
+    const statements = recordStatements(db);
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+    // 1 read of owned weddings + 3 per wedding + 22 in the account's clean-up.
+    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 22);
+    expect(statements.length).toBeLessThanOrEqual(50);
+  });
+
+  // Each case fails a batch's first statement: on bun:sqlite a batch is not
+  // atomic, and on D1 a failed batch writes nothing.
+  it.each([
+    ["a wedding's batch", /delete from "host_rsvp_notices"/i],
+    ["the account's clean-up", /delete from "host_rsvp_notices" where .*NOT EXISTS/i],
+    ["the read of owned weddings", /^select .* from "wedding_hosts"/i],
+  ])("a failed statement in %s fails the call, and the next call finishes", async (_l, pattern) => {
+    const db = makeDb();
+    wedding(db, "w1", [P]);
+    const failing = failStatements(db, (statement) => pattern.test(statement));
+    const exit = await Effect.runPromiseExit(
+      accountErasureService
+        .erase({ accountId: ACCOUNT, profileIds: [P], now: NOW })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(failing.failed()).toBeGreaterThan(0);
+    failing.restore();
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+    expect(seatsOf(db, "w1")).toEqual([]);
+    expect(weddingRow(db, "w1")?.deletedAt).toEqual(NOW);
   });
 
   it("F28: a deleted wedding the person alone owned loses the seat and stays deleted from its own time", async () => {
@@ -304,7 +402,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     const db = makeDb();
     wedding(db, "w1", [OTHER]);
     seat(db, "w1", P, "helper", OTHER);
-    const { result } = erase(db, { deleteEverything: true });
+    const { result } = erase(db);
     expect(await result).toEqual({ status: "done", kept: [] });
     expect(seatsOf(db, "w1")).toEqual([{ profile: OTHER, role: "owner" }]);
     expect(weddingRow(db, "w1")?.deletedAt).toBeNull();
@@ -370,27 +468,17 @@ const ATTRIBUTION: ReadonlyArray<
   ["directory_vendors", "review_org_id", "id = 'dv_wed_attr'", null],
   ["directory_vendors", "review_requested_at", "id = 'dv_wed_attr'", null],
   ["registry_settings", "stripe_connected_by_osn_profile_id", "wedding_id = 'wed_attr'", null],
-  ["registry_claims", "thanked_by", "id = 'rclm_wed_attr'", DELETED_PROFILE],
-  ["registry_claims", "note_hidden_by_osn_profile_id", "id = 'rclm_wed_attr'", DELETED_PROFILE],
-  ["registry_contributions", "thanked_by", "id = 'rcon_wed_attr'", DELETED_PROFILE],
-  [
-    "registry_contributions",
-    "note_hidden_by_osn_profile_id",
-    "id = 'rcon_wed_attr'",
-    DELETED_PROFILE,
-  ],
+  ["registry_claims", "thanked_by", "id = 'rclm_wed_attr'", DELETED],
+  ["registry_claims", "note_hidden_by_osn_profile_id", "id = 'rclm_wed_attr'", DELETED],
+  ["registry_contributions", "thanked_by", "id = 'rcon_wed_attr'", DELETED],
+  ["registry_contributions", "note_hidden_by_osn_profile_id", "id = 'rcon_wed_attr'", DELETED],
   ["rsvps", "recorded_by_osn_profile_id", "id = 'rsvp_wed_attr'", null],
   ["rsvps", "dietary_attested_by_osn_profile_id", "id = 'rsvp_wed_attr'", null],
   ["rsvp_changes", "actor_osn_profile_id", "wedding_id = 'wed_attr'", ""],
   ["unlock_code_redemptions", "redeemed_by_osn_profile_id", "id = 'ulr_wed_attr'", null],
-  ["wedding_hosts", "added_by_osn_profile_id", "id = 'whost_wed_attr'", DELETED_PROFILE],
-  ["vendor_enquiries", "created_by", "id = 'enq_wed_attr'", DELETED_PROFILE],
-  [
-    "wedding_upgrade_purchases",
-    "created_by_osn_profile_id",
-    "id = 'upg_wed_attr'",
-    DELETED_PROFILE,
-  ],
+  ["wedding_hosts", "added_by_osn_profile_id", "id = 'whost_wed_attr'", DELETED],
+  ["vendor_enquiries", "created_by", "id = 'enq_wed_attr'", DELETED],
+  ["wedding_upgrade_purchases", "created_by_osn_profile_id", "id = 'upg_wed_attr'", DELETED],
 ];
 
 function seedAttribution(db: TestDb, weddingId: string, profile: string): void {
@@ -537,7 +625,22 @@ describe("accountErasureService.erase — the account's own rows and its name on
     expect(valueOf(db, "vendor_enquiries", "count(*)", "id = 'enq_wed_a'")).toBe(0);
     // The wedding's own record of the vendor stays.
     expect(valueOf(db, "vendors", "count(*)", "id = 'ven_wed_a'")).toBe(1);
-    expect(valueOf(db, "vendor_enquiries", "created_by", "id = 'enq_wed_b'")).toBe(DELETED_PROFILE);
+    expect(valueOf(db, "vendor_enquiries", "created_by", "id = 'enq_wed_b'")).toBe(DELETED);
+  });
+
+  it("an account with no profiles still loses the guest account links that name it", async () => {
+    const db = makeDb();
+    for (const statement of fullWeddingStatements("wed_a", { owner: OTHER, now: NOW })) {
+      db.run(statement);
+    }
+    db.run(
+      sql.raw(
+        `UPDATE guest_account_links SET osn_account_id = '${ACCOUNT}', osn_profile_id = 'usr_any' WHERE id = 'gal_wed_a'`,
+      ),
+    );
+    expect(await erase(db, { profileIds: [] }).result).toEqual({ status: "done", kept: [] });
+    expect(db.select().from(guestAccountLinks).all()).toEqual([]);
+    expect(seatsOf(db, "wed_a")).toEqual([{ profile: OTHER, role: "owner" }]);
   });
 
   it("F26: a vendor claim the person was waiting on is cleared whole", async () => {

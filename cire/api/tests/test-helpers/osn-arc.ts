@@ -34,14 +34,25 @@ export async function osnArc() {
   }) as typeof fetch;
   clearJwksCache();
   return {
-    /** `Authorization: ARC <token>` for `scope`, from osn-api to cire-api unless told otherwise. */
-    token: async (scope: string, claims: { iss?: string; aud?: string; kid?: string } = {}) =>
-      `ARC ${await signArcToken(pair.privateKey, {
-        iss: claims.iss ?? "osn-api",
-        aud: claims.aud ?? "cire-api",
-        scope,
-        kid: claims.kid ?? kid,
-      })}`,
+    /**
+     * `Authorization: ARC <token>` for `scope`, from osn-api to cire-api unless
+     * told otherwise: `signWith` signs with another private key under the
+     * published kid, and `ttl` sets the lifetime in seconds.
+     */
+    token: async (
+      scope: string,
+      claims: { iss?: string; aud?: string; kid?: string; signWith?: CryptoKey; ttl?: number } = {},
+    ) =>
+      `ARC ${await signArcToken(
+        claims.signWith ?? pair.privateKey,
+        {
+          iss: claims.iss ?? "osn-api",
+          aud: claims.aud ?? "cire-api",
+          scope,
+          kid: claims.kid ?? kid,
+        },
+        claims.ttl,
+      )}`,
     /** How many times cire-api has fetched the key set. */
     fetches: () => fetches,
     restore: () => {

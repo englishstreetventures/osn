@@ -6723,8 +6723,6 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
         accountErasureService.erase({
           accountId: "acc_d1_erased",
           profileIds: profiles,
-          choices: {},
-          deleteEverything: false,
         }),
       );
       expect(answer).toEqual({ status: "done", kept: [] });
