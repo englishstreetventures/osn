@@ -55,9 +55,20 @@
  * rides on later calls — when those fetches pass `credentials: "include"`.
  */
 
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Request, Response, Route } from "@playwright/test";
 
-import { ORIGINS, PEOPLE, PULSE_OIDC, THIRD_PARTY_OIDC, TURNSTILE_ORIGIN } from "../../src/config";
+import {
+  ORIGINS,
+  PEOPLE,
+  PULSE_OIDC,
+  SCREENSHOT_DIR,
+  THIRD_PARTY_OIDC,
+  TURNSTILE_ORIGIN,
+} from "../../src/config";
+import { type Drawn, watchDraws } from "../support/draw-watch";
 import {
   addVirtualAuthenticator,
   cookieNamed,
@@ -766,8 +777,13 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     await page.unroute(passkeysList, listHeld.handler);
   }
   let rowHeight = "";
+  // The passkey's name as the list shows it, read off its Rename.
+  let passkeyName = "";
   await flow.step("Settings → Security once the passkey list lands", async () => {
     await expect(page.getByRole("button", { name: "Rename" })).toBeVisible();
+    passkeyName = (
+      (await page.getByRole("button", { name: /^Rename / }).getAttribute("aria-label")) ?? ""
+    ).replace(/^Rename /, "");
     rowHeight = await page
       .locator("li")
       .filter({ has: page.getByRole("button", { name: "Rename" }) })
@@ -943,9 +959,22 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     removalDescription.includes("You'll lose it as a way back into your account."),
   );
   await removalSheetSurfaces(flow, page, removal);
+  // The tab's three reads, each a GET: Musubi reads them again after every
+  // write on the tab, and on every visit.
+  const securityReads = ["/passkeys", "/totp/status", "/recovery/status"].map(
+    (path) => `${ORIGINS.osnApi}${path}`,
+  );
+  const answered = (url: string) =>
+    page.waitForResponse(
+      (response) => response.url() === url && response.request().method() === "GET",
+    );
   await flow.step("remove the authenticator app", async () => {
+    // A write on the tab reads all three again; each is waited for here, so no
+    // later step's hold or count meets one of them.
+    const reread = Promise.all(securityReads.map(answered));
     await removal.getByRole("button", { name: "Use passkey" }).click();
     await expect(page.getByRole("button", { name: "Add an authenticator app" })).toBeVisible();
+    await reread;
     // Leave the Security tab, so the next step's visit mounts its views again.
     await settingsTab("Profile").click();
   });
@@ -955,6 +984,116 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     2,
     flow.count("POST osn-api /step-up/passkey/complete 200"),
   );
+
+  // Musubi's page cache holds the tab (`musubi/social/src/lib/security-data.ts`).
+  // Shown again with its three reads held, it draws what it had at once, with
+  // no placeholder, and the removed authenticator nowhere; the reads still go
+  // out behind it. The return is shot as
+  // `screenshots/musubi-page-cache/security-return.png`.
+  const recoveryLine = "any recovery codes yet";
+  const returnHolds = securityReads.map(() => holdMethod("GET"));
+  for (const [i, url] of securityReads.entries()) await page.route(url, returnHolds[i]!.handler);
+  let drawnWhileHeld = false;
+  let busyWhileHeld = -1;
+  let returnDrawn: Drawn | undefined;
+  try {
+    await flow.step("Security again: drawn at once while its reads are held", async () => {
+      const watch = await watchDraws(page, {
+        words: [passkeyName, "Add an authenticator app", recoveryLine],
+        heading: "Passkeys",
+      });
+      const sent = Promise.all(
+        securityReads.map((url) =>
+          page.waitForRequest((request) => request.url() === url && request.method() === "GET"),
+        ),
+      );
+      await settingsTab("Security").click();
+      await sent;
+      await expect(page.getByRole("button", { name: `Rename ${passkeyName}` })).toBeVisible();
+      drawnWhileHeld = true;
+      busyWhileHeld = await page.locator('main [aria-busy="true"]').count();
+      const shots = join(SCREENSHOT_DIR, "musubi-page-cache");
+      mkdirSync(shots, { recursive: true });
+      await page.screenshot({ path: join(shots, "security-return.png") });
+      returnDrawn = await watch.stop();
+    });
+  } finally {
+    for (const [i, url] of securityReads.entries()) {
+      returnHolds[i]!.release();
+      await page.unroute(url, returnHolds[i]!.handler);
+    }
+  }
+  flow.check("security return: drawn while its reads are held", true, drawnWhileHeld);
+  flow.check(
+    "security return: the first frame holds the passkey, the authenticator's Add and the recovery line",
+    [passkeyName, "Add an authenticator app", recoveryLine].toSorted().join(" | "),
+    [...(returnDrawn?.firstFrame?.words ?? [])].toSorted().join(" | "),
+  );
+  flow.check(
+    "security return: the first frame holds no placeholder",
+    false,
+    returnDrawn?.firstFrame?.placeholder ?? true,
+  );
+  flow.check("security return: no placeholder drawn", false, returnDrawn?.placeholder ?? true);
+  flow.check("security return: nothing marked busy while its reads are held", 0, busyWhileHeld);
+  await flow.step("Security again: its reads land", async () => {
+    await expect(page.locator('main [aria-busy="true"]')).toHaveCount(0);
+  });
+
+  // A rename writes the new name into the list at once; its read again is
+  // held. Leaving the tab and coming back while it is out draws the new name,
+  // and the old one never.
+  const newName = "Ada's laptop";
+  const renameReread = holdMethod("GET");
+  const passkeysUrl = securityReads[0]!;
+  let renamedDrawn: Drawn | undefined;
+  await page.route(passkeysUrl, renameReread.handler);
+  try {
+    await flow.step("rename the passkey, its read again held", async () => {
+      await page.getByRole("button", { name: `Rename ${passkeyName}` }).click();
+      await page.getByRole("textbox", { name: "Passkey name" }).fill(newName);
+      const reread = page.waitForRequest(
+        (request) => request.url() === passkeysUrl && request.method() === "GET",
+      );
+      // The other two reads the rename starts answer at once.
+      const others = Promise.all(securityReads.slice(1).map(answered));
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Use passkey" }).click();
+      await reread;
+      await others;
+      await expect(page.getByText(newName, { exact: true })).toBeVisible();
+    });
+    await flow.step("leave and come back while the read is out: the new name", async () => {
+      const watch = await watchDraws(page, { words: [passkeyName, newName] });
+      // The show joins the passkeys' read still out, and reads the other two.
+      const others = Promise.all(securityReads.slice(1).map(answered));
+      await settingsTab("Profile").click();
+      await settingsTab("Security").click();
+      await expect(page.getByText(newName, { exact: true })).toBeVisible();
+      renamedDrawn = await watch.stop();
+      await others;
+    });
+  } finally {
+    renameReread.release();
+    await page.unroute(passkeysUrl, renameReread.handler);
+  }
+  flow.check("the rename was sent", true, flow.saw("PATCH osn-api /passkeys/:id 200"));
+  flow.check(
+    "after the rename, coming back draws only the new name",
+    newName,
+    (renamedDrawn?.words ?? []).join(" | "),
+  );
+  await flow.step("the rename's read lands", async () => {
+    await expect(page.getByRole("button", { name: `Rename ${newName}` })).toBeVisible();
+    await expect(page.getByText(passkeyName, { exact: true })).toHaveCount(0);
+  });
+  flow.check(
+    "no stored value holds the passkey's name",
+    false,
+    (await storedValues()).some((v) => v.includes(newName)),
+  );
+  // The rename's step-up and its three reads are done before the next step counts.
+  await settingsTab("Profile").click();
 
   // The page's clock has run about 16 s ahead of the servers' since the
   // step-up's deadline above; from here it runs far ahead. osn-api still takes
@@ -986,10 +1125,13 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     page.on("request", onRequest);
     page.on("response", onResponse);
     await pastExpiry();
+    // The tab is drawn from memory at once; its reads go out behind it.
+    const reads = Promise.all(securityReads.map(answered));
     await page.getByRole("link", { name: "Settings" }).first().click();
     await settingsTab("Security").click();
     await expect(page.getByRole("button", { name: "Rename" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Recovery codes" })).toBeVisible();
+    await reads;
     page.off("request", onRequest);
     page.off("response", onResponse);
   });
@@ -1170,18 +1312,49 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     phoneRegister,
   );
 
-  await flow.step("signing in from the notice clears it", async () => {
-    await signedOutNotice.getByRole("button", { name: "Sign in" }).click();
-    await expect(signInHeading).toBeVisible();
-    await identifierField.fill(`@${ada.handle}`);
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
-  });
+  // The Security tab is still the one open. Signed in again, it is a first
+  // load: the cache went with the session that ended, so with its reads held
+  // (the shell's recovery prompt's read with them) it draws its placeholders
+  // and none of the rows it had.
+  const signInHolds = securityReads.map(() => holdMethod("GET"));
+  for (const [i, url] of securityReads.entries()) await page.route(url, signInHolds[i]!.handler);
+  let rowsAfterSignIn = -1;
+  let placeholdersAfterSignIn = 0;
+  try {
+    await flow.step("signing in from the notice clears it", async () => {
+      await signedOutNotice.getByRole("button", { name: "Sign in" }).click();
+      await expect(signInHeading).toBeVisible();
+      await identifierField.fill(`@${ada.handle}`);
+      const sent = page.waitForRequest(
+        (request) => request.url() === securityReads[0] && request.method() === "GET",
+      );
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
+      await sent;
+      await expect(page.getByRole("heading", { name: "Passkeys", exact: true })).toBeVisible();
+      rowsAfterSignIn = await page.getByRole("button", { name: /^Rename / }).count();
+      placeholdersAfterSignIn = await page.locator('main [aria-busy="true"]').count();
+    });
+  } finally {
+    for (const [i, url] of securityReads.entries()) {
+      signInHolds[i]!.release();
+      await page.unroute(url, signInHolds[i]!.handler);
+    }
+  }
   flow.check(
     "signed in again, the page no longer says it was signed out",
     0,
     await page.getByText("You've been signed out.", { exact: true }).count(),
   );
+  flow.check("signed in again, no passkey row drawn before its read", 0, rowsAfterSignIn);
+  flow.check(
+    "signed in again, the Security tab draws its placeholders",
+    true,
+    placeholdersAfterSignIn > 0,
+  );
+  await flow.step("signed in again, the passkey list lands", async () => {
+    await expect(page.getByRole("button", { name: `Rename ${newName}` })).toBeVisible();
+  });
 
   const refusedBeforeReload = flow.count("POST osn-api /token 400");
   await flow.step(
