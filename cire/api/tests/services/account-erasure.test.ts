@@ -375,8 +375,8 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P]);
     const statements = recordStatements(db);
     expect(await erase(db).result).toEqual({ status: "done", kept: [] });
-    // 1 read of owned weddings + 3 per wedding + 22 in the account's clean-up.
-    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 22);
+    // 1 read of owned weddings + 3 per wedding + 21 in the account's clean-up.
+    expect(statements).toHaveLength(1 + 3 * MAX_OWNED_WEDDINGS_PER_CALL + 21);
     expect(statements.length).toBeLessThanOrEqual(50);
   });
 
@@ -657,29 +657,45 @@ describe("accountErasureService.erase — the account's own rows and its name on
     expect(seatsOf(db, "wed_a")).toEqual([{ profile: OTHER, role: "owner" }]);
   });
 
-  it("F26: a vendor claim the person was waiting on is cleared whole", async () => {
+  it("F26: a vendor claim the person was waiting on is cleared whole, and someone else's stays", async () => {
     const db = makeDb();
     db.insert(directoryVendors)
-      .values({
-        id: "dv_pending",
-        name: "Florist",
-        reviewOrgId: "org_waiting",
-        reviewProfileId: P,
-        reviewRequestedAt: NOW,
-        createdAt: NOW,
-        updatedAt: NOW,
-      })
+      .values([
+        {
+          // Claimed by someone else; the person's claim review is pending.
+          id: "dv_pending",
+          name: "Florist",
+          claimedByProfileId: OTHER,
+          reviewOrgId: "org_waiting",
+          reviewProfileId: P,
+          reviewRequestedAt: NOW,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+        {
+          // Claimed by the person; someone else's review is pending.
+          id: "dv_claimed",
+          name: "Caterer",
+          claimedByProfileId: P,
+          reviewOrgId: "org_other",
+          reviewProfileId: OTHER,
+          reviewRequestedAt: NOW,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ])
       .run();
     await erase(db).result;
-    const [row] = db
-      .select()
-      .from(directoryVendors)
-      .where(eq(directoryVendors.id, "dv_pending"))
-      .all();
-    expect([row?.reviewOrgId, row?.reviewProfileId, row?.reviewRequestedAt]).toEqual([
-      null,
-      null,
-      null,
-    ]);
+    const vendor = (id: string) => {
+      const [row] = db.select().from(directoryVendors).where(eq(directoryVendors.id, id)).all();
+      return [
+        row?.claimedByProfileId,
+        row?.reviewOrgId,
+        row?.reviewProfileId,
+        row?.reviewRequestedAt,
+      ];
+    };
+    expect(vendor("dv_pending")).toEqual([OTHER, null, null, null]);
+    expect(vendor("dv_claimed")).toEqual([null, "org_other", OTHER, NOW]);
   });
 });

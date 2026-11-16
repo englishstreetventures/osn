@@ -1725,7 +1725,6 @@ export const runFanOutRetrySweep = (opts: {
                 profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${deletionJobs.accountId})`,
               })
               .from(deletionJobs)
-              .innerJoin(accounts, eq(accounts.id, deletionJobs.accountId))
               .where(and(lte(deletionJobs.hardDeleteAt, nowSec), someAppPending()))
               .orderBy(
                 sql`${deletionJobs.fanoutFailedAt} ASC NULLS FIRST`,

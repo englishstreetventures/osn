@@ -71,7 +71,7 @@ export const DELETED_PROFILE = "deleted";
 /**
  * Weddings the person owns that one erasure call takes, each its own batch.
  * Counting every statement singly, a call makes at most 1 (the read of owned
- * weddings) + 3 per wedding + 22 (the account's clean-up), inside the 50 D1
+ * weddings) + 3 per wedding + 21 (the account's clean-up), inside the 50 D1
  * queries one Worker invocation may make on Workers Free.
  */
 export const MAX_OWNED_WEDDINGS_PER_CALL = 3;
@@ -374,14 +374,21 @@ function eraseAccountRows(input: EraseInput) {
             .update(guests)
             .set({ emailAttestedByOsnProfileId: null })
             .where(inProfiles(guests.emailAttestedByOsnProfileId, p)),
+          // A claim the person was waiting on is cleared whole.
           db
             .update(directoryVendors)
-            .set({ claimedByProfileId: null })
-            .where(inProfiles(directoryVendors.claimedByProfileId, p)),
-          db
-            .update(directoryVendors)
-            .set({ reviewOrgId: null, reviewProfileId: null, reviewRequestedAt: null })
-            .where(inProfiles(directoryVendors.reviewProfileId, p)),
+            .set({
+              claimedByProfileId: clearedIn(directoryVendors.claimedByProfileId, p, null),
+              reviewOrgId: sql`CASE WHEN ${inProfiles(directoryVendors.reviewProfileId, p)} THEN NULL ELSE ${directoryVendors.reviewOrgId} END`,
+              reviewRequestedAt: sql`CASE WHEN ${inProfiles(directoryVendors.reviewProfileId, p)} THEN NULL ELSE ${directoryVendors.reviewRequestedAt} END`,
+              reviewProfileId: clearedIn(directoryVendors.reviewProfileId, p, null),
+            })
+            .where(
+              or(
+                inProfiles(directoryVendors.claimedByProfileId, p),
+                inProfiles(directoryVendors.reviewProfileId, p),
+              ),
+            ),
           db
             .update(registrySettings)
             .set({ stripeConnectedByOsnProfileId: null })
