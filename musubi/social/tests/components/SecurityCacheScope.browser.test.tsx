@@ -50,17 +50,19 @@ vi.mock("../../src/lib/authClients", () => {
       list: () =>
         held("passkeys", (profile) => ({
           passkeys: [
-            {
-              id: `pk_${profile}`,
-              label: `Key of ${profile}`,
-              aaguid: null,
-              transports: null,
-              backupEligible: false,
-              backupState: false,
-              createdAt: 1_700_000_000,
-              lastUsedAt: null,
-            },
-          ],
+            { id: `pk_${profile}`, label: `Key of ${profile}` },
+            // One profile's list holds a passkey under another's id, so an
+            // outcome written into the wrong list would show.
+            ...(profile === "prof_7" ? [{ id: "pk_prof_6", label: "Same id as prof_6's" }] : []),
+          ].map((row) => ({
+            ...row,
+            aaguid: null,
+            transports: null,
+            backupEligible: false,
+            backupState: false,
+            createdAt: 1_700_000_000,
+            lastUsedAt: null,
+          })),
         })),
       delete: () =>
         new Promise((resolve) => {
@@ -299,7 +301,7 @@ it("F14, F15: no session is shown the Security rows of the one before it", async
   });
 });
 
-it("F16: a delete that answers after its account has gone touches nothing of the next", async () => {
+it("F16: a delete that answers after its account has gone writes nothing into the next", async () => {
   world.account = "acc_d";
   world.profile = "prof_6";
   const { runtime } = fakeRuntime();
@@ -326,13 +328,18 @@ it("F16: a delete that answers after its account has gone touches nothing of the
   await settle();
   await auth.adoptSession(sessionFor("acc_e", "prof_7"));
   await answer("prof_7");
-  await screen.findByText("Key of prof_7");
-  const sentForE = reads.sent.prof_7;
+  await screen.findByText("Same id as prof_6's");
 
+  // prof_6's delete answers. Its outcome (that id gone) is never written into
+  // prof_7's list: the list is forgotten and read again instead.
   reads.deletes[0]!();
   await settle();
-  await settle();
+  const outcomeWritten =
+    screen.queryByText("Key of prof_7") !== null &&
+    screen.queryByText("Same id as prof_6's") === null;
+  expect(outcomeWritten).toBe(false);
+  expect(document.body.textContent).not.toMatch(/of prof_6(?!\d)/);
+  await answer("prof_7");
+  expect(await screen.findByText("Same id as prof_6's")).toBeTruthy();
   expect(screen.getByText("Key of prof_7")).toBeTruthy();
-  expect(screen.getByText("App of prof_7")).toBeTruthy();
-  expect(reads.sent.prof_7).toBe(sentForE);
 });

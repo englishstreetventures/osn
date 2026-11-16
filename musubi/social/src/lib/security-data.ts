@@ -46,8 +46,12 @@ const SECURITY_PAGES = [PAGE_DATA.passkeys, PAGE_DATA.authenticator, PAGE_DATA.r
  * leaves them, anything else forgets them, so no screen shows a row the write
  * may have changed. Then all three reads are read again — now for those on
  * screen, at their next show for the rest — since every write here runs a
- * step-up first, which moves the "Last used" of the factor it used. Nothing is
- * written once the session has changed since the write began.
+ * step-up first, which moves the "Last used" of the factor it used.
+ *
+ * When the session has changed while the write ran (a profile switch keeps
+ * the tab mounted), its outcome is never written: the rows now held were read
+ * under the new session, maybe before the write landed, so they are forgotten
+ * and read again. Both act only on the current session's own entries.
  */
 export function useSettingsRead<T>(query: PageQuery<[], T>): SettingsRead<T> {
   const read = query.use(() => []);
@@ -57,15 +61,16 @@ export function useSettingsRead<T>(query: PageQuery<[], T>): SettingsRead<T> {
     state: () => (landed() ? "ready" : read.state === "errored" ? "errored" : "pending"),
     failure: () => (read.state === "errored" ? { error: read.error } : null),
     settled: () => read.settled(),
+    rows: () => read.rows,
     retry: () => void query.refresh(),
     write() {
       const mark = scopeMark();
       let ended = false;
       return (end: WriteEnd<T>) => {
-        if (ended || mark !== scopeMark()) return;
+        if (ended) return;
         ended = true;
-        if (typeof end === "object") query.update([], end.outcome, mark);
-        else if (end === "unknown") query.drop();
+        if (mark !== scopeMark() || end === "unknown") query.drop();
+        else if (typeof end === "object") query.update([], end.outcome, mark);
         invalidatePages(...SECURITY_PAGES);
       };
     },

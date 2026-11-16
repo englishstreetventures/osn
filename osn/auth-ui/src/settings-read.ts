@@ -55,6 +55,11 @@ export interface SettingsRead<T> {
   /** Reads again now: a failed read's Try again. */
   retry(): void;
   /**
+   * How many placeholder rows to draw while `pending`: the rows last landed,
+   * one when none is known. Omitted, one.
+   */
+  rows?(): number;
+  /**
    * Called just before a request that may change what this read shows. Call
    * what it returns once, when that request settles, with how it ended.
    */

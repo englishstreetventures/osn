@@ -9,7 +9,7 @@ import {
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, createUniqueId, For, Show } from "solid-js";
+import { createMemo, createSignal, createUniqueId, For, Show } from "solid-js";
 
 import { fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
@@ -123,6 +123,8 @@ export function PasskeysView(props: PasskeysViewProps) {
    * write whose effect only the server knows.
    */
   const list = passkeys.value;
+  const ids = createMemo(() => list()?.map((row) => row.id) ?? []);
+  const rowById = (id: string) => list()?.find((row) => row.id === id);
   // A refused rename sits under the rename field, tied to it; any other
   // failure sits under the heading.
   const [error, setError] = createSignal<(FieldError & { rename: boolean }) | null>(null);
@@ -284,11 +286,16 @@ export function PasskeysView(props: PasskeysViewProps) {
           </Notice>
         )}
       </Show>
-      {/* The list's place: one row's placeholder until the first read lands
-          (every account has a passkey), the failure, or the list. */}
+      {/* The list's place: a row's placeholder for each row the list last
+          landed, one when none is known (every account has a passkey), until
+          the read lands; the failure; or the list. */}
       <div aria-busy={passkeys.state() === "pending" || undefined}>
         <Show when={passkeys.state() === "pending"}>
-          <RowPlaceholder />
+          <div class="flex flex-col gap-2">
+            <For each={Array.from({ length: Math.max(1, passkeys.rows?.() ?? 1) })}>
+              {() => <RowPlaceholder />}
+            </For>
+          </div>
         </Show>
         <Show when={passkeys.failure()}>
           {(failure) => (
@@ -299,106 +306,110 @@ export function PasskeysView(props: PasskeysViewProps) {
             />
           )}
         </Show>
-        <Show when={list()}>
-          {(rows) => (
-            <ul class="flex flex-col gap-2">
-              <For each={rows()}>
-                {(p: PasskeySummary) => (
-                  <li>
-                    <SettingsRow
-                      name={
-                        <>
-                          {friendlyLabel(p)}
-                          <Show when={p.backupEligible}>
-                            <span class="text-ui-ink-secondary text-ui-xs ml-2 font-normal">
-                              (synced)
-                            </span>
-                          </Show>
-                        </>
-                      }
-                      editing={editingId() === p.id}
-                      editor={
-                        <>
-                          <div class="flex items-center gap-2">
-                            <Input
-                              size="sm"
-                              autocomplete="off"
-                              value={draftLabel()}
-                              maxLength={64}
-                              onInput={(e) => setDraftLabel(e.currentTarget.value)}
-                              aria-label="Passkey name"
-                              aria-describedby={renameError() ? errorId : undefined}
-                              aria-invalid={renameError()?.invalid || undefined}
-                            />
+        <Show when={list() !== undefined}>
+          <ul class="flex flex-col gap-2">
+            {/* By id, so a row read again keeps its element, and with it the
+                focus of an action pressed while the read was out. */}
+            <For each={ids()}>
+              {(id) => (
+                <Show when={rowById(id)}>
+                  {(p) => (
+                    <li>
+                      <SettingsRow
+                        name={
+                          <>
+                            {friendlyLabel(p())}
+                            <Show when={p().backupEligible}>
+                              <span class="text-ui-ink-secondary text-ui-xs ml-2 font-normal">
+                                (synced)
+                              </span>
+                            </Show>
+                          </>
+                        }
+                        editing={editingId() === p().id}
+                        editor={
+                          <>
+                            <div class="flex items-center gap-2">
+                              <Input
+                                size="sm"
+                                autocomplete="off"
+                                value={draftLabel()}
+                                maxLength={64}
+                                onInput={(e) => setDraftLabel(e.currentTarget.value)}
+                                aria-label="Passkey name"
+                                aria-describedby={renameError() ? errorId : undefined}
+                                aria-invalid={renameError()?.invalid || undefined}
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                class="shrink-0 max-md:h-10"
+                                onClick={() => requestRename(p())}
+                                busy={checking() === `save:${p().id}`}
+                                disabled={
+                                  checking() !== `save:${p().id}` &&
+                                  (locked() || draftLabel().trim().length === 0)
+                                }
+                              >
+                                {checking() === `save:${p().id}` ? "Checking…" : "Save"}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                class="shrink-0 max-md:h-10"
+                                onClick={cancelEdit}
+                                disabled={busy()}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                            <Show when={renameError()}>
+                              {(line) => (
+                                <Notice tone="danger" size="inline" alert id={errorId}>
+                                  {line().text}
+                                </Notice>
+                              )}
+                            </Show>
+                          </>
+                        }
+                        meta={[
+                          `Added ${formatTs(Math.floor(p().createdAt))}`,
+                          `Last used ${formatTs(p().lastUsedAt)}`,
+                        ]}
+                        actions={
+                          // Each action names its passkey, so two rows' buttons
+                          // never share a name.
+                          <>
                             <Button
                               variant="outline"
                               size="sm"
-                              class="shrink-0 max-md:h-10"
-                              onClick={() => requestRename(p)}
-                              busy={checking() === `save:${p.id}`}
-                              disabled={
-                                checking() !== `save:${p.id}` &&
-                                (locked() || draftLabel().trim().length === 0)
-                              }
+                              class="max-md:h-10"
+                              onClick={() => startEdit(p())}
+                              disabled={locked()}
+                              aria-label={`Rename ${friendlyLabel(p())}`}
                             >
-                              {checking() === `save:${p.id}` ? "Checking…" : "Save"}
+                              Rename
                             </Button>
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              class="shrink-0 max-md:h-10"
-                              onClick={cancelEdit}
-                              disabled={busy()}
+                              class="max-md:h-10"
+                              onClick={() => requestDelete(p())}
+                              busy={checking() === `remove:${p().id}`}
+                              disabled={checking() !== `remove:${p().id}` && locked()}
+                              aria-label={`Remove ${friendlyLabel(p())}`}
                             >
-                              Cancel
+                              {checking() === `remove:${p().id}` ? "Checking…" : "Remove"}
                             </Button>
-                          </div>
-                          <Show when={renameError()}>
-                            {(line) => (
-                              <Notice tone="danger" size="inline" alert id={errorId}>
-                                {line().text}
-                              </Notice>
-                            )}
-                          </Show>
-                        </>
-                      }
-                      meta={[
-                        `Added ${formatTs(Math.floor(p.createdAt))}`,
-                        `Last used ${formatTs(p.lastUsedAt)}`,
-                      ]}
-                      actions={
-                        // Each action names its passkey, so two rows' buttons
-                        // never share a name.
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            class="max-md:h-10"
-                            onClick={() => startEdit(p)}
-                            disabled={locked()}
-                            aria-label={`Rename ${friendlyLabel(p)}`}
-                          >
-                            Rename
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            class="max-md:h-10"
-                            onClick={() => requestDelete(p)}
-                            busy={checking() === `remove:${p.id}`}
-                            disabled={checking() !== `remove:${p.id}` && locked()}
-                            aria-label={`Remove ${friendlyLabel(p)}`}
-                          >
-                            {checking() === `remove:${p.id}` ? "Checking…" : "Remove"}
-                          </Button>
-                        </>
-                      }
-                    />
-                  </li>
-                )}
-              </For>
-            </ul>
-          )}
+                          </>
+                        }
+                      />
+                    </li>
+                  )}
+                </Show>
+              )}
+            </For>
+          </ul>
         </Show>
       </div>
       <details class="text-ui-sm leading-ui-snug text-ui-ink-secondary mt-2">

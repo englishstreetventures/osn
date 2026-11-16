@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * Settings → Security through the page cache, one test for each way it can
  * show a row a write may have changed, as listed in the branch's plan
- * (F2, F4–F13, F17). The real section, the real `@osn/auth-ui` views and the
+ * (F2, F4–F13, F16, F17, F19). The real section, the real `@osn/auth-ui` views and the
  * real cache; only the clients are fakes, answering from `server`, which a
  * test changes as the API would. Each read answers what the server held when
  * it was sent, so a read held across a write answers the rows before it.
@@ -467,25 +467,35 @@ describe("the screen that wrote", () => {
     server.hold.add("passkeys");
     await passStepUp();
     await waitFor(() => expect(screen.queryByText("Work laptop")).toBeNull());
-    expect(document.querySelector('[aria-busy="true"]')).toBeTruthy();
+    // As many rows' placeholders as the list last held, so nothing below jumps.
+    const region = screen.getByRole("heading", { name: "Passkeys" }).parentElement!.parentElement!;
+    // One block per width for each of the two rows.
+    expect(region.querySelectorAll('[aria-busy="true"] [aria-hidden="true"]')).toHaveLength(4);
     await release("passkeys");
     await screen.findByText("New key 1");
     expect(screen.getByText("Work laptop")).toBeTruthy();
   });
 
-  it("F7: a delete with no answer forgets the rows at once and reads them again", async () => {
-    mountTab();
-    await landed();
-    server.writeError = { error: new OsnApiError("lost", 0), commit: true };
-    server.hold.add("passkeys");
-    fireEvent.click(await screen.findByRole("button", { name: "Remove Work laptop" }));
-    await passStepUp();
-    await waitFor(() => expect(screen.queryByText("Work laptop")).toBeNull());
-    expect(screen.queryByText("Phone")).toBeNull();
-    await release("passkeys");
-    await screen.findByText("Phone");
-    expect(screen.queryByText("Work laptop")).toBeNull();
-  });
+  it.each([
+    ["no answer", 0],
+    ["a 500", 500],
+    ["a 503", 503],
+  ])(
+    "F7: a delete that ends with %s forgets the rows at once and reads them again",
+    async (_, status) => {
+      mountTab();
+      await landed();
+      server.writeError = { error: new OsnApiError("lost", status), commit: true };
+      server.hold.add("passkeys");
+      fireEvent.click(await screen.findByRole("button", { name: "Remove Work laptop" }));
+      await passStepUp();
+      await waitFor(() => expect(screen.queryByText("Work laptop")).toBeNull());
+      expect(screen.queryByText("Phone")).toBeNull();
+      await release("passkeys");
+      await screen.findByText("Phone");
+      expect(screen.queryByText("Work laptop")).toBeNull();
+    },
+  );
 
   it("F8: a refused rename keeps the rows and its line under the field", async () => {
     mountTab();
@@ -624,6 +634,47 @@ describe("an action pressed while the tab reads behind its rows", () => {
   });
 });
 
+describe("the session changing while a write runs", () => {
+  it("F16: a delete that answers after a profile switch never leaves the deleted row", async () => {
+    mountTab();
+    await landed();
+    server.holdWrites = true;
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Work laptop" }));
+    await passStepUp();
+    await waitFor(() => expect(server.heldWrites).toHaveLength(1));
+    // A profile switch: a new session object, the tab still mounted. Its reads
+    // land before the delete does, with the passkey still there.
+    setSession({});
+    await screen.findByText("Work laptop");
+    server.hold.add("passkeys");
+    await releaseWrites();
+    await waitFor(() => expect(screen.queryByText("Work laptop")).toBeNull());
+    await release("passkeys");
+    expect(screen.getByText("Phone")).toBeTruthy();
+    expect(screen.queryByText("Work laptop")).toBeNull();
+  });
+});
+
+describe("a row read again", () => {
+  it("F19: keeps its element, so a Remove pressed while the read was out keeps focus", async () => {
+    mountTab();
+    await landed();
+    server.passkeys = server.passkeys.map((p) =>
+      p.id === "pk_a" ? { ...p, lastUsedAt: 1_700_009_000 } : p,
+    );
+    server.hold.add("passkeys");
+    leave();
+    comeBack();
+    await settle();
+    const remove = screen.getByRole("button", { name: "Remove Work laptop" });
+    remove.focus();
+    fireEvent.click(remove);
+    await release("passkeys");
+    await screen.findByRole("dialog");
+    expect(remove.isConnected).toBe(true);
+  });
+});
+
 describe("what never enters the cache", () => {
   /** What a fresh reader of `query` would draw from memory. */
   function held<T>(query: { use: (args: () => [] | undefined) => () => T | undefined }) {
@@ -652,17 +703,24 @@ describe("what never enters the cache", () => {
     for (const [i, ch] of [..."123456"].entries()) {
       fireEvent.input(boxes[i]!, { target: { value: ch } });
     }
+    // The reads each write starts are held: what the cache holds then is what
+    // the write left in it, before any answer could replace it.
+    server.hold.add("totp").add("recovery").add("passkeys");
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(server.totp.enrolled).toBe(true));
+    await settle();
+    expect(held(authenticatorStatus)).not.toContain(SECRET);
+    server.hold.clear();
+    await release();
     await screen.findByRole("button", { name: "Remove Authenticator app" });
 
     fireEvent.click(screen.getByRole("button", { name: "Generate new codes" }));
     fireEvent.click(await screen.findByRole("button", { name: "Generate new set" }));
+    server.hold.add("totp").add("recovery").add("passkeys");
     await passStepUp();
     await screen.findByText(CODES[0]!);
     await settle();
-
     const memory = [held(authenticatorStatus), held(recoveryCodesStatus), held(passkeyList)].join();
-    expect(memory).not.toContain(SECRET);
     for (const code of CODES) expect(memory).not.toContain(code);
   });
 });
