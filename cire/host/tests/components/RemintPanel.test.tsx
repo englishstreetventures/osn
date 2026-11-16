@@ -140,38 +140,6 @@ describe("RemintPanel", () => {
     expect(hasCachedHouseholds("wed_a")).toBe(true);
   });
 
-  it("warns about already-sent families and re-mints on confirm", async () => {
-    authFetchMock.mockResolvedValueOnce(json(GUESTS)); // onMount guest-count load
-    render(() => <RemintPanel weddingId="wed_a" />);
-
-    // Re-mint button enables once the count loads (2 families).
-    const remintBtn = await waitFor(() => {
-      const btn = screen.getByRole("button", { name: /Re-mint all codes/i });
-      expect((btn as HTMLButtonElement).disabled).toBe(false);
-      return btn;
-    });
-    fireEvent.click(remintBtn);
-
-    // Warning names the one already-shared family.
-    await waitFor(() =>
-      expect(screen.getByText(/1 family has already been sent their code/i)).toBeTruthy(),
-    );
-
-    // Confirm fires the destructive POST with the chosen style.
-    authFetchMock.mockResolvedValueOnce(json({ codeStyle: "simple", reminted: 2 }));
-    fireEvent.click(screen.getByRole("button", { name: /Yes, re-mint/i }));
-
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
-    const remintCall = authFetchMock.mock.calls.find(
-      (c) => String(c[0]) === "https://api.test/api/organiser/weddings/wed_a/remint",
-    );
-    expect(remintCall).toBeTruthy();
-    expect((remintCall![1] as RequestInit).method).toBe("POST");
-    expect(JSON.parse(String((remintCall![1] as RequestInit).body))).toEqual({
-      codeStyle: "simple",
-    });
-  });
-
   it("counts an OPENED (but never-copied) family toward the already-sent warning", async () => {
     authFetchMock.mockResolvedValueOnce(json(OPENED_ONLY_GUESTS));
     render(() => <RemintPanel weddingId="wed_a" />);

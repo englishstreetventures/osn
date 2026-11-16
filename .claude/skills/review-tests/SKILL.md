@@ -167,6 +167,10 @@ A test asserting only that a function returns without throwing is not coverage. 
 - **Its assertion cannot be false.** `expect(true)`, `toBeDefined()` on something just constructed, `toBeTruthy()` on an object, a snapshot of a mock's output, or `expect.anything()` where the value matters.
 - **It asserts nothing a user or caller sees.** It checks that a mock was called, and not what the call did.
 
+**No tests that cost more than they catch.** A test the branch adds or changes is `T-S` when it matches a shape in `wiki/conventions/testing-patterns.md` §Cutting tests: it pins implementation detail (class strings, a mocked child tree read through props, `mock.calls` on an internal collaborator, formatter construction counts), it repeats an E2E flow step or a sibling test, it asserts nothing (an opt-in flag, `expect-expect` disabled), or it waits out a real clock constant such as an undo window. The `Solution` is to delete it or move it to fake timers, and names the flow step or test that covers the behaviour. A browser-tier test that reads no layout or computed style is `T-S` too.
+
+When the task is a sweep of a package's whole test tree rather than a branch, classify every test file into those four shapes plus "keeps real value", read each case before proposing its removal, and cite for each proposed removal the named test or flow step that covers it. A proposal made from a line range alone is not a finding. A proposed deletion of a refusal, a role gate, a per-currency money case or a drift guard stays out of the list.
+
 To test a suspect, ask: if I broke the line this test names, would it go red? When the answer is no, that is `T-U` for the export it claims to cover — the export is untested. Name the real behaviour to assert in the `Solution`, and in the `Why` name the change that would pass unnoticed.
 
 For changed cire source, Step 5 runs this check mechanically. Reading still

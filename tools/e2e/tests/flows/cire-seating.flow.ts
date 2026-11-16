@@ -13,6 +13,13 @@
  * address is refused; and the owner removes Hana's own address in the editor,
  * which asks for no attestation.
  *
+ * Change history (the same wedding). A sheet with no address column adds a
+ * household, Ito, so it asks for no attestation; the owner opens Change
+ * history, reverts that sheet, and is asked to confirm in words that name the
+ * guest list alone. Cire-api restores the guest list from the sheet's
+ * before-image: the household and its guest are gone, the change reads
+ * Reverted, and the address the earlier sheet gave Gus stays.
+ *
  * Seating (`CIRE_ORGANISER.seating`: a reception whose one plan, "Plan 1", is
  * in use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2 — and an after
  * party, inviting Ada, with no plan). The owner opens the seating chart, which
@@ -24,14 +31,14 @@
  * page, before any seating step: the file carries each guest's reply to both
  * events, and seating writes nothing it reads.
  *
- * The guest-email and RSVP steps share this flow's sign-in because `flows.test.ts` caps
- * organiser sign-ins at seven. They run first, so the flow's screenshot is the
- * seating chart.
+ * The guest-email, change-history and RSVP steps share this flow's sign-in
+ * because `flows.test.ts` caps organiser sign-ins at seven. They run first, so
+ * the flow's screenshot is the seating chart.
  */
 
 import { resolve } from "node:path";
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
@@ -319,8 +326,148 @@ async function guestEmailSteps(flow: Flow, page: Page): Promise<void> {
     "none none none",
     `${hanaAfter?.email ?? "none"} ${hanaAfter?.source ?? "none"} ${hanaAfter?.version ?? "none"}`,
   );
-  // Let the save finish closing before the seating steps navigate away.
+  // Let the save finish closing before the next steps navigate away.
   await expect(dialog).toBeHidden();
+
+  await revertSteps(flow, page, { apply: applyImport, attestation });
+}
+
+/** The wedding's guest households, by name, sorted and comma-joined. */
+function householdsInDb(): string {
+  const row = queryOne<{ names: string | null }>(
+    DB_FILES.cire,
+    `SELECT group_concat(family_name) AS names FROM (
+       SELECT family_name FROM families WHERE wedding_id = ? AND kind = 'guest' ORDER BY family_name)`,
+    emailsWeddingId,
+  );
+  return row?.names ?? "";
+}
+
+/**
+ * Change history, on the guest-email wedding: a sheet with no address column
+ * adds a household, so it asks for no attestation and changes no address; the
+ * owner reverts it from Change history and the household is gone again, while
+ * the address the earlier sheet gave Gus stays.
+ */
+async function revertSteps(
+  flow: Flow,
+  page: Page,
+  controls: { apply: Locator; attestation: Locator },
+): Promise<void> {
+  const { household: addedHousehold, firstName: addedGuest } = CIRE_ORGANISER.emails.reverted;
+  const importMode = page.getByRole("radio", { name: /Spreadsheet import/ });
+  const history = page
+    .locator("details")
+    .filter({ has: page.locator("summary", { hasText: "Change history" }) });
+  // The change the sheet makes, as the history summarises it.
+  const addedRow = history.getByRole("listitem").filter({ hasText: "+1 guests, +1 families" });
+
+  const added = await flow.step(
+    `a sheet with no address column adds the ${addedHousehold} household`,
+    async () => {
+      await page.goto(`${ORIGINS.cireHost}/#/w/${emailsWeddingId}/guests/edit`);
+      await importMode.click();
+      await page.getByLabel("guests.csv").setInputFiles({
+        name: "guests.csv",
+        mimeType: "text/csv",
+        buffer: Buffer.from(
+          [
+            "Family ID,Family Name,Guest First Name,Guest Last Name",
+            `1,${household},${noAddress},${household}`,
+            `1,${household},${guestsOwn.firstName},${household}`,
+            `2,${addedHousehold},${addedGuest},${addedHousehold}`,
+          ].join("\n"),
+        ),
+      });
+      const previewed = page.waitForResponse(
+        (r) => r.url() === `${EMAILS_CHANGES_API}/preview` && r.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Preview", exact: true }).click();
+      const preview = (await previewed).status();
+      await expect(controls.apply).toBeEnabled();
+      const asksAttestation = await controls.attestation.count();
+      const applied = page.waitForResponse(
+        (r) => r.url() === `${EMAILS_CHANGES_API}/apply` && r.request().method() === "POST",
+      );
+      const reloaded = page.waitForEvent("load");
+      await controls.apply.click();
+      const status = (await applied).status();
+      await reloaded;
+      return { preview, asksAttestation, status };
+    },
+  );
+  flow.check("the sheet previews", 200, added.preview);
+  flow.check("a sheet that changes no address asks for no attestation", 0, added.asksAttestation);
+  flow.check("the sheet applies", 200, added.status);
+  flow.check(
+    `the ${addedHousehold} household is added`,
+    `${addedHousehold},${household}`,
+    householdsInDb(),
+  );
+
+  const asked = await flow.step("revert the sheet from Change history", async () => {
+    await importMode.click();
+    const listed = page.waitForResponse(
+      (r) => r.url() === `${EMAILS_CHANGES_API}/list` && r.request().method() === "GET",
+    );
+    await history.locator(":scope > summary").click();
+    await listed;
+    await expect(addedRow).toContainText("Applied");
+    let confirm = "";
+    page.once("dialog", (prompt) => {
+      confirm = prompt.message();
+      void prompt.accept();
+    });
+    const reverted = page.waitForResponse(
+      (r) => r.url() === `${EMAILS_CHANGES_API}/revert` && r.request().method() === "POST",
+    );
+    // The history reloads the page once the revert lands.
+    const reloaded = page.waitForEvent("load");
+    await addedRow.getByRole("button", { name: "Revert" }).click();
+    const status = (await reverted).status();
+    await reloaded;
+    return { confirm, status };
+  });
+  flow.check(
+    "the confirm names the guest list alone",
+    true,
+    asked.confirm.startsWith(
+      "Revert this change? Households, guests and their invitations are restored",
+    ),
+  );
+  flow.check("cire-api reverts the sheet", 200, asked.status);
+  flow.check(`the ${addedHousehold} household is gone`, household, householdsInDb());
+  const guestsLeft = queryOne<{ names: string | null }>(
+    DB_FILES.cire,
+    `SELECT group_concat(first_name) AS names FROM (
+       SELECT g.first_name FROM guests g JOIN families f ON f.id = g.family_id
+        WHERE f.wedding_id = ? ORDER BY g.first_name)`,
+    emailsWeddingId,
+  );
+  flow.check(
+    `${addedGuest}'s row is gone`,
+    `${noAddress},${guestsOwn.firstName}`,
+    guestsLeft?.names ?? "",
+  );
+  const reverts = queryOne<{ n: number }>(
+    DB_FILES.cire,
+    "SELECT count(*) AS n FROM imports WHERE wedding_id = ? AND status = 'reverted'",
+    emailsWeddingId,
+  );
+  flow.check("one change is marked reverted", 1, reverts?.n ?? -1);
+  const gusKept = addressOf(noAddress);
+  flow.check(
+    `${noAddress}'s address from the earlier sheet stays`,
+    `${sheetAddresses.second} organiser_attested`,
+    `${gusKept?.email ?? "none"} ${gusKept?.source ?? "none"}`,
+  );
+
+  await flow.step("the history marks the sheet reverted", async () => {
+    await importMode.click();
+    await history.locator(":scope > summary").click();
+    await expect(addedRow).toContainText("Reverted");
+    await expect(addedRow.getByRole("button", { name: "Revert" })).toHaveCount(0);
+  });
 }
 
 test("cire-seating", async ({ page, flow }) => {

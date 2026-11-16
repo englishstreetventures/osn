@@ -79,10 +79,16 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
   // yields the PREVIOUS value — and since switching threads no longer unmounts
   // anything (see the keyed `Show` below), that value would render enquiry A's
   // messages under enquiry B's name and quote for the length of a round-trip.
-  const [messages, { mutate, refetch }] = createResource(selectedId, async (id) => ({
-    enquiryId: id,
-    items: await fetchMessages(authFetch, props.weddingId, id),
-  }));
+  // An expired session goes to sign-in, as the inbox's own reads do; any other
+  // failure stays on the resource and shows in the thread.
+  const [messages, { mutate, refetch }] = createResource(selectedId, async (id) => {
+    try {
+      return { enquiryId: id, items: await fetchMessages(authFetch, props.weddingId, id) };
+    } catch (err) {
+      if (isAuthExpired(err)) redirectToLogin();
+      throw err;
+    }
+  });
 
   /** Messages, but only ever the named enquiry's. A load in flight for a newly
    *  selected enquiry shows an empty thread with its loading line, never the
@@ -91,9 +97,17 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
    *  id explicitly so the mounted thread is pinned to the enquiry it was created
    *  for rather than to whatever is selected now. */
   const messagesFor = (enquiryId: string): EnquiryMessage[] => {
+    // Reading a resource whose last load failed throws, and nothing above the
+    // thread catches it, so the panel would hang on its loading line. The
+    // failure shows through `messagesError` instead.
+    if (messagesError()) return [];
     const loaded = messages();
     return loaded && loaded.enquiryId === enquiryId ? loaded.items : [];
   };
+
+  /** The last read's failure, once no read is on its way: a failure kept from
+   *  the previous enquiry is not shown under the next one while it loads. */
+  const messagesError = () => (messages.loading ? undefined : messages.error);
 
   const handleSend = async (message: string) => {
     const id = selectedId();
@@ -122,7 +136,7 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
     // to add it to, and its load may have been sent before the reply, so it
     // is read again. A thread the organiser has left is not: opening it again
     // reads it fresh.
-    const loaded = messages();
+    const loaded = messagesError() ? undefined : messages();
     if (loaded && loaded.enquiryId === id && !messages.loading) {
       mutate({ enquiryId: id, items: [sent, ...loaded.items] });
     } else if (selectedId() === id) {
@@ -200,7 +214,7 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
               enquiry={selectedEnquiry()!}
               messages={messagesFor(enquiryId)}
               loading={messages.loading}
-              error={messages.error ? enquiryErrorMessage(messages.error) : null}
+              error={messagesError() ? enquiryErrorMessage(messagesError()) : null}
               ownProfileId={activeProfileId() ?? ""}
               currency={props.currency}
               canEdit={props.canEdit}

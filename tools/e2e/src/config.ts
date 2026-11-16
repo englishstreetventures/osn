@@ -209,8 +209,9 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All seven are on Gold; `profileId`, the profile
- * osn-api's `/dev/login` signs in as, owns six and is a helper on
+ * which these values copy). Each is on Gold but `enquiries`, on Crimson, and
+ * `envelope`'s three, which have no seat; `profileId`, the profile osn-api's
+ * `/dev/login` signs in as, owns every other one and is a helper on
  * `runSheetHelper`. The co-hosts are bare
  * profile ids: the local cire-api resolves no names, so the portal shows the
  * ids, and a flow finds each person by theirs.
@@ -341,6 +342,46 @@ export const CIRE_ORGANISER = {
     added: "gus.tanaka@e2e.test",
     /** Gus's address in the two sheets the flow previews; the second applies. */
     sheetAddresses: { first: "gus.first@e2e.test", second: "gus.second@e2e.test" },
+    /** The household a later sheet adds and Change history's Revert takes away. */
+    reverted: { household: "Ito", firstName: "Kai" },
+  },
+  /**
+   * Two households, Nguyen (whose code has been sent) and Patel, and two live
+   * unlock codes of one use each: `gold`, which the wedding already holds, and
+   * `crimson`, which raises it. `wrong` names no code. For redeeming a code,
+   * re-minting the family codes and deleting and restoring the wedding.
+   */
+  settings: {
+    weddingId: "wed_e2e_settings",
+    slug: "settings-wedding",
+    name: "Settings Wedding",
+    families: [
+      { id: "fam_e2e_settings_nguyen", code: "NGUYEN-E2E-ST01" },
+      { id: "fam_e2e_settings_patel", code: "PATEL-E2E-ST02" },
+    ],
+    codes: {
+      gold: { id: "ulc_e2e_settings_gold", code: "e2e0-901d-0000-0001" },
+      crimson: { id: "ulc_e2e_settings_crimson", code: "e2e0-c41f-0000-0002" },
+      wrong: "0000-0000-0000-0000",
+    },
+  },
+  /**
+   * On Crimson, with two live directory listings: `open`, not in the wedding,
+   * owned by the organisation that made it in the vendor portal with no vendor
+   * profile on it, so an enquiry to it waits on the listing and mints no claim
+   * link; and `quoted`, claimed, whose enquiry from this wedding the vendor has
+   * answered with a $4,800 quote.
+   */
+  enquiries: {
+    weddingId: "wed_e2e_enquiries",
+    open: { listingId: "dir_e2e_enq_florals", name: "Willow & Fern Florals", category: "florals" },
+    quoted: {
+      listingId: "dir_e2e_enq_strings",
+      enquiryId: "enq_e2e_strings",
+      name: "Harbour Strings",
+      category: "music_entertainment",
+      quotedMinor: 480_000,
+    },
   },
   /**
    * On Crimson with the Wax seal envelope over a hero with a title, a subtitle
