@@ -249,7 +249,10 @@ export function PasskeysView(props: PasskeysViewProps) {
         finish("unknown");
       }
     } catch (e) {
-      finish?.(writeEnd(e));
+      // An add that ended before its last call (the browser's ceremony
+      // cancelled, the begin refused) wrote nothing; its step-up still moved
+      // a factor's "Last used".
+      (finish ?? passkeys.write())(finish ? writeEnd(e) : "unchanged");
       if (action.kind === "rename") {
         setError({ ...fieldError(describeAuthError(e), e), rename: true });
       } else if (action.kind === "delete") {

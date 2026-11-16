@@ -149,15 +149,18 @@ export function TotpView(props: TotpViewProps) {
     if (!action) return;
     setBusy(true);
     setError(null);
-    // The removal changes the status; starting an enrolment does not.
     let finish: ((end: WriteEnd<TotpStatus>) => void) | undefined;
     try {
       if (action === "enroll") {
+        // Starting an enrolment changes no status; the step-up before it
+        // moved a factor's "Last used", so the tab is read again.
+        finish = status.write();
         setEnrollment(
           await props.client.enrollBegin({
             stepUpToken: token.token,
           }),
         );
+        finish("unchanged");
       } else {
         finish = status.write();
         await props.client.disable({
@@ -168,7 +171,7 @@ export function TotpView(props: TotpViewProps) {
         toast.success("Authenticator app removed");
       }
     } catch (e) {
-      finish?.(writeEnd(e));
+      finish?.(action === "enroll" ? "unchanged" : writeEnd(e));
       setError({ ...plainError(describeAuthError(e)), code: false });
     } finally {
       setBusy(false);

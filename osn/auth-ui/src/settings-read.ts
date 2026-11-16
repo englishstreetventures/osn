@@ -5,23 +5,26 @@ import { batch, createSignal } from "solid-js";
  *
  * - `{ outcome }`: it succeeded, and its effect on the rows is known exactly
  *   (a passkey renamed to the label sent, a passkey removed by its id).
- * - `"refused"`: the server answered 400–499, so it changed nothing.
+ * - `"unchanged"`: nothing the read shows changed — the server refused the
+ *   write (400–499), or the request touched nothing shown (an enrolment
+ *   started, then left). The rows are still read again: the step-up before
+ *   it moved the "Last used" of the factor it used.
  * - `"unknown"`: anything else — a success whose effect only the server knows
  *   (a new passkey's fields, an authenticator's times, a new set's count), no
  *   answer at all, a 5xx, an ended session.
  */
-export type WriteEnd<T> = { readonly outcome: (held: T) => T } | "refused" | "unknown";
+export type WriteEnd<T> = { readonly outcome: (held: T) => T } | "unchanged" | "unknown";
 
 /**
- * The end of a write that threw `err`: refused when the server answered
- * 400–499. The status is read as `describeAuthError` reads it, from any
+ * The end of a write that threw `err`: unchanged when the server refused it
+ * (400–499). The status is read as `describeAuthError` reads it, from any
  * error that carries one, as every `OsnApiError` does; `0` (no answer) and a
  * missing status are unknown.
  */
 export function writeEnd<T>(err: unknown): WriteEnd<T> {
   const status =
     typeof err === "object" && err !== null ? (err as { status?: unknown }).status : undefined;
-  return typeof status === "number" && status >= 400 && status < 500 ? "refused" : "unknown";
+  return typeof status === "number" && status >= 400 && status < 500 ? "unchanged" : "unknown";
 }
 
 /** A read that failed: what it failed with, for the view's "didn't load" line. */
@@ -36,7 +39,7 @@ export interface ReadFailure {
  * (`ownRead`).
  *
  * After a write settles, no screen shows a row the write may have changed:
- * an exact outcome is written at once, a refusal keeps the rows, anything
+ * an exact outcome is written at once, an unchanged end keeps the rows, anything
  * else forgets them (the view draws its first-load placeholder); the rows are
  * then read again.
  */

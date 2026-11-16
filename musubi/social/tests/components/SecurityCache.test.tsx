@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * Settings → Security through the page cache, one test for each way it can
  * show a row a write may have changed, as listed in the branch's plan
- * (F2, F4–F13, F16, F17, F19). The real section, the real `@osn/auth-ui` views and the
+ * (F2, F4–F13, F16, F17, F19, F20). The real section, the real `@osn/auth-ui` views and the
  * real cache; only the clients are fakes, answering from `server`, which a
  * test changes as the API would. Each read answers what the server held when
  * it was sent, so a read held across a write answers the rows before it.
@@ -672,6 +672,24 @@ describe("a row read again", () => {
     await release("passkeys");
     await screen.findByRole("dialog");
     expect(remove.isConnected).toBe(true);
+  });
+});
+
+describe("a step-up with no write after it", () => {
+  it("F20: an enrolment started, then left, still reads the passkeys again", async () => {
+    mountTab();
+    await landed();
+    // The step-up's passkey is used now: its "Last used" moves.
+    server.passkeys = server.passkeys.map((p) =>
+      p.id === "pk_a" ? { ...p, lastUsedAt: 1_800_000_000 } : p,
+    );
+    const before = server.reads.passkeys!;
+    fireEvent.click(await screen.findByRole("button", { name: "Add an authenticator app" }));
+    await passStepUp();
+    await screen.findByText(SECRET);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(server.reads.passkeys).toBe(before + 1));
+    await waitFor(() => expect(screen.queryAllByText(/^Last used never$/)).toHaveLength(1));
   });
 });
 

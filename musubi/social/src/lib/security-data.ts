@@ -42,8 +42,8 @@ const SECURITY_PAGES = [PAGE_DATA.passkeys, PAGE_DATA.authenticator, PAGE_DATA.r
  * `query` as the `@osn/auth-ui` view reads it. Call it in the component that
  * renders the view: the rows are read each time it mounts.
  *
- * A write's end: an exact outcome is written into the rows at once, a refusal
- * leaves them, anything else forgets them, so no screen shows a row the write
+ * A write's end: an exact outcome is written into the rows at once, an
+ * unchanged end leaves them, anything else forgets them, so no screen shows a row the write
  * may have changed. Then all three reads are read again — now for those on
  * screen, at their next show for the rest — since every write here runs a
  * step-up first, which moves the "Last used" of the factor it used.
