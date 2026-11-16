@@ -11,10 +11,9 @@
  *   answer. Every id starts with `<app>:`.
  * - `POST /internal/account-deleted`, scope `account:erase`, with
  *   `{ accountId, profileIds, choices, deleteEverything }` once the window has
- *   passed, and `email` too for an app that receives it
- *   ({@link DeletionAppEntry.receivesEmail}), answering
- *   `{ kept: [{ what, erasedOn, requestUrl }] }`: what the app keeps, until
- *   when, and where to ask about it. A repeat of the call answers the same.
+ *   passed, answering `{ kept: [{ what, erasedOn, requestUrl }] }`: what the
+ *   app keeps, until when, and where to ask about it. A repeat of the call
+ *   answers the same. No app is sent the person's email address.
  *   `accountId` keys the app's record of the erasure; no other call carries
  *   it.
  *
@@ -56,12 +55,6 @@ export interface DeletionAppEntry {
    * the one way osn-api ends them for every reason.
    */
   readonly endsSessionsAtSoftDelete: boolean;
-  /**
-   * Whether the erasure sends the app the account's email address: only an
-   * app that keeps data after the erasure which a person may ask about by
-   * email needs it to prove a later request.
-   */
-  readonly receivesEmail: boolean;
 }
 
 export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
@@ -72,7 +65,6 @@ export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
     doneKey: "pulseDoneAt",
     urlVariable: "PULSE_API_URL",
     endsSessionsAtSoftDelete: true,
-    receivesEmail: false,
   },
   {
     app: "zap",
@@ -81,18 +73,14 @@ export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
     doneKey: "zapDoneAt",
     urlVariable: "ZAP_API_URL",
     endsSessionsAtSoftDelete: false,
-    receivesEmail: false,
   },
   {
-    // A wedding whose only owner is erased can be kept with no owner, with
-    // the person's address beside it, so they can ask about it by email.
     app: "cire",
     audience: "cire-api",
     done: deletionJobs.cireDoneAt,
     doneKey: "cireDoneAt",
     urlVariable: "CIRE_API_URL",
     endsSessionsAtSoftDelete: false,
-    receivesEmail: true,
   },
 ];
 
@@ -435,8 +423,6 @@ export interface AccountDeletedBody {
   /** The person's answers to this app's actions only, by action id. */
   readonly choices: Readonly<Record<string, { readonly choice: string }>>;
   readonly deleteEverything: boolean;
-  /** Only for an app that receives it ({@link DeletionAppEntry.receivesEmail}). */
-  readonly email?: string;
 }
 
 /** An app did not finish the erasure: unreachable, an error, or an answer outside the contract. */

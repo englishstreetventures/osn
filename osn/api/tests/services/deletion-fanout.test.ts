@@ -108,7 +108,7 @@ const jobOf = (accountId: string) =>
 
 describe("the deletion fan-out", () => {
   it.effect(
-    "sends each app its own answers and the delete-everything flag, the email to cire alone, and stores what it kept",
+    "sends each app its own answers and the delete-everything flag, no email, and stores what it kept",
     () =>
       Effect.gen(function* () {
         const kept = [
@@ -125,7 +125,7 @@ describe("the deletion fan-out", () => {
         const { accountId, profileId } = yield* dueAccount("sent", {
           choices: JSON.stringify({
             "pulse:event:evt_1": { choice: "delete" },
-            "cire:wedding:wed_1": { choice: "delete_now" },
+            "cire:wedding:wed_1": { choice: "delete" },
             "osn:organisation:org_1": { choice: "transfer" },
           }),
         });
@@ -135,8 +135,8 @@ describe("the deletion fan-out", () => {
         const calls = erasures(accountId);
         expect(calls.map((call) => call.app).toSorted()).toEqual(["cire", "pulse", "zap"]);
         const pulse = calls.find((call) => call.app === "pulse")!;
-        // Neither Pulse nor Zap keeps data a person may ask about by email,
-        // so neither is sent the address.
+        // No app keeps data a person may ask about by email, so none is sent
+        // the address.
         expect(pulse.body).toEqual({
           accountId,
           profileIds: [profileId],
@@ -147,14 +147,12 @@ describe("the deletion fan-out", () => {
         const zap = calls.find((call) => call.app === "zap")!;
         expect(zap.body.choices).toEqual({});
         expect(zap.body).not.toHaveProperty("email");
-        // cire keeps a wedding with its former owner's address beside it.
         const cire = calls.find((call) => call.app === "cire")!;
         expect(cire.body).toEqual({
           accountId,
           profileIds: [profileId],
-          choices: { "cire:wedding:wed_1": { choice: "delete_now" } },
+          choices: { "cire:wedding:wed_1": { choice: "delete" } },
           deleteEverything: false,
-          email: "sent@example.com",
         });
 
         const job = yield* jobOf(accountId);

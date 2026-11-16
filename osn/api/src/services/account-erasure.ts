@@ -1039,7 +1039,6 @@ interface FanOutJobBody {
   readonly profileIds: ReadonlyArray<string>;
   readonly answers: Readonly<Record<string, { readonly choice: string }>>;
   readonly deleteEverything: boolean;
-  readonly email: string;
 }
 
 /** The profile ids the fan-out read holds as a JSON array; anything else fails the job. */
@@ -1204,13 +1203,12 @@ const finishApp = (
       Effect.catch((cause) => failed("mark_failed", cause)),
     );
   }
-  const base: AccountDeletedBody = {
+  const sent: AccountDeletedBody = {
     accountId: body.accountId,
     profileIds: body.profileIds,
     choices: choicesForApp(entry.app, body.answers),
     deleteEverything: body.deleteEverything,
   };
-  const sent: AccountDeletedBody = entry.receivesEmail ? { ...base, email: body.email } : base;
   return sendAccountDeleted(config, entry, target.url, sent).pipe(
     Effect.tapError((error) =>
       Effect.sync(() => metricAccountDeletionFanout(entry.app, error.result)),
@@ -1237,7 +1235,6 @@ interface FanOutJob extends Pick<
   | "choices"
   | "deleteEverything"
 > {
-  readonly email: string;
   /** The account's profile ids, a JSON array. */
   readonly profileIds: string;
 }
@@ -1264,7 +1261,6 @@ const runFanOut = (
       profileIds: yield* readProfileIds(job.profileIds),
       answers: yield* storedAnswers(job.choices),
       deleteEverything: job.deleteEverything,
-      email: job.email,
     };
     let pending = DELETION_APPS.filter((entry) => isPending(markOf(job, entry)));
     if (job.purgeStartedAt === null) {
@@ -1726,7 +1722,6 @@ export const runFanOutRetrySweep = (opts: {
                 purgeStartedAt: deletionJobs.purgeStartedAt,
                 choices: deletionJobs.choices,
                 deleteEverything: deletionJobs.deleteEverything,
-                email: accounts.email,
                 profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${deletionJobs.accountId})`,
               })
               .from(deletionJobs)
