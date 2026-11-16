@@ -23,7 +23,7 @@ import { MAX_SEATING_EXPORT_ROWS } from "../../src/services/seating-export";
 import { MAX_QUESTION_EXPORT_ROWS } from "../../src/services/settings-export";
 import { MAX_VENDOR_EXPORT_ROWS } from "../../src/services/vendor-export";
 import { weddingArchiveService } from "../../src/services/wedding-archive";
-import type { ArchiveLimits } from "../../src/services/wedding-archive";
+import type { ArchiveAssetsSource, ArchiveLimits } from "../../src/services/wedding-archive";
 import { appRequest, failStatements, recordStatements, setTier } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import {
@@ -141,7 +141,7 @@ function readPlan(db: TestDb) {
 
 async function archiveOf(
   db: TestDb,
-  sources: { assets?: AssetsBucket; sheets?: ReturnType<typeof createR2Stub> },
+  sources: { assets?: ArchiveAssetsSource; sheets?: ReturnType<typeof createR2Stub> },
   limits?: ArchiveLimits,
 ) {
   const plan = await readPlan(db);
@@ -661,6 +661,12 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     const [eventsKey, guestsKey] = fullWeddingKeys(W).sheets;
     sheets.put(eventsKey!, "Name,Notes\r\nDinner,a;=1+1\r\n");
     sheets.put(guestsKey!, "Name,Notes\r\nAda,\u200b=1+1\r\n");
+    // A third upload whose sheets are empty comes out empty.
+    db.$client.run(
+      `INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, summary, status, kind) VALUES ('imp_empty', '${W}', 0, 'csv', 'imports/imp_empty/events.csv', 'imports/imp_empty/guests.csv', '{}', 'applied', 'import')`,
+    );
+    sheets.put("imports/imp_empty/events.csv", "");
+    sheets.put("imports/imp_empty/guests.csv", "");
     const { texts } = await archiveOf(db, { assets, sheets });
     const uploads = [...texts.entries()]
       .filter(([name]) => name.includes("/files/uploads/"))
@@ -668,6 +674,8 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     expect(uploads).toEqual([
       ["Name,Notes", "Dinner,a;'=1+1"].join("\r\n"),
       ["Name,Notes", "Ada,\u200b'=1+1"].join("\r\n"),
+      "",
+      "",
     ]);
   });
 
@@ -718,6 +726,32 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     const { manifest } = await archiveOf(db, { assets: sized, sheets }, { files: 900, bytes: 100 });
     expect(manifest.files.find((f) => f.what === "Invite image: hero")?.status).toBe("over_limit");
     expect({ bodyRead, cancelled }).toEqual({ bodyRead: false, cancelled: true });
+  });
+
+  it("B1: a picture R2 says fits, to the byte, is read and included; one with no body to let go is still left out", async () => {
+    const { db, sheets } = seedWedding();
+    const [hero, story, footer] = fullWeddingKeys(W).assets;
+    const object = (bytes: Uint8Array, withBody = true) => ({
+      size: bytes.byteLength,
+      arrayBuffer: () => Promise.resolve(bytes.buffer as ArrayBuffer),
+      ...(withBody ? { body: new ReadableStream<Uint8Array>() } : {}),
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    const sized: ArchiveAssetsSource = {
+      get: (key) =>
+        key === hero
+          ? object(jpeg(57)) // 60 bytes
+          : key === story
+            ? object(jpeg(37)) // 40: exactly 100 in all
+            : key === footer
+              ? object(jpeg(7), false) // 10 more: over, and no body to cancel
+              : null,
+    };
+    const { manifest } = await archiveOf(db, { assets: sized, sheets }, { files: 900, bytes: 100 });
+    const status = new Map(manifest.files.map((f) => [f.what, f.status]));
+    expect(status.get("Invite image: hero")).toBe("included");
+    expect(status.get("Invite image: story")).toBe("included");
+    expect(status.get("Invite image: footer")).toBe("over_limit");
   });
 
   it("B11: a new wedding with nothing in it, and pictures nowhere, still downloads whole", async () => {
