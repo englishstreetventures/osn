@@ -31,6 +31,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2488,5 +2489,81 @@ describe("every other workflow", () => {
       const jobs = Object.values(load(path).jobs ?? {});
       for (const job of jobs) expect(names.has(job.name ?? "")).toBe(false);
     }
+  });
+});
+
+// ci-swift.yml's filter reads `git diff --name-only`, which wraps a name
+// holding a quote, a backslash, a control character or a non-ASCII byte in
+// double quotes. Such a name still starts its path inside the quotes, so a
+// Swift file with one still runs the Swift jobs.
+describe("ci-swift.yml's change filter", () => {
+  const filter = load(".github/workflows/ci-swift.yml").jobs.changes?.steps?.find(
+    (s) => s.id === "filter",
+  );
+
+  // git's defaults, whatever the machine sets: `core.quotepath` is what
+  // quotes a non-ASCII name.
+  const GIT = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
+
+  /** The filter step's `ios` output, and its log, for a push that adds `files`. */
+  function filterRun(files: readonly string[]): { ios: string; log: string } {
+    const dir = mkdtempSync(join(tmpdir(), "ci-swift-changes-"));
+    try {
+      const git = (...args: string[]) => {
+        const proc = Bun.spawnSync(
+          ["git", "-c", "user.email=t@example.com", "-c", "user.name=T", ...args],
+          { cwd: dir, env: { PATH: process.env.PATH ?? "", ...GIT } },
+        );
+        if (proc.exitCode !== 0)
+          throw new Error(`git ${args.join(" ")}: ${proc.stderr.toString()}`);
+        return proc.stdout.toString().trim();
+      };
+      git("init", "-q", "-b", "main");
+      writeFileSync(join(dir, "base.txt"), "base\n");
+      git("add", ".");
+      git("commit", "-qm", "base");
+      const base = git("rev-parse", "HEAD");
+      for (const file of files) {
+        mkdirSync(dirname(join(dir, file)), { recursive: true });
+        writeFileSync(join(dir, file), "changed\n");
+      }
+      git("add", ".");
+      git("commit", "-qm", "change");
+      const outputFile = join(dir, "github-output");
+      const step = Bun.spawnSync(
+        ["bash", "--noprofile", "--norc", "-e", "-c", filter?.run ?? "exit 9"],
+        {
+          cwd: dir,
+          env: {
+            PATH: process.env.PATH ?? "",
+            ...GIT,
+            GITHUB_OUTPUT: outputFile,
+            EVENT_NAME: "push",
+            BEFORE_SHA: base,
+          },
+        },
+      );
+      const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
+      return { ios: /^ios=(.*)$/m.exec(written)?.[1] ?? "<none>", log: step.stdout.toString() };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test.each([
+    ["pulse/ios/Views/Explore.swift", "true"],
+    ["pulse/ios/Views/Café.swift", "true"],
+    ['shared/swift/Sources/Say "hi".swift', "true"],
+    ["README.md", "false"],
+    ['wiki/Say "hi".md', "false"],
+  ])("%s runs the Swift jobs: %s", (file, expected) => {
+    expect(filterRun([file]).ios).toBe(expected);
+  });
+
+  test("a file's name cannot write a workflow command into the step's log", () => {
+    const { ios, log } = filterRun(["::warning::forged", "pulse/ios/a.swift"]);
+    expect(ios).toBe("true");
+    expect(log).toContain("  - ::warning::forged\n");
+    expect(log.split("\n").filter((line) => line.trimStart().startsWith("::"))).toEqual([]);
   });
 });

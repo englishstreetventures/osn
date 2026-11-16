@@ -138,7 +138,11 @@ at most 4 jobs ([[dsar#The apps' open actions and the app contract]]).
 
 1. **`changes`** — one boolean per dev surface and one per stack, from
    [`scripts/deploy-surfaces.ts`](../../scripts/deploy-surfaces.ts) run against
-   `git diff --name-only "$BEFORE_SHA" HEAD`. A landing-page tweak deploys one
+   `git diff --name-only -z --no-renames "$BEFORE_SHA" HEAD`, which gives each
+   file's name as written, as the production planner reads it; the step's log
+   lists each name after `- `, with each control character written as an escape,
+   so no name can start a line the runner reads as a workflow command. A
+   landing-page tweak deploys one
    stack. A dispatch, and a diff that fails to compute (first push,
    force-push), deploy everything. Any change under `shared/` or `patches/`,
    to `bun.lock`, root `package.json`/`turbo.json`/`tsconfig.json`,

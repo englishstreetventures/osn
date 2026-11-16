@@ -62,15 +62,20 @@ jobs:
           # Swift jobs and let a broken build reach main under a green tick.
           # One wasted macOS run costs money; a false negative costs correctness.
           if changed=$(git diff --name-only "$base" HEAD 2>&1); then
-            echo "$changed"
+            # Each name after `- `: the runner reads a log line that starts
+            # with `::`, once trimmed, as a workflow command, and a pull
+            # request names its own files.
+            printf '%s\n' "$changed" | sed 's/^/  - /'
 
             # `shared/openapi/` counts as Swift source. `PulseAPI`'s
             # `openapi.json` is a relative symlink to `shared/openapi/pulse.json`,
             # and the OpenAPIGenerator plugin regenerates the whole client from
             # it at build time — so a spec-only change can break the iOS build
-            # while touching no file under `shared/swift/`. This very PR is that
-            # case: it rewrites every nullable field's spelling and nothing else.
-            if echo "$changed" | grep -qE '^(shared/swift/|shared/openapi/|pulse/ios/|osn/ios/|\.github/workflows/ci-swift\.yml$)'; then
+            # while touching no file under `shared/swift/`.
+            # `"?`: git wraps a name holding a quote, a backslash, a control
+            # character or a non-ASCII byte in double quotes, and its path
+            # starts inside them.
+            if echo "$changed" | grep -qE '^"?(shared/swift/|shared/openapi/|pulse/ios/|osn/ios/|\.github/workflows/ci-swift\.yml$)'; then
               echo "ios=true" >> "$GITHUB_OUTPUT"
             else
               echo "ios=false" >> "$GITHUB_OUTPUT"
