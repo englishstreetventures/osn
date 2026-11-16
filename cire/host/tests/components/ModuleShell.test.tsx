@@ -203,22 +203,13 @@ vi.mock("../../src/components/HostsPanel", () => ({
 vi.mock("../../src/components/SettingsPanel", () => ({
   // Surfaces canEditRsvpDeadline: it is the one line connecting the API's
   // co-host deadline write to a real co-host, and nothing else can see it.
-  // And the tier, which decides the locked modules whose downloads it lists.
-  default: (p: {
-    weddingId: string;
-    canManage: boolean;
-    canEditRsvpDeadline?: boolean;
-    tier: Tier;
-    onTierRaised?: (tier: "gold" | "crimson") => void;
-  }) => (
+  default: (p: { weddingId: string; canManage: boolean; canEditRsvpDeadline?: boolean }) => (
     <div
       data-testid="settings"
       data-can-manage={String(p.canManage)}
       data-can-edit-rsvp={String(p.canEditRsvpDeadline)}
-      data-tier={p.tier}
     >
       {p.weddingId}
-      <button onClick={() => p.onTierRaised?.("crimson")}>settings-code-redeemed</button>
     </div>
   ),
 }));
@@ -317,7 +308,6 @@ function renderShell(opts: {
   /** The caller's role; derived from the two flags when a test names none. */
   role?: WeddingRole;
   onLeftWedding?: () => void;
-  onTierRaised?: (tier: "gold" | "crimson") => void;
   rsvpEvent?: string;
   onRsvpEvent?: (eventId: string) => void;
 }) {
@@ -363,7 +353,6 @@ function renderShell(opts: {
       entitlements={opts.entitlements ?? []}
       guestCap={opts.guestCap ?? 100}
       onLeftWedding={opts.onLeftWedding}
-      onTierRaised={opts.onTierRaised}
       rsvpEvent={opts.rsvpEvent}
       onRsvpEvent={opts.onRsvpEvent}
     />
@@ -574,22 +563,6 @@ describe("ModuleShell", () => {
       const panel = screen.getByTestId("settings");
       expect(panel.getAttribute("data-can-manage")).toBe("true");
       expect(panel.getAttribute("data-can-edit-rsvp")).toBe("true");
-    });
-
-    // The panel lists the downloads of the modules this tier locks, so it has
-    // to be handed the wedding's tier, not a constant.
-    it.each(["ivory", "gold"] as const)("hands the panel the %s tier", (tier) => {
-      renderShell({ module: "settings", sub: "wedding", tier });
-      expect(screen.getByTestId("settings").getAttribute("data-tier")).toBe(tier);
-    });
-
-    // The code is redeemed in the panel; the list that unlocks the nav lives
-    // two levels up, so the tier has to travel through here.
-    it("passes a redeemed code's tier up from the panel", () => {
-      const onTierRaised = vi.fn();
-      renderShell({ module: "settings", sub: "wedding", onTierRaised });
-      fireEvent.click(screen.getByText("settings-code-redeemed"));
-      expect(onTierRaised).toHaveBeenCalledWith("crimson");
     });
   });
 

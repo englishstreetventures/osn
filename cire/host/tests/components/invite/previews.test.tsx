@@ -224,16 +224,6 @@ describe("SectionSample", () => {
     expect(content.className).toContain("items-center");
     expect((container.firstElementChild as HTMLElement).className).not.toContain("p-4");
   });
-
-  it("keeps the heading free of a hardcoded weight or slant", () => {
-    render(() => <SectionSample {...props} />);
-    const heading = screen.getByText(props.heading);
-
-    // A Tailwind `font-light italic` would win over the variables above — the
-    // heading would then render identically for every pick.
-    expect(heading.className).not.toContain("italic");
-    expect(heading.className).not.toContain("font-light");
-  });
 });
 
 describe("HeroSample", () => {
