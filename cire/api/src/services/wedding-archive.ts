@@ -16,9 +16,15 @@
  * statements included, so the archive reads at most 900 objects. It holds at
  * most 256 MiB of them: the portal keeps the archive in memory as one Blob
  * before saving it, and the ZIP fflate writes has no ZIP64 records. The count
- * is checked before a read; the byte total after it, on the bytes read, since
- * neither bucket's binding reports a size up front here. Uploads are capped at
- * 5 MiB an image (`MAX_IMAGE_BYTES`), so no single file needs a cap of its own.
+ * is checked before a read; the byte total before a picture's body is read
+ * when R2 reports its size, and after every read on the bytes read. Uploads
+ * are capped at 5 MiB an image (`MAX_IMAGE_BYTES`), so no single file needs a
+ * cap of its own.
+ *
+ * **What is never fetched.** A picture's key must lie under the wedding's own
+ * `assets/<weddingId>/` prefix, and the uploaded sheets are parsed and
+ * written again through `serialiseCsv`'s formula guard, like every other
+ * spreadsheet cire hands out.
  *
  * **CPU.** Every entry is stored with a native CRC-32 (`lib/stored-zip.ts`), so
  * the CPU goes where the single CSV downloads spend it: serialising rows.
@@ -47,6 +53,7 @@ import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import type { EffectDbService } from "../db/effect-handle";
+import { serialiseCsv } from "../lib/csv";
 import { StoredZip } from "../lib/stored-zip";
 import { metricWeddingArchiveDownload, metricWeddingArchiveFile } from "../metrics";
 import type { WeddingArchiveFileStatus } from "../metrics";
@@ -57,10 +64,18 @@ import { SLOT_COLUMNS } from "./invite";
 import { detectImageType } from "./invite-assets";
 import { MAX_PLANNING_EXPORT_ROWS, planningExportService } from "./planning-export";
 import { MAX_REGISTRY_EXPORT_ROWS, registryExportService } from "./registry-export";
+import type { GiftPicture } from "./registry-export";
 import { MAX_HOUSEHOLD_EXPORT_ROWS, rosterExportService } from "./roster-export";
 import { rsvpExportService, toCsv } from "./rsvp-export";
 import { MAX_SEATING_EXPORT_ROWS, seatingExportService } from "./seating-export";
-import { MAX_QUESTION_EXPORT_ROWS, settingsExportService } from "./settings-export";
+import {
+  inviteCsvOf,
+  MAX_QUESTION_EXPORT_ROWS,
+  settingsExportService,
+  WEDDING_SETTINGS_COLUMNS,
+  weddingCsvOf,
+} from "./settings-export";
+import { parseCsv } from "./spreadsheet";
 import { stateExportService } from "./state-export";
 import { tableExportService } from "./table-export";
 import { MAX_VENDOR_EXPORT_ROWS, vendorExportService } from "./vendor-export";
@@ -78,18 +93,21 @@ export const ARCHIVE_LIMITS: ArchiveLimits = { files: 900, bytes: 256 * 1024 * 1
 /** Uploads an archive lists: two sheets each, so the count limit is reached first. */
 const MAX_UPLOAD_ROWS = Math.ceil(ARCHIVE_LIMITS.files / 2);
 
+/**
+ * An image as the archive reads it: R2's object body, which also reports its
+ * `size` and holds its unread `body`, so one too large for the archive's byte
+ * limit is let go unread. `AssetsBucket`'s objects satisfy it without them.
+ */
+export interface ArchiveAssetObject {
+  arrayBuffer(): Promise<ArrayBuffer>;
+  readonly httpMetadata?: { contentType?: string };
+  readonly size?: number;
+  readonly body?: ReadableStream<Uint8Array> | null;
+}
+
 /** The image bucket as the archive reads it. `AssetsBucket` satisfies it. */
 export interface ArchiveAssetsSource {
-  get(key: string):
-    | Promise<{
-        arrayBuffer(): Promise<ArrayBuffer>;
-        readonly httpMetadata?: { contentType?: string };
-      } | null>
-    | {
-        arrayBuffer(): Promise<ArrayBuffer>;
-        readonly httpMetadata?: { contentType?: string };
-      }
-    | null;
+  get(key: string): Promise<ArchiveAssetObject | null> | ArchiveAssetObject | null;
 }
 
 /** The sheets bucket as the archive reads it. `R2Bucket` (`r2-imports.ts`) satisfies it. */
@@ -117,12 +135,10 @@ interface DataFile {
 interface PlannedFile {
   /** What it is, in words a person reads in the manifest. */
   readonly what: string;
-  /** Its path in the archive without an extension; an image's comes from its type. */
+  /** Its path in the archive without an extension: an image's comes from its type, a sheet's is `.csv`. */
   readonly stem: string;
   readonly bucket: "assets" | "sheets";
   readonly key: string;
-  /** A sheet's extension, from its upload's format. */
-  readonly extension?: string;
 }
 
 export interface ArchivePlan {
@@ -174,7 +190,12 @@ function dataFile(path: string, text: string, rows?: { count: number; ceiling: n
   return { path, text, complete: false, rowsInWedding: rows.count, rowsInFile: rows.ceiling };
 }
 
-/** How many rows each capped file would hold uncut, and the wedding's name, in one statement. */
+/**
+ * The wedding's settings (for `wedding.csv`) and how many rows each capped
+ * file would hold uncut, in one statement on the wedding's row. The seating
+ * counts reach their rows through the wedding's events, whose indexes lead
+ * there; the seating tables have no index on the wedding.
+ */
 function readCounts(weddingId: string) {
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -182,20 +203,23 @@ function readCounts(weddingId: string) {
       .select({ id: budgetItems.id })
       .from(budgetItems)
       .where(eq(budgetItems.weddingId, weddingId));
+    const eventIds = db
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.weddingId, weddingId));
     const selectedPlanIds = db
       .select({ id: seatingPlans.id })
       .from(seatingPlans)
-      .where(and(eq(seatingPlans.weddingId, weddingId), eq(seatingPlans.selected, true)));
+      .where(and(inArray(seatingPlans.eventId, eventIds), eq(seatingPlans.selected, true)));
     const [row] = yield* dbQuery(() =>
       db
         .select({
-          name: weddings.displayName,
-          slug: weddings.slug,
+          ...WEDDING_SETTINGS_COLUMNS,
           budget: sql<number>`(${db.$count(budgetItems, eq(budgetItems.weddingId, weddingId))} + ${db.$count(payments, inArray(payments.budgetItemId, budgetIds))})`,
           tasks: db.$count(tasks, eq(tasks.weddingId, weddingId)),
           gifts: giftCountSql(db, weddingId),
           seats: db.$count(seatingAssignments, inArray(seatingAssignments.planId, selectedPlanIds)),
-          planRows: sql<number>`(SELECT count(*) FROM ${seatingTables} LEFT JOIN ${seatingAssignments} ON ${seatingAssignments.tableId} = ${seatingTables.id} WHERE ${seatingTables.weddingId} = ${weddingId})`,
+          planRows: sql<number>`(SELECT count(*) FROM ${seatingTables} LEFT JOIN ${seatingAssignments} ON ${seatingAssignments.tableId} = ${seatingTables.id} WHERE ${seatingTables.eventId} IN (SELECT ${events.id} FROM ${events} WHERE ${events.weddingId} = ${weddingId}))`,
           households: db.$count(
             families,
             and(eq(families.weddingId, weddingId), ne(families.kind, "host")),
@@ -211,7 +235,8 @@ function readCounts(weddingId: string) {
     if (!row) return yield* Effect.die(new Error("wedding archive: the wedding is gone"));
     const n = (value: unknown) => Number(value ?? 0);
     return {
-      name: row.name,
+      settings: row,
+      name: row.displayName,
       slug: row.slug,
       budget: n(row.budget),
       tasks: n(row.tasks),
@@ -226,11 +251,15 @@ function readCounts(weddingId: string) {
   });
 }
 
-/** Every R2 object the wedding names, in the order the archive writes them. */
-function readFilePlan(weddingId: string) {
+/**
+ * The rows that name the wedding's R2 objects: its customisation (which also
+ * makes `invite.csv`), its events and its uploads. The gifts' pictures come
+ * from the gift list's own read.
+ */
+function readFileRows(weddingId: string) {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [slots, eventRows, itemRows, uploadRows] = yield* Effect.all(
+    const [customisations, eventRows, uploadRows] = yield* Effect.all(
       [
         dbQuery(() =>
           db
@@ -250,18 +279,8 @@ function readFilePlan(weddingId: string) {
         ),
         dbQuery(() =>
           db
-            .select({ title: registryItems.title, key: registryItems.imageKey })
-            .from(registryItems)
-            .where(eq(registryItems.weddingId, weddingId))
-            .orderBy(asc(registryItems.sortOrder), asc(registryItems.id))
-            .limit(MAX_REGISTRY_EXPORT_ROWS)
-            .all(),
-        ),
-        dbQuery(() =>
-          db
             .select({
               uploadedAt: imports.uploadedAt,
-              format: imports.format,
               eventsKey: imports.eventsR2Key,
               guestsKey: imports.guestsR2Key,
             })
@@ -280,57 +299,71 @@ function readFilePlan(weddingId: string) {
       ],
       { concurrency: "unbounded" },
     );
-
-    const files: PlannedFile[] = [];
-    const customisation = slots[0];
-    for (const slot of INVITE_IMAGE_SLOTS) {
-      const key = customisation?.[SLOT_COLUMNS[slot].key];
-      if (key) {
-        files.push({
-          what: `Invite image: ${slot}`,
-          stem: `files/invite/${slot}`,
-          bucket: "assets",
-          key,
-        });
-      }
-    }
-    eventRows.forEach((event, i) => {
-      if (!event.key) return;
-      files.push({
-        what: `Event image: ${event.name}`,
-        stem: `files/events/${position(i)}-${pathSegment(event.name, "event")}`,
-        bucket: "assets",
-        key: event.key,
-      });
-    });
-    itemRows.forEach((item, i) => {
-      if (!item.key) return;
-      files.push({
-        what: `Gift image: ${item.title}`,
-        stem: `files/registry/${position(i)}-${pathSegment(item.title, "gift")}`,
-        bucket: "assets",
-        key: item.key,
-      });
-    });
-    uploadRows.forEach((upload, i) => {
-      const stem = `files/uploads/${day(upload.uploadedAt)}-${position(i)}`;
-      files.push({
-        what: `Uploaded events sheet, ${day(upload.uploadedAt)}`,
-        stem: `${stem}-events`,
-        bucket: "sheets",
-        key: upload.eventsKey,
-        extension: upload.format,
-      });
-      files.push({
-        what: `Uploaded guest sheet, ${day(upload.uploadedAt)}`,
-        stem: `${stem}-guests`,
-        bucket: "sheets",
-        key: upload.guestsKey,
-        extension: upload.format,
-      });
-    });
-    return files;
+    return { customisation: customisations[0], eventRows, uploadRows };
   });
+}
+
+/** Every R2 object the wedding names, in the order the archive writes them. */
+function planFiles(
+  rows: {
+    readonly customisation: typeof weddingInviteCustomisations.$inferSelect | undefined;
+    readonly eventRows: ReadonlyArray<{ name: string; key: string | null }>;
+    readonly uploadRows: ReadonlyArray<{
+      uploadedAt: number;
+      eventsKey: string;
+      guestsKey: string;
+    }>;
+  },
+  pictures: ReadonlyArray<GiftPicture>,
+): PlannedFile[] {
+  const files: PlannedFile[] = [];
+  for (const slot of INVITE_IMAGE_SLOTS) {
+    const key = rows.customisation?.[SLOT_COLUMNS[slot].key];
+    if (key) {
+      files.push({
+        what: `Invite image: ${slot}`,
+        stem: `files/invite/${slot}`,
+        bucket: "assets",
+        key,
+      });
+    }
+  }
+  rows.eventRows.forEach((event, i) => {
+    if (!event.key) return;
+    files.push({
+      what: `Event image: ${event.name}`,
+      stem: `files/events/${position(i)}-${pathSegment(event.name, "event")}`,
+      bucket: "assets",
+      key: event.key,
+    });
+  });
+  pictures.forEach((item, i) => {
+    if (!item.imageKey) return;
+    files.push({
+      what: `Gift image: ${item.title}`,
+      stem: `files/registry/${position(i)}-${pathSegment(item.title, "gift")}`,
+      bucket: "assets",
+      key: item.imageKey,
+    });
+  });
+  // Stored as CSV whatever was uploaded, and re-written through the formula
+  // guard when fetched: the archive's sheets are always `.csv`.
+  rows.uploadRows.forEach((upload, i) => {
+    const stem = `files/uploads/${day(upload.uploadedAt)}-${position(i)}`;
+    files.push({
+      what: `Uploaded events sheet, ${day(upload.uploadedAt)}`,
+      stem: `${stem}-events`,
+      bucket: "sheets",
+      key: upload.eventsKey,
+    });
+    files.push({
+      what: `Uploaded guest sheet, ${day(upload.uploadedAt)}`,
+      stem: `${stem}-guests`,
+      bucket: "sheets",
+      key: upload.guestsKey,
+    });
+  });
+  return files;
 }
 
 const README = (name: string, createdAt: Date): string =>
@@ -376,40 +409,36 @@ export const weddingArchiveService = {
     return Effect.gen(function* () {
       const [
         counts,
-        files,
-        weddingCsv,
+        fileRows,
+        registry,
         guestsCsv,
         householdsCsv,
         eventsCsv,
         rsvps,
         seatingCsv,
         seatingPlansCsv,
-        registryCsv,
         giftsCsv,
         budgetCsv,
         tasksCsv,
         vendorsCsv,
-        inviteCsv,
         questionsCsv,
         importEventsCsv,
         importGuestsCsv,
       ] = yield* Effect.all(
         [
           readCounts(weddingId),
-          readFilePlan(weddingId),
-          settingsExportService.weddingCsv(weddingId),
+          readFileRows(weddingId),
+          registryExportService.items(weddingId),
           tableExportService.guestsCsv(weddingId),
           rosterExportService.householdsCsv(weddingId),
           tableExportService.eventsCsv(weddingId),
           rsvpExportService.build(weddingId),
           seatingExportService.seatingCsv(weddingId),
           seatingExportService.allPlansCsv(weddingId),
-          registryExportService.itemsCsv(weddingId),
           giftExportService.giftsCsv(weddingId),
           planningExportService.budgetCsv(weddingId),
           planningExportService.tasksCsv(weddingId),
           vendorExportService.vendorsCsv(weddingId),
-          settingsExportService.inviteCsv(weddingId),
           settingsExportService.questionsCsv(weddingId),
           stateExportService.downloadEventsCsv(weddingId, "import"),
           stateExportService.downloadGuestsCsv(weddingId, "import"),
@@ -419,7 +448,7 @@ export const weddingArchiveService = {
         { concurrency: 4 },
       );
       const data = [
-        dataFile("wedding.csv", weddingCsv),
+        dataFile("wedding.csv", weddingCsvOf(counts.settings)),
         dataFile("guests.csv", guestsCsv),
         dataFile("households.csv", householdsCsv, {
           count: counts.households,
@@ -435,7 +464,7 @@ export const weddingArchiveService = {
           count: counts.planRows,
           ceiling: MAX_SEATING_EXPORT_ROWS,
         }),
-        dataFile("registry.csv", registryCsv, {
+        dataFile("registry.csv", registry.csv, {
           count: counts.registry,
           ceiling: MAX_REGISTRY_EXPORT_ROWS,
         }),
@@ -449,7 +478,7 @@ export const weddingArchiveService = {
           count: counts.vendors,
           ceiling: MAX_VENDOR_EXPORT_ROWS,
         }),
-        dataFile("invite.csv", inviteCsv),
+        dataFile("invite.csv", inviteCsvOf(fileRows.customisation)),
         dataFile("questions.csv", questionsCsv, {
           count: counts.questions,
           ceiling: MAX_QUESTION_EXPORT_ROWS,
@@ -462,7 +491,7 @@ export const weddingArchiveService = {
         wedding: { id: weddingId, name: counts.name, slug: counts.slug },
         createdAt: now,
         data,
-        files,
+        files: planFiles(fileRows, registry.pictures),
       };
     }).pipe(Effect.withSpan("cire.wedding.archive.read"));
   },
@@ -492,6 +521,7 @@ export const weddingArchiveService = {
 
     let reads = 0;
     let bytesIn = 0;
+    const assetPrefix = `assets/${plan.wedding.id}/`;
     /** Fetches one planned object, if the limits and the bucket allow; null when left out. */
     const fetchFile = async (
       file: PlannedFile,
@@ -502,29 +532,39 @@ export const weddingArchiveService = {
       };
       const source = file.bucket === "assets" ? sources.assets : sources.sheets;
       if (!source) return leftOut("unavailable");
+      // A picture's key names its wedding (`assets/<weddingId>/…`); one that
+      // names another is never fetched, whatever a row holds.
+      if (file.bucket === "assets" && !file.key.startsWith(assetPrefix)) return leftOut("missing");
       if (reads >= limits.files) return leftOut("over_limit");
       reads += 1;
       let bytes: Uint8Array;
-      let extension = file.extension ?? "bin";
+      let path: string;
       try {
         if (file.bucket === "assets") {
           const object = await (source as ArchiveAssetsSource).get(file.key);
           if (!object) return leftOut("missing");
+          if (object.size !== undefined && bytesIn + object.size > limits.bytes) {
+            await object.body?.cancel();
+            return leftOut("over_limit");
+          }
           const buffer = await object.arrayBuffer();
           bytes = new Uint8Array(buffer);
           const type = object.httpMetadata?.contentType ?? detectImageType(buffer) ?? "";
-          extension = IMAGE_EXTENSIONS.get(type) ?? "bin";
+          path = `${file.stem}.${IMAGE_EXTENSIONS.get(type) ?? "bin"}`;
         } else {
           const object = await (source as ArchiveSheetsSource).get(file.key);
           if (!object) return leftOut("missing");
-          bytes = encoder.encode(await object.text());
+          // The upload's own cells, re-written through the formula guard every
+          // other spreadsheet cire hands out passes through.
+          const [header = [], ...rows] = parseCsv(await object.text());
+          bytes = encoder.encode(serialiseCsv(header, rows));
+          path = `${file.stem}.csv`;
         }
       } catch {
         return leftOut("unreadable");
       }
       if (bytesIn + bytes.byteLength > limits.bytes) return leftOut("over_limit");
       bytesIn += bytes.byteLength;
-      const path = `${file.stem}.${extension}`;
       record(file, "included", path);
       return { path, bytes };
     };

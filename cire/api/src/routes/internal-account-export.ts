@@ -30,9 +30,13 @@ const ProfileId = Schema.String.check(
   Schema.isPattern(/^usr_[A-Za-z0-9_]+$/),
 );
 
-/** osn-api's body, in its own field names (`osn/api/src/services/account-export.ts`). */
+/**
+ * The part of osn-api's body cire reads, in its field names
+ * (`osn/api/src/services/account-export.ts`). osn-api also sends the account
+ * id, which Pulse's receiver requires; cire declares no field for it, so it is
+ * dropped unread.
+ */
 const ExportBody = Schema.Struct({
-  account_id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
   profile_ids: Schema.Array(ProfileId).check(Schema.isMaxLength(MAX_PROFILE_IDS)),
 });
 

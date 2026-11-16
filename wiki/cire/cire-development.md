@@ -229,7 +229,7 @@ start one. Its own limiter answers first (`archiveLimiter`, 10 a day per
 owner, in memory), then the shared one, which it spends too. What it keeps to:
 
 - **Every D1 read before the first byte.** `read()` runs each exporter and the
-  file list (32 statements for a wedding with every module filled, the gates
+  file list (29 statements for a wedding with every module filled, the gates
   included, under D1's 50 a request on Workers Free); a failure is the route's
   500. R2 objects are read while the archive streams, one per pull
   (`highWaterMark: 0`), each whole before its entry is written; one that is
@@ -240,7 +240,10 @@ owner, in memory), then the shared one, which it spends too. What it keeps to:
 - **R2 limits.** At most 900 objects (each read is one of the 1,000 calls to
   Cloudflare services an invocation may make) and 256 MiB of them (the portal
   holds the archive as one Blob; fflate writes no ZIP64). The count is checked
-  before a read, the byte total after it.
+  before a read; the byte total before a picture's body is read when R2
+  reports its size, and after every read. A picture's key must lie under
+  `assets/<weddingId>/`, and the uploaded sheets are parsed and written again
+  through `serialiseCsv`, so no cell reaches a spreadsheet unguarded.
 - **Stored entries, native CRC-32.** `lib/stored-zip.ts` hands each entry to
   fflate's `Zip` with its CRC from `node:zlib`, which workerd and Bun implement
   natively, so the per-byte cost is a copy. `tests/workerd/entry.test.ts` runs

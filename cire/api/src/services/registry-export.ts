@@ -26,6 +26,12 @@ const HEADER = [
   "Link",
 ];
 
+/** One gift's picture, in the list's order: its title and the R2 key of its image. */
+export interface GiftPicture {
+  readonly title: string;
+  readonly imageKey: string | null;
+}
+
 /**
  * The couple's gift list for the whole-wedding archive
  * (`services/wedding-archive.ts`), in the list's own order: what they asked
@@ -33,7 +39,18 @@ const HEADER = [
  * the archive's `files/registry/` folder, under the same position.
  */
 export const registryExportService = {
+  /** `registry.csv` alone (`items` without the pictures). */
   itemsCsv(weddingId: string): Effect.Effect<string, never, DbService> {
+    return registryExportService.items(weddingId).pipe(Effect.map((items) => items.csv));
+  },
+
+  /**
+   * `registry.csv`, and each listed gift's picture in the same order, from one
+   * read: the archive names a gift's picture by its position in the file.
+   */
+  items(
+    weddingId: string,
+  ): Effect.Effect<{ csv: string; pictures: ReadonlyArray<GiftPicture> }, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const rows = yield* dbQuery(() =>
@@ -48,6 +65,7 @@ export const registryExportService = {
             allowPartial: registryItems.allowPartial,
             targetMinor: registryItems.targetMinor,
             externalUrl: registryItems.externalUrl,
+            imageKey: registryItems.imageKey,
             currency: weddings.currency,
           })
           .from(registryItems)
@@ -64,23 +82,26 @@ export const registryExportService = {
       }
       const money = (minor: number | null, currency: string): string =>
         minor === null ? "" : minorToDecimal(minor, currency);
-      return serialiseCsv(
+      const listed = rows.slice(0, MAX_REGISTRY_EXPORT_ROWS);
+      const csv = serialiseCsv(
         HEADER,
-        rows
-          .slice(0, MAX_REGISTRY_EXPORT_ROWS)
-          .map((row) => [
-            row.title,
-            row.kind === "cash_fund" ? "Fund" : "Gift",
-            row.category ?? "",
-            row.description ?? "",
-            money(row.priceMinor, row.currency),
-            String(row.quantityWanted),
-            row.allowPartial ? "Yes" : "No",
-            money(row.targetMinor, row.currency),
-            row.currency,
-            row.externalUrl ?? "",
-          ]),
+        listed.map((row) => [
+          row.title,
+          row.kind === "cash_fund" ? "Fund" : "Gift",
+          row.category ?? "",
+          row.description ?? "",
+          money(row.priceMinor, row.currency),
+          String(row.quantityWanted),
+          row.allowPartial ? "Yes" : "No",
+          money(row.targetMinor, row.currency),
+          row.currency,
+          row.externalUrl ?? "",
+        ]),
       );
-    }).pipe(Effect.withSpan("cire.registry-export.itemsCsv"));
+      return {
+        csv,
+        pictures: listed.map((row) => ({ title: row.title, imageKey: row.imageKey })),
+      };
+    }).pipe(Effect.withSpan("cire.registry-export.items"));
   },
 };

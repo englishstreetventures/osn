@@ -181,12 +181,10 @@ describe("ARC on the account export (refusals)", () => {
     for (const body of [
       "{not json",
       { account_id: "acc_person" },
-      { profile_ids: [P] },
       exportBody(["not-a-profile"]),
       exportBody(["xusr_a"]),
       exportBody(["usr_a-b"]),
       exportBody(Array.from({ length: 101 }, (_, i) => `usr_${i}`)),
-      { account_id: "", profile_ids: [P] },
     ]) {
       const res = await post(app, token, body);
       expect({

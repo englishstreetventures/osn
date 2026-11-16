@@ -14,8 +14,9 @@
  *   passed, answering `{ kept: [{ what, erasedOn, requestUrl }] }`: what the
  *   app keeps, until when, and where to ask about it. A repeat of the call
  *   answers the same. No app is sent the person's email address.
- *   `accountId` keys the app's record of the erasure; no other call carries
- *   it.
+ *   `accountId` keys the app's record of the erasure. Of the other calls
+ *   only the account export's (`services/account-export.ts`) carries it, as
+ *   `account_id`, which Pulse's receiver requires and cire's drops unread.
  *
  * Adding an app is one more entry in {@link DELETION_APPS}, its `*_done_at`
  * column on `deletion_jobs`, its URL variable, and its host in the stacks.

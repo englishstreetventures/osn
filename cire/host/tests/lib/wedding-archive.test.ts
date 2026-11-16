@@ -41,6 +41,7 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  * 10. While it runs, the state carries the running total of bytes received.
  * 11. A second start while one runs sends no second request.
  * 12. A finished download, failed or saved, can be started again.
+ * 1b. An archive read in more than one 8 MiB part is saved whole, in order.
  * 13. A size reads in KB under a megabyte, never "0 KB" or "1000 KB", else MB,
  *     and its number never wraps away from its unit.
  */
@@ -109,6 +110,22 @@ afterEach(() => {
 });
 
 describe("startWeddingArchive", () => {
+  it("1b. saves an archive read in several 8 MiB parts whole, every byte in order", async () => {
+    const MiB = 1024 * 1024;
+    const chunk = (fill: number) => new Uint8Array(3 * MiB).fill(fill);
+    const chunks = [chunk(1), chunk(2), chunk(3), chunk(4), chunk(5), END_RECORD];
+    authFetchMock.mockResolvedValueOnce(zipResponse(chunks));
+    await start();
+
+    expect(saved).toHaveBeenCalledTimes(1);
+    const bytes = await savedBytes();
+    const expected = concat(...chunks);
+    // A byte-by-byte compare: `toEqual` on 15 MiB is too slow for the suite.
+    let same = bytes.byteLength === expected.byteLength;
+    for (let i = 0; same && i < expected.byteLength; i++) same = bytes[i] === expected[i];
+    expect(same).toBe(true);
+  });
+
   it("1. saves a whole archive as cire-wedding-<slug>.zip, every byte as received", async () => {
     authFetchMock.mockResolvedValueOnce(
       zipResponse([BODY.slice(0, 13), BODY.slice(13), END_RECORD]),

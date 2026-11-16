@@ -76,9 +76,19 @@ function failureFor(status: number): ArchiveFailure {
   }
 }
 
-/** Read the body to its end, reporting the running total after each chunk. */
+/** Bytes gathered before they are folded into a Blob of their own. */
+const PART_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Read the body to its end, reporting the running total after each chunk.
+ * Every 8 MiB the chunks so far become a Blob, and the archive is made of
+ * those Blobs: a Blob built from Blobs refers to their bytes rather than
+ * copying them, so the tab holds about one copy of the archive, not two.
+ */
 async function readArchive(res: Response, onProgress: (received: number) => void): Promise<Blob> {
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  const parts: Blob[] = [];
+  let chunks: Uint8Array<ArrayBuffer>[] = [];
+  let pending = 0;
   if (res.body) {
     const reader = res.body.getReader();
     let received = 0;
@@ -87,11 +97,18 @@ async function readArchive(res: Response, onProgress: (received: number) => void
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);
+      pending += value.byteLength;
       received += value.byteLength;
+      if (pending >= PART_BYTES) {
+        parts.push(new Blob(chunks));
+        chunks = [];
+        pending = 0;
+      }
       onProgress(received);
     }
   }
-  return new Blob(chunks, { type: "application/zip" });
+  parts.push(new Blob(chunks));
+  return new Blob(parts, { type: "application/zip" });
 }
 
 type Outcome =

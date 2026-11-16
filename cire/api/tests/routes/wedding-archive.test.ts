@@ -611,8 +611,8 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     const { texts, manifest } = await archiveOf(db, { assets, sheets });
     const uploads = [...texts.entries()].filter(([name]) => name.includes("/files/uploads/"));
     expect(uploads.map(([name]) => name.slice(FOLDER.length))).toEqual([
-      "files/uploads/2026-10-02-001-events.tsv",
-      "files/uploads/2026-10-02-001-guests.tsv",
+      "files/uploads/2026-10-02-001-events.csv",
+      "files/uploads/2026-10-02-001-guests.csv",
       "files/uploads/1970-01-21-002-events.csv",
       "files/uploads/1970-01-21-002-guests.csv",
     ]);
@@ -653,6 +653,71 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
       });
     }
     expect([...after.texts.values()].join("")).not.toContain(fullWeddingCode("w2"));
+  });
+
+  it("B17: an uploaded sheet comes out through the formula guard", async () => {
+    const { db, assets } = seedWedding();
+    const sheets = createR2Stub();
+    const [eventsKey, guestsKey] = fullWeddingKeys(W).sheets;
+    sheets.put(eventsKey!, "Name,Notes\r\nDinner,a;=1+1\r\n");
+    sheets.put(guestsKey!, "Name,Notes\r\nAda,\u200b=1+1\r\n");
+    const { texts } = await archiveOf(db, { assets, sheets });
+    const uploads = [...texts.entries()]
+      .filter(([name]) => name.includes("/files/uploads/"))
+      .map(([, text]) => text);
+    expect(uploads).toEqual([
+      ["Name,Notes", "Dinner,a;'=1+1"].join("\r\n"),
+      ["Name,Notes", "Ada,\u200b'=1+1"].join("\r\n"),
+    ]);
+  });
+
+  it("B18: a picture whose key names another wedding is never fetched", async () => {
+    const { db, sheets } = seedWedding();
+    const assets = createAssetsStub();
+    const foreign = "assets/w2/registry-elsewhere";
+    assets.put(foreign, jpeg(4), { httpMetadata: { contentType: "image/jpeg" } });
+    db.$client.run(`UPDATE registry_items SET image_key = '${foreign}' WHERE id = 'ritem_${W}'`);
+    const reads: string[] = [];
+    const counted: AssetsBucket = {
+      ...assets,
+      get: (key) => {
+        reads.push(key);
+        return assets.get(key);
+      },
+    };
+    const { manifest } = await archiveOf(db, { assets: counted, sheets });
+    expect(manifest.files.find((f) => f.what === "Gift image: Vase")?.status).toBe("missing");
+    expect(reads).not.toContain(foreign);
+  });
+
+  it("B1: a picture R2 says would pass the byte limit is let go without reading its body", async () => {
+    const { db, sheets } = seedWedding();
+    const [hero] = fullWeddingKeys(W).assets;
+    let bodyRead = false;
+    let cancelled = false;
+    const sized: AssetsBucket = {
+      put: () => undefined,
+      delete: () => undefined,
+      get: (key) =>
+        key === hero
+          ? {
+              size: 1_000,
+              arrayBuffer: () => {
+                bodyRead = true;
+                return Promise.resolve(jpeg(997).buffer);
+              },
+              body: new ReadableStream({
+                cancel() {
+                  cancelled = true;
+                },
+              }),
+              httpMetadata: { contentType: "image/jpeg" },
+            }
+          : null,
+    };
+    const { manifest } = await archiveOf(db, { assets: sized, sheets }, { files: 900, bytes: 100 });
+    expect(manifest.files.find((f) => f.what === "Invite image: hero")?.status).toBe("over_limit");
+    expect({ bodyRead, cancelled }).toEqual({ bodyRead: false, cancelled: true });
   });
 
   it("B11: a new wedding with nothing in it, and pictures nowhere, still downloads whole", async () => {
