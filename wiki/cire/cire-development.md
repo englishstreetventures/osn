@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-16
 ---
 
 # Cire development guide
@@ -129,7 +129,7 @@ on one fluent Elysia chain. Where a new route goes:
 
 | Where | What goes there |
 |---|---|
-| Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
+| Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, osn-api's two account-deletion calls (ARC, [[cire-auth#osn-api's ARC calls (account deletion)]]), the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
 | After the chain | The Stripe mounts: the Connect webhook, the upgrade routes and the platform webhook. The upgrade routes and the platform webhook share one upgrade service and mount together, only with both a Stripe client and the platform webhook secret (on a deployed tier, one that differs from the Connect secret): the early return skips both otherwise, since only that webhook grants what the routes sell. No type limit keeps the two webhooks here |
 | Anywhere else | Inside the chain, after the guard. A route that exists only under a setting mounts as `setting ? routes : new Elysia()`, as Connect onboarding does |
 
@@ -167,7 +167,7 @@ Two type limits apply to the chain:
   `LSP` tool run `tsc` ([[agent-tooling#Code search]]), so they show the error
   while `typecheck` passes.
 
-`createApp` makes **66** chained calls, counting `.headers`.
+`createApp` makes **67** chained calls, counting `.headers`.
 
 *Measured 2026-10-27 on TypeScript 7.1.0-beta and Bun 1.4.4 — the chain's own mounts repeated or cut in a scratch copy of `createApp`, checked with `node_modules/.bin/tsc -p cire/api --noEmit` and `bun run --cwd cire/api typecheck`*
 

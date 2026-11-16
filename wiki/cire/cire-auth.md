@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-16
 ---
 
 # Cire auth model
@@ -223,7 +223,7 @@ A wedding can have more than one owner, and they are **equals**: there is no "re
 | --- | --- | --- |
 | Only an owner seats anyone, at any role, or changes a role | `weddingOwner()` on `POST /hosts` and `PUT …/role` | **403** `forbidden` (before the handle is resolved) |
 | No one is seated who has a block with the owner adding them, either way round. Only that owner is checked: owners can be seated without their consent, so checking every owner would tell one owner whether two other people have a block | osn-api `GET /graph/internal/either-blocked` (`graph:read`), asked by `POST /hosts` between the handle lookup and the `INSERT` | **404** `No OSN account with that handle`, the same answer as an unknown handle; **409** `already_host` when the person already holds a seat; **502** when osn-api fails, answers with an error or an unreadable body, or takes longer than 5 s; **503** when no check is configured |
-| A wedding always keeps at least one owner — no removal or demotion of its last owner, the caller's own included | the writing `UPDATE` / `DELETE` itself, in `hostsService.setRole()` / `remove()` | **409** `last_owner` |
+| A wedding always keeps at least one owner — no removal or demotion of its last owner, the caller's own included. The one writer outside these routes, an OSN account's erasure, soft-deletes in the same batch any wedding its removal leaves with no owner ([osn-api's ARC calls](#osn-apis-arc-calls-account-deletion)), so no live wedding is ever without one | the writing `UPDATE` / `DELETE` itself, in `hostsService.setRole()` / `remove()` | **409** `last_owner` |
 | At most `MAX_HOSTS_PER_WEDDING` = 50 seats, owners counted — every seat stays on the list, where any owner can see it and remove it. A role change adds no seat, so it is never capped | the writing `INSERT` itself | **409** `host_cap_reached` |
 | No more people than the tier allows, counting every seat below owner and every owner beyond the first two — on an add, and when one owner moves another below owner. An owner stepping down from their own seat is always allowed. See [[cire-entitlements#People limit]] | the writing `INSERT` / `UPDATE` itself | **409** `people_limit_reached` with `{ used, limit, tier }` |
 
@@ -373,6 +373,33 @@ The same rule is why `GET /api/auth/session` answers **200 `{signedIn: false}`**
 
 Both predicates guard the `String(err)` call. It throws on a null-prototype object, and they run inside `catch` blocks, so an unguarded throw there swaps a recoverable expiry for an unhandled rejection. Pinned by `cire/host/tests/lib/api.test.ts` and `osn/client/tests/errors.test.ts`; the latter builds a **real** FiberFailure rather than a hand-written string, so an Effect upgrade that changes the printout fails a test instead of a redirect.
 
+## osn-api's ARC calls (account deletion)
+
+cire-api takes two calls from osn-api, both server-to-server and authenticated
+by an ARC token alone ([[arc-tokens#osn-api as issuer — published outbound keys]]):
+`POST /internal/account-deletion-preview` (scope `account:deletion-preview`) and
+`POST /internal/account-deleted` (scope `account:erase`), in
+[`cire/api/src/routes/internal-account-deletion.ts`](../../cire/api/src/routes/internal-account-deletion.ts).
+[`cire/api/src/lib/osn-arc.ts`](../../cire/api/src/lib/osn-arc.ts) admits a token
+only when `iss` is `osn-api`, `aud` is `cire-api`, its scope holds the route's,
+and its signature checks against the key osn-api published at
+`<OSN_ISSUER_URL>/.well-known/arc-jwks.json`, the issuer cire already pins for
+organiser tokens; anything else is **401** before the body is read. cire-api
+holds no kid secret, since the value osn-api keys its kid MACs with is also the
+bearer of service-key registration, so a made-up kid costs one fetch of that
+public key set, then the shared key cache remembers it as unknown for 30 s.
+Both routes sit before the CSRF origin guard and carry no rate limit, as on
+Pulse's and Zap's receivers. What they do is in
+[[dsar#Cire (wedding-invite) data]]: the preview lists each live wedding the
+account alone owns as an action that must be answered `delete`, and the
+erasure removes the account's seats, deleting a wedding left with no owner in
+the same batch, and clears everything that names the person. A seat whose
+adder was erased lists no adder in `GET /hosts`.
+
+Ending the person's organiser sessions at the soft delete is not an ARC call:
+osn-api uses the bearer-secret revoke below
+([[sessions#Sign out everywhere else reaches cire]]).
+
 ## No overlap
 
 The two middlewares never run on the same route **except the account-link POST below**, and even there they are not a privilege ladder. `sessionAuth()` gates guest routes (`/api/rsvp`); `osnAuth()` (+ the role gates) gates `/api/organiser/*`. Outside the linking POST there is no route that accepts either credential, no privilege ladder from guest session to organiser, and no shared token format.
@@ -432,7 +459,7 @@ Organisers see the same stamp: `GET /api/organiser/weddings/:id/rsvps` gives eac
 
 ## CSRF origin guard
 
-**Both** cookies carry auth state — `cire_session` since the beginning, `cire_org_session` since the OIDC swap — so cire needs CSRF defence beyond `SameSite=Lax`, and the organiser surface now needs it as much as the guest one (before the swap it was Bearer-only and therefore CSRF-immune by construction). A root-level Elysia `onBeforeHandle` (`cire/api/src/lib/origin-guard.ts`, mounted in `createApp` before the route factories) validates the `Origin` header on **every state-changing method** (POST/PUT/PATCH/DELETE) against the same allowlist CORS echoes (derived from `WEB_ORIGIN`). Missing or mismatched Origin → **403** with a bounded `cire.origin_guard.rejections{reason}` metric (`missing | mismatch`). These sit outside the guard, and no browser session authenticates any of them. Mounted before it: the CSP violation collector, the internal session-revoke back-channel, the RSVP digest's one-click stop link ([[cire-rsvp-changes]]), and `POST /api/invite/resolve`, the guest site's server-side invite lookup — a Worker fetch carries no `Origin`, and the route reads public invite data with no cookie and no write. Exempt by exact path: the two Stripe webhook paths (`/api/stripe/webhook`, `/api/stripe/platform-webhook`) are exempt by exact path, because Stripe sends no `Origin` and each route checks its own signature. Every other state-changing request is checked. An empty allowlist (local dev) disables the guard.
+**Both** cookies carry auth state — `cire_session` since the beginning, `cire_org_session` since the OIDC swap — so cire needs CSRF defence beyond `SameSite=Lax`, and the organiser surface now needs it as much as the guest one (before the swap it was Bearer-only and therefore CSRF-immune by construction). A root-level Elysia `onBeforeHandle` (`cire/api/src/lib/origin-guard.ts`, mounted in `createApp` before the route factories) validates the `Origin` header on **every state-changing method** (POST/PUT/PATCH/DELETE) against the same allowlist CORS echoes (derived from `WEB_ORIGIN`). Missing or mismatched Origin → **403** with a bounded `cire.origin_guard.rejections{reason}` metric (`missing | mismatch`). These sit outside the guard, and no browser session authenticates any of them. Mounted before it: the CSP violation collector, the internal session-revoke back-channel, osn-api's two account-deletion calls ([osn-api's ARC calls](#osn-apis-arc-calls-account-deletion)), the RSVP digest's one-click stop link ([[cire-rsvp-changes]]), and `POST /api/invite/resolve`, the guest site's server-side invite lookup — a Worker fetch carries no `Origin`, and the route reads public invite data with no cookie and no write. Exempt by exact path: the two Stripe webhook paths (`/api/stripe/webhook`, `/api/stripe/platform-webhook`) are exempt by exact path, because Stripe sends no `Origin` and each route checks its own signature. Every other state-changing request is checked. An empty allowlist (local dev) disables the guard.
 
 **The CORS preflight allows `GET, POST, PUT, PATCH, DELETE, OPTIONS`** — the `methods` list in the `cors()` call in [`cire/api/src/app.ts`](../../cire/api/src/app.ts): every method a route answers, and never `*`. The portals call the API cross-origin with credentials, so each non-GET call is preflighted and the browser refuses any method the list leaves out. CORS matches the request's `Origin` by exact membership in the same allowlist the guard uses, through a function passed as `origin`: a plain string list would go through `@elysiajs/cors`'s own matcher, which strips everything up to `://` and consults a plain object's inherited keys. [`cire/api/tests/app.test.ts`](../../cire/api/tests/app.test.ts) sends a PATCH preflight from every origin in both tiers' committed `WEB_ORIGIN`, checks that an unlisted or near-miss origin gets no `Access-Control-Allow-Origin`, and fails unless the list names exactly the methods the mounted routes answer. [`cire/api/tests/lib/origin-guard.test.ts`](../../cire/api/tests/lib/origin-guard.test.ts) checks the guard refuses a PATCH, PUT or DELETE to an organiser route whose `Origin` is missing or unlisted.
 

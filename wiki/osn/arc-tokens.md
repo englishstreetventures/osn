@@ -288,7 +288,17 @@ other service, so it holds no key registry. Zap: `account:erase`,
 `account:export`, `account:deletion-preview`. Zap routes a token by the issuer
 it claims before reading anything else: `osn-api` goes to the published keys
 and never to its registry, which refuses a key registered for `osn-api` and
-holds `chat:c2b` keys for cire-api only.
+holds `chat:c2b` keys for cire-api only. cire-api: `account:deletion-preview`
+and `account:erase`, audience `cire-api`, verified in `cire/api/src/lib/osn-arc.ts`.
+
+**cire-api holds no kid secret.** The value that keys the kid MAC is the
+registration bearer above, and cire-api is not given it, so a compromised
+cire-api cannot register keys or revoke Zap's. Without it the kid's MAC is not
+checked: a token with a made-up kid costs cire-api one fetch of osn-api's public
+key set before it is refused, and the shared key cache then remembers that kid
+as unknown for 30 seconds, one fetch serving concurrent requests. The key set
+is public, so that is the load anyone can put on it directly. A secret held for
+the kid MAC alone would let cire-api check kids too.
 
 **Trust.** Whoever can write osn-db's `arc_outbound_keys`, or answer for
 osn-api's origin, can mint tokens an app accepts as osn-api's. The same write
