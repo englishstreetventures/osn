@@ -1,19 +1,20 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
-import { makeDbD1Live } from "@osn/db/service";
+import { makeDbD1Live, type Db } from "@osn/db/service";
 import type { CoordinationNamespace } from "@shared/coordination";
+import type { EmailService } from "@shared/email";
 import { installWorkersTracing } from "@shared/observability/tracing";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
-import { buildAppDeps } from "./build-deps";
+import { appOrigins, buildAppDeps, INSTANCE_NAME } from "./build-deps";
 import { withBackgroundSink } from "./lib/background";
 import { createDurableCoordination } from "./lib/coordination/durable";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings, USER_TIERS } from "./lib/native-rate-limiters";
 import { osnLoggerLayer, runOsn } from "./observability";
 import * as accountErasure from "./services/account-erasure";
-import { setRuntimeTier } from "./services/auth/helpers";
+import { frontendOrigin, setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
 import { rotatedSweepMaxChunks, runRotatedSessionSweep } from "./services/auth/tokens";
 import { deletionAppsConfig, type DeletionAppsConfig } from "./services/deletion-apps";
@@ -386,13 +387,31 @@ export const handler: OsnWorkerHandler = {
       );
     }
 
+    // The hard delete mails the account's address and each organisation's
+    // new owner once it has removed the account. The transport is chosen as
+    // the routes' is; a tier whose transport cannot be built still erases,
+    // with no mail, and says so once.
+    let hardDeleteLayer: Layer.Layer<Db | EmailService> | Layer.Layer<Db> = dbLayer;
+    try {
+      hardDeleteLayer = Layer.merge(dbLayer, selectEmailLayer(env, osnLoggerLayer));
+    } catch (error) {
+      await runOsn(
+        Effect.logError("scheduled hard delete runs without mail: the email transport is wrong", {
+          reason: error instanceof Error ? error.message : "invalid",
+        }),
+      );
+    }
+    const notices = {
+      appUrl: frontendOrigin({ authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL, origin: appOrigins(env) }),
+      instanceName: INSTANCE_NAME,
+    };
     ctx.waitUntil(
       runOsn(
-        accountErasure.runHardDeleteSweep({ batchSize: maxJobs }).pipe(
+        accountErasure.runHardDeleteSweep({ batchSize: maxJobs, notices }).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled hard-delete sweep failed", { reason: String(err) }),
           ),
-          Effect.provide(dbLayer),
+          Effect.provide(hardDeleteLayer),
         ),
       ),
     );

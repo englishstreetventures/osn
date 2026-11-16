@@ -8,7 +8,7 @@ import type { Db } from "@osn/db/service";
 import { Cause, Effect } from "effect";
 
 import { safeErrorSummary } from "../metrics";
-import { runFanOutRetrySweep, runHardDeleteSweep } from "./account-erasure";
+import { runFanOutRetrySweep, runHardDeleteSweep, type DeletionNotices } from "./account-erasure";
 import { runExpiredAuthCodeSweep } from "./auth/oidc";
 import { runRotatedSessionSweep } from "./auth/tokens";
 import type { DeletionAppsConfig } from "./deletion-apps";
@@ -29,18 +29,24 @@ const isolated = <A, E>(failed: string, sweep: Effect.Effect<A, E, Db>) =>
  * delete or a retention sweep after it.
  *
  * `deletionApps` says where the fan-out reaches each app; `maxJobs` caps the
- * jobs the fan-out reaches and the accounts the hard delete erases in one pass.
+ * jobs the fan-out reaches and the accounts the hard delete erases in one pass;
+ * `notices` says where the hard delete's emails point, and they go only where
+ * the caller's runtime provides the email transport.
  */
 export const runLocalSweeps = (
   deletionApps: DeletionAppsConfig,
   maxJobs: number,
+  notices?: DeletionNotices,
 ): Effect.Effect<void, never, Db> =>
   Effect.gen(function* () {
     yield* isolated(
       "fan-out retry sweep failed",
       runFanOutRetrySweep({ config: deletionApps, maxJobs }),
     );
-    yield* isolated("hard-delete sweep failed", runHardDeleteSweep({ batchSize: maxJobs }));
+    yield* isolated(
+      "hard-delete sweep failed",
+      runHardDeleteSweep({ batchSize: maxJobs, notices }),
+    );
     yield* isolated("OIDC code sweep failed", runExpiredAuthCodeSweep());
     yield* isolated("rotated-session sweep failed", runRotatedSessionSweep());
     yield* isolated("security-event sweep failed", runSecurityEventSweep());

@@ -1,14 +1,16 @@
-import { organisations, organisationMembers, users } from "@osn/db/schema";
+import { accounts, organisations, organisationMembers, users } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
-import { and, eq, exists, sql } from "drizzle-orm";
+import { and, eq, exists, gt, isNotNull, sql } from "drizzle-orm";
 import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
+import { canBatch } from "../lib/batch";
 import { bound } from "../lib/bound";
 import { handleArms, type HeldHandleDigest } from "../lib/handle-hold";
 import { withOrgMemberOp, withOrgOp } from "../metrics";
 import { isReservedHandle } from "./auth/constants";
+import { OWNERSHIP_DECLINE_WINDOW_SECONDS, successorRow } from "./organisation-succession";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -78,6 +80,39 @@ const adminOf = (db: DbService["db"], orgId: string, profileId: string) =>
         ),
       ),
   );
+
+/** A second name for `organisations`, for a statement on another table that reads the owner. */
+const ownedOrganisation = alias(organisations, "owned_organisation");
+
+/**
+ * True while `profileId` still owns `orgId`: a condition a write carries, so
+ * the write holds only while the caller is the owner it read. An owner can
+ * change between a read and a write: the hard delete of the owner's account,
+ * and a decline by a member who received it by succession, each hand it on.
+ */
+const ownerOf = (db: DbService["db"], orgId: string, profileId: string) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(ownedOrganisation)
+      .where(and(eq(ownedOrganisation.id, orgId), eq(ownedOrganisation.ownerId, profileId))),
+  );
+
+/** What a decline did, or why it did nothing. */
+export type DeclineOwnershipResult =
+  /** Passed to the next owner, whose address the notice goes to (null when none is on file). */
+  | {
+      readonly outcome: "passed";
+      readonly handle: string;
+      readonly newOwnerEmail: string | null;
+      readonly declineUntil: number;
+    }
+  /** No other member from another account: the organisation and its memberships are gone. */
+  | { readonly outcome: "deleted" }
+  /** The caller does not own it. */
+  | { readonly outcome: "not_owner" }
+  /** The caller owns it, but not by succession inside the last 30 days. */
+  | { readonly outcome: "not_declinable" };
 
 export interface OrganisationServiceOptions {
   /**
@@ -243,6 +278,7 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
         description: desc,
         avatarUrl: null,
         ownerId,
+        ownerInheritedAt: null,
         createdAt: ts,
         updatedAt: ts,
       };
@@ -386,17 +422,210 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
         );
       }
 
-      yield* Effect.tryPromise({
-        // Delete members then the org row (FK order) — pure writes. Atomic batch
-        // on D1, sequential on bun:sqlite.
-        try: () =>
-          commitBatch(db, [
-            db.delete(organisationMembers).where(eq(organisationMembers.organisationId, orgId)),
-            db.delete(organisations).where(eq(organisations.id, orgId)),
-          ]),
+      // Members then the org row (FK order), each only while the caller still
+      // owns it: an owner can change since the read above (a decline, or the
+      // hard delete of the owner's account), and the new owner's organisation
+      // is not this caller's to delete. Atomic batch on D1, sequential on
+      // bun:sqlite.
+      const dropMembers = db
+        .delete(organisationMembers)
+        .where(and(eq(organisationMembers.organisationId, orgId), ownerOf(db, orgId, callerId)));
+      const dropOrganisation = db
+        .delete(organisations)
+        .where(and(eq(organisations.id, orgId), eq(organisations.ownerId, callerId)))
+        .returning({ id: organisations.id });
+      const gone = yield* Effect.tryPromise({
+        try: async () => {
+          if (canBatch(db)) {
+            const [, dropped] = await db.batch([dropMembers, dropOrganisation]);
+            return dropped;
+          }
+          await dropMembers;
+          return await dropOrganisation;
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (gone.length === 0) {
+        // Refused as the checks would refuse now.
+        const [orgNow] = yield* readOrganisation(orgId);
+        if (!orgNow) {
+          return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+        }
+        return yield* Effect.fail(
+          new OrgError({ message: "Only the owner can delete the organisation" }),
+        );
+      }
     }).pipe(withOrgOp("delete"));
+
+  /**
+   * The caller hands back an organisation it received by succession — the
+   * hard delete of the previous owner's account, or a decline by the member
+   * before it — inside {@link OWNERSHIP_DECLINE_WINDOW_SECONDS} of receiving
+   * it. One batch, each statement only while the caller still owns it within
+   * that window: the caller's own membership goes first; then the next owner,
+   * by the hard delete's order (the longest-standing admin from another
+   * account, else the longest-standing member from another account, made
+   * admin), receives it and may decline it in turn; with no such member, its
+   * memberships and the organisation go. The caller's other profiles are never
+   * chosen. A refusal writes nothing.
+   *
+   * The caller's membership goes in the same batch as the change of owner, as
+   * at the hard delete, so a stale read of the owner can grant or change
+   * nothing afterwards (`addMember`, `updateMemberRole`); `removeMember` and
+   * `deleteOrganisation` carry the owner in their writes.
+   */
+  const declineOwnership = (
+    orgId: string,
+    callerId: string,
+  ): Effect.Effect<DeclineOwnershipResult, NotFoundError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1_000);
+      const cutoff = nowSec - OWNERSHIP_DECLINE_WINDOW_SECONDS;
+
+      const [found] = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              ownerId: organisations.ownerId,
+              ownerInheritedAt: organisations.ownerInheritedAt,
+              handle: organisations.handle,
+              callerAccountId: users.accountId,
+            })
+            .from(organisations)
+            .leftJoin(users, eq(users.id, callerId))
+            .where(eq(organisations.id, orgId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (!found) {
+        return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+      }
+      if (found.ownerId !== callerId || found.callerAccountId === null) {
+        return { outcome: "not_owner" } as const;
+      }
+      if (found.ownerInheritedAt === null || found.ownerInheritedAt <= cutoff) {
+        return { outcome: "not_declinable" } as const;
+      }
+      const accountId = found.callerAccountId;
+
+      // Still the caller's, received inside the window: every statement below
+      // writes only while this holds.
+      const held = and(
+        eq(ownedOrganisation.id, orgId),
+        eq(ownedOrganisation.ownerId, callerId),
+        gt(ownedOrganisation.ownerInheritedAt, cutoff),
+      );
+      const stillHeld = exists(
+        db
+          .select({ one: sql`1` })
+          .from(ownedOrganisation)
+          .where(held),
+      );
+      const next = successorRow("profile_id", organisations.id, accountId);
+
+      const statements = [
+        // 1. The caller leaves. First: once the owner moves, nothing below
+        //    may name the caller as owner any more.
+        db
+          .delete(organisationMembers)
+          .where(
+            and(
+              eq(organisationMembers.organisationId, orgId),
+              eq(organisationMembers.profileId, callerId),
+              stillHeld,
+            ),
+          ),
+        // 2. The next owner becomes an admin, if a plain member.
+        db
+          .update(organisationMembers)
+          .set({ role: "admin" })
+          .where(
+            and(
+              eq(organisationMembers.organisationId, orgId),
+              eq(organisationMembers.role, "member"),
+              eq(organisationMembers.id, successorRow("id", sql`${orgId}`, accountId)),
+              stillHeld,
+            ),
+          ),
+        // 3. It passes to them, and is theirs to decline in turn.
+        db
+          .update(organisations)
+          .set({ ownerId: next, ownerInheritedAt: nowSec, updatedAt: new Date(nowSec * 1_000) })
+          .where(
+            and(
+              eq(organisations.id, orgId),
+              eq(organisations.ownerId, callerId),
+              gt(organisations.ownerInheritedAt, cutoff),
+              isNotNull(next),
+            ),
+          )
+          .returning({ ownerId: organisations.ownerId }),
+        // 4. No one to pass it to: its memberships, then it.
+        db
+          .delete(organisationMembers)
+          .where(and(eq(organisationMembers.organisationId, orgId), stillHeld)),
+        db
+          .delete(organisations)
+          .where(
+            and(
+              eq(organisations.id, orgId),
+              eq(organisations.ownerId, callerId),
+              gt(organisations.ownerInheritedAt, cutoff),
+            ),
+          )
+          .returning({ id: organisations.id }),
+      ] as const;
+
+      const [leave, promote, transfer, dropMemberships, dropOrganisation] = statements;
+      const { passed, deleted } = yield* Effect.tryPromise({
+        // One batch on D1; one statement at a time on bun:sqlite, each guarded
+        // on its own. Either way the transfer's and the delete's RETURNING
+        // rows come back.
+        try: async () => {
+          if (canBatch(db)) {
+            const [, , moved, , gone] = await db.batch([
+              leave,
+              promote,
+              transfer,
+              dropMemberships,
+              dropOrganisation,
+            ]);
+            return { passed: moved, deleted: gone };
+          }
+          await leave;
+          await promote;
+          const moved = await transfer;
+          await dropMemberships;
+          const gone = await dropOrganisation;
+          return { passed: moved, deleted: gone };
+        },
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      if (passed.length > 0) {
+        const newOwnerId = passed[0]!.ownerId;
+        const [address] = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({ email: accounts.email })
+              .from(users)
+              .innerJoin(accounts, eq(accounts.id, users.accountId))
+              .where(eq(users.id, newOwnerId))
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        return {
+          outcome: "passed",
+          handle: found.handle,
+          newOwnerEmail: address?.email || null,
+          declineUntil: nowSec + OWNERSHIP_DECLINE_WINDOW_SECONDS,
+        } as const;
+      }
+      if (deleted.length > 0) return { outcome: "deleted" } as const;
+      // Neither: the owner or the window changed since the read.
+      return { outcome: "not_declinable" } as const;
+    }).pipe(withOrgOp("decline_ownership"));
 
   const listProfileOrganisations = (
     profileId: string,
@@ -418,6 +647,7 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
               description: organisations.description,
               avatarUrl: organisations.avatarUrl,
               ownerId: organisations.ownerId,
+              ownerInheritedAt: organisations.ownerInheritedAt,
               createdAt: organisations.createdAt,
               updatedAt: organisations.updatedAt,
             })
@@ -626,17 +856,17 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
       const isOwner = orgRows[0].ownerId === callerId;
       const removed = yield* Effect.tryPromise({
         try: () =>
-          db
-            .delete(organisationMembers)
-            .where(
-              and(
-                eq(organisationMembers.id, targetMember[0].id),
-                eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.profileId, targetProfileId),
-                isOwner ? undefined : eq(organisationMembers.role, "member"),
-                isOwner ? undefined : adminOf(db, orgId, callerId),
-              ),
+          db.delete(organisationMembers).where(
+            and(
+              eq(organisationMembers.id, targetMember[0].id),
+              eq(organisationMembers.organisationId, orgId),
+              eq(organisationMembers.profileId, targetProfileId),
+              // An owner removes only while it still owns the organisation:
+              // a decline or a hard delete can hand it on in between.
+              isOwner ? ownerOf(db, orgId, callerId) : eq(organisationMembers.role, "member"),
+              isOwner ? undefined : adminOf(db, orgId, callerId),
             ),
+          ),
         catch: (cause) => new DatabaseError({ cause }),
       });
       if (rowsChanged(removed) === 0) {
@@ -853,6 +1083,7 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
     getOrganisationByHandle,
     updateOrganisation,
     deleteOrganisation,
+    declineOwnership,
     listProfileOrganisations,
     addMember,
     removeMember,

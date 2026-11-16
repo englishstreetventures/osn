@@ -31,6 +31,8 @@ import type { SecurityEventSummary } from "./types";
  * an OTP template and mail a code.
  */
 type SecurityNoticeTemplate =
+  | "account-deletion-scheduled"
+  | "account-deletion-cancelled"
   | "passkey-added"
   | "passkey-removed"
   | "totp-enrolled"

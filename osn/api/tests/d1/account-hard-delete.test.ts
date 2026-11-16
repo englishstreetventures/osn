@@ -16,6 +16,7 @@ import {
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import { createD1Db } from "@shared/db-utils";
+import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
@@ -25,8 +26,10 @@ import {
   type ErasureChoices,
   hardDeleteAccount,
   requestErasure,
+  runHardDeleteSweep,
 } from "../../src/services/account-erasure";
 import { joinApp } from "../../src/services/app-enrollments";
+import { createOrganisationService } from "../../src/services/organisation";
 import { holdQueries } from "../helpers/held-query";
 
 /**
@@ -483,5 +486,79 @@ describe("the hard delete waits for every app, on D1", () => {
     expect(
       await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
     ).toHaveLength(0);
+  });
+});
+
+describe("the hard delete's notices, on D1", () => {
+  it("read each organisation's heir in the batch and go once the batch removed the account", async () => {
+    // Red on a batch whose first SELECT or the account delete's RETURNING
+    // does not come back from a D1 batch in order.
+    const owner = await person("d1notice1");
+    const bob = await person("d1noticebob1");
+    const orgId = await organisation(owner.profileId, "d1noticeorg1", [
+      { profileId: bob.profileId, role: "member", joined: 10 },
+    ]);
+    await run(
+      requestErasure({ accountId: owner.accountId, cancel: null, heldHandleDigest: digest }),
+    );
+    await everyAppDone(owner.accountId);
+    const email = makeLogEmailLive();
+    await Effect.runPromise(
+      runHardDeleteSweep({
+        nowMs: HARD_DELETE_AT * 1_000,
+        notices: { appUrl: "https://app.example.test", instanceName: "Acme" },
+      }).pipe(Effect.provide(Layer.merge(layer, email.layer))),
+    );
+
+    expect(await accountGone(owner.accountId)).toBe(true);
+    expect(email.recorded().map((m) => [m.template, m.to])).toEqual([
+      ["account-deleted", "d1notice1@example.com"],
+      ["organisation-ownership-received", "d1noticebob1@example.com"],
+    ]);
+    const [org] = await db
+      .select({ inherited: organisations.ownerInheritedAt })
+      .from(organisations)
+      .where(eq(organisations.id, orgId));
+    expect(org).toEqual({ inherited: HARD_DELETE_AT });
+  });
+});
+
+describe("a decline of an organisation received by succession, on D1", () => {
+  const orgs = createOrganisationService({ heldHandleDigest: digest });
+  const received = async (orgId: string) => {
+    await db
+      .update(organisations)
+      .set({ ownerInheritedAt: Math.floor(Date.now() / 1_000) })
+      .where(eq(organisations.id, orgId));
+  };
+
+  it("passes it on in one batch, and the decliner leaves it", async () => {
+    // Red on a statement whose guard reads the owner a statement before it in
+    // the same batch has already changed.
+    const heir = await person("d1heir1");
+    const bob = await person("d1heirbob1");
+    const orgId = await organisation(heir.profileId, "d1heirorg1", [
+      { profileId: bob.profileId, role: "member", joined: 10 },
+    ]);
+    await received(orgId);
+
+    expect(await run(orgs.declineOwnership(orgId, heir.profileId))).toMatchObject({
+      outcome: "passed",
+    });
+    expect(await orgState(orgId)).toEqual({
+      ownerId: bob.profileId,
+      members: [{ profileId: bob.profileId, role: "admin" }],
+    });
+  });
+
+  it("deletes it in one batch when no one else could take it", async () => {
+    const heir = await person("d1heir2");
+    const orgId = await organisation(heir.profileId, "d1heirorg2", []);
+    await received(orgId);
+
+    expect(await run(orgs.declineOwnership(orgId, heir.profileId))).toEqual({
+      outcome: "deleted",
+    });
+    expect(await orgState(orgId)).toEqual({ gone: true, members: 0 });
   });
 });

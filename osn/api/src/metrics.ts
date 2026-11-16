@@ -667,6 +667,7 @@ export type LiveSessionGateEndpoint =
   | "account_delete"
   | "account_restore"
   | "account_export"
+  | "account_data_link"
   | "session_revoke"
   | "session_revoke_others"
   | "oidc_connections_revoke";

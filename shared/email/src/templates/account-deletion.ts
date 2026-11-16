@@ -29,7 +29,7 @@ import type { RenderedEmail } from "./index";
 export interface DeletionPlanLine {
   /** What the person has, as the app or osn-api labelled it. */
   readonly label: string;
-  /** What happens to it, as the chosen choice's description says. */
+  /** What happens to it, as the chosen choice's description says; empty for an item shown for information. */
   readonly outcome: string;
   /** Unix seconds when anything kept is erased; null when nothing is kept. */
   readonly keptUntil: number | null;
@@ -158,7 +158,10 @@ export function renderAccountDeletionScheduled(data: AccountDeletionScheduledDat
       ? "Nothing else needed an answer before your account could be deleted."
       : "What happens to what you have elsewhere:";
   const planText = data.plan
-    .map((line) => `- ${line.label}\n  ${line.outcome}${keptSentence(line.keptUntil)}`)
+    .map((line) => {
+      const what = `${line.outcome}${keptSentence(line.keptUntil)}`.trim();
+      return what.length === 0 ? `- ${line.label}` : `- ${line.label}\n  ${what}`;
+    })
     .join("\n");
   const notYou = `If you didn't ask for this, sign in now, keep your account, and check the devices signed in to it.`;
 
@@ -177,7 +180,7 @@ export function renderAccountDeletionScheduled(data: AccountDeletionScheduledDat
       : `<ul>${data.plan
           .map(
             (line) =>
-              `<li><p style="margin:0">${esc(line.label)}</p><p style="margin:4px 0 12px;color:#444">${esc(line.outcome)}${esc(keptSentence(line.keptUntil))}</p></li>`,
+              `<li><p style="margin:0">${esc(line.label)}</p><p style="margin:4px 0 12px;color:#444">${esc(`${line.outcome}${keptSentence(line.keptUntil)}`.trim())}</p></li>`,
           )
           .join("")}</ul>`;
   const html = wrap(

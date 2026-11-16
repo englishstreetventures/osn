@@ -86,7 +86,7 @@ export type GraphBlockAction = "add" | "remove";
 export type EventStatus = "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
 
 /** Organisation CRUD actions. */
-export type OrgAction = "create" | "update" | "delete";
+export type OrgAction = "create" | "update" | "delete" | "decline_ownership";
 
 /** Organisation membership state-changing actions. */
 export type OrgMemberAction = "add" | "remove" | "update_role";
@@ -517,6 +517,7 @@ export type AuthRateLimitedEndpoint =
   | "account_restore"
   | "account_deletion_status"
   | "account_deletion_preview"
+  | "account_data_link"
   | "oidc_authorize"
   | "oidc_authorize_context"
   | "oidc_authorize_decision"

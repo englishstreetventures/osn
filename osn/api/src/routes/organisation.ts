@@ -1,12 +1,15 @@
 import type { Organisation, Profile } from "@osn/db/schema";
 import { DbLive, type Db } from "@osn/db/service";
+import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
+import { forkBackground } from "../lib/background";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { makeSafeError } from "../lib/safe-error";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { frontendOrigin } from "../services/auth/helpers";
 import { createOrganisationService } from "../services/organisation";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
@@ -86,7 +89,8 @@ function parsePagination(query: { limit?: string; offset?: string }) {
 
 export function createOrganisationRoutes(
   authConfig: AuthConfig,
-  dbLayer: Layer.Layer<Db> = DbLive,
+  /** The decline mails the organisation's next owner, so the layer carries the email transport. */
+  dbLayer: Layer.Layer<Db | EmailService> = Layer.merge(DbLive, makeLogEmailLive().layer),
   loggerLayer: Layer.Layer<never> = Layer.empty,
   rateLimiter: RateLimiterBackend = createDefaultOrgRateLimiter(),
   /** Shared application runtime (see `createAuthRoutes`). */
@@ -100,6 +104,7 @@ export function createOrganisationRoutes(
   const org = createOrganisationService({ heldHandleDigest: auth.heldHandleDigest });
 
   const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
+  const appUrl = frontendOrigin(authConfig);
 
   async function requireAuth(
     authorization: string | undefined,
@@ -344,6 +349,86 @@ export function createOrganisationRoutes(
             500: errorResponse,
           },
           detail: { operationId: "deleteOrganisation", security: [{ bearerAuth: [] }] },
+        },
+      )
+      // -----------------------------------------------------------------------
+      // POST /organisations/:handle/decline-ownership — a member who received
+      // the organisation by succession hands it back within 30 days: it
+      // passes to the next admin or member from another account, who is
+      // emailed and may decline in turn, or is deleted when there is none.
+      // The caller leaves it either way.
+      // -----------------------------------------------------------------------
+      .post(
+        "/:handle/decline-ownership",
+        async ({ params, headers, set }) => {
+          const caller = await requireAuth(headers.authorization, set);
+          if (!caller) return { error: "Unauthorized" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
+
+          const organisation = await resolveOrg(params.handle, set);
+          if (!organisation) return { error: "Organisation not found" };
+
+          try {
+            const result = await run(org.declineOwnership(organisation.id, caller.profileId));
+            if (result.outcome === "not_owner") {
+              set.status = 403;
+              return { error: "not_owner" };
+            }
+            if (result.outcome === "not_declinable") {
+              set.status = 409;
+              return { error: "not_declinable" };
+            }
+            if (result.outcome === "passed" && result.newOwnerEmail !== null) {
+              const to = result.newOwnerEmail;
+              await run(
+                forkBackground(
+                  Effect.gen(function* () {
+                    const email = yield* EmailService;
+                    yield* email.send({
+                      template: "organisation-ownership-received",
+                      to,
+                      data: {
+                        instanceName: authConfig.instanceName,
+                        organisationHandle: result.handle,
+                        declineUrl: `${appUrl}/organisations/${encodeURIComponent(result.handle)}?decline=1`,
+                        declineUntil: result.declineUntil,
+                        cause: "owner_declined",
+                      },
+                    });
+                  }).pipe(
+                    Effect.catch(() =>
+                      Effect.logWarning("organisation ownership notice not sent", {
+                        template: "organisation-ownership-received",
+                      }),
+                    ),
+                  ),
+                ),
+              );
+            }
+            return { outcome: result.outcome };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          params: HandleParam,
+          response: {
+            // `passed`: the next owner has it; `deleted`: no one else could
+            // take it, and it is gone. The caller is no longer a member.
+            200: t.Object({ outcome: t.Union([t.Literal("passed"), t.Literal("deleted")]) }),
+            401: errorResponse,
+            // `not_owner`: the caller does not own it.
+            403: errorResponse,
+            404: errorResponse,
+            // `not_declinable`: the caller created it, or received it more
+            // than 30 days ago; it can still be deleted.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "declineOrganisationOwnership", security: [{ bearerAuth: [] }] },
         },
       )
       // -----------------------------------------------------------------------

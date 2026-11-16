@@ -56,6 +56,7 @@ describe("account-erasure routes — client-IP keying (S-M5)", () => {
         accountDelete: backend,
         accountRestore: backend,
         accountDeletionStatus: backend,
+        accountDataLink: backend,
       },
       keys,
     };
@@ -121,7 +122,12 @@ describe("account-erasure routes — client-IP keying (S-M5)", () => {
       config,
       createTestLayer(),
       undefined,
-      { accountDelete: allow, accountRestore: allow, accountDeletionStatus: denyAll },
+      {
+        accountDelete: allow,
+        accountRestore: allow,
+        accountDeletionStatus: denyAll,
+        accountDataLink: allow,
+      },
       { secure: false },
       { trustedProxyCount: 1 },
     );
@@ -143,7 +149,12 @@ describe("account-erasure routes — client-IP keying (S-M5)", () => {
       config,
       createTestLayer(),
       undefined,
-      { accountDelete: denyAll, accountRestore: denyAll, accountDeletionStatus: denyAll },
+      {
+        accountDelete: denyAll,
+        accountRestore: denyAll,
+        accountDeletionStatus: denyAll,
+        accountDataLink: denyAll,
+      },
       { secure: false },
       { trustedProxyCount: 1 },
     );
@@ -164,6 +175,7 @@ const allowAll = (): AccountErasureRateLimiters => {
     accountDelete: backend,
     accountRestore: backend,
     accountDeletionStatus: backend,
+    accountDataLink: backend,
   };
 };
 
@@ -782,6 +794,13 @@ describe("the organisations an account owns", () => {
       link: null,
       organisation: { id: withAdmin.id, handle: "withadmin", name: "With Admin" },
       successor: { profile_id: carol.id, handle: "carol", display_name: null, role: "admin" },
+      // Whom a `successor` answer may name: every member from another
+      // account, in succession order — admins first, then the
+      // longest-standing — never the owner.
+      candidates: [
+        { profile_id: carol.id, handle: "carol", display_name: null, role: "admin" },
+        { profile_id: dave.id, handle: "dave", display_name: null, role: "member" },
+      ],
     });
     // No other admin: the same choices, and none taken for the person.
     expect(of(h.acme.id)).toMatchObject({
@@ -793,11 +812,12 @@ describe("the organisations an account owns", () => {
       ],
       successor: { profile_id: h.bob.id, role: "member" },
     });
-    // No other member: it can only be deleted.
+    // No other member: it can only be deleted, and no one can be named.
     expect(of(alone.id)).toMatchObject({
       default_choice: null,
       choices: [{ choice: "delete" }],
       successor: null,
+      candidates: [],
     });
   });
 
