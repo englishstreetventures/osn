@@ -15,6 +15,11 @@ When the brief hands you an open pull request to review and fix, invoke
 Plan the implementation yourself; do not wait for a plan from whoever dispatched
 you.
 
+Before you write HTML, CSS or client-side JS, search `modern-web-guidance` for
+the platform feature the task needs, with the pinned command in the
+`design-system` skill's Step 3 table. Skip it for backend, scripts, tests and
+tooling.
+
 **A dispatch is a contract, not a description.** You inherit no conversation, so
 anything absent from your brief does not exist, and anything wrong in it will be
 followed to the letter. If the brief names a worktree path, work there and
