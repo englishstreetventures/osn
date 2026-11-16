@@ -645,6 +645,24 @@ export async function claimFromOrganiserAddress(context: BrowserContext): Promis
 }
 
 /**
+ * Sends every osn-api request `context` makes from `address` rather than from
+ * the machine the suite runs on, as `claimFromOrganiserAddress` does for
+ * cire-api's claims: the stack's osn-api keeps a sent `cf-connecting-ip`
+ * (`OSN_E2E_CLIENT_ADDRESS`), so the context's sign-ins, step-ups and profile
+ * lists spend that address's limiter windows, not the suite's. The headers are
+ * the request's own (`allHeaders`, which keeps `Origin` for CORS) plus the
+ * address. The route stays for the rest of the flow, for the reason
+ * `claimFromOrganiserAddress` gives.
+ */
+export async function callOsnApiFrom(context: BrowserContext, address: string): Promise<void> {
+  await context.route(`${ORIGINS.osnApi}/**`, async (route: Route) =>
+    route.continue({
+      headers: { ...(await route.request().allHeaders()), "cf-connecting-ip": address },
+    }),
+  );
+}
+
+/**
  * Holds the browser's `method` requests to the URL it is routed on until
  * `release` runs; the preflight and every other method go on. Route it with
  * `page.route(url, handler)`, and once released undo it with

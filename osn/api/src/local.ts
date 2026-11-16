@@ -6,6 +6,7 @@ import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
 import { createInMemoryCoordination } from "./lib/coordination/memory";
 import { selectEmailLayer } from "./lib/email-layer";
+import { keepSentClientAddress, type RequestAddress } from "./lib/local-client-address";
 import { DELETION_SWEEP_DEFAULT_MAX_JOBS, deletionSweepMaxJobs } from "./services/account-erasure";
 import { frontendOrigin } from "./services/auth/helpers";
 import { runLocalSweeps } from "./services/sweeps";
@@ -94,6 +95,15 @@ export function startBunServer(
   const { observabilityLayer, jwtEphemeral, envNonLocal, trustedProxyCountUnconfigured } = built;
 
   app.listen({ port, reusePort: false });
+  // Only the E2E stack sets this, and only on a local server: the routes'
+  // per-address limiters then key on a `cf-connecting-ip` the request sends,
+  // so a flow can spend its own windows (`keepSentClientAddress`).
+  const keepSentAddress = process.env.OSN_E2E_CLIENT_ADDRESS === "1" && !envNonLocal;
+  if (keepSentAddress && app.server) {
+    const server = app.server;
+    const peer = (request: Request): RequestAddress => server.requestIP(request);
+    server.requestIP = keepSentClientAddress(peer);
+  }
   void Effect.runPromise(
     Effect.gen(function* () {
       if (jwtEphemeral) {
@@ -107,6 +117,11 @@ export function startBunServer(
       if (envNonLocal && trustedProxyCountUnconfigured) {
         yield* Effect.logWarning(
           "TRUSTED_PROXY_COUNT is unset — rate limiting will key off the socket peer (direct mode). If @osn/api sits behind a reverse proxy / load balancer, set TRUSTED_PROXY_COUNT to the number of trusted hops so x-forwarded-for is honoured spoof-safely.",
+        );
+      }
+      if (keepSentAddress) {
+        yield* Effect.logWarning(
+          "OSN_E2E_CLIENT_ADDRESS=1: rate limits key on a sent cf-connecting-ip. For the E2E stack only.",
         );
       }
       yield* Effect.logInfo("osn-app listening");

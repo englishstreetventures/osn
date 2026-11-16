@@ -79,6 +79,17 @@ export const CIRE_GIFT_LIST = {
 export const ORGANISER_ADDRESS = "192.0.2.10";
 
 /**
+ * The client address `musubi-account-deletion` reaches osn-api from
+ * (TEST-NET-1, never routed). Every osn-api limiter that keys on the client
+ * address — `/profiles/list` takes ten a minute — is shared by the whole run
+ * from the suite's own address, and the Musubi flows run inside one minute:
+ * this flow's sign-ins, step-ups and profile lists spend their own windows.
+ * The stack's osn-api keeps a `cf-connecting-ip` the request sends
+ * (`OSN_E2E_CLIENT_ADDRESS`, `keepSentClientAddress` in osn/api).
+ */
+export const ACCOUNT_DELETION_ADDRESS = "192.0.2.11";
+
+/**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
  * Playwright loads this file under Node, which cannot run a workspace package's
  * TypeScript; `tests/config.test.ts` holds them equal to `DEV_APPS` in

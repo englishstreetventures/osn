@@ -6,7 +6,9 @@
  * live session this flow's browser holds the cookie of, and cire's
  * `wed_e2e_leaver`, which their profile alone owns. Seeded rather than signed
  * up, so the flow spends none of the run's sign-up and sign-in windows
- * (`tools/e2e/tests/flows.test.ts`). It enrols the account's first passkey
+ * (`tools/e2e/tests/flows.test.ts`); and its browsers reach osn-api from
+ * `ACCOUNT_DELETION_ADDRESS` (`callOsnApiFrom`), so its step-ups and profile
+ * lists spend their own windows too. It enrols the account's first passkey
  * through osn-api, as Settings would after a sign-up, and every step-up after
  * that is the passkey.
  *
@@ -30,9 +32,15 @@
  * https only, so on this http stack the action carries no "Open in Cire" link.
  */
 
-import { DB_FILES, DELETION_PERSON as P, ORIGINS } from "../../src/config";
+import {
+  ACCOUNT_DELETION_ADDRESS,
+  DB_FILES,
+  DELETION_PERSON as P,
+  ORIGINS,
+} from "../../src/config";
 import {
   addVirtualAuthenticator,
+  callOsnApiFrom,
   expect,
   mailFor,
   queryOne,
@@ -48,6 +56,7 @@ const WINDOW_HEADING = "Your account is set to be deleted";
 test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   // Two step-ups, a sign-out and back, a keep, a second deletion and a sweep.
   test.slow();
+  await callOsnApiFrom(context, ACCOUNT_DELETION_ADDRESS);
   const authenticator = await addVirtualAuthenticator(page);
 
   await flow.step("hold the seeded session's cookie, as a sign-in leaves it", async () => {
@@ -348,6 +357,7 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   flow.check("the organisation passed to the heir", P.heir.profileId, ownerOfOrganisation());
 
   const heirContext = await browser.newContext();
+  await callOsnApiFrom(heirContext, ACCOUNT_DELETION_ADDRESS);
   const heirPage = await flow.newPage(heirContext);
   await flow.step("heir: decline it from the email's link", async () => {
     await heirContext.addCookies([
