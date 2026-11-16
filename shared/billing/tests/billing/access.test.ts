@@ -20,6 +20,7 @@ describe("applying access", () => {
     let calls = 0;
     const seen: boolean[] = [];
     const h: Harness = await createHarness({
+      tuning: { accessBudgetMs: 2_000 },
       hooks: {
         onAccess: (decision) =>
           Effect.gen(function* () {
@@ -96,8 +97,8 @@ describe("applying access", () => {
     expect(h.decisions.at(-1)!.features.workspace.reason).toBe("grant");
   });
 
-  it("waits for a live lease, and fails busy, row due, when it is never freed", async () => {
-    const h = await createHarness();
+  it("waits for a live lease, and applies once its holder frees it", async () => {
+    const h = await createHarness({ tuning: { accessBudgetMs: 2_000 } });
     await run(h.storage.ensureCustomer("org_1", h.now()));
     const lease = await run(
       h.storage.acquireAccess({ customerRef: "org_1", now: h.now(), until: later(30_000) }),
@@ -126,6 +127,20 @@ describe("applying access", () => {
       }),
     );
     expect(h.decisions).toHaveLength(1);
+  });
+
+  it("fails busy, and leaves the row due, when a live lease is never freed", async () => {
+    const h = await createHarness({ tuning: { accessBudgetMs: 10 } });
+    await run(h.storage.ensureCustomer("org_1", h.now()));
+    await run(
+      h.billing.grant({
+        customerRef: "org_1",
+        featureId: "workspace",
+        source: "comp",
+        grantedBy: "ops",
+        expiresAt: null,
+      }),
+    );
 
     await run(
       h.storage.acquireAccess({ customerRef: "org_1", now: h.now(), until: later(30_000) }),
