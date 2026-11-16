@@ -6672,14 +6672,18 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
     MF_TIMEOUT_MS,
   );
   it(
-    "erases an account on D1: the preview read, a co-owned wedding's batch and the account's clean-up",
+    "erases an account on D1: the preview read, each owned wedding's batch, the clean-up and the purge",
     async () => {
       // Every statement binds the profile list as one JSON parameter, so a
       // hundred profiles stay far inside D1's 100-parameter limit.
       const shared = "wed_d1_shared";
+      const sole = "wed_d1_sole";
       const erased = "usr_d1_erased";
       const profiles = [erased, ...Array.from({ length: 99 }, (_, i) => `usr_d1_other_${i}`)];
-      for (const statement of fullWeddingStatements(shared, { owner: "usr_d1_owner" })) {
+      for (const statement of [
+        ...fullWeddingStatements(shared, { owner: "usr_d1_owner" }),
+        ...fullWeddingStatements(sole, { owner: erased }),
+      ]) {
         await db.run(statement);
       }
       await db.insert(weddingHosts).values({
@@ -6711,8 +6715,8 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
           organiserOrigin: "https://host.example.test",
         }),
       );
-      expect(actions.map((a) => [a.id, a.kind])).toEqual([
-        [`cire:wedding:${shared}`, "wedding_co_owned"],
+      expect(actions.map((a) => [a.id, a.choices.map((c) => c.choice), a.defaultChoice])).toEqual([
+        [`cire:wedding:${sole}`, ["delete"], null],
       ]);
 
       const answer = await run(
@@ -6721,8 +6725,6 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
           profileIds: profiles,
           choices: {},
           deleteEverything: false,
-          email: "erased@example.test",
-          organiserOrigin: "https://host.example.test",
         }),
       );
       expect(answer).toEqual({ status: "done", kept: [] });
@@ -6740,6 +6742,17 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
         .from(rsvpChanges)
         .where(eq(rsvpChanges.weddingId, shared));
       expect(change?.actor).toBe("");
+
+      // The sole-owned wedding was deleted with its owner's seat, and the
+      // purge, finding no owner to restore it, takes it on its next run.
+      const result = await run(maintenanceSweeps.purgeDeletedWeddings(new Date()));
+      expect(result.purged).toBe(1);
+      expect(
+        await db.select({ id: weddings.id }).from(weddings).where(eq(weddings.id, sole)),
+      ).toEqual([]);
+      expect(
+        await db.select({ id: weddings.id }).from(weddings).where(eq(weddings.id, shared)),
+      ).toHaveLength(1);
     },
     MF_TIMEOUT_MS,
   );

@@ -158,7 +158,10 @@ export const weddings = sqliteTable(
 // creator. The API keeps at least one owner on every wedding and at most
 // `MAX_HOSTS_PER_WEDDING` rows, owners counted (`cire/api/src/services/hosts.ts`);
 // both limits are enforced inside the writing statement, since SQLite cannot
-// express either as a constraint.
+// express either as a constraint. Erasing an OSN account removes its seats
+// without that guard, and soft-deletes in the same batch any wedding the
+// removal leaves with no owner (`cire/api/src/services/account-erasure.ts`),
+// so no live wedding is ever without one.
 //
 // `osn_profile_id` is an OSN profile id (`usr_*`): an opaque cross-database
 // reference, deliberately NOT a foreign key (cire's D1 and osn's D1 are

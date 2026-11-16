@@ -52,7 +52,6 @@ const ErasureBody = Schema.Struct({
     ),
   ),
   deleteEverything: Schema.optional(Schema.Boolean),
-  email: Schema.optional(Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(320))),
 });
 
 export interface InternalAccountDeletionOptions {
@@ -148,8 +147,6 @@ export const createInternalAccountDeletionRoutes = (
               profileIds: body.profileIds,
               choices,
               deleteEverything: body.deleteEverything ?? false,
-              email: body.email === undefined ? null : body.email.trim().toLowerCase(),
-              organiserOrigin,
             })
             .pipe(
               Effect.catchTag("AccountErasureError", () =>

@@ -312,9 +312,9 @@ type WeddingPurgedResult = "ok" | "held" | "error";
 export type AccountDeletionPreviewResult = "ok" | "error";
 /** How an account erasure call from osn-api ended: all done, part done (osn-api calls again), or failed. */
 export type AccountDeletionErasureResult = "done" | "not_finished" | "error";
-/** What an erasure did to one wedding the person owned: their seat removed,
- *  another owner remaining. */
-export type AccountDeletionWeddingOutcome = "seat_removed";
+/** What an erasure did to one wedding the person owned: deleted, no other
+ *  owner being left, or only their seat removed, another owner remaining. */
+export type AccountDeletionWeddingOutcome = "deleted" | "seat_removed";
 /** Which owner notice was attempted. */
 export type OwnerNoticeKind = "owner_change" | "delete_started";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding

@@ -7,10 +7,15 @@
  * passed, the erasure itself with their answers. `routes/internal-account-deletion.ts`
  * verifies the calls; this file does the work.
  *
- * **Weddings the person owns.** A wedding never passes to an editor. Where
- * another owner remains, the person's seat goes, with its RSVP notice row, and
- * the wedding stays with that owner. A wedding a profile of the account alone
- * owns is {@link soleOwnedWeddings}' to answer.
+ * **Weddings the person owns.** A wedding never passes to an editor, and
+ * never exists without an owner. While a profile of the account is the only
+ * owner of a live wedding, the preview lists it as an action with one choice,
+ * `delete`, and no default, so osn-api refuses the deletion until the person
+ * answers it (or deletes everything), adds another owner, or deletes the
+ * wedding in cire. At the erasure, the person's seats go, with their RSVP
+ * notice rows; a wedding left with no owner is soft-deleted in the same batch,
+ * whatever was answered, so an erasure always finishes and no wedding is left
+ * without an owner. The purge takes a deleted wedding with no owner at once.
  *
  * **Everything else, once per account.** Seats below owner, notice rows,
  * organiser sessions, guest account links, Stripe OAuth states and the
@@ -66,19 +71,19 @@ export const DELETED_PROFILE = "deleted";
 /**
  * Weddings the person owns that one erasure call takes, each its own batch.
  * Counting every statement singly, a call makes at most 1 (the read of owned
- * weddings) + 2 per wedding + 25 (the account's clean-up), inside the 50 D1
+ * weddings) + 3 per wedding + 23 (the account's clean-up), inside the 50 D1
  * queries one Worker invocation may make on Workers Free.
  */
 export const MAX_OWNED_WEDDINGS_PER_CALL = 3;
 
-/** Weddings with another owner a preview lists one by one; past it, one row counts them. */
-const MAX_PREVIEW_INFO_ROWS = 99;
+/** Sole-owned weddings a preview lists one by one; past it, one action stands for all. */
+const MAX_PREVIEW_ACTIONS = 100;
 
 /** Characters of a wedding's name a label quotes: the name's own write-time limit. */
 const MAX_NAME_IN_TEXT = 120;
 
 const ACTION_PREFIX = "cire:wedding:";
-const ACTION_ALL_CO_OWNED = "cire:weddings:co_owned";
+const ACTION_ALL = "cire:weddings:all";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,42 +138,34 @@ const otherOwnerOn = (weddingId: SQL | string, profileIds: ReadonlyArray<string>
   sql`EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner' AND ${weddingHosts.osnProfileId} NOT IN ${jsonEachIn(profileIds)})`;
 
 // ---------------------------------------------------------------------------
-// Weddings a profile of the account alone owns
-// ---------------------------------------------------------------------------
-
-/**
- * Every live wedding whose owner seats are all the account's: what the
- * preview offers for them and what the erasure does to them. Not decided yet,
- * so both refuse: an account that alone owns a wedding can be neither
- * previewed nor erased here. osn-api reads the refused preview as not checked
- * and holds the deletion, and leaves cire's mark pending at the erasure.
- */
-const soleOwnedWeddings = {
-  previewActions(
-    owned: ReadonlyArray<{ readonly weddingId: string; readonly name: string }>,
-  ): Effect.Effect<ReadonlyArray<OpenAction>, AccountErasureError> {
-    if (owned.length === 0) return Effect.succeed([]);
-    return Effect.fail(new AccountErasureError({ op: "preview", reason: "sole_owner_undecided" }));
-  },
-  erase(weddingId: string): Effect.Effect<never, AccountErasureError> {
-    return Effect.logWarning("account erasure: a wedding the person alone owns waits").pipe(
-      Effect.annotateLogs({ weddingId }),
-      Effect.andThen(
-        Effect.fail(new AccountErasureError({ op: "wedding", reason: "sole_owner_undecided" })),
-      ),
-    );
-  },
-};
-
-// ---------------------------------------------------------------------------
 // Preview
 // ---------------------------------------------------------------------------
 
+/** `origin` with nothing after it, when it is https; else null, which the contract cannot carry. */
+function httpsOrigin(origin: string): string | null {
+  if (!URL.canParse(origin)) return null;
+  const url = new URL(origin);
+  return url.protocol === "https:" ? url.origin : null;
+}
+
+/** Where a wedding's owners are managed in the organiser portal (`cire/host/src/lib/dashboard-route.ts`). */
+const hostsPanelOf = (origin: string, weddingId: string): string =>
+  `${origin}/#/w/${weddingId}/settings/hosts`;
+
+const DELETE_ONE =
+  "Deleted with its guests, replies and invite when your account is deleted. Download its guest list and other exports from Cire first if you want a copy. Any other wedding you are the only owner of by then is deleted too.";
+const DELETE_MANY =
+  "Deleted with their guests, replies and invites when your account is deleted. Download their guest lists and other exports from Cire first if you want a copy. Any other wedding you are the only owner of by then is deleted too.";
+
 /**
- * What deleting the account of `profileIds` would leave open in cire: for
- * each live wedding another owner keeps, a row for information. A wedding the
- * person holds only a lower seat on needs no answer: the seat goes and
- * nothing else changes.
+ * What deleting the account of `profileIds` would leave open in cire: one
+ * action per live wedding whose owner seats are all the account's, with one
+ * choice, `delete`, and no default, so the deletion waits until the person
+ * answers it, adds another owner (the action's link opens the wedding's
+ * owners in the portal, and the action is then gone), or deletes the wedding.
+ * Past {@link MAX_PREVIEW_ACTIONS}, one action, `cire:weddings:all`, stands
+ * for them all. A wedding with another owner, or one the person holds a lower
+ * seat on, needs no answer: their seat goes and the wedding stays.
  */
 function preview(input: {
   readonly profileIds: ReadonlyArray<string>;
@@ -178,15 +175,11 @@ function preview(input: {
   return Effect.gen(function* () {
     if (input.profileIds.length === 0) return [];
     const db = yield* DbService;
-    const rows = yield* Effect.tryPromise({
+    const sole = yield* Effect.tryPromise({
       try: () =>
         Promise.resolve(
           db
-            .select({
-              weddingId: weddings.id,
-              name: weddings.displayName,
-              coOwned: sql<number>`${otherOwnerOn(outerColumn(weddings.id), input.profileIds)}`,
-            })
+            .select({ weddingId: weddings.id, name: weddings.displayName })
             .from(weddingHosts)
             .innerJoin(weddings, eq(weddings.id, weddingHosts.weddingId))
             .where(
@@ -194,38 +187,38 @@ function preview(input: {
                 inProfiles(weddingHosts.osnProfileId, input.profileIds),
                 eq(weddingHosts.role, "owner"),
                 isNull(weddings.deletedAt),
+                sql`NOT ${otherOwnerOn(outerColumn(weddings.id), input.profileIds)}`,
               ),
             )
             .groupBy(weddings.id)
             .orderBy(asc(sql`min(${weddingHosts.createdAt})`), asc(weddings.id))
+            .limit(MAX_PREVIEW_ACTIONS + 1)
             .all(),
         ),
       catch: (e) => new AccountErasureError({ op: "preview", reason: String(e) }),
     });
 
-    const sole = yield* soleOwnedWeddings.previewActions(rows.filter((row) => !row.coOwned));
-    const coOwned = rows.filter((row) => row.coOwned);
-    const infoRows: OpenAction[] =
-      coOwned.length > MAX_PREVIEW_INFO_ROWS
-        ? [
-            {
-              id: ACTION_ALL_CO_OWNED,
-              kind: "weddings_co_owned",
-              label: `${coOwned.length} weddings stay with their other owners.`,
-              choices: [],
-              defaultChoice: null,
-              link: null,
-            },
-          ]
-        : coOwned.map((row) => ({
-            id: `${ACTION_PREFIX}${row.weddingId}`,
-            kind: "wedding_co_owned",
-            label: `${quoted(row.name)} stays with its other owners.`,
-            choices: [],
-            defaultChoice: null,
-            link: null,
-          }));
-    return [...sole, ...infoRows];
+    const origin = httpsOrigin(input.organiserOrigin);
+    if (sole.length > MAX_PREVIEW_ACTIONS) {
+      return [
+        {
+          id: ACTION_ALL,
+          kind: "weddings_sole_owner",
+          label: `You are the only owner of more than ${MAX_PREVIEW_ACTIONS} weddings. Add another owner to each you want to keep, or they are deleted when your account is.`,
+          choices: [{ choice: "delete", description: DELETE_MANY, erasedOn: null }],
+          defaultChoice: null,
+          link: origin ? `${origin}/` : null,
+        },
+      ];
+    }
+    return sole.map((row) => ({
+      id: `${ACTION_PREFIX}${row.weddingId}`,
+      kind: "wedding_sole_owner",
+      label: `You are the only owner of ${quoted(row.name)}. Add another owner in Cire to keep it, or it is deleted when your account is.`,
+      choices: [{ choice: "delete", description: DELETE_ONE, erasedOn: null }],
+      defaultChoice: null,
+      link: origin ? hostsPanelOf(origin, row.weddingId) : null,
+    }));
   }).pipe(Effect.withSpan("cire.account_deletion.preview"));
 }
 
@@ -236,23 +229,28 @@ function preview(input: {
 interface EraseInput {
   readonly accountId: string;
   readonly profileIds: ReadonlyArray<string>;
+  /**
+   * The person's answers, and whether they chose to delete everything. Neither
+   * changes what cire does: the one answer cire offers is `delete`, and a
+   * wedding left with no owner is deleted whatever was answered.
+   */
   readonly choices: DeletionAnswers;
   readonly deleteEverything: boolean;
-  /** The person's address; nothing cire keeps needs it yet. */
-  readonly email: string | null;
-  readonly organiserOrigin: string;
   readonly now?: Date;
 }
 
 /**
- * One wedding a profile of the account owns beside another owner, in one
- * batch: the profiles' notice rows and seats go, each only while an owner
- * outside the account remains, so a co-owner who left since the call's first
- * read leaves the seat for {@link soleOwnedWeddings}.
+ * One wedding a profile of the account owns, in one batch: the profiles'
+ * notice rows and seats go, and then, only if no owner is left, the wedding
+ * is soft-deleted, with no one named as its deleter. The seat and the delete
+ * commit together, so no wedding is ever left live without an owner. A
+ * wedding already deleted only loses the seat. Each statement is guarded, so
+ * a repeat changes nothing.
  */
-function leaveCoOwnedWedding(
+function eraseOwnedWedding(
   weddingId: string,
   profileIds: ReadonlyArray<string>,
+  now: Date,
 ): Effect.Effect<void, AccountErasureError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -265,7 +263,6 @@ function leaveCoOwnedWedding(
               and(
                 eq(hostRsvpNotices.weddingId, weddingId),
                 inProfiles(hostRsvpNotices.osnProfileId, profileIds),
-                otherOwnerOn(weddingId, profileIds),
               ),
             ),
           db
@@ -274,10 +271,20 @@ function leaveCoOwnedWedding(
               and(
                 eq(weddingHosts.weddingId, weddingId),
                 inProfiles(weddingHosts.osnProfileId, profileIds),
-                otherOwnerOn(weddingId, profileIds),
               ),
             )
             .returning({ role: weddingHosts.role }),
+          db
+            .update(weddings)
+            .set({ deletedAt: now, deletedByOsnProfileId: null })
+            .where(
+              and(
+                eq(weddings.id, weddingId),
+                isNull(weddings.deletedAt),
+                sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner')`,
+              ),
+            )
+            .returning({ id: weddings.id }),
         ]),
       catch: (e) => new AccountErasureError({ op: "wedding", reason: String(e) }),
     }).pipe(
@@ -287,9 +294,14 @@ function leaveCoOwnedWedding(
         ),
       ),
     );
-    if ((results[1] as ReadonlyArray<{ role: string }>).length > 0) {
-      metricAccountDeletionWedding("seat_removed");
-    }
+    const removed = (results[1] as ReadonlyArray<{ role: string }>).length > 0;
+    const deleted = (results[2] as ReadonlyArray<{ id: string }>).length > 0;
+    if (!removed) return;
+    const outcome = deleted ? "deleted" : "seat_removed";
+    metricAccountDeletionWedding(outcome);
+    yield* Effect.logInfo("account erasure: a wedding the person owned").pipe(
+      Effect.annotateLogs({ weddingId, outcome }),
+    );
   }).pipe(Effect.withSpan("cire.account_deletion.wedding", { attributes: { weddingId } }));
 }
 
@@ -474,10 +486,12 @@ function eraseAccountRows(input: EraseInput) {
 /**
  * Erases the account in cire, at the end of its deletion window: each wedding
  * a profile owns ({@link MAX_OWNED_WEDDINGS_PER_CALL} a call, oldest seat
- * first), then, once none is left, everything else of the account. Answers
- * `not_finished` while owned weddings remain or a seat was made owner since
- * the first read; osn-api calls again. Phase 6's "remove my Cire data" calls
- * this too, for a person who keeps their account.
+ * first; deleted when no other owner is left), then, once none is left,
+ * everything else of the account. cire keeps nothing about the person, so a
+ * finished call answers no kept item. Answers `not_finished` while owned
+ * weddings remain or a seat was made owner since the first read; osn-api calls
+ * again. Removing a person's cire data while they keep their account calls
+ * this too, behind the same preview refusal.
  */
 function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureError, DbService> {
   return Effect.gen(function* () {
@@ -489,10 +503,7 @@ function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureEr
             try: () =>
               Promise.resolve(
                 db
-                  .select({
-                    weddingId: weddingHosts.weddingId,
-                    coOwned: sql<number>`${otherOwnerOn(outerColumn(weddingHosts.weddingId), input.profileIds)}`,
-                  })
+                  .select({ weddingId: weddingHosts.weddingId })
                   .from(weddingHosts)
                   .where(
                     and(
@@ -508,9 +519,9 @@ function erase(input: EraseInput): Effect.Effect<ErasureResult, AccountErasureEr
             catch: (e) => new AccountErasureError({ op: "wedding", reason: String(e) }),
           });
 
-    for (const { weddingId, coOwned } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
-      if (coOwned) yield* leaveCoOwnedWedding(weddingId, input.profileIds);
-      else yield* soleOwnedWeddings.erase(weddingId);
+    const now = input.now ?? new Date();
+    for (const { weddingId } of owned.slice(0, MAX_OWNED_WEDDINGS_PER_CALL)) {
+      yield* eraseOwnedWedding(weddingId, input.profileIds, now);
     }
     if (owned.length > MAX_OWNED_WEDDINGS_PER_CALL) return { status: "not_finished" } as const;
 

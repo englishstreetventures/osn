@@ -18,9 +18,9 @@
  *    reap, the retention sweep's ordering. Applied/reverted rows are never
  *    touched (they are the change history + revert source).
  *
- *  - Soft-deleted weddings past their restore window: hard-deleted, with every
- *    child row by FK cascade and every R2 object their rows name. See
- *    `purgeDeletedWeddings`.
+ *  - Soft-deleted weddings past their restore window, or with no owner left to
+ *    restore them: hard-deleted, with every child row by FK cascade and every
+ *    R2 object their rows name. See `purgeDeletedWeddings`.
  */
 
 import {
@@ -30,6 +30,7 @@ import {
   registryItems,
   registrySettings,
   vendorClaims,
+  weddingHosts,
   weddingInviteCustomisations,
   weddings,
   weddingUpgradePurchases,
@@ -66,6 +67,16 @@ class MaintenanceSweepError extends Data.TaggedError("MaintenanceSweepError")<{
  * makes. A run that leaves more due than this logs it and records the backlog.
  */
 export const MAX_PURGES_PER_RUN = 3;
+
+/**
+ * A soft-deleted wedding the purge may take: past its restore window, or with
+ * no owner seat left. Only an owner can restore a deleted wedding, so one with
+ * none has nothing to wait for: the erasure of its only owner's account
+ * deletes it this way (`account-erasure.ts`). `cutoffS` is SECONDS. Reads the
+ * `weddings` row the statement is about.
+ */
+const pastRestoreWindow = (cutoffS: number): SQL =>
+  sql`(${weddings.deletedAt} IS NOT NULL AND (${weddings.deletedAt} <= ${cutoffS} OR NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${outerColumn(weddings.id)} AND ${weddingHosts.role} = 'owner')))`;
 
 /**
  * How long a pending upgrade purchase or gift holds a past-window wedding back
@@ -189,8 +200,7 @@ function purgeOne(
             .where(
               and(
                 eq(weddings.id, weddingId),
-                isNotNull(weddings.deletedAt),
-                sql`${weddings.deletedAt} <= ${cutoffS}`,
+                pastRestoreWindow(cutoffS),
                 not(purgeHeld(weddingId, nowS, nowMs)),
               ),
             )
@@ -367,7 +377,8 @@ export const maintenanceSweeps = {
   },
 
   /**
-   * Hard-delete soft-deleted weddings whose restore window has passed, at most
+   * Hard-delete soft-deleted weddings whose restore window has passed, or that
+   * no owner is left to restore ({@link pastRestoreWindow}), at most
    * {@link MAX_PURGES_PER_RUN} a run, oldest first, skipping any {@link purgeHeld}
    * holds so a held wedding never blocks the rest of the queue.
    *
@@ -392,10 +403,7 @@ export const maintenanceSweeps = {
       const nowS = epochSeconds(now);
       const nowMs = now.getTime();
       const cutoffS = nowS - RESTORE_WINDOW_S;
-      const pastWindow = and(
-        isNotNull(weddings.deletedAt),
-        sql`${weddings.deletedAt} <= ${cutoffS}`,
-      );
+      const pastWindow = pastRestoreWindow(cutoffS);
       const heldHere = purgeHeld(outerColumn(weddings.id), nowS, nowMs);
       const failRead = (e: unknown) =>
         new MaintenanceSweepError({ op: "purge_deleted_weddings", reason: String(e) });

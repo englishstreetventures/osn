@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 
-import { weddingHosts } from "@cire/db";
+import { weddingHosts, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
@@ -79,7 +79,6 @@ const eraseBody = {
   profileIds: [P],
   choices: {},
   deleteEverything: false,
-  email: "Person@Example.test",
 };
 
 const untouched = (db: TestDb) =>
@@ -166,19 +165,19 @@ describe("ARC on the account-deletion calls (refusals)", () => {
 });
 
 describe("the account-deletion calls", () => {
-  it("preview answers the contract's shape", async () => {
-    const { app } = setup();
+  it("preview answers the contract's shape: a wedding the person alone owns is an action", async () => {
+    const { app } = setup([P]);
     const res = await post(app, PREVIEW, await arc.token("account:deletion-preview"), previewBody);
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({
       openActions: [
         {
           id: "cire:wedding:w1",
-          kind: "wedding_co_owned",
+          kind: "wedding_sole_owner",
           label: expect.any(String),
-          choices: [],
+          choices: [{ choice: "delete", description: expect.any(String), erasedOn: null }],
           defaultChoice: null,
-          link: null,
+          link: `${PORTAL}/#/w/w1/settings/hosts`,
         },
       ],
     });
@@ -194,18 +193,16 @@ describe("the account-deletion calls", () => {
     );
   });
 
-  it("both calls refuse with 500 while the person alone owns a wedding, and change nothing", async () => {
+  it("erase deletes a wedding the person alone owns, and keeps nothing; an email address sent is ignored", async () => {
     const { db, app } = setup([P]);
-    const preview = await post(
-      app,
-      PREVIEW,
-      await arc.token("account:deletion-preview"),
-      previewBody,
-    );
-    expect(preview.status).toBe(500);
-    const erase = await post(app, ERASE, await arc.token("account:erase"), eraseBody);
-    expect(erase.status).toBe(500);
-    expect(untouched(db)).toBe(true);
+    const res = await post(app, ERASE, await arc.token("account:erase"), {
+      ...eraseBody,
+      email: "person@example.test",
+    });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ kept: [] });
+    const [row] = db.select().from(weddings).where(eq(weddings.id, "w1")).all();
+    expect(row?.deletedAt).not.toBeNull();
   });
 
   it("answers 503 not finished while weddings the person owns remain", async () => {
