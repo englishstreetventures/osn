@@ -7,7 +7,7 @@ import {
   readSessionCookie,
 } from "../../lib/cookie-session";
 import { sessionStatusUnknown } from "../../lib/grant-failure";
-import { metricAuthTokenRefreshRefused } from "../../metrics";
+import { metricAuthTokenRefreshMalformed } from "../../metrics";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, tokenResponse } from "./response-schemas";
@@ -61,7 +61,7 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
           // page signs out and its next cold load does not take up the
           // cookie's account. Never read as naming none.
           if (profile_id !== undefined && !PROFILE_ID_PATTERN.test(profile_id)) {
-            metricAuthTokenRefreshRefused();
+            metricAuthTokenRefreshMalformed();
             set.status = 400;
             set.headers["set-cookie"] = buildClearSessionMarkerCookie(cookieConfig);
             return { error: "invalid_grant", message: "AuthError: Invalid or expired session" };

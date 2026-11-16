@@ -614,13 +614,13 @@ export const withSessionRotation = <A, E, Ctx>(
   );
 
 /**
- * A token grant the route refuses before the service runs, for what it asked
- * (a `profile_id` that is no profile id): counted on the two counters the
- * service counts its own such refusal on, as `forbidden`.
+ * A token grant the route refuses for a `profile_id` that is no profile id,
+ * before it reads the cookie: counted on the refresh counter as
+ * `validation_error`. Nothing rotated, and no cookie was verified, so it is
+ * not `forbidden`, which counts refusals of a live cookie's grant.
  */
-export const metricAuthTokenRefreshRefused = (): void => {
-  authTokenRefresh.inc({ result: "forbidden" });
-  authSessionRotations.inc({ result: "forbidden" });
+export const metricAuthTokenRefreshMalformed = (): void => {
+  authTokenRefresh.inc({ result: "validation_error" });
 };
 
 export const metricSessionReuseDetected = (): void => authSessionReuseDetected.inc({});

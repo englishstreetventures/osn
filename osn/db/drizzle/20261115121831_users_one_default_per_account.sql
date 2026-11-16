@@ -8,11 +8,14 @@
 -- default is untouched. The token grant mints for the account's default
 -- profile, so each account keeps one to sign in as.
 --
--- The Worker this release replaces sets a default only by clearing the old
--- one in the same batch, or on a new account's only profile. Its dev-tier
--- sign-in alone would meet the index, by putting its fixed profile back as
--- the default beside another; this release makes that insert plain where the
--- account already has a default.
+-- The Worker this release replaces sets a default by clearing the old one in
+-- the same batch, on a new account's only profile, or, deleting a default
+-- profile, by promoting the successor it read before its batch. That last one
+-- meets the index only when a default change lands between its read and its
+-- batch: the batch is refused whole, with nothing stored, until this release
+-- replaces it. Its dev-tier sign-in meets the index by putting its fixed
+-- profile back as the default beside another; this release makes that insert
+-- plain where the account already has a default.
 UPDATE `users` SET `is_default` = 0
 WHERE `is_default` = 1
 	AND `id` <> (

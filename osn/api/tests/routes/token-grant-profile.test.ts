@@ -94,7 +94,7 @@ describe("POST /token profile_id", () => {
     "refuses %s before any grant, and retracts the marker but not the session cookie",
     async (_name, profileId) => {
       const { app, grants } = recordingApp();
-      const counted = vi.spyOn(metrics, "metricAuthTokenRefreshRefused");
+      const counted = vi.spyOn(metrics, "metricAuthTokenRefreshMalformed");
 
       const res = await grant(app, { profile_id: profileId });
 
@@ -104,7 +104,7 @@ describe("POST /token profile_id", () => {
       expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
       expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(false);
       expect(grants).toEqual([]);
-      // Counted as the service counts its own refusal of what a grant asked.
+      // Counted apart from a live cookie's refused grant: no cookie was read.
       expect(counted).toHaveBeenCalledTimes(1);
     },
   );
