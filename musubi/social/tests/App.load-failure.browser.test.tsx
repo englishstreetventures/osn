@@ -31,6 +31,7 @@ vi.mock("@osn/client/solid", async () => {
     session: resource(null),
     profiles: resource(null),
     activeProfileId: () => null,
+    pendingDeletion: () => false,
     login: () => undefined,
     logout: () => Promise.resolve(),
     handleCallback: () => Promise.resolve(),

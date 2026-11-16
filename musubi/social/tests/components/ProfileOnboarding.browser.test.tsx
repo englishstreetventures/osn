@@ -20,6 +20,7 @@ import "../../src/App.css";
  */
 
 vi.mock("../../src/lib/authClients", () => ({
+  accountClient: {},
   registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
 }));
 

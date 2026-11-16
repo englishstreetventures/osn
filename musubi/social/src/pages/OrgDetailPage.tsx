@@ -4,6 +4,7 @@ import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { Chip } from "@shared/ui/ui/chip";
 import { Dialog } from "@shared/ui/ui/dialog";
 import { Field } from "@shared/ui/ui/field";
@@ -11,7 +12,7 @@ import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { useParams, useNavigate } from "@solidjs/router";
+import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
 import { createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
@@ -149,6 +150,46 @@ export function OrgDetailPage() {
     }
   }
 
+  // `?decline=1`: the "you now own" email's link. The owner may hand back an
+  // organisation that came to them by succession, within 30 days; the server
+  // decides whether this one still can be.
+  const [search] = useSearchParams();
+  const offerDecline = () => search.decline === "1";
+  const [declining, setDeclining] = createSignal(false);
+  const [declineRefused, setDeclineRefused] = createSignal(false);
+
+  async function handleDecline() {
+    if (declining()) return;
+    setDeclining(true);
+    const handle = params.handle;
+    try {
+      const mark = scopeMark();
+      const { outcome } = await orgClient.declineOwnership(handle);
+      toast.success(outcome === "deleted" ? "Organisation deleted" : "Organisation passed on");
+      navigate("/organisations");
+      // Either way the person is no longer in it: gone from their list at once.
+      organisationDetail.drop(handle);
+      organisationMembers.drop(handle);
+      myOrganisations.update(
+        [],
+        (value) => ({
+          ...value,
+          organisations: value.organisations.filter((o) => o.handle !== handle),
+        }),
+        mark,
+      );
+      myOrganisations.invalidate();
+      suggestions.invalidate();
+    } catch (err) {
+      // 403: not the owner. 409: created here, or received over 30 days ago.
+      const status = statusOf(err);
+      if (status === 403 || status === 409) setDeclineRefused(true);
+      else toast.error(`Couldn't decline the organisation. ${describeAuthError(err)}`);
+    } finally {
+      setDeclining(false);
+    }
+  }
+
   const actions = createRowActions();
 
   function removeMember(profileHandle: string) {
@@ -243,6 +284,41 @@ export function OrgDetailPage() {
                   </Button>
                 </div>
               </div>
+
+              <Show when={offerDecline()}>
+                <Card padding="md" class="mb-8 flex flex-col gap-3">
+                  <h2 class="text-foreground text-title font-medium">
+                    This organisation passed to you
+                  </h2>
+                  <p class="text-muted-foreground text-body">
+                    It is yours because its owner deleted their account, or the member before you
+                    declined it. You can decline it within 30 days of getting it.
+                  </p>
+                  <p class="text-muted-foreground text-body">
+                    If you decline, it passes to its next admin or member, or is deleted if there is
+                    none, and you leave it.
+                  </p>
+                  <Show
+                    when={!declineRefused()}
+                    fallback={
+                      <Notice tone="danger" size="inline" alert>
+                        You can no longer decline this organisation here. If you own it, you can
+                        still delete it.
+                      </Notice>
+                    }
+                  >
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      class="self-start max-md:h-10"
+                      busy={declining()}
+                      onClick={() => void handleDecline()}
+                    >
+                      {declining() ? "Declining…" : "Decline"}
+                    </Button>
+                  </Show>
+                </Card>
+              </Show>
 
               {/* Members */}
               <div>

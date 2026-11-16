@@ -40,6 +40,7 @@ const fixture = vi.hoisted(() => ({
 
 vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
 vi.mock("../../src/lib/authClients", () => ({
+  accountClient: {},
   registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
   passkeysClient: {
     list: async () => {

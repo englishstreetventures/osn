@@ -62,6 +62,7 @@ vi.mock("../../src/lib/api", () => ({
 }));
 vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
 vi.mock("../../src/lib/authClients", () => ({
+  accountClient: {},
   registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
   connectionsClient: { list: () => reads.hold("apps") },
   passkeysClient: { list: () => reads.hold("passkeys") },

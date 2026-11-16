@@ -1,8 +1,17 @@
-import { AuthProvider } from "@osn/client/solid";
+import { AuthProvider, useAuth } from "@osn/client/solid";
 import { Toaster } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Route, Router, useLocation } from "@solidjs/router";
-import { createSignal, lazy, onCleanup, onMount, Show, type Component, type JSX } from "solid-js";
+import {
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+  Show,
+  Suspense,
+  type Component,
+  type JSX,
+} from "solid-js";
 
 import { AccountBanners } from "./components/AccountBanners";
 import { PageErrorBoundary } from "./components/PageErrorBoundary";
@@ -52,6 +61,10 @@ const ShellNotices = lazy(() =>
   import("./components/ShellNotices").then((m) => ({ default: m.ShellNotices })),
 );
 
+// What a session pending deletion sees instead of the shell. It reaches the
+// step-up ceremony, so it is fetched only by such a session.
+const DeletionWindow = lazy(() => import("./components/DeletionWindow"));
+
 // The data pages' modules are imported in one place each: the page and its
 // route's preload share the chunk, and no new import site splits the entry.
 const connectionsModule = () => import("./pages/ConnectionsPage");
@@ -72,6 +85,9 @@ const OrganisationsPage = lazy(() =>
 const OrgDetailPage = lazy(() => orgDetailModule().then((m) => ({ default: m.OrgDetailPage })));
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const DeleteAccountPage = lazy(() =>
+  import("./pages/DeleteAccountPage").then((m) => ({ default: m.DeleteAccountPage })),
 );
 const AuthorizePage = lazy(() =>
   import("./pages/AuthorizePage").then((m) => ({ default: m.AuthorizePage })),
@@ -137,7 +153,32 @@ export function Layout(props: { children?: JSX.Element }) {
   );
 }
 
+/**
+ * The shell and the page, or, for a session whose account is pending
+ * deletion, the window screen in their place. Nothing of the shell mounts
+ * then — the rail or the top bar, the shell's dialogs, `ShellNotices` and its
+ * page cache, `AccountBanners`, the page — so no request goes out that the
+ * pending session would be refused, and a route's preload reads nothing.
+ */
 function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
+  const { pendingDeletion } = useAuth();
+  return (
+    <>
+      <Show when={pendingDeletion()}>
+        <Content>
+          <Suspense>
+            <DeletionWindow />
+          </Suspense>
+        </Content>
+      </Show>
+      <Show when={!pendingDeletion()}>
+        <Shell isMobile={props.isMobile}>{props.children}</Shell>
+      </Show>
+    </>
+  );
+}
+
+function Shell(props: { isMobile: boolean; children?: JSX.Element }) {
   return (
     <ShellDialogsProvider>
       {/* Mount only the active shell: one chunk fetched, one shell hydrating.
@@ -270,6 +311,7 @@ export default function App() {
         }}
       />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/settings/delete-account" component={DeleteAccountPage} />
       <Route path="/authorize" component={AuthorizePage} />
       <Route path="/verify/:requestId" component={VerifyEmailLinkPage} />
       {/* Reachable signed-out on purpose: a notice you can only read once you have
