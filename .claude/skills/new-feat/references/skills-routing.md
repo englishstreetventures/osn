@@ -5,6 +5,7 @@ Invoke these rather than reinventing what a skill already encodes. If none appli
 | Part of the task | Skill |
 |---|---|
 | Any new UI — components, pages, layouts, visual or UX work | `design-system` first: it maps each surface to its `DESIGN.md`, says that document ships until the owner chooses another value, and names which design skill fits — `frontend-design:frontend-design` for a new screen, `stageshow` for a faux product UI or animated demo, `apple-design` in the plan; the motion pipeline (`find-animation-opportunities`, `animation-vocabulary`, `animate`) at the end of the frontend part, as `design-system` orders it, `web-design-guidelines` to review the result. `prep-pr` then runs `review-design` on the branch, against the same documents and the shared component packages |
+| HTML, CSS or client-side JS where a newer platform feature may replace a hand-built pattern | `modern-web-guidance`, per the `design-system` row that names its pinned `npx` command. Not for backend, scripts, tests or tooling |
 | Page-load / Core Web Vitals profiling | `web-perf` |
 | Anything Cloudflare — Workers, Pages, KV, D1, R2, Images, AI, caching, bindings, config | `cloudflare`; writing or reviewing Worker code → `workers-best-practices`; running `wrangler` → `wrangler` |
 | A deployed Worker misbehaving, a failed first deploy, setting or rotating a Worker secret | `debug-workers` |
