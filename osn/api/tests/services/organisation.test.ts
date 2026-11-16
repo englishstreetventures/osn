@@ -1,8 +1,11 @@
 import { it, expect, describe } from "@effect/vitest";
+import { organisations } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer, type Result } from "effect";
 import { beforeAll } from "vitest";
 
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
@@ -11,7 +14,7 @@ import { holdQueries } from "../helpers/held-query";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
-const org = createOrganisationService();
+const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
 beforeAll(async () => {
   config = await makeTestAuthConfig();
@@ -83,6 +86,20 @@ describe("createOrganisation", () => {
         expect(error._tag).toBe("OrgError");
         expect(error.message).toContain("Handle unavailable");
       }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // A soft delete renames each profile to `deleted_` and its id's suffix,
+  // and profile ids are visible to other people. Organisation handles share
+  // the profile namespace, so the form is reserved here too.
+  it.effect("fails when the handle has the form a soft delete gives a profile", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerProfile("alice@example.com", "alice");
+      const error = yield* Effect.flip(
+        org.createOrganisation(alice.id, "deleted_0123456789ab", "Squat Org"),
+      );
+      expect(error._tag).toBe("OrgError");
+      expect(error.message).toBe("Handle unavailable");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -790,6 +807,31 @@ describe("a membership write holds only while what it checked still holds", () =
       expect(changed).toBe("Organisation not found");
     }).pipe(Effect.provide(h.layer));
   });
+
+  it.live(
+    "a role change by an owner who has since passed the organisation on changes nothing",
+    () => {
+      // The owner moves only in the hard delete of the owner's account, which
+      // hands the organisation to another member in one batch.
+      const h = held();
+      return Effect.gen(function* () {
+        const { alice, bob, carol, orgId } = yield* setupTeam;
+        const changed = yield* across(
+          h,
+          /^update "organisation_members"/,
+          org.updateMemberRole(orgId, alice.id, carol.id, "admin"),
+          Effect.gen(function* () {
+            const { db } = yield* Db;
+            yield* Effect.promise(() =>
+              db.update(organisations).set({ ownerId: bob.id }).where(eq(organisations.id, orgId)),
+            );
+          }),
+        );
+        expect(changed).toBe("Only the owner can change roles");
+        expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
 
   it.live("an admin demoted since its check leaves the organisation as it was", () => {
     const h = held();

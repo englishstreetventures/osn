@@ -44,7 +44,7 @@ export function plainError(text: string): FieldError {
 }
 
 /** The error's numeric `status`, if it carries one. */
-function statusOf(err: unknown): number | undefined {
+export function statusOf(err: unknown): number | undefined {
   try {
     if (typeof err !== "object" || err === null) return undefined;
     const { status } = err as { status?: unknown };

@@ -7,6 +7,7 @@ import { Effect, Fiber, Layer, Logger } from "effect";
 import { afterEach, beforeAll, vi } from "vitest";
 
 import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
+import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import * as metrics from "../../src/metrics";
 import * as accountErasure from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
@@ -19,6 +20,7 @@ import {
 } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
 import { confirmedEmailChange, profileOf } from "../helpers/step-up-link";
+import { mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * Session list/revoke behaviour:
@@ -569,7 +571,7 @@ describe("account-wide deletes keep the caller's device across its own refresh",
       records: false,
       prepare: (profile, h) =>
         Effect.gen(function* () {
-          const stepUp = yield* auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+          const stepUp = yield* mintStepUpToken(auth, profile.accountId, "otp", "email_change");
           const begun = yield* confirmedEmailChange(
             auth,
             profile.accountId,
@@ -607,6 +609,7 @@ describe("account-wide deletes keep the caller's device across its own refresh",
             return yield* accountErasure.requestErasure({
               accountId: profile.accountId,
               cancel: { sessionId: hash, familyId: rows[0]?.familyId ?? "fam_none" },
+              heldHandleDigest: makeHeldHandleDigest(undefined),
             });
           }),
         ),

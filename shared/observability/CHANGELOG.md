@@ -1,5 +1,25 @@
 # @shared/observability
 
+## 0.25.0
+
+### Minor Changes
+
+- 3437d4a: Add the attribute values account erasure reports: `StepUpPurpose` gains `account_restore`, `DeletionCompletedResult` gains `hard_failed` (a hard delete the sweep could not finish and will try again), and `AuthRateLimitedEndpoint` gains `account_deletion_preview`.
+
+## 0.24.2
+
+### Patch Changes
+
+- c34015f: A step-up token is now bound to the session that minted it. `POST /step-up/passkey/complete`, `POST /step-up/email/:requestId/status` and `POST /step-up/totp/complete` stamp the family of the caller's live session into the token as `osn_fam`, and every gate that spends a token, `POST /internal/step-up/verify` included, refuses one whose family has no live, unrestricted, unexpired session of the account left, or that carries no `osn_fam`, before it claims the token's single-use id. A token minted on a device that has since signed out, been revoked or been swept is refused at every gate, whoever presents it, another live session of the account and Pulse included; a renewal keeps the family, so the minting session's silent refresh does not end it. The refusal counts as `osn.auth.step_up.verified{result="session_ended"}`, a new label on `StepUpVerifyResult`.
+
+  `POST /internal/step-up/verify` takes a required `profile_id`, the profile the calling service verified its own caller as, and refuses a token that is not of the account owning it; it spends `pulse_app_delete` only for `pulse-api` and `zap_app_delete` only for `zap-api`, and accepts no `account_delete`. Pulse's `DELETE /account` sends its caller's profile id. `issueStepUpToken`, `completeStepUpPasskey`, `completeStepUpTotp` and `stepUpEmailStatus` take a `MintingSession` (`{ accountId, familyId }`) in place of the account id; `verifyStepUpForExternalPurpose` takes the profile id; `verifyStepUpToken` always takes the expected account; and every step-up verifier now needs `Db` and can fail with `DatabaseError`, which `DELETE /account`, `GET /account/export` and `POST /internal/step-up/verify` answer as a 500.
+
+## 0.24.1
+
+### Patch Changes
+
+- 0d8f467: Starting a Musubi sign-up again for the same address from a new tab of the same browser, or after closing the waiting tab, mails the link at once. `@osn/api`'s `POST /register/begin` answers a `retireSecret` beside the claim secret, for a free, taken or held address alike, stored only as a SHA-256 hash. It can only end its request: no status poll, Resend, candidates read or confirm accepts it. Begin's `previous` is `{ requestId, retireSecret }`, never the claim secret, and it retires the earlier request only when that request is for the address this begin is for; a wrong secret, the claim secret, an unknown request or another address retires nothing, at the same one store read and with the same answer. `@osn/client`'s `BegunRegistration` carries `retireSecret`, `PreviousRegistration` is `{ requestId, retireSecret }`, and the status poll and Resend take a `RegistrationClaim`. `@osn/auth-ui`'s `Register` keeps the claim secret in the tab's `sessionStorage` as before, and shares the live request's id, retire secret and expiry with the browser's other tabs in `localStorage` (`osn.signup.live`), nothing about the address; a tab that begins sends it as `previous`. The tab's own left request (`osn.signup.previous`, in its `sessionStorage`) carries the retire secret and the address it was for, and is sent first for that address. The entry goes when its request ends or expires, and no tab removes another tab's entry; a begin refused with a 4xx other than 429 is not sent with the same `previous` again. Only sign-up's requests carry a retire secret. `@shared/observability` redacts `retireSecret` in logs.
+
 ## 0.24.0
 
 ### Minor Changes

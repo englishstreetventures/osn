@@ -192,6 +192,31 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "choices": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "choice": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "successor_profile_id": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "choice"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  },
                   "confirm_handle": {
                     "maxLength": 64,
                     "minLength": 1,
@@ -210,6 +235,31 @@
             "application/x-www-form-urlencoded": {
               "schema": {
                 "properties": {
+                  "choices": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "choice": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "successor_profile_id": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "choice"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  },
                   "confirm_handle": {
                     "maxLength": 64,
                     "minLength": 1,
@@ -228,6 +278,31 @@
             "multipart/form-data": {
               "schema": {
                 "properties": {
+                  "choices": {
+                    "items": {
+                      "properties": {
+                        "action": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "choice": {
+                          "maxLength": 32,
+                          "type": "string"
+                        },
+                        "successor_profile_id": {
+                          "maxLength": 64,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "choice"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  },
                   "confirm_handle": {
                     "maxLength": 64,
                     "minLength": 1,
@@ -274,6 +349,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "action": {
+                      "type": "string"
+                    },
                     "error": {
                       "type": "string"
                     },
@@ -356,6 +434,126 @@
                     },
                     "message": {
                       "type": "string"
+                    },
+                    "open_actions": {
+                      "items": {
+                        "properties": {
+                          "app": {
+                            "type": "string"
+                          },
+                          "choices": {
+                            "items": {
+                              "properties": {
+                                "choice": {
+                                  "enum": [
+                                    "transfer",
+                                    "successor",
+                                    "delete"
+                                  ],
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "choice",
+                                "description"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "default_choice": {
+                            "const": "transfer",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "erased_on": {
+                            "type": "null"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "link": {
+                            "type": "null"
+                          },
+                          "organisation": {
+                            "properties": {
+                              "handle": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "handle",
+                              "name"
+                            ],
+                            "type": "object"
+                          },
+                          "successor": {
+                            "properties": {
+                              "display_name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "handle": {
+                                "type": "string"
+                              },
+                              "profile_id": {
+                                "type": "string"
+                              },
+                              "role": {
+                                "enum": [
+                                  "admin",
+                                  "member"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "profile_id",
+                              "handle",
+                              "display_name",
+                              "role"
+                            ],
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "app",
+                          "kind",
+                          "label",
+                          "choices",
+                          "default_choice",
+                          "erased_on",
+                          "link",
+                          "organisation",
+                          "successor"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
                     }
                   },
                   "required": [
@@ -366,6 +564,237 @@
               }
             },
             "description": "Response for status 409"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 429"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/account/deletion-preview": {
+      "get": {
+        "operationId": "getAccountDeletionPreview",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "open_actions": {
+                      "items": {
+                        "properties": {
+                          "app": {
+                            "type": "string"
+                          },
+                          "choices": {
+                            "items": {
+                              "properties": {
+                                "choice": {
+                                  "enum": [
+                                    "transfer",
+                                    "successor",
+                                    "delete"
+                                  ],
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "choice",
+                                "description"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "default_choice": {
+                            "const": "transfer",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "erased_on": {
+                            "type": "null"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "link": {
+                            "type": "null"
+                          },
+                          "organisation": {
+                            "properties": {
+                              "handle": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "handle",
+                              "name"
+                            ],
+                            "type": "object"
+                          },
+                          "successor": {
+                            "properties": {
+                              "display_name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "handle": {
+                                "type": "string"
+                              },
+                              "profile_id": {
+                                "type": "string"
+                              },
+                              "role": {
+                                "enum": [
+                                  "admin",
+                                  "member"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "profile_id",
+                              "handle",
+                              "display_name",
+                              "role"
+                            ],
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "app",
+                          "kind",
+                          "label",
+                          "choices",
+                          "default_choice",
+                          "erased_on",
+                          "link",
+                          "organisation",
+                          "successor"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "open_actions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
           },
           "429": {
             "content": {
@@ -1509,6 +1938,41 @@
     "/account/restore": {
       "post": {
         "operationId": "restoreAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1569,6 +2033,41 @@
               }
             },
             "description": "Response for status 401"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 403"
           },
           "409": {
             "content": {
@@ -12233,18 +12732,18 @@
                   },
                   "previous": {
                     "properties": {
-                      "claimSecret": {
-                        "pattern": "^[a-f0-9]{64}$",
-                        "type": "string"
-                      },
                       "requestId": {
                         "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       }
                     },
                     "required": [
                       "requestId",
-                      "claimSecret"
+                      "retireSecret"
                     ],
                     "type": "object"
                   },
@@ -12285,18 +12784,18 @@
                   },
                   "previous": {
                     "properties": {
-                      "claimSecret": {
-                        "pattern": "^[a-f0-9]{64}$",
-                        "type": "string"
-                      },
                       "requestId": {
                         "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       }
                     },
                     "required": [
                       "requestId",
-                      "claimSecret"
+                      "retireSecret"
                     ],
                     "type": "object"
                   },
@@ -12337,18 +12836,18 @@
                   },
                   "previous": {
                     "properties": {
-                      "claimSecret": {
-                        "pattern": "^[a-f0-9]{64}$",
-                        "type": "string"
-                      },
                       "requestId": {
                         "pattern": "^(?:signup)_[a-f0-9]{12}$",
+                        "type": "string"
+                      },
+                      "retireSecret": {
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       }
                     },
                     "required": [
                       "requestId",
-                      "claimSecret"
+                      "retireSecret"
                     ],
                     "type": "object"
                   },
@@ -12384,11 +12883,15 @@
                     },
                     "requestId": {
                       "type": "string"
+                    },
+                    "retireSecret": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "requestId",
                     "claimSecret",
+                    "retireSecret",
                     "pairingCode",
                     "expiresAt"
                   ],
@@ -13368,6 +13871,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -13394,6 +13898,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -13420,6 +13925,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -14207,6 +14713,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -14234,6 +14741,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -14261,6 +14769,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -14434,6 +14943,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -14463,6 +14973,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",
@@ -14492,6 +15003,7 @@
                     "enum": [
                       "account_delete",
                       "account_export",
+                      "account_restore",
                       "pulse_app_delete",
                       "zap_app_delete",
                       "recovery_generate",

@@ -2,7 +2,7 @@ import Loading from "@cire/ui/loading";
 import Skeleton from "@cire/ui/skeleton";
 import SkeletonOutline from "@cire/ui/skeleton-outline";
 import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, page } from "vitest/browser";
 
 import "../../src/styles/global.css";
@@ -38,6 +38,10 @@ import "../../src/styles/global.css";
  *   by a failed read, the region takes no room and adds no gap;
  * - under reduced motion the loaders' pulse stops after one 0.01ms run, on a
  *   `Skeleton` block, a `Loading` line and an outline's bar alike.
+ *
+ * The page's clock is pinned to a week before the fixture's first event. The
+ * overview's agenda drops every event dated before today, so on the real clock
+ * the fixture's fixed dates would leave its band with no rows to measure.
  *
  * Artifacts: `cire/host/.vitest/skeletons/results.json`, one pass or fail per
  * named check, with no pixel values so a rerun writes the same file;
@@ -86,6 +90,12 @@ import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { EVENTS_300, GUESTS_300, HOUSEHOLDS_300, RSVPS_300 } from "../test-support/guests-300";
 import { renderOrganiserPage } from "../test-support/organiser-page";
+
+/**
+ * The page's clock: a week before the fixture's first event, so every event is
+ * still ahead in any time zone and inside the overview's 90-day agenda.
+ */
+const NOW = Date.parse(EVENTS_300[0]!.startAt) - 7 * 24 * 60 * 60 * 1000;
 
 const HOSTS = [
   { hostId: "whost_amy", osnProfileId: "usr_amy", handle: "amy", role: "owner", createdAt: 0 },
@@ -159,7 +169,14 @@ beforeAll(async () => {
   document.head.append(style);
 });
 
+// Only `Date` is faked, so frames and timers still run on the real clock.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   authFetch.mockReset();
   __resetGuestsCache();

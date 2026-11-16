@@ -181,6 +181,7 @@ export type StepUpPurpose =
   | "security_event_ack"
   | "account_delete"
   | "account_export"
+  | "account_restore"
   | "totp_enroll"
   | "totp_disable"
   | "pulse_app_delete"
@@ -202,7 +203,10 @@ export type StepUpVerifyResult =
   // an older credential or change the account email. Distinct from
   // `amr_not_allowed` so a dashboard separates "wrong factor" from "right
   // factor, wrong provenance" — those need different answers from the user.
-  | "provenance_blocked";
+  | "provenance_blocked"
+  // The session family that minted the token has no live session left: the
+  // device signed out, or was revoked or swept, before the token was spent.
+  | "session_ended";
 
 /** Session-management actions initiated by the caller. */
 export type SessionAction = "list" | "revoke" | "revoke_all";
@@ -358,8 +362,11 @@ export type DeletionRequestResult =
   | "rate_limited"
   | "error";
 
-/** Final disposition of a completed deletion lifecycle event. */
-export type DeletionCompletedResult = "soft" | "hard" | "cancelled";
+/**
+ * Final disposition of a deletion lifecycle event. `hard_failed`: a hard
+ * delete the sweep tried and could not finish; the sweep tries it again later.
+ */
+export type DeletionCompletedResult = "soft" | "hard" | "hard_failed" | "cancelled";
 
 /** Source that triggered a deletion completion event. */
 export type DeletionCompletedSource = "user" | "sweeper" | "minor_runbook" | "admin";
@@ -505,6 +512,7 @@ export type AuthRateLimitedEndpoint =
   | "account_delete"
   | "account_restore"
   | "account_deletion_status"
+  | "account_deletion_preview"
   | "oidc_authorize"
   | "oidc_authorize_context"
   | "oidc_authorize_decision"

@@ -19,7 +19,7 @@ related:
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
 dev-host: https://id.musubi.localhost
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-14
 ---
 
 # OSN Core
@@ -58,7 +58,7 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 
 | Route | Purpose |
 |---|---|
-| `POST /register/begin` | Opens a sign-up and mails its link; answers the request id, claim secret and pairing number |
+| `POST /register/begin` | Opens a sign-up and mails its link; answers the request id, claim secret, retire secret (it can only end the request, as a later begin's `previous` for the same address) and pairing number |
 | `POST /register/:requestId/{status,resend}` | The tab that began polls (the poll that finds the link confirmed makes the account and issues access + session cookie), or asks for another link |
 | `POST /email-link/:requestId/{candidates,confirm}` | The link's page: the numbers to pick from (sign-up), then the confirm with the number picked or typed. Never a session |
 | `POST /passkey/register/{begin,complete}` | Bind a passkey (mandatory at signup; step-up gated thereafter) |

@@ -61,6 +61,7 @@ const post = (path: string, body: unknown, headers: Record<string, string> = {})
 export interface BegunSignUp {
   readonly requestId: string;
   readonly claimSecret: string;
+  readonly retireSecret: string;
   readonly pairingCode: string;
   readonly expiresAt: number;
 }
@@ -73,7 +74,7 @@ export async function beginThroughRoutes(
     handle: string;
     birthdate?: string;
     displayName?: string;
-    previous?: { requestId: string; claimSecret: string };
+    previous?: { requestId: string; retireSecret: string };
     turnstileToken?: string;
     emailVerificationToken?: string;
     nonceSecret?: string;

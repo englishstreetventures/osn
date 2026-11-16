@@ -1051,7 +1051,8 @@ jobs:
   # a pass on the second run passes the job with a warning and both runs'
   # artifacts, so a flake shows without costing another push. Whether
   # results.json comes out the same twice is the E2E determinism job's check
-  # (.github/workflows/e2e-repro.yml), which runs where a flow can change it.
+  # (.github/workflows/e2e-repro.yml), which runs daily and by hand, never on a
+  # pull request or a push, so no change runs the suite twice.
   # Not in the `ci` aggregator's `needs` yet, so it reports without gating
   # merges while it earns trust; promote it once it has a record of staying
   # green.

@@ -92,6 +92,7 @@ describe("createRegistrationClient", () => {
       const begun = {
         requestId: "signup_0123456789ab",
         claimSecret: "c".repeat(64),
+        retireSecret: "e".repeat(64),
         pairingCode: "47",
         expiresAt: 1_900_000_000,
       };
@@ -101,7 +102,7 @@ describe("createRegistrationClient", () => {
         handle: "alice",
         birthdate: "1990-01-01",
         displayName: "Alice",
-        previous: { requestId: "signup_aaaaaaaaaaaa", claimSecret: "d".repeat(64) },
+        previous: { requestId: "signup_aaaaaaaaaaaa", retireSecret: "d".repeat(64) },
       });
       expect(result).toEqual(begun);
       expect(calls[0].url).toBe("https://osn.example.com/register/begin");
@@ -111,7 +112,7 @@ describe("createRegistrationClient", () => {
         handle: "alice",
         birthdate: "1990-01-01",
         displayName: "Alice",
-        previous: { requestId: "signup_aaaaaaaaaaaa", claimSecret: "d".repeat(64) },
+        previous: { requestId: "signup_aaaaaaaaaaaa", retireSecret: "d".repeat(64) },
       });
     });
 

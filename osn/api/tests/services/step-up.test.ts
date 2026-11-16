@@ -1,15 +1,24 @@
 import { it, expect, describe } from "@effect/vitest";
+import { sessions } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
+import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
 import { createDurableJtiStore } from "../../src/lib/coordination/durable";
 import * as metrics from "../../src/metrics";
 import { createAuthService } from "../../src/services/auth";
+import { createInMemoryJtiStore } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
-import { createTestLayer } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 import { stepUpThroughService } from "../helpers/step-up-link";
+import { mintingSession, mintStepUpToken } from "../helpers/step-up-session";
 
 /**
  * Step-up tokens must:
@@ -169,9 +178,13 @@ describe("step-up by emailed link", () => {
   // forge a step-up token whose `exp` is well past the 30s window (but
   // otherwise valid: correct iss/aud/sub/amr/jti) so the assertion is
   // deterministic without a 31s sleep.
-  it.effect("expired token is rejected (beyond clockTolerance)", () =>
-    Effect.gen(function* () {
+  it.effect("expired token is rejected (beyond clockTolerance)", () => {
+    const verified = vi.spyOn(metrics, "metricStepUpVerified");
+    return Effect.gen(function* () {
       const profile = yield* registered("su-expiry@example.com", "suexpiry");
+      // A live minting session and the gate's own purpose, so expiry is the
+      // only check left that can refuse it.
+      const { familyId } = yield* mintingSession(profile.accountId);
       const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
       const nowSec = Math.floor(Date.now() / 1000);
       const expired = yield* Effect.tryPromise(() =>
@@ -180,6 +193,8 @@ describe("step-up by emailed link", () => {
           aud: "osn-step-up",
           amr: ["otp"],
           jti: crypto.randomUUID(),
+          purpose: "recovery_generate",
+          osn_fam: familyId,
         })
           .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
           .setIssuer(config.issuerUrl)
@@ -191,9 +206,13 @@ describe("step-up by emailed link", () => {
       const err = yield* Effect.flip(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, expired),
       );
-      expect(err._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(err.message).toBe("Invalid step-up token");
+      expect(verified.mock.calls.map(([result]) => result)).toEqual(["invalid"]);
+    }).pipe(
+      Effect.provide(createTestLayer()),
+      Effect.ensuring(Effect.sync(() => verified.mockRestore())),
+    );
+  });
 });
 
 // The verifier accepts a token for a clock tolerance past its `exp`, so the
@@ -216,7 +235,8 @@ describe("a used step-up token stays used for as long as it verifies", () => {
           `su-late-${name.length}@example.com`,
           `sulate${name.length}`,
         );
-        const token = yield* svc.issueStepUpToken(
+        const token = yield* mintStepUpToken(
+          svc,
           profile.accountId,
           "passkey",
           "recovery_generate",
@@ -251,7 +271,7 @@ describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
     const cap = makeEmailCapture();
     return Effect.gen(function* () {
       const profile = yield* registered("su-rec-nop@example.com", "surecnop");
-      const stepUpToken = yield* auth.issueStepUpToken(profile.accountId, "otp");
+      const stepUpToken = yield* mintStepUpToken(auth, profile.accountId, "otp");
       const err = yield* Effect.flip(
         auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
       );
@@ -306,7 +326,7 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
       const profile = yield* registered("su-del-noplan@example.com", "sudelnop");
       // Minted without a purpose — still valid for the legacy passkey gates,
       // but the account-delete verifier must refuse it.
-      const stepUpToken = yield* auth.issueStepUpToken(profile.accountId, "otp");
+      const stepUpToken = yield* mintStepUpToken(auth, profile.accountId, "otp");
       const err = yield* Effect.flip(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
       );
@@ -346,7 +366,11 @@ describe("verifyStepUpForExternalPurpose", () => {
         "pulse_app_delete",
         cap.recorded,
       );
-      const result = yield* auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete");
+      const result = yield* auth.verifyStepUpForExternalPurpose(
+        stepUpToken,
+        "pulse_app_delete",
+        profile.id,
+      );
       expect(result.accountId).toBe(profile.accountId);
     }).pipe(Effect.provide(cap.layer));
   });
@@ -362,9 +386,267 @@ describe("verifyStepUpForExternalPurpose", () => {
         cap.recorded,
       );
       const err = yield* Effect.flip(
-        auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete"),
+        auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete", profile.id),
       );
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(cap.layer));
+  });
+});
+
+// A step-up token names the session family that minted it, and every gate
+// refuses it once that family has no live, unrestricted, unexpired session —
+// before the token's single-use id is claimed, so a refusal spends nothing.
+// Each test names the edit to the verifier's lookup that turns it red.
+describe("a step-up token is bound to the session family that minted it", () => {
+  /** A service whose single-use guard records every id it is asked to claim. */
+  const recording = () => {
+    const claimed: string[] = [];
+    const store = createInMemoryJtiStore();
+    const svc = createAuthService({
+      ...config,
+      stepUpJtiStore: {
+        consume: (jti, ttlMs) => {
+          claimed.push(jti);
+          return store.consume(jti, ttlMs);
+        },
+      },
+    });
+    return { svc, claimed };
+  };
+
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  /** A session row of `accountId` in family `familyId`, shaped by `row`. */
+  const insertSession = (
+    accountId: string,
+    familyId: string,
+    row: Partial<typeof sessions.$inferInsert> = {},
+  ) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.insert(sessions).values({
+          id: crypto.randomUUID().replace(/-/g, "").repeat(2),
+          accountId,
+          familyId,
+          expiresAt: nowSec() + 3600,
+          createdAt: nowSec(),
+          authenticatedAt: nowSec(),
+          lastUsedAt: nowSec(),
+          ...row,
+        }),
+      );
+    });
+
+  it.effect("refuses a token whose family's only session is restricted, and spends nothing", () => {
+    // Red on dropping `restricted_until IS NULL` from the lookup. A restricted
+    // recovery session may enrol a passkey and nothing else.
+    const { svc } = recording();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-r@example.com", "bindr");
+      const familyId = "sfam_bindrestr1";
+      yield* insertSession(profile.accountId, familyId, {
+        expiresAt: nowSec() + 900,
+        restrictedUntil: nowSec() + 900,
+        restrictedAmr: "otp",
+      });
+      const token = yield* svc.issueStepUpToken(
+        { accountId: profile.accountId, familyId },
+        "otp",
+        "recovery_generate",
+      );
+      let outcomes: string[] = [];
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            outcomes = verified.mock.calls.map(([result]) => result);
+            verified.mockRestore();
+          }),
+        ),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(outcomes).toEqual(["session_ended"]);
+
+      // Lifting the restriction makes the family live: the same token now
+      // verifies, so the refusal did not claim its single-use id.
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db
+          .update(sessions)
+          .set({ restrictedUntil: null, restrictedAmr: null })
+          .where(eq(sessions.familyId, familyId)),
+      );
+      yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect(
+    "refuses a token whose family's only session is past its expiry, and spends nothing",
+    () => {
+      // Red on dropping `expires_at > now` from the lookup. Nothing deletes a
+      // row the moment it lapses.
+      const { svc } = recording();
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("bind-x@example.com", "bindx");
+        const familyId = "sfam_bindexpir1";
+        yield* insertSession(profile.accountId, familyId, { expiresAt: nowSec() - 1 });
+        const token = yield* svc.issueStepUpToken(
+          { accountId: profile.accountId, familyId },
+          "otp",
+          "recovery_generate",
+        );
+        const refused = yield* Effect.flip(
+          svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+        );
+        expect(refused.message).toBe("Invalid step-up token");
+
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(sessions)
+            .set({ expiresAt: nowSec() + 3600 })
+            .where(eq(sessions.familyId, familyId)),
+        );
+        yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+      }).pipe(Effect.provide(createTestLayer()));
+    },
+  );
+
+  it.effect("refuses a token that names no family, and claims nothing", () => {
+    // Red on reading a missing `osn_fam` as allowed: a token minted before
+    // the claim existed, or by anything but this service's mints.
+    const { svc, claimed } = recording();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-n@example.com", "bindn");
+      yield* mintingSession(profile.accountId);
+      const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
+      const unbound = yield* Effect.tryPromise(() =>
+        new SignJWT({
+          sub: profile.accountId,
+          aud: "osn-step-up",
+          amr: ["otp"],
+          jti: crypto.randomUUID(),
+          purpose: "recovery_generate",
+        })
+          .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
+          .setIssuer(config.issuerUrl)
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(config.jwtPrivateKey),
+      );
+      let outcomes: string[] = [];
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, unbound),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            outcomes = verified.mock.calls.map(([result]) => result);
+            verified.mockRestore();
+          }),
+        ),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(outcomes).toEqual(["invalid"]);
+      expect(claimed).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect("refuses a token whose family is another account's, and claims nothing", () => {
+    // Red on dropping `account_id = sub` from the lookup: a live family of
+    // one account must not carry another account's token.
+    const { svc, claimed } = recording();
+    return Effect.gen(function* () {
+      const mine = yield* svc.registerProfile("bind-a@example.com", "binda");
+      const theirs = yield* svc.registerProfile("bind-b@example.com", "bindb");
+      const { familyId } = yield* mintingSession(theirs.accountId);
+      const token = yield* svc.issueStepUpToken(
+        { accountId: mine.accountId, familyId },
+        "otp",
+        "recovery_generate",
+      );
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(mine.accountId, token),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(claimed).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect("refuses a used token as session_ended once its family has ended", () => {
+    // Red on moving the family check after the claim: the replay would then
+    // count as `jti_replay`. A used token's family ending before it is
+    // presented again is a refusal of the session, and spends nothing more.
+    const { svc } = recording();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-u@example.com", "bindu");
+      const minting = yield* mintingSession(profile.accountId);
+      const token = yield* svc.issueStepUpToken(minting, "otp", "recovery_generate");
+      yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.delete(sessions).where(eq(sessions.familyId, minting.familyId)),
+      );
+
+      let outcomes: string[] = [];
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      const refused = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            outcomes = verified.mock.calls.map(([result]) => result);
+            verified.mockRestore();
+          }),
+        ),
+      );
+      expect(refused.message).toBe("Invalid step-up token");
+      expect(outcomes).toEqual(["session_ended"]);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.effect("finds the family through its own index, not the account's", () => {
+    // Red on a lookup the family index cannot serve — the index gone, or the
+    // family no longer an equality in the WHERE — which would walk the
+    // account's sessions, up to the cap, on every spend.
+    const { svc } = recording();
+    const { layer, db, captured } = createCapturingTestLayer();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-i@example.com", "bindi");
+      const token = yield* mintStepUpToken(svc, profile.accountId, "otp", "recovery_generate");
+      captured.length = 0;
+      yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+
+      const lookup = captured.find((statement) => /"family_id" = \?/.test(statement.sql));
+      expect(lookup).toBeDefined();
+      const plan = (
+        db.$client
+          .query(`EXPLAIN QUERY PLAN ${lookup!.sql}`)
+          .all(...(lookup!.params as never[])) as Array<{ detail: string }>
+      ).map((row) => row.detail);
+      expect(plan).toEqual([
+        expect.stringMatching(/^SEARCH sessions USING INDEX sessions_family_idx /),
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("fails, claiming nothing, when the family cannot be read", () => {
+    // Red on checking the family after the claim, or on reading a failed
+    // lookup as a live family.
+    const { svc, claimed } = recording();
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("bind-f@example.com", "bindf");
+      const token = yield* mintStepUpToken(svc, profile.accountId, "otp", "recovery_generate");
+      sqlite.run("DROP TABLE sessions");
+      const failed = yield* Effect.flip(
+        svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+      );
+      expect(failed._tag).toBe("DatabaseError");
+      expect(claimed).toEqual([]);
+    }).pipe(Effect.provide(layer));
   });
 });

@@ -21,6 +21,9 @@ export function ceremonyError(name: string, planted: string): Error {
 export const INPUT = "That didn't work. Try again.";
 /** The map's sentence for a call that got no answer (status 0). */
 export const CONNECTION = "We couldn't connect. Check your connection and try again.";
+/** The map's sentence for a code that got no answer (status 0, `code` context). */
+export const CODE_NO_ANSWER =
+  "We couldn't connect. Check your connection, then try again with a new code.";
 /** The map's sentence for a 429. */
 export const WAIT = "Too many attempts. Wait a while, then try again.";
 /** The map's sentence for a refused code. */

@@ -12,13 +12,17 @@ import {
   and,
   desc,
   eq,
+  exists,
   gt,
   gte,
   inArray,
   isNull,
   lt,
+  lte,
+  not,
   notExists,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { Effect } from "effect";
@@ -30,6 +34,7 @@ import {
   metricSessionSecurityInvalidation,
   withSessionOp,
 } from "../../metrics";
+import { accountHasJobPredatingRestoreRecord } from "../deletion-job-shape";
 import { MAX_SESSIONS_PER_ACCOUNT, ROTATION_GRACE_MS } from "./constants";
 import { AuthError, DatabaseError } from "./errors";
 import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from "./helpers";
@@ -104,6 +109,25 @@ export const inLiveFamilyOf = (db: DbService["db"], sessionHash: string) =>
   inArray(sessions.familyId, liveFamilyOf(db, sessionHash));
 
 /**
+ * True when `sessionHash` was rotated out longer than `ROTATION_GRACE_MS` ago
+ * and its rotation record is live: a replay of a token its device has moved
+ * on from. Reads `rotated_sessions` only, so a delete of `sessions` can use it.
+ */
+const rotatedOutPastGrace = (db: DbService["db"], sessionHash: string, nowMs: number) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(rotatedSessions)
+      .where(
+        and(
+          eq(rotatedSessions.tokenHash, sessionHash),
+          gt(rotatedSessions.expiresAt, nowMs),
+          lte(rotatedSessions.rotatedAt, nowMs - ROTATION_GRACE_MS),
+        ),
+      ),
+  );
+
+/**
  * Finds the session id whose per-profile binding equals `sessionBinding`.
  *
  * The comparison is constant-time even though the presented value arrives
@@ -143,6 +167,16 @@ export function createSessionsModule() {
    * replay of the token counts the reuse. Inside the window it is the
    * device's own race with its refresh, and nothing is counted.
    *
+   * A sign-in (`at` is `"sign-in"`) leaves live, and marks `replaced_at`, the
+   * family of an account whose pending deletion job predates the restore
+   * record (`deletion-job-shape.ts`): that account has no credential left, so
+   * the session its deletion kept is its only way to cancel. Marked, the
+   * family renews only for its own account's profiles. A token rotated out
+   * past the grace window is still a replay, and reuse ends the family here
+   * as it would at `/token`. Every other family ends, an account scheduled
+   * for deletion since restore records exist included: it can sign in again.
+   * The spare goes with englishstreetventures/osn#2299.
+   *
    * Silently succeeds when the token names nothing (idempotent — don't leak
    * whether a session was valid). Otherwise the family's rotation records
    * stay, as a revoke by handle leaves them.
@@ -155,6 +189,7 @@ export function createSessionsModule() {
       const sessionId = hashSessionToken(sessionToken);
       const { db } = yield* Db;
       const nowMs = Date.now();
+      const sparesLegacyCancelHandle = at === "sign-in";
       // The token's live rotation record, when no live session holds its hash.
       // Read before the delete, which removes the live session of a token
       // still in use.
@@ -180,12 +215,41 @@ export function createSessionsModule() {
         .limit(1);
       const removal = db
         .delete(sessions)
-        .where(inArray(sessions.familyId, familyOf(db, sessionId, nowMs)));
+        .where(
+          and(
+            inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
+            sparesLegacyCancelHandle
+              ? or(
+                  not(accountHasJobPredatingRestoreRecord(db, sessions.accountId)),
+                  rotatedOutPastGrace(db, sessionId, nowMs),
+                )
+              : undefined,
+          ),
+        );
+      // The handle the sign-in spares, marked replaced: it renews from now on
+      // only for its own account's profiles (`refreshTokens`), whatever
+      // becomes of the deletion. Exactly the rows the delete above spares.
+      const mark = db
+        .update(sessions)
+        .set({
+          replacedAt: sql<number>`coalesce(${sessions.replacedAt}, ${Math.floor(nowMs / 1000)})`,
+        })
+        .where(
+          and(
+            inArray(sessions.familyId, familyOf(db, sessionId, nowMs)),
+            accountHasJobPredatingRestoreRecord(db, sessions.accountId),
+            not(rotatedOutPastGrace(db, sessionId, nowMs)),
+          ),
+        );
       const { record, removed } = yield* Effect.tryPromise({
         try: async () => {
           // One batch on D1, so one request and one transaction, over the two
           // tables the delete's own lookup reads.
           if (canBatch(db)) {
+            if (sparesLegacyCancelHandle) {
+              const [records, , result] = await db.batch([rotatedOut, mark, removal]);
+              return { record: records[0], removed: rowsChanged(result) };
+            }
             const [records, result] = await db.batch([rotatedOut, removal]);
             return { record: records[0], removed: rowsChanged(result) };
           }
@@ -195,6 +259,7 @@ export function createSessionsModule() {
             (rows) => rows,
             () => [],
           );
+          if (sparesLegacyCancelHandle) await mark;
           return { record: records[0], removed: rowsChanged(await removal) };
         },
         catch: (cause) => new DatabaseError({ cause }),
@@ -248,6 +313,11 @@ export function createSessionsModule() {
    * rotated cookie naming no session, so the next renewal with it is refused
    * rather than acting as whoever held the old cookie. Every new session has
    * a family of its own, so this never ends the session the request issued.
+   * That holds for an account scheduled for deletion too, which can sign in
+   * again (passkey, recovery code, or email or authenticator recovery followed
+   * by a passkey enrolment; cross-device sign-in refuses it) to a session that
+   * can still cancel; the one exception is a job from before restore records
+   * existed, whose handle is spared and marked ({@link endFamilyOfToken}).
    */
   const endReplacedSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
     endFamilyOfToken(sessionToken, "sign-in").pipe(Effect.withSpan("auth.session.end_replaced"));

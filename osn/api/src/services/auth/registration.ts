@@ -4,19 +4,23 @@
  * check.
  */
 
-import { accounts, users } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
-import { commitBatch, driverErrorText } from "@shared/db-utils";
+import { accounts, organisations, users } from "@osn/db/schema";
+import { Db, type DbService } from "@osn/db/service";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
+import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notExists, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
 import { forkBackground } from "../../lib/background";
+import { canBatch } from "../../lib/batch";
+import { bound } from "../../lib/bound";
+import { handleArms, heldHandleRow } from "../../lib/handle-hold";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricEmailLinkSend, withAuthRegister } from "../../metrics";
 import { spendEntry } from "./attempts";
-import { MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
+import { isReservedHandle, MIN_AGE_YEARS } from "./constants";
 import type { AuthContext } from "./context";
 import type { EmailLinkModule } from "./email-link";
 import type { EmailVerificationInput, EmailVerificationModule } from "./email-verification-token";
@@ -90,11 +94,26 @@ export function createRegistrationModule(
     stores,
     otpTtl,
     serverMac,
+    heldHandleDigest,
     registrationSendCap,
     registrationLinkLockoutStore,
     registrationFirstLinkCap,
   } = ctx;
   const { issueTokens } = tokens;
+
+  /**
+   * An `'email'` row if an account has `email`, and a `'handle'` row for each
+   * of {@link handleArms}: one UNION ALL of four terms, within D1's limit of
+   * five (`wiki/shared/d1-limits.md`).
+   */
+  const collisionProbe = (db: DbService["db"], email: string, handle: string) =>
+    unionAll(
+      db
+        .select({ field: sql<string>`'email'`.as("field") })
+        .from(accounts)
+        .where(eq(accounts.email, email)),
+      ...handleArms(db, heldHandleDigest, handle),
+    );
 
   /**
    * Registers a new profile (and its owning account) directly, with no proof of
@@ -116,33 +135,16 @@ export function createRegistrationModule(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
 
-      if (RESERVED_HANDLES.has(handle)) {
+      if (isReservedHandle(handle)) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
       const { db } = yield* Db;
-      // A single round-trip uniqueness probe: UNION ALL of two
-      // single-table arms rather than `WHERE email = ? OR handle = ?` across
-      // the users⋈accounts join — an OR spanning two joined tables defeats
-      // SQLite's OR-optimization and plans as a full `users` scan, while each
-      // arm here is a seek on its UNIQUE index (accounts.email / users.handle).
-      // The email error takes priority (same order as the old two checks).
       const collisions = yield* Effect.tryPromise({
-        try: () =>
-          // No per-arm LIMIT: SQLite rejects LIMIT inside compound arms, and
-          // both columns are UNIQUE so each arm yields at most one row anyway.
-          unionAll(
-            db
-              .select({ field: sql<string>`'email'`.as("field") })
-              .from(accounts)
-              .where(eq(accounts.email, email)),
-            db
-              .select({ field: sql<string>`'handle'`.as("field") })
-              .from(users)
-              .where(eq(users.handle, handle)),
-          ),
+        try: () => collisionProbe(db, email, handle),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      // The email error takes priority.
       if (collisions.some((c) => c.field === "email")) {
         return yield* Effect.fail(new AuthError({ message: "Email already registered" }));
       }
@@ -198,26 +200,14 @@ export function createRegistrationModule(
     });
 
   /**
-   * Whether an account has `email` or a profile has `handle`, in one round
-   * trip: UNION ALL of two indexed single-table arms (see registerProfile for
-   * why not an OR across the join). Answers the same for either.
+   * Whether an account has `email`, or `handle` is taken or held (see
+   * {@link handleArms}), in one round trip. Answers the same for either.
    */
   const isTaken = (email: string, handle: string): Effect.Effect<boolean, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const collision = yield* Effect.tryPromise({
-        try: () =>
-          // No per-arm LIMIT — see registerProfile's probe.
-          unionAll(
-            db
-              .select({ hit: sql<number>`1`.as("hit") })
-              .from(accounts)
-              .where(eq(accounts.email, email)),
-            db
-              .select({ hit: sql<number>`1`.as("hit") })
-              .from(users)
-              .where(eq(users.handle, handle)),
-          ),
+        try: () => collisionProbe(db, email, handle),
         catch: (cause) => new DatabaseError({ cause }),
       });
       return collision.length > 0;
@@ -228,8 +218,8 @@ export function createRegistrationModule(
    * caller forks it. Everything it reads costs the answer nothing. The mail
    * goes to `address` as typed:
    *
-   *  - no link goes while an account has the address or a profile has the
-   *    handle — begin's probe, run again here, first, because the request may
+   *  - no link goes while an account has the address or the handle is taken
+   *    or held — begin's probe, run again here, first, because the request may
    *    have parked since begin ran it: a request that found the address held
    *    parks on a Resend once the sign-up holding it ends, and that sign-up
    *    may have ended by making the account. So the limits below are reached
@@ -304,10 +294,12 @@ export function createRegistrationModule(
    * opens an emailed-link request and parks the sign-up beside it, then mails
    * the link. No account row is created yet.
    *
-   * Answers `{ requestId, claimSecret, pairingCode, expiresAt }` to the tab
-   * that began. The tab keeps the claim secret and polls `registrationStatus`
-   * with it, and shows the pairing code, which the confirm step requires; the
-   * link goes only to the address.
+   * Answers `{ requestId, claimSecret, retireSecret, pairingCode, expiresAt }`
+   * to the tab that began. The tab keeps the claim secret and polls
+   * `registrationStatus` with it, and shows the pairing code, which the
+   * confirm step requires; the link goes only to the address. The retire
+   * secret can only end the request, as a later begin's `previous`: no poll,
+   * Resend or confirm accepts it.
    *
    * Security properties:
    *  - Every branch — the address or handle taken, a sign-up already pending
@@ -321,13 +313,22 @@ export function createRegistrationModule(
    *    "Is this handle free?" is answered by the public `/handle/:handle`.
    *  - A swap from nothing refuses to replace a live pending entry, so a
    *    second begin for someone's address cannot take over the request their
-   *    link belongs to; of two begins at once, one parks and the other sends
-   *    nothing until a Resend finds the address free.
-   *  - `previous`, the request and claim secret of a sign-up this tab began
-   *    before, retires that request and frees its address first, so a person
-   *    who goes back to fix their handle can begin again at once. Without the
-   *    claim secret it retires nothing. Its first link counts against the
-   *    mailbox's first-link window as every begin's does.
+   *    link belongs to unless it carries that request's retire secret; of two
+   *    begins at once, one parks and the other sends nothing until a Resend
+   *    finds the address free.
+   *  - `previous`, the request and retire secret of a sign-up begun before in
+   *    this browser, retires that request and frees its address first when
+   *    it is for the address this begin is for, so a person who goes back to
+   *    fix their handle, or starts again from another tab, can begin again
+   *    at once. The browser keeps the retire secret where every tab and
+   *    every user of it can read it, so it is held to ending one request, for
+   *    a begin for that request's address; the new request's link still needs
+   *    its number picked, and wrong picks count against the address. A wrong
+   *    retire secret, the claim secret in its place, an
+   *    unknown request or one for another address retires nothing, costs the
+   *    one read and answers as a begin with no `previous` does, alike. Its
+   *    first link counts against the mailbox's first-link window as every
+   *    begin's does.
    *  - The pending store is self-bounding (CEREMONY_STORE_MAX in memory,
    *    per-entry TTL on the Durable Object store).
    *  - The local-only debug line with the link is gated on `OSN_ENV` being
@@ -352,10 +353,16 @@ export function createRegistrationModule(
     handle: string,
     birthdate: string,
     displayName?: string,
-    previous?: { readonly requestId: string; readonly claimSecret: string },
+    previous?: { readonly requestId: string; readonly retireSecret: string },
     emailVerificationInput?: EmailVerificationInput,
   ): Effect.Effect<
-    { requestId: string; claimSecret: string; pairingCode: string; expiresAt: number },
+    {
+      requestId: string;
+      claimSecret: string;
+      retireSecret: string;
+      pairingCode: string;
+      expiresAt: number;
+    },
     AgeRestrictionError | AuthError | ValidationError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
@@ -379,7 +386,7 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AgeRestrictionError());
       }
 
-      if (RESERVED_HANDLES.has(handle)) {
+      if (isReservedHandle(handle)) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
@@ -388,7 +395,14 @@ export function createRegistrationModule(
       const normalisedEmail = email.toLowerCase();
 
       if (previous) {
-        yield* links.retire("registration", previous.requestId, previous.claimSecret);
+        // Only a request for the address typed now is retired: its parked
+        // address, or a taken address's probe key, keyed as this begin's.
+        const typedKey = serverMac.probeKey(normalisedEmail);
+        yield* links.retire("registration", previous.requestId, previous.retireSecret, (entry) => {
+          const parked = entry.signUp?.email ?? "";
+          const parkedKey = serverMac.probeKey(parked);
+          return timingSafeEqualString(parked === "" ? entry.subject : parkedKey, typedKey);
+        });
       }
 
       // A browser's proof that the person controls the address, checked
@@ -413,7 +427,7 @@ export function createRegistrationModule(
         : { email: normalisedEmail, handle, displayName: displayName ?? null };
       // The request carries the sign-up too, so a begin that finds the
       // address held can park it on a Resend once the address is free.
-      const opened = yield* links.open("registration", key, ttlMs, { signUp });
+      const opened = yield* links.openRetirable("registration", key, ttlMs, { signUp });
       const parked: PendingRegistration = {
         ...signUp,
         requestId: opened.requestId,
@@ -425,6 +439,7 @@ export function createRegistrationModule(
       const answer = {
         requestId: opened.requestId,
         claimSecret: opened.claimSecret,
+        retireSecret: opened.retireSecret,
         pairingCode: opened.pairingCode,
         expiresAt: Math.floor(opened.expiresAt / 1000),
       };
@@ -523,52 +538,87 @@ export function createRegistrationModule(
   /**
    * Inserts the account and default profile a claim names, with the sign-up
    * it parked. True when they are in place after the call: inserted now, or
-   * already committed by an earlier try for the same claim. False when a
-   * UNIQUE index refused them for someone else's account. Any other failure
-   * is a DatabaseError. On D1 the two inserts commit together; bun:sqlite,
-   * local only, runs them one after the other.
+   * already committed by an earlier try for the same claim. False when they
+   * are not this claim's own and either a UNIQUE index refused them for
+   * someone else's account, or the guard below wrote nothing because the
+   * handle is held or an organisation has it. False, writing nothing, for a
+   * reserved handle: a sign-up begun before a name was reserved is refused
+   * here. Any other failure is a DatabaseError.
+   *
+   * Both inserts are `INSERT … SELECT` under the same guard: no live hold on
+   * the handle and no organisation with it. `users.handle` is UNIQUE, but
+   * neither a hold nor an organisation is a `users` row, so without the
+   * guard either could take the handle between begin and this call and the
+   * account would still be created. On D1 the two inserts commit together and
+   * read the guard in one transaction, so both rows land or neither does;
+   * bun:sqlite, local only, runs them one after the other.
    */
   const insertClaimed = (
     claim: Pick<EmailLinkClaim, "accountId" | "profileId">,
     signUp: PendingSignUp,
   ): Effect.Effect<boolean, DatabaseError, Db> =>
     Effect.gen(function* () {
+      if (isReservedHandle(signUp.handle)) return false;
       const { db } = yield* Db;
       const ts = now();
+      const handleFree = and(
+        notExists(
+          heldHandleRow(db, heldHandleDigest, signUp.handle, Math.floor(Date.now() / 1000)),
+        ),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(organisations)
+            .where(eq(organisations.handle, signUp.handle)),
+        ),
+      );
+      const account = db.insert(accounts).select(
+        db
+          .select({
+            id: bound(claim.accountId, accounts.id),
+            email: bound(signUp.email, accounts.email),
+            passkeyUserId: bound(crypto.randomUUID(), accounts.passkeyUserId),
+            maxProfiles: bound(5, accounts.maxProfiles),
+            createdAt: bound(ts, accounts.createdAt),
+            updatedAt: bound(ts, accounts.updatedAt),
+          })
+          .from(sql`(SELECT 1)`)
+          .where(handleFree),
+      );
+      // Selected from the account row this claim names, so a profile is never
+      // written without its account.
+      const profile = db.insert(users).select(
+        db
+          .select({
+            id: bound(claim.profileId, users.id),
+            accountId: bound(claim.accountId, users.accountId),
+            handle: bound(signUp.handle, users.handle),
+            displayName: bound(signUp.displayName, users.displayName),
+            isDefault: bound(true, users.isDefault),
+            createdAt: bound(ts, users.createdAt),
+            updatedAt: bound(ts, users.updatedAt),
+          })
+          .from(accounts)
+          .where(and(eq(accounts.id, claim.accountId), handleFree)),
+      );
       return yield* Effect.tryPromise({
         try: async () => {
           try {
-            await commitBatch(db, [
-              db.insert(accounts).values({
-                id: claim.accountId,
-                email: signUp.email,
-                passkeyUserId: crypto.randomUUID(),
-                maxProfiles: 5,
-                createdAt: ts,
-                updatedAt: ts,
-              }),
-              db.insert(users).values({
-                id: claim.profileId,
-                accountId: claim.accountId,
-                handle: signUp.handle,
-                displayName: signUp.displayName,
-                isDefault: true,
-                createdAt: ts,
-                updatedAt: ts,
-              }),
-            ]);
-            return true;
+            const [, inserted] = canBatch(db)
+              ? await db.batch([account, profile])
+              : ([await account, await profile] as const);
+            if (rowsChanged(inserted) > 0) return true;
           } catch (e) {
             if (!UNIQUE_CONSTRAINT_ERROR.test(driverErrorText(e))) throw e;
-            // The claim's ids are random and fixed when it was made, so a
-            // profile under them is this request's own, from an earlier try.
-            const own = await db
-              .select({ id: users.id })
-              .from(users)
-              .where(and(eq(users.id, claim.profileId), eq(users.accountId, claim.accountId)))
-              .limit(1);
-            return own.length > 0;
           }
+          // The claim's ids are random and fixed when it was made, so a
+          // profile under them is this request's own, from an earlier try.
+          const own = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.id, claim.profileId), eq(users.accountId, claim.accountId)))
+            .limit(1);
+          return own.length > 0;
         },
         catch: (cause) => new DatabaseError({ cause }),
       });
@@ -624,6 +674,7 @@ export function createRegistrationModule(
           yield* links.spend(requestId, claimed);
           return { kind: "conflict" } as const;
         }
+        // The account was created just now, so no deletion is pending.
         const issued = yield* issueTokens(
           profileId,
           accountId,
@@ -632,6 +683,7 @@ export function createRegistrationModule(
           signUp.displayName,
           undefined,
           sessionMeta,
+          null,
         );
         if (!(yield* links.spend(requestId, claimed))) return { kind: "lost" } as const;
         return { kind: "complete", issued } as const;
@@ -707,7 +759,8 @@ export function createRegistrationModule(
     }).pipe(Effect.withSpan("auth.register.status"));
 
   /**
-   * Checks whether a handle is valid format and not yet taken.
+   * Checks whether a handle is valid format, not reserved, and not taken or
+   * held: available exactly when sign-up would accept it.
    */
   const checkHandle = (
     handle: string,
@@ -717,17 +770,16 @@ export function createRegistrationModule(
         Effect.tapError(() => Effect.sync(() => metricAuthHandleCheck("invalid"))),
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      if (RESERVED_HANDLES.has(handle)) {
+      if (isReservedHandle(handle)) {
         metricAuthHandleCheck("taken");
         return { available: false };
       }
-      // Availability only needs existence, not the profile — a single-column
-      // `users.handle` probe instead of `findProfileByHandle`'s account join
-      // (which exists to hydrate the email for its other callers). Keeps this
-      // high-frequency, debounced endpoint as light as possible.
+      // Availability only needs existence: one round trip over the three
+      // single-column arms, with no account join. Keeps this high-frequency,
+      // debounced endpoint as light as possible.
       const { db } = yield* Db;
       const existing = yield* Effect.tryPromise({
-        try: () => db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
+        try: () => unionAll(...handleArms(db, heldHandleDigest, handle)),
         catch: (cause) => new DatabaseError({ cause }),
       });
       const taken = existing.length > 0;

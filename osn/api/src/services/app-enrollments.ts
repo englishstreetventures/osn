@@ -1,10 +1,12 @@
-import { appEnrollments } from "@osn/db/schema";
+import { accounts, appEnrollments, deletionJobs } from "@osn/db/schema";
 import type { AppEnrollment } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { rowsChanged } from "@shared/db-utils";
 import type { AppEnrollmentApp } from "@shared/observability/metrics";
 import { and, eq, isNull } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
+import { bound } from "../lib/bound";
 import { metricAppEnrollmentJoined, metricAppEnrollmentLeft } from "../metrics";
 
 class AppEnrollmentDbError extends Data.TaggedError("AppEnrollmentDbError")<{
@@ -42,6 +44,9 @@ const getActiveEnrollment = (
     return rows[0] ?? null;
   });
 
+/** A deletion job's mark for an app the account was not enrolled in (`requestErasure`). */
+const NOT_ENROLLED_MARK = -1;
+
 /**
  * Lazy provisioning hook — used by Pulse / Zap on first authenticated call
  * (typically over an ARC bridge with a `app:join` scope, but for now a
@@ -50,6 +55,15 @@ const getActiveEnrollment = (
  * Idempotent: if an open row already exists, no-op. Otherwise inserts a
  * new row with `joined_at = now`. Re-joins after a leave create a fresh
  * row, preserving the closed history rows for audit.
+ *
+ * Writes no enrolment, and answers `enrolled: false`, for an account whose
+ * deletion is pending: the insert reads `accounts.deleted_at` in the same
+ * statement, so a soft delete committing first leaves no open enrolment that
+ * its job and its closing of the enrolments never saw. A join refused that way
+ * means the app is serving the person through its own session during the
+ * window and may hold data from it, so the job's mark for that app, when it
+ * reads "not enrolled" (`-1`), goes back to NULL and the fan-out asks the app
+ * to erase. A mark the fan-out has already set to a time stays as it is.
  */
 export const joinApp = (
   accountId: string,
@@ -61,17 +75,34 @@ export const joinApp = (
 
     const { db } = yield* Db;
     const now = Math.floor(Date.now() / 1_000);
-    yield* Effect.tryPromise({
+    const inserted = yield* Effect.tryPromise({
       try: () =>
-        db.insert(appEnrollments).values({
-          id: enrollmentId(),
-          accountId,
-          app,
-          joinedAt: now,
-          leftAt: null,
-        }),
+        db.insert(appEnrollments).select(
+          db
+            .select({
+              id: bound(enrollmentId(), appEnrollments.id),
+              accountId: bound(accountId, appEnrollments.accountId),
+              app: bound(app, appEnrollments.app),
+              joinedAt: bound(now, appEnrollments.joinedAt),
+              leftAt: bound(null, appEnrollments.leftAt),
+            })
+            .from(accounts)
+            .where(and(eq(accounts.id, accountId), isNull(accounts.deletedAt))),
+        ),
       catch: (cause) => new AppEnrollmentDbError({ cause }),
     });
+    if (rowsChanged(inserted) === 0) {
+      const mark = app === "pulse" ? deletionJobs.pulseDoneAt : deletionJobs.zapDoneAt;
+      yield* Effect.tryPromise({
+        try: () =>
+          db
+            .update(deletionJobs)
+            .set(app === "pulse" ? { pulseDoneAt: null } : { zapDoneAt: null })
+            .where(and(eq(deletionJobs.accountId, accountId), eq(mark, NOT_ENROLLED_MARK))),
+        catch: (cause) => new AppEnrollmentDbError({ cause }),
+      });
+      return { enrolled: false };
+    }
     metricAppEnrollmentJoined(app);
     return { enrolled: true };
   });
@@ -109,31 +140,4 @@ export const leaveApp = (
     });
     metricAppEnrollmentLeft(app, "ok");
     return { closed: true };
-  });
-
-/**
- * Returns the list of app identifiers the account is currently enrolled in.
- * Used by the Flow A (full-OSN delete) to know which downstream services
- * to fan out to.
- */
-export const listActiveApps = (
-  accountId: string,
-): Effect.Effect<AppEnrollmentApp[], AppEnrollmentDbError, Db> =>
-  Effect.gen(function* () {
-    const { db } = yield* Db;
-    const rows = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({ app: appEnrollments.app })
-          .from(appEnrollments)
-          .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt))),
-      catch: (cause) => new AppEnrollmentDbError({ cause }),
-    });
-    const seen = new Set<AppEnrollmentApp>();
-    for (const row of rows) {
-      if (row.app === "pulse" || row.app === "zap") {
-        seen.add(row.app);
-      }
-    }
-    return [...seen];
   });

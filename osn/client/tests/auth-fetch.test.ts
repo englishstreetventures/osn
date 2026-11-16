@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createAuthFetchers, safeErrorMessage } from "../src/auth-fetch";
+import { createAuthFetchers, safeErrorMessage, withDeadline } from "../src/auth-fetch";
 import { AuthExpiredError } from "../src/errors";
 import { safeJson } from "../src/response-body";
 import type { AuthFetch } from "../src/runtime";
@@ -232,5 +232,68 @@ describe("createAuthFetchers — signal forwarding", () => {
     await authDeleteVoid(url, { signal: controller.signal });
     const init = initOf();
     expect(init.signal).toBe(controller.signal);
+  });
+});
+
+describe("withDeadline — the caller's own abort", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("F6: an abort mid-call rejects with the caller's reason, aborts the request, and ends the deadline", async () => {
+    const caller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const call = withDeadline(
+      FakeError,
+      1_000,
+      (signal) => {
+        seen = signal;
+        // As `fetch` does: pending until aborted, then the signal's reason.
+        return new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+      caller.signal,
+    );
+    const reason = new DOMException("The person left", "AbortError");
+    caller.abort(reason);
+    await expect(call).rejects.toBe(reason);
+    expect(seen?.aborted).toBe(true);
+    expect(seen?.reason).toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+    // Nothing is left to fire: a deadline rejection here would go unhandled
+    // and fail the run.
+    await vi.advanceTimersByTimeAsync(2_000);
+  });
+
+  it("F7: a signal already aborted rejects with its reason and sends nothing", async () => {
+    const caller = new AbortController();
+    const reason = new Error("gone before it started");
+    caller.abort(reason);
+    const request = vi.fn(() => Promise.resolve("sent"));
+    await expect(withDeadline(FakeError, 1_000, request, caller.signal)).rejects.toBe(reason);
+    expect(request).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("F8: a call that has answered no longer reacts to the caller's abort", async () => {
+    const caller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const call = withDeadline(
+      FakeError,
+      1_000,
+      (signal) => {
+        seen = signal;
+        return Promise.resolve("answered");
+      },
+      caller.signal,
+    );
+    await expect(call).resolves.toBe("answered");
+    caller.abort(new DOMException("The person left", "AbortError"));
+    expect(seen?.aborted).toBe(false);
   });
 });

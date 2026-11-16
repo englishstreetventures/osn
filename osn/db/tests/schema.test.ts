@@ -166,3 +166,57 @@ describe("service_account_keys schema", () => {
     });
   });
 });
+
+describe("handle_holds schema", () => {
+  const digest = "a".repeat(64);
+
+  it("refuses a hold with neither an account nor a release", async () => {
+    const db = createTestDb();
+    await expect(
+      db
+        .insert(schema.handleHolds)
+        .values({ handle: digest, accountId: null, releaseAt: null, createdAt: 0 }),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/CHECK constraint failed/) },
+    });
+  });
+
+  it("refuses a hold with both an account and a release", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    await db.insert(schema.accounts).values({
+      id: "acc_hold",
+      email: "hold@example.com",
+      passkeyUserId: crypto.randomUUID(),
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(
+      db
+        .insert(schema.handleHolds)
+        .values({ handle: digest, accountId: "acc_hold", releaseAt: 1, createdAt: 0 }),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/CHECK constraint failed/) },
+    });
+  });
+
+  it("refuses a handle that is not a 64-character digest", async () => {
+    const db = createTestDb();
+    await expect(
+      db
+        .insert(schema.handleHolds)
+        .values({ handle: "0123456789", accountId: null, releaseAt: 1, createdAt: 0 }),
+    ).rejects.toMatchObject({
+      cause: { message: expect.stringMatching(/CHECK constraint failed/) },
+    });
+  });
+
+  it("accepts a released hold on a digest", async () => {
+    const db = createTestDb();
+    await db
+      .insert(schema.handleHolds)
+      .values({ handle: digest, accountId: null, releaseAt: 1, createdAt: 0 });
+    expect(await db.select().from(schema.handleHolds)).toHaveLength(1);
+  });
+});

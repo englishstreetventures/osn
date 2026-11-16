@@ -391,15 +391,12 @@ describe("retiring a request that did not park", () => {
       const second = yield* settle(
         h.auth.beginRegistration(address, "releasesecond", "1990-01-01"),
       );
-      // The tab that began the second goes back and begins for another address.
+      // The tab that began the second starts again for the same address.
       yield* settle(
-        h.auth.beginRegistration(
-          "release-other-2@example.com",
-          "releasesecond",
-          "1990-01-01",
-          undefined,
-          { requestId: second.requestId, claimSecret: second.claimSecret },
-        ),
+        h.auth.beginRegistration(address, "releasesecond", "1990-01-01", undefined, {
+          requestId: second.requestId,
+          retireSecret: second.retireSecret,
+        }),
       );
 
       expect(yield* h.entry(second.requestId)).toBeNull();
@@ -770,7 +767,7 @@ describe("a request the tab's poll has claimed", () => {
           "claimedretire2",
           "1990-01-01",
           undefined,
-          { requestId: s.requestId, claimSecret: s.claimSecret },
+          { requestId: s.requestId, retireSecret: s.retireSecret },
         ),
       );
       expect((yield* h.entry(s.requestId))?.status).toBe("claimed");
@@ -1063,6 +1060,36 @@ describe("the waiting screen's number among the sorted candidates", () => {
           expect(count).toBeGreaterThanOrEqual(300);
           expect(count).toBeLessThanOrEqual(500);
         }
+      });
+    },
+  );
+});
+
+describe("the retire secret", () => {
+  it.live(
+    "is minted only for a request opened to be retired: no other request carries a retire digest",
+    () => {
+      const links = createEmailLinkModule(createAuthContext(base));
+      return Effect.gen(function* () {
+        for (const flow of ["recovery", "step_up", "email_change", "registration"] as const) {
+          const opened = yield* links.open(flow, `subject-${flow}`, 600_000);
+          expect(opened.entry.retireSecretHash).toBeUndefined();
+          expect(Object.keys(opened)).not.toContain("retireSecret");
+        }
+        const retirable = yield* links.openRetirable(
+          "registration",
+          "retirable@example.com",
+          600_000,
+        );
+        expect(retirable.entry.retireSecretHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(
+          yield* links.retire(
+            "registration",
+            retirable.requestId,
+            retirable.retireSecret,
+            () => true,
+          ),
+        ).toBe(true);
       });
     },
   );

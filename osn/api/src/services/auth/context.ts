@@ -6,6 +6,7 @@
 
 import { createHmac } from "node:crypto";
 
+import { makeHeldHandleDigest } from "../../lib/handle-hold";
 import { createInMemoryRecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import type { AuthConfig } from "./config";
 import {
@@ -157,6 +158,9 @@ export function createAuthContext(config: AuthConfig) {
   };
   // Probe keys and the discoverable passkey challenge, under the same pepper.
   const serverMac = createServerMac(config.sessionIpPepper);
+  // The `handle_holds` digest, under the same pepper; with none, one key for
+  // the whole process, so every route factory's service agrees.
+  const heldHandleDigest = makeHeldHandleDigest(config.sessionIpPepper);
 
   return {
     config,
@@ -188,6 +192,7 @@ export function createAuthContext(config: AuthConfig) {
     totpLockoutStore,
     hashIp,
     serverMac,
+    heldHandleDigest,
   };
 }
 

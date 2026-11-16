@@ -1,5 +1,17 @@
 # @osn/db
 
+## 0.26.0
+
+### Minor Changes
+
+- 3437d4a: Add the schema account erasure needs to be undone and to hold handles. New table `handle_holds` (`handle`, a keyed hash and the primary key; `account_id`, set while the deletion is pending; `release_at`; `created_at`), indexed on `account_id` and `release_at`, with two CHECKs: a row has an account or a release, never both and never neither, and its handle is 64 characters. `deletion_jobs` gains `restore` (what a cancel puts back), `choices` (the person's answers for owned organisations), `hard_delete_failed_at` and `job_id` (a random id naming the job). `security_events` gains `security_events_created_at_idx` for the retention sweep. `organisation_members`' `org_members_org_idx` becomes `org_members_succession_idx` on (`organisation_id`, `role`, `created_at`, `id`), the order the hard delete picks a successor in; a read on the organisation alone uses its prefix. One migration, `20261115054558_account_erasure_restore.sql`; every new column is nullable and the new table starts empty. The test-schema emitter (`@osn/db/testing`) now writes CHECK constraints.
+
+## 0.25.9
+
+### Patch Changes
+
+- 2dc810a: A sign-in on the browser holding the cancel handle of an account scheduled for deletion keeps that session live, so the account can still cancel, and marks it replaced in the new nullable `sessions.replaced_at` column; a token of it rotated out past the grace window still counts as reuse and ends it. A replaced session renews only for a profile its own account owns, whatever becomes of the deletion, and `/authorize` reads it as no session. An unmarked session of an account scheduled for deletion is refused a named profile its account does not own, and a renewal that read a session unmarked rotates nothing once a mark lands.
+
 ## 0.25.8
 
 ### Patch Changes

@@ -91,7 +91,8 @@ let grants = 0;
 /**
  * What `/token` answers: a fresh token for the profile the grant named, as
  * osn-api does for a profile the account owns, or for the default profile.
- * `sub` overrides it, standing for a profile the account no longer owns.
+ * `sub` overrides it, standing for an issuer that renews another profile than
+ * the one named.
  */
 function grant(call?: Call, claims?: { sub?: string }): Response {
   grants += 1;
@@ -256,8 +257,8 @@ describe("authFetch on the page's runtime", () => {
   });
 
   it("F5: a grant for the default profile when another was named resets to it and sends nothing", async () => {
-    // osn-api mints for the default profile when the account no longer owns
-    // the one named.
+    // osn-api does this for a restricted recovery session, or an account
+    // scheduled for deletion, naming a profile the account owns.
     const fetches = stubFetch({ token: (call) => grant(call, { sub: DEFAULT }) });
     const { runtime, changes, stored } = await harness({ active: OTHER });
 
@@ -520,6 +521,32 @@ describe("authFetch on the page's runtime", () => {
     const err = await rejection(runtime.authFetch(API, { signal: AbortSignal.abort() }));
 
     expect(err).toBe(abort);
+  });
+
+  it("the retry after a 401 sends with the caller's signal, so an abort ends it too", async () => {
+    let retry: Call | undefined;
+    const fetches = stubFetch({
+      api: (call) => {
+        if (fetches.api().length === 1) return json(401);
+        retry = call;
+        // As `fetch` does: pending until aborted, then the signal's reason.
+        return new Promise<Response>((_, reject) => {
+          call.init.signal?.addEventListener("abort", () => reject(call.init.signal?.reason), {
+            once: true,
+          });
+        });
+      },
+    });
+    const { runtime } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
+    const caller = new AbortController();
+
+    const pending = rejection(runtime.authFetch(API, { signal: caller.signal }));
+    await vi.waitFor(() => expect(retry).toBeDefined());
+    caller.abort(new DOMException("The deadline passed", "AbortError"));
+
+    expect(fetches.to("/token")).toHaveLength(1);
+    expect(retry?.init.signal?.aborted).toBe(true);
+    await pending;
   });
 
   it("F43: a second runtime on the same storage never sends the first one's token", async () => {

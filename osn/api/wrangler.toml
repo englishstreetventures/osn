@@ -311,7 +311,7 @@ OSN_AUTHORIZE_UI_URL = "https://musubi.social/authorize"
 # by `rotatedSweepMaxChunks` (src/services/auth/tokens.ts) in the `scheduled`
 # handler (src/index.ts). 100 chunks is 50 000 records a run, inside Workers
 # Paid's 1 000 D1 queries per invocation; unset, as on dev (Workers Free, 50
-# queries shared by four sweeps), it is 10.
+# queries shared by every sweep of the cron), it is 10.
 OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS = "100"
 # Sign out everywhere else, and revoking cire's connection, ask cire-api to end
 # the account's organiser sessions at CIRE_INTERNAL_REVOKE_URL. Both values

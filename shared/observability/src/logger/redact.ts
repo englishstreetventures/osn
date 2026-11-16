@@ -222,13 +222,16 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // to /email-link/:requestId/{candidates,confirm}. `claimSecret` is the
     // 256-bit secret the tab that began a flow holds, posted to its status and
     // resend routes; whoever holds it receives the session the flow mints.
-    // Both are stored only as SHA-256 hashes. `pairingCode` is the number the
-    // tab that began shows, `pairingCandidates` the list the confirm page
+    // `retireSecret` is the 256-bit secret a sign-up's begin answers beside
+    // it, sent as a later begin's `previous`; it can end the request. All
+    // three are stored only as SHA-256 hashes. `pairingCode` is the number
+    // the tab that began shows, `pairingCandidates` the list the confirm page
     // offers, `pairingPick` the reader's choice: together they say which
     // candidate is right, which only the tab that began may know. camelCase
     // only: no snake_case spelling exists.
     "linkSecret",
     "claimSecret",
+    "retireSecret",
     "pairingCode",
     "pairingCandidates",
     "pairingPick",

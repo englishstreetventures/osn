@@ -7,7 +7,7 @@
  * `jti`s in the injected {@link StepUpJtiStore}.
  */
 
-import { accounts, passkeys } from "@osn/db/schema";
+import { accounts, passkeys, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailService } from "@shared/email";
 import type {
@@ -20,7 +20,7 @@ import {
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { forkBackground } from "../../lib/background";
@@ -70,6 +70,17 @@ type ProvenanceCheck =
     }
   | { readonly gate: "email_change"; readonly lastRecoveredAt: number | null };
 
+/**
+ * The session a step-up token is minted for: the account, and the family of
+ * the caller's live session that the mint route's live-session check resolved
+ * (`liveSession`, `lib/live-session.ts`). The token carries the family, and
+ * `verifyStepUpToken` refuses it once that family has no live session.
+ */
+export interface MintingSession {
+  readonly accountId: string;
+  readonly familyId: string;
+}
+
 /** The provenance facts a verified step-up token carries, already narrowed. */
 interface StepUpProvenanceClaims {
   readonly amr: readonly string[];
@@ -93,6 +104,7 @@ const STEP_UP_ACTION = {
   security_event_ack: "dismiss a security alert",
   account_delete: "delete the account",
   account_export: "download a copy of the account's data",
+  account_restore: "cancel the account's deletion",
   totp_enroll: "set up an authenticator app",
   totp_disable: "remove the authenticator app",
   pulse_app_delete: "delete the account's Pulse data",
@@ -249,8 +261,9 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const STEP_UP_AUDIENCE = "osn-step-up";
 
   /**
-   * Mints a step-up (sudo) JWT bound to {@link accountId} via the `sub`
-   * claim. When {@link purpose} is supplied the token also carries a
+   * Mints a step-up (sudo) JWT bound to the minting session's account via the
+   * `sub` claim and to its session family via `osn_fam`, which the verifier
+   * checks is still live. When {@link purpose} is supplied the token also carries a
    * matching `purpose` claim that the verifier can require — used by
    * sensitive operations (account delete, app delete) to defend against
    * confused-deputy reuse of a token meant for a different action.
@@ -259,7 +272,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * change endpoints).
    */
   const issueStepUpToken = (
-    accountId: string,
+    minting: MintingSession,
     factor: StepUpFactor,
     purpose?: StepUpPurpose,
     /**
@@ -291,10 +304,11 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
       const token = yield* Effect.tryPromise({
         try: () => {
           const claims: StepUpTokenClaims = {
-            sub: accountId,
+            sub: minting.accountId,
             aud: STEP_UP_AUDIENCE,
             amr: [amr],
             jti: crypto.randomUUID(),
+            osn_fam: minting.familyId,
           };
           if (purpose) claims.purpose = purpose;
           if (asserting) {
@@ -318,18 +332,23 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
 
   /**
    * Verifies a step-up token and returns the amr + purpose it carries
-   * along with the verified accountId (the token's `sub` claim). Pass
-   * `expectedAccountId` to enforce a sub equality check (most callers do);
-   * pass `null` to accept any account — used by cross-service verifiers
-   * like `/internal/step-up/verify` where the calling service derives the
-   * accountId from the token's verified sub rather than asserting one
-   * up front. Fails with an AuthError on any signature / audience / expiry
-   * / replay issue; the error message is intentionally generic so the wire
-   * doesn't leak whether it was a wrong sub or a replayed jti.
+   * along with the verified accountId (the token's `sub` claim), which must
+   * equal `expectedAccountId`. Fails with an AuthError on any signature /
+   * audience / expiry / replay issue; the error message is intentionally
+   * generic so the wire doesn't leak whether it was a wrong sub or a
+   * replayed jti.
+   *
+   * Refuses, too, a token whose session family (`osn_fam`, the family of the
+   * session that minted it) has no live, unrestricted, unexpired session of
+   * the token's account left: the device that minted it signed out, or was
+   * revoked or swept. Whoever presents the token, and from wherever — this is
+   * the only session check a cross-service spend gets. One indexed read, the
+   * last check before the `jti` is claimed, so a refusal spends nothing; a
+   * database failure there fails with `DatabaseError`, also before the claim.
    */
   const verifyStepUpToken = (
     token: string,
-    expectedAccountId: string | null,
+    expectedAccountId: string,
     allowedAmr: ReadonlySet<string>,
     expectedPurpose?: StepUpPurpose,
     /**
@@ -352,7 +371,8 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
       /** `pk_created_at` in unix seconds; null when the token carries none. */
       assertingCreatedAt: number | null;
     },
-    AuthError
+    AuthError | DatabaseError,
+    Db
   > =>
     Effect.gen(function* () {
       const record = (result: StepUpVerifyResult) =>
@@ -371,13 +391,20 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
         yield* record("wrong_subject");
         return yield* Effect.fail(new AuthError({ message: "Invalid step-up token" }));
       }
-      if (expectedAccountId !== null && payloadResult["sub"] !== expectedAccountId) {
+      if (payloadResult["sub"] !== expectedAccountId) {
         yield* record("wrong_subject");
         return yield* Effect.fail(new AuthError({ message: "Invalid step-up token" }));
       }
       const accountId = payloadResult["sub"];
       const jti = payloadResult["jti"];
       if (typeof jti !== "string") {
+        yield* record("invalid");
+        return yield* Effect.fail(new AuthError({ message: "Invalid step-up token" }));
+      }
+      // Every mint names the minting session's family. A token without one
+      // was minted before the claim existed, or not by this service's mints.
+      const familyId = payloadResult["osn_fam"];
+      if (typeof familyId !== "string" || familyId === "") {
         yield* record("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid step-up token" }));
       }
@@ -436,6 +463,34 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
             }),
           );
         }
+      }
+
+      // The minting session's family must still hold a live session of this
+      // account, read last so a token the checks above refuse costs no read,
+      // and before the claim below so a refusal leaves the token unspent.
+      // The read and the claim are not one step: `lib/live-session.ts`
+      // states what a session ending between them does not stop.
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const live = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                eq(sessions.familyId, familyId),
+                isNull(sessions.restrictedUntil),
+                gt(sessions.expiresAt, nowSec),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (live.length === 0) {
+        yield* record("session_ended");
+        return yield* Effect.fail(new AuthError({ message: "Invalid step-up token" }));
       }
 
       // Single use across every isolate: the guard is shared, the first
@@ -518,7 +573,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * callers that don't enforce one.
    */
   const completeStepUpPasskey = (
-    accountId: string,
+    minting: MintingSession,
     assertion: AuthenticationResponseJSON,
     purpose?: StepUpPurpose,
   ): Effect.Effect<
@@ -527,6 +582,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     Db
   > =>
     Effect.gen(function* () {
+      const { accountId } = minting;
       // Read and removed in one call, so of two presentations of one
       // assertion at once only one reaches verification.
       const entry = yield* storeCall(stores.stepUpPasskeyChallenges, "take", () =>
@@ -579,7 +635,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
       // in the AMR says a ceremony happened; this says whose credential ran it,
       // which is the difference the cooldown turns on. A NULL column is a row
       // that predates the column and reads as `webauthn`.
-      const stepUpToken = yield* issueStepUpToken(accountId, "passkey", purpose, {
+      const stepUpToken = yield* issueStepUpToken(minting, "passkey", purpose, {
         id: pk.id,
         provenance:
           pk.provenanceAmr && PROVENANCE_VALUES.has(pk.provenanceAmr)
@@ -737,21 +793,26 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    *    it too. Any other failure keeps the claim and lets go of it, so the next
    *    poll takes over at once; a token minted by a poll that did not spend
    *    the request is never answered, and its single-use id is never seen.
+   *  - With `purposes` given, the request's purpose must be one of them;
+   *    another is refused before the claim, and the request is left as it was.
    */
   const finishStepUp = (
-    accountId: string,
+    minting: MintingSession,
     profileId: string,
     requestId: string,
     link: EmailLinkChallenge,
+    purposes: ReadonlySet<StepUpPurpose> | undefined,
   ): Effect.Effect<StepUpEmailStatus, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
+      const { accountId } = minting;
       const address = yield* accountEmail(accountId);
       const purpose = link.purpose;
       if (
         address === null ||
         link.bound !== addressDigest(address) ||
         purpose === undefined ||
-        !isStepUpPurpose(purpose)
+        !isStepUpPurpose(purpose) ||
+        (purposes !== undefined && !purposes.has(purpose))
       ) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired link" }));
       }
@@ -762,7 +823,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
         if (claimed.claim.accountId !== accountId) {
           return yield* Effect.fail(new AuthError({ message: "Invalid or expired link" }));
         }
-        const stepUpToken = yield* issueStepUpToken(accountId, "otp", purpose);
+        const stepUpToken = yield* issueStepUpToken(minting, "otp", purpose);
         // Another poll took the request over and delivers it.
         if (!(yield* links.spend(requestId, claimed))) return null;
         return stepUpToken;
@@ -786,16 +847,21 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * with the step-up token, once. `expired` for every refusal: an unknown,
    * expired, declined or other-flow request, a wrong claim secret, another
    * account's request, a poll that lost the claim or found another holding
-   * it, and an account whose address has changed since. A poll that fails
-   * after the claim leaves the request for the next poll.
+   * it, an account whose address has changed since, and, when `purposes` is
+   * given, a request begun for a purpose outside it (the routes pass the
+   * purposes a session of an account whose deletion is pending may mint
+   * for). A poll that fails after the claim leaves the request for the next
+   * poll.
    */
   const stepUpEmailStatus = (
-    accountId: string,
+    minting: MintingSession,
     profileId: string,
     requestId: string,
     claimSecret: string,
+    purposes?: ReadonlySet<StepUpPurpose>,
   ): Effect.Effect<StepUpEmailStatus, DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
+      const { accountId } = minting;
       const polled = yield* links.poll("step_up", requestId, claimSecret, accountId);
       if (polled.state === "pending") {
         return polled.pairingCode === undefined
@@ -803,7 +869,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
           : ({ status: "pending", pairingCode: polled.pairingCode } as const);
       }
       if (polled.state === "expired") return LINK_EXPIRED;
-      return yield* finishStepUp(accountId, profileId, requestId, polled.entry).pipe(
+      return yield* finishStepUp(minting, profileId, requestId, polled.entry, purposes).pipe(
         Effect.catchTag("AuthError", () => Effect.succeed(LINK_EXPIRED)),
       );
     }).pipe(Effect.withSpan("auth.step_up.email_status"));
@@ -814,13 +880,15 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
    * that began. `sent` (also for a request already confirmed, which the next
    * poll finishes), `limit` once the request has sent all it may, `expired`
    * for every refusal. A link goes only to the address the request began for,
-   * while the account still has it.
+   * while the account still has it. With `purposes` given, a request begun for
+   * a purpose outside it is refused, `expired`, and no link goes.
    */
   const resendStepUpEmail = (
     accountId: string,
     requestId: string,
     claimSecret: string,
     sessionMeta?: SessionMeta,
+    purposes?: ReadonlySet<StepUpPurpose>,
   ): Effect.Effect<
     { status: "sent" | "limit" | "expired" },
     DatabaseError | CoordinationError,
@@ -831,8 +899,14 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
       if (resent.state === "expired") return LINK_EXPIRED;
       if (resent.state === "limit") return { status: "limit" } as const;
       if (resent.state === "confirmed") return { status: "sent" } as const;
-      const address = yield* accountEmail(accountId);
       const purpose = resent.purpose;
+      if (
+        purposes !== undefined &&
+        !(purpose !== undefined && isStepUpPurpose(purpose) && purposes.has(purpose))
+      ) {
+        return LINK_EXPIRED;
+      }
+      const address = yield* accountEmail(accountId);
       if (
         address !== null &&
         resent.bound === addressDigest(address) &&
@@ -991,7 +1065,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const verifyStepUpForPasskeyRegister = (
     accountId: string,
     stepUpToken: string,
-  ): Effect.Effect<PasskeyProvenance, AuthError> =>
+  ): Effect.Effect<PasskeyProvenance, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       // Purpose-bound: only a token minted for passkey enrolment is accepted,
       // so a recovery-generate or email-change token can't bind an attacker
@@ -1042,7 +1116,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const verifyStepUpForTotpEnroll = (
     accountId: string,
     stepUpToken: string,
-  ): Effect.Effect<void, AuthError> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* verifyStepUpToken(stepUpToken, accountId, passkeyRegisterAllowedAmr, "totp_enroll");
     });
@@ -1059,7 +1133,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const verifyStepUpForTotpDisable = (
     accountId: string,
     stepUpToken: string,
-  ): Effect.Effect<void, AuthError> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* verifyStepUpToken(stepUpToken, accountId, passkeyRegisterAllowedAmr, "totp_disable");
     });
@@ -1075,7 +1149,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const verifyStepUpForRecoveryGenerate = (
     accountId: string,
     stepUpToken: string,
-  ): Effect.Effect<void, AuthError> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* verifyStepUpToken(
         stepUpToken,
@@ -1100,7 +1174,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const verifyStepUpForAccountDelete = (
     accountId: string,
     stepUpToken: string,
-  ): Effect.Effect<void, AuthError> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* verifyStepUpToken(
         stepUpToken,
@@ -1123,7 +1197,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
   const verifyStepUpForAccountExport = (
     accountId: string,
     stepUpToken: string,
-  ): Effect.Effect<void, AuthError> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* verifyStepUpToken(
         stepUpToken,
@@ -1134,25 +1208,69 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     });
 
   /**
+   * Step-up verifier for `POST /account/restore`, which cancels a pending
+   * deletion. The same factors as export and delete (passkey, the emailed
+   * link, an authenticator code), for the same reason: the person cancelling
+   * may have lost every passkey.
+   *
+   * Requires the token's `purpose` claim to be `"account_restore"`.
+   */
+  const verifyStepUpForAccountRestore = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        recoveryGenerateAllowedAmr,
+        "account_restore",
+      );
+    });
+
+  /**
    * Cross-service step-up verifier — called by Pulse / Zap via the
    * ARC-gated `/internal/step-up/verify` endpoint. Requires a matching
    * {@link StepUpPurpose} so a token minted for one app cannot be
    * replayed at another (confused-deputy guard).
    *
-   * S-H2: returns the verified accountId from the token's `sub` claim so
-   * the calling service can use it server-to-server without requiring
-   * the user to supply it in a body field. The accountId is never
-   * exposed to the user (P6 invariant) — only to ARC-authenticated
-   * downstream services.
+   * `profileId` is the profile the calling service verified its own caller
+   * as. The token must belong to the account that owns that profile: the
+   * service holds no account ids, so only this check stops a caller of the
+   * service spending a token minted on an account of their own against
+   * someone else's profile. The owner is read first and passed as the
+   * expected account, so a token of any other account, or a profile that
+   * does not exist, is refused before the token's `jti` is claimed.
+   *
+   * Returns the verified accountId (the token's `sub`) so the calling service
+   * can use it server-to-server without requiring the user to supply it in a
+   * body field. The accountId is never exposed to the user (P6 invariant) —
+   * only to ARC-authenticated downstream services.
    */
   const verifyStepUpForExternalPurpose = (
     stepUpToken: string,
     expectedPurpose: StepUpPurpose,
-  ): Effect.Effect<{ accountId: string }, AuthError> =>
+    profileId: string,
+  ): Effect.Effect<{ accountId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
+      const { db } = yield* Db;
+      const owners = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ accountId: users.accountId })
+            .from(users)
+            .where(eq(users.id, profileId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const owner = owners[0];
+      if (!owner) {
+        metricStepUpVerified("wrong_subject");
+        return yield* Effect.fail(new AuthError({ message: "Invalid step-up token" }));
+      }
       const result = yield* verifyStepUpToken(
         stepUpToken,
-        null,
+        owner.accountId,
         recoveryGenerateAllowedAmr,
         expectedPurpose,
       );
@@ -1175,6 +1293,7 @@ export function createStepUpModule(ctx: AuthContext, links: EmailLinkModule) {
     verifyStepUpForRecoveryGenerate,
     verifyStepUpForAccountDelete,
     verifyStepUpForAccountExport,
+    verifyStepUpForAccountRestore,
     verifyStepUpForExternalPurpose,
   };
 }

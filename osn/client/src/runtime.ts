@@ -24,9 +24,12 @@ import { StorageLive, type Storage } from "./storage";
  *   expired is sent instead. After such a failure renewal pauses, 2 s
  *   doubling to 30 s or the issuer's `Retry-After`, and the calls in the
  *   pause send no grant.
- * - `ActiveProfileResetError` — the account no longer owns the profile the
- *   request was made as; the default profile is active now, unless the page
- *   switched profile meanwhile. The request was not sent.
+ * - `ActiveProfileResetError` — the issuer renewed for another profile than
+ *   the one the request was made as (osn-api does this only for a restricted
+ *   recovery session or an account scheduled for deletion, and refuses a
+ *   profile the account does not own, which ends the session); the default
+ *   profile is active now, unless the page switched profile meanwhile. The
+ *   request was not sent.
  * - `StorageError`.
  *
  * Every authenticated client in this package is built with one. A client

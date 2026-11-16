@@ -85,10 +85,11 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
       // -------------------------------------------------------------------------
       // Sign-up: begin (opens an emailed-link request, creates nothing yet)
       //
-      // Answers `{ requestId, claimSecret, pairingCode, expiresAt }` (or a
-      // public error code on validation failure) whether or not the
-      // email/handle is already taken — a taken address gets a request whose
-      // link is never sent, and begin's answer does not tell the two apart.
+      // Answers `{ requestId, claimSecret, retireSecret, pairingCode,
+      // expiresAt }` (or a public error code on validation failure) whether or
+      // not the email/handle is already taken — a taken address gets a request
+      // whose link is never sent, and begin's answer does not tell the two
+      // apart.
       // -------------------------------------------------------------------------
       .post(
         "/register/begin",
@@ -145,15 +146,16 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
             // endpoint still accepts requests when Turnstile is unconfigured;
             // when configured, `turnstileGate` rejects a missing/invalid value.
             turnstileToken: t.Optional(t.String()),
-            // A sign-up this tab began before and is replacing (the person
-            // went back to change a field). Retired only for the holder of its
-            // claim secret. Held to the same patterns as the status and resend
-            // routes, so a malformed pair is refused before Turnstile and
-            // before any store call.
+            // A sign-up begun before in this browser that this one replaces
+            // (the person went back to change a field, or started again from
+            // another tab). Retired only for the holder of its retire secret,
+            // which can do nothing else. Held to the same patterns as the
+            // status and resend routes, so a malformed pair is refused before
+            // Turnstile and before any store call.
             previous: t.Optional(
               t.Object({
                 requestId: t.String({ pattern: emailLinkIdPattern("registration") }),
-                claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }),
+                retireSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }),
               }),
             ),
             // The browser Email Verification API field's value and the nonce
@@ -166,12 +168,15 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
             nonceSecret: t.Optional(t.String({ maxLength: 128 })),
           }),
           response: {
-            // `claimSecret` and `pairingCode` match log redaction deny-list
-            // entries; the tab that began keeps the secret and shows the code,
-            // and nothing else ever sees either. `expiresAt` is Unix seconds.
+            // `claimSecret`, `retireSecret` and `pairingCode` match log
+            // redaction deny-list entries. The tab that began keeps the claim
+            // secret and shows the code, and nothing else ever sees either; the
+            // browser keeps the retire secret for its other tabs, and it can
+            // only end the request. `expiresAt` is Unix seconds.
             200: t.Object({
               requestId: t.String(),
               claimSecret: t.String(),
+              retireSecret: t.String(),
               pairingCode: t.String(),
               expiresAt: t.Number(),
             }),

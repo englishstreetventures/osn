@@ -165,9 +165,21 @@ describe("the command palette's arrival", () => {
     const { panel, scrim } = await parts();
     for (const part of [panel, scrim]) {
       expect(Number.parseFloat(getComputedStyle(part).animationDuration)).toBeLessThan(0.001);
+      // "At once" on the engine's own clock, delay included, which no runner can stretch.
+      const running = part.getAnimations();
+      expect(running.length).toBeGreaterThan(0);
+      for (const animation of running) {
+        expect(Number(animation.effect?.getComputedTiming().endTime)).toBeLessThan(1);
+      }
     }
-    await new Promise(requestAnimationFrame);
-    await new Promise(requestAnimationFrame);
+    // Until the engine starts the 0.01ms run, the panel paints its first keyframe,
+    // and a loaded machine can put that start off past any count of frames.
+    await vi.waitFor(
+      () => {
+        for (const part of [panel, scrim]) expect(part.getAnimations(), "an arrival").toEqual([]);
+      },
+      { timeout: 5000 },
+    );
     expect(getComputedStyle(panel).opacity).toBe("1");
     expect(getComputedStyle(panel).transform).toBe("none");
   });

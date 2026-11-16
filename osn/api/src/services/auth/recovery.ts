@@ -457,6 +457,7 @@ export function createRecoveryModule(
   > =>
     Effect.gen(function* () {
       const { profile } = yield* consumeRecoveryCode(identifier, code, sessionMeta);
+      // `resolveIdentifier` read the account row, so the audience needs no read.
       const session = yield* issueTokens(
         profile.id,
         profile.accountId,
@@ -465,6 +466,7 @@ export function createRecoveryModule(
         profile.displayName,
         undefined,
         sessionMeta,
+        profile.accountDeletedAt,
       );
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("recovery_code"));

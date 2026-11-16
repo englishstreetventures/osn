@@ -1,5 +1,78 @@
 # @osn/osn
 
+## 3.40.1
+
+### Patch Changes
+
+- 9172b9c: `POST /token` mints for a named `profile_id` only when the session's account owns it, and answers any other named profile with `400 invalid_grant` before it mints or rotates anything; the client ends the session on that answer. A grant naming no profile mints for the default profile. `@osn/client` changes only comments.
+
+## 3.40.0
+
+### Minor Changes
+
+- 3437d4a: Make account erasure undoable for the whole seven-day window, keep deleted handles from being taken, and pass owned organisations on.
+
+  - The soft delete keeps passkeys, recovery codes and TOTP until the hard delete. It writes a restore record on the deletion job (each profile's handle, display name and avatar, and the app enrolments it closed) and holds each profile's handle.
+  - A sign-in or refresh of an account whose deletion is pending mints an access token with audience `osn-pending-deletion`. That token reaches only `GET /account/deletion-status`, `GET /account/export` (with an `account_export` step-up), `POST /account/restore` (with an `account_restore` step-up), the `already_pending` answer of `DELETE /account`, `GET /totp/status`, and the step-up routes for those two purposes. Every verifier that pins `osn-access` refuses it. The audience is on the reserved OIDC client-id list. A restricted recovery session of such an account may enrol a passkey, so email or TOTP recovery leads to a cancel.
+  - `POST /account/restore` needs a step-up token for the new purpose `account_restore`, from the body's `step_up_token` or the `x-step-up-token` header, and accepts any live session of the account. A cancel puts back each profile's handle, display name and avatar, reopens the enrolments the deletion closed, and releases the holds. A handle taken since stays redacted. A job written before the restore record cancels as before.
+  - Handle holds: `handle_holds` stores a keyed hash of each handle, held while the deletion is pending and for 30 days after the hard delete. Registration, sign-up finish, the handle check, profile creation and organisation creation refuse a held handle as they refuse a taken one. Every check that creates or offers a handle, sign-up finish included, refuses one that starts with `deleted_`, the form the soft delete gives a profile. When another profile already has a profile's `deleted_<id suffix>`, the soft delete gives it `deleted_<id suffix>_<8 hex>` instead, and a cancel puts back either form.
+  - The soft delete decides in its own statements what the job needs: the Pulse and Zap marks come from the enrolments the job insert reads, and the tombstone is written last. A cancel removes only the job it read, by the job's new random `job_id`. Profile creation and `joinApp` write nothing for an account whose deletion is pending; profile creation answers `Account not found`.
+  - `GET /account/deletion-preview` lists each organisation a profile of the account owns, who would take it over and the choices it allows. `DELETE /account` takes `choices`; it answers 409 `open_actions` when an organisation with no other admin has no answer, and 400 `invalid_choice` for a choice the organisation does not offer or a successor who is not a member. The checks run before the step-up token is spent.
+  - The hard delete passes each owned organisation to the named successor, else the longest-standing other admin, else the longest-standing other member (made admin), and deletes it when there is none or the person chose `delete`. It deletes the account's `app_enrollments` rows. `updateMemberRole` writes only while the caller still owns the organisation.
+  - One account's failed hard delete leaves the sweep running: it is logged without ids, counted as `hard_failed`, stamped on the job, and read last on the next pass. Three failures in a row end the pass, with one warning. New counter `osn.account.deletion.organisation` (`outcome`: `transferred` or `deleted`).
+  - Deleting a profile that owns an organisation answers "Delete the organisations this profile owns before deleting it".
+  - Two deletes at once answer one scheduled and one `already_pending`, and a repeat during the window answers `already_pending`.
+  - `/authorize` refuses an account whose deletion is pending with `access_denied`, for every client, before it records a consent or mints a code.
+  - The six-hourly cron sweeps `security_events` past 12 months, `email_changes` past 90 days and handle holds past their release, in chunks of 500, at most two a run, through one shared `runRetentionSweep`. The Bun dev server runs the same sweeps, the OIDC code sweep included.
+
+  `/internal/app-enrollment/join` and `/leave` write only for the calling service's own app (`pulse-api` for `pulse`, `zap-api` for `zap`); a token from any other service gets 401. A hard delete runs only while both app purges read done at the moment it claims and writes; a refused join that sends an app's purge back rolls the batch back.
+
+  A sign-in ends the family its cookie named for every account, an account scheduled for deletion and its cancel handle included: the account can sign in again. The one exception is the cancel handle of a deletion job written before the restore record existed (`deletion_jobs.restore` NULL), whose account has no credential left: a sign-in spares it and marks it `replaced_at`. `POST /account/restore` answers a database fault while it checks the step-up token as a 500, not `step_up_required`.
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+- Updated dependencies [3437d4a]
+  - @osn/db@0.26.0
+  - @shared/observability@0.25.0
+  - @shared/crypto@0.14.35
+  - @shared/email@0.18.4
+
+## 3.39.2
+
+### Patch Changes
+
+- 2dc810a: A sign-in on the browser holding the cancel handle of an account scheduled for deletion keeps that session live, so the account can still cancel, and marks it replaced in the new nullable `sessions.replaced_at` column; a token of it rotated out past the grace window still counts as reuse and ends it. A replaced session renews only for a profile its own account owns, whatever becomes of the deletion, and `/authorize` reads it as no session. An unmarked session of an account scheduled for deletion is refused a named profile its account does not own, and a renewal that read a session unmarked rotates nothing once a mark lands.
+- Updated dependencies [2dc810a]
+  - @osn/db@0.25.9
+  - @shared/crypto@0.14.34
+
+## 3.39.1
+
+### Patch Changes
+
+- c34015f: A step-up token is now bound to the session that minted it. `POST /step-up/passkey/complete`, `POST /step-up/email/:requestId/status` and `POST /step-up/totp/complete` stamp the family of the caller's live session into the token as `osn_fam`, and every gate that spends a token, `POST /internal/step-up/verify` included, refuses one whose family has no live, unrestricted, unexpired session of the account left, or that carries no `osn_fam`, before it claims the token's single-use id. A token minted on a device that has since signed out, been revoked or been swept is refused at every gate, whoever presents it, another live session of the account and Pulse included; a renewal keeps the family, so the minting session's silent refresh does not end it. The refusal counts as `osn.auth.step_up.verified{result="session_ended"}`, a new label on `StepUpVerifyResult`.
+
+  `POST /internal/step-up/verify` takes a required `profile_id`, the profile the calling service verified its own caller as, and refuses a token that is not of the account owning it; it spends `pulse_app_delete` only for `pulse-api` and `zap_app_delete` only for `zap-api`, and accepts no `account_delete`. Pulse's `DELETE /account` sends its caller's profile id. `issueStepUpToken`, `completeStepUpPasskey`, `completeStepUpTotp` and `stepUpEmailStatus` take a `MintingSession` (`{ accountId, familyId }`) in place of the account id; `verifyStepUpForExternalPurpose` takes the profile id; `verifyStepUpToken` always takes the expected account; and every step-up verifier now needs `Db` and can fail with `DatabaseError`, which `DELETE /account`, `GET /account/export` and `POST /internal/step-up/verify` answer as a 500.
+
+- Updated dependencies [c34015f]
+  - @shared/observability@0.24.2
+  - @shared/crypto@0.14.33
+  - @shared/email@0.18.3
+
+## 3.39.0
+
+### Minor Changes
+
+- 0d8f467: Starting a Musubi sign-up again for the same address from a new tab of the same browser, or after closing the waiting tab, mails the link at once. `@osn/api`'s `POST /register/begin` answers a `retireSecret` beside the claim secret, for a free, taken or held address alike, stored only as a SHA-256 hash. It can only end its request: no status poll, Resend, candidates read or confirm accepts it. Begin's `previous` is `{ requestId, retireSecret }`, never the claim secret, and it retires the earlier request only when that request is for the address this begin is for; a wrong secret, the claim secret, an unknown request or another address retires nothing, at the same one store read and with the same answer. `@osn/client`'s `BegunRegistration` carries `retireSecret`, `PreviousRegistration` is `{ requestId, retireSecret }`, and the status poll and Resend take a `RegistrationClaim`. `@osn/auth-ui`'s `Register` keeps the claim secret in the tab's `sessionStorage` as before, and shares the live request's id, retire secret and expiry with the browser's other tabs in `localStorage` (`osn.signup.live`), nothing about the address; a tab that begins sends it as `previous`. The tab's own left request (`osn.signup.previous`, in its `sessionStorage`) carries the retire secret and the address it was for, and is sent first for that address. The entry goes when its request ends or expires, and no tab removes another tab's entry; a begin refused with a 4xx other than 429 is not sent with the same `previous` again. Only sign-up's requests carry a retire secret. `@shared/observability` redacts `retireSecret` in logs.
+
+### Patch Changes
+
+- Updated dependencies [0d8f467]
+  - @shared/observability@0.24.1
+  - @shared/crypto@0.14.32
+  - @shared/email@0.18.2
+
 ## 3.38.3
 
 ### Patch Changes

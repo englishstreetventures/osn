@@ -18,6 +18,8 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll, vi } from "vitest";
 
+import { completePasskeyStepUp } from "../helpers/step-up-session";
+
 // Both WebAuthn verifiers are stubbed to accept: a unit test cannot produce a
 // real assertion, and what is under test is what reaches them, not them.
 vi.mock("@simplewebauthn/server", async (importOriginal) => {
@@ -201,7 +203,9 @@ describe("one WebAuthn challenge, two presentations at once", () => {
       yield* auth.beginStepUpPasskey(profile.accountId);
       const results = yield* Effect.all(
         [0, 1].map(() =>
-          Effect.result(auth.completeStepUpPasskey(profile.accountId, fakeAssertion(credentialId))),
+          Effect.result(
+            completePasskeyStepUp(auth, profile.accountId, fakeAssertion(credentialId)),
+          ),
         ),
         { concurrency: "unbounded" },
       );

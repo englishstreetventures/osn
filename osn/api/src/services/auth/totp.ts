@@ -54,7 +54,7 @@ import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import { genId } from "./helpers";
 import type { SecurityEventsModule } from "./security-events";
-import type { StepUpModule } from "./step-up";
+import type { MintingSession, StepUpModule } from "./step-up";
 import { storeCall } from "./store-call";
 import type { SessionMeta } from "./types";
 
@@ -645,16 +645,17 @@ export function createTotpModule(
    *
    * There is no matching `begin`: TOTP is challenge-free, so there is nothing
    * to mint or park, and whether the account can use this route is what
-   * `GET /totp/status` answers.
+   * `GET /totp/status` answers. The token is bound to `minting`'s session
+   * family, which the route's live-session check resolved.
    */
   const completeStepUpTotp = (
-    accountId: string,
+    minting: MintingSession,
     code: string,
     purpose?: StepUpPurpose,
   ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* checkTotpCode(accountId, code, "step_up");
-      const stepUpToken = yield* issueStepUpToken(accountId, "totp", purpose);
+      yield* checkTotpCode(minting.accountId, code, "step_up");
+      const stepUpToken = yield* issueStepUpToken(minting, "totp", purpose);
       return { stepUpToken, expiresIn: ctx.stepUpTokenTtl };
     }).pipe(withTotpOp("verify"));
 

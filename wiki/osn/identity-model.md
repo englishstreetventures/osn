@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-15
 ---
 # Identity Model
 
@@ -129,9 +129,9 @@ Never rewrite the file to recover. By then `osn-db-dev` has almost always applie
 
 **Key invariants:**
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
-- Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first.
+- Org ownership is per-profile, and it changes in one place only: the hard delete of the owner's account passes each organisation it owns to the successor the person named, else the longest-standing other admin, else the longest-standing other member (made admin), and deletes it when there is none or the person chose `delete` ([[dsar#Organisations the person owns]]). No route transfers ownership, and `deleteProfile` refuses a profile that owns an organisation.
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
-- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. The owner needs no such guard: `ownerId` never changes.
+- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. `ownerId` changes only at the hard delete of the owner's account, in the batch that also deletes that owner's membership rows. So `addMember`'s owner-only admin grant, which inserts from the caller's own admin row, grants nothing after a stale read of the owner; and `updateMemberRole` writes only while `organisations.owner_id` is still the caller, and otherwise refuses with the message the checks give now.
 
 ## Token Model
 
@@ -148,8 +148,9 @@ Never rewrite the file to recover. By then `osn-db-dev` has almost always applie
 
 | `aud` | Minted by | Accepted by |
 |---|---|---|
-| `osn-access` | login, `/token` refresh, `/profiles/switch` | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
+| `osn-access` | login, `/token` refresh, `/profiles/switch`, for an account whose deletion is not pending | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
 | `osn-recovery` | a restricted recovery session | `resolvePasskeyEnrollPrincipal` **only** — i.e. `/passkey/register/begin` and `/complete`, and nothing else anywhere |
+| `osn-pending-deletion` | login and `/token` refresh, for an account whose deletion is pending (`accounts.deleted_at` set) | `resolveAccountWindowPrincipal` **only** — `GET /account/deletion-status`, `GET /account/export`, `POST /account/restore`, the `already_pending` answer of `DELETE /account`, `GET /totp/status`, and the step-up routes for `account_export` and `account_restore`. See [[sessions#The pending-deletion session]] |
 | `osn-step-up` | `/step-up/*/complete` | the step-up verifiers, purpose-bound — see [[step-up]] |
 | a relying party's `client_id` | the OIDC token endpoint (`typ: at+jwt`) | that relying party. Never a first-party route |
 
@@ -179,6 +180,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `created_at` | `integer` | Unix seconds |
 | `restricted_until` | `integer` nullable | Non-null only on a restricted recovery session, where it equals `expires_at`. Drives **rotation**, not request-time authorisation — see [[sessions#The restricted recovery session]] |
 | `restricted_amr` | `text` nullable | The RFC 8176 factor that minted a restricted recovery session (`otp` / `totp` / `webauthn`). What the passkey-enrolment bypass is checked against, so the step-up it skips is priced at the ceremony actually performed. NULL on every ordinary session |
+| `replaced_at` | `integer` nullable | Set by a sign-in on the browser holding the cancel handle of a deletion job that predates the restore record (`deletion_jobs.restore` NULL), whose account has no credential left: the family stays live but renews only for its own account's profiles, and `GET /authorize` reads it as no session. Every other family a sign-in replaces ends. Copied across rotations, never cleared — see [[sessions#Endpoints]]; removed with englishstreetventures/osn#2299 |
 
 Two profile management endpoints:
 - `POST /profiles/switch` — Bearer access token, target `profile_id` in the body; receive a new access token for that profile, bound to the caller's session. That session must be live, named by the session cookie or the token's `osn_sid`, or the answer is `409 session_stale` ([[sessions#Access-token session binding (`osn_sid`)]]). Per-account rate limited (20 switches/hr).
@@ -202,7 +204,7 @@ interface StoredAccount {
 ```
 
 **Design decisions:**
-- No credential is written to storage. Page script reads `localStorage` as easily as the page does, so a token there is a token any injected script can take elsewhere. A reload gets its token from the HttpOnly session cookie instead ([[#Session load on mount — durable refresh across reloads]]).
+- No credential is written to storage. Page script reads `localStorage` as easily as the page does, so a token there is a token any injected script can take elsewhere. A reload gets its token from the HttpOnly session cookie instead ([[#Session load on mount — durable refresh across reloads]]). `@osn/auth-ui`'s sign-up keeps one value in `localStorage`, `osn.signup.live`: a live sign-up request's id, its retire secret and its expiry, and nothing about the address. The retire secret is not a credential: it can only end that request, for a begin for the same address, and no route turns it into a session, a token, a link or the pairing number ([[email-links#Sign-up]]). The claim secret, which does yield the session, stays in the tab that began, in its `sessionStorage`.
 - Every write goes through `saveAccountSession`, which keeps the full session in memory and writes only the `StoredAccount` cut.
 - Every read is validated against Effect Schema (`decodeStoredAccount`), which takes those fields and nothing else; malformed data is removed rather than consumed. A stored value with more fields — an older client's tokens — is rewritten without them on the first read (an older value with no `signInId` gets one), and no token is ever read from storage.
 - Tabs share the stored account but nothing in memory: each holds its own tokens and renews for itself, and acts as the profile its own screen shows. A sign-in (`setSession`) or a cold-start bootstrap begins a new `signInId`; a reload, a renewal and a profile switch keep it. A tab ends its session, with no request and leaving storage alone, when the stored account is gone or carries another `signInId` — another tab signed out, and perhaps someone signed in since. The runtime checks on every `storage` event for the key (`checkStoredAccount`) and `authFetch` before every request ([[sessions#Renewal in the browser]]).
@@ -232,7 +234,7 @@ A session set or ended while the bootstrap grant is out wins: a sign-in adopted,
 - **Network** (`fetch` rejects; a CORS refusal looks the same): 2 attempts, ~0 + 200ms. A refused origin never becomes an allowed one on the next attempt.
 - **Rate limited** (`429`): 1 attempt, since a retry inside the same window would meet the same refusal. The failure carries `Retry-After`, which sets how long renewal pauses ([[sessions#Renewal in the browser]]).
 
-**Which profile a grant mints for.** `POST /token` takes an optional `profile_id`. The issuer mints the access token for it when the cookie session's account owns that profile, bound to the rotated session as any grant is; otherwise — no field, a profile that is gone, or another account's — for the account's default profile, so the grant says nothing about which profiles exist. A restricted recovery session ignores the field. Renewal in the browser and the rehydrate on reload name the active profile; the cold-start bootstrap and `refreshHeldSession` name none.
+**Which profile a grant mints for.** `POST /token` takes an optional `profile_id`. The issuer mints the access token for it when the cookie session's account owns that profile, bound to the rotated session as any grant is, and for the account's default profile when the field is absent. A grant naming a profile the account does not own — another account's, or one that is gone — is refused with `400 invalid_grant`, the same answer for both, so the refusal says nothing about which profiles exist ([[sessions#Renewal in the browser]]). A restricted recovery session, and a session of an account scheduled for deletion, mint for the default profile although they name one the account owns. Renewal in the browser and the rehydrate on reload name the active profile; the cold-start bootstrap and `refreshHeldSession` name none.
 
 This keeps the short access-token TTL (XSS blast-radius cap) intact while making the *session* durable: the user stays signed in across reloads for as long as the refresh cookie lives — **provided the app and the issuer share a registrable domain**. `__Host-osn_session` is `SameSite=Lax`, so a browser sends it on a credentialed `POST /token` only when the calling page is same-site with the issuer.
 

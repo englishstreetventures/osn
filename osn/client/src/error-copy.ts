@@ -2,9 +2,12 @@ import { isAuthExpiredError } from "./errors";
 
 /**
  * What the person just submitted, chosen by the caller from the form it
- * showed. It changes only the sentence for a `400` or `422` refusal — the
- * answer the server gives to every wrong input — so it tells the person
- * nothing the server's answer does not.
+ * showed. It changes the sentence for a `400` or `422` refusal — the answer
+ * the server gives to every wrong input — so it tells the person nothing the
+ * server's answer does not. For `code` it also changes the sentence for no
+ * answer (status `0`): the server may have taken the code before the answer
+ * was lost, and it refuses the same code again as a replay that counts toward
+ * the lockout, so the person tries again with a new one.
  *
  * - `code`: a one-time code (emailed, or from an authenticator app) for an
  *   account already named.
@@ -36,6 +39,8 @@ export type OsnApiErrorCode =
 
 const GENERAL = "Something went wrong. Try again.";
 const CONNECTION = "We couldn't connect. Check your connection and try again.";
+const CODE_NO_ANSWER =
+  "We couldn't connect. Check your connection, then try again with a new code.";
 const WAIT = "Too many attempts. Wait a while, then try again.";
 const SESSION_ENDED = "Your session has ended. Sign in again.";
 const BLOCKED = "That request was blocked. Reload and try again.";
@@ -139,7 +144,7 @@ export function describeAuthError(err: unknown, context?: AuthErrorContext): str
     return GENERAL;
   }
   if (typeof status !== "number" || !Number.isFinite(status)) return GENERAL;
-  if (status === 0) return CONNECTION;
+  if (status === 0) return context === "code" ? CODE_NO_ANSWER : CONNECTION;
   if (status === 429) return WAIT;
 
   const refusedInput: string =

@@ -634,7 +634,10 @@ text (which in Chrome carries a URL).
   `code` and the form the person submitted: `code` (an emailed or app code),
   `recovery`, `details` (email, handle, date of birth), `passkey` or
   `new-passkey`. A `429` names the wait without a time ("Too many attempts.
-  Wait a while, then try again."). Two failures the server answers alike read
+  Wait a while, then try again."). A `code` call that got no answer asks for
+  a new code ("We couldn't connect. Check your connection, then try again
+  with a new code."), since the server may have taken the one sent and
+  refuses it again as a replay. Two failures the server answers alike read
   alike, so no line says whether an account exists or which of two inputs was
   wrong: `Register`'s send never says an email or handle is taken, and
   `RecoveryLoginForm` names the handle or email and the code together.
@@ -804,7 +807,9 @@ host a short-lived token through `onToken`.
   method", then the footer's Cancel and Confirm ("Checking…")). The
   authenticator step puts focus in its first box as it
   opens. Confirm is not disabled for a short code: it answers "Enter the
-  6-digit code.", marked invalid.
+  6-digit code.", marked invalid. A check that gets no answer, the client's
+  deadline included, empties the boxes under the map's `code` sentence for no
+  answer, so a second Confirm cannot send a code the server may have spent.
 - **Resend keeps the server's limit.** The 120-second wait is the client's,
   set because a mailbox gets three resent step-up links a day
   (`LINK_RESENDS_PER_MAILBOX_MAX`, `osn/api/src/services/auth/constants.ts`)

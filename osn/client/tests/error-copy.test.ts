@@ -329,4 +329,17 @@ describe("describeAuthError", () => {
       expect(describeAuthError(api(422), context)).toBe(sentence);
     }
   });
+
+  // The server may have taken a code whose answer never came, and it refuses
+  // that code again as a replay that counts toward the lockout, so the line
+  // asks for a new one.
+  it("C15: a code that got no answer asks for a new code; other contexts keep the connection sentence", () => {
+    const noAnswer = describeAuthError(api(0), "code");
+    expect(noAnswer).not.toBe(CONNECTION);
+    expect(noAnswer.toLowerCase()).toContain("connect");
+    expect(noAnswer.toLowerCase()).toContain("new code");
+    for (const context of CONTEXTS.filter((c) => c !== "code")) {
+      expect(describeAuthError(api(0), context)).toBe(CONNECTION);
+    }
+  });
 });

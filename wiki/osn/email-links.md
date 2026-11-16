@@ -28,7 +28,8 @@ A flow may keep its own pending state beside it (sign-up's is
 
 ## What one request holds
 
-`begin` opens a request and answers the tab that began with four things:
+`begin` opens a request and answers the tab that began with four things, and
+sign-up's begin with a fifth, the retire secret:
 
 | Value | Where it lives | What it is for |
 |---|---|---|
@@ -36,9 +37,11 @@ A flow may keep its own pending state beside it (sign-up's is
 | Link secret | The email only, in the link's **fragment** | 256 random bits. A fragment is never sent to a server, so it reaches no log and no referrer |
 | Claim secret | The tab that began, in memory or this tab's `sessionStorage`, never a cookie | 256 random bits. Whoever holds it gets the flow's result (sign-up: the account's session; step-up: a step-up token) |
 | Pairing number | The tab that began shows it | Two digits. The confirm step requires the number shown on the waiting screen (see Pairing below) |
+| Retire secret (sign-up only) | The browser that began: this tab's `sessionStorage` and the browser's `localStorage`, for every tab of it | 256 random bits. It only ends the request, as a later begin's `previous` for the same address ([[#Sign-up]]). No poll, Resend, candidates read or confirm compares it, so it never yields the number, a link or the account. Only sign-up's requests have one: another flow's request carries no retire hash, and nothing can retire it |
 
 The store entry (`email_link` ceremony store, keyed by request id) holds only
-SHA-256 hashes of the secrets, a keyed digest of the pairing number
+SHA-256 hashes of the secrets (a request with no retire hash cannot be
+retired), a keyed digest of the pairing number
 (`serverMac.pairingDigest`), the flow, its subject (sign-up's pending-entry
 key; recovery's account id; step-up's and email change's account id, which
 every later call must be signed in as), `pending`, `confirmed`, `claimed` or
@@ -102,7 +105,7 @@ the tab that began finishes, on this device or another.
 
 | Route | Body | Answers |
 |---|---|---|
-| `POST /register/begin` | details, Turnstile token, optional `previous` | `{ requestId, claimSecret, pairingCode, expiresAt }` |
+| `POST /register/begin` | details, Turnstile token, optional `previous` (`{ requestId, retireSecret }`) | `{ requestId, claimSecret, retireSecret, pairingCode, expiresAt }` |
 | `POST /email-link/:requestId/candidates` | `{ linkSecret }` | `ready` with `pairingCandidates`, `confirmed`, or `expired` |
 | `POST /email-link/:requestId/confirm` | `{ linkSecret, pairingPick }` | `confirmed`, `declined` or `expired` — never a cookie or token |
 | `POST /register/:requestId/status` | `{ claimSecret }` | `pending` with the `pairingCode`, `expired`, `conflict`, or 201 with the session (cookie + access token) |
@@ -235,9 +238,43 @@ before it mails, reads, replaces or spends anything
 
 - **One live sign-up per address.** The pending entry is swapped in from
   nothing, so a second begin for the address parks nothing and sends nothing
-  while the first lives. `previous` — the request and claim secret of a
-  sign-up this tab began and left — retires that request first, so a person
-  who goes back to fix the handle can begin again at once.
+  while the first lives. `previous` — the request and retire secret of a
+  sign-up begun before in this browser — retires that request first when it
+  is for the address this begin is for, so a person who goes back to fix the
+  handle, or starts again from a new tab or after closing the waiting one, can
+  begin again at once and the link goes at once. The address is checked on
+  the server: the earlier request's parked address (or a taken address's
+  probe key) against this begin's, as probe keys, in constant time. A wrong
+  secret, the claim secret in its place, an unknown request and a request for
+  another address retire nothing, cost the one read and answer as a begin with
+  no `previous`. A request whose link was confirmed but which no poll has
+  claimed yet is retired like any other, so a new tab after the waiting one
+  closed mails a new link at once; a claimed request is never retired.
+- **The browser shares the retire secret, never the claim secret.** While a
+  request lives, `Register` keeps one entry in `localStorage`,
+  `osn.signup.live`: the request id, its retire secret and its expiry.
+  Nothing about the address, and never the claim secret, a token or the
+  number. A tab that begins sends, as `previous`, the request it left (kept in
+  its `sessionStorage` with the address it was for) when that was for the
+  address typed, else this entry, else the request it left; osn-api decides
+  whether it is for the same address. Each begin writes its own request over the entry, and the
+  entry goes when its request ends: a poll or Resend that finds the request
+  gone or the handle taken removes it, so does the account being made, and so
+  does its expiry — a timer while the view is open, and any later read
+  (`Register` opening, `hasPendingSignUp()`) after. Every removal names its
+  request, so a tab never removes another tab's entry, and a Resend writes it
+  back only into an empty slot. "Start again" and Cancel keep it, since the
+  request still holds the address. A begin refused with a 4xx other than 429
+  is not sent with that `previous` again from that view, and the tab's own
+  left request is forgotten (another tab's entry stays), so an osn-api and a
+  Musubi of different versions cannot refuse every try. Every tab and every
+  user of the browser profile can read the entry while the request lives, so
+  the retire secret is held to ending that one request, for a begin for its
+  address; the new request's link still needs its number picked, and wrong
+  picks count against the address (three in a day stop sign-up links to it).
+  Two tabs that begin in the same instant can leave the
+  request that did not park in the entry, and a later retire of it frees
+  nothing: that sign-up waits as before, at most ten minutes.
 - **A request that did not park parks on a Resend.** Every sign-up request
   carries the sign-up it parks: the address, handle and display name, never
   the birthdate (a taken address's decoy carries none). Every Resend swaps
@@ -292,7 +329,8 @@ before it mails, reads, replaces or spends anything
   secret goes through even once whoever began the request has spent its five
   guesses, so the reader can always free the address.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
-  address and handle (no birthdate) in this tab's `sessionStorage`, and the
+  retire secret, address and handle (no birthdate) in this tab's
+  `sessionStorage`, and the
   auth dialogs and `/authorize` reopen it. The pairing number is never stored:
   `Register` holds it in memory, and a reloaded tab polls at once and shows the
   number the `pending` answer carries, which the server recovers from the
@@ -311,7 +349,8 @@ before it mails, reads, replaces or spends anything
   the passkey step and publishes it once a passkey is enrolled. When the answer
   lands after the dialog closed, there is no passkey step: `Register` publishes
   the session at once, as the cookie the answer set would on the next load, and
-  clears `osn.signup.pending` and `osn.signup.previous`.
+  clears `osn.signup.pending`, `osn.signup.previous` and the request's
+  `osn.signup.live`.
 
 ## Recovery
 

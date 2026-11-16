@@ -13,10 +13,13 @@ import { parseTokenResponse, type Session } from "./tokens";
  *  1. `checkHandle(handle)`                — front-end "is this @ free?" probe
  *  2. `beginRegistration(...)`             — mails a link to the address and
  *                                            answers `{ requestId, claimSecret,
- *                                            pairingCode, expiresAt }`. The tab
- *                                            keeps the claim secret and shows
- *                                            the pairing code, which the link's
- *                                            confirm step requires.
+ *                                            retireSecret, pairingCode,
+ *                                            expiresAt }`. The tab keeps the
+ *                                            claim secret and shows the
+ *                                            pairing code, which the link's
+ *                                            confirm step requires. The retire
+ *                                            secret only ends the request, as
+ *                                            a later begin's `previous`.
  *  3. `registrationStatus(...)`            — polled with the claim secret;
  *                                            once the link is confirmed (on
  *                                            any device) it creates the
@@ -108,6 +111,12 @@ export interface BegunRegistration {
   readonly requestId: string;
   /** Kept by this tab alone; whoever holds it receives the account's session. */
   readonly claimSecret: string;
+  /**
+   * Ends the request when a later begin sends it as `previous`, and can do
+   * nothing else: no poll, Resend or confirm accepts it. A browser may share
+   * it between its tabs.
+   */
+  readonly retireSecret: string;
   /** Shown while waiting: the link's confirm step requires it. */
   readonly pairingCode: string;
   /** Unix seconds. */
@@ -124,10 +133,16 @@ export interface EmailVerificationNonce {
   readonly nonceSecret: string;
 }
 
-/** A sign-up the tab began before and is replacing. */
-export interface PreviousRegistration {
+/** The request a status poll or a Resend is about, and the claim secret that holds it. */
+export interface RegistrationClaim {
   readonly requestId: string;
   readonly claimSecret: string;
+}
+
+/** A sign-up begun before in this browser that a new begin replaces: retired first. */
+export interface PreviousRegistration {
+  readonly requestId: string;
+  readonly retireSecret: string;
 }
 
 export interface CompleteRegistrationResult {
@@ -183,7 +198,11 @@ export interface RegistrationClient {
      * `TURNSTILE_SECRET_KEY` is configured (fail-closed there); unset ⇒ ignored.
      */
     turnstileToken?: string;
-    /** A sign-up this tab began before: retired first, so its address is free again. */
+    /**
+     * A sign-up begun before in this browser: retired first when it is for
+     * the same address, so that address is free again. Nothing is retired
+     * for a wrong secret or another address, and the answer is the same.
+     */
     previous?: PreviousRegistration;
     /**
      * The browser Email Verification API field's value, when the browser
@@ -205,10 +224,10 @@ export interface RegistrationClient {
    * Polls the sign-up. A refusal answers `expired`; a rate limit, a server
    * error or no answer throws, and the caller polls again later.
    */
-  registrationStatus(input: PreviousRegistration): Promise<RegistrationStatus>;
+  registrationStatus(input: RegistrationClaim): Promise<RegistrationStatus>;
   /** Another link for the same request. `limit` once it has sent all it may. */
   resendRegistrationLink(
-    input: PreviousRegistration,
+    input: RegistrationClaim,
   ): Promise<{ status: "sent" | "limit" | "expired" }>;
   /** WebAuthn options for the first-passkey enrollment. `accessToken` is the one `registrationStatus` returned. */
   /**
@@ -266,7 +285,7 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     }
   };
 
-  const registrationStatus = async (input: PreviousRegistration): Promise<RegistrationStatus> => {
+  const registrationStatus = async (input: RegistrationClaim): Promise<RegistrationStatus> => {
     const res = await reach(
       RegistrationError,
       `${base}/register/${encodeURIComponent(input.requestId)}/status`,
@@ -311,7 +330,7 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     };
   };
 
-  const resendRegistrationLink = (input: PreviousRegistration) =>
+  const resendRegistrationLink = (input: RegistrationClaim) =>
     postJson<{ status: "sent" | "limit" | "expired" }>(
       `${base}/register/${encodeURIComponent(input.requestId)}/resend`,
       { claimSecret: input.claimSecret },

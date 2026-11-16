@@ -1,5 +1,40 @@
 # @tools/lab
 
+## 0.3.67
+
+### Patch Changes
+
+- Updated dependencies [9172b9c]
+  - @osn/client@4.0.1
+  - @osn/auth-ui@6.1.2
+
+## 0.3.66
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+- Updated dependencies [3437d4a]
+  - @osn/auth-ui@6.1.1
+  - @osn/client@4.0.0
+
+## 0.3.65
+
+### Patch Changes
+
+- Updated dependencies [0d8f467]
+  - @osn/client@3.5.0
+  - @osn/auth-ui@6.1.0
+
+## 0.3.64
+
+### Patch Changes
+
+- fe8f780: `osn/auth-ui/StepUpDialog/CodeNoAnswer` shows the step-up sheet after a code check that got no answer: empty code boxes, not marked invalid, under the line that asks for a new code.
+- Updated dependencies [fe8f780]
+- Updated dependencies [fe8f780]
+  - @osn/client@3.4.2
+  - @osn/auth-ui@6.0.2
+
 ## 0.3.63
 
 ### Patch Changes

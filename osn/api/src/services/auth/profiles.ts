@@ -60,6 +60,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -103,6 +104,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -127,6 +129,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -150,10 +153,13 @@ export function createProfilesModule() {
     });
 
   /**
-   * Variant of `findProfileById` that ignores the soft-delete tombstone.
-   * Only the cancellation + deletion-status routes should use this; every
-   * other route should use `findProfileById` so tombstoned accounts cannot
-   * mutate state during the grace window.
+   * Variant of `findProfileById` that ignores the soft-delete tombstone, and
+   * returns the account's `deleted_at` as `accountDeletedAt`. Only the routes
+   * an account may reach while its deletion is pending use it: delete,
+   * restore and deletion status; export and step-up, for a pending-deletion
+   * token; and passkey enrolment, for a restricted recovery token. Every
+   * other route uses `findProfileById`, so a tombstoned account cannot change
+   * anything during the grace window.
    */
   const findProfileByIdIncludingTombstoned = (
     profileId: string,
@@ -176,6 +182,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 
@@ -257,6 +264,7 @@ export function createProfilesModule() {
         ...row.profile,
         email: row.account.email,
         lastRecoveredAt: row.account.lastRecoveredAt,
+        accountDeletedAt: row.account.deletedAt,
       };
     });
 

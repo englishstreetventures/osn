@@ -2,12 +2,13 @@ import { organisations, organisationMembers, users } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
 import { and, eq, exists, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { bound } from "../lib/bound";
+import { handleArms, type HeldHandleDigest } from "../lib/handle-hold";
 import { withOrgMemberOp, withOrgOp } from "../metrics";
-import { RESERVED_HANDLES } from "./auth/constants";
+import { isReservedHandle } from "./auth/constants";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -78,7 +79,16 @@ const adminOf = (db: DbService["db"], orgId: string, profileId: string) =>
       ),
   );
 
-export function createOrganisationService() {
+export interface OrganisationServiceOptions {
+  /**
+   * The `handle_holds` digest (`auth.heldHandleDigest`). `createOrganisation`
+   * needs it and dies without it; a service that never creates, such as the
+   * internal organisation routes', is built without it.
+   */
+  readonly heldHandleDigest?: HeldHandleDigest;
+}
+
+export function createOrganisationService({ heldHandleDigest }: OrganisationServiceOptions = {}) {
   // -------------------------------------------------------------------------
   // Reads a refused write uses to answer as its checks would now
   // -------------------------------------------------------------------------
@@ -89,7 +99,7 @@ export function createOrganisationService() {
       return yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: organisations.id })
+            .select({ id: organisations.id, ownerId: organisations.ownerId })
             .from(organisations)
             .where(eq(organisations.id, orgId))
             .limit(1),
@@ -147,6 +157,11 @@ export function createOrganisationService() {
     description?: string,
   ): Effect.Effect<typeof organisations.$inferSelect, OrgError | DatabaseError, Db> =>
     Effect.gen(function* () {
+      // A service built without the digest cannot see holds, so it creates
+      // nothing rather than skip the check.
+      if (!heldHandleDigest) {
+        return yield* Effect.die(new Error("createOrganisation needs the heldHandleDigest option"));
+      }
       const { db } = yield* Db;
 
       // Org handles live in the same namespace as profile handles — creation
@@ -154,27 +169,26 @@ export function createOrganisationService() {
       // Without this, `admin`, `api` or the dev-login principal's handles are
       // takeable as an organisation. Same generic message as a collision:
       // don't confirm which names exist.
-      if (RESERVED_HANDLES.has(handle)) {
+      if (isReservedHandle(handle)) {
         return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
       }
 
-      // Parallelise all pre-insert checks (handle profile, handle org, owner exists)
-      const [existingProfile, existingOrg, ownerRows] = yield* Effect.tryPromise({
-        try: () =>
-          Promise.all([
-            db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
-            db
-              .select({ id: organisations.id })
-              .from(organisations)
-              .where(eq(organisations.handle, handle))
-              .limit(1),
+      // Both pre-insert checks at once: whether the handle is spoken for (a
+      // profile, an organisation, or a hold left by a deleted account, in one
+      // statement) and whether the owner exists.
+      const [spokenFor, ownerRows] = yield* Effect.tryPromise({
+        try: () => {
+          const [profile, organisation, hold] = handleArms(db, heldHandleDigest, handle);
+          return Promise.all([
+            unionAll(profile, organisation, hold),
             db.select({ id: users.id }).from(users).where(eq(users.id, ownerId)).limit(1),
-          ]),
+          ]);
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
 
       // Use generic message to avoid confirming handle existence
-      if (existingProfile.length > 0 || existingOrg.length > 0) {
+      if (spokenFor.length > 0) {
         return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
       }
 
@@ -484,8 +498,10 @@ export function createOrganisationService() {
 
       // Inserts from the caller's own admin row, so the member is added only
       // while the caller is still an admin; a profile added since is left as
-      // it is. The owner-only grant needs no guard here: `ownerId` never
-      // changes.
+      // it is. The owner-only grant needs no guard of its own: the owner
+      // changes only in the hard delete of the owner's account, in the batch
+      // that also deletes that owner's membership rows, so an insert after a
+      // stale read of the owner finds no admin row and grants nothing.
       const inserted = yield* Effect.tryPromise({
         try: () =>
           db
@@ -697,8 +713,10 @@ export function createOrganisationService() {
         return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
       }
 
-      // Changes the membership only while it is the one read; the owner
-      // check above reads `ownerId`, which never changes.
+      // Changes the membership only while it is the one read and the caller
+      // still owns the organisation. The owner changes in the hard delete of
+      // the owner's account, which can pass the organisation on between the
+      // check above and this write.
       const changed = yield* Effect.tryPromise({
         try: () =>
           db
@@ -709,14 +727,27 @@ export function createOrganisationService() {
                 eq(organisationMembers.id, targetMember[0].id),
                 eq(organisationMembers.organisationId, orgId),
                 eq(organisationMembers.profileId, targetProfileId),
+                exists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(organisations)
+                    .where(and(eq(organisations.id, orgId), eq(organisations.ownerId, callerId))),
+                ),
               ),
             ),
         catch: (cause) => new DatabaseError({ cause }),
       });
       if (rowsChanged(changed) === 0) {
-        // The organisation or the membership is gone since the read.
-        if ((yield* readOrganisation(orgId)).length === 0) {
+        // Refused as the checks would refuse now, in their order.
+        const [orgNow] = yield* readOrganisation(orgId);
+        if (!orgNow) {
           return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+        }
+        if (orgNow.ownerId === targetProfileId) {
+          return yield* Effect.fail(new OrgError({ message: "Cannot change the owner's role" }));
+        }
+        if (orgNow.ownerId !== callerId) {
+          return yield* Effect.fail(new OrgError({ message: "Only the owner can change roles" }));
         }
         return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
       }

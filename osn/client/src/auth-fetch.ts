@@ -10,7 +10,9 @@ import { errorCode, safeJson } from "./response-body";
  *  - `readJson` turns a refusal, or a success whose body is not JSON, into the
  *    client's error with the response's status;
  *  - `responseError` builds that error, with the server's `error` code when it
- *    has the form `errorCode` (`./response-body.ts`) accepts.
+ *    has the form `errorCode` (`./response-body.ts`) accepts;
+ *  - `withDeadline` ends a call still waiting after a set time as the client's
+ *    error at status `0`.
  *
  * `createAuthFetchers` builds the helpers that `graph.ts`, `organisations.ts`
  * and `recommendations.ts` share on top of them. Each of those modules calls
@@ -24,7 +26,9 @@ import { errorCode, safeJson } from "./response-body";
  * `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`) and the
  * caller's own abort reach the caller unchanged; any other rejection is the
  * client's error at status `0`; a response that is not 2xx is the client's
- * error with the response's status and the server's code.
+ * error with the response's status and the server's code. A client that sends
+ * under `withDeadline` also turns a call still waiting at its deadline into
+ * its error at status `0`.
  */
 import type { AuthFetch } from "./runtime";
 
@@ -108,6 +112,53 @@ export async function reach(
     if (init?.signal?.aborted || isSessionRejection(cause)) throw cause;
     throw new ErrorCtor("Could not reach the server", 0);
   }
+}
+
+/**
+ * Run `request` under a deadline of `ms` milliseconds. `request` gets a signal
+ * to pass to its `fetch`, which aborts at the deadline or when `callerSignal`
+ * does. It should read the body before it settles, so a server that sends
+ * headers and then stalls is bounded too.
+ *
+ * Past the deadline the call rejects with `ErrorCtor` at status `0`, as a
+ * request that reached no server does, and then aborts the signal. The call
+ * does not wait for `request` to see the abort: a wait that ignores the signal
+ * (a token renewal inside `authFetch`) is bounded all the same, and whatever
+ * `request` settles with afterwards is dropped. The caller's own abort rejects
+ * the call with the signal's `reason`, untouched; a signal already aborted
+ * sends nothing. Once the call settles, its timer and listener are gone.
+ */
+export function withDeadline<T>(
+  ErrorCtor: ClientErrorCtor,
+  ms: number,
+  request: (signal: AbortSignal) => Promise<T>,
+  callerSignal?: AbortSignal,
+): Promise<T> {
+  if (callerSignal?.aborted) return Promise.reject(callerSignal.reason);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onCallerAbort: (() => void) | undefined;
+  const cutOff = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new ErrorCtor("The server did not answer in time", 0));
+      controller.abort();
+    }, ms);
+    if (callerSignal) {
+      onCallerAbort = () => {
+        reject(callerSignal.reason);
+        controller.abort(callerSignal.reason);
+      };
+      callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+  });
+  // `Promise.race` handles both inputs, so the rejection `request` meets once
+  // its signal aborts, which comes after the race has settled, is never left
+  // unhandled.
+  const sent = new Promise<T>((resolve) => resolve(request(controller.signal)));
+  return Promise.race([sent, cutOff]).finally(() => {
+    clearTimeout(timer);
+    if (onCallerAbort) callerSignal?.removeEventListener("abort", onCallerAbort);
+  });
 }
 
 /**

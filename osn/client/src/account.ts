@@ -88,14 +88,26 @@ export interface AccountClient {
     confirmHandle: string;
     /** Fresh step-up token from osn-api's begin/complete ceremony. */
     stepUpToken: string;
+    /**
+     * Answers to the open actions `getAccountDeletionPreview` lists, one per
+     * action id. An open action with no default needs one, or the call is
+     * refused at 409 with code `open_actions`; a choice the action does not
+     * offer, or a successor who is not a member, at 400 with code
+     * `invalid_choice`.
+     */
+    choices?: readonly AccountDeletionChoice[];
   }): Promise<{ scheduled_for: number; already_pending: boolean }>;
 
   /**
-   * Cancels a pending deletion during the 7-day grace window. Must be
-   * called from the original requesting session (the only surviving
-   * session — we revoked all others at soft-delete time).
+   * Cancels a pending deletion during the 7-day grace window, with a fresh
+   * step-up token for `account_restore`. Any live session of the account may
+   * call it, a pending-deletion one included. With nothing pending it answers
+   * `cancelled: false` and the token is not checked.
    */
-  cancelAccountDeletion(): Promise<{ cancelled: boolean }>;
+  cancelAccountDeletion(input: {
+    /** Fresh step-up token for `account_restore`. */
+    stepUpToken: string;
+  }): Promise<{ cancelled: boolean }>;
 
   /**
    * Returns the current deletion status. The UI uses this to decide
@@ -104,6 +116,69 @@ export interface AccountClient {
   getAccountDeletionStatus(): Promise<
     { scheduled: false } | { scheduled: true; scheduledFor: number; softDeletedAt: number }
   >;
+
+  /**
+   * What deleting the account would leave open, as
+   * `GET /account/deletion-preview` answers it: today, each organisation a
+   * profile of the account owns, who would take it over, and the choices the
+   * person may make.
+   */
+  getAccountDeletionPreview(): Promise<AccountDeletionPreview>;
+}
+
+/** One answer to an open action, for `deleteAccount`. */
+export interface AccountDeletionChoice {
+  /** The open action's `id`, e.g. `osn:organisation:<orgId>`. */
+  readonly action: string;
+  readonly choice: "transfer" | "successor" | "delete";
+  /** The member to hand the organisation to, with `successor`. */
+  readonly successorProfileId?: string;
+}
+
+/**
+ * One thing the person must know about, or answer, before the account is
+ * deleted: today, an organisation a profile of the account owns. Field names
+ * are the route's own.
+ */
+export interface AccountDeletionOpenAction {
+  /** What an {@link AccountDeletionChoice} names as its `action`. */
+  readonly id: string;
+  readonly app: string;
+  readonly kind: string;
+  readonly label: string;
+  /** What the person may answer, each with a sentence to show. */
+  readonly choices: ReadonlyArray<{
+    readonly choice: "transfer" | "successor" | "delete";
+    readonly description: string;
+  }>;
+  /** What the hard delete does with no answer; null when it needs one. */
+  readonly default_choice: "transfer" | null;
+  readonly erased_on: null;
+  readonly link: null;
+  readonly organisation: { readonly id: string; readonly handle: string; readonly name: string };
+  /** The member it passes to with no successor named; null when there is none. */
+  readonly successor: {
+    readonly profile_id: string;
+    readonly handle: string;
+    readonly display_name: string | null;
+    readonly role: "admin" | "member";
+  } | null;
+}
+
+/** `GET /account/deletion-preview`'s answer. */
+export interface AccountDeletionPreview {
+  readonly open_actions: readonly AccountDeletionOpenAction[];
+}
+
+/** `DELETE /account`'s body, in the route's field names. */
+interface DeleteAccountBody {
+  confirm_handle: string;
+  step_up_token: string;
+  choices?: Array<{
+    action: string;
+    choice: AccountDeletionChoice["choice"];
+    successor_profile_id: string | undefined;
+  }>;
 }
 
 async function postJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
@@ -230,17 +305,28 @@ export function createAccountClient(config: AccountClientConfig): AccountClient 
         `${base}/account/email/${encodeURIComponent(input.requestId)}/complete`,
         { claimSecret: input.claimSecret, step_up_token: input.stepUpToken },
       ),
-    deleteAccount: (input) =>
-      deleteJson<{ scheduled_for: number; already_pending: boolean }>(
+    deleteAccount: (input) => {
+      const body: DeleteAccountBody = {
+        confirm_handle: input.confirmHandle,
+        step_up_token: input.stepUpToken,
+      };
+      if (input.choices !== undefined) {
+        body.choices = input.choices.map((c) => ({
+          action: c.action,
+          choice: c.choice,
+          successor_profile_id: c.successorProfileId,
+        }));
+      }
+      return deleteJson<{ scheduled_for: number; already_pending: boolean }>(
         authFetch,
         `${base}/account`,
-        {
-          confirm_handle: input.confirmHandle,
-          step_up_token: input.stepUpToken,
-        },
-      ),
-    cancelAccountDeletion: () =>
-      postJson<{ cancelled: boolean }>(authFetch, `${base}/account/restore`, {}),
+        body,
+      );
+    },
+    cancelAccountDeletion: (input) =>
+      postJson<{ cancelled: boolean }>(authFetch, `${base}/account/restore`, {
+        step_up_token: input.stepUpToken,
+      }),
     getAccountDeletionStatus: async () => {
       const raw = await getJson<{
         scheduled: boolean;
@@ -253,6 +339,16 @@ export function createAccountClient(config: AccountClientConfig): AccountClient 
         scheduledFor: raw.scheduledFor!,
         softDeletedAt: raw.softDeletedAt!,
       };
+    },
+    getAccountDeletionPreview: async () => {
+      const raw = await getJson<Partial<AccountDeletionPreview>>(
+        authFetch,
+        `${base}/account/deletion-preview`,
+      );
+      if (!Array.isArray(raw.open_actions)) {
+        throw new AccountError("Unexpected deletion preview answer", 200);
+      }
+      return { open_actions: raw.open_actions };
     },
   };
 }

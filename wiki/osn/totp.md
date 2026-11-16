@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-15
 ---
 
 # TOTP (RFC 6238) second factor
@@ -238,7 +238,7 @@ factor. Which failure it actually was appears only on
 | `POST /totp/enroll/begin` | `totp_enroll` | Returns `otpauthUri` + `totpSecret`, once, under `Cache-Control: no-store`. 400 (`invalid_request`) if a confirmed credential exists. The caller's session must be live, or the answer is `409 session_stale` before the step-up token is read. |
 | `POST /totp/enroll/complete` | none | `begin` carried the gate, and the pending secret only exists because a gated `begin` created it. The caller's session must still be live, or the answer is `409 session_stale` and the pending secret stays ([[sessions#Access-token session binding (`osn_sid`)]]). |
 | `DELETE /totp` | `totp_disable` | Idempotent. Writes the security event, sends the notice. |
-| `GET /totp/status` | none | `enrolled`, `label`, `lastUsedAt`, `createdAt`. Never the secret, the ciphertext or the step. |
+| `GET /totp/status` | none | `enrolled`, `label`, `lastUsedAt`, `createdAt`. Never the secret, the ciphertext or the step. The one TOTP route a pending-deletion token reaches, so the step-up sheet can offer the authenticator for the export and the cancel ([[sessions#The pending-deletion session]]). |
 | `POST /step-up/totp/complete` | none | Exchanges a code for a step-up token with `amr: ["totp"]`. |
 
 There is **no `/step-up/totp/begin`**, and that is not an omission: TOTP is
@@ -306,12 +306,12 @@ a TOTP seed does not.
 
 ## Lifecycle
 
-- **Account deletion.** The credential is removed in the same batch as passkeys
-  and recovery codes, on **both** soft delete and hard delete
-  (`services/account-erasure.ts`). The foreign key cascades only when the
-  `accounts` row itself goes, which is seven days after a soft delete — without
-  the explicit delete a tombstoned account would keep a working second factor
-  through the whole grace window.
+- **Account deletion.** The credential stays through the seven-day deletion
+  window, so the person can sign in and cancel: a session of the account in
+  that window reaches only the deletion status, the export, the cancel and
+  this credential's status ([[sessions#The pending-deletion session]]). The hard delete removes it in
+  the same batch as passkeys and recovery codes
+  (`services/account-erasure.ts`).
 - **DSAR export.** `services/account-export.ts` emits a `totp` section with the
   label and timestamps, on the same footing as the `passkeys` section. Never the
   secret or its ciphertext: an export is a document the subject may forward

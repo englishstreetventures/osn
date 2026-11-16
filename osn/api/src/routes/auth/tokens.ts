@@ -48,7 +48,8 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
           }
           try {
             // `profile_id` names the profile the caller is acting as; the
-            // service mints for it only when the session's account owns it.
+            // service mints for it when the session's account owns it and
+            // refuses the grant when it does not.
             const tokens = await run(auth.refreshTokens(refresh_token, profile_id));
             // The rotated cookie of the same family, so not `replaceSession`,
             // which would end the family this grant has just rotated.
@@ -56,12 +57,16 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
             return toTokenResponseCookieOnly(tokens);
           } catch (e) {
             set.status = 400;
-            // Retract the marker only when this failure proves the cookie is
-            // dead. A storage blip and the benign concurrent-rotation race both
-            // land here with a live cookie, and retracting on either would
+            // Retract the marker unless this failure leaves the cookie's status
+            // unknown. A storage blip and the benign concurrent-rotation race
+            // both land here with a live cookie, and retracting on either would
             // strand a cold-start browser — the population the marker exists to
-            // serve — permanently signed out. The session cookie itself
-            // is never cleared here for the same reason.
+            // serve — signed out until it signs in again. A grant refused for
+            // what it asked (a profile the cookie's account does not own, a
+            // replaced handle naming none) retracts though the cookie is live:
+            // the page that sent it signs out, and the next cold load shows
+            // that rather than taking up the cookie's account. The session
+            // cookie itself is never cleared here.
             if (!sessionStatusUnknown(e)) {
               set.headers["set-cookie"] = buildClearSessionMarkerCookie(cookieConfig);
             }

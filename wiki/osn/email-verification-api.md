@@ -6,7 +6,7 @@ related:
   - "[[identity-model]]"
   - "[[email-links]]"
   - "[[account-recovery-factors]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-14
 ---
 
 # Email Verification API status
@@ -66,7 +66,7 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 
 **What a lookup may reach.** Every request goes to `https:` on the default port, to a host name (never an IP literal) whose every A and AAAA answer is a public address. Loopback, private, link-local, site-local, shared, multicast and reserved ranges are refused, and so is local-use NAT64; IPv6 forms that carry an IPv4 address are judged as that address; and a host with no answer is refused. No redirect is followed, to any host. A response must be 200, JSON, and at most 64 KiB; each request has 3 seconds, and the whole check 5, counted in our code whether or not the runtime stops a stalled response. On workerd `fetch` resolves the host again by itself, so the address check cannot pin the address it checked; Cloudflare's network does not carry a Worker's subrequest to a private address.
 
-**A begin with a token.** The token is checked after the age gate, the handle checks and any `previous` retire, and before the taken probe, so a taken and a free address pay the same lookups. A token that verifies makes one more write on the request whatever the address: a free address's request is confirmed then, as its link would be, and no mail is sent; a taken or held address's request is written back unchanged and goes on as on the link path. Every begin answers `{ requestId, claimSecret, pairingCode, expiresAt }`. The account is made by the tab's first status poll, and the first passkey is enrolled after it, as on every sign-up. A token that fails a check changes nothing the person sees: the link goes as ever.
+**A begin with a token.** The token is checked after the age gate, the handle checks and any `previous` retire, and before the taken probe, so a taken and a free address pay the same lookups. A token that verifies makes one more write on the request whatever the address: a free address's request is confirmed then, as its link would be, and no mail is sent; a taken or held address's request is written back unchanged and goes on as on the link path. Every begin answers `{ requestId, claimSecret, retireSecret, pairingCode, expiresAt }`. The account is made by the tab's first status poll, and the first passkey is enrolled after it, as on every sign-up. A token that fails a check changes nothing the person sees: the link goes as ever.
 
 **Departures from the text read.** Each fails closed, to the emailed link:
 

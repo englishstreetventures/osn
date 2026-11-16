@@ -17,6 +17,11 @@ import * as accountErasure from "./services/account-erasure";
 import { setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
 import { rotatedSweepMaxChunks, runRotatedSessionSweep } from "./services/auth/tokens";
+import {
+  runEmailChangeSweep,
+  runHandleHoldSweep,
+  runSecurityEventSweep,
+} from "./services/retention";
 
 // ---------------------------------------------------------------------------
 // Cloudflare Workers handler for @osn/api. The Worker's module is
@@ -321,9 +326,10 @@ export const handler: OsnWorkerHandler = {
   // Cron-triggered maintenance. Replaces the Bun `setInterval` deletion sweeper
   // (account-erasure fan-out retry + hard-delete). Configured by the
   // `[triggers] crons` entry in wrangler.toml (every 6h — matching the Bun
-  // SWEEPER_INTERVAL default). Two independent sweeps share the cron; each is
-  // its own `waitUntil` + `catchAll` so a failure in one never aborts the other
-  // and the isolate stays alive until each settles.
+  // SWEEPER_INTERVAL default). Every sweep below is its own `waitUntil` +
+  // `Effect.catch`, so a failure in one never aborts another and the isolate
+  // stays alive until each settles. All of them share the invocation's D1
+  // query allowance (50 on Workers Free).
   //
   // ARC outbound-key registration on the Workers path. Pulse + Zap verify
   // inbound ARC tokens against a PRE-REGISTERED public key (Pulse:
@@ -420,6 +426,42 @@ export const handler: OsnWorkerHandler = {
         }).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled rotated-session sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // Retention sweeps (`wiki/compliance/retention.md`): security events past
+    // 12 months, email-change records past 90 days, and handle holds past
+    // their release. Each deletes at most two chunks of 500 a run.
+    ctx.waitUntil(
+      runOsn(
+        runSecurityEventSweep().pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled security-event sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    ctx.waitUntil(
+      runOsn(
+        runEmailChangeSweep().pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled email-change sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    ctx.waitUntil(
+      runOsn(
+        runHandleHoldSweep().pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled handle-hold sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
         ),

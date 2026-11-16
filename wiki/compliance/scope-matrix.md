@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-15
 ---
 
 # Compliance Scope Matrix
@@ -64,7 +64,7 @@ What ships in the **first** compliance push. Later rounds harden it.
 2. `[[data-map]]` published as the Article 30 record of processing.
 3. `[[subprocessors]]` published with current DPAs on file.
 4. DSAR endpoints: `GET /account/export` (machine-readable JSON) and `DELETE /account` (full erasure with cross-service fan-out via ARC).
-5. Retention schedule enforced ([[retention]]) — telemetry retention already tight (Cloudflare keeps Workers traces 7 d and Workers Logs 3 d on Free, 7 d from 2026-12-01); production sessions auto-expire; security events retained 12 months; deleted-account tombstone retained 30 days.
+5. Retention schedule enforced ([[retention]]) — telemetry retention already tight (Cloudflare keeps Workers traces 7 d and Workers Logs 3 d on Free, 7 d from 2026-12-01); production sessions auto-expire; security events retained 12 months; a deleted account stays tombstoned for its 7-day window, and its handles stay held, as keyed hashes, for 30 days after the hard delete.
 6. Lawful basis declared per processing purpose in `[[data-map]]`.
 7. Breach response runbook ([[breach-response]]) with named DPO contact.
 8. Cookie banner on `@musubi/landing` only if/when analytics added.

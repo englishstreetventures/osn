@@ -130,6 +130,23 @@ export const RESERVED_HANDLES = new Set([
 ]);
 
 /**
+ * What the soft delete renames each of an account's profiles to, followed by
+ * the suffix of the profile's id (`deleted_<12 hex>`). Profile ids are visible
+ * to other people, so without this reservation anyone could take the handle a
+ * given profile will get, and that profile's deletion would then fail on the
+ * UNIQUE index on `users.handle`.
+ */
+export const DELETED_HANDLE_PREFIX = "deleted_";
+
+/**
+ * Whether no one may take `handle`: one of {@link RESERVED_HANDLES}, or in the
+ * form the soft delete gives a profile. Every check that creates or offers a
+ * handle consults it.
+ */
+export const isReservedHandle = (handle: string): boolean =>
+  RESERVED_HANDLES.has(handle) || handle.startsWith(DELETED_HANDLE_PREFIX);
+
+/**
  * Hard cap on concurrent sessions per account. An attacker who
  * compromises an account cannot inflate the revocation / list surface
  * beyond this limit; new sessions LRU-evict the oldest rather than
@@ -160,6 +177,20 @@ export const ACCESS_TOKEN_AUDIENCE = "osn-access";
  * `resolvePasskeyEnrollPrincipal` is the only resolver that accepts it.
  */
 export const RECOVERY_TOKEN_AUDIENCE = "osn-recovery";
+
+/**
+ * `aud` on every access token minted for a session of an account whose
+ * deletion is pending (`accounts.deleted_at` set): sign-in, refresh, and the
+ * session the deletion spared once it next refreshes. The audience is chosen
+ * from `accounts.deleted_at` at each mint, so a cancel needs no session write:
+ * the next refresh is `osn-access` again.
+ *
+ * Every ordinary verifier, here and in the services that verify over JWKS,
+ * pins `osn-access` and so refuses it. `resolveAccountWindowPrincipal` is the
+ * only resolver that accepts it, and only the deletion-status, export, restore,
+ * delete and step-up routes call that.
+ */
+export const PENDING_DELETION_TOKEN_AUDIENCE = "osn-pending-deletion";
 
 /**
  * Absolute lifetime of a restricted recovery session, in seconds. It does not
@@ -430,6 +461,7 @@ const RESERVED_OIDC_CLIENT_IDS: ReadonlySet<string> = new Set([
   // uses while the real audience stayed claimable.
   ACCESS_TOKEN_AUDIENCE,
   RECOVERY_TOKEN_AUDIENCE,
+  PENDING_DELETION_TOKEN_AUDIENCE,
   "osn-step-up",
   "osn-api",
   "pulse-api",
