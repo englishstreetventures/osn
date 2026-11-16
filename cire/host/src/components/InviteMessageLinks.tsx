@@ -1,6 +1,7 @@
 import { proseLinkClass } from "@cire/ui/button";
 import { For, type JSX, Show } from "solid-js";
 
+import { opensElsewhere } from "../lib/link-click";
 import { ROLE_COPY } from "../lib/wedding-roles";
 
 /**
@@ -61,11 +62,6 @@ const SENTENCE = {
 } satisfies Readonly<
   Record<InviteMessagePlace, (place: PlaceRenderer, canManage: boolean) => JSX.Element>
 >;
-
-/** A click the browser should handle itself: a new tab, a new window, a
- *  download, or any button but the main one. */
-const opensElsewhere = (event: MouseEvent): boolean =>
-  event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
 
 /** A place's path spoken as a list, "Invite, Codes" — never "Invite right
  *  arrow Codes". */

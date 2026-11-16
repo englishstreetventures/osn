@@ -203,13 +203,41 @@ vi.mock("../../src/components/HostsPanel", () => ({
 vi.mock("../../src/components/SettingsPanel", () => ({
   // Surfaces canEditRsvpDeadline: it is the one line connecting the API's
   // co-host deadline write to a real co-host, and nothing else can see it.
-  default: (p: { weddingId: string; canManage: boolean; canEditRsvpDeadline?: boolean }) => (
+  default: (p: {
+    weddingId: string;
+    canManage: boolean;
+    canEditRsvpDeadline?: boolean;
+    exportPage?: { href: string; onOpen: () => void };
+  }) => (
     <div
       data-testid="settings"
       data-can-manage={String(p.canManage)}
       data-can-edit-rsvp={String(p.canEditRsvpDeadline)}
+      data-export-href={p.exportPage?.href}
     >
       {p.weddingId}
+      <button onClick={() => p.exportPage?.onOpen()}>settings-open-export</button>
+    </div>
+  ),
+}));
+// Surfaces the owner flag and the slug: the first decides whether the page
+// offers the download at all, the second names the saved file. And the way to
+// the owners, which only a non-owner is shown.
+vi.mock("../../src/components/WeddingExport", () => ({
+  default: (p: {
+    weddingId: string;
+    weddingSlug: string;
+    canManage: boolean;
+    coHosts?: { href: string; onOpen: () => void };
+  }) => (
+    <div
+      data-testid="export"
+      data-can-manage={String(p.canManage)}
+      data-slug={p.weddingSlug}
+      data-co-hosts-href={p.coHosts?.href}
+    >
+      {p.weddingId}
+      <button onClick={() => p.coHosts?.onOpen()}>export-open-co-hosts</button>
     </div>
   ),
 }));
@@ -563,6 +591,60 @@ describe("ModuleShell", () => {
       const panel = screen.getByTestId("settings");
       expect(panel.getAttribute("data-can-manage")).toBe("true");
       expect(panel.getAttribute("data-can-edit-rsvp")).toBe("true");
+    });
+  });
+
+  /**
+   * 15. Anyone but an owner who opens the export page's address is sent to
+   *     another view and never told only an owner can download it; or the page
+   *     is handed the wrong owner flag or slug.
+   * 16. The delete dialog's pointer to the page, or a non-owner's way to the
+   *     owners, lands somewhere else.
+   */
+  describe("export — the whole wedding as one archive", () => {
+    it.each([
+      ["owner", true, true],
+      ["editor", false, true],
+      ["viewer", false, false],
+    ] as const)(
+      "15. opens the export page for an %s, handed whether they own it",
+      (role, canManage, canEdit) => {
+        renderShell({ role, canManage, canEdit, module: "settings", sub: "export" });
+        // The view's tab is there for every seat, named, and chosen.
+        expect(screen.getByRole("tab", { name: "Export" }).getAttribute("aria-selected")).toBe(
+          "true",
+        );
+        const page = screen.getByTestId("export");
+        expect(page.getAttribute("data-can-manage")).toBe(String(canManage));
+        expect(page.getAttribute("data-slug")).toBe("r-and-v");
+        expect(screen.queryByTestId("settings")).toBeNull();
+      },
+    );
+
+    it("16. takes the delete dialog's pointer and a non-owner's way to the owners to their pages", () => {
+      const shell = renderShell({ module: "settings", sub: "wedding" });
+      expect(screen.queryByTestId("export")).toBeNull();
+      expect(screen.getByTestId("settings").getAttribute("data-export-href")).toBe(
+        "#/w/wed_1/settings/export",
+      );
+      fireEvent.click(screen.getByText("settings-open-export"));
+      expect(shell.onSub).toHaveBeenLastCalledWith("export");
+      expect(screen.getByTestId("export")).toBeTruthy();
+
+      cleanup();
+      const viewer = renderShell({
+        role: "viewer",
+        canManage: false,
+        canEdit: false,
+        module: "settings",
+        sub: "export",
+      });
+      expect(screen.getByTestId("export").getAttribute("data-co-hosts-href")).toBe(
+        "#/w/wed_1/settings/hosts",
+      );
+      fireEvent.click(screen.getByText("export-open-co-hosts"));
+      expect(viewer.onSub).toHaveBeenLastCalledWith("hosts");
+      expect(screen.getByTestId("hosts")).toBeTruthy();
     });
   });
 

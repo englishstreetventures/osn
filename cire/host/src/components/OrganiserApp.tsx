@@ -72,6 +72,7 @@ import ModuleShell from "./ModuleShell";
 import PanelLoading from "./PanelLoading";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
+import { OwnerOnlyNote } from "./WeddingExport";
 import WeddingList from "./WeddingList";
 
 /**
@@ -209,7 +210,12 @@ function WeddingDashboard(props: {
     <Show
       when={surfaces().canOpenDashboard}
       fallback={
-        <RunSheetSeat weddingId={props.weddingId} wedding={props.wedding} onLeft={props.onLeft} />
+        <RunSheetSeat
+          weddingId={props.weddingId}
+          wedding={props.wedding}
+          onLeft={props.onLeft}
+          askedForExport={props.module() === "settings" && props.sub() === "export"}
+        />
       }
     >
       <WeddingCacheScope weddingId={props.weddingId}>
@@ -269,8 +275,18 @@ function WeddingCacheScope(props: ParentProps<{ weddingId: string }>) {
  *  the run sheet — narrowed by the API to what their scope allows — is the one
  *  thing they read. It holds rows, so it opens the wedding's cache scope as the
  *  dashboard does, and they are released when the seat closes. Below Gold the
- *  run sheet says it is not available, without asking the API. */
-function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLeft: () => void }) {
+ *  run sheet says it is not available, without asking the API.
+ *
+ *  The whole-wedding download's address is handed out beyond the portal, so a
+ *  helper can arrive on it. The seat has no Settings to show it in; it says
+ *  over the run sheet that only an owner can download the wedding. */
+function RunSheetSeat(props: {
+  weddingId: string;
+  wedding: WeddingSummary;
+  onLeft: () => void;
+  /** The address names Settings → Export. */
+  askedForExport: boolean;
+}) {
   return (
     <WeddingCacheScope weddingId={props.weddingId}>
       <div class="flex flex-col gap-6" data-testid="run-sheet-seat">
@@ -285,6 +301,9 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
           </div>
           <hr class="gilt-rule opacity-60" />
         </header>
+        <Show when={props.askedForExport}>
+          <OwnerOnlyNote />
+        </Show>
         <Suspense fallback={<PanelLoading />}>
           <RunSheetView
             weddingId={props.weddingId}
