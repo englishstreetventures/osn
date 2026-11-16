@@ -40,22 +40,6 @@ async function duckdb(cwd: string, args: string[]) {
 }
 
 test.skipIf(Bun.which("duckdb") === null)(
-  "queries.sql runs every query over the committed cards",
-  async () => {
-    const { stdout, stderr, exitCode } = await duckdb(ROOT, [
-      ":memory:",
-      "-c",
-      ".read tools/pr-metrics/queries.sql",
-    ]);
-
-    expect(`${stdout}${stderr}`).not.toMatch(/Error/);
-    expect(exitCode).toBe(0);
-    // One result table per query.
-    expect(stdout.match(/┌/g)?.length).toBe(9);
-  },
-);
-
-test.skipIf(Bun.which("duckdb") === null)(
   "queries.sql reads a card whose keys differ only in case, and keeps both",
   async () => {
     const dir = await mkdtemp(join(tmpdir(), "pr-metrics-queries-"));

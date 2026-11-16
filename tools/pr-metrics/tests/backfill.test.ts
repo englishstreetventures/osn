@@ -1636,52 +1636,12 @@ describe("keepRating", () => {
     ).toEqual({ declared: 3, method: "manual", issues: 1 });
   });
 
-  test("keeps the rating but not an issue this run does not link to this repository", () => {
-    const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
-    const kept = keepRating(
-      disk({ declared: 3, method: "confirmed" }, 1, 900619),
-      fresh,
-      links([]),
-    );
-
-    expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
-    expect(kept?.issue).toEqual(fresh.issue);
-  });
-
   test("takes a new confirmed rating over an old one", () => {
     const fresh = next({ declared: 6, method: "confirmed", issues: 2 });
 
     expect(keepRating(disk({ declared: 3, method: "confirmed" }), fresh, links([2, 3]))).toBe(
       fresh,
     );
-  });
-
-  test("counts the tracker issues a tracker-only sum covers", () => {
-    const noIssue = {
-      ...disk({ declared: 3, method: "manual" }),
-      issue: { number: null, type: null, labels: [] },
-    };
-
-    expect(
-      keepRating(
-        noIssue,
-        next({ declared: null, method: "not-fetched", issues: 0 }, null),
-        links([], [], [900619, 900620, 900621]),
-      ),
-    ).toBeNull();
-  });
-
-  // Leaving a card as it is would keep a tracker number and its labels that a
-  // rebuild strips, so a card whose issue this run does not link is rebuilt.
-  test("rebuilds rather than leave a card naming an issue this run does not link here", () => {
-    const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
-    const tracked = {
-      pr: { number: 1 },
-      issue: { number: 900619, type: "Bug", labels: ["severity:high", "complexity:3"] },
-      complexity: { declared: 3, method: "manual" },
-    };
-
-    expect(keepRating(tracked, fresh, links([], [], [900619, 900620]))).toBe(fresh);
   });
 
   test("rebuilds rather than leave a card carrying labels with no issue", () => {

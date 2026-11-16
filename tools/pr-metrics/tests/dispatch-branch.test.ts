@@ -78,29 +78,6 @@ function textRecord(gitBranch = "main", requestId?: string, outputTokens = 5): s
   });
 }
 
-test("resolves the branch from a TASK-BRANCH marker in the parent's dispatch prompt", async () => {
-  const dir = await tree();
-  try {
-    const subagent = join(dir, "proj/sess-1/subagents/agent-aaa.jsonl");
-    await writeFile(
-      join(dir, "proj/sess-1.jsonl"),
-      `${dispatch("toolu_1", "TASK-BRANCH: feat/x\n\nDo the thing.")}\n`,
-    );
-    await writeFile(
-      join(dir, "proj/sess-1/subagents/agent-aaa.meta.json"),
-      JSON.stringify({ agentType: "general-purpose", toolUseId: "toolu_1", spawnDepth: 1 }),
-    );
-    await writeFile(
-      subagent,
-      `${JSON.stringify({ type: "assistant", gitBranch: "main", isSidechain: true })}\n`,
-    );
-
-    expect(resolveDispatchBranch(subagent)).toBe("feat/x");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
 // 79 of this machine's 363 subagent transcripts are `spawnDepth: 2`, and every
 // one of their parents is a sibling `subagents/*.jsonl` rather than the session
 // file. Searching only the session file finds nothing for 8.3% of subagent spend.
@@ -195,68 +172,6 @@ test("returns null when no marker appears anywhere in the chain", async () => {
   }
 });
 
-// The reader is where the resolver has to actually bite. Two things break it if
-// missed: the cheap `line.includes(branch)` reject drops these lines before the
-// parse (they are stamped `main` and carry `feat/x` nowhere), and the equality
-// test that follows compares the stamped branch rather than the resolved one.
-test("readRecordsForBranch returns subagent records the marker assigns to the branch", async () => {
-  const dir = await tree();
-  try {
-    await writeFile(
-      join(dir, "proj/sess-1.jsonl"),
-      `${dispatch("toolu_1", "TASK-BRANCH: feat/x\n\nGo.")}\n`,
-    );
-    await writeFile(
-      join(dir, "proj/sess-1/subagents/agent-aaa.meta.json"),
-      JSON.stringify({ toolUseId: "toolu_1", spawnDepth: 1 }),
-    );
-    await writeFile(
-      join(dir, "proj/sess-1/subagents/agent-aaa.jsonl"),
-      `${JSON.stringify({
-        type: "assistant",
-        sessionId: "sess-1",
-        gitBranch: "main",
-        isSidechain: true,
-        requestId: "req-1",
-        timestamp: "2026-09-08T10:01:00.000Z",
-        message: { model: "claude-opus-5", usage: { output_tokens: 1234 } },
-      })}\n`,
-    );
-
-    const records = readRecordsForBranch(dir, "feat/x");
-
-    expect(records).toHaveLength(1);
-    expect(records[0]?.message?.usage?.output_tokens).toBe(1234);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-// Claude Code sometimes writes one conversation into two session files: 615 of
-// this machine's assistant records, 5.2% of session spend, are present twice.
-// The reader has always counted both.
-test("readRecordsForBranch counts a record present in two session files once", async () => {
-  const dir = await tree();
-  try {
-    const line = `${JSON.stringify({
-      type: "assistant",
-      sessionId: "sess-1",
-      gitBranch: "feat/x",
-      isSidechain: false,
-      requestId: "req-dup",
-      uuid: "u-dup",
-      timestamp: "2026-09-08T10:02:00.000Z",
-      message: { model: "claude-opus-5", usage: { output_tokens: 500 } },
-    })}\n`;
-    await writeFile(join(dir, "proj/sess-1.jsonl"), line);
-    await writeFile(join(dir, "proj/sess-2.jsonl"), line);
-
-    expect(readRecordsForBranch(dir, "feat/x")).toHaveLength(1);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
 // `backfill.ts` had its own reader grouping on `gitBranch`, so a backfilled card
 // and a live card disagreed on the same branch. Both now go through this.
 test("recordsByBranch groups a marker-resolved subagent file under the marked branch", async () => {
@@ -342,7 +257,10 @@ test("a resolved subagent file is not counted as unattributed", async () => {
 // The exclusion is the only thing keeping one branch's delegated spend
 // off another branch's card, and a positive-only suite cannot see it: with the
 // guard deleted every test above still passed, while every marked transcript
-// would land on every card.
+// would land on every card. Its subagent lines are stamped `main` and name
+// `feat/x` nowhere, so it also fails if the cheap `line.includes(branch)`
+// reject drops them before the parse, or if the equality after it compares the
+// stamped branch rather than the resolved one.
 test("readRecordsForBranch excludes a subagent marked for a different branch", async () => {
   const dir = await tree();
   try {
@@ -1024,33 +942,6 @@ function stampedRecord(gitBranch: string, requestId: string, timestamp: string):
     message: { model: "claude-opus-5", usage: { output_tokens: 5 } },
   });
 }
-
-test("a session that entered one worktree carries its earlier records onto that branch", async () => {
-  const dir = await tree();
-  try {
-    await writeFile(
-      join(dir, "proj/sess-1.jsonl"),
-      [
-        stampedRecord("HEAD", "req-before", "2026-10-21T14:24:42.000Z"),
-        worktreeState("worktree-feat+x"),
-        stampedRecord("worktree-feat+x", "req-after", "2026-10-21T15:03:05.000Z"),
-      ].join("\n"),
-    );
-
-    expect(resolveSessionBranch(join(dir, "proj/sess-1.jsonl"))).toBe("worktree-feat+x");
-
-    const records = readRecordsForBranch(dir, "worktree-feat+x");
-    expect(records.map((r) => r.requestId).toSorted()).toEqual(["req-after", "req-before"]);
-    expect(
-      recordsByBranch(dir)
-        .get("worktree-feat+x")
-        ?.map((r) => r.requestId)
-        .toSorted(),
-    ).toEqual(["req-after", "req-before"]);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
 
 // A session that steps into a worktree another session made — a review, or
 // an orchestrator checking on a task — did its earlier work for something

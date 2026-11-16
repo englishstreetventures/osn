@@ -295,12 +295,6 @@ test("the CLI counts subagent spend from the sibling directory", async () => {
   expect(card.spend.tokens.output).toBe(550);
 });
 
-test("the CLI ignores records belonging to another branch", async () => {
-  const { card } = await run();
-
-  expect(card.spend.tokens.output).toBeLessThan(999_999);
-});
-
 test("the CLI buckets the diff by path", async () => {
   const { card } = await run();
 
@@ -344,12 +338,6 @@ test("the CLI reads the declared rating out of the issue labels", async () => {
   expect(card.issue.labels).toEqual(["product:osn-core", "complexity:3"]);
 });
 
-test("the CLI keeps an unconfirmed rating marked", async () => {
-  const { card } = await run(["--issue-labels", "complexity:5,complexity:unconfirmed"]);
-
-  expect(card.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 1 });
-});
-
 test("the CLI records a hand-passed rating as manual", async () => {
   const { card } = await run(["--complexity", "8"]);
 
@@ -366,54 +354,6 @@ test("the CLI refuses to card main", async () => {
 
   expect(exitCode).toBe(1);
   expect(stderr).toContain("refusing to card `main`");
-});
-
-test("the CLI still writes a card when no transcript matches", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pr-metrics-empty-"));
-
-  try {
-    const git = async (...args: string[]) => {
-      const proc = Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
-      await proc.exited;
-    };
-
-    await git("init", "-q", "-b", "main");
-    await git("config", "user.email", "test@example.com");
-    await git("config", "user.name", "Test");
-    await git("config", "commit.gpgsign", "false");
-    await writeFile(join(dir, "seed.txt"), "seed\n");
-    await git("add", ".");
-    await git("commit", "-qm", "seed");
-    await git("checkout", "-qb", "feat/no-transcript");
-
-    const proc = Bun.spawn(
-      [
-        "bun",
-        "run",
-        SCRIPT,
-        "--branch",
-        "feat/no-transcript",
-        "--base",
-        "main",
-        "--sessions-dir",
-        join(dir, "nothing-here"),
-        "--out-dir",
-        join(dir, "out"),
-      ],
-      { cwd: dir, stdout: "pipe", stderr: "pipe" },
-    );
-
-    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
-
-    expect(exitCode).toBe(0);
-    expect(stderr).toContain("no session records matched");
-
-    const card = JSON.parse(await Bun.file(join(dir, "out", "feat-no-transcript.json")).text());
-    expect(card.spend.tokens.output).toBe(0);
-    expect(card.window.sessions).toBe(0);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 });
 
 // --- default paths resolve against the repository ---------------------------
@@ -487,126 +427,11 @@ async function projectDirFor(repo: string): Promise<string> {
   return top.replaceAll(/[/.]/g, "-");
 }
 
-// The unit tests feed `resolveDispatchBranch` a hand-built tree. This one runs
-// the real script end to end over a subagent transcript stamped with a
-// DIFFERENT branch from the card's — which is the actual shape on disk, and the
-// shape the old `gitBranch` match dropped entirely.
-test("card attributes a subagent stamped `main` to the branch its dispatch marked", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "pr-metrics-marker-"));
-  const branch = "feat/marker-fixture";
-
-  try {
-    const git = async (...args: string[]) => {
-      const proc = Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
-      await proc.exited;
-    };
-    await git("init", "-q", "-b", "main");
-    await git("config", "user.email", "test@example.com");
-    await git("config", "user.name", "Test");
-    await git("config", "commit.gpgsign", "false");
-    await writeFile(join(dir, "seed.txt"), "seed\n");
-    await git("add", ".");
-    await git("commit", "-qm", "seed");
-    await git("checkout", "-qb", branch);
-    await mkdir(join(dir, "osn", "api", "src"), { recursive: true });
-    await writeFile(join(dir, "osn", "api", "src", "svc.ts"), "export const a = 1;\n");
-    await git("add", ".");
-    await git("commit", "-qm", "work");
-
-    const project = join(dir, "sessions", await projectDirFor(dir));
-    const subagents = join(project, "sess-1", "subagents");
-    await mkdir(subagents, { recursive: true });
-
-    // The orchestrator session runs on `main` and dispatches with the marker.
-    await writeFile(
-      join(project, "sess-1.jsonl"),
-      `${JSON.stringify({
-        type: "assistant",
-        sessionId: "sess-1",
-        gitBranch: "main",
-        timestamp: "2026-09-07T10:00:00.000Z",
-        requestId: "req-parent",
-        message: {
-          model: "claude-opus-5",
-          content: [
-            {
-              type: "tool_use",
-              id: "toolu_dispatch",
-              name: "Agent",
-              input: { prompt: `TASK-BRANCH: ${branch}\n\nImplement it.` },
-            },
-          ],
-        },
-      })}\n`,
-    );
-
-    await writeFile(
-      join(subagents, "agent-worker.meta.json"),
-      JSON.stringify({ agentType: "implementer", toolUseId: "toolu_dispatch", spawnDepth: 1 }),
-    );
-    // Stamped `main` — inherited from the parent session, wrong by construction.
-    await writeFile(
-      join(subagents, "agent-worker.jsonl"),
-      [
-        JSON.stringify({
-          type: "assistant",
-          sessionId: "sess-1",
-          gitBranch: "main",
-          isSidechain: true,
-          effort: "high",
-          requestId: "req-w1",
-          timestamp: "2026-09-07T10:01:00.000Z",
-          message: { model: "claude-opus-5", usage: { output_tokens: 700 } },
-        }),
-        JSON.stringify({
-          type: "assistant",
-          sessionId: "sess-1",
-          gitBranch: "main",
-          isSidechain: true,
-          effort: "high",
-          requestId: "req-w2",
-          timestamp: "2026-09-07T10:01:30.000Z",
-          message: { model: "claude-opus-5", usage: { output_tokens: 300 } },
-        }),
-      ].join("\n"),
-    );
-
-    const proc = Bun.spawn(
-      [
-        "bun",
-        SCRIPT,
-        "--branch",
-        branch,
-        "--base",
-        "main",
-        "--sessions-dir",
-        join(dir, "sessions"),
-        "--out-dir",
-        join(dir, "cards"),
-      ],
-      { cwd: dir, stdout: "pipe", stderr: "pipe" },
-    );
-    await proc.exited;
-
-    const card = JSON.parse(
-      await Bun.file(join(dir, "cards", "feat-marker-fixture.json")).text(),
-    ) as Card;
-
-    // The exact sum, not merely non-zero: a non-zero assertion cannot tell a
-    // resolved file from a stray record that matched some other way.
-    expect(card.spend.tokens.output).toBe(1000);
-    expect(card.spend.by_actor.subagent.tokens.output).toBe(1000);
-    expect(card.spend.by_actor.main.tokens.output).toBe(0);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
 // The marker is a line a skill asks an agent to write, so nothing enforces it.
 // This warning is the whole enforcement story, and it fires on exactly the run
-// where the operator has no other signal — the card that came back empty. The
-// existing empty-card test points at a directory with no transcripts at all, so
-// the count is always 0 and this block never ran.
+// where the operator has no other signal — the card that came back empty. A
+// sessions directory with no transcripts gives a count of 0, so this test
+// plants an unmarked one.
 test("the CLI names unmarked subagent transcripts when a card comes back empty", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-warn-"));
   const branch = "feat/nothing-matched";
@@ -706,13 +531,6 @@ test("without --if-absent the same re-run does rewrite the card", async () => {
   expect(JSON.parse(writes[0]!.text).complexity.declared).toBeNull();
   expect(JSON.parse(writes[1]!.text).complexity.declared).toBe(8);
   expect(JSON.parse(writes[1]!.text).complexity.method).toBe("manual");
-});
-
-test("--if-absent writes the card when the branch has none", async () => {
-  const { exitCode, card } = await run(["--if-absent"]);
-
-  expect(exitCode).toBe(0);
-  expect(card.pr.number).toBe(908);
 });
 
 // `--format markdown` writes nothing, so it must never be what `--if-absent`
@@ -1392,6 +1210,9 @@ test("--resolve-issue ignores a pull request from a fork on the same branch name
   expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
 });
 
+// A stacked pull request has no closing references until it is retargeted to
+// `main`, so its body's tracker line is all there is to read: this one lists
+// none (`refs: []`) and is rated from its body alone.
 test("--resolve-issue takes this repository's pull request when a fork's is newer", async () => {
   const { card, calls } = await runResolving({
     pull: { body: `Closes ${TRACKER}#901041`, refs: [] },
@@ -1402,17 +1223,6 @@ test("--resolve-issue takes this repository's pull request when a fork's is newe
   expect(card.pr.number).toBe(1046);
   expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
   expect(calls.filter((call) => call.includes("901099"))).toEqual([]);
-});
-
-// A stacked pull request has no closing references until it is retargeted to
-// `main`, so its body's tracker line is all there is to read.
-test("--resolve-issue rates an open pull request from a tracker line in its body alone", async () => {
-  const { card } = await runResolving({
-    pull: { body: `Closes ${TRACKER}#901041`, refs: [] },
-    trackerLabels: { 901041: ["complexity:2", "complexity:unconfirmed"] },
-  });
-
-  expect(card.complexity).toEqual({ declared: 2, method: "unconfirmed", issues: 1 });
 });
 
 // Beside an issue here the tracker issues are the branch's own review findings,

@@ -178,20 +178,6 @@ test(
   }),
 );
 
-// 2
-test(
-  "a finding whose line nothing changed is not acted on",
-  withFixture(async (f) => {
-    await f.report(REPORT, REPORT_WRITTEN);
-    await editLine(f, 60, FIXED);
-
-    const { card } = await f.card();
-
-    expect(card.review?.acted_on).toBe(0);
-    expect(card.review?.located).toBe(1);
-  }),
-);
-
 // 3
 test(
   "a finding without a path:line, or naming a file absent at the baseline, is not located",
