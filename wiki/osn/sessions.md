@@ -257,9 +257,13 @@ Every other verifier pins `osn-access`, here and in Pulse, Zap and cire over JWK
 
 **How a cancel ends it.** A cancel clears `deleted_at` and writes no session. The next refresh mints `osn-access`. A pending-deletion token minted before the cancel is refused (401) at the deletion status, the export, the restore and the TOTP status once the deletion is cancelled, so the client renews into an ordinary token.
 
-**How a client knows.** The access token's `aud` is `osn-pending-deletion`, or `GET /account/deletion-status` answers `scheduled: true`. Nothing else in a response says so. A client that checks neither gets a 401 from the first ordinary route; `@osn/client`'s `authFetch` renews once, gets the same audience, and ends the session ([[#Renewal in the browser]]).
+**How a client knows.** The access token's `aud` is `osn-pending-deletion`, or `GET /account/deletion-status` answers `scheduled: true`. Nothing else in a response says so. `@osn/client` reads the audience (`isPendingDeletionToken` in [`tokens.ts`](../../osn/client/src/tokens.ts)) and keeps the session:
 
-Tests: `osn/api/tests/routes/pending-deletion-session.test.ts`.
+- `authFetch` renews once on a 401, as for any token. When the second answer is 401 too and the renewed token is on the pending audience, it hands the 401 back and ends nothing, whatever the first token was: the renewal proved the session live, and the route does not serve that audience. Only a second 401 after a renewal that minted an ordinary token ends the session ([[#Renewal in the browser]]).
+- A renewal whose token is on the other audience than the one it replaces tells the runtime's listeners (`{ kind: "pending-deletion", pending }`): an ordinary token renewed onto the pending audience (this device or another asked for the deletion), or a pending one renewed onto the ordinary audience (the account was kept elsewhere).
+- The Solid provider's `pendingDeletion()` follows the token, refetching the session from the cache on that notice, and lists no profiles for a pending session. `renewSession({ pending: true })` reads as pending at once, then renews: Musubi calls it on the deletion's 202, so its shell is gone before anything in it can send an ordinary request. Musubi then shows one screen in place of the shell ([[social]]).
+
+Tests: `osn/api/tests/routes/pending-deletion-session.test.ts`; the client's in `osn/client/tests/pending-deletion-session.test.ts` and `osn/client/tests/solid/context.test.tsx`.
 
 ## Rotation grace window (concurrency tolerance)
 
@@ -282,7 +286,7 @@ What `authFetch` does with each request (`osn/client/src/service.ts`):
 2. **Checks the stored account.** If it is gone (another tab signed out, or saw the session end), or carries another sign-in's id (another tab signed out and someone signed in since), the session ends here too, with no request; a new sign-in's stored account is left alone. The runtime runs the same check on every `storage` event for the key, so another tab's sign-out ends this page's session at once. Nothing else is taken from storage: tokens live only in each page's memory, so each tab renews for itself, and each acts as the profile its own screen shows ([[identity-model#Client Storage Model]]).
 3. **Renews before sending.** A token within `min(30 s, half its lifetime)` of expiry (lifetime from its own `iat`/`exp`; 30 s when it has neither) is renewed first, so an expired token never leaves the page. The grant names the active profile (`profile_id` on `POST /token`), and the issuer mints for it while the cookie session's account owns it, bound to the rotated session — one request, no `/profiles/switch` — and refuses the grant otherwise (below). A renewal joins a grant already in flight and keeps its token when that grant minted for the same profile; otherwise it sends its own once that one settles, so two grants of one cookie never overlap. A profile switch that lands while a renewal is out stays: the renewal's token is stored for the profile it named, and the request that needed it goes out as that profile, the one it was made as.
 4. **Sets `Authorization` itself**, whatever the caller passed, and sends.
-5. **On a 401, renews once and retries.** A second 401 ends the session.
+5. **On a 401, renews once and retries.** A second 401 ends the session, unless the renewal minted a pending-deletion token: that 401 reaches the caller and the session stays ([[#The pending-deletion session]]).
 
 How a failed renewal ends:
 

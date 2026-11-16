@@ -22,8 +22,9 @@ runbook, two regimes, because the operational steps overlap.
 
 | Channel | Who uses it | Where it lands | SLA |
 |---|---|---|---|
-| `GET /account/export` | The account holder, self-service | `@osn/api` — streams NDJSON | Immediate |
-| `DELETE /account` | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
+| `GET /account/export` | The account holder, self-service: Musubi's Settings → Account → "Download my data", and the screen shown while a deletion is pending | `@osn/api` — streams NDJSON | Immediate |
+| `POST /account/data-link` | The account holder: Musubi's "Send me a link" | `@osn/api` — mails the account's own address a link to the download page, never the data ([[#Emails]]) | Immediate |
+| `DELETE /account` | The account holder, self-service: Musubi's Settings → Account → Danger zone ([[#Musubi's screens]]) | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
 | `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
 | `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
@@ -159,7 +160,7 @@ The export path uses the same `Effect.all` parallelism + 10 s per-bridge timeout
 
 #### Organisations the person owns
 
-One profile owns each organisation (`organisations.owner_id`). `GET /account/deletion-preview` lists each organisation a profile of the account owns as an open action with the id `osn:organisation:<orgId>`, the member it would pass to (`successor`), the choices it allows and its default:
+One profile owns each organisation (`organisations.owner_id`). `GET /account/deletion-preview` lists each organisation a profile of the account owns as an open action with the id `osn:organisation:<orgId>`, the member it would pass to (`successor`), the members a `successor` answer may name (`candidates`: every member from another account, in succession order, at most 50, one read for every organisation, `listSuccessorCandidates`), the choices it allows and its default:
 
 | The organisation has | Choices | Default |
 |---|---|---|
@@ -176,7 +177,7 @@ At the hard delete, in its batch and before the profiles go, each owned organisa
 3. else the longest-standing member from another account, who is made admin;
 4. else, or where the person chose `delete`, no one: the organisation and its memberships are deleted.
 
-Longest-standing means the earliest `organisation_members.created_at`, then the lowest id. The account's own other profiles are never chosen. The rules run on the rows as they stand at the hard delete, not as the preview showed them, so an organisation whose other admins all left during the window falls to rule 3 or 4 with no further question. cire's weddings follow the same rule: a wedding the person is the only owner of when the fan-out reaches cire is deleted, even one that had another owner when they asked ([[#Cire (wedding-invite) data]]). No email tells the new owner. `osn.account.deletion.organisation` (`outcome`: `transferred` or `deleted`) counts each. Tests: `osn/api/tests/services/account-erasure.test.ts` ("account-erasure: owned organisations at hard delete"), `osn/api/tests/d1/account-hard-delete.test.ts` (the same rules on D1 with foreign keys enforced) and `osn/api/tests/routes/account-erasure.test.ts` ("the organisations an account owns").
+Longest-standing means the earliest `organisation_members.created_at`, then the lowest id. The account's own other profiles are never chosen. The rules run on the rows as they stand at the hard delete, not as the preview showed them, so an organisation whose other admins all left during the window falls to rule 3 or 4 with no further question. cire's weddings follow the same rule: a wedding the person is the only owner of when the fan-out reaches cire is deleted, even one that had another owner when they asked ([[#Cire (wedding-invite) data]]). The transfer sets the organisation's `owner_inherited_at` to the hard delete's time, and once the batch has removed the account the new owner is emailed, with a link to decline it ([[#Emails]]). A member who received an organisation this way may decline it for 30 days: it passes on by the same rules 2 to 4, leaving out the decliner's own account, to a member who may decline it in turn, or is deleted when there is none; the decliner leaves it in the same batch ([[identity-model]]). A successor whose own account is pending deletion is not skipped: it is emailed like any other, can decline once it keeps its account, and otherwise its own hard delete passes the organisation on. `osn.account.deletion.organisation` (`outcome`: `transferred` or `deleted`) counts each. Tests: `osn/api/tests/services/account-erasure.test.ts` ("account-erasure: owned organisations at hard delete"), `osn/api/tests/d1/account-hard-delete.test.ts` (the same rules on D1 with foreign keys enforced) and `osn/api/tests/routes/account-erasure.test.ts` ("the organisations an account owns").
 
 #### The apps' open actions and the app contract
 
@@ -212,6 +213,32 @@ A cancel deletes the account's holds. The hard delete clears their account id an
 #### Hard-delete sweep isolation
 
 Each pass reads up to 100 due jobs: those that have never failed first (`hard_delete_failed_at` NULL), then the least recently failed, each group by `hard_delete_at`. One account's failure, a defect included, is caught: it is logged as `account.deletion hard delete failed` with the error's tag and no ids, counted as `osn.account.deletion.completed` with `result` `hard_failed`, and stamped on the job's `hard_delete_failed_at`, so the next pass reads it last. The pass goes on to the next account until three fail in a row; it then stops and logs `account.deletion hard delete sweep stopped` once, at warning, with no ids, since three in a row point at the database (an outage, or the Worker's per-invocation query cap) rather than at the accounts. A failed stamp is logged and changes nothing else. Test: `osn/api/tests/services/account-erasure.test.ts` ("account-erasure: hard-delete sweep isolation").
+
+#### Musubi's screens
+
+Musubi's Settings → Account ([[social]]) holds the person's side of Flow A:
+
+- **Your data.** "Download my data" (an `account_export` step-up, then `GET /account/export`, saved as a file; one a day) and "Send me a link" (`POST /account/data-link`, [[#Emails]]).
+- **Danger zone → "Delete account…".** A flow: what is deleted and what stays, and the seven days; the download again; each open action from `GET /account/deletion-preview`, grouped by app, with its choices as the server describes them, its erase date and its link (a cire wedding's link opens it in Cire, where its exports are downloaded; Musubi builds no Cire address); one "Delete everything" switch; the handle typed; an `account_delete` step-up; `DELETE /account`. An app that could not be checked blocks the flow and is named; each refusal (409 `open_actions`, `stale_choices`, `could_not_check`; 400 `invalid_choice`, `choices_with_delete_everything`, `handle_mismatch`; 403 `step_up_required`) returns the person to the step they can act on. On the 202 the page renews its token onto the pending audience at once.
+- **The window.** While the deletion is pending, every sign-in to Musubi, and the device that asked, show one screen in place of the app: the date, "Keep my account" (an `account_restore` step-up, then `POST /account/restore`; the page renews onto the ordinary audience and the app comes back) and "Download my data". `@osn/client` keeps such a session rather than ending it on the first refused route ([[sessions#The pending-deletion session]]).
+
+A person keeps the account by signing in to Musubi before the date — with a passkey, or with their email address (sign-in by handle finds nothing during the window) — and choosing "Keep my account". Signing in to Pulse or cire during the window lands on Musubi's `/authorize`, which refuses the account (`access_denied`) and shows no window screen.
+
+No "Remove my data" link sits under Settings → Connected apps: no app has a leave screen yet (Pulse has the leave route only; cire's is later work).
+
+#### Emails
+
+osn-api sends five, each to an account holder's own address through `@shared/email` ([[email]]), each best effort: a send that fails is logged with its template alone (no address, no id) and changes nothing else. Text another party wrote (an app's label, a wedding or organisation name) is escaped in the HTML part and never in a subject. Dates are written in UTC.
+
+| Template | When | To | Says |
+|---|---|---|---|
+| `account-deletion-scheduled` | `DELETE /account` schedules a deletion (not `already_pending`) | The account | The date and time; how to keep it (sign in before then, "Keep my account"); how to download the data; each open action's label with what its stored answer does and the date anything kept is erased, as the request's own preview described it; with "Delete everything", that each app deletes what the person has there as soon as it can and each organisation passes to its successor or is deleted. Sent through `notifySecurityEventByAccountId`, as `account_deletion_scheduled` |
+| `account-deletion-cancelled` | `POST /account/restore` cancels (`cancelled: true`) | The account | It will not be deleted; handles and profiles are back; apps that signed the person out ask again |
+| `account-deleted` | The hard delete's batch has removed the account | The address it had | It is gone and cannot be brought back; the handles held, from the restore record, and the date they are released (30 days on); what each app kept, from `app_outcomes`, with its date and request link; where each owned organisation went |
+| `organisation-ownership-received` | The hard delete passed an organisation on, or a decline passed it to the next member | The new owner | It names the organisation by its handle only (its name is text its members wrote, and the reader may never have agreed to join), why it passed, and how to decline it before its date: a link to `/organisations/<handle>?decline=1` |
+| `account-data-link` | `POST /account/data-link` | The account | A link to `/settings#account`; the email holds no data, and the page asks the reader to sign in and step up |
+
+The hard delete reads the address, `restore` and `app_outcomes` in the read that finds the due jobs, before its batch takes them, and each owned organisation's successor and that successor's address in the batch's first statement, by the transfer's own rule. It sends only once its batch's `accounts` delete has removed the row (`RETURNING`), so a second pass over the same account sends nothing. `account-deleted` goes on its own; the ownership notices go as one `sendBatch`, at most 100 an account a pass, the rest logged by count. The Worker's cron provides the email transport to the hard delete (a transport that cannot be built is logged once and the erasure runs without mail), and the local sweeper runs on the app's runtime. `POST /account/data-link` takes a per-IP check first, then three a day per account (`accountDataLink`). Tests: `osn/api/tests/routes/account-deletion-notices.test.ts`, `osn/api/tests/services/hard-delete-notices.test.ts`, `osn/api/tests/d1/account-hard-delete.test.ts` ("the hard delete's notices, on D1"), `shared/email/tests/account-deletion.test.ts`.
 
 #### Cire (wedding-invite) data
 

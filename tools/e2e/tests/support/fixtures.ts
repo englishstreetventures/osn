@@ -8,9 +8,10 @@
  * stack does not run (`standInForCireHub`), and, in a flow that asks for it,
  * for Cloudflare Turnstile (`standInForTurnstile`); and it collects every
  * Content-Security-Policy message a page logs. Flows touch the stack only through
- * the browser, the API request context and the read-only helpers here. The one
- * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
- * not part of the stack.
+ * the browser, the API request context and the read-only helpers here, with two
+ * exceptions: `refuseNextMailTo` writes to the mail stand-in, which is not part
+ * of the stack, and `writeOnce` makes the one write a flow may make to a stack
+ * database, for a state no route or clock reaches.
  */
 
 import { createHmac } from "node:crypto";
@@ -595,6 +596,23 @@ export function writeRow(dbPath: string, sql: string, ...params: Array<string | 
     db.exec("PRAGMA busy_timeout = 5000");
     const changed = db.prepare(sql).run(...params).changes;
     if (changed !== 1) throw new Error(`writeRow: ${changed} rows changed by ${sql}`);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * One write to a stack database, for a state the stack has no route to reach
+ * and no clock to wait for: `musubi-account-deletion` moves its deletion job
+ * past its window, since the suite's clock runs in real time. The connection
+ * waits up to five seconds for a lock the stack's server holds, and closes at
+ * once. Answers how many rows the statement changed.
+ */
+export function writeOnce(dbPath: string, sql: string, ...params: Array<string | number>): number {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    return Number(db.prepare(sql).run(...params).changes);
   } finally {
     db.close();
   }
