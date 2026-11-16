@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-16
 ---
 
 # Component Library (Zaidan)
@@ -2276,10 +2276,26 @@ column never scrolls sideways.
 - **Recovery promises nothing.** Recovery answers every address alike, so its
   sentence reads "If ada@example.com has an account, a link is on its way". The
   other three say "We sent a link to …", as the code screens they replace did.
-- **No motion of its own.** It declares no transition or animation; `Button`'s
-  colour fade and its press ([[#Press]]) are the only motion, which
-  `musubi/social/DESIGN.md` allows. The countdown is text, so the view is the
-  same under reduced motion, where the press does not scale.
+- **The wait drains.** While Resend counts down, a fill behind its label
+  empties from full to nothing at an even pace towards the button's start,
+  ending as the label reads "Resend link": the button's whole box in the
+  ghost button's hover fill (`bg-ui-surface-sunk`), its leading edge a 2px
+  line in the faintest ink (`border-ui-ink-tertiary`), at the disabled
+  button's opacity, under the label and clipped to the button's corners
+  (`relative isolate overflow-clip` on the button, `-z-10` on the fill). The
+  fill alone measures 1.05:1 against Musubi's sheet, so the edge (1.71:1
+  light, 1.90:1 dark) is what reads ([osn/auth-ui/DESIGN.md](../../osn/auth-ui/DESIGN.md)
+  §12 has the measures). It is a child of the label, out of the row's flow,
+  so the button still holds one child and its height and the label's one
+  line do not change. It is the view's one motion beside `Button`'s colour
+  fade and its press ([[#Press]]): a `translate` transition from
+  `@starting-style`, linear, timed from the wait's own deadline with a
+  negative delay, so a fill drawn after a send starts part-empty and still
+  empties as Resend unlocks. It reads only `resendWaitSeconds`, the same for
+  every address. `aria-hidden`, with no text; under reduced motion and in a
+  contrast theme (forced colours) it is not drawn, and the label's seconds
+  carry the wait alone. A browser below `@starting-style` (Chrome 117,
+  Safari 17.5, Firefox 129) draws it at its end, out of the button.
 
 For a host:
 
@@ -2336,9 +2352,17 @@ browser tier, so
 in `@musubi/social` holds the layout in musubi's auth sheet under musubi's
 stylesheet: the long address that leaves a 320px phone's 288px column with
 nothing to scroll sideways, "Resend in 30s" as one run of text on one line,
-both buttons at 40px below `md` and 32px from it, and the six-digit number
+both buttons at 40px below `md` and 32px from it, the six-digit number
 inside that column at 24px on a 30px line in tabular figures, its label a 1px
-box and the paragraph's accessible text "Your number: 123456"
+box and the paragraph's accessible text "Your number: 123456", and the wait's
+fill: inside the label, the button's whole box behind its words, clipped to
+its corners, with a 2px leading edge, starting full on a 30-second linear run
+and half out halfway, at 40px and 32px; within a tenth of the wait of empty
+as the label reads "Resend link", and gone with it; after a Resend
+whose send takes half a second, the whole 2-second wait again from a quarter
+in; painted in `--ui-surface-sunk` with an `--ui-ink-tertiary` edge in light and
+dark at 320 and 1280px, with a frame for each second of a 4-second wait; and
+not drawn under reduced motion or forced colours, the label still on one line
 ([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
 state, every flow, a 320px phone, and the number at rest, on recovery and
 step-up, across a resend and on a phone ([[component-lab]]).
