@@ -249,14 +249,17 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   // discoverable credential, `mediation: "conditional"`), and the virtual
   // authenticator answers at once: the sign-in a person makes by picking
   // their passkey from the browser's list.
+  // Counted across the sign-in alone: a shell request still out when the
+  // deletion was asked for may have been refused earlier.
+  const profileListsBefore = flow.count("GET osn-api /profiles/list");
   await flow.step("sign in again with the passkey the browser offers", async () => {
     await page.locator("aside, header").getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("heading", { level: 1, name: WINDOW_HEADING })).toBeVisible();
   });
   flow.check(
     "signed in during the window, the pending session lists no profiles",
-    false,
-    flow.saw("GET osn-api /profiles/list 401"),
+    0,
+    flow.count("GET osn-api /profiles/list") - profileListsBefore,
   );
 
   await flow.step("keep the account, stepping up with the passkey", async () => {
