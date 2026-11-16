@@ -1,5 +1,11 @@
 # @shared/billing
 
+## 0.1.18
+
+### Patch Changes
+
+- 4426307: The package's tests drop five cases other tests already cover, shorten four waits on the real clock, and make the 64 KB webhook body test check the refusal reason.
+
 ## 0.1.17
 
 ### Patch Changes
