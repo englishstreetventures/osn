@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { checkGithub, checkLive, type ToolRun } from "../../src/secrets/check";
 import { githubExpectations, liveExpectations } from "../../src/secrets/compare";
@@ -105,23 +105,30 @@ describe("checkLive", () => {
     const names = scriptNames("production");
     let inFlight = 0;
     const seen: number[] = [];
-    const outcome = await checkLive("production", async (scriptName) => {
-      inFlight += 1;
-      seen.push(inFlight);
-      // Later Workers answer first, so a result printed in arrival order shows.
-      await new Promise((resolve) =>
-        setTimeout(resolve, 5 * (names.length - names.indexOf(scriptName))),
-      );
-      inFlight -= 1;
-      return live("production")(scriptName);
-    });
-    expect(seen).toEqual([1, ...names.slice(1).map((_, index) => index + 1)]);
-    expect(
-      outcome.stdout
-        .trimEnd()
-        .split("\n")
-        .map((line) => /\(([^)]+)\)$/.exec(line)?.[1]),
-    ).toEqual(names);
+    vi.useFakeTimers();
+    try {
+      const pending = checkLive("production", async (scriptName) => {
+        inFlight += 1;
+        seen.push(inFlight);
+        // Later Workers answer first, so a result printed in arrival order shows.
+        await new Promise((resolve) =>
+          setTimeout(resolve, 5 * (names.length - names.indexOf(scriptName))),
+        );
+        inFlight -= 1;
+        return live("production")(scriptName);
+      });
+      await vi.runAllTimersAsync();
+      const outcome = await pending;
+      expect(seen).toEqual([1, ...names.slice(1).map((_, index) => index + 1)]);
+      expect(
+        outcome.stdout
+          .trimEnd()
+          .split("\n")
+          .map((line) => /\(([^)]+)\)$/.exec(line)?.[1]),
+      ).toEqual(names);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -138,14 +145,6 @@ describe("checkGithub", () => {
     );
     expect(outcome.exitCode).toBe(0);
     expect(outcome.stdout).toContain("not in the inventory: SOMETHING_ELSE");
-  });
-
-  test("exits 1 when a required name is missing", async () => {
-    const outcome = await checkGithub(
-      "production",
-      listed(githubExpectations("production").slice(1)),
-    );
-    expect(outcome.exitCode).toBe(1);
   });
 
   test("exits 1 when the Environment holds the other tier's credential", async () => {

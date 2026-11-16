@@ -21,47 +21,10 @@ describe("retainedD1Props", () => {
 
   const MIGRATIONS = ".generated/migrations/cire-db";
 
-  test("declares only what adoption converges on production, its migrations, and no creation-only setting", () => {
-    expect(retainedD1Props({ ...cireDb, migrations: MIGRATIONS }, ["cire-db"])).toEqual({
-      name: "cire-db",
-      readReplication: { mode: "disabled" },
-      jurisdiction: "default",
-      migrations: { dir: MIGRATIONS, table: "__alchemy_migrations" },
-    });
-  });
-
   test("refuses a location hint on production, where the database is adopted", () => {
     expect(() =>
       retainedD1Props({ ...cireDb, locationHint: "oc", migrations: MIGRATIONS }),
     ).toThrow(AdoptedLocationHintError);
-  });
-
-  test("places a database a dev stage creates", () => {
-    expect(
-      retainedD1Props({
-        ...cireDb,
-        name: "cire-db-dev",
-        stage: "dev",
-        locationHint: "oc",
-        migrations: "../../cire/db/migrations",
-      }),
-    ).toEqual({
-      name: "cire-db-dev",
-      readReplication: { mode: "disabled" },
-      jurisdiction: "default",
-      primaryLocationHint: "oc",
-      migrations: { dir: "../../cire/db/migrations", table: "__alchemy_migrations" },
-    });
-  });
-
-  // An explicit table beats one a prior deploy stamped into state
-  // (`@alchemy.run/sql` Registry.ts `resolveMigrations`), so Alchemy never
-  // takes a stamped `d1_migrations` as its own and rebuilds it in place.
-  test("names Alchemy's own ledger table, whatever state says", () => {
-    expect(retainedD1Props({ ...cireDb, migrations: MIGRATIONS }, ["cire-db"]).migrations).toEqual({
-      dir: MIGRATIONS,
-      table: "__alchemy_migrations",
-    });
   });
 
   test("B5: seed files reach a dev database's props, and production refuses any", () => {

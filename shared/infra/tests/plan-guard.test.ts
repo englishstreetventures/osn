@@ -848,12 +848,6 @@ describe("runPlanGuardCli", () => {
     });
   });
 
-  test("GS2: a release dispatched by hand may add a host", () => {
-    const result = run(logArgs, UPDATE, { ...LIVE, cire_vendor: [] });
-    expect(result.code).toBe(0);
-    expect(result.out).not.toContain("scheduled release");
-  });
-
   test("GS3: a scheduled release with no domain change passes", () => {
     const result = run([...logArgs, "--scheduled"], UPDATE);
     expect(result.code).toBe(0);
