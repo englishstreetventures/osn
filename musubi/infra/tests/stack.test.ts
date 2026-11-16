@@ -121,6 +121,7 @@ describe("the musubi stack, evaluated offline", () => {
       OSN_AUTHORIZE_UI_URL: env.OSN_AUTHORIZE_UI_URL,
       OSN_COOKIE_DOMAIN: env.OSN_COOKIE_DOMAIN,
       OSN_EMAIL_FROM: env.OSN_EMAIL_FROM,
+      OSN_EMAIL_VERIFICATION_API: env.OSN_EMAIL_VERIFICATION_API,
     }).toEqual({
       OSN_ENV: "dev",
       OSN_RP_ID: `musubi.${DEV_DOMAIN}`,
@@ -137,10 +138,12 @@ describe("the musubi stack, evaluated offline", () => {
       OSN_AUTHORIZE_UI_URL: `https://musubi.${DEV_DOMAIN}/authorize`,
       OSN_COOKIE_DOMAIN: `musubi.${DEV_DOMAIN}`,
       OSN_EMAIL_FROM: "Musubi <hello@musubi.social>",
+      OSN_EMAIL_VERIFICATION_API: "true",
     });
 
     // An investigation stage derives every name and host from its own name
-    // and keeps the dev posture.
+    // and keeps the dev posture, except the Email Verification API trial,
+    // which is dev's alone.
     const investigation = resourcesOf(
       await evaluateMusubi({ stage: "probe", env: stackEnv(arcPublicJwk) }),
     );
@@ -151,6 +154,7 @@ describe("the musubi stack, evaluated offline", () => {
     expect(investigation.OsnApi?.Props.domain).toBe(`id.musubi.probe.${DEV_DOMAIN}`);
     expect(investigation.OsnApi?.Props.env?.OSN_ENV).toBe("dev");
     expect(investigation.OsnApi?.Props.env?.OSN_RP_NAME).toBe("Musubi (probe)");
+    expect(investigation.OsnApi?.Props.env).not.toHaveProperty("OSN_EMAIL_VERIFICATION_API");
   });
 
   test("RQ1: osn-api redacts query strings from its logs and traces, since dev sign-in takes its secret in one", () => {

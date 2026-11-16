@@ -121,6 +121,19 @@ enrol once on the dev musubi social host and that key does nothing on
 unset, each with its reason; `musubi/infra/tests/reads.test.ts` does the same for
 osn-api.
 
+### What dev turns on that production does not
+
+- **Sign-up's browser Email Verification API.** `OSN_EMAIL_VERIFICATION_API` is
+  `true` on `osn-api-dev`, set on stage `dev` only in `musubiDeclaration`
+  (`musubi/infra/src/declaration.ts`); investigation stages and production leave
+  it unset. A Chrome signed in to Gmail can prove its address at sign-up with no
+  email; the owner's steps are in [[email-verification-api#Testing on the dev tier]].
+- **Chrome origin-trial tokens for the dev zone.** Each trial that has a
+  production token has a second one registered for `DEV_DOMAIN` with its
+  subdomains, served beside it: `EmailVerificationProtocol` on musubi social
+  ([[email-verification-api#Our origin trial]]), `HTMLInCanvas` on the guest site
+  and `WebMCP` on the organiser portal ([[cire-development#Chrome origin trials]]).
+
 ### Where an account deletion reaches on dev
 
 The musubi stack gives `osn-api-dev` zap-api-dev's origin (`ZAP_API_URL`) and
@@ -461,7 +474,10 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    Images enabled.
 2. **The `dev` Environment's variables.** `DEV_DOMAIN`: the zone, bare, no
    scheme. `PUBLIC_TURNSTILE_SITEKEY` and `PUBLIC_GOOGLE_MAPS_EMBED_KEY` stay as
-   they are. Leave `CIRE_DEV_OWNER_PROFILE_ID` unset until step 8.
+   they are. Leave `CIRE_DEV_OWNER_PROFILE_ID` unset until step 8. A new zone
+   also needs new dev origin-trial tokens: each is registered for the zone, and
+   Chrome ignores it on any other, with no error
+   ([[#What dev turns on that production does not]]).
 3. **Credentials.** `CLOUDFLARE_DEV_ACCOUNT_ID`;
    `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (the permissions in §2); and
    `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (`Account Settings: Read`,
