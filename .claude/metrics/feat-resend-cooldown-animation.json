@@ -1,0 +1,197 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/resend-cooldown-animation",
+    "base_sha": "aecc2f905a43f5c90487de95ad19fe8ada93f62d",
+    "head_sha": "c8b9d149ec168664b8c79fccf63851841fae55ae",
+    "generated_at": "2026-11-16T02:49:49.751Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2289,
+    "type": null,
+    "labels": [
+      "product:osn-core",
+      "complexity:3",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-14T12:33:13.227Z",
+    "last_ts": "2026-11-16T02:48:06.865Z",
+    "span_seconds": 137694,
+    "active_seconds": 3429,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 34.308602800000024,
+    "tokens": {
+      "input": 500,
+      "output": 200945,
+      "thinking": 80817,
+      "cache_write_5m": 1451674,
+      "cache_write_1h": 0,
+      "cache_read": 57573332
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 500,
+          "output": 200945,
+          "thinking": 80817,
+          "cache_write_5m": 1451674,
+          "cache_write_1h": 0,
+          "cache_read": 57573332
+        },
+        "usd_equivalent": 34.308602800000024,
+        "messages": 232
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 500,
+          "output": 200945,
+          "thinking": 80817,
+          "cache_write_5m": 1451674,
+          "cache_write_1h": 0,
+          "cache_read": 57573332
+        },
+        "usd_equivalent": 34.308602800000024,
+        "messages": 233
+      }
+    },
+    "effort": {
+      "xhigh": 190,
+      "high": 42
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 3,
+      "docs": 4,
+      "config": 0,
+      "source": 1
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 315,
+        "deleted": 23
+      },
+      "docs": {
+        "added": 163,
+        "deleted": 22
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 40,
+        "deleted": 4
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "osn/auth-ui",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 168,
+      "Read": 43,
+      "Edit": 28,
+      "Skill": 15,
+      "SubagentHandback": 4,
+      "Write": 3,
+      "ToolSearch": 2,
+      "WebFetch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 14
+    },
+    "skills": {
+      "design-system": 1,
+      "new-feat": 1,
+      "emil-design-eng": 1,
+      "apple-design": 1,
+      "stress-plan": 1,
+      "find-animation-opportunities": 1,
+      "animation-vocabulary": 1,
+      "animate": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "web-design-guidelines": 1,
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-design": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 0,
+      "subagent": 232,
+      "with_tools": 232,
+      "with_one_tool": 206,
+      "context_median": 262379,
+      "context_p90": 405952
+    }
+  },
+  "review": {
+    "reports": 2,
+    "findings": 4,
+    "located": 3,
+    "acted_on": 2,
+    "paired": 3,
+    "acted_on_paired": 2,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

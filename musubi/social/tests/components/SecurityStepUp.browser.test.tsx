@@ -182,14 +182,22 @@ afterEach(() => {
  * caught half way. Shots wait for every animation on the page that ends: the
  * card's entry fade (`--ui-dur-fast`) or, below `md`, the sheet's rise
  * (`--ui-dur-slow`), and its scrim's. One that never ends, such as a busy
- * button's orb, is left running. A read of where a sheet sits waits too, since
- * below `md` it starts its own height below the bottom edge.
+ * button's orb, is left running, and so is the fill behind the emailed link's
+ * "Resend in …s", which ends only with the wait. A read of where a sheet sits
+ * waits too, since below `md` it starts its own height below the bottom edge.
  */
 async function settle() {
   const ending = document
     .getAnimations()
-    .filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime ?? 0));
+    .filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime ?? 0))
+    .filter((a) => !waitFill(a));
   await Promise.all(ending.map((a) => a.finished.catch(() => {})));
+}
+
+/** The emailed link's wait fill: a transition inside Resend while it counts down. */
+function waitFill(animation: Animation): boolean {
+  const target = (animation.effect as KeyframeEffect | null)?.target;
+  return target?.closest("button")?.textContent?.startsWith("Resend in") ?? false;
 }
 
 /** A computed colour as sRGB bytes, whatever space the browser wrote it in. */

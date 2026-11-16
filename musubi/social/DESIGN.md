@@ -394,9 +394,10 @@ holds at 3:1. A focus mark appears at once, never animated.
 ## Motion
 
 The app adds colour and opacity transitions only, and no spatial motion of its
-own, with three exceptions, all `@shared/ui`'s: the orb a busy button draws
-(§The orb), the press (below), and a dialog below `md`, which slides up and
-down as a sheet (below). Rows, tabs and controls fade their colours with `transition-ui-colors`
+own, with four exceptions: three are `@shared/ui`'s, the orb a busy button
+draws (§The orb), the press (below), and a dialog below `md`, which slides up
+and down as a sheet (below); one is `@osn/auth-ui`'s, the fill that empties
+behind an emailed link's Resend as it waits (below). Rows, tabs and controls fade their colours with `transition-ui-colors`
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
@@ -481,13 +482,29 @@ still press. The press is `Button`'s alone: the app's own rows, tabs and rail
 links do not scale. `wiki/shared/component-library.md` §Press has the rest,
 and `shared/ui/tests/button-press.browser.test.tsx` holds it.
 
+**A link's wait empties.** On the "Check your email" step of sign-up,
+recovery, step-up and email change, while Resend reads "Resend in {n}s", a
+fill behind its label, in `--muted` (the button's own hover fill) led by a
+2px edge in `--subtle` (an ornament, §Ink hierarchy), at the disabled button's
+opacity, empties from full to nothing at an even pace over the whole wait,
+and is gone as the label reads "Resend link". The fill alone measures 1.05:1
+against the sheet there; the edge, 1.71:1 in light and 1.90:1 in dark, is
+what reads at a glance. It is
+`@osn/auth-ui`'s (`osn/auth-ui/DESIGN.md` §12), timed by the wait the view is
+given rather than a motion token, since no token's job is a countdown. It
+moves inside the button only, holds no room of its own, and says nothing to a
+screen reader. Under reduced motion it is not drawn, as the orb and `Skeleton`
+stand still there, and the label's seconds carry the wait; in a contrast theme
+it is not drawn either. `tests/components/CheckEmailView.layout.browser.test.tsx`
+holds it.
+
 ## The orb
 
 A busy button (§Busy buttons) draws `@shared/ui`'s `Orb` before its label: a
 20px sphere of dots, state `working`, in the button's own text colour, so it
 reads on a filled button and on the page alike. It is the app's one canvas
-animation, and with the press (§Motion) one of its two motions that are not a
-colour or opacity change.
+animation, and with the press and the emailed link's wait fill (§Motion) one of
+its three motions that are not a colour or opacity change.
 
 - **It stops.** It moves for five seconds at most, then holds one still frame,
   so it needs no pause control (WCAG 2.2.2). Under reduced motion it draws that

@@ -39,6 +39,14 @@ import { isPairingCode } from "./pairing-code";
  *   left is worked out from a deadline on every tick, not counted down, so a
  *   tab the browser held in the background shows the true time on its next
  *   tick. One interval runs at a time.
+ * - **The wait drains.** While Resend counts down, a fill behind its label,
+ *   led by a thin edge, empties from full to nothing at an even pace, and is
+ *   gone the moment the label reads "Resend link". It is a CSS transition timed from the same
+ *   deadline, so it lands with the label however late it was drawn: one drawn
+ *   after a send, with the wait already running, starts part-empty. It reads
+ *   only the wait the host passed, the same for every address. It says
+ *   nothing to a screen reader, and is not drawn under reduced motion or
+ *   forced colours, where the seconds in the label say it all.
  * - **What is announced.** The sentence sits in a polite live region, so a
  *   resend and an expiry are read out. An error is an alert of its own under
  *   it, cleared while Resend sends, so a second failure is read out again. The
@@ -172,6 +180,8 @@ export function CheckEmailView(props: CheckEmailViewProps) {
   const [waited, setWaited] = createSignal(false);
 
   let deadline = 0;
+  // The whole wait in milliseconds, as `deadline` was set from it.
+  let waitLength = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   function stopWait() {
@@ -191,7 +201,8 @@ export function CheckEmailView(props: CheckEmailViewProps) {
 
   function startWait() {
     stopWait();
-    deadline = Date.now() + waitSeconds(props.resendWaitSeconds) * 1000;
+    waitLength = waitSeconds(props.resendWaitSeconds) * 1000;
+    deadline = Date.now() + waitLength;
     tick();
     if (remaining() > 0) timer = setInterval(tick, 1000);
   }
@@ -226,16 +237,39 @@ export function CheckEmailView(props: CheckEmailViewProps) {
   // per wait and each tick rewrites the seconds' text in place.
   const counting = createMemo(() => remaining() > 0);
 
+  // The fill that empties behind the label over the wait: the whole button,
+  // in the ghost button's own hover fill, its leading edge a 2px line in the
+  // faintest ink, at the disabled button's opacity. It slides out towards the
+  // button's start (`translate`, so the edge stays 2px wide, where a scale
+  // would thin it), clipped to the corners (`overflow-clip`), under the label
+  // (`-z-10` in the button's own stacking context, `isolate`). Built with the
+  // label, so a new wait, or the end of a send, draws a new one, and its
+  // transition starts afresh from `@starting-style`. The delay is negative by
+  // the part of the wait already gone, so a fill drawn late starts part-empty
+  // and still empties on the deadline.
+  const waitCue = (): JSX.Element => {
+    const gone = waitLength - Math.max(0, deadline - Date.now());
+    return (
+      <span
+        aria-hidden="true"
+        // oxlint-disable-next-line house/no-literal-motion -- a time shared with script: the fill keeps pace with the label's seconds, which fall one a second, so it runs linear; any curve would put the two out of step.
+        class="bg-ui-surface-sunk border-ui-ink-tertiary absolute inset-0 -z-10 -translate-x-full border-r-2 transition-transform ease-linear motion-reduce:hidden starting:translate-x-0 forced-colors:hidden"
+        style={{ "transition-duration": `${waitLength}ms`, "transition-delay": `${-gone}ms` }}
+      />
+    );
+  };
+
   // One span, because `Button` is a flex row with a gap between its children;
   // the seconds take tabular figures so the centred label does not shift as
-  // they tick down.
+  // they tick down. The wait's fill sits inside it, out of the row's flow, so
+  // the button still holds one child.
   const resendLabel = (): JSX.Element => {
     if (pending()) return "Sending…";
     if (expired()) return "Send a new link";
     if (counting()) {
       return (
         <span>
-          Resend in <span class="tabular-nums">{remaining()}</span>s
+          Resend in <span class="tabular-nums">{remaining()}</span>s{waitCue()}
         </span>
       );
     }
@@ -346,7 +380,9 @@ export function CheckEmailView(props: CheckEmailViewProps) {
           type="button"
           variant={expired() ? "default" : "ghost"}
           size="sm"
-          class="max-md:h-10"
+          // `relative isolate overflow-clip`: the box the wait's fill is
+          // drawn in, under the label and inside the corners.
+          class="relative isolate overflow-clip max-md:h-10"
           busy={pending()}
           disabled={!pending() && !canResend()}
           onClick={() => void resendLink()}
