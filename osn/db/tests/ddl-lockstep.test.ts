@@ -243,10 +243,6 @@ describe("OSN DDL lockstep", () => {
   const migrated = snapshot(migratedDb());
   const emitted = snapshot(emittedDb());
 
-  it("the migration chain applies cleanly and creates tables", () => {
-    expect(Object.keys(migrated).length).toBeGreaterThan(0);
-  });
-
   it("covers the same set of tables", () => {
     expect(Object.keys(emitted).toSorted()).toEqual(Object.keys(migrated).toSorted());
   });

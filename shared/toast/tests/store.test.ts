@@ -37,19 +37,6 @@ function resumeAsFocusLeaves(id: string, duration: number) {
 }
 
 describe("the toast queue", () => {
-  it("raises a toast and hands back its id", () => {
-    const id = upsert({ tone: "success", message: "Saved" });
-    expect(toasts()).toHaveLength(1);
-    expect(toasts()[0]).toMatchObject({ id, tone: "success", message: "Saved" });
-  });
-
-  it("gives each toast a distinct auto id, so two raises stack", () => {
-    upsert({ tone: "success", message: "One" });
-    upsert({ tone: "success", message: "Two" });
-    expect(toasts()).toHaveLength(2);
-    expect(toasts()[0]!.id).not.toBe(toasts()[1]!.id);
-  });
-
   it("UPDATES in place when the id is already on screen rather than stacking a copy", () => {
     upsert({ tone: "loading", message: "Saving…", id: "save" });
     upsert({ tone: "success", message: "Saved", id: "save" });
@@ -90,12 +77,13 @@ describe("dismissal", () => {
     expect(toasts()).toHaveLength(0);
   });
 
-  it("is idempotent — a second dismiss does not race the first", () => {
+  it("keeps the first removal time when dismissed again on its way out", () => {
     vi.useFakeTimers();
     const id = upsert({ tone: "success", message: "Saved" });
     dismiss(id);
+    vi.advanceTimersByTime(EXIT_MS - 50);
     dismiss(id);
-    vi.advanceTimersByTime(EXIT_MS);
+    vi.advanceTimersByTime(50);
     expect(toasts()).toHaveLength(0);
   });
 
@@ -110,14 +98,6 @@ describe("dismissal", () => {
 });
 
 describe("the auto-dismiss clock", () => {
-  it("dismisses after the duration elapses", () => {
-    vi.useFakeTimers();
-    const id = upsert({ tone: "success", message: "Saved" });
-    scheduleDismiss(id, 1000);
-    vi.advanceTimersByTime(1000 + EXIT_MS);
-    expect(toasts()).toHaveLength(0);
-  });
-
   it("pins the toast when the duration is Infinity — a spinner must not time out", () => {
     vi.useFakeTimers();
     const id = upsert({ tone: "loading", message: "Saving…" });

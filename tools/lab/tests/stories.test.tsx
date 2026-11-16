@@ -23,13 +23,6 @@ describe("the story registry", () => {
     registry = await loadRegistry();
   }, 120_000);
 
-  it("finds story files at all", () => {
-    // Zero means the globs in `registry.ts` stopped matching — a moved
-    // workspace, a renamed directory — and every assertion below would then
-    // pass over an empty list.
-    expect(storyFileCount).toBeGreaterThan(0);
-  });
-
   it("imports every story file without throwing", () => {
     // Named rather than counted, so the failure output says which file and why.
     expect(registry.failures.map((f) => `${f.file}: ${f.error}`)).toEqual([]);

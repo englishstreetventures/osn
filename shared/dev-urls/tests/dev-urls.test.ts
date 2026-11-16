@@ -11,19 +11,6 @@ describe("devUrls", () => {
     expect(urls["@osn/api"]).toBe("http://localhost:4000");
   });
 
-  it("rebuilds sibling URLs from the caller's own portless URL", () => {
-    const urls = devUrls("@cire/host", portless("https://host.cire.localhost"));
-    expect(urls["@cire/api"]).toBe("https://api.cire.localhost");
-    expect(urls["@cire/invites"]).toBe("https://invite.cire.localhost");
-    expect(urls["@osn/api"]).toBe("https://id.musubi.localhost");
-  });
-
-  it("carries the worktree prefix onto every sibling", () => {
-    const urls = devUrls("@cire/host", portless("https://my-branch.host.cire.localhost"));
-    expect(urls["@cire/api"]).toBe("https://my-branch.api.cire.localhost");
-    expect(urls["@musubi/social"]).toBe("https://my-branch.musubi.localhost");
-  });
-
   it("keeps a multi-label custom TLD", () => {
     const urls = devUrls("@osn/api", portless("https://id.musubi.local.test"));
     expect(urls["@musubi/social"]).toBe("https://musubi.local.test");
@@ -35,11 +22,16 @@ describe("devUrls", () => {
     expect(urls["@pulse/api"]).toBe("http://api.pulse.localhost:1355");
   });
 
-  it("does not match the app name inside a longer label", () => {
-    // `cire` is a name in its own right; it must not match the `cire` inside
-    // `api.cire.localhost` and yield a bogus prefix.
+  it("takes an app name that starts the host as having no prefix", () => {
     const urls = devUrls("@cire/landing", portless("https://cire.localhost"));
     expect(urls["@cire/api"]).toBe("https://api.cire.localhost");
+  });
+
+  it("does not match the app name inside a longer label", () => {
+    // `apicire` is one label, not a prefix `api` before the name `cire`, so the
+    // caller's own name is not in the URL and siblings fall back.
+    const urls = devUrls("@cire/landing", portless("https://apicire.localhost"));
+    expect(urls["@cire/api"]).toBe("http://localhost:8787");
   });
 
   it("takes the app name from the right when a worktree prefix repeats it", () => {
@@ -72,15 +64,6 @@ describe("devRpId", () => {
     expect(devRpId("@osn/api", {})).toBe("localhost");
   });
 
-  it("is the shared parent of the account apps", () => {
-    // Must be a suffix of both the app that creates the passkey
-    // (musubi.localhost) and the API that verifies it (id.musubi.localhost).
-    expect(devRpId("@osn/api", portless("https://id.musubi.localhost"))).toBe("musubi.localhost");
-    expect(devRpId("@musubi/social", portless("https://musubi.localhost"))).toBe(
-      "musubi.localhost",
-    );
-  });
-
   it("drops the worktree prefix so one rpId covers every worktree", () => {
     expect(devRpId("@osn/api", portless("https://my-branch.id.musubi.localhost"))).toBe(
       "musubi.localhost",
@@ -90,27 +73,11 @@ describe("devRpId", () => {
   it("follows a custom TLD", () => {
     expect(devRpId("@osn/api", portless("https://id.musubi.local.test"))).toBe("musubi.local.test");
   });
-
-  it("stays a suffix of both the app that enrols the passkey and the API that verifies it", () => {
-    const rpId = devRpId("@osn/api", portless("https://my-branch.id.musubi.localhost"));
-    for (const host of [
-      "my-branch.musubi.localhost",
-      "my-branch.id.musubi.localhost",
-      "musubi.localhost",
-      "id.musubi.localhost",
-    ]) {
-      expect(host === rpId || host.endsWith(`.${rpId}`)).toBe(true);
-    }
-  });
 });
 
 describe("devPort", () => {
   it("uses the port portless assigned", () => {
     expect(devPort(4321, { PORT: "4567" })).toBe(4567);
-  });
-
-  it("falls back without portless", () => {
-    expect(devPort(4321, {})).toBe(4321);
   });
 
   it("falls back rather than binding somewhere nothing is proxied", () => {

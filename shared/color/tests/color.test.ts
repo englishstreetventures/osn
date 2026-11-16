@@ -62,9 +62,8 @@ describe("contrastRatio", () => {
   });
 
   it("passes the built-in gold-on-surface defaults (no advisory out of the box)", () => {
-    // The builder's advisory must NOT fire for an un-themed invite — pin the
-    // default token pair (mirrors PREVIEW_DEFAULTS) comfortably above the AA
-    // text minimum.
+    // The pair an un-themed invite paints: `--color-gold` on `--color-surface`
+    // in cire/invites/src/styles/global.css, pinned above the AA text minimum.
     const ratio = contrastRatio("oklch(74.99% 0.0854 82.08)", "oklch(22.7% 0.0275 152.78)");
     expect(ratio).not.toBeNull();
     expect(ratio!).toBeGreaterThan(WCAG_TEXT_MIN);

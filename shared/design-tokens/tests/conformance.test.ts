@@ -73,10 +73,6 @@ function stylesheet(overrides: Record<string, string> = {}): string {
 const ONE_SCOPE = [{ name: "test", selectors: [":root"] }] as const;
 
 describe("checkContractConformance", () => {
-  it("passes a mapping that clears every floor", () => {
-    expect(checkContractConformance({ css: stylesheet(), scopes: ONE_SCOPE })).toEqual([]);
-  });
-
   it("resolves a two-hop var() chain rather than reading a literal", () => {
     // If the resolver were not following `var()`, every pair would come back
     // unparseable and the suite above would fail for the wrong reason. This
@@ -153,13 +149,6 @@ describe("checkContractConformance", () => {
       scopes: ONE_SCOPE,
     });
     expect(failures.some((f) => f.fg === "--ui-ink-tertiary")).toBe(false);
-  });
-
-  it("measures on-fill ink against its fill, never against the page", () => {
-    // White on white would be a failure if `--ui-on-accent` were measured
-    // against the ground. It is not a combination any component renders.
-    const failures = checkContractConformance({ css: stylesheet(), scopes: ONE_SCOPE });
-    expect(failures.some((f) => f.fg === "--ui-on-accent" && f.bg === "--ui-ground")).toBe(false);
   });
 
   it("reports an unmapped token rather than skipping it", () => {

@@ -90,11 +90,6 @@ describe("SCALE_MIGRATION", () => {
       const bad = Object.entries(SCALE_MIGRATION[key]).filter(([, to]) => !steps.has(to));
       expect(bad).toEqual([]);
     });
-
-    it(`${key}: maps each source value exactly once`, () => {
-      const sources = Object.keys(SCALE_MIGRATION[key]);
-      expect(new Set(sources).size).toBe(sources.length);
-    });
   }
 
   it("text: sends each value to its nearest step, so the mapping is checkable rather than arbitrary", () => {

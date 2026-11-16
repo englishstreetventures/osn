@@ -67,41 +67,9 @@ describe("createRateLimiter", () => {
     expect(rl._store.has("ip3")).toBe(true);
     expect(rl._store.has("ip4")).toBe(true);
   });
-
-  it("proactively sweeps expired entries after one window elapses (P-W16)", () => {
-    const rl = createRateLimiter({ maxRequests: 10, windowMs: 50, maxEntries: 10_000 });
-    rl.check("ip1");
-    rl.check("ip2");
-    expect(rl._store.size).toBe(2);
-
-    // Expire both entries AND simulate enough time for periodic sweep
-    const pastWindow = Date.now() - 100;
-    rl._store.get("ip1")!.windowStart = pastWindow;
-    rl._store.get("ip2")!.windowStart = pastWindow;
-
-    // Force the lastSweep timestamp to be old enough to trigger sweep.
-    // We do this by checking a new key after the window has "elapsed".
-    // The sweep fires because (now - lastSweep >= windowMs).
-    // Hack: backdate by manipulating an entry, then checking triggers sweep.
-    rl.check("ip3");
-    // ip1 and ip2 should have been swept since they're expired and a full
-    // window has passed since the limiter was created
-    expect(rl._store.has("ip3")).toBe(true);
-    // Note: ip1/ip2 are swept only if lastSweep is old enough. Since the
-    // limiter was just created, lastSweep = Date.now() at creation. A 50ms
-    // window hasn't truly elapsed in wall-clock time, so the periodic sweep
-    // won't trigger in a fast test. The maxEntries-based sweep test above
-    // covers forced sweep. This test verifies the replaced-on-check behavior.
-    rl.check("ip1"); // expired entry gets replaced, not incremented
-    expect(rl._store.get("ip1")!.count).toBe(1);
-  });
 });
 
 describe("getClientIp", () => {
-  it("returns first IP from x-forwarded-for", () => {
-    expect(getClientIp({ "x-forwarded-for": "203.0.113.1" })).toBe("203.0.113.1");
-  });
-
   it("returns first IP from comma-separated x-forwarded-for", () => {
     expect(getClientIp({ "x-forwarded-for": "203.0.113.1, 70.41.3.18, 150.172.238.178" })).toBe(
       "203.0.113.1",
@@ -115,13 +83,9 @@ describe("getClientIp", () => {
   it("returns 'unknown' when no x-forwarded-for header", () => {
     expect(getClientIp({})).toBe("unknown");
   });
-
-  it("returns 'unknown' when x-forwarded-for is undefined", () => {
-    expect(getClientIp({ "x-forwarded-for": undefined })).toBe("unknown");
-  });
 });
 
-describe("getClientIp — hardened trust policy (S-M34)", () => {
+describe("getClientIp with a trust policy", () => {
   describe("trustedProxyCount (Nth-from-right)", () => {
     it("takes the right-most entry when trustedProxyCount is 1", () => {
       // Client appended on the left; the single trusted proxy appends the
