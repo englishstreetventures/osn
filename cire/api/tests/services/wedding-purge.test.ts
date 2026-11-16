@@ -458,3 +458,43 @@ describe("handing a purged wedding's Standard account back (23)", () => {
     expect(logs).toContain("acct_own");
   });
 });
+
+/**
+ * A deleted wedding with no owner seat: what an account erasure leaves when it
+ * deletes a wedding its only owner's account held. Only an owner can restore a
+ * deleted wedding, so one with none waits for nothing.
+ */
+describe("maintenanceSweeps.purgeDeletedWeddings — a deleted wedding with no owner (F31)", () => {
+  const ownerless = (db: TestDb, id: string) =>
+    db.run(sql.raw(`DELETE FROM wedding_hosts WHERE wedding_id = '${id}' AND role = 'owner'`));
+
+  it("purges it inside the restore window; one with an owner waits out the window", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_noowner", daysAgo(1));
+    ownerless(db, "wed_noowner");
+    seedWedding(db, "wed_owned", daysAgo(1));
+    expect((await purge(db)).purged).toBe(1);
+    expect(exists(db, "wed_noowner")).toBe(false);
+    expect(exists(db, "wed_owned")).toBe(true);
+  });
+
+  it("still holds it while money can move", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_noowner", daysAgo(1));
+    ownerless(db, "wed_noowner");
+    db.update(registryContributions)
+      .set({ status: "disputed" })
+      .where(eq(registryContributions.weddingId, "wed_noowner"))
+      .run();
+    expect(await purge(db)).toMatchObject({ purged: 0, held: 1 });
+    expect(exists(db, "wed_noowner")).toBe(true);
+  });
+
+  it("never touches a live wedding, owner or not", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_live", null);
+    ownerless(db, "wed_live");
+    expect((await purge(db)).purged).toBe(0);
+    expect(exists(db, "wed_live")).toBe(true);
+  });
+});

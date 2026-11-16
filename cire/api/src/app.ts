@@ -32,6 +32,7 @@ import {
   createClaimSignoutRoutes,
 } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
+import { createInternalAccountDeletionRoutes } from "./routes/internal-account-deletion";
 import { createInternalRevokeRoutes } from "./routes/internal-revoke";
 import {
   createInviteImageServeRoutes,
@@ -1141,6 +1142,15 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
         createInternalRevokeRoutes(db, {
           revokeSecret: internalRevokeSecret,
           limiter: internalRevokeLimiter,
+        }),
+      )
+      // osn-api's account-deletion preview and erasure. Mounted BEFORE the
+      // origin guard for the same reason: server-to-server, no browser
+      // `Origin`. ARC authenticates each call (lib/osn-arc.ts).
+      .use(
+        createInternalAccountDeletionRoutes(db, {
+          osnIssuer: osnIssuerUrl,
+          organiserOrigin,
         }),
       )
       // The digest's one-click stop link. Mounted BEFORE the origin guard: a

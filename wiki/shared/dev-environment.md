@@ -123,10 +123,12 @@ osn-api.
 
 ### Where an account deletion reaches on dev
 
-The musubi stack gives `osn-api-dev` zap-api-dev's origin (`ZAP_API_URL`) and
-declares Pulse absent (`OSN_DELETION_ABSENT_APPS = "pulse"`): a dev deletion asks
-Zap for its preview and, after the window, erases there, and skips Pulse, which
-has no dev API. `OSN_DELETION_FANOUT_MAX_JOBS` is unset, so each cron run reaches
+The musubi stack gives `osn-api-dev` zap-api-dev's and cire-api-dev's origins
+(`ZAP_API_URL`, `CIRE_API_URL`) and declares Pulse absent
+(`OSN_DELETION_ABSENT_APPS = "pulse"`): a dev deletion asks Zap and cire for
+their previews and, after the window, erases there, and skips Pulse, which has
+no dev API. `CIRE_API_URL` is also where osn-api-dev ends cire organiser
+sessions; cire-api-dev needs no new secret for the deletion's calls. `OSN_DELETION_FANOUT_MAX_JOBS` is unset, so each cron run reaches
 at most 4 jobs ([[dsar#The apps' open actions and the app contract]]).
 
 ---

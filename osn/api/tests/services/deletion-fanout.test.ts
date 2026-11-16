@@ -125,6 +125,7 @@ describe("the deletion fan-out", () => {
         const { accountId, profileId } = yield* dueAccount("sent", {
           choices: JSON.stringify({
             "pulse:event:evt_1": { choice: "delete" },
+            "cire:wedding:wed_1": { choice: "delete" },
             "osn:organisation:org_1": { choice: "transfer" },
           }),
         });
@@ -132,10 +133,10 @@ describe("the deletion fan-out", () => {
         yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
 
         const calls = erasures(accountId);
-        expect(calls.map((call) => call.app).toSorted()).toEqual(["pulse", "zap"]);
+        expect(calls.map((call) => call.app).toSorted()).toEqual(["cire", "pulse", "zap"]);
         const pulse = calls.find((call) => call.app === "pulse")!;
-        // Neither app keeps data a person may ask about by email, so neither
-        // is sent the address.
+        // No app keeps data a person may ask about by email, so none is sent
+        // the address.
         expect(pulse.body).toEqual({
           accountId,
           profileIds: [profileId],
@@ -146,13 +147,22 @@ describe("the deletion fan-out", () => {
         const zap = calls.find((call) => call.app === "zap")!;
         expect(zap.body.choices).toEqual({});
         expect(zap.body).not.toHaveProperty("email");
+        const cire = calls.find((call) => call.app === "cire")!;
+        expect(cire.body).toEqual({
+          accountId,
+          profileIds: [profileId],
+          choices: { "cire:wedding:wed_1": { choice: "delete" } },
+          deleteEverything: false,
+        });
 
         const job = yield* jobOf(accountId);
         expect(job.pulseDoneAt).toBeGreaterThan(0);
         expect(job.zapDoneAt).toBeGreaterThan(0);
+        expect(job.cireDoneAt).toBeGreaterThan(0);
         expect(JSON.parse(job.appOutcomes!)).toEqual({
           pulse: { status: "done", kept },
           zap: { status: "done", kept: [] },
+          cire: { status: "done", kept: [] },
         });
         expect(job.fanoutFailedAt).toBeNull();
       }).pipe(Effect.provide(createTestLayer())),
@@ -163,21 +173,26 @@ describe("the deletion fan-out", () => {
       answer = () => undefined;
       const { accountId } = yield* dueAccount("everything", { deleteEverything: true });
       yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
-      expect(erasures(accountId).map((call) => call.body.deleteEverything)).toEqual([true, true]);
+      expect(erasures(accountId).map((call) => call.body.deleteEverything)).toEqual([
+        true,
+        true,
+        true,
+      ]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect(
-    "sends a job written before every account went to every app (`-1` marks) to both apps",
+    "sends a job written before every account went to every app (`-1` marks, no cire mark) to every app",
     () =>
       Effect.gen(function* () {
         answer = () => undefined;
         const { accountId } = yield* dueAccount("old", { pulseDoneAt: -1, zapDoneAt: -1 });
         yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
-        expect(erasures(accountId)).toHaveLength(2);
+        expect(erasures(accountId)).toHaveLength(3);
         const job = yield* jobOf(accountId);
         expect(job.pulseDoneAt).toBeGreaterThan(0);
         expect(job.zapDoneAt).toBeGreaterThan(0);
+        expect(job.cireDoneAt).toBeGreaterThan(0);
       }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -189,10 +204,18 @@ describe("the deletion fan-out", () => {
         appOutcomes: JSON.stringify({ pulse: { status: "done", kept: [] } }),
       });
       yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
-      expect(erasures(accountId).map((call) => call.app)).toEqual(["zap"]);
+      expect(
+        erasures(accountId)
+          .map((call) => call.app)
+          .toSorted(),
+      ).toEqual(["cire", "zap"]);
       const job = yield* jobOf(accountId);
       expect(job.pulseDoneAt).toBe(1_700_000_000);
-      expect(Object.keys(JSON.parse(job.appOutcomes!)).toSorted()).toEqual(["pulse", "zap"]);
+      expect(Object.keys(JSON.parse(job.appOutcomes!)).toSorted()).toEqual([
+        "cire",
+        "pulse",
+        "zap",
+      ]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -298,7 +321,7 @@ describe("the deletion fan-out", () => {
       expect(yield* runFanOutRetrySweep({ config: apps.config(), nowMs, maxJobs: 1 })).toEqual({
         retried: 1,
       });
-      expect(erasures(fresh.accountId)).toHaveLength(2);
+      expect(erasures(fresh.accountId)).toHaveLength(3);
       expect(erasures(failed.accountId)).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -327,21 +350,23 @@ describe("the deletion fan-out", () => {
 
         yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
 
-        // Read before the pass: both apps are 3 days behind on "stuck"; the job
+        // Read before the pass: every app is 3 days behind on "stuck"; the job
         // still inside its window does not count.
         expect(age.mock.calls.toSorted()).toEqual([
+          ["cire", 3 * 86_400],
           ["pulse", 3 * 86_400],
           ["zap", 3 * 86_400],
         ]);
         expect(
           lines.filter((line) => JSON.stringify(line.message).includes("overdue")),
-        ).toHaveLength(2);
+        ).toHaveLength(3);
 
         age.mockClear();
         answer = () => undefined;
         yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
         yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
-        expect(age.mock.calls.slice(-2).toSorted()).toEqual([
+        expect(age.mock.calls.slice(-3).toSorted()).toEqual([
+          ["cire", 0],
           ["pulse", 0],
           ["zap", 0],
         ]);
@@ -377,7 +402,12 @@ describe("the deletion fan-out", () => {
     expect(job.zapDoneAt).toBe(1_700_000_000);
     expect(JSON.parse(job.appOutcomes!).zap).toEqual(marker);
     expect(job.pulseDoneAt).toBeGreaterThan(0);
-    expect(counted.mock.calls.filter(([, result]) => result === "ok")).toEqual([["pulse", "ok"]]);
+    expect(
+      counted.mock.calls
+        .filter(([, result]) => result === "ok")
+        .map(([app]) => app)
+        .toSorted(),
+    ).toEqual(["cire", "pulse"]);
   });
 
   it.effect(
@@ -412,7 +442,7 @@ describe("the deletion fan-out", () => {
         expect((yield* jobOf(broken.accountId)).fanoutFailedAt).toBe(NOW);
 
         yield* runFanOutRetrySweep({ config: apps.config(), nowMs, maxJobs: 1 });
-        expect(erasures(sound.accountId)).toHaveLength(2);
+        expect(erasures(sound.accountId)).toHaveLength(3);
       }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -461,7 +491,7 @@ describe("the deletion fan-out", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it("reads each job once, and marks a skipped app in the claim: two writes a job on a deployed tier", async () => {
+  it("reads each job once, and marks a skipped app in the claim: three writes a job on a deployed tier", async () => {
     answer = () => undefined;
     const { layer, captured } = createCapturingTestLayer();
     const config = apps.config();
@@ -474,7 +504,7 @@ describe("the deletion fan-out", () => {
           config: {
             ...config,
             local: false,
-            urls: { zap: config.urls.zap! },
+            urls: { zap: config.urls.zap!, cire: config.urls.cire! },
             absent: new Set(["pulse"]),
           },
           nowMs,
@@ -487,7 +517,7 @@ describe("the deletion fan-out", () => {
       );
     // The job read and the oldest-pending aggregate, whatever the job count.
     expect(onJobs("select")).toHaveLength(2);
-    // Per job: the claim, which marks Pulse skipped, then Zap's mark.
-    expect(onJobs("update")).toHaveLength(4);
+    // Per job: the claim, which marks Pulse skipped, then Zap's and cire's marks.
+    expect(onJobs("update")).toHaveLength(6);
   });
 });

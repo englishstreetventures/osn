@@ -951,6 +951,7 @@ describe("account-erasure: hard-delete sweeper", () => {
           hardDeleteAt: 2_000,
           pulseDoneAt: 1_500,
           zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
           reason: "user_request",
           cancelSessionId: null,
         }),
@@ -988,6 +989,7 @@ describe("account-erasure: hard-delete sweeper", () => {
           hardDeleteAt: 2_000,
           pulseDoneAt: null, // pending
           zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
           reason: "user_request",
           cancelSessionId: null,
         }),
@@ -1021,6 +1023,7 @@ describe("account-erasure: hard-delete sweeper", () => {
           hardDeleteAt: 2_000,
           pulseDoneAt: 1_500,
           zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
           reason: "user_request",
           cancelSessionId: null,
         }),
@@ -1053,6 +1056,7 @@ describe("account-erasure: hard-delete sweeper", () => {
           hardDeleteAt: 2_000,
           pulseDoneAt: 1_500,
           zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
           reason: "user_request",
           cancelSessionId: null,
         }),
@@ -1110,6 +1114,7 @@ describe("account-erasure: hard-delete sweeper", () => {
           hardDeleteAt: 2_000,
           pulseDoneAt: 1_500,
           zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
           reason: "user_request",
           cancelSessionId: null,
         }),
@@ -1152,6 +1157,7 @@ describe("account-erasure: hard-delete sweeper", () => {
           hardDeleteAt: 2_000,
           pulseDoneAt: 1_500,
           zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
           reason: "user_request",
           cancelSessionId: null,
         }),
@@ -1561,6 +1567,7 @@ describe("account-erasure: hard-delete sweep isolation", () => {
           hardDeleteAt,
           pulseDoneAt: 1_500,
           zapDoneAt: 1_500,
+          cireDoneAt: 1_500,
           reason: "user_request",
           cancelSessionId: null,
           choices,
@@ -1833,7 +1840,11 @@ describe("account-erasure: a cancel and a purge", () => {
         yield* Effect.promise(() =>
           db
             .update(deletionJobs)
-            .set({ pulseDoneAt: 1_700_000_000, zapDoneAt: 1_700_000_000 })
+            .set({
+              pulseDoneAt: 1_700_000_000,
+              zapDoneAt: 1_700_000_000,
+              cireDoneAt: 1_700_000_000,
+            })
             .where(eq(deletionJobs.accountId, accountId)),
         );
       }
@@ -1867,7 +1878,7 @@ describe("account-erasure: a cancel and a purge", () => {
       );
       yield* Effect.promise(() => remove.reached);
       yield* accountErasure.runFanOutRetrySweep({ nowMs: pastWindowMs, config });
-      expect(purgesOf(accountId)).toBe(2);
+      expect(purgesOf(accountId)).toBe(3);
       remove.release();
 
       expect(yield* Fiber.join(cancel)).toMatchObject({

@@ -462,6 +462,10 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
   "POST /api/csp-report/": "a browser's CSP report; names no wedding",
   "POST /api/realtime/fallback": "a portal tab's report that push stopped; names no wedding",
   "POST /internal/revoke-organiser-sessions": "revokes one OSN profile's organiser sessions",
+  "POST /internal/account-deletion-preview":
+    "osn-api's ARC call: lists live weddings by the account's profiles, never by a wedding id it is given",
+  "POST /internal/account-deleted":
+    "osn-api's ARC call: erases an account's seats and attribution across weddings, deleted ones included, by profile",
   "GET /api/rsvp-digest/stop":
     "a signed, seat-scoped digest preference; harmless on a deleted wedding and kept for a restore",
   "POST /api/rsvp-digest/stop":

@@ -353,6 +353,7 @@ export const requestErasure = (
             hardDeleteAt: bound(hardDeleteAt, deletionJobs.hardDeleteAt),
             pulseDoneAt: bound(null, deletionJobs.pulseDoneAt),
             zapDoneAt: bound(null, deletionJobs.zapDoneAt),
+            cireDoneAt: bound(null, deletionJobs.cireDoneAt),
             reason: bound(reason, deletionJobs.reason),
             cancelSessionId: bound(cancel?.sessionId ?? null, deletionJobs.cancelSessionId),
             restore: sql<string>`json_object(
@@ -1038,7 +1039,6 @@ interface FanOutJobBody {
   readonly profileIds: ReadonlyArray<string>;
   readonly answers: Readonly<Record<string, { readonly choice: string }>>;
   readonly deleteEverything: boolean;
-  readonly email: string;
 }
 
 /** The profile ids the fan-out read holds as a JSON array; anything else fails the job. */
@@ -1203,13 +1203,12 @@ const finishApp = (
       Effect.catch((cause) => failed("mark_failed", cause)),
     );
   }
-  const base: AccountDeletedBody = {
+  const sent: AccountDeletedBody = {
     accountId: body.accountId,
     profileIds: body.profileIds,
     choices: choicesForApp(entry.app, body.answers),
     deleteEverything: body.deleteEverything,
   };
-  const sent: AccountDeletedBody = entry.receivesEmail ? { ...base, email: body.email } : base;
   return sendAccountDeleted(config, entry, target.url, sent).pipe(
     Effect.tapError((error) =>
       Effect.sync(() => metricAccountDeletionFanout(entry.app, error.result)),
@@ -1228,9 +1227,14 @@ const finishApp = (
 /** A job as the fan-out reads it: its marks, its claim, and what every app is sent. */
 interface FanOutJob extends Pick<
   DeletionJob,
-  "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt" | "choices" | "deleteEverything"
+  | "accountId"
+  | "pulseDoneAt"
+  | "zapDoneAt"
+  | "cireDoneAt"
+  | "purgeStartedAt"
+  | "choices"
+  | "deleteEverything"
 > {
-  readonly email: string;
   /** The account's profile ids, a JSON array. */
   readonly profileIds: string;
 }
@@ -1257,7 +1261,6 @@ const runFanOut = (
       profileIds: yield* readProfileIds(job.profileIds),
       answers: yield* storedAnswers(job.choices),
       deleteEverything: job.deleteEverything,
-      email: job.email,
     };
     let pending = DELETION_APPS.filter((entry) => isPending(markOf(job, entry)));
     if (job.purgeStartedAt === null) {
@@ -1715,14 +1718,13 @@ export const runFanOutRetrySweep = (opts: {
                 accountId: deletionJobs.accountId,
                 pulseDoneAt: deletionJobs.pulseDoneAt,
                 zapDoneAt: deletionJobs.zapDoneAt,
+                cireDoneAt: deletionJobs.cireDoneAt,
                 purgeStartedAt: deletionJobs.purgeStartedAt,
                 choices: deletionJobs.choices,
                 deleteEverything: deletionJobs.deleteEverything,
-                email: accounts.email,
                 profileIds: sql<string>`(SELECT json_group_array(p.id) FROM users p WHERE p.account_id = ${deletionJobs.accountId})`,
               })
               .from(deletionJobs)
-              .innerJoin(accounts, eq(accounts.id, deletionJobs.accountId))
               .where(and(lte(deletionJobs.hardDeleteAt, nowSec), someAppPending()))
               .orderBy(
                 sql`${deletionJobs.fanoutFailedAt} ASC NULLS FIRST`,

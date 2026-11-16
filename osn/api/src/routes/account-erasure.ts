@@ -20,6 +20,11 @@ import * as accountErasure from "../services/account-erasure";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { isAuthError } from "../services/auth/errors";
 import {
+  DISABLED_CIRE_ORGANISER_REVOKE,
+  revokeCireOrganiserSessions,
+  type CireOrganiserRevokeConfig,
+} from "../services/cire-organiser-revoke";
+import {
   endAppSessions,
   NO_DELETION_APPS,
   previewDeletionApps,
@@ -81,6 +86,8 @@ export function createAccountErasureRoutes(
   runtime?: AppRuntime,
   /** Where each app the deletion reaches is on this tier. */
   deletionApps: DeletionAppsConfig = NO_DELETION_APPS,
+  /** The back-channel that ends the person's cire organiser sessions at the soft delete. */
+  cireOrganiserRevoke: CireOrganiserRevokeConfig = DISABLED_CIRE_ORGANISER_REVOKE,
 ) {
   const auth = createAuthService(authConfig);
   const rl = rateLimiters;
@@ -437,9 +444,20 @@ export function createAccountErasureRoutes(
             // No erasure in any app here: that waits for the window to pass
             // (`runFanOutRetrySweep`), so a cancel loses nothing. The
             // person's own sessions in an app that keeps them end now, in the
-            // background; the app's erasure deletes any that survive.
+            // background; the app's erasure deletes any that survive. cire's
+            // organiser sessions end through the revoke osn-api already uses
+            // for sign out everywhere else, while the profiles still exist.
             if (result.newlyScheduled) {
               await run(forkBackground(endAppSessions(deletionApps, result.profileIds)));
+              await run(
+                forkBackground(
+                  revokeCireOrganiserSessions(
+                    cireOrganiserRevoke,
+                    profile.accountId,
+                    "account_deletion",
+                  ),
+                ),
+              );
             }
 
             set.status = 202;

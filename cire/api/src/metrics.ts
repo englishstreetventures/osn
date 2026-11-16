@@ -153,6 +153,11 @@ export const CIRE_METRICS = {
   // Deleted weddings past their window that a purge run left for a later one
   // because of its per-run cap — the backlog, recorded once per run.
   weddingPurgeBacklog: "cire.wedding.purge.backlog",
+  // osn-api's account deletion: each preview it asked for, each erasure call,
+  // and what each erasure did to a wedding the person was seated on.
+  accountDeletionPreviews: "cire.account_deletion.previews",
+  accountDeletionErasures: "cire.account_deletion.erasures",
+  accountDeletionWeddings: "cire.account_deletion.weddings",
   // The email to a wedding's owners when one is removed or demoted, or the
   // wedding is deleted: one count per notice, not per recipient.
   ownerNotice: "cire.owner_notice.dispatched",
@@ -303,6 +308,13 @@ export type WeddingRestoredResult =
   | "not_found"
   | "error";
 type WeddingPurgedResult = "ok" | "held" | "error";
+/** How an account-deletion preview from osn-api ended. */
+export type AccountDeletionPreviewResult = "ok" | "error";
+/** How an account erasure call from osn-api ended: all done, part done (osn-api calls again), or failed. */
+export type AccountDeletionErasureResult = "done" | "not_finished" | "error";
+/** What an erasure did to one wedding the person owned: deleted, no other
+ *  owner being left, or only their seat removed, another owner remaining. */
+export type AccountDeletionWeddingOutcome = "deleted" | "seat_removed";
 /** Which owner notice was attempted. */
 export type OwnerNoticeKind = "owner_change" | "delete_started";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
@@ -802,6 +814,9 @@ type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type WeddingDeletedAttrs = { result: WeddingDeletedResult };
 type WeddingRestoredAttrs = { result: WeddingRestoredResult };
 type WeddingPurgedAttrs = { result: WeddingPurgedResult };
+type AccountDeletionPreviewAttrs = { result: AccountDeletionPreviewResult };
+type AccountDeletionErasureAttrs = { result: AccountDeletionErasureResult };
+type AccountDeletionWeddingAttrs = { outcome: AccountDeletionWeddingOutcome };
 type OwnerNoticeAttrs = { kind: OwnerNoticeKind; result: OwnerNoticeResult };
 type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent; account: StripeUnmatchedAccount };
 type StripeOAuthAttrs = { outcome: StripeOAuthOutcome };
@@ -1291,6 +1306,24 @@ const weddingPurged = createCounter<WeddingPurgedAttrs>({
   unit: "{wedding}",
 });
 
+const accountDeletionPreviews = createCounter<AccountDeletionPreviewAttrs>({
+  name: CIRE_METRICS.accountDeletionPreviews,
+  description: "osn-api's account-deletion previews answered, by outcome",
+  unit: "{preview}",
+});
+
+const accountDeletionErasures = createCounter<AccountDeletionErasureAttrs>({
+  name: CIRE_METRICS.accountDeletionErasures,
+  description: "osn-api's account erasure calls, by outcome",
+  unit: "{call}",
+});
+
+const accountDeletionWeddings = createCounter<AccountDeletionWeddingAttrs>({
+  name: CIRE_METRICS.accountDeletionWeddings,
+  description: "Weddings an erased account owned, by what the erasure did to each",
+  unit: "{wedding}",
+});
+
 const weddingPurgeBacklog = createHistogram<Record<never, never>>({
   name: CIRE_METRICS.weddingPurgeBacklog,
   description:
@@ -1677,6 +1710,15 @@ export const metricWeddingRestored = (result: WeddingRestoredResult): void =>
 export const metricWeddingPurged = (result: WeddingPurgedResult, count: number): void => {
   if (count > 0) weddingPurged.add(count, { result });
 };
+
+export const metricAccountDeletionPreview = (result: AccountDeletionPreviewResult): void =>
+  accountDeletionPreviews.inc({ result });
+
+export const metricAccountDeletionErasure = (result: AccountDeletionErasureResult): void =>
+  accountDeletionErasures.inc({ result });
+
+export const metricAccountDeletionWedding = (outcome: AccountDeletionWeddingOutcome): void =>
+  accountDeletionWeddings.inc({ outcome });
 
 /** The purge backlog one run left behind, recorded every run (zero included). */
 export const metricWeddingPurgeBacklog = (due: number): void => weddingPurgeBacklog.record(due, {});

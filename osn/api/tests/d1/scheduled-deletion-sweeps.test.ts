@@ -59,8 +59,8 @@ async function dueAccount(name: string, ready: boolean): Promise<void> {
       .bind(`acc_${name}`, `${name}@example.com`, `pku_${name}`, now - 8 * DAY),
     d1
       .prepare(
-        `INSERT INTO deletion_jobs (account_id, soft_deleted_at, hard_delete_at, pulse_done_at, zap_done_at)
-         VALUES (?1, ?2, ?3, ?4, ?4)`,
+        `INSERT INTO deletion_jobs (account_id, soft_deleted_at, hard_delete_at, pulse_done_at, zap_done_at, cire_done_at)
+         VALUES (?1, ?2, ?3, ?4, ?4, ?4)`,
       )
       .bind(`acc_${name}`, now - 8 * DAY, now - DAY, mark),
   ]);
@@ -72,10 +72,10 @@ const accountsLeft = async (): Promise<number> =>
 const marksOf = async (name: string) =>
   d1
     .prepare(
-      "SELECT pulse_done_at AS pulse, zap_done_at AS zap FROM deletion_jobs WHERE account_id = ?",
+      "SELECT pulse_done_at AS pulse, zap_done_at AS zap, cire_done_at AS cire FROM deletion_jobs WHERE account_id = ?",
     )
     .bind(`acc_${name}`)
-    .first<{ pulse: number | null; zap: number | null }>();
+    .first<{ pulse: number | null; zap: number | null; cire: number | null }>();
 
 async function runCron(env: Partial<Env>): Promise<void> {
   const pending: Promise<unknown>[] = [];
@@ -115,11 +115,12 @@ describe("the cron's deletion sweeps on D1", () => {
     // The hard delete ran: the account every app was done with is gone.
     expect(await accountsLeft()).toBe(1);
     // The fan-out did not: on a local run it would have marked both apps skipped.
-    expect(await marksOf("waiting")).toEqual({ pulse: null, zap: null });
+    expect(await marksOf("waiting")).toEqual({ pulse: null, zap: null, cire: null });
 
     await runCron({});
     const marked = await marksOf("waiting");
     expect(marked?.pulse).toBeGreaterThan(0);
     expect(marked?.zap).toBeGreaterThan(0);
+    expect(marked?.cire).toBeGreaterThan(0);
   });
 });

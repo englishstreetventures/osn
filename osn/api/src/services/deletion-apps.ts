@@ -11,10 +11,9 @@
  *   answer. Every id starts with `<app>:`.
  * - `POST /internal/account-deleted`, scope `account:erase`, with
  *   `{ accountId, profileIds, choices, deleteEverything }` once the window has
- *   passed, and `email` too for an app that receives it
- *   ({@link DeletionAppEntry.receivesEmail}), answering
- *   `{ kept: [{ what, erasedOn, requestUrl }] }`: what the app keeps, until
- *   when, and where to ask about it. A repeat of the call answers the same.
+ *   passed, answering `{ kept: [{ what, erasedOn, requestUrl }] }`: what the
+ *   app keeps, until when, and where to ask about it. A repeat of the call
+ *   answers the same. No app is sent the person's email address.
  *   `accountId` keys the app's record of the erasure; no other call carries
  *   it.
  *
@@ -46,17 +45,16 @@ export interface DeletionAppEntry {
   /** Its `deletion_jobs` mark: positive once the fan-out is done with it. */
   readonly done: AnySQLiteColumn;
   /** The mark's field on a `deletion_jobs` row. */
-  readonly doneKey: "pulseDoneAt" | "zapDoneAt";
+  readonly doneKey: "pulseDoneAt" | "zapDoneAt" | "cireDoneAt";
   /** The URL variable osn-api reads it from. */
-  readonly urlVariable: "PULSE_API_URL" | "ZAP_API_URL";
-  /** Whether the soft delete ends the person's sessions there. */
-  readonly endsSessionsAtSoftDelete: boolean;
+  readonly urlVariable: "PULSE_API_URL" | "ZAP_API_URL" | "CIRE_API_URL";
   /**
-   * Whether the erasure sends the app the account's email address: only an
-   * app that keeps data after the erasure which a person may ask about by
-   * email needs it to prove a later request.
+   * Whether the soft delete ends the person's sessions there over ARC
+   * (`/internal/account-sessions/revoke`). cire's organiser sessions are ended
+   * through its existing revoke instead (`services/cire-organiser-revoke.ts`),
+   * the one way osn-api ends them for every reason.
    */
-  readonly receivesEmail: boolean;
+  readonly endsSessionsAtSoftDelete: boolean;
 }
 
 export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
@@ -67,7 +65,6 @@ export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
     doneKey: "pulseDoneAt",
     urlVariable: "PULSE_API_URL",
     endsSessionsAtSoftDelete: true,
-    receivesEmail: false,
   },
   {
     app: "zap",
@@ -76,7 +73,14 @@ export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
     doneKey: "zapDoneAt",
     urlVariable: "ZAP_API_URL",
     endsSessionsAtSoftDelete: false,
-    receivesEmail: false,
+  },
+  {
+    app: "cire",
+    audience: "cire-api",
+    done: deletionJobs.cireDoneAt,
+    doneKey: "cireDoneAt",
+    urlVariable: "CIRE_API_URL",
+    endsSessionsAtSoftDelete: false,
   },
 ];
 
@@ -127,6 +131,7 @@ export interface DeletionAppsEnv {
   readonly OSN_ENV?: string;
   readonly PULSE_API_URL?: string;
   readonly ZAP_API_URL?: string;
+  readonly CIRE_API_URL?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
 }
@@ -182,6 +187,7 @@ export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
   const given = {
     PULSE_API_URL: env.PULSE_API_URL,
     ZAP_API_URL: env.ZAP_API_URL,
+    CIRE_API_URL: env.CIRE_API_URL,
   } satisfies Record<DeletionAppEntry["urlVariable"], string | undefined>;
   const urls: Partial<Record<DeletionApp, string>> = {};
   for (const entry of DELETION_APPS) {
@@ -417,8 +423,6 @@ export interface AccountDeletedBody {
   /** The person's answers to this app's actions only, by action id. */
   readonly choices: Readonly<Record<string, { readonly choice: string }>>;
   readonly deleteEverything: boolean;
-  /** Only for an app that receives it ({@link DeletionAppEntry.receivesEmail}). */
-  readonly email?: string;
 }
 
 /** An app did not finish the erasure: unreachable, an error, or an answer outside the contract. */

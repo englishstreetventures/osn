@@ -149,9 +149,10 @@ export function appSpecs(): AppSpec[] {
         // owns cire's sample wedding, and is sent back to the portal after.
         DEV_LOGIN_SECRET,
         DEV_LOGIN_RETURN_ORIGINS: ORIGINS.cireHost,
-        // Sign out everywhere else, and revoking cire's connection, end the
-        // account's cire organiser sessions through this cire-api.
-        CIRE_INTERNAL_REVOKE_URL: ORIGINS.cireApi,
+        // Sign out everywhere else, revoking cire's connection and an
+        // account's deletion end its cire organiser sessions through this
+        // cire-api, and the deletion's preview and erasure reach it here.
+        CIRE_API_URL: ORIGINS.cireApi,
         CIRE_INTERNAL_REVOKE_SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
       },

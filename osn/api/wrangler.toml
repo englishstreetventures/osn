@@ -313,14 +313,16 @@ OSN_AUTHORIZE_UI_URL = "https://musubi.social/authorize"
 # Paid's 1 000 D1 queries per invocation; unset, as on dev (Workers Free, 50
 # queries shared by every sweep of the cron), it is 10.
 OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS = "100"
-# Sign out everywhere else, and revoking cire's connection, ask cire-api to end
-# the account's organiser sessions at CIRE_INTERNAL_REVOKE_URL. Both values
-# equal cire-api's own (cire/api/wrangler.toml CIRE_API_ORIGIN and
+# cire-api's origin and cire's OIDC client id. Sign out everywhere else,
+# revoking cire's connection and asking for an account's deletion ask cire-api
+# to end the account's organiser sessions at CIRE_API_URL, and the account
+# deletion's preview and erasure reach cire there too. Both values equal
+# cire-api's own (cire/api/wrangler.toml CIRE_API_ORIGIN and
 # CIRE_OIDC_CLIENT_ID; cire/infra/tests/cross-stack.test.ts holds them equal).
-# Nothing is sent until the CIRE_INTERNAL_REVOKE_SECRET secret, at least 32
-# characters, is set here and on cire-api; until then each such request logs a
-# skip warning.
-CIRE_INTERNAL_REVOKE_URL = "https://api.cireweddings.com"
+# The session revoke sends nothing until the CIRE_INTERNAL_REVOKE_SECRET
+# secret, at least 32 characters, is set here and on cire-api; until then each
+# such request logs a skip warning.
+CIRE_API_URL = "https://api.cireweddings.com"
 CIRE_OIDC_CLIENT_ID = "cid_cire"
 # Where the account deletion reaches each app (src/services/deletion-apps.ts,
 # `deletionAppsConfig`). pulse-api has no production Worker, so Pulse is

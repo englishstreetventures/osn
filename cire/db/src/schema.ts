@@ -130,9 +130,11 @@ export const weddings = sqliteTable(
     // NULL means the wedding is live. Set, it is unreachable by every guest,
     // vendor and co-host path, and by every organiser route except its owners'
     // restore; the daily purge hard-deletes the row (and, by cascade, every
-    // child) once `deleted_at` is more than the restore window old. Seconds,
+    // child) once `deleted_at` is more than the restore window old, or at
+    // once when no owner seat is left, since no one can restore it. Seconds,
     // like `created_at`. `deleted_by_osn_profile_id` is the owner who deleted
-    // it, cleared with `deleted_at` on a restore.
+    // it, cleared with `deleted_at` on a restore; NULL when an OSN account's
+    // erasure deleted it, or once the deleting owner's account is erased.
     deletedAt: integer("deleted_at", { mode: "timestamp" }),
     deletedByOsnProfileId: text("deleted_by_osn_profile_id"),
   },
@@ -158,7 +160,11 @@ export const weddings = sqliteTable(
 // creator. The API keeps at least one owner on every wedding and at most
 // `MAX_HOSTS_PER_WEDDING` rows, owners counted (`cire/api/src/services/hosts.ts`);
 // both limits are enforced inside the writing statement, since SQLite cannot
-// express either as a constraint.
+// express either as a constraint. Erasing an OSN account removes its seats
+// without that guard, and soft-deletes in the same batch, before the seats
+// go, any wedding with no owner outside the account
+// (`cire/api/src/services/account-erasure.ts`), so no live wedding is ever
+// without one.
 //
 // `osn_profile_id` is an OSN profile id (`usr_*`): an opaque cross-database
 // reference, deliberately NOT a foreign key (cire's D1 and osn's D1 are

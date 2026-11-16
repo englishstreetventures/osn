@@ -1,10 +1,10 @@
 # Account deletion: Musubi, and leaving one app (cire first) — design
 
-Date: 2026-11-14 · Status: approved by the owner 2026-11-14 · Issues: englishstreetventures/osn#519, #1332, #2226
+Date: 2026-11-14 · Status: approved by the owner 2026-11-14; amended by the owner 2026-11-16 (a wedding never exists without an owner: decision 2, §3, §5) · Issues: englishstreetventures/osn#519, #1332, #2226, #2305
 
 ## Goal
 
-A person can delete their Musubi account from Settings. Before they do, they see what each connected app still holds that needs an answer, can take a copy of their data, and can settle each item or choose to delete everything. They can change their mind for seven days. The deletion reaches every product. Where app data outlives the account, an email says exactly what is kept, until when, how to get a copy and how to have it deleted sooner. A person can also remove their data from one app and keep the account; cire is the first app built this way after Pulse. The code, the wiki and the privacy notices must agree.
+A person can delete their Musubi account from Settings. Before they do, they see what each connected app still holds that needs an answer, can take a copy of their data, and can settle each item or choose to delete everything. They can change their mind for seven days. The deletion reaches every product. Where app data outlives the account, an email says exactly what is kept and until when. A person can also remove their data from one app and keep the account; cire is the first app built this way after Pulse. The code, the wiki and the privacy notices must agree.
 
 ## Where things stand
 
@@ -39,16 +39,16 @@ Missing or wrong:
 ## Decisions (owner, 2026-11-14)
 
 1. **Organisations the person owns.** The delete flow shows them and lets the person deal with each one. An organisation they leave alone passes to its longest-standing admin. Where no other admin exists, it passes to a member or is deleted only after the person confirms that in the flow.
-2. **A cire wedding whose only owner is erased, with no editor.** A wedding never passes to an editor. The seat is removed and the wedding is kept, with no owner, until its retention date; the person takes their data as an export first. This replaces decision 12 of the multi-owner design and the promotion #1332 describes.
+2. **A cire wedding the person alone owns** (owner, 2026-11-16: "weddings shouldn't exist without owners"; "Refuse until they act"). A wedding never passes to an editor and never exists without an owner. The account cannot be deleted while the person is the only owner of a live wedding: they add another owner, or delete the wedding, first; "delete everything" deletes it. A wedding they come to own alone before the hard delete is deleted then. Cire keeps nothing about the person afterwards. This replaces decision 12 of the multi-owner design and the promotion #1332 describes.
 3. **The handle hold is built.** A deleted account's handles cannot be taken for 30 days.
 4. **Leaving cire covers hosts, under the same rules as erasure.** Vendor listings are later work.
 5. **Open actions.** Deleting an account shows what each connected app holds that needs an answer. The person settles each, or chooses to delete everything and accept the loss.
 6. **A copy of the data** is offered before deletion, by download or by email.
 7. **What outlives the account is app data only.** Identity is erased when the seven-day window ends. App data that other people rely on can stay until its own retention date.
-8. **Leftover data can be requested, or deleted early.** The app keeps the person's email address beside the leftover data until that data is erased, and proves a request by sending a code to it.
-9. **An exact email after deletion:** how to re-enable the account and until when, what is kept and until when, how to request it, how to have it deleted sooner.
+8. **No app keeps the person's email address** (owner, 2026-11-16): cire keeps nothing about the person, so no app needs to prove a later request, and none is sent the address.
+9. **An exact email after deletion:** how to re-enable the account and until when, and what each app keeps and until when.
 10. **Credentials last the seven days.** Passkeys, recovery codes and TOTP stay until the hard delete, so the person can sign in from any device to keep the account.
-11. **Settled as proposed:** "delete everything" erases the person's own data soonest and never overrides a successor; an ownerless wedding is erased whole one year after its final dated event, or one year after the seat was removed where no event has a date; Zap plain-text messages the person wrote are wiped; "email me my data" sends a sign-in link, never the data; leaving cire covers every profile of the account; `app_enrollments` rows go with the account.
+11. **Settled as proposed:** "delete everything" erases the person's own data soonest and never overrides a successor; Zap plain-text messages the person wrote are wiped; "email me my data" sends a sign-in link, never the data; leaving cire covers every profile of the account; `app_enrollments` rows go with the account.
 
 The window stays seven days.
 
@@ -103,27 +103,22 @@ The window stays seven days.
 
 ### 2. Open actions and the app contract (decision 5; gap g)
 
-- **Preview.** `GET /account/deletion-preview` on osn-api gathers OSN's own open actions (owned organisations) and calls each app's `POST /internal/account-deletion-preview` with `{accountId, profileIds}`. Each open action has: an id, the app, a kind, a plain label, the choices allowed, the default choice, what each choice does, the date any kept data is erased, and a link to where the person can deal with it in that app. An app that does not answer in time is shown as "could not check", and the delete is refused until it answers.
+- **Preview.** `GET /account/deletion-preview` on osn-api gathers OSN's own open actions (owned organisations) and calls each app's `POST /internal/account-deletion-preview` with `{profileIds, deletesAt}`. Each open action has: an id, the app, a kind, a plain label, the choices allowed, the default choice, what each choice does, the date any kept data is erased, and a link to where the person can deal with it in that app. An app that does not answer in time is shown as "could not check", and the delete is refused until it answers.
 - **Delete.** `DELETE /account` carries one choice per open action, or `deleteEverything: true`. The server runs the preview again; an open action with no choice is refused with 409 `open_actions`. Choices are stored on the job. `deleteEverything` picks, for every action, the choice that erases the person's data soonest; it never overrides a rule that exists to keep other people's data: an organisation still passes to a successor where one exists, and a wedding with another owner stays with that owner. The loss accepted is the person's own.
-- **Fan-out.** At the end of the window osn-api calls every app's `POST /internal/account-deleted` with `{accountId, profileIds, choices, email}`. Each app answers with what it kept: a list of `{what, erasedOn, requestUrl}`. osn-api stores that on the job for the final email. `deletion_jobs` gains `cire_done_at`; the "not enrolled" marker is no longer written, and a row made before this change is sent to every app.
+- **Fan-out.** At the end of the window osn-api calls every app's `POST /internal/account-deleted` with `{accountId, profileIds, choices, deleteEverything}`. Each app answers with what it kept: a list of `{what, erasedOn, requestUrl}`. osn-api stores that on the job for the final email. `deletion_jobs` gains `cire_done_at`; osn-api writes no "not enrolled" marker, and a row made before this change is sent to every app.
 - **Every tier is wired.** The Alchemy stacks set the Pulse, Zap and cire URLs for osn-api, and a stack test fails when one is missing. With no URL set (local runs without that app), the job records that app as skipped and logs it; a deployed tier never takes that path.
 - **Pulse** implements preview (events the person hosts that have not ended; its existing 14-day cancellation rule is the default) and accepts choices.
 - **Zap** gains both calls. It has no open actions. On deletion it removes the person's chat memberships, replaces their sender id on kept end-to-end messages with a deletion sentinel (`dsar.md:105`), wipes the body of plain-text messages they wrote, and deletes a chat left with no members.
 
-### 3. Cire: receiver, kept data, export (gaps h, m; replaces #1332; decisions 2, 7, 8)
+### 3. Cire: receiver and export (gap h; replaces #1332; decision 2 as amended 2026-11-16)
 
 - **Inbound ARC verifier** on cire-api.
-- **At soft delete:** osn-api calls cire's existing organiser-session revoke for each profile, best effort. No seat changes yet.
-- **Preview.** One open action per wedding where a profile of the account is the only owner, whether or not it has editors. Choices: *add an owner yourself* (link to the host portal's owner invite; not a stored choice, it removes the action), *keep until `<date>`* (default), *delete now*. Each offers the wedding export first. Weddings with another owner are listed for information: that owner stays.
-- **`account-deleted`, per wedding the account has a seat in:**
-  1. Remove the seat and its `host_rsvp_notices` row. No one is promoted.
-  2. No owner left, choice *keep*: the wedding stays live with no owner. Editors and helpers keep their seats and what those seats allow; nothing owner-only can be done. Each is emailed that the wedding has no owner and the date it will be erased. A `retained_weddings` row records the wedding, the person's email address and the erase date: one year after the final dated event, or one year after the seat was removed where no event has a date. On that date the wedding goes through the existing soft-delete and purge path, so the invite and events go too, not guest data alone (closes gap m for ownerless weddings).
-  3. No owner left, choice *delete now*: the wedding is soft-deleted and purged on the next pass, with the existing money holds.
-  The rule that every wedding keeps an owner (`cire/db/src/schema.ts:157-160`, `LastOwner` in `hosts.ts`) gains this one exception; the phase plan lists every reader that assumes an owner and what each does without one.
-- **Also, once per account:** delete organiser sessions, `guest_account_links`, `registry_stripe_oauth_states` and `realtime_subscribe_budget` rows; clear every attribution column that names one of the profile ids (`rsvps`, `guests`, `registry_claims`, `registry_contributions`, `registry_settings`, `unlock_code_redemptions`, `weddings`, `rsvp_changes`, `directory_vendors.claimed_by_profile_id`, and on other people's seats `wedding_hosts.added_by_osn_profile_id`). Nullable columns become null; `NOT NULL` ones (`vendor_enquiries.created_by`, `wedding_upgrade_purchases.created_by_osn_profile_id`, `wedding_hosts.added_by_osn_profile_id`) take a fixed sentinel, with no table rebuild. `platform_sales` holds no person and stays. A vendor listing itself stays.
-- **Safe to repeat,** one D1 batch per wedding, bounded so one call stays inside Worker limits; a call that runs out of budget answers "not finished" and the sweep calls again.
+- **At soft delete:** osn-api calls cire's existing organiser-session revoke for each profile, best effort. Nothing else changes in cire during the window, so a cancel restores everything.
+- **Preview.** One open action per live wedding where the account is the only owner: one choice, *delete*, and no default, so the deletion is refused until the person answers it or chooses "delete everything". Its link opens the wedding's owners in the host portal: adding another owner there removes the action. The text says plainly: add another owner, or the wedding and its guest data are deleted with the account; download its exports first; a wedding they come to own alone before the date is deleted too. Weddings with another owner are not actions.
+- **`account-deleted`, per wedding the account has an owner seat in,** one D1 batch: remove the seats and their `host_rsvp_notices` rows; if no owner is left, soft-delete the wedding in the same batch, whatever was answered (the rules run on the rows as they stand; an erasure always finishes). The purge takes a deleted wedding with no owner at once, with the existing money holds. No one is promoted.
+- **Also, once per account:** remove seats below owner; delete organiser sessions, `guest_account_links`, `registry_stripe_oauth_states`, `realtime_subscribe_budget` and the person's `owner_notice_budget` rows; clear every attribution column that names one of the profile ids. Nullable columns become null; `NOT NULL` ones take a fixed sentinel, with no table rebuild. `platform_sales` holds no person and stays. A vendor listing itself stays. Cire answers `kept: []`.
+- **Safe to repeat,** one D1 batch per owned wedding, bounded so one call stays inside Worker limits; a call that runs out of budget answers "not finished" and the sweep calls again.
 - **Wedding export.** An owner can download a whole wedding (guests, households, RSVPs, events, seating, registry, budget, vendors) as one archive from the host portal; owner-only, as the multi-owner design's decision 8 says. `POST /internal/account-export` on cire-api adds a cire section to `GET /account/export`: the weddings the person owns, each with its export.
-- **Requests for kept data.** A public page on the cire site: enter the email address, receive a code, see the weddings kept under it and each erase date; for each, download the export or delete it now. Delete now sends the wedding to the purge path at once. The `retained_weddings` row, with the email address, goes when the wedding does. Rate-limited, and it answers the same whether or not the address is known.
 
 ### 4. Musubi screens and emails (gaps a, i, k; decisions 5, 6, 9)
 
@@ -136,17 +131,17 @@ The window stays seven days.
 - **Emails:**
   - *Scheduled:* the date; how to keep the account (sign in before the date); how to download the data; what will be kept after the date and until when.
   - *Cancelled.*
-  - *Deleted,* sent just before the hard delete, best effort: the account is gone and cannot be re-enabled; each kept item with its erase date and its request link; how to have it deleted sooner; that the handle is held for 30 days.
+  - *Deleted,* sent just before the hard delete, best effort: the account is gone and cannot be re-enabled; each kept item with its erase date; that the handle is held for 30 days.
   - *"You now own `<organisation>`".*
 - **Connected apps.** Each app shows a "Remove my data from `<app>`" link to that app's own leave screen.
-- **E2E flow:** register, create a cire wedding as sole owner, open the delete flow, see the open action, download the export, delete with *keep*, see the window screen, cancel, check handle, passkey and enrolments are back; delete again, advance the clock, run the sweep; check the account is gone, the handle is held, the wedding is ownerless with its retained row, and the deleted email lists it; request it by email code and delete it early.
+- **E2E flow:** register, create a cire wedding as sole owner, open the delete flow, see the open action, download the export, answer *delete*, see the window screen, cancel, check handle, passkey and enrolments are back; delete again, advance the clock, run the sweep; check the account is gone, the handle is held and the wedding is deleted.
 - A `designer` builds the screens against the Musubi `DESIGN.md`.
 
 ### 5. Leaving cire (decision 4)
 
-- **Route:** `DELETE /api/organiser/account` on cire-api: organiser session plus an OSN step-up token with a new purpose `cire_app_delete`, verified over ARC at `/internal/step-up/verify`. That call returns an account id; cire checks it against the session's profile with its profile-to-account lookup (`cire/api/src/app.ts:576`). It covers every profile of the account, takes the same per-wedding choices as §3, and runs the same handler at once, with no window.
+- **Route:** `DELETE /api/organiser/account` on cire-api: organiser session plus an OSN step-up token with a new purpose `cire_app_delete`, verified over ARC at `/internal/step-up/verify`. That call returns an account id; cire checks it against the session's profile with its profile-to-account lookup (`cire/api/src/app.ts:576`). It covers every profile of the account, is refused on the same rule as §3 (owner, 2026-11-16) while the person alone owns a live wedding they have not answered *delete* for, and runs the same handler at once, with no window.
 - **Screen:** host portal, account menu → "Remove my Cire data": the same list and choices as the Musubi flow shows for cire, and the export download.
-- **Emails:** to the other owners of each wedding, as seat removal sends today; and to the person, listing anything kept, as the deleted email does.
+- **Emails:** to the other owners of each wedding, as seat removal sends today.
 
 ### 6. Tiers and operations
 
@@ -157,8 +152,8 @@ A dashboard panel and an alert on the age of the oldest unfinished job, per app,
 Each phase fixes the pages it makes stale. The last phase fixes what is left:
 
 - `wiki/compliance/index.md:41`, `gdpr.md:33,40,63`, `scope-matrix.md:92`, `retention.md:119`: say built.
-- `dsar.md:97,102,105,109,115,353-381,445-455`, `retention.md:23-25,62,153`, `data-map.md:43,276-287`, `dpia/cire-guest-data.md:473,538`: fan-out timing, credentials and the limited session, the handle hold, the app contract, cire's kept weddings and the email address kept beside them, the request page.
-- Notices: Musubi (`PrivacyPage.tsx`, `TermsPage.tsx`) gains the seven-day window, the hold, and that app data can outlive the account; cire hosts (`hosts.astro`) gains what account deletion and leaving do to a wedding, that an ownerless wedding is kept until its date with the former owner's email address, and how to request or delete it. Notice wording is the owner's to approve; those pull requests open as drafts.
+- `dsar.md:97,102,105,109,115,353-381,445-455`, `retention.md:23-25,62,153`, `data-map.md:43,276-287`, `dpia/cire-guest-data.md:473,538`: fan-out timing, credentials and the limited session, the handle hold, the app contract, cire's refusal while the person alone owns a wedding, and what the erasure deletes.
+- Notices: Musubi (`PrivacyPage.tsx`, `TermsPage.tsx`) gains the seven-day window, the hold, and that app data can outlive the account; cire hosts (`hosts.astro`) gains what account deletion and leaving do to a wedding: refused while the person alone owns it, and deleted with them if they choose. Notice wording is the owner's to approve; those pull requests open as drafts.
 - New page `wiki/osn/account-deletion.md`: the one description of the flow and the app contract, linked from each product's page.
 
 ## Phases
@@ -169,8 +164,8 @@ One branch and one pull request each, merged in this order, in two runs (1 to 4,
 |---|---|---|---|
 | 1 | OSN erasure correctness | §1; #519, #2226 | implementer, full tier |
 | 2 | App contract, wiring, Pulse and Zap | §2, §6 | implementer, full tier |
-| 3 | Cire receiver and kept weddings | §3 up to "Safe to repeat"; replaces #1332 | implementer, full tier |
-| 4 | Cire wedding export and request page | §3 export and requests | implementer for routes, designer for screens |
+| 3 | Cire receiver | §3 up to "Safe to repeat"; replaces #1332 | implementer, full tier |
+| 4 | Cire wedding export | §3 wedding export, and the cire section of the account export | implementer for routes, designer for screens |
 | 5 | Musubi screens and emails | §4 | designer |
 | 6 | Leaving cire | §5 | implementer for the route, designer for the screen |
 | 7 | Documentation and notices | §7 | implementer; draft for the owner |
