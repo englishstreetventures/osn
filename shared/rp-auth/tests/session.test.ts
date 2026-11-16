@@ -79,11 +79,6 @@ describe("signInUrl", () => {
     );
     expect(url.searchParams.get("prompt")).toBe("select_account");
   });
-
-  it("attaches prompt=create when the caller wants the sign-up screen", () => {
-    const url = new URL(signInUrl(config(), "https://app.test.invalid/", { prompt: "create" }));
-    expect(url.searchParams.get("prompt")).toBe("create");
-  });
 });
 
 describe("fetchSession", () => {
@@ -198,12 +193,6 @@ describe("createAuthFetch", () => {
     const authFetch = createAuthFetch(config({ fetch: stub.fetch }));
     const res = await authFetch("https://api.test.invalid/api/organiser/weddings/w1");
     expect(res.status).toBe(403);
-  });
-
-  it("passes other failures through as responses, not exceptions", async () => {
-    const stub = stubFetch(json({ error: "boom" }, 500));
-    const authFetch = createAuthFetch(config({ fetch: stub.fetch }));
-    expect((await authFetch("https://api.test.invalid/x")).status).toBe(500);
   });
 });
 

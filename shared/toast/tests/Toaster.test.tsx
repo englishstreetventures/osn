@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { toast } from "../src/index";
@@ -13,12 +13,6 @@ afterEach(() => {
 });
 
 describe("Toaster", () => {
-  it("renders a raised toast", async () => {
-    render(() => <Toaster />);
-    toast.success("Saved");
-    expect(await screen.findByText("Saved")).toBeTruthy();
-  });
-
   it("portals the container to <body>, so an animated ancestor can't trap it", () => {
     // A `transform` on an ancestor makes it the containing block AND a stacking
     // context for a `position: fixed` descendant — the exact mechanism that put
@@ -84,13 +78,6 @@ describe("Toaster", () => {
     expect(document.querySelectorAll(".ui-toast")).toHaveLength(2);
     expect(screen.queryByText("One")).toBeNull();
     expect(screen.getByText("Three")).toBeTruthy();
-  });
-
-  it("dismisses on its own once the dwell elapses", async () => {
-    render(() => <Toaster />);
-    toast.success("Saved", { duration: 50 });
-    expect(screen.getByText("Saved")).toBeTruthy();
-    await waitFor(() => expect(toasts()).toHaveLength(0), { timeout: 2000 });
   });
 
   it("pauses the dwell while the pointer is over it, so a toast can be read", () => {

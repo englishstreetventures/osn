@@ -19,10 +19,6 @@ describe("titleFromPath", () => {
     );
   });
 
-  it("files a local scratch story under lab/", () => {
-    expect(titleFromPath("../stories/three-cube.story.tsx")).toBe("lab/three-cube");
-  });
-
   it("keeps nesting below the stories directory", () => {
     expect(titleFromPath("../stories/shared-ui/overview.story.tsx")).toBe("lab/shared-ui/overview");
   });

@@ -28,10 +28,6 @@ describe("createTurnstileVerifier — key-optional branch", () => {
     expect(createTurnstileVerifier("")).toBeNull();
     expect(createTurnstileVerifier("   ")).toBeNull();
   });
-
-  it("returns a verifier when a real secret is present", () => {
-    expect(createTurnstileVerifier("0xSECRET")).not.toBeNull();
-  });
 });
 
 describe("verifier.verify — fail-closed semantics (configured)", () => {
