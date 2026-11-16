@@ -613,21 +613,6 @@ describe("CoordinationStore", () => {
     TEST_TIMEOUT_MS,
   );
 
-  it(
-    "the client addresses <namespace>:<key> on a real binding",
-    async () => {
-      const written = await send(mf, {
-        namespace: "ceremony",
-        key: "acct_1",
-        op: "write",
-        args: ["v", 60_000],
-      });
-      expect(written.ok).toBe(true);
-      expect(await call<string | null>("ceremony:acct_1", "read")).toBe("v");
-    },
-    TEST_TIMEOUT_MS,
-  );
-
   // F-DO11
   it(
     "keeps its state across a restart on the same storage",

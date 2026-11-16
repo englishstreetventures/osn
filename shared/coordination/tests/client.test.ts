@@ -121,7 +121,7 @@ describe("createCoordinationRateLimiter", () => {
     },
   );
 
-  it.each([0, -1, 1.5, Number.NaN])("refuses maxRequests %p at construction", (maxRequests) => {
+  it.each([0, -1, 1.5, Number.NaN])("refuses maxRequests %s at construction", (maxRequests) => {
     const { ns } = recordingNamespace(() => Promise.resolve(1));
     expect(() =>
       createCoordinationRateLimiter(ns, { namespace: "auth.login", maxRequests, windowMs: 60_000 }),
