@@ -942,9 +942,10 @@ page last landed, one when nothing is known.
 - **A view from another package.** `@osn/auth-ui`'s Security views take
   their read as a `SettingsRead` (`osn/auth-ui/src/settings-read.ts`); without
   one they read for themselves. Each write tells the read how it ended: an
-  exact outcome is written, `"unchanged"` keeps the rows, `"unknown"` forgets
-  them, so no screen shows a row a write may have changed; a write that
-  settles under a newer session is `"unknown"`. `useSettingsRead`
+  exact outcome is written, `"unchanged"` keeps the rows on the screen that
+  wrote until they are read again (forgotten if that screen has gone),
+  `"unknown"` forgets them, so no screen shows a row a write may have changed;
+  a write that settles under a newer session is `"unknown"`. `useSettingsRead`
   (`src/lib/security-data.ts`) builds one from a page query.
 
 `tests/lib/page-cache.test.tsx` holds each way the cache can fail, the

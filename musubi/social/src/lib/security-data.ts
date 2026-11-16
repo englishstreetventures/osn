@@ -1,4 +1,5 @@
 import type { SettingsRead, WriteEnd } from "@osn/auth-ui/settings-read";
+import { onCleanup } from "solid-js";
 
 import { passkeysClient, recoveryClient, totpClient } from "./authClients";
 import { invalidatePages, pageQuery, scopeMark, type PageQuery } from "./page-cache";
@@ -53,10 +54,23 @@ const SECURITY_PAGES = [PAGE_DATA.passkeys, PAGE_DATA.authenticator, PAGE_DATA.r
  * the tab mounted), its outcome is never written: the rows now held were read
  * under the new session, maybe before the write landed, so they are forgotten
  * and read again. Both act only on the current session's own entries.
+ *
+ * An unchanged end keeps the rows only on the screen that wrote, and only
+ * until they are read again. osn-api answers 400 for an error it does not
+ * recognise, which can come after a write has landed, so a refusal is not
+ * proof: the tab gone when the write ends, or left while that read is out,
+ * forgets the rows, and the next visit is a first load.
  */
 export function useSettingsRead<T>(query: PageQuery<[], T>): SettingsRead<T> {
   const read = query.use(() => []);
   const landed = () => read.state === "ready" || read.state === "refreshing";
+  let mounted = true;
+  /** The session under which rows an unchanged end kept are being read again. */
+  let doubtedUnder: number | null = null;
+  onCleanup(() => {
+    mounted = false;
+    if (doubtedUnder !== null && doubtedUnder === scopeMark()) query.drop();
+  });
   return {
     value: () => (landed() ? read() : undefined),
     state: () => (landed() ? "ready" : read.state === "errored" ? "errored" : "pending"),
@@ -71,11 +85,19 @@ export function useSettingsRead<T>(query: PageQuery<[], T>): SettingsRead<T> {
       return (end: WriteEnd<T>) => {
         if (ended) return;
         ended = true;
-        if (mark !== scopeMark() || end === "unknown") query.drop();
-        else if (typeof end === "object") query.update([], end.outcome, mark);
+        const doubted = end === "unchanged" && mounted;
+        if (mark !== scopeMark() || (end === "unchanged" && !mounted) || end === "unknown") {
+          query.drop();
+        } else if (typeof end === "object") query.update([], end.outcome, mark);
         // A step-up moved a factor's "Last used", on any of the three.
         if (steppedUp) invalidatePages(...SECURITY_PAGES);
         else query.invalidate();
+        if (doubted && mark === scopeMark()) {
+          doubtedUnder = mark;
+          void read.settled().then(() => {
+            if (doubtedUnder === mark) doubtedUnder = null;
+          });
+        }
       };
     },
   };

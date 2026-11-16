@@ -196,7 +196,7 @@ What each mutation writes, with the scope mark taken before its request:
 | Connected apps | revoke | the list read again, Revoke busy until it lands |
 | Security | rename or remove a passkey | its outcome written at once (the name sent, the row gone), then all three Security reads read again |
 | Security | add a passkey, add or remove the authenticator, generate recovery codes | that read forgotten at once (its placeholder, never the rows before), then all three read again; an authenticator's confirm, which runs no step-up of its own, reads only the authenticator |
-| Security | a write the server refused (400–499), an enrolment started, a passkey add that ends before its last call | the rows kept, all three read again: the step-up before each moved a factor's "Last used" |
+| Security | a write the server refused (400–499), an enrolment started, a passkey add that ends before its last call | the rows kept on the screen that wrote, all three read again: the step-up before each moved a factor's "Last used". osn-api answers 400 for an error it does not recognise, which can follow a write that landed, so the tab gone when the write ends, or left while that read is out, forgets the rows |
 
 Row actions wait for a read of their list that is out, and act only on a row still there (`src/lib/row-actions.ts`).
 

@@ -428,6 +428,50 @@ describe("a write, then the tab shown again before its reads land", () => {
   });
 });
 
+describe("a write the server refused, which may still have landed", () => {
+  // osn-api answers 400 for an error it does not recognise, which can come
+  // after the write has landed: a refusal keeps the rows only on the screen
+  // that wrote, and only until they are read again.
+  it("F23: answering after the tab has gone, it leaves no rows for the next visit", async () => {
+    mountTab();
+    await landed();
+    server.holdWrites = true;
+    server.writeError = { error: new OsnApiError("odd", 400, "invalid_request"), commit: true };
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Work laptop" }));
+    await passStepUp();
+    await waitFor(() => expect(server.heldWrites).toHaveLength(1));
+    leave();
+    await releaseWrites();
+    server.hold.add("passkeys");
+    const watch = watchDrawn();
+    comeBack();
+    await settle();
+    expect(watch.drew("Work laptop")).toBe(false);
+    watch.stop();
+  });
+
+  it("F23: left while its read again is out, it leaves no rows for the next visit", async () => {
+    mountTab();
+    await landed();
+    server.writeError = { error: new OsnApiError("odd", 400, "invalid_request"), commit: true };
+    server.hold.add("passkeys");
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Work laptop" }));
+    await passStepUp();
+    await screen.findByRole("alert");
+    // Kept on the screen that wrote while the read is out.
+    expect(screen.getByText("Work laptop")).toBeTruthy();
+    leave();
+    const watch = watchDrawn();
+    comeBack();
+    await settle();
+    expect(watch.drew("Work laptop")).toBe(false);
+    await release("passkeys");
+    await screen.findByText("Phone");
+    expect(screen.queryByText("Work laptop")).toBeNull();
+    watch.stop();
+  });
+});
+
 describe("the screen that wrote", () => {
   it("F5: a rename shows the new name at once, the list read again behind it", async () => {
     mountTab();
@@ -617,6 +661,23 @@ describe("an action pressed while the tab reads behind its rows", () => {
     expect(screen.getByRole("alert").textContent).toContain(
       "That passkey is no longer on your account.",
     );
+  });
+
+  it("F12: Remove whose read fails says only that the list failed", async () => {
+    mountTab();
+    await landed();
+    server.hold.add("passkeys");
+    server.failRead.set("passkeys", new OsnApiError("busy", 429, "rate_limited"));
+    leave();
+    comeBack();
+    await settle();
+    const remove = screen.getByRole("button", { name: "Remove Work laptop" });
+    remove.focus();
+    fireEvent.click(remove);
+    await release("passkeys");
+    await screen.findByText(/Your passkeys didn't load/);
+    expect(screen.queryByText("That passkey is no longer on your account.")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Passkeys" }));
   });
 
   it("F12: Generate on a remembered 'none' warns once the read says there are codes", async () => {

@@ -176,18 +176,21 @@ export function PasskeysView(props: PasskeysViewProps) {
     if (locked()) return;
     setError(null);
     setChecking(action);
-    let fresh: PasskeySummary | undefined;
+    let rows: PasskeySummary[] | undefined;
     try {
-      fresh = (await passkeys.settled())?.find((row) => row.id === p.id);
+      rows = await passkeys.settled();
     } finally {
       setChecking(null);
     }
+    const fresh = rows?.find((row) => row.id === p.id);
     if (fresh) {
       act(fresh);
       return;
     }
-    // The row went with the pressed button: say so, and keep focus on the panel.
-    setError({ ...plainError(GONE), rename: false });
+    // The pressed button went with the row, or with a read that failed: keep
+    // focus on the panel, and say the passkey is gone only when a list that
+    // lacks it landed. A failed read says so in its own line.
+    if (rows) setError({ ...plainError(GONE), rename: false });
     heading()?.focus();
   }
 
