@@ -13,7 +13,9 @@ import "../../src/App.css";
  * "on the page, a card or a popover, never on `--muted`", so the variant takes
  * no hover fill; this reads the real computed colours with the pointer on the
  * button, over Musubi's own tokens: the button's ink, and the colours painted
- * behind it up the tree, down to the page.
+ * behind it up the tree, down to the page. A row that tints under the pointer
+ * (`hover:bg-muted/50`, as Connections' rows do) is one of the grounds, since
+ * the pointer on the button is on the row too.
  */
 
 type Rgb = [number, number, number];
@@ -69,9 +71,10 @@ describe.each([
   ["dark", true],
 ] as const)("a hovered ghostDanger Button, %s", (theme, dark) => {
   it.each([
-    ["the page", false],
-    ["a card", true],
-  ] as const)("on %s keeps its red text at 4.5:1 and paints no fill", async (_where, inCard) => {
+    ["the page", "page"],
+    ["a card", "card"],
+    ["a hovered row", "row"],
+  ] as const)("on %s keeps its red text at 4.5:1 and paints no fill", async (_where, ground) => {
     document.documentElement.classList.toggle("dark", dark);
     const remove = () => (
       <Button variant="ghostDanger" size="sm">
@@ -79,7 +82,16 @@ describe.each([
       </Button>
     );
     render(() => (
-      <div class="bg-background">{inCard ? <Card padding="sm">{remove()}</Card> : remove()}</div>
+      <div class="bg-background">
+        {ground === "card" ? <Card padding="sm">{remove()}</Card> : null}
+        {ground === "row" ? (
+          // The row Connections and an organisation's roster draw, which tints on hover.
+          <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5">
+            {remove()}
+          </div>
+        ) : null}
+        {ground === "page" ? remove() : null}
+      </div>
     ));
     const button = screen.getByRole("button", { name: "Remove" });
     await userEvent.hover(button);

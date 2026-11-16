@@ -63,8 +63,8 @@ const TRANSITION =
  * site because the red belongs to the hover, not to the rest state: a column of
  * red labels down a list reads as an error state rather than as a column of
  * controls. It takes no hover fill: red ink on `--ui-surface-sunk` falls under
- * the 4.5:1 floor in Musubi's light theme, so hover marks it by the ink alone,
- * as `link` does, and the red sits on whatever the button already stands on.
+ * the 4.5:1 floor in Musubi's light theme, so hover marks it by its ink turning
+ * from muted to red, and the red sits on whatever the button already stands on.
  * `destructive` is the other end of the same axis — red at rest, for
  * the button that finally commits the destruction, not the one that offers it.
  *

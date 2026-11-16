@@ -248,9 +248,9 @@ Where the app does not follow this yet — known breaks include:
   floating panel drawn as the menus are: `rounded-md`, `bg-popover`,
   `shadow-md`. A bordered row nested inside a card takes 8px too, the card's
   own corner already spent; a row standing alone takes 16px ([the owner's
-  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06): `@osn/auth-ui`'s Settings rows, Settings' connected apps, `Card
-  radius="md" padding="sm"` inside Settings' card, and the new recovery codes'
-  well.
+  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06): `@osn/auth-ui`'s Settings rows and Settings'
+  connected apps, each a `Card radius="md" padding="sm"` inside Settings' card,
+  and the new recovery codes' well.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
   organisations list's rows, `/authorize`'s scope rows and its dead-end and

@@ -275,7 +275,9 @@ describe.each([320, 1440])("loading placeholders at %ipx", (width) => {
     reads.release("apps-chunk", true);
     // The section's own placeholder, in the same place, while its list is read.
     await waitFor(() => expect(fallback.isConnected).toBe(false));
-    await busyRegion(1);
+    const placeholder = await busyRegion(1);
+    // The row's own corner, as the row that lands takes (`DESIGN.md` §Radii).
+    expect(getComputedStyle(shownBlocks(placeholder)[0]!).borderTopLeftRadius).toBe("8px");
     expect(card.getBoundingClientRect().height).toBeCloseTo(held, 0);
     const height = await land(
       card,
