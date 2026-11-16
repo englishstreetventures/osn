@@ -442,8 +442,13 @@ describe("cross-device login on the shared store", () => {
       Effect.gen(function* () {
         const other = yield* svc.registerProfile("cdlmoved-other@example.com", "cdlmovedother");
         const { db } = yield* Db;
+        // Not the default there: the other account has its own, and an
+        // account holds one.
         yield* Effect.promise(() =>
-          db.update(users).set({ accountId: other.accountId }).where(eq(users.id, profile.id)),
+          db
+            .update(users)
+            .set({ accountId: other.accountId, isDefault: false })
+            .where(eq(users.id, profile.id)),
         );
       }),
     ).pipe(

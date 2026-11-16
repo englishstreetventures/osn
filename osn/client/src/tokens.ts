@@ -148,6 +148,17 @@ const CreateProfileResponseSchema = Schema.Struct({
 
 export const decodeCreateProfileResponse = Schema.decodeUnknownSync(CreateProfileResponseSchema);
 
+const DeleteProfileResponseSchema = Schema.Struct({
+  default_profile_id: Schema.NonEmptyString,
+});
+
+/**
+ * The account's default profile once the deleted one is gone, from a
+ * `POST /profiles/delete` answer; `None` when the answer does not name one.
+ * Never throws: the server has deleted the profile whatever the body says.
+ */
+export const decodeDeleteProfileResponse = Schema.decodeUnknownOption(DeleteProfileResponseSchema);
+
 /** The claims this package reads from a JWT, unverified and untyped until checked. */
 interface JwtClaims {
   readonly sub?: unknown;
