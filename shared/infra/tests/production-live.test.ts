@@ -1014,6 +1014,9 @@ describe("LJ: the guard's judgement of a migrated database's ledger", () => {
     expect(judged(late).refusals).toEqual([
       "1 migration file of cire-db sorts before one its ledger already records, which Alchemy from 2.0.0-beta.86 refuses to apply; rename it after the newest migration on main and release again (wiki/shared/production-deploy.md §4.2)",
     ]);
+    expect(judged({ ...late, pending: 3, late: 2 }).refusals).toEqual([
+      "2 migration files of cire-db sort before one its ledger already records, which Alchemy from 2.0.0-beta.86 refuses to apply; rename them after the newest migration on main and release again (wiki/shared/production-deploy.md §4.2)",
+    ]);
   });
 
   test("LJ17: an empty Wrangler ledger is refused; counts of more than one read in the plural; late files are counted beside their refusal", () => {
