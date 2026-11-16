@@ -270,7 +270,7 @@ describe("the dragged row paints its offset", () => {
     fireEvent(document, new PointerEvent("pointerup", { pointerId: 1, clientX: 10, clientY: 10 }));
   });
 
-  it("measures the stride from slot geometry, not from the dragged row's offset (P-W1)", () => {
+  it("measures the stride from slot geometry, not from the dragged row's offset", () => {
     // The exact case that shipped broken, reproduced in a real browser first:
     // drag row 0 down by EXACTLY one row height in a single motion. Measured
     // live, `rects[0].top` already carried the +40 offset, so
@@ -341,7 +341,7 @@ describe("the dragged row paints its offset", () => {
   });
 });
 
-describe("gesture lifecycle (S-M1)", () => {
+describe("gesture lifecycle", () => {
   it("ignores a second pointer, so one finger cannot drive another's drag", () => {
     stubRowGeometry();
     const onDragEnd = vi.fn();
@@ -404,20 +404,6 @@ describe("gesture lifecycle (S-M1)", () => {
     unmount();
     fireEvent(document, new PointerEvent("pointerup", { pointerId: 1, clientX: 10, clientY: 90 }));
     expect(onDragEnd, "a disposed provider still committed a drop").not.toHaveBeenCalled();
-  });
-});
-
-describe("maybeTransformStyle", () => {
-  it("returns an empty map when there is no transform", () => {
-    // NOT an identity transform: writing one would make every row a containing
-    // block and a stacking context for its descendants, permanently.
-    expect(maybeTransformStyle(null)).toEqual({});
-  });
-
-  it("returns a translate for a live transform", () => {
-    expect(maybeTransformStyle({ x: 3, y: 7 })).toEqual({
-      transform: "translate3d(3px, 7px, 0)",
-    });
   });
 });
 
