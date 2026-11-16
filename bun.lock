@@ -301,7 +301,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.6.3",
+      "version": "0.6.4",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.85",
         "@effect/platform-bun": "4.1.4",
@@ -370,7 +370,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.42.4",
+      "version": "3.42.5",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.17",
