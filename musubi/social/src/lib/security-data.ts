@@ -94,9 +94,10 @@ export function useSettingsRead<T>(query: PageQuery<[], T>): SettingsRead<T> {
         else query.invalidate();
         if (doubted && mark === scopeMark()) {
           doubtedUnder = mark;
-          void read.settled().then(() => {
+          void (async () => {
+            await read.settled();
             if (doubtedUnder === mark) doubtedUnder = null;
-          });
+          })();
         }
       };
     },
