@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { events, tasks, weddingHosts } from "@cire/db";
+import { events, weddingHosts } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { Effect } from "effect";
 
@@ -11,15 +11,25 @@ import { localD1Binding } from "../../src/db/local-d1";
 import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
+import { MAX_GIFT_EXPORT_ROWS } from "../../src/services/gift-export";
 import { createAssetsStub } from "../../src/services/invite-assets";
 import type { AssetsBucket } from "../../src/services/invite-assets";
 import { MAX_PLANNING_EXPORT_ROWS } from "../../src/services/planning-export";
 import { createR2Stub } from "../../src/services/r2-imports";
+import { MAX_REGISTRY_EXPORT_ROWS } from "../../src/services/registry-export";
+import { MAX_HOUSEHOLD_EXPORT_ROWS } from "../../src/services/roster-export";
+import { MAX_SEATING_EXPORT_ROWS } from "../../src/services/seating-export";
+import { MAX_QUESTION_EXPORT_ROWS } from "../../src/services/settings-export";
+import { MAX_VENDOR_EXPORT_ROWS } from "../../src/services/vendor-export";
 import { weddingArchiveService } from "../../src/services/wedding-archive";
 import type { ArchiveLimits } from "../../src/services/wedding-archive";
-import { appRequest, failStatements, recordStatements } from "../test-helpers";
+import { appRequest, failStatements, recordStatements, setTier } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
-import { fullWeddingKeys, fullWeddingStatements } from "../test-helpers/full-wedding";
+import {
+  fullWeddingCode,
+  fullWeddingKeys,
+  fullWeddingStatements,
+} from "../test-helpers/full-wedding";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -70,7 +80,12 @@ function seat(db: TestDb, osnProfileId: string, role: "editor" | "viewer" | "hel
 /** A wedding with a row in every table, its R2 objects in place, and a seat of each role. */
 function seedWedding(opts: { deletedAt?: Date } = {}) {
   const db = createDb(":memory:");
-  for (const statement of fullWeddingStatements(W, { owner: OWNER, deletedAt: opts.deletedAt })) {
+  const now = new Date("2026-10-01T00:00:00Z");
+  for (const statement of fullWeddingStatements(W, {
+    owner: OWNER,
+    deletedAt: opts.deletedAt,
+    now,
+  })) {
     db.run(statement);
   }
   seat(db, EDITOR, "editor");
@@ -190,8 +205,42 @@ describe("who may download a wedding (refusals)", () => {
     expect(get.status).toBe(404);
   });
 
+  it("A7: with no limiter given, an owner's eleventh archive in a day is refused", async () => {
+    const db = createDb(":memory:");
+    // An owner of their own, so no other test's archive shares the default limiter's bucket.
+    const owner = "usr_daily_owner";
+    insertWedding(db, { id: W, slug: `slug-${W}`, displayName: "Daily", owners: [owner] });
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
+      exportLimiter: generous(),
+    });
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      // oxlint-disable-next-line no-await-in-loop -- the limiter counts them in order
+      const res = await post(app, owner);
+      statuses.push(res.status);
+      // oxlint-disable-next-line no-await-in-loop -- each archive is read to its end
+      await res.arrayBuffer();
+    }
+    expect(statuses).toEqual([...Array.from({ length: 10 }, () => 200), 429]);
+  });
+
+  it("A10: no plan tier locks the archive, and it holds the modules the tier shuts", async () => {
+    const { db, app } = buildApp();
+    setTier(db, W, "ivory");
+    const res = await post(app, OWNER);
+    expect(res.status).toBe(200);
+    const texts = zipTexts(new Uint8Array(await res.arrayBuffer()));
+    expect(texts.get(`${FOLDER}budget.csv`)).toContain("Hall");
+    expect(texts.get(`${FOLDER}tasks.csv`)).toContain("Book");
+    expect(texts.get(`${FOLDER}vendors.csv`)).toContain("Florist");
+    expect(texts.get(`${FOLDER}registry.csv`)).toContain("Vase");
+  });
+
   it("A9: the archive is never stored by anything on the way", async () => {
     const { app } = buildApp();
+    const ok = await counterValue(CIRE_METRICS.weddingArchiveDownloads, { result: "ok" });
     const res = await post(app, OWNER);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/zip");
@@ -200,24 +249,37 @@ describe("who may download a wedding (refusals)", () => {
       `attachment; filename="cire-wedding-slug-${W}.zip"`,
     );
     expect(readZip(new Uint8Array(await res.arrayBuffer())).every((e) => e.crcMatches)).toBe(true);
+    expect(await counterValue(CIRE_METRICS.weddingArchiveDownloads, { result: "ok" })).toBe(ok + 1);
+  });
+
+  it("B15: the sheets for setting the wedding up again carry no ids and no live household code", async () => {
+    const { db, assets, sheets } = seedWedding();
+    const { texts } = await archiveOf(db, { assets, sheets });
+    expect(texts.get(`${FOLDER}guests.csv`)).toContain(fullWeddingCode(W));
+    expect(texts.get(`${FOLDER}for-import/guests.csv`)).not.toContain(fullWeddingCode(W));
+    expect(texts.get(`${FOLDER}for-import/events.csv`)).not.toContain(`evt_${W}`);
   });
 });
 
 describe("what an archive holds when R2 or a limit gets in the way", () => {
-  it("B1: a file that would pass the byte limit is left out; a smaller one after it fits", async () => {
+  it("B1: a file that would pass the byte limit is left out; a smaller one after it fits, to the byte", async () => {
     const { db } = seedWedding();
     const assets = createAssetsStub();
     const [hero, story, footer, event, registry] = fullWeddingKeys(W).assets;
     assets.put(hero!, jpeg(57), { httpMetadata: { contentType: "image/jpeg" } }); // 60 bytes
     assets.put(story!, jpeg(57), { httpMetadata: { contentType: "image/jpeg" } }); // 60 bytes
-    for (const key of [footer!, event!, registry!]) {
-      assets.put(key, jpeg(7), { httpMetadata: { contentType: "image/jpeg" } }); // 10 bytes
-    }
+    assets.put(footer!, jpeg(7), { httpMetadata: { contentType: "image/jpeg" } }); // 10 bytes
+    assets.put(event!, jpeg(7), { httpMetadata: { contentType: "image/jpeg" } }); // 10 bytes
+    assets.put(registry!, jpeg(17), { httpMetadata: { contentType: "image/jpeg" } }); // 20: exactly 100
     const { manifest, texts } = await archiveOf(db, { assets }, { files: 900, bytes: 100 });
     const status = new Map(manifest.files.map((f) => [f.what, f]));
     expect(status.get("Invite image: hero")).toMatchObject({ status: "included" });
     expect(status.get("Invite image: story")).toMatchObject({ status: "over_limit", path: null });
     expect(status.get("Invite image: footer")).toMatchObject({ status: "included" });
+    expect(status.get("Gift image: Vase")).toMatchObject({
+      status: "included",
+      path: "files/registry/001-vase.jpg",
+    });
     expect([...texts.keys()].some((name) => name.includes("files/invite/story"))).toBe(false);
   });
 
@@ -240,7 +302,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
   });
 
   it("B3: a missing object, a failed read and an absent bucket are named, and the archive still holds", async () => {
-    const { db, sheets } = seedWedding();
+    const { db } = seedWedding();
     const assets = createAssetsStub();
     const [hero, story] = fullWeddingKeys(W).assets;
     assets.put(hero!, jpeg(16), { httpMetadata: { contentType: "image/jpeg" } });
@@ -248,50 +310,123 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
       ...assets,
       get: (key) => (key === story ? Promise.reject(new Error("r2 down")) : assets.get(key)),
     };
+    // One of the two uploaded sheets is gone from R2.
+    const sheets = createR2Stub();
+    sheets.put(fullWeddingKeys(W).sheets[0]!, "Events\n");
     const before = await counterValue(CIRE_METRICS.weddingArchiveFiles, { status: "unreadable" });
     const withAssets = await archiveOf(db, { assets: failing, sheets });
     const status = new Map(withAssets.manifest.files.map((f) => [f.what, f.status]));
     expect(status.get("Invite image: hero")).toBe("included");
     expect(status.get("Invite image: story")).toBe("unreadable");
     expect(status.get("Invite image: footer")).toBe("missing");
+    expect(
+      withAssets.manifest.files.filter((f) => f.what.startsWith("Uploaded")).map((f) => f.status),
+    ).toEqual(["included", "missing"]);
     expect(withAssets.entries.every((entry) => entry.crcMatches)).toBe(true);
     expect(await counterValue(CIRE_METRICS.weddingArchiveFiles, { status: "unreadable" })).toBe(
       before + 1,
     );
 
-    const noBucket = await archiveOf(db, { sheets });
-    const images = noBucket.manifest.files.filter((f) => f.what.includes("image"));
-    expect(images.length).toBeGreaterThan(0);
-    expect(images.every((f) => f.status === "unavailable")).toBe(true);
+    const noBucket = await archiveOf(db, {});
+    expect(noBucket.manifest.files.length).toBe(7);
+    expect(noBucket.manifest.files.every((f) => f.status === "unavailable")).toBe(true);
   });
 
-  it("B4: a data file cut at its ceiling says so", async () => {
+  it("B4: every data file cut at its ceiling says so, with both counts", async () => {
     const { db, assets, sheets } = seedWedding();
-    db.insert(tasks)
-      .values(
-        Array.from({ length: MAX_PLANNING_EXPORT_ROWS }, (_, i) => ({
-          id: `task_extra_${i}`,
-          weddingId: W,
-          title: `Task ${i}`,
-          timeframeBucket: "1m",
-          createdAt: new Date(),
-        })),
-      )
-      .run();
+    const bulk = (sql: string) => db.$client.run(sql);
+    const n = (count: number) =>
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${count}) SELECT i FROM n`;
+    // `fullWeddingStatements` already holds one row in each of these.
+    bulk(
+      `INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at) SELECT 'tb_' || i, '${W}', 'Task', '1m', 0 FROM (${n(MAX_PLANNING_EXPORT_ROWS)})`,
+    );
+    bulk(
+      `INSERT INTO budget_items (id, wedding_id, category, name, created_at, updated_at) SELECT 'bb_' || i, '${W}', 'venue', 'Line', 0, 0 FROM (${n(MAX_PLANNING_EXPORT_ROWS)})`,
+    );
+    bulk(
+      `INSERT INTO vendors (id, wedding_id, name, category, created_at, updated_at) SELECT 'vb_' || i, '${W}', 'Vendor', 'venue', 0, 0 FROM (${n(MAX_VENDOR_EXPORT_ROWS)})`,
+    );
+    bulk(
+      `INSERT INTO registry_items (id, wedding_id, title, created_at, updated_at) SELECT 'rb_' || i, '${W}', 'Item', 0, 0 FROM (${n(MAX_REGISTRY_EXPORT_ROWS)})`,
+    );
+    bulk(
+      `INSERT INTO wedding_faqs (id, wedding_id, question, answer, created_at, updated_at) SELECT 'qb_' || i, '${W}', 'Q', 'A', 0, 0 FROM (${n(MAX_QUESTION_EXPORT_ROWS)})`,
+    );
+    bulk(
+      `INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) SELECT 'fb_' || i, '${W}', 'FB-' || i, 'Bulk', 0, 0 FROM (${n(MAX_HOUSEHOLD_EXPORT_ROWS)})`,
+    );
+    // One more gift than the ceiling: a claim by each new household on the one item.
+    bulk(
+      `INSERT INTO registry_claims (id, wedding_id, item_id, family_id, created_at, updated_at) SELECT 'cb_' || i, '${W}', 'ritem_${W}', 'fb_' || i, 0, 0 FROM (${n(MAX_GIFT_EXPORT_ROWS - 1)})`,
+    );
+    // One more seat than the ceiling, at the plan in use: a guest of each new household.
+    bulk(
+      `INSERT INTO guests (id, family_id, first_name, created_at, updated_at) SELECT 'gb_' || i, 'fb_' || i, 'Guest', 0, 0 FROM (${n(MAX_SEATING_EXPORT_ROWS / 2)})`,
+    );
+    bulk(
+      `INSERT INTO guests (id, family_id, first_name, created_at, updated_at) SELECT 'gc_' || i, 'fb_' || i, 'Guest', 0, 0 FROM (${n(MAX_SEATING_EXPORT_ROWS / 2)})`,
+    );
+    bulk(
+      `INSERT INTO guest_events (guest_id, event_id) SELECT id, 'evt_${W}' FROM guests WHERE id LIKE 'gb_%' OR id LIKE 'gc_%'`,
+    );
+    bulk(
+      `INSERT INTO seating_assignments (table_id, plan_id, event_id, guest_id, created_at) SELECT 'stb_${W}', 'spl_${W}', 'evt_${W}', id, 0 FROM guests WHERE id LIKE 'gb_%' OR id LIKE 'gc_%'`,
+    );
+
     const { manifest } = await archiveOf(db, { assets, sheets });
-    const file = (path: string) => manifest.data.find((d) => d.path === path);
-    expect(file("tasks.csv")).toEqual({
-      path: "tasks.csv",
+    const cut = (path: string, ceiling: number, inWedding: number) => ({
+      path,
       complete: false,
-      rowsInWedding: MAX_PLANNING_EXPORT_ROWS + 1,
-      rowsInFile: MAX_PLANNING_EXPORT_ROWS,
+      rowsInWedding: inWedding,
+      rowsInFile: ceiling,
     });
-    expect(file("budget.csv")).toEqual({ path: "budget.csv", complete: true });
+    const capped = manifest.data.filter((d) => !d.complete);
+    expect(capped).toEqual([
+      cut("households.csv", MAX_HOUSEHOLD_EXPORT_ROWS, MAX_HOUSEHOLD_EXPORT_ROWS + 1),
+      cut("seating.csv", MAX_SEATING_EXPORT_ROWS, MAX_SEATING_EXPORT_ROWS + 1),
+      cut("seating-plans.csv", MAX_SEATING_EXPORT_ROWS, MAX_SEATING_EXPORT_ROWS + 1),
+      cut("registry.csv", MAX_REGISTRY_EXPORT_ROWS, MAX_REGISTRY_EXPORT_ROWS + 1),
+      cut("gifts.csv", MAX_GIFT_EXPORT_ROWS, MAX_GIFT_EXPORT_ROWS + 1),
+      // Lines and their payments: the fixture's one line has a payment.
+      cut("budget.csv", MAX_PLANNING_EXPORT_ROWS, MAX_PLANNING_EXPORT_ROWS + 2),
+      cut("tasks.csv", MAX_PLANNING_EXPORT_ROWS, MAX_PLANNING_EXPORT_ROWS + 1),
+      cut("vendors.csv", MAX_VENDOR_EXPORT_ROWS, MAX_VENDOR_EXPORT_ROWS + 1),
+      cut("questions.csv", MAX_QUESTION_EXPORT_ROWS, MAX_QUESTION_EXPORT_ROWS + 1),
+    ]);
+  });
+
+  it("B4: a file exactly at its ceiling is whole, and the host's preview household is not counted", async () => {
+    const { db, assets, sheets } = seedWedding();
+    const n = (count: number) =>
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${count}) SELECT i FROM n`;
+    db.$client.run(
+      `INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at) SELECT 'tb_' || i, '${W}', 'Task', '1m', 0 FROM (${n(MAX_PLANNING_EXPORT_ROWS - 1)})`,
+    );
+    db.$client.run(
+      `INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) SELECT 'fb_' || i, '${W}', 'FB-' || i, 'Bulk', 0, 0 FROM (${n(MAX_HOUSEHOLD_EXPORT_ROWS - 1)})`,
+    );
+    db.$client.run(
+      `INSERT INTO families (id, wedding_id, public_id, family_name, kind, created_at, updated_at) VALUES ('fam_host', '${W}', 'HOST-W1', 'Host', 'host', 0, 0)`,
+    );
+    const { manifest } = await archiveOf(db, { assets, sheets });
+    expect(manifest.data.every((d) => d.complete)).toBe(true);
   });
 
   it("B5: a name from the wedding can never leave its folder or take another's place", async () => {
     const { db, assets, sheets } = seedWedding();
-    const hostile = ["../../x", "/", "\\", "", "a".repeat(300), "Café", "Café"];
+    const hostile = [
+      "../../x",
+      "/",
+      "\\",
+      "",
+      "a".repeat(300),
+      "Café",
+      "Café",
+      "Smith & Jones",
+      "Rehearsal dinner!",
+      `${"b".repeat(39)} c`,
+    ];
     db.insert(events)
       .values(
         hostile.map((name, i) => ({
@@ -318,11 +453,55 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     for (const name of names) {
       expect(name.startsWith(FOLDER)).toBe(true);
       expect(name).not.toMatch(/\\|(^|\/)\.\.?(\/|$)|\/\//);
-      expect(name.length).toBeLessThan(120);
     }
-    expect(names.filter((name) => name.includes("/files/events/"))).toHaveLength(
-      hostile.length + 1,
+    expect(names.filter((name) => name.includes("/files/events/"))).toEqual(
+      [
+        "001-ceremony",
+        "002-x",
+        "003-event",
+        "004-event",
+        "005-event",
+        `006-${"a".repeat(40)}`,
+        "007-cafe",
+        "008-cafe",
+        "009-smith-jones",
+        "010-rehearsal-dinner",
+        `011-${"b".repeat(39)}`,
+      ].map((stem) => `${FOLDER}files/events/${stem}.jpg`),
     );
+    db.$client.run(
+      `INSERT INTO registry_items (id, wedding_id, title, image_key, sort_order, created_at, updated_at) VALUES ('ritem_untitled', '${W}', '', 'assets/${W}/registry-untitled', 1, 0, 0)`,
+    );
+    assets.put(`assets/${W}/registry-untitled`, jpeg(4), {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    const again = await archiveOf(db, { assets, sheets });
+    expect(again.manifest.files.find((f) => f.what === "Event image: Smith & Jones")?.path).toBe(
+      "files/events/009-smith-jones.jpg",
+    );
+    expect(again.manifest.files.find((f) => f.what === "Gift image: ")?.path).toBe(
+      "files/registry/002-gift.jpg",
+    );
+  });
+
+  it("B5: a picture stored with no type is named by its bytes, and one it cannot tell as .bin", async () => {
+    const { db, sheets } = seedWedding();
+    const assets = createAssetsStub();
+    const [hero, story, footer, event] = fullWeddingKeys(W).assets;
+    assets.put(hero!, jpeg(4));
+    assets.put(story!, new Uint8Array([1, 2, 3, 4]));
+    assets.put(footer!, new Uint8Array([1]), { httpMetadata: { contentType: "image/png" } });
+    assets.put(event!, new Uint8Array([1]), { httpMetadata: { contentType: "image/webp" } });
+    const { entries } = await archiveOf(db, { assets, sheets });
+    const pictures = entries
+      .map((e) => e.name)
+      .filter((name) => /\/files\/(invite|events)\//.test(name));
+    expect(pictures).toEqual([
+      `${FOLDER}files/invite/hero.jpg`,
+      `${FOLDER}files/invite/story.bin`,
+      `${FOLDER}files/invite/footer.png`,
+      `${FOLDER}files/events/001-ceremony.webp`,
+    ]);
   });
 
   it("B6: one whole download stays within D1's 50 statements a request, sign-in included", async () => {
@@ -357,7 +536,7 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     failing.restore();
     expect(failing.failed()).toBeGreaterThan(0);
     expect(res?.status).toBe(500);
-    expect(res?.headers.get("content-type")).toStartWith("application/json");
+    expect(await res?.json()).toEqual({ error: "Internal error" });
     expect(logs).toContain("wedding archive read failed");
     expect(logs).toContain(W);
     for (const row of ["Ada", "Hall", "Vase", "Florist", OWNER]) expect(logs).not.toContain(row);
@@ -366,7 +545,21 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     );
   });
 
-  it("B9: the couple's applied and reverted uploads go in; a preview and cire's own snapshots do not", async () => {
+  it("B7: an app built without the D1 Effect handle refuses with 500 rather than a partial archive", async () => {
+    const { db, assets, sheets } = seedWedding();
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      assets,
+      r2: sheets,
+      archiveLimiter: generous(),
+      exportLimiter: generous(),
+    });
+    const res = await post(app, OWNER);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Internal error" });
+  });
+
+  it("B9: the couple's applied and reverted uploads go in, newest first; a preview and cire's own snapshots do not", async () => {
     const { db, assets, sheets } = seedWedding();
     const at = Date.parse("2026-10-02T00:00:00Z");
     for (const [id, status, kind] of [
@@ -376,20 +569,107 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
     ] as const) {
       db.$client
         .query(
-          "INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, summary, status, kind) VALUES (?, ?, ?, 'csv', ?, ?, '{}', ?, ?)",
+          "INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, summary, status, kind) VALUES (?, ?, ?, 'tsv', ?, ?, '{}', ?, ?)",
         )
         .run(id, W, at, `imports/${id}/events.csv`, `imports/${id}/guests.csv`, status, kind);
       sheets.put(`imports/${id}/events.csv`, `Events,${id}\n`);
       sheets.put(`imports/${id}/guests.csv`, `Guests,${id}\n`);
     }
-    const { texts } = await archiveOf(db, { assets, sheets });
+    const { texts, manifest } = await archiveOf(db, { assets, sheets });
     const uploads = [...texts.entries()].filter(([name]) => name.includes("/files/uploads/"));
+    expect(uploads.map(([name]) => name.slice(FOLDER.length))).toEqual([
+      "files/uploads/2026-10-02-001-events.tsv",
+      "files/uploads/2026-10-02-001-guests.tsv",
+      "files/uploads/1970-01-21-002-events.csv",
+      "files/uploads/1970-01-21-002-guests.csv",
+    ]);
     const contents = uploads.map(([, text]) => text).join("");
-    expect(uploads).toHaveLength(4);
     expect(contents).toContain("imp_reverted");
-    expect(contents).toContain(`imports/imp_${W}/events.csv`);
     expect(contents).not.toContain("imp_preview");
     expect(contents).not.toContain("imp_editor");
     expect(contents).not.toContain("/before/");
+    expect(manifest.files.filter((f) => f.what.startsWith("Uploaded")).map((f) => f.what)).toEqual([
+      "Uploaded events sheet, 2026-10-02",
+      "Uploaded guest sheet, 2026-10-02",
+      "Uploaded events sheet, 1970-01-21",
+      "Uploaded guest sheet, 1970-01-21",
+    ]);
+  });
+
+  it("B11: a new wedding with nothing in it, and pictures nowhere, still downloads whole", async () => {
+    const db = createDb(":memory:");
+    insertWedding(db, { id: W, slug: `slug-${W}`, displayName: "New", owners: [OWNER] });
+    db.insert(events)
+      .values({
+        id: "evt_plain",
+        weddingId: W,
+        slug: "day",
+        name: "Day",
+        startAt: "",
+        endAt: "",
+        timezone: "UTC",
+      })
+      .run();
+    db.$client.run(
+      `INSERT INTO registry_items (id, wedding_id, title, created_at, updated_at) VALUES ('ritem_plain', '${W}', 'Plain', 0, 0)`,
+    );
+    const { manifest, entries } = await archiveOf(db, {
+      assets: createAssetsStub(),
+      sheets: createR2Stub(),
+    });
+    expect(manifest.files).toEqual([]);
+    expect(manifest.data.every((d) => d.complete)).toBe(true);
+    expect(entries.map((e) => e.name)).toContain(`${FOLDER}manifest.json`);
+  });
+
+  it("B13: a reader that stops reading stops the R2 reads", async () => {
+    const { db, assets, sheets } = seedWedding();
+    const reads: string[] = [];
+    const counted: AssetsBucket = {
+      ...assets,
+      get: (key) => {
+        reads.push(key);
+        return assets.get(key);
+      },
+    };
+    const plan = await readPlan(db);
+    const reader = weddingArchiveService.stream(plan, { assets: counted, sheets }).getReader();
+    // The README, then every data file: no picture is read before its turn.
+    for (let i = 0; i <= plan.data.length; i++) await reader.read();
+    await reader.cancel();
+    expect(reads).toEqual([]);
+  });
+
+  it("B14: a fault while writing ends the stream with no end record, and logs the wedding only", async () => {
+    const { db, assets, sheets } = seedWedding();
+    const plan = await readPlan(db);
+    const faulty = {
+      ...plan,
+      data: [
+        {
+          path: "broken.csv",
+          complete: true,
+          get text(): string {
+            throw new Error("Ada Hall");
+          },
+        },
+      ],
+    };
+    const before = await counterValue(CIRE_METRICS.weddingArchiveDownloads, { result: "error" });
+    let failed = false;
+    const logs = await captureLogs(async () => {
+      try {
+        await new Response(weddingArchiveService.stream(faulty, { assets, sheets })).arrayBuffer();
+      } catch {
+        failed = true;
+      }
+    });
+    expect(failed).toBe(true);
+    expect(logs).toContain("wedding archive stream failed");
+    expect(logs).toContain(W);
+    expect(logs).not.toContain("Ada");
+    expect(await counterValue(CIRE_METRICS.weddingArchiveDownloads, { result: "error" })).toBe(
+      before + 1,
+    );
   });
 });

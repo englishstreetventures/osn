@@ -110,7 +110,7 @@ own block beside it; add a row for a new one.
 |---|---|
 | `auth.ts` | `sessionAuth` — the guest claim-code cookie |
 | `osn-auth.ts` | `osnAuth` — the organiser session cookie, else an OSN access token |
-| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, the CSV exports, adding, changing or removing any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
+| `wedding-owner.ts` | any owner (the `manage` capability) — codes, settings, billing, the payout account, the CSV exports and the whole-wedding archive, adding, changing or removing any seat, delete. `weddingOwnerIncludingDeleted()` is the same check for the restore route alone, the only organiser route that reaches a soft-deleted wedding |
 | `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, marking a household's code sent |
 | `wedding-member.ts` | reads + invite preview — every role carrying the `member` capability (`editor`, `viewer`; **not** `helper`) |
 | `wedding-run-sheet.ts` | the day-of run sheet — every role including `helper`. Standalone: mount it INSTEAD OF `wedding-member.ts`, never after it |
@@ -129,7 +129,7 @@ on one fluent Elysia chain. Where a new route goes:
 
 | Where | What goes there |
 |---|---|
-| Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, osn-api's two account-deletion calls (ARC, [[cire-auth#osn-api's ARC calls (account deletion)]]), the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
+| Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, osn-api's two account-deletion calls and its account-export call (ARC, [[cire-auth#osn-api's ARC calls (account deletion)]]), the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
 | After the chain | The Stripe mounts: the Connect webhook, the upgrade routes and the platform webhook. The upgrade routes and the platform webhook share one upgrade service and mount together, only with both a Stripe client and the platform webhook secret (on a deployed tier, one that differs from the Connect secret): the early return skips both otherwise, since only that webhook grants what the routes sell. No type limit keeps the two webhooks here |
 | Anywhere else | Inside the chain, after the guard. A route that exists only under a setting mounts as `setting ? routes : new Elysia()`, as Connect onboarding does |
 
@@ -167,7 +167,7 @@ Two type limits apply to the chain:
   `LSP` tool run `tsc` ([[agent-tooling#Code search]]), so they show the error
   while `typecheck` passes.
 
-`createApp` makes **67** chained calls, counting `.headers`.
+`createApp` makes **69** chained calls, counting `.headers`.
 
 *Measured 2026-10-27 on TypeScript 7.1.0-beta and Bun 1.4.4 — the chain's own mounts repeated or cut in a scratch copy of `createApp`, checked with `node_modules/.bin/tsc -p cire/api --noEmit` and `bun run --cwd cire/api typecheck`*
 
@@ -217,6 +217,39 @@ order that is not the stored key's text order goes into the `ORDER BY` with
 are the patterns, and their tests read the statements back to pin the row
 count each read returns. A file a locked module's card offers also needs its
 count in `GET …/module-rows` and an entry in the portal's `LOCKED_EXPORTS`.
+
+**The whole-wedding archive** (`POST /api/organiser/weddings/:weddingId/archive`,
+`routes/wedding-archive.ts`, `services/wedding-archive.ts`) puts every export
+in one ZIP, with households, vendors, the gift list, every seating plan, the
+wedding's settings, the invitation and the R2 files the wedding holds, and a
+`manifest.json` written last. The host portal's page for it is
+`#/w/<weddingId>/settings/export`; osn-api's account export links there. Owner
+only, no tier gate, a POST behind the origin guard so a same-site page cannot
+start one. Its own limiter answers first (`archiveLimiter`, 10 a day per
+owner, in memory), then the shared one, which it spends too. What it keeps to:
+
+- **Every D1 read before the first byte.** `read()` runs each exporter and the
+  file list (32 statements for a wedding with every module filled, the gates
+  included, under D1's 50 a request on Workers Free); a failure is the route's
+  500. R2 objects are read while the archive streams, one per pull
+  (`highWaterMark: 0`), each whole before its entry is written; one that is
+  missing or fails is left out and named in the manifest.
+
+  *Measured 2026-11-16 — `recordStatements` (`cire/api/tests/test-helpers.ts`) over one `POST …/archive` for a `fullWeddingStatements` wedding, signed in with an organiser-session cookie, on bun:sqlite*
+
+- **R2 limits.** At most 900 objects (each read is one of the 1,000 calls to
+  Cloudflare services an invocation may make) and 256 MiB of them (the portal
+  holds the archive as one Blob; fflate writes no ZIP64). The count is checked
+  before a read, the byte total after it.
+- **Stored entries, native CRC-32.** `lib/stored-zip.ts` hands each entry to
+  fflate's `Zip` with its CRC from `node:zlib`, which workerd and Bun implement
+  natively, so the per-byte cost is a copy. `tests/workerd/entry.test.ts` runs
+  an archive on workerd under production's compatibility flags.
+- **CPU.** The archive serialises what every CSV download serialises, in one
+  request. Workers Paid (production) allows 30 s; on Workers Free (dev) a
+  wedding with much in it can pass 10 ms and be stopped, mid-stream if it
+  happens while R2 objects are read. The archive then has no
+  end-of-central-directory record, and the portal saves nothing.
 
 ## Tests
 

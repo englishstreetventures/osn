@@ -179,7 +179,7 @@ Two routes the organiser portal calls sit outside these gates:
 | Action                                                                                            | Owner | Editor | Viewer | Helper    | Gate                            |
 | ------------------------------------------------------------------------------------------------- | ----- | ------ | ------ | --------- | ------------------------------- |
 | View guests / events / RSVPs dashboard, `GET /settings`, `GET /invite` and `GET /invite/image/:slot`, `GET /hosts` | ✅    | ✅     | ✅     | ❌        | `weddingMember()`               |
-| Download the CSV exports (`rsvps.csv`, `guests.csv`, `events.csv`, `gifts.csv`, `budget.csv`, `tasks.csv`, `seating.csv`, `export/*.csv`) and read `module-rows` | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
+| Download the CSV exports (`rsvps.csv`, `guests.csv`, `events.csv`, `gifts.csv`, `budget.csv`, `tasks.csv`, `seating.csv`, `export/*.csv`) and read `module-rows`; download the whole wedding (`POST /archive`) | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | Preview the invite (`POST /preview-code`)                                                         | ✅    | ✅     | ✅     | ❌        | `weddingMember()`               |
 | Unseen RSVP changes (`GET /rsvp-changes`, `GET /rsvp-changes/rows`) and marking them seen (`POST /rsvp-changes/seen` — writes only the caller's own read marker) | ✅ | ✅ | ✅ | ❌ | `weddingMember()` |
 | The caller's own daily RSVP digest switch (`PUT /rsvp-changes/digest`) — only the owner and editors are sent the digest | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` |
@@ -304,6 +304,7 @@ The organiser portal decides every role-driven affordance in one place, `cire/ho
 | The module write surfaces, and marking a household sent when its message is copied          | ✅    | ✅     | ❌     | ❌     | `weddingEditor()` |
 | The add-someone form, the role dropdown and the remove control on another person's row       | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | The CSV download buttons — guests, RSVPs, events, gifts, and the import's current-rows export | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
+| The whole-wedding download on Settings → Export; others see a note that only an owner can, a helper over the run sheet | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | Stepping down, from the dropdown on the caller's own row (no remove there)                  | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | The "Sees:" dropdown on a helper's row — their own tasks or the whole run sheet; widening asks first | ✅ | ❌ | ❌ | ❌ | `weddingOwner()` |
 | The same scope as a read-only "Sees:" line on a helper's row                                 | ❌    | ✅     | ✅     | ❌     | `weddingMember()` |
@@ -377,11 +378,13 @@ Both predicates guard the `String(err)` call. It throws on a null-prototype obje
 
 ## osn-api's ARC calls (account deletion)
 
-cire-api takes two calls from osn-api, both server-to-server and authenticated
+cire-api takes three calls from osn-api, all server-to-server and authenticated
 by an ARC token alone ([[arc-tokens#osn-api as issuer — published outbound keys]]):
 `POST /internal/account-deletion-preview` (scope `account:deletion-preview`) and
 `POST /internal/account-deleted` (scope `account:erase`), in
-[`cire/api/src/routes/internal-account-deletion.ts`](../../cire/api/src/routes/internal-account-deletion.ts).
+[`cire/api/src/routes/internal-account-deletion.ts`](../../cire/api/src/routes/internal-account-deletion.ts),
+and `POST /internal/account-export` (scope `account:export`), in
+[`cire/api/src/routes/internal-account-export.ts`](../../cire/api/src/routes/internal-account-export.ts).
 [`cire/api/src/lib/osn-arc.ts`](../../cire/api/src/lib/osn-arc.ts) admits a token
 only when `iss` is `osn-api`, `aud` is `cire-api`, its scope holds the route's,
 and its signature checks against the key osn-api published at
@@ -390,13 +393,16 @@ organiser tokens; anything else is **401** before the body is read. cire-api
 holds no kid secret, since the value osn-api keys its kid MACs with is also the
 bearer of service-key registration, so a made-up kid costs one fetch of that
 public key set, then the shared key cache remembers it as unknown for 30 s.
-Both routes sit before the CSRF origin guard and carry no rate limit, as on
-Pulse's and Zap's receivers. What they do is in
+All three sit before the CSRF origin guard and carry no rate limit, as on
+Pulse's and Zap's receivers, and each asks for its own scope, so a token for
+one opens neither other. What they do is in
 [[dsar#Cire (wedding-invite) data]]: the preview lists each live wedding the
-account alone owns as an action that must be answered `delete`, and the
+account alone owns as an action that must be answered `delete`, the
 erasure removes the account's seats, deleting a wedding left with no owner in
-the same batch, and clears everything that names the person. A seat whose
-adder was erased lists no adder in `GET /hosts`.
+the same batch, and clears everything that names the person, and the export
+answers the account's seats as the `cire.weddings` section of its account
+export ([[dsar#Art. 15 — Right of access]]). A seat whose adder was erased
+lists no adder in `GET /hosts`.
 
 Ending the person's organiser sessions at the soft delete is not an ARC call:
 osn-api uses the bearer-secret revoke below

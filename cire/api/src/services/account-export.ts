@@ -56,10 +56,10 @@ const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 /**
  * The portal's origin as a link may carry it: `https:`, or `http:` on a
  * loopback host for a local run (osn-api's own rule for app addresses); null
- * otherwise.
+ * otherwise. `createApp` has already parsed it: an origin that does not parse
+ * stops the app being built.
  */
 function linkOrigin(origin: string): string | null {
-  if (!URL.canParse(origin)) return null;
   const url = new URL(origin);
   if (url.protocol === "https:") return url.origin;
   return url.protocol === "http:" && LOOPBACK.has(url.hostname) ? url.origin : null;

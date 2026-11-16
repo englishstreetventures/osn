@@ -16,7 +16,6 @@ export const MAX_QUESTION_EXPORT_ROWS = 100;
 
 const FIELD_HEADER = ["Field", "Value"];
 
-const iso = (at: Date | null): string => (at === null ? "" : at.toISOString());
 const yesNo = (value: boolean): string => (value ? "Yes" : "No");
 const tierName = (tier: string): string => {
   const known = normaliseTier(tier);
@@ -69,7 +68,7 @@ export const settingsExportService = {
         ["RSVP time zone", row.rsvpDeadlineTimezone ?? ""],
         ["Household codes", row.codeStyle === "simple" ? "Simple" : "Secure"],
         ["Plan", tierName(row.tier)],
-        ["Created", iso(row.createdAt)],
+        ["Created", row.createdAt.toISOString()],
       ]);
     }).pipe(Effect.withSpan("cire.settings-export.weddingCsv"));
   },

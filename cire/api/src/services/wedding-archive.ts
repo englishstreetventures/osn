@@ -134,13 +134,15 @@ export interface ArchivePlan {
   readonly files: readonly PlannedFile[];
 }
 
-/** The extension a stored picture is saved under, by its content type. */
+/**
+ * The extension a stored picture is saved under, by its content type: the
+ * three types an upload or a copied gift picture may be (`ALLOWED_IMAGE_TYPES`
+ * in `services/invite-assets.ts`).
+ */
 const IMAGE_EXTENSIONS = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
   ["image/webp", "webp"],
-  ["image/gif", "gif"],
-  ["image/avif", "avif"],
 ]);
 
 /**
@@ -562,7 +564,6 @@ export const weddingArchiveService = {
                 controller.close();
                 return;
               }
-              if (step.value.length === 0) continue;
               for (const chunk of step.value) controller.enqueue(chunk);
               return;
             }

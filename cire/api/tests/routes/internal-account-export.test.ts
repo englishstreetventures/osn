@@ -103,6 +103,7 @@ describe("ARC on the account export (refusals)", () => {
     const reads = failStatements(db, () => true);
     const res = await post(app, null, exportBody());
     expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "unauthorized" });
     expect(reads.failed()).toBe(0);
     reads.restore();
   });
@@ -164,14 +165,20 @@ describe("ARC on the account export (refusals)", () => {
       { account_id: "acc_person" },
       { profile_ids: [P] },
       exportBody(["not-a-profile"]),
+      exportBody(["xusr_a"]),
       exportBody(["usr_a-b"]),
       exportBody(Array.from({ length: 101 }, (_, i) => `usr_${i}`)),
       { account_id: "", profile_ids: [P] },
     ]) {
       const res = await post(app, token, body);
-      expect({ body: JSON.stringify(body).slice(0, 50), status: res.status }).toEqual({
+      expect({
+        body: JSON.stringify(body).slice(0, 50),
+        status: res.status,
+        answer: await res.json(),
+      }).toEqual({
         body: JSON.stringify(body).slice(0, 50),
         status: 400,
+        answer: { error: "invalid_request" },
       });
     }
   });
@@ -189,8 +196,10 @@ describe("what the export answers about the person's seats", () => {
     seat(db, "w_helped", P2, "helper", STRANGER, new Date("2026-09-02T00:00:00Z"));
     insertWedding(db, { id: "w_elsewhere", slug: "else", displayName: "Else", owners: [STRANGER] });
 
+    const ok = await counterValue(CIRE_METRICS.accountExportRequests, { result: "ok" });
     const res = await post(app, await arc.token("account:export"), exportBody([P, P2]));
     expect(res.status).toBe(200);
+    expect(await counterValue(CIRE_METRICS.accountExportRequests, { result: "ok" })).toBe(ok + 1);
     expect(res.headers.get("content-type")).toContain("application/x-ndjson");
     expect(res.headers.get("cache-control")).toBe("no-store");
     const all = await lines(res);
@@ -300,6 +309,24 @@ describe("what the export answers about the person's seats", () => {
     expect(all.at(-1)).toEqual({ degraded: "cire", reason: "too_many_weddings" });
   });
 
+  it("C8: exactly at the seat cap, the answer is whole", async () => {
+    const { db, app } = setup();
+    for (let i = 0; i < MAX_EXPORT_SEATS; i++) {
+      insertWedding(db, { id: `w_${i}`, slug: `w-${i}`, displayName: `W ${i}`, owners: [P] });
+    }
+    const all = await lines(await post(app, await arc.token("account:export"), exportBody()));
+    expect(all).toHaveLength(MAX_EXPORT_SEATS);
+    expect(all.some((line) => "degraded" in line)).toBe(false);
+  });
+
+  it("C9: a call naming no profile gets an empty answer", async () => {
+    const { db, app } = setup();
+    insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [P] });
+    const res = await post(app, await arc.token("account:export"), exportBody([]));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+  });
+
   it("C9: a person with no seat gets an empty answer", async () => {
     const { db, app } = setup();
     insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [STRANGER] });
@@ -315,11 +342,15 @@ describe("what the export answers about the person's seats", () => {
     const reads = failStatements(db, (sql) => sql.includes('"wedding_hosts"'));
     const token = await arc.token("account:export");
     let status = 0;
+    let body: unknown;
     const logs = await captureLogs(async () => {
-      status = (await post(app, token, exportBody())).status;
+      const res = await post(app, token, exportBody());
+      status = res.status;
+      body = await res.json();
     });
     reads.restore();
     expect(status).toBe(500);
+    expect(body).toEqual({ error: "internal_error" });
     expect(reads.failed()).toBeGreaterThan(0);
     expect(logs).toContain("account export failed");
     expect(logs).not.toContain(P);
@@ -331,6 +362,8 @@ describe("what the export answers about the person's seats", () => {
   it("C11: the download link needs an https portal, or http on a loopback host", async () => {
     for (const [origin, link] of [
       ["http://host.example.test", null],
+      ["ftp://localhost", null],
+      ["http://[::1]:4322", "http://[::1]:4322/#/w/w1/settings/export"],
       ["http://localhost:4322", "http://localhost:4322/#/w/w1/settings/export"],
       ["http://127.0.0.1:4322", "http://127.0.0.1:4322/#/w/w1/settings/export"],
       ["https://host.example.test/", `${PORTAL}/#/w/w1/settings/export`],
