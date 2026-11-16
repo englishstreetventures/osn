@@ -215,9 +215,11 @@ export function AuthProvider(props: AuthProviderProps) {
           void refetchSession();
           return;
         case "pending-deletion":
-          // The token now says which, whatever this page assumed.
-          setPendingSoon(false);
-          void refetchSession();
+          // The token now says which, whatever this page assumed — once the
+          // refetch holds it. Cleared before, the old token would read as
+          // ordinary for that moment and the profile list would go out on a
+          // session its route refuses.
+          void Promise.resolve(refetchSession()).finally(() => setPendingSoon(false));
           return;
       }
     }),

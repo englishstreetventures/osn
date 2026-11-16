@@ -610,6 +610,49 @@ describe("renewSession", () => {
     dispose();
   });
 
+  it("lists no profiles while the renewal that brought a pending token lands", async () => {
+    // Red on clearing the page's "pending soon" mark when the runtime says
+    // the audience changed, before the session refetch holds the new token:
+    // for that moment the old token reads as ordinary, the shell's profile
+    // list goes out on the pending session, and `/profiles/list` refuses it.
+    const listeners = new Set<(change: SessionChange) => void>();
+    let aud = "osn-access";
+    const listProfiles = vi.fn(() => Effect.succeed([]));
+    const service = {
+      loadSession: () =>
+        Effect.sync(() => ({
+          accessToken: tokenOn(aud),
+          idToken: null,
+          expiresAt: Date.now() + 60_000,
+          scopes: [],
+        })),
+      refreshSession: () =>
+        Effect.sync(() => {
+          aud = "osn-pending-deletion";
+          for (const listener of listeners) listener({ kind: "pending-deletion", pending: true });
+        }),
+      listProfiles,
+      getActiveProfile: () => Effect.succeed(DEFAULT),
+    } as unknown as OsnAuthService;
+    const runtime: OsnAuthRuntime = {
+      authFetch: vi.fn(),
+      run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+      onSessionChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const { auth, dispose } = mount(runtime);
+    await settle();
+    expect(listProfiles).toHaveBeenCalledTimes(1);
+
+    await auth().renewSession({ pending: true });
+    await settle();
+    expect(auth().pendingDeletion()).toBe(true);
+    expect(listProfiles).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
   it("otherwise rejects, and the page reads as its token says", async () => {
     const { auth, dispose } = renewing(
       () => Effect.fail(new StorageError({ cause: "PLANTED" })),
