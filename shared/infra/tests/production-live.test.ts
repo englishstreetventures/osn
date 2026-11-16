@@ -1002,7 +1002,24 @@ describe("LJ: the guard's judgement of a migrated database's ledger", () => {
     ).toEqual([]);
   });
 
-  test("LJ17: an empty Wrangler ledger is refused; counts of more than one read in the plural; late files are listed", () => {
+  test("LJ20 (J11): a timestamped migration merged behind a newer applied one is refused", () => {
+    // Alchemy, from 2.0.0-beta.86, refuses a pending migration that sorts before
+    // one the database applied, so the migrate step would fail after approval.
+    const late = counted({
+      wrangler: [
+        ...WRANGLER_LEDGER.filter((name) => name !== "20261021132850_late.sql"),
+        "20261101000000_new.sql",
+      ],
+    });
+    expect(judged(late).refusals).toEqual([
+      "1 migration file of cire-db sorts before one its ledger already records, which Alchemy from 2.0.0-beta.86 refuses to apply; rename it after the newest migration on main and release again (wiki/shared/production-deploy.md §4.2)",
+    ]);
+    expect(judged({ ...late, pending: 3, late: 2 }).refusals).toEqual([
+      "2 migration files of cire-db sort before one its ledger already records, which Alchemy from 2.0.0-beta.86 refuses to apply; rename them after the newest migration on main and release again (wiki/shared/production-deploy.md §4.2)",
+    ]);
+  });
+
+  test("LJ17: an empty Wrangler ledger is refused; counts of more than one read in the plural; late files are counted beside their refusal", () => {
     expect(judged(counted({ wrangler: [] })).refusals.join("\n")).toContain(
       "cire-db's d1_migrations is empty, so the migrate step would apply every migration",
     );
@@ -1023,7 +1040,7 @@ describe("LJ: the guard's judgement of a migrated database's ledger", () => {
         ],
       }),
     );
-    expect(late.refusals).toEqual([]);
+    expect(late.refusals).toHaveLength(1);
     expect(late.notices).toEqual([
       "cire-db migration ledger (d1_migrations): 5 rows, 5 match a migration file, 0 match none; 2 to apply, 1 of them older than the newest applied; Wrangler's ledger not frozen",
     ]);

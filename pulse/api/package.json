@@ -35,7 +35,7 @@
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/eden": "^1.4.9",
-    "@elysiajs/openapi": "1.4.16",
+    "@elysiajs/openapi": "1.4.17",
     "@pulse/db": "workspace:*",
     "@shared/crypto": "workspace:*",
     "@shared/db-utils": "workspace:*",
@@ -45,16 +45,16 @@
     "@shared/rate-limit": "workspace:*",
     "@zap/db": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.1.2",
+    "effect": "4.1.4",
     "elysia": "^1.4.30"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
-    "@effect/vitest": "4.1.2",
+    "@effect/vitest": "4.1.4",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "miniflare": "^4.20260730.0",
     "vitest": "5.0.5",
-    "wrangler": "4.149.0"
+    "wrangler": "4.156.1"
   }
 }

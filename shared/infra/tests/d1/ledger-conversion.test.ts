@@ -760,7 +760,7 @@ describe.skipIf(!TIER)(
         ]);
 
         writeFileSync(
-          join(moved.migrations, "29991231235955_retry_probe.sql"),
+          join(moved.migrations, "29991231235957_retry_probe.sql"),
           "CREATE TABLE retry_probe (id INTEGER);\n--> statement-breakpoint\nINSERT INTO retry_probe VALUES (1);\n",
         );
         const busy = new Set<string>();

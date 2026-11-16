@@ -9,14 +9,14 @@ export interface WriteStatement {
 
 /** The part of an Effect drizzle handle this module reads: its SQL client. */
 export interface EffectWriteDb {
-  readonly $client: SqlClient.SqlClient;
+  readonly $client: SqlClient.SqlClient | D1Client.D1Client;
 }
 
 /**
  * True when the client is a D1 client. Read from the client itself, so the
  * decision needs no service in context and no `bun:sqlite` import.
  */
-const isD1Client = (client: SqlClient.SqlClient): client is D1Client.D1Client =>
+const isD1Client = (client: EffectWriteDb["$client"]): client is D1Client.D1Client =>
   D1Client.TypeId in client;
 
 /**

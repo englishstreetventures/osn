@@ -1019,6 +1019,11 @@ export function judgeLedger(name: string, ledger: LedgerCounts | undefined): Liv
       `${plural(ledger.skipped, "migration file", "migration files")} of ${name} ${ledger.skipped === 1 ? "is" : "are"} missing from its ledger behind ones applied after ${ledger.skipped === 1 ? "it" : "them"}, or archived: the chain was applied without ${ledger.skipped === 1 ? "it" : "them"}, and the migrate step must not run ${ledger.skipped === 1 ? "it" : "them"} now (${LEDGER_RUNBOOK})`,
     );
   }
+  if (ledger.late > 0) {
+    refusals.push(
+      `${plural(ledger.late, "migration file", "migration files")} of ${name} ${ledger.late === 1 ? "sorts" : "sort"} before one its ledger already records, which Alchemy from 2.0.0-beta.86 refuses to apply; rename ${ledger.late === 1 ? "it" : "them"} after the newest migration on main and release again (${LEDGER_RUNBOOK})`,
+    );
+  }
   if (ledger.frozenMissing > 0) {
     refusals.push(
       `${plural(ledger.frozenMissing, "name", "names")} in ${name}'s d1_migrations ${ledger.frozenMissing === 1 ? "is" : "are"} missing from __alchemy_migrations: a conversion that copied part of Wrangler's ledger, so the migrate step would apply ${ledger.frozenMissing === 1 ? "it" : "them"} again (${LEDGER_RUNBOOK})`,

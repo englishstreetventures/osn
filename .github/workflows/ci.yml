@@ -864,7 +864,9 @@ jobs:
       # another can merge after it: the dev tier then applies it after main's
       # files, while a database built from zero, or a daily release catching
       # up, applies everything in name order. Both orders must apply and leave
-      # one schema. On a pull request the files it adds are those on its merge
+      # one schema. In the directories Alchemy migrates (cire, osn, zap) a new
+      # file must also sort after every file on the base, since Alchemy (from
+      # 2.0.0-beta.86) refuses a migration that sorts before one it applied. On a pull request the files it adds are those on its merge
       # commit's second side (`HEAD^1` is the base it merges into); in the merge
       # queue they are everything since the queue's base. No install: the
       # script imports bun:sqlite and sibling scripts only.
