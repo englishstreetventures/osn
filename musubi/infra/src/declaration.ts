@@ -285,6 +285,7 @@ export function musubiProductionApis(input: {
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
         OSN_EMAIL_FROM: "hello@cireweddings.com", // not a host: the sender
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
+        OSN_EMAIL_VERIFICATION_API: "true",
         OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "100",
         CIRE_OIDC_CLIENT_ID: "cid_cire",
         ...deletionAppVars(hosts),
@@ -390,10 +391,10 @@ export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
 
 /**
  * osn-api's vars for sign-up's browser Email Verification API trial: on for
- * stage `dev`, and for no investigation stage. Production declares none, so
- * it stays off there. The verifier wants the token bound to the origin of
+ * stage `dev`, and for no investigation stage. Production sets it in
+ * `musubiProductionApis`. The verifier wants the token bound to the origin of
  * OSN_AUTHORIZE_UI_URL, the app the sign-up page runs on, and
- * musubi/social/public/_headers serves the dev zone's origin-trial token there.
+ * musubi/social/public/_headers serves the dev host's origin-trial token there.
  */
 function emailVerificationTrialVars(stage: string): EmailVerificationTrialVars {
   if (stage !== "dev") return {};

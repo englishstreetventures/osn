@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Dev environment (cire + OSN identity)
@@ -128,8 +128,8 @@ osn-api.
   ([[#Passkey-less sign-in on local and dev]]).
 - **Sign-up's browser Email Verification API.** `OSN_EMAIL_VERIFICATION_API` is
   `true` on `osn-api-dev`, set on stage `dev` only in `musubiDeclaration`
-  (`musubi/infra/src/declaration.ts`); investigation stages and production leave
-  it unset. A Chrome signed in to Gmail can prove its address at sign-up with no
+  (`musubi/infra/src/declaration.ts`); investigation stages leave it unset, and
+  production sets it too. A Chrome signed in to Gmail can prove its address at sign-up with no
   email; the owner's steps are in [[email-verification-api#Testing on the dev tier]].
 - **Chrome origin-trial tokens for the dev zone.** Each trial that has a
   production token has a second one registered for the dev host itself

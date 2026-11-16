@@ -60,7 +60,7 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 | Tier | Flag | Set in |
 |---|---|---|
 | Dev | **On** from the dev deploy of the pull request that closes englishstreetventures/osn#2317, by the owner's decision, for the trial in [[#Testing on the dev tier]] | `musubiDeclaration` in [`musubi/infra/src/declaration.ts`](../../musubi/infra/src/declaration.ts), on stage `dev` only; investigation stages leave it off |
-| Production | **Off**: unset | Neither `musubiProductionApis` in the same file nor `[env.production.vars]` in [`osn/api/wrangler.toml`](../../osn/api/wrangler.toml), which `musubi/infra/tests/parity.test.ts` (PA1) holds equal |
+| Production | **On**, by the owner's decision of 2026-11-17, from the production release of the pull request that closes englishstreetventures/osn#2364 | `musubiProductionApis` in the same file and `[env.production.vars]` in [`osn/api/wrangler.toml`](../../osn/api/wrangler.toml), which `musubi/infra/tests/parity.test.ts` (PA1) holds equal |
 | Local E2E | On, for the second osn-api only | `tools/e2e/src/stack.ts` |
 
 | Part | File | What it does |
@@ -126,15 +126,6 @@ You need desktop Chrome 150 or later, a Chrome profile signed in to a Gmail acco
 | `unavailable` | A lookup or the whole check ran out of time (3 seconds a request, 5 in all), the resolver failed, or the coordination store did not answer |
 
 Never write a real address into an issue, a pull request or this page; a captured token holds one.
-
-## Before the flag goes on in production
-
-The owner's, in this order:
-
-1. Serve an origin-trial token on the sign-up origin. Done: see [[#Our origin trial]].
-2. Check with a real Chrome, signed in to Gmail, against a build served with `_headers`: [[#Testing on the dev tier]]. The `nonce` question there is the first unknown it settles.
-3. Check one real Gmail token against the verifier, so the departures above are tested against a real issuer: on dev, an `outcome` of `verified` does it.
-4. Confirm the transfer basis for the DNS lookups ([[subprocessors#Outbound lookups (not processors)]]), then set `OSN_EMAIL_VERIFICATION_API` for production through a pull request, in both places PA1 holds equal: `musubiProductionApis` in `musubi/infra/src/declaration.ts` and `[env.production.vars]` in `osn/api/wrangler.toml`.
 
 ## Exit test: turn the flag on by default
 
