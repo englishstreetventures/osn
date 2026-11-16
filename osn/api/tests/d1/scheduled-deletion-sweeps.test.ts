@@ -147,7 +147,7 @@ describe("the cron's hard delete mails, on D1", () => {
       async fetch(request) {
         const path = new URL(request.url).pathname;
         if (path === "/emails") {
-          keep(await request.json());
+          keep((await request.json()) as Parameters<typeof keep>[0]);
           return Response.json({ id: `mail-${sent.length}` });
         }
         if (path === "/emails/batch") {
