@@ -123,6 +123,9 @@ osn-api.
 
 ### What dev turns on that production does not
 
+- **Passkey-less sign-in.** `DEV_LOGIN_SECRET` and `DEV_LOGIN_RETURN_ORIGINS`
+  mount `GET /dev/login` on `osn-api-dev`; production refuses it
+  ([[#Passkey-less sign-in on local and dev]]).
 - **Sign-up's browser Email Verification API.** `OSN_EMAIL_VERIFICATION_API` is
   `true` on `osn-api-dev`, set on stage `dev` only in `musubiDeclaration`
   (`musubi/infra/src/declaration.ts`); investigation stages and production leave
@@ -130,7 +133,8 @@ osn-api.
   email; the owner's steps are in [[email-verification-api#Testing on the dev tier]].
 - **Chrome origin-trial tokens for the dev zone.** Each trial that has a
   production token has a second one registered for `DEV_DOMAIN` with its
-  subdomains, served beside it: `EmailVerificationProtocol` on musubi social
+  subdomains. Every tier serves both, and Chrome accepts the dev one only on a
+  dev host: `EmailVerificationProtocol` on musubi social
   ([[email-verification-api#Our origin trial]]), `HTMLInCanvas` on the guest site
   and `WebMCP` on the organiser portal ([[cire-development#Chrome origin trials]]).
 

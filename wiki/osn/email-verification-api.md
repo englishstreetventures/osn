@@ -55,7 +55,7 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 
 | Tier | Flag | Set in |
 |---|---|---|
-| Dev | **On** since 2026-11-16 (englishstreetventures/osn#2317), by the owner's decision, for the trial in [[#Testing on the dev tier]] | `musubiDeclaration` in [`musubi/infra/src/declaration.ts`](../../musubi/infra/src/declaration.ts), on stage `dev` only; investigation stages leave it off |
+| Dev | **On** from the dev deploy of the pull request that closes englishstreetventures/osn#2317, by the owner's decision, for the trial in [[#Testing on the dev tier]] | `musubiDeclaration` in [`musubi/infra/src/declaration.ts`](../../musubi/infra/src/declaration.ts), on stage `dev` only; investigation stages leave it off |
 | Production | **Off**: unset | Neither `musubiProductionApis` in the same file nor `[env.production.vars]` in [`osn/api/wrangler.toml`](../../osn/api/wrangler.toml), which `musubi/infra/tests/parity.test.ts` (PA1) holds equal |
 | Local E2E | On, for the second osn-api only | `tools/e2e/src/stack.ts` |
 
