@@ -462,3 +462,62 @@ it("adopting a session over another lists the profiles again", async () => {
   expect(auth().profiles()).toEqual([alice, bob]);
   dispose();
 });
+
+/** An unsigned JWT on audience `aud`: the provider reads it without verifying. */
+const tokenOn = (aud: string) => {
+  const enc = (o: object) =>
+    btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${enc({ alg: "none" })}.${enc({ sub: DEFAULT, aud })}.sig`;
+};
+
+/**
+ * A session of an account whose deletion is pending reaches only the deletion
+ * status, the download and the restore: the provider says so, and lists no
+ * profiles, whose route would refuse it.
+ */
+it("a pending-deletion session lists no profiles, and the provider follows a change of audience", async () => {
+  const listeners = new Set<(change: SessionChange) => void>();
+  let aud = "osn-access";
+  const listProfiles = vi.fn(() => Effect.succeed([]));
+  const service = {
+    loadSession: () =>
+      Effect.sync(() => ({
+        accessToken: tokenOn(aud),
+        idToken: null,
+        expiresAt: Date.now() + 60_000,
+        scopes: [],
+      })),
+    listProfiles,
+    getActiveProfile: () => Effect.succeed(DEFAULT),
+  } as unknown as OsnAuthService;
+  const runtime: OsnAuthRuntime = {
+    authFetch: vi.fn(),
+    run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+    onSessionChange: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().pendingDeletion()).toBe(false);
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+
+  // Another tab asked for the deletion: a renewal here brought a pending token.
+  aud = "osn-pending-deletion";
+  for (const listener of listeners) listener({ kind: "pending-deletion", pending: true });
+  await settle();
+
+  expect(auth().pendingDeletion()).toBe(true);
+  expect(auth().profiles()).toBeNull();
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+
+  // Kept: the next renewal is ordinary again, and the list comes back.
+  aud = "osn-access";
+  for (const listener of listeners) listener({ kind: "pending-deletion", pending: false });
+  await settle();
+
+  expect(auth().pendingDeletion()).toBe(false);
+  expect(listProfiles).toHaveBeenCalledTimes(2);
+  dispose();
+});

@@ -77,6 +77,15 @@ export interface OrgClient {
   addMember(handle: string, profileHandle: string, role: "admin" | "member"): Promise<void>;
   removeMember(handle: string, profileHandle: string): Promise<void>;
   updateMemberRole(handle: string, profileHandle: string, role: "admin" | "member"): Promise<void>;
+  /**
+   * Hands back an organisation the caller received by succession, within 30
+   * days of receiving it: it passes to its next admin or member from another
+   * account (`passed`), or is deleted when there is none (`deleted`); the
+   * caller leaves it either way. Refused at 403 (`not_owner`) for anyone but
+   * its owner, and at 409 (`not_declinable`) for an owner who created it or
+   * received it more than 30 days ago.
+   */
+  declineOwnership(handle: string): Promise<{ outcome: "passed" | "deleted" }>;
 }
 
 export function createOrgClient(config: OrgClientConfig): OrgClient {
@@ -122,5 +131,8 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
 
     updateMemberRole: (handle, profileHandle, role) =>
       authPatch(member(handle, profileHandle), { role }).then(() => undefined),
+
+    declineOwnership: (handle) =>
+      authPost<{ outcome: "passed" | "deleted" }>(`${org(handle)}/decline-ownership`),
   };
 }

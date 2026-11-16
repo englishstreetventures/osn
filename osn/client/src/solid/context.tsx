@@ -14,10 +14,15 @@ import {
   type Resource,
 } from "solid-js";
 
-import { isAuthExpiredError } from "../errors";
+import { ActiveProfileResetError, isAuthExpiredError } from "../errors";
 import type { AuthFetch, OsnAuthRuntime } from "../runtime";
 import { OsnAuth } from "../service";
-import type { HeldSession, PublicProfile, Session } from "../tokens";
+import {
+  isPendingDeletionToken,
+  type HeldSession,
+  type PublicProfile,
+  type Session,
+} from "../tokens";
 
 interface AuthContextValue {
   session: Resource<Session | null>;
@@ -36,6 +41,20 @@ interface AuthContextValue {
   /** Lists the account's profiles again: the retry for a failed list. */
   refetchProfiles: () => Promise<void>;
   activeProfileId: Accessor<string | null>;
+  /**
+   * True while the session belongs to an account whose deletion is pending:
+   * it reaches only the deletion status, the data download and the restore,
+   * so the page shows the one screen that offers them and lists nothing else.
+   */
+  pendingDeletion: Accessor<boolean>;
+  /**
+   * Renews the session's token now and shows the page what it is: after a
+   * deletion is asked for, the token moves to the pending audience; after it
+   * is cancelled, back to the ordinary one. With `pending: true` the page
+   * reads as pending at once, before the renewal answers, so nothing it shows
+   * sends an ordinary request in between.
+   */
+  renewSession: (options?: { readonly pending?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   /**
    * Persists a Session obtained from the registration flow (or any other
@@ -114,7 +133,18 @@ export function AuthProvider(props: AuthProviderProps) {
   // list, or an error about it, would land after the session was cleared.
   const [profilesError, setProfilesError] = createSignal<unknown>(undefined);
   let profilesEpoch = 0;
-  const hasSession = createMemo(() => (!session.error && session() ? true : null));
+  // Set by `renewSession({ pending: true })` until its renewal lands.
+  const [pendingSoon, setPendingSoon] = createSignal(false);
+  const pendingDeletion = createMemo(() => {
+    if (pendingSoon()) return true;
+    const current = session.error ? null : session();
+    return current ? isPendingDeletionToken(current.accessToken) : false;
+  });
+  // A pending-deletion session lists no profiles: `/profiles/list` does not
+  // serve it.
+  const hasSession = createMemo(() =>
+    !session.error && session() && !pendingDeletion() ? true : null,
+  );
   const [profiles, { mutate: mutateProfiles, refetch: refetchProfileList }] = createResource<
     PublicProfile[] | null,
     true
@@ -166,16 +196,26 @@ export function AuthProvider(props: AuthProviderProps) {
   // cache, which already holds the default profile's fresh token, so it sends
   // nothing; the profile list is keyed on a session existing, so it is not
   // listed again.
+  //
+  // A renewal that brought a token on the other audience (a deletion asked for
+  // or cancelled, here or elsewhere) refetches the session from the cache,
+  // which sends nothing, so `pendingDeletion` follows the token.
   onCleanup(
     runtime.onSessionChange((change) => {
-      if (change.kind === "ended") {
-        mutateSession(null);
-        clearProfiles();
-        setActiveProfileId(null);
-        return;
+      switch (change.kind) {
+        case "ended":
+          mutateSession(null);
+          clearProfiles();
+          setActiveProfileId(null);
+          return;
+        case "profile-reset":
+          setActiveProfileId(change.profileId);
+          void refetchSession();
+          return;
+        case "pending-deletion":
+          void refetchSession();
+          return;
       }
-      setActiveProfileId(change.profileId);
-      void refetchSession();
     }),
   );
 
@@ -210,6 +250,21 @@ export function AuthProvider(props: AuthProviderProps) {
     if (replacing) clearProfiles();
     await refetchSession();
     if (replacing) await refetchProfiles();
+  };
+
+  const renewSession = async (options?: { readonly pending?: boolean }) => {
+    if (options?.pending) setPendingSoon(true);
+    try {
+      await run(Effect.flatMap(OsnAuth, (auth) => auth.refreshSession())).catch((err: unknown) => {
+        // A pending account renews to its default profile: the runtime has
+        // made it active and told this provider, which refetched.
+        if (err instanceof ActiveProfileResetError) return;
+        throw err;
+      });
+      await refetchSession();
+    } finally {
+      setPendingSoon(false);
+    }
   };
 
   // No `refetchSession`, deliberately: adopting is the caller's decision and
@@ -248,6 +303,8 @@ export function AuthProvider(props: AuthProviderProps) {
         profilesError,
         refetchProfiles,
         activeProfileId,
+        pendingDeletion,
+        renewSession,
         logout,
         adoptSession,
         refreshHeldSession,

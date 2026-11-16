@@ -19,6 +19,11 @@ import { StorageLive, type Storage } from "./storage";
  *   itself failed or was aborted; the session is kept. A URL that is not on
  *   the issuer's origin is refused the same way, with a `TypeError`, before
  *   anything is sent: the token goes nowhere else.
+ * A 401 answered to a token of an account whose deletion is pending, after a
+ * renewal that minted one too, is handed back as it is and ends nothing: the
+ * route does not serve such a session, which is still live
+ * (`isPendingDeletionToken`).
+ *
  * - `TokenRefreshError` — the token had expired and the issuer could not
  *   renew it or could not say why; the session is kept. A token not yet
  *   expired is sent instead. After such a failure renewal pauses, 2 s
@@ -43,7 +48,13 @@ export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>
 /** What the runtime tells its listeners after it changed the session itself. */
 export type SessionChange =
   | { readonly kind: "ended" }
-  | { readonly kind: "profile-reset"; readonly profileId: string };
+  | { readonly kind: "profile-reset"; readonly profileId: string }
+  /**
+   * A renewal brought a token on the other audience than the one the page
+   * held: `pending` true when the account's deletion is now pending (this
+   * device or another asked for it), false when it is no longer (it was kept).
+   */
+  | { readonly kind: "pending-deletion"; readonly pending: boolean };
 
 export interface OsnAuthRuntime {
   /** Every authenticated client is built with this. Clients never see a token. */

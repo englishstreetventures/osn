@@ -20,6 +20,7 @@ import {
   decodeSwitchProfileResponse,
   extractJwtLifetimeMs,
   extractJwtSub,
+  isPendingDeletionToken,
   parseTokenResponse,
 } from "./tokens";
 import type {
@@ -960,6 +961,11 @@ export function createOsnAuthLive(
               }),
             );
           }
+          // Whether the account's deletion was pending under the token this
+          // replaces: a change either way is news to the page.
+          const before = account.profileTokens[granted]?.accessToken;
+          const wasPending = before !== undefined && isPendingDeletionToken(before);
+          const isPending = isPendingDeletionToken(next.accessToken);
           account.profileTokens[granted] = {
             accessToken: next.accessToken,
             expiresAt: next.expiresAt,
@@ -975,6 +981,7 @@ export function createOsnAuthLive(
           // it goes out as the profile it was made as.
           if (granted === wanted || account.activeProfileId === granted) {
             yield* saveAccountSession(account);
+            if (wasPending !== isPending) notify({ kind: "pending-deletion", pending: isPending });
             return next;
           }
 
@@ -1355,6 +1362,11 @@ export function createOsnAuthLive(
           yield* madeFor();
           const second = yield* send(input, init, renewed.accessToken);
           yield* madeFor();
+          // A token of an account whose deletion is pending reaches only the
+          // deletion status, the download and the restore. Refused after a
+          // renewal that minted one, the route does not serve the session;
+          // the renewal itself proved the session live, so nothing ends.
+          if (second.status === 401 && isPendingDeletionToken(renewed.accessToken)) return second;
           if (second.status === 401) {
             // Ends only this page's own sign-in: another tab's, stored while
             // the retry was out, is left in place.
