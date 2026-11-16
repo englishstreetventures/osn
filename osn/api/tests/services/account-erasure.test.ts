@@ -2146,3 +2146,55 @@ describe("account-erasure: a cancel and a purge", () => {
     ).pipe(Effect.provide(h.layer));
   });
 });
+
+/**
+ * The members a deletion's `successor` answer may name: every member of the
+ * organisation from another account, best successor first, at most 50 an
+ * organisation, so one organisation's roster cannot fill the preview.
+ */
+describe("account-erasure: successor candidates", () => {
+  it.effect("answers at most 50 an organisation, admins first, never the account's own", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const owner = yield* seedAccountAndProfile();
+      const orgId = "org_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+      yield* Effect.promise(() =>
+        db.insert(organisations).values({
+          id: orgId,
+          handle: "manyheirs",
+          name: "Many heirs",
+          ownerId: owner.profileId,
+          createdAt: new Date(1_000),
+          updatedAt: new Date(1_000),
+        }),
+      );
+      const member = (profileId: string, role: "admin" | "member", joined: number) =>
+        Effect.promise(() =>
+          db.insert(organisationMembers).values({
+            id: "orgm_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+            organisationId: orgId,
+            profileId,
+            role,
+            createdAt: new Date(joined * 1_000),
+          }),
+        );
+      yield* member(owner.profileId, "admin", 1);
+      // 51 members from other accounts; the last to join is the one admin.
+      const others: string[] = [];
+      for (let i = 0; i < 51; i++) {
+        const other = yield* seedAccountAndProfile(`m${i}@example.com`, `member${i}`);
+        others.push(other.profileId);
+        yield* member(other.profileId, i === 50 ? "admin" : "member", 10 + i);
+      }
+
+      const candidates = yield* accountErasure.listSuccessorCandidates(owner.accountId, [orgId]);
+
+      expect(candidates).toHaveLength(50);
+      expect(candidates[0]!.profileId).toBe(others[50]);
+      expect(candidates[0]!.role).toBe("admin");
+      expect(candidates.map((c) => c.profileId)).not.toContain(owner.profileId);
+      // The longest-standing members follow; the 50th is the 49th to join.
+      expect(candidates[49]!.profileId).toBe(others[48]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});

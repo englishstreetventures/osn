@@ -1,9 +1,9 @@
 import { it, expect, describe } from "@effect/vitest";
-import { organisations } from "@osn/db/schema";
+import { organisationMembers, organisations } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Fiber, Layer, type Result } from "effect";
-import { beforeAll } from "vitest";
+import { afterEach, beforeAll, vi } from "vitest";
 
 import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
@@ -899,6 +899,23 @@ describe("a membership write holds only while what it checked still holds", () =
   });
 });
 
+/** Sets when `profileId` joined `orgId`, in seconds since the epoch. */
+const joinedAt = (orgId: string, profileId: string, seconds: number) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db
+        .update(organisationMembers)
+        .set({ createdAt: new Date(seconds * 1_000) })
+        .where(
+          and(
+            eq(organisationMembers.organisationId, orgId),
+            eq(organisationMembers.profileId, profileId),
+          ),
+        ),
+    );
+  });
+
 /** Marks `orgId`'s owner as having received it by succession `secondsAgo` ago. */
 const inheritedNow = (orgId: string, secondsAgo = 0) =>
   Effect.gen(function* () {
@@ -925,6 +942,10 @@ describe("declineOwnership", () => {
       const carol = yield* registerProfile("carol@example.com", "carol");
       yield* org.addMember(organisation.id, alice.id, bob.id, bobRole);
       yield* org.addMember(organisation.id, alice.id, carol.id, carolRole);
+      // Bob joined first. `created_at` is in seconds, so two members added in
+      // one second would tie and the random id would choose between them.
+      yield* joinedAt(organisation.id, bob.id, 100);
+      yield* joinedAt(organisation.id, carol.id, 200);
       yield* inheritedNow(organisation.id);
       return { alice, bob, carol, orgId: organisation.id };
     });
@@ -1015,4 +1036,34 @@ describe("declineOwnership", () => {
       expect(yield* org.getMemberRole(orgId, alice.id)).toBe("admin");
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // The window's edge, on a clock held still so the read and the write agree.
+  describe("at the edge of the 30 days", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+    const THIRTY_DAYS = 30 * 24 * 60 * 60;
+
+    it.effect("refuses one received exactly 30 days ago", () =>
+      Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-11-16T12:00:00Z"));
+        const { alice, orgId } = yield* setup("admin", "member");
+        yield* inheritedNow(orgId, THIRTY_DAYS);
+        expect(yield* org.declineOwnership(orgId, alice.id)).toEqual({
+          outcome: "not_declinable",
+        });
+      }).pipe(Effect.provide(createTestLayer())),
+    );
+
+    it.effect("takes one received a second inside the 30 days", () =>
+      Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date("2026-11-16T12:00:00Z"));
+        const { alice, orgId } = yield* setup("admin", "member");
+        yield* inheritedNow(orgId, THIRTY_DAYS - 1);
+        expect((yield* org.declineOwnership(orgId, alice.id)).outcome).toBe("passed");
+      }).pipe(Effect.provide(createTestLayer())),
+    );
+  });
 });

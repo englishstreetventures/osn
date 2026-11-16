@@ -485,3 +485,40 @@ describe("<DeleteAccountPage /> lands each refusal", () => {
     await waitFor(() => expect(mocks.renewSession).toHaveBeenCalledWith({ pending: true }));
   });
 });
+
+describe("<DeleteAccountPage /> when a read or the renewal fails", () => {
+  it("a preview that did not load says so, and Try again loads it", async () => {
+    mocks.preview
+      .mockRejectedValueOnce(new AccountError("server", 503, "temporarily_unavailable"))
+      .mockResolvedValue(preview([WEDDING]));
+    renderPage();
+    fireEvent.click(button("Continue"));
+    await screen.findByRole("heading", { name: "What needs an answer" });
+
+    expect(await screen.findByText(/didn't load/)).toBeTruthy();
+    expect(button("Continue").hasAttribute("disabled")).toBe(true);
+    fireEvent.click(button("Try again"));
+
+    expect(await screen.findByText(WEDDING.label)).toBeTruthy();
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+  });
+
+  it("a renewal that fails twice after the deletion says it stands and offers a reload", async () => {
+    // Red on a page left on step 3 with its button busy while the account is
+    // already scheduled for deletion.
+    mocks.preview.mockResolvedValue(preview([]));
+    mocks.deleteAccount.mockResolvedValue({ scheduled_for: 1, already_pending: false });
+    mocks.renewSession.mockRejectedValue(new Error("no answer"));
+    renderPage();
+    await toAnswers();
+    await toConfirm();
+    submit();
+
+    expect(
+      await screen.findByText(/Your account is set to be deleted, but this page couldn't catch up/),
+    ).toBeTruthy();
+    expect(mocks.renewSession).toHaveBeenCalledTimes(2);
+    expect(button("Reload")).toBeTruthy();
+    expect(button("Delete my account").hasAttribute("disabled")).toBe(false);
+  });
+});

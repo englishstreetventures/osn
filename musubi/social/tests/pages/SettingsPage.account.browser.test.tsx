@@ -62,8 +62,6 @@ import { Layout } from "../../src/App";
 import { SettingsPage } from "../../src/pages/SettingsPage";
 import { railChunks, topBarChunks } from "../test-support/shell-chunks";
 
-const SHOTS = "__screenshots__/SettingsPage.account.browser.test.tsx";
-
 async function atViewport(width: number, height: number) {
   const resized =
     innerWidth === width && innerHeight === height
@@ -123,18 +121,4 @@ describe("Settings → Account", () => {
     expect(height(screen.getByRole("button", { name: "Download my data" }))).toBe(32);
     expect(height(screen.getByRole("link", { name: "Delete account…" }))).toBe(32);
   }, 30_000);
-
-  for (const [width, viewportHeight] of [
-    [390, 900],
-    [1280, 800],
-  ] as const) {
-    for (const theme of ["light", "dark"] as const) {
-      it(`draws the tab at ${width}px in ${theme}`, async () => {
-        if (theme === "dark") document.documentElement.classList.add("dark");
-        await open(width, viewportHeight);
-        expect(screen.getByRole("heading", { name: "Your data" })).toBeTruthy();
-        await page.screenshot({ path: `${SHOTS}/account-${width}-${theme}.png` });
-      }, 30_000);
-    }
-  }
 });

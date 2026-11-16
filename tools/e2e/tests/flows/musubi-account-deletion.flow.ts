@@ -12,14 +12,18 @@
  *
  * The flow opens Settings → Account → Delete account, finds cire's wedding
  * among what needs an answer, answers it, types the handle and steps up; the
- * page gives way to the one screen a pending deletion shows. Signed out and
- * back in with the passkey, the same screen; "Keep my account" brings the
+ * page gives way to the one screen a pending deletion shows, whose "Download
+ * my data" works. Signed out and back in with the passkey, the same screen; "Keep my account" brings the
  * app back, with the handle, the passkey and the Pulse enrolment as they were
  * and the wedding untouched. Deleted again with "Delete everything", its job
  * is moved past its window — the suite's clock runs in real time — and the
  * stack's sweeper (every 2 s here) reaches Pulse and cire and erases the
  * account. The account is gone, the handle is held, the wedding is deleted,
- * and the account-deleted email reached the address it had.
+ * and the account-deleted email reached the address it had. The person's
+ * organisation passed to its admin, who opens the email's link signed in
+ * through its own seeded session and declines it: it passes to the next
+ * member, who is mailed in turn. Before any of it, "Send me a link" mails
+ * the download page's address.
  *
  * The wedding's own download (`<cire host>/#/w/<id>/settings/export`) is not a
  * step here: that page is not on this branch's base. cire's preview link is
@@ -41,7 +45,7 @@ test.use({ turnstile: true });
 
 const WINDOW_HEADING = "Your account is set to be deleted";
 
-test("musubi-account-deletion", async ({ page, context, flow }) => {
+test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   // Two step-ups, a sign-out and back, a keep, a second deletion and a sweep.
   test.slow();
   const authenticator = await addVirtualAuthenticator(page);
@@ -100,6 +104,22 @@ test("musubi-account-deletion", async ({ page, context, flow }) => {
   );
   flow.check("the passkey enrols", "complete 200", enrolled);
   flow.check("the authenticator holds one passkey", 1, (await authenticator.credentials()).length);
+
+  // "Send me a link": an email with the download page's address, no data.
+  await flow.step("ask for a link to the data by email", async () => {
+    await page.getByRole("button", { name: "Send me a link" }).click();
+    await expect(
+      page.getByText("Check your email for a link to download your data."),
+    ).toBeVisible();
+  });
+  const linkMail = (await mailFor(P.email, (m) => m.subject === "Download your Musubi data")).find(
+    (m) => m.subject === "Download your Musubi data",
+  );
+  flow.check(
+    "the link email carries the download page's address",
+    true,
+    linkMail?.text.includes(`${ORIGINS.musubi}/settings#account`) ?? false,
+  );
 
   // -------------------------------------------------------------------------
   // The first deletion: answer cire's wedding, type the handle, step up.
@@ -180,6 +200,40 @@ test("musubi-account-deletion", async ({ page, context, flow }) => {
     true,
     scheduledMail?.text.includes('"Keep my account"') ?? false,
   );
+  flow.check(
+    "the scheduled email says what happens to the wedding, in cire's words",
+    true,
+    scheduledMail?.text.includes("Deleted with its guests, replies and invite") ?? false,
+  );
+  flow.check(
+    "the scheduled email says the organisation passes to its other admin",
+    true,
+    scheduledMail?.text.includes(`@${P.heir.handle} becomes the owner.`) ?? false,
+  );
+
+  // "Download my data" from the window screen: the pending session reaches
+  // the export, and the browser can read the file name across the origin.
+  const exported = await flow.step("download the data from the window screen", async () => {
+    const answered = page.waitForResponse(
+      (r) => r.url() === `${ORIGINS.osnApi}/account/export` && r.request().method() === "GET",
+    );
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download my data" }).click();
+    await page.getByRole("button", { name: "Use passkey" }).click();
+    const response = await answered;
+    return {
+      status: response.status(),
+      exposed: (await response.headerValue("access-control-expose-headers")) ?? "",
+      file: (await download).suggestedFilename(),
+    };
+  });
+  flow.check("the export answers the pending session", 200, exported.status);
+  flow.check(
+    "the export's file name is readable across the origin",
+    true,
+    exported.exposed.toLowerCase().includes("content-disposition"),
+  );
+  flow.check("the file is saved as the export", "musubi-account-export.ndjson", exported.file);
 
   // -------------------------------------------------------------------------
   // Signed out and back in: the window screen again. Keep the account.
@@ -234,6 +288,14 @@ test("musubi-account-deletion", async ({ page, context, flow }) => {
     await expect(page.getByRole("heading", { level: 1, name: WINDOW_HEADING })).toBeVisible();
   });
   flow.check("delete everything stores no answers", true, storedChoices() === null);
+  const second = (
+    await mailFor(P.email, (m) => m.text.includes("so Cire deletes this as soon as it can"))
+  ).find((m) => m.text.includes("so Cire deletes this as soon as it can"));
+  flow.check(
+    "the second scheduled email says cire deletes the wedding as soon as it can",
+    "Your Musubi account is scheduled for deletion",
+    second?.subject ?? "",
+  );
 
   // The suite's clock runs in real time, so the job's window is moved instead:
   // one write, while the flow sends nothing. The sweeper finds it due.
@@ -268,6 +330,55 @@ test("musubi-account-deletion", async ({ page, context, flow }) => {
   flow.check("the wedding is deleted", true, weddingDeletedAt() !== null);
   flow.check("the wedding has no seat of theirs", 0, ownerSeats());
 
+  // -------------------------------------------------------------------------
+  // The organisation passed to its admin, who declines it from the email.
+  // -------------------------------------------------------------------------
+  const heirMail = (
+    await mailFor(P.heir.email, (m) => m.subject === "You now own an organisation on Musubi")
+  ).find((m) => m.subject === "You now own an organisation on Musubi");
+  const declineUrl = `${ORIGINS.musubi}/organisations/${P.organisation.handle}?decline=1`;
+  flow.check(
+    "the heir's email carries the link to decline it",
+    true,
+    heirMail?.text.includes(declineUrl) ?? false,
+  );
+  flow.check("the organisation passed to the heir", P.heir.profileId, ownerOfOrganisation());
+
+  const heirContext = await browser.newContext();
+  const heirPage = await flow.newPage(heirContext);
+  await flow.step("heir: decline it from the email's link", async () => {
+    await heirContext.addCookies([
+      {
+        name: "osn_session",
+        value: P.heir.session.token,
+        url: ORIGINS.osnApi,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+      { name: "osn_has_session", value: "1", url: ORIGINS.osnApi, sameSite: "Lax" },
+    ]);
+    await heirPage.goto(declineUrl);
+    await expect(
+      heirPage.getByRole("heading", { name: "This organisation passed to you" }),
+    ).toBeVisible();
+    await heirPage.getByRole("button", { name: "Decline" }).click();
+    await expect(heirPage).toHaveURL(`${ORIGINS.musubi}/organisations`);
+  });
+  await heirContext.close();
+  flow.check(
+    "the organisation passed on to the next member",
+    P.member.profileId,
+    ownerOfOrganisation(),
+  );
+  const nextMail = (
+    await mailFor(P.member.email, (m) => m.subject === "You now own an organisation on Musubi")
+  ).find((m) => m.subject === "You now own an organisation on Musubi");
+  flow.check(
+    "the next member's email says the one before declined it",
+    true,
+    nextMail?.text.includes("declined it") ?? false,
+  );
+
   const handleFree = await flow.step("the handle is held", async () => {
     const url = `${ORIGINS.osnApi}/handle/${P.handle}`;
     const response = await page.context().request.get(url, { headers: { Origin: ORIGINS.musubi } });
@@ -288,6 +399,16 @@ function deletedAt(): number | null {
       "SELECT deleted_at FROM accounts WHERE id = ?",
       P.accountId,
     )?.deleted_at ?? null
+  );
+}
+
+function ownerOfOrganisation(): string {
+  return (
+    queryOne<{ owner_id: string }>(
+      DB_FILES.osn,
+      "SELECT owner_id FROM organisations WHERE id = ?",
+      P.organisation.id,
+    )?.owner_id ?? ""
   );
 }
 

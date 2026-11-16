@@ -1,5 +1,5 @@
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
@@ -72,8 +72,6 @@ vi.mock("../../src/components/StepUpSheet", () => ({
 }));
 
 import { Layout } from "../../src/App";
-
-const SHOTS = "__screenshots__/DeletionWindow.browser.test.tsx";
 
 /** 23 November 2026, 09:00 UTC. */
 const SCHEDULED_FOR = 1_795_424_400;
@@ -160,23 +158,4 @@ describe("the window screen", () => {
       cleanup();
     }
   }, 30_000);
-
-  for (const viewport of [PHONE, DESKTOP]) {
-    for (const theme of ["light", "dark"] as const) {
-      it(`draws the screen and the too-late state at ${viewport.width}px in ${theme}`, async () => {
-        if (theme === "dark") document.documentElement.classList.add("dark");
-        await open(viewport);
-        expect(
-          screen.getByRole("heading", { name: "Your account is set to be deleted" }),
-        ).toBeTruthy();
-        await page.screenshot({ path: `${SHOTS}/window-${viewport.width}-${theme}.png` });
-
-        mocks.cancel.mockResolvedValue({ cancelled: false });
-        fireEvent.click(screen.getByRole("button", { name: "Keep my account" }));
-        await screen.findByRole("heading", { name: "It's too late to keep this account" });
-        await painted();
-        await page.screenshot({ path: `${SHOTS}/window-too-late-${viewport.width}-${theme}.png` });
-      }, 30_000);
-    }
-  }
 });

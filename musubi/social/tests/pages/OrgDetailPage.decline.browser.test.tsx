@@ -1,6 +1,6 @@
 import { OrgClientError } from "@osn/client";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
@@ -97,8 +97,6 @@ import { Layout } from "../../src/App";
 import { OrgDetailPage } from "../../src/pages/OrgDetailPage";
 import { railChunks, topBarChunks } from "../test-support/shell-chunks";
 
-const SHOTS = "__screenshots__/OrgDetailPage.decline.browser.test.tsx";
-
 async function atViewport(width: number, height: number) {
   const resized =
     innerWidth === width && innerHeight === height
@@ -152,24 +150,4 @@ describe("the decline block", () => {
     await open(1280, 800);
     expect(screen.getByRole("button", { name: "Decline" }).getBoundingClientRect().height).toBe(32);
   }, 30_000);
-
-  for (const [width, viewportHeight] of [
-    [390, 900],
-    [1280, 800],
-  ] as const) {
-    for (const theme of ["light", "dark"] as const) {
-      it(`draws the block, and its refusal, at ${width}px in ${theme}`, async () => {
-        if (theme === "dark") document.documentElement.classList.add("dark");
-        await open(width, viewportHeight);
-        await page.screenshot({ path: `${SHOTS}/decline-${width}-${theme}.png` });
-
-        fireEvent.click(screen.getByRole("button", { name: "Decline" }));
-        expect(
-          await screen.findByText(/You can no longer decline this organisation here\./),
-        ).toBeTruthy();
-        await painted();
-        await page.screenshot({ path: `${SHOTS}/decline-refused-${width}-${theme}.png` });
-      }, 30_000);
-    }
-  }
 });

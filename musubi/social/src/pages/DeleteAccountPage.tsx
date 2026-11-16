@@ -61,7 +61,11 @@ const STEP_NOTICE = {
 } as const satisfies Record<Exclude<StepNotice, "stale">, string>;
 
 /** Why the last press of "Delete my account" did not go through. */
-type Problem = { kind: "line"; text: string } | { kind: "session" };
+type Problem =
+  | { kind: "line"; text: string }
+  | { kind: "session" }
+  /** Scheduled, but the page could not renew onto the pending session: a reload does. */
+  | { kind: "scheduled" };
 
 const HANDLE_MISMATCH = "The handle you typed doesn't match. Check it and try again.";
 
@@ -193,13 +197,19 @@ export function DeleteAccountPage() {
   /**
    * The deletion is asked for: turn the session pending now, which puts the
    * window screen in place of the shell before anything else can send a
-   * request. One more try if the renewal fails; after that the next request
-   * the page sends renews it.
+   * request. One more try if the renewal fails; if that fails too, the
+   * deletion still stands, and the page says so and offers a reload, whose
+   * sign-in from the cookie lands on the window screen.
    */
   function enterWindow() {
-    void renewSession({ pending: true }).catch(() =>
-      renewSession({ pending: true }).catch(() => undefined),
-    );
+    void renewSession({ pending: true })
+      .catch(() => renewSession({ pending: true }))
+      .catch(() => {
+        batch(() => {
+          setDeleting(false);
+          setProblem({ kind: "scheduled" });
+        });
+      });
   }
 
   async function commit(again = false) {
@@ -545,6 +555,11 @@ export function DeleteAccountPage() {
                         <InlineButton onClick={() => void signInAgain()}>
                           Sign in again
                         </InlineButton>
+                      </>
+                    ) : current.kind === "scheduled" ? (
+                      <>
+                        Your account is set to be deleted, but this page couldn't catch up.{" "}
+                        <InlineButton onClick={() => window.location.reload()}>Reload</InlineButton>
                       </>
                     ) : (
                       current.text

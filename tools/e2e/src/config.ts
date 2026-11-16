@@ -602,7 +602,8 @@ export const RECOVERY_PERSON = {
  * `seedOsn` writes: the account, its one profile, an open Pulse enrolment (as
  * Pulse's onboarding writes one) and one live session, whose raw token the
  * flow puts in its browser's cookie jar, as a sign-in would, so it spends none
- * of the run's sign-up or sign-in windows. Its token is readable on purpose:
+ * of the run's sign-up or sign-in windows; and an organisation it owns, with an
+ * heir who also holds a seeded session. Its token is readable on purpose:
  * it is a fixture of a local stack, like `DEV_LOGIN_SECRET`, and grants
  * nothing anywhere else. cire's `wed_e2e_leaver` (`seedE2eOrganiser` in
  * `cire/api/src/db/setup.ts`) has this profile as its only owner.
@@ -620,6 +621,29 @@ export const DELETION_PERSON = {
     familyId: "sfam_e2e_leaver",
   },
   wedding: { id: "wed_e2e_leaver", name: "Leaver Wedding", seatId: "whost_e2e_leaver_owner" },
+  /**
+   * An organisation the person owns. `heir`, an admin from another account,
+   * receives it at the hard delete and declines it from the email's link,
+   * signed in through its own seeded session; it then passes to `member`.
+   */
+  organisation: { id: "org_e2e_leaver", handle: "e2e_leaver_org", name: "Leaver Org E2E" },
+  heir: {
+    accountId: "acc_e2e_heir",
+    profileId: "usr_e2e_heir",
+    email: "heir@e2e.test",
+    passkeyUserId: "pku_e2e_heir",
+    handle: "e2e_heir",
+    name: "Heir E2E",
+    session: { token: "e2e-deletion-heir-session", familyId: "sfam_e2e_heir" },
+  },
+  member: {
+    accountId: "acc_e2e_next",
+    profileId: "usr_e2e_next",
+    email: "next@e2e.test",
+    passkeyUserId: "pku_e2e_next",
+    handle: "e2e_next",
+    name: "Next E2E",
+  },
 } as const;
 
 /**

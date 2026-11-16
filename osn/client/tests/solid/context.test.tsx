@@ -1,8 +1,13 @@
 import { Effect } from "effect";
 import { createRoot } from "solid-js";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AuthExpiredError, ProfileManagementError, StorageError } from "../../src/errors";
+import {
+  ActiveProfileResetError,
+  AuthExpiredError,
+  ProfileManagementError,
+  StorageError,
+} from "../../src/errors";
 import type { OsnAuthRuntime, SessionChange } from "../../src/runtime";
 import { OsnAuth, type OsnAuthService } from "../../src/service";
 import { AuthProvider, useAuth } from "../../src/solid/context";
@@ -520,4 +525,86 @@ it("a pending-deletion session lists no profiles, and the provider follows a cha
   expect(auth().pendingDeletion()).toBe(false);
   expect(listProfiles).toHaveBeenCalledTimes(2);
   dispose();
+});
+
+/**
+ * `renewSession` after a deletion is asked for: the page reads as pending
+ * before the renewal answers, so nothing the shell would send goes out; a
+ * pending account renews to its default profile, which is not a failure; and
+ * a renewal that fails leaves the page as its token says, not as pending.
+ */
+describe("renewSession", () => {
+  /** A provider whose service renews by `refresh` and loads `token()` as its session. */
+  function renewing(refresh: () => Effect.Effect<unknown, unknown>, token: () => string) {
+    const service = {
+      loadSession: () =>
+        Effect.sync(() => ({
+          accessToken: token(),
+          idToken: null,
+          expiresAt: Date.now() + 60_000,
+          scopes: [],
+        })),
+      refreshSession: refresh,
+      listProfiles: () => Effect.succeed([]),
+      getActiveProfile: () => Effect.succeed(DEFAULT),
+    } as unknown as OsnAuthService;
+    const runtime: OsnAuthRuntime = {
+      authFetch: vi.fn(),
+      run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+      onSessionChange: () => () => undefined,
+    };
+    return mount(runtime);
+  }
+
+  it("reads as pending while the renewal is still out", async () => {
+    let answer!: () => void;
+    const out = new Promise<void>((resolve) => (answer = resolve));
+    let aud = "osn-access";
+    const { auth, dispose } = renewing(
+      () => Effect.promise(() => out),
+      () => tokenOn(aud),
+    );
+    await settle();
+    expect(auth().pendingDeletion()).toBe(false);
+
+    const renewal = auth().renewSession({ pending: true });
+    expect(auth().pendingDeletion()).toBe(true);
+
+    aud = "osn-pending-deletion";
+    answer();
+    await renewal;
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("resolves when a pending account renews to its default profile", async () => {
+    let aud = "osn-access";
+    const { auth, dispose } = renewing(
+      () =>
+        Effect.suspend(() => {
+          aud = "osn-pending-deletion";
+          return Effect.fail(
+            new ActiveProfileResetError({ profileId: DEFAULT, message: "reset to default" }),
+          );
+        }),
+      () => tokenOn(aud),
+    );
+    await settle();
+
+    await auth().renewSession({ pending: true });
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("rejects on any other failure, and the page reads as its token says, not as pending", async () => {
+    const { auth, dispose } = renewing(
+      () => Effect.fail(new StorageError({ cause: "PLANTED" })),
+      () => tokenOn("osn-access"),
+    );
+    await settle();
+
+    await expect(auth().renewSession({ pending: true })).rejects.toBeDefined();
+    expect(auth().pendingDeletion()).toBe(false);
+    dispose();
+  });
 });
