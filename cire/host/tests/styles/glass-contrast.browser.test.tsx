@@ -110,8 +110,17 @@ describe("the chosen glass in the light theme", () => {
       const glass = document.querySelector<HTMLElement>("[data-segmented-glass]")!;
       expect(getComputedStyle(glass).opacity).toBe("1");
       const track = screen.getByRole("tablist", { name: "Views" });
-      expect(ringOf(glass).spread).toBeGreaterThanOrEqual(1);
+      const { spread } = ringOf(glass);
+      expect(spread).toBeGreaterThanOrEqual(1);
       expect(ringRatio(glass, track)).toBeGreaterThanOrEqual(BOUNDARY_MIN);
+      // The glass moves in a layer clipped to the track, so the ring paints
+      // only while the track's padding leaves it room on every side.
+      const ring = glass.getBoundingClientRect();
+      const clip = glass.parentElement!.getBoundingClientRect();
+      expect(ring.left - spread).toBeGreaterThanOrEqual(clip.left);
+      expect(ring.top - spread).toBeGreaterThanOrEqual(clip.top);
+      expect(ring.right + spread).toBeLessThanOrEqual(clip.right);
+      expect(ring.bottom + spread).toBeLessThanOrEqual(clip.bottom);
     });
 
     it(`stands 3:1 apart from the ground beside a chosen glass pill on the ${groundName}`, () => {

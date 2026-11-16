@@ -123,12 +123,14 @@
   /* The glass strip's light inner edge (`@cire/ui` SegmentedTabs): faint on
      the dark ramp, bright on the light one, as a lit edge reads on each. */
   --glass-edge: oklch(100% 0 0 / 0.1);
-  /* The chosen glass's outer ring. On the dark ramp the gold-tinted glass
-     already stands off its track, so the ring is the hairline at 0.5px. On the
-     light one glass and track are both pale, and the gold word needs a pale
-     glass to read at 4.5:1, so the ring carries the 3:1 a chosen state owes
-     its track (WCAG 1.4.11): readable gold at 1px, since a thinner ring paints
-     at part coverage on a 1x screen (DESIGN.md §7, SegmentedTabs). */
+  /* The chosen glass's outer ring. On the light ramp glass and track are
+     both pale, and the gold word needs a pale glass to read at 4.5:1, so the
+     ring carries the 3:1 a chosen state owes its track (WCAG 1.4.11):
+     readable gold at 1px, since a thinner ring paints at part coverage on a
+     1x screen. The dark ramp keeps the hairline at 0.5px, the owner's choice:
+     there the gold-tinted glass stands about 1.4:1 off its track and the
+     hairline 1.25:1, both short of 3:1, and the chosen word's medium weight
+     carries the choice (DESIGN.md §7, SegmentedTabs). */
   --glass-ring: 0 0 0 0.5px var(--border);
   --elev-2: var(--inner-lip), 0 12px 32px -8px oklch(0% 0 0 / 0.55);
 }
