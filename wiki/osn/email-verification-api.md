@@ -38,7 +38,9 @@ Musubi is registered for Chrome's Email Verification Protocol origin trial (feat
 | Token | Origin | Covers |
 |---|---|---|
 | Production | `https://musubi.social`, exactly: no subdomain matching | `musubi.social` |
-| Dev | `https://esv.tools`, the dev zone, with subdomain matching | `musubi.esv.tools`, the dev Musubi host (`musubi.<DEV_DOMAIN>`) |
+| Dev | `https://musubi.esv.tools`, the dev Musubi host itself, with subdomain matching | `musubi.esv.tools` (`musubi.<DEV_DOMAIN>`) |
+
+Register the host itself, never the parent zone. A token for `https://esv.tools` shows `Success` in DevTools yet Chrome fills no token under it, while one for `https://musubi.esv.tools` does. A new `DEV_DOMAIN` needs a new token.
 
 | | |
 |---|---|
@@ -65,7 +67,7 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 | Verifier | [`email-verification-token.ts`](../../osn/api/src/services/auth/email-verification-token.ts) | The checks below; every refusal is an outcome, never an error |
 | Lookups | [`email-verification-network.ts`](../../osn/api/src/services/auth/email-verification-network.ts) | DNS-over-HTTPS and the guarded fetch below, through one injected `fetch` |
 | Sign-up | `beginRegistration`, [`registration.ts`](../../osn/api/src/services/auth/registration.ts) | Reads `emailVerificationToken` and `nonceSecret` from the begin body while the flag is on |
-| Form | `Register`, [`Register.tsx`](../../osn/auth-ui/src/Register.tsx), and `emailVerificationNonce` in [`@osn/client`](../../osn/client/src/register.ts) | Adds `<input type="hidden" autocomplete="email-verification-token" nonce=…>` to the details form when osn-api hands out a nonce; sends its value and the nonce secret with begin |
+| Form | `Register`, [`Register.tsx`](../../osn/auth-ui/src/Register.tsx), and `emailVerificationNonce` in [`@osn/client`](../../osn/client/src/register.ts) | Adds `<input type="hidden" autocomplete="email-verification-token">` to the details form when osn-api hands out a nonce, then sets its `nonce` attribute once the input is in the document (Chrome blanks a nonce set at insertion under a header CSP, and then sees none); sends its value and the nonce secret with begin |
 
 **What a token must pass.** It follows `index.bs` §Verifier Processing Model and draft-02 §2.8, §3, §5.3 and §6.5:
 

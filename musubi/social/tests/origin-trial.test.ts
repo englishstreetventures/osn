@@ -9,7 +9,7 @@ import { withBuildDirectives } from "../vite.config";
 /**
  * The Chrome origin-trial tokens `public/_headers` serves on every page, which
  * enrol Musubi in the Email Verification Protocol trial: one for production,
- * one for the dev zone and its subdomains. A token for the wrong origin or
+ * one for the dev Musubi host and its subdomains. A token for the wrong origin or
  * feature, a third-party token, or one past its expiry is ignored by Chrome
  * without a word: the sign-up form's token field just never fills, and every
  * sign-up falls back to the emailed link. These checks fail first.
@@ -26,8 +26,9 @@ const HEADERS = readFileSync(resolve(ROOT, "public", "_headers"), "utf8");
 const EXPECTED_ORIGINS: Readonly<Record<string, boolean>> = {
   // Production: musubi.social exactly.
   "https://musubi.social:443": false,
-  // Dev: the dev zone, so musubi.<DEV_DOMAIN> is covered. A new dev zone needs a new token.
-  "https://esv.tools:443": true,
+  // Dev: the dev Musubi host itself. A token for the parent zone shows as valid in DevTools,
+  // but Chrome fills no verification token under it. A new dev zone needs a new token.
+  "https://musubi.esv.tools:443": true,
 };
 
 /** How long before a token's expiry these tests start to fail: 14 days. */

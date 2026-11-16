@@ -799,17 +799,22 @@ export function Register(props: RegisterProps) {
                   </Notice>
                 </Show>
                 {/* The browser Email Verification API field: hidden, filled by a
-                    browser that has the API when the form is submitted. */}
+                    browser that has the API when the form is submitted. The nonce
+                    goes on after the input is in the document: Chrome blanks a
+                    nonce attribute set at insertion on a page with a header CSP,
+                    and then sees none. */}
                 <Show when={verificationNonce()} keyed>
-                  {(minted) => (
-                    <input
-                      ref={verificationField}
-                      type="hidden"
-                      name="email-verification-token"
-                      autocomplete="email-verification-token"
-                      nonce={minted.nonce}
-                    />
-                  )}
+                  {(minted) => {
+                    onMount(() => verificationField?.setAttribute("nonce", minted.nonce));
+                    return (
+                      <input
+                        ref={verificationField}
+                        type="hidden"
+                        name="email-verification-token"
+                        autocomplete="email-verification-token"
+                      />
+                    );
+                  }}
                 </Show>
               </div>
 
