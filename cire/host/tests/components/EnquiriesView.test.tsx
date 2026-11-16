@@ -489,6 +489,8 @@ describe("EnquiriesView", () => {
     expect(await screen.findByText("Are you free in June?")).toBeInTheDocument();
     expect(threadReads).toBe(2);
     expect(toast.error).not.toHaveBeenCalled();
+    // A vendor chat that is down is not an expired session.
+    expect(redirectToLogin).not.toHaveBeenCalled();
     expect(screen.queryByText(/Messaging is temporarily unavailable/)).not.toBeInTheDocument();
   });
 
