@@ -70,7 +70,10 @@ jobs:
             # it at build time — so a spec-only change can break the iOS build
             # while touching no file under `shared/swift/`. This very PR is that
             # case: it rewrites every nullable field's spelling and nothing else.
-            if echo "$changed" | grep -qE '^(shared/swift/|shared/openapi/|pulse/ios/|osn/ios/|\.github/workflows/ci-swift\.yml$)'; then
+            # `"?`: git wraps a name holding a quote, a backslash, a control
+            # character or a non-ASCII byte in double quotes, and its path
+            # starts inside them.
+            if echo "$changed" | grep -qE '^"?(shared/swift/|shared/openapi/|pulse/ios/|osn/ios/|\.github/workflows/ci-swift\.yml$)'; then
               echo "ios=true" >> "$GITHUB_OUTPUT"
             else
               echo "ios=false" >> "$GITHUB_OUTPUT"

@@ -2490,3 +2490,58 @@ describe("every other workflow", () => {
     }
   });
 });
+
+// ci-swift.yml's filter reads `git diff --name-only`, which wraps a name
+// holding a quote, a backslash, a control character or a non-ASCII byte in
+// double quotes. Such a name still starts its path inside the quotes, so a
+// Swift file with one still runs the Swift jobs.
+describe("ci-swift.yml's change filter", () => {
+  const filter = load(".github/workflows/ci-swift.yml").jobs.changes?.steps?.find(
+    (s) => s.id === "filter",
+  );
+
+  function ios(files: readonly string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), "ci-swift-changes-"));
+    const git = (...args: string[]) =>
+      Bun.spawnSync(["git", "-c", "user.email=t@example.com", "-c", "user.name=T", ...args], {
+        cwd: dir,
+        env: { PATH: process.env.PATH ?? "", GIT_CONFIG_GLOBAL: "/dev/null" },
+      })
+        .stdout.toString()
+        .trim();
+    git("init", "-q", "-b", "main");
+    writeFileSync(join(dir, "README.md"), "1\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    for (const file of files) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true });
+      writeFileSync(join(dir, file), "1\n");
+    }
+    git("add", ".");
+    git("commit", "-qm", "change");
+    const outputFile = join(dir, "github-output");
+    Bun.spawnSync(["bash", "--noprofile", "--norc", "-e", "-c", filter?.run ?? "exit 9"], {
+      cwd: dir,
+      env: {
+        PATH: process.env.PATH ?? "",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GITHUB_OUTPUT: outputFile,
+        EVENT_NAME: "push",
+        BEFORE_SHA: base,
+      },
+    });
+    const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
+    return /^ios=(.*)$/m.exec(written)?.[1] ?? "<none>";
+  }
+
+  test.each([
+    ["pulse/ios/Views/Explore.swift", "true"],
+    ["pulse/ios/Views/Café.swift", "true"],
+    ['shared/swift/Sources/Say "hi".swift', "true"],
+    ["README.md", "false"],
+    ['wiki/Say "hi".md', "false"],
+  ])("%s runs the Swift jobs: %s", (file, expected) => {
+    expect(ios([file])).toBe(expected);
+  });
+});

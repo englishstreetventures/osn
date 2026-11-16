@@ -141,8 +141,7 @@ const absent = (oid: string): boolean => /^0+$/.test(oid);
  * The paths that differ between two commits' trees and the object each side
  * holds, or undefined when git cannot compare them or its answer does not
  * parse. The same commits and options as deploy-surfaces.ts's changedFiles,
- * with `-z`: each path comes as written, where changedFiles gets a path holding
- * a quote, a backslash or a byte outside printable ASCII quoted and escaped.
+ * `-z` included, so the two list the same paths, each as written.
  */
 function rawDiff(from: string, to: string, cwd: string): readonly Change[] | undefined {
   if (!/^[0-9a-f]{4,40}$/i.test(from) || !/^([0-9a-f]{4,40}|HEAD)$/i.test(to)) return undefined;

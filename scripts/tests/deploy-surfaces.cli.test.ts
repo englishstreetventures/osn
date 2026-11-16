@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { changedFiles, deployReason, isAncestor, surface } from "../deploy-surfaces";
+import { contentDiff } from "../version-bump";
 
 const SCRIPT = new URL("../deploy-surfaces.ts", import.meta.url).pathname;
 const GIT_ENV = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
@@ -213,6 +214,74 @@ test("changedFiles lists both paths of a moved file, so the surface it left rede
     const files = changedFiles(a, b, repo) ?? [];
     expect(files.toSorted()).toEqual(["cire/landing/src/page.astro", "docs/page.astro"]);
     expect(deployReason(surface("cire_landing"), files, "production")).toBeDefined();
+  });
+});
+
+// A file's name can hold any byte but NUL and `/`. Each surface's paths match
+// the name as written, and so does the production planner, which reads names
+// NUL-separated (scripts/version-bump.ts): dev has to read them the same way.
+const ODD_NAMES = [
+  "cire/landing/src/my page.astro",
+  "cire/landing/src/café.astro",
+  'cire/landing/src/say "hi".astro',
+  "cire/landing/src/back\\slash.astro",
+  "cire/landing/src/tab\there.astro",
+  "cire/landing/src/two\nlines.astro",
+];
+
+test("changedFiles lists each name as written, whatever bytes it holds", async () => {
+  await withRepo(async (repo) => {
+    // git's own default, whatever the machine running the test sets: it is
+    // what quotes a non-ASCII name.
+    await git(repo, "config", "core.quotepath", "true");
+    const a = await commit(repo, { "README.md": "1" });
+    const b = await commit(repo, Object.fromEntries(ODD_NAMES.map((name) => [name, "1"])));
+    expect(changedFiles(a, b, repo)?.toSorted()).toEqual(ODD_NAMES.toSorted());
+  });
+});
+
+test("a file's name cannot write a workflow command into the run log", async () => {
+  await withRepo(async (repo, output) => {
+    const before = await commit(repo, { "README.md": "1" });
+    await commit(repo, { "cire/landing/src/x\n::warning::forged\u001b[31m.astro": "1" });
+    const { exitCode, stdout } = await run(
+      ["bun", "run", SCRIPT, "--event", "push", "--base", before],
+      repo,
+      { GITHUB_OUTPUT: output },
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout.split("\n").filter((line) => line.startsWith("::"))).toEqual([]);
+    expect(stdout).not.toContain("\u001b");
+    expect(stdout).toContain("  cire/landing/src/x\\u000a::warning::forged\\u001b[31m.astro\n");
+    expect(parseOutput(await readFile(output, "utf8")).cire_landing).toBe("true");
+  });
+});
+
+test("a push of a file with a non-ASCII name deploys its surface", async () => {
+  await withRepo(async (repo, output) => {
+    const before = await commit(repo, { "README.md": "1" });
+    await commit(repo, { "cire/landing/src/café.astro": "1" });
+    const { exitCode, stdout } = await run(
+      ["bun", "run", SCRIPT, "--event", "push", "--base", before],
+      repo,
+      { GITHUB_OUTPUT: output },
+    );
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("cire_landing: true (cire/landing/src/café.astro changed)");
+    const written = parseOutput(await readFile(output, "utf8"));
+    expect(Object.keys(written)).toEqual(DEV_KEYS);
+    expect(written.cire_landing).toBe("true");
+    expect(written.stack_cire).toBe("true");
+    expect(written.osn_api).toBe("false");
+  });
+});
+
+test("dev and the production planner list the same names for the same commits", async () => {
+  await withRepo(async (repo) => {
+    await git(repo, "config", "core.quotepath", "true");
+    const a = await commit(repo, { "README.md": "1" });
+    const b = await commit(repo, Object.fromEntries(ODD_NAMES.map((name) => [name, "1"])));
+    expect(changedFiles(a, b, repo)).toEqual(contentDiff(b, repo)(a));
   });
 });
 

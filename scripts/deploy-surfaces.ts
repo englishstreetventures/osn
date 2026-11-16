@@ -386,7 +386,11 @@ export function deployReason(
  * branch's first push, an orphan left by a force-push). A tree diff, not a
  * merge-base one: whatever differs from the base has to deploy, whichever side
  * of history it is on. `--no-renames` lists both paths of a moved file, so a
- * file moved out of a surface's tree still redeploys that surface.
+ * file moved out of a surface's tree still redeploys that surface. `-z` gives
+ * each name as written, whatever bytes it holds, as the surfaces' paths and
+ * scripts/release-plan.ts read it; without it git quotes and escapes a name
+ * holding a quote, a backslash, a control character or a non-ASCII byte, and
+ * the quoted name matches no surface.
  */
 export function changedFiles(
   base: string,
@@ -394,16 +398,28 @@ export function changedFiles(
   cwd: string,
 ): readonly string[] | undefined {
   if (!/^[0-9a-f]{4,40}$/i.test(base) || !/^([0-9a-f]{4,40}|HEAD)$/i.test(head)) return undefined;
-  const proc = Bun.spawnSync(["git", "diff", "--name-only", "--no-renames", base, head, "--"], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const proc = Bun.spawnSync(
+    ["git", "diff", "--name-only", "-z", "--no-renames", base, head, "--"],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  );
   if (proc.exitCode !== 0) return undefined;
   return proc.stdout
     .toString()
-    .split("\n")
-    .filter((line) => line !== "");
+    .split("\0")
+    .filter((name) => name !== "");
+}
+
+/**
+ * Text for the run log. A file's name can hold a line break or another control
+ * character, and a log line that starts with `::` is a workflow command to the
+ * runner, so each control character is written as an escape.
+ */
+export function forLog(text: string): string {
+  return text.replace(
+    // oxlint-disable-next-line no-control-regex -- matching control characters is the point
+    /[\u0000-\u001f\u007f]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 /**
@@ -517,13 +533,13 @@ if (import.meta.main) {
   const base = event === "push" ? flag(args, "base") : "";
   const files = event === "push" ? changedFiles(base, "HEAD", process.cwd()) : [];
   if (event === "push" && files === undefined) {
-    process.stdout.write(`cannot diff against '${base}' — deploying every dev surface\n`);
+    process.stdout.write(`cannot diff against '${forLog(base)}' — deploying every dev surface\n`);
   } else if (files !== undefined && files.length > 0) {
-    process.stdout.write(`changed files:\n${files.map((f) => `  ${f}`).join("\n")}\n`);
+    process.stdout.write(`changed files:\n${files.map((f) => `  ${forLog(f)}`).join("\n")}\n`);
   }
   const decisions = devDecisions({ event, files });
   for (const d of decisions) {
-    process.stdout.write(`  ${d.key}: ${d.deploy} (${d.reason})\n`);
+    process.stdout.write(`  ${d.key}: ${d.deploy} (${forLog(d.reason)})\n`);
   }
   const stacks = devStackDecisions(decisions, files, event);
   for (const s of stacks) process.stdout.write(`  stack ${s.key}: ${s.deploy}\n`);
