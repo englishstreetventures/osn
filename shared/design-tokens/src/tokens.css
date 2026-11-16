@@ -100,6 +100,14 @@
    * difference; a single `--ui-border` could not express it. */
   --color-ui-hairline: var(--ui-hairline, #e4e4e7);
   --color-ui-hairline-strong: var(--ui-hairline-strong, #a1a1aa);
+  /* `choice-edge` is the edge of a drawn choice at rest, unchosen: a radio's
+   * circle, a checkbox's box, a switch's track. It owes the same 3:1, and
+   * falls back to `hairline-strong`, so an app that maps only the boundary
+   * draws its choices as it draws its fields. It is a role of its own for an
+   * app whose field edge is lighter than a choice's may be: a field has its
+   * label above it and its words inside it, while an unchosen circle has
+   * nothing but its edge to say it is there. */
+  --color-ui-choice-edge: var(--ui-choice-edge, var(--ui-hairline-strong, #a1a1aa));
 
   /* ── Ink ──────────────────────────────────────────────────────────────────
    * `ink` and `ink-secondary` clear 4.5:1. `ink-tertiary` clears only 3:1 and

@@ -399,7 +399,8 @@ besides the default:
 **Drawn by hand.** Besides those parts, the views draw these controls
 themselves:
 
-- `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
+- `InlineAction` (`src/InlineAction.tsx`, exported as `./InlineAction`, so
+  Musubi ends its own error lines with it): the button that ends an
   error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
   in a failed load, a settings list's or the verification challenge's. It keeps the line's ink and is underlined, so the action
   never relies on colour alone, and takes Button's focus ring (§9).

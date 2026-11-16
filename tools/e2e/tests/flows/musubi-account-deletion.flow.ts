@@ -281,7 +281,7 @@ test("musubi-account-deletion", async ({ page, context, browser, flow }) => {
   await flow.step("delete again, choosing to delete everything", async () => {
     await page.goto(`${ORIGINS.musubi}/settings/delete-account`);
     await page.getByRole("button", { name: "Continue" }).click();
-    const everything = page.getByRole("switch", { name: "Delete everything" });
+    const everything = page.getByRole("checkbox", { name: "Delete everything" });
     await page.locator("label").filter({ has: everything }).click();
     await expect(everything).toBeChecked();
     await page.getByRole("button", { name: "Continue" }).click();

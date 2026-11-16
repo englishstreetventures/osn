@@ -14,6 +14,7 @@ import {
 } from "solid-js";
 
 import { AccountBanners } from "./components/AccountBanners";
+import { DeletionWindowFrame } from "./components/DeletionWindowFrame";
 import { PageErrorBoundary } from "./components/PageErrorBoundary";
 import { ShellDialogsProvider, useShellDialogs } from "./components/ShellDialogs";
 import { RailFrame, TopBarFrame } from "./components/ShellFrame";
@@ -62,7 +63,8 @@ const ShellNotices = lazy(() =>
 );
 
 // What a session pending deletion sees instead of the shell. It reaches the
-// step-up ceremony, so it is fetched only by such a session.
+// step-up ceremony, so it is fetched only by such a session; `WindowScreen`
+// holds its place meanwhile.
 const DeletionWindow = lazy(() => import("./components/DeletionWindow"));
 
 // The data pages' modules are imported in one place each: the page and its
@@ -166,9 +168,7 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
     <>
       <Show when={pendingDeletion()}>
         <Content>
-          <Suspense>
-            <DeletionWindow />
-          </Suspense>
+          <WindowScreen />
         </Content>
       </Show>
       <Show when={!pendingDeletion()}>
@@ -201,6 +201,30 @@ function Shell(props: { isMobile: boolean; children?: JSX.Element }) {
         <PageErrorBoundary>{props.children}</PageErrorBoundary>
       </Content>
     </ShellDialogsProvider>
+  );
+}
+
+/**
+ * The window screen, once its chunk is in. Until then it draws the screen's
+ * frame, the loading screen's own shape, so nothing moves when the screen
+ * lands; if the chunk fails, the frame stays and says to reload, as a
+ * shell's frame does (`Reserved`).
+ */
+function WindowScreen() {
+  const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
+  DeletionWindow.preload().then(
+    () => setState("ready"),
+    () => setState("failed"),
+  );
+  return (
+    <Show
+      when={state() === "ready"}
+      fallback={<DeletionWindowFrame failed={state() === "failed"} />}
+    >
+      <Suspense>
+        <DeletionWindow />
+      </Suspense>
+    </Show>
   );
 }
 

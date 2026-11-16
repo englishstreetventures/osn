@@ -1,3 +1,4 @@
+import { InlineAction } from "@osn/auth-ui/InlineAction";
 import { describeAuthError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { Button } from "@shared/ui/ui/button";
@@ -78,13 +79,7 @@ export function ShellNotices() {
               {/* Gone while a retry is out, so clicks never stack up requests
                 against the rate limit the line may be naming. */}
               <Show when={!profiles.loading}>
-                <button
-                  type="button"
-                  class="focus-visible:ring-ui-focus cursor-pointer font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-hidden"
-                  onClick={() => void refetchProfiles()}
-                >
-                  Try again
-                </button>
+                <InlineAction onClick={() => void refetchProfiles()}>Try again</InlineAction>
               </Show>
             </Notice>
           </Show>

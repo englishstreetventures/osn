@@ -173,6 +173,11 @@
  * `--ui-ground-deep` takes `--secondary`, the surface the page recedes to
  * behind a sticky bar. It is not "the darker background" — in dark mode it is
  * lighter than the page.
+ *
+ * `--ui-choice-edge` takes `--subtle`, not `--input`: an unchosen radio, box
+ * or switch track has only its edge to say it is there, and `--input` gives
+ * it 1.30:1 on a card. `--subtle` clears 3:1 on every ground in both themes,
+ * and the text fields keep `--input`'s lighter edge.
  */
 :root {
   --ui-ground: var(--background);
@@ -183,6 +188,7 @@
 
   --ui-hairline: var(--border);
   --ui-hairline-strong: var(--input);
+  --ui-choice-edge: var(--subtle);
 
   --ui-ink: var(--foreground);
   --ui-ink-secondary: var(--muted-foreground);

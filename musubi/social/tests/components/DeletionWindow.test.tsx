@@ -9,7 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * The window screen's refusals: a status read refused at 401 signs out, a
  * restore that comes too late says so and offers only Sign out, a failed
  * status read offers Try again. And a restore that goes through renews the
- * session, which brings the app back, with the toast.
+ * session, which brings the app back, with the toast; a status read that finds
+ * nothing pending renews it too, and says the account is back if this screen
+ * is still up after that.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -98,9 +100,23 @@ describe("<DeletionWindow />", () => {
       .mockResolvedValueOnce({ scheduled: true, scheduledFor: SCHEDULED_FOR, softDeletedAt: 0 });
     renderWindow();
     expect(await screen.findByText(/Your deletion date didn't load\./)).toBeTruthy();
+    // No date on screen, so nothing says "then".
+    expect(screen.queryByText(/Until then/)).toBeNull();
+    expect(screen.getByText(/Until it is deleted, you can keep it\./)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(document.querySelector("time")).not.toBeNull());
     expect(mocks.status).toHaveBeenCalledTimes(2);
+  });
+
+  it("says the account is back when nothing is pending and the renewal leaves this screen up", async () => {
+    // Red on showing "didn't load" with no error behind it: the account was
+    // kept from another device, and only the session has not caught up.
+    mocks.status.mockResolvedValue({ scheduled: false });
+    renderWindow();
+    expect(await screen.findByRole("heading", { name: "Your account is back" })).toBeTruthy();
+    expect(mocks.renewSession).toHaveBeenCalledWith();
+    expect(screen.queryByText(/didn't load/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
   });
 
   it("keeps the account: steps up, restores, renews the session and says so", async () => {

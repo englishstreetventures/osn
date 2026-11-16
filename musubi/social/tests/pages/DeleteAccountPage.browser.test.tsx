@@ -1,5 +1,6 @@
 import type { AccountDeletionOpenAction, AccountDeletionPreview } from "@osn/client";
 import { AccountDeletionRefusedError } from "@osn/client";
+import { contrastRatio } from "@shared/color";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,11 +17,15 @@ import "../../src/App.css";
  * Holds what the fast tier cannot see:
  *
  * - nothing on any step scrolls sideways on a 320px or 390px phone, the long
- *   words of an app's action and the member picker included;
- * - each step's buttons, the switch's row, the choices' rows and an app's
- *   "Open in …" link are at least 40px tall below `md` (DESIGN.md §Touch
- *   targets), and the step buttons are `sm`'s 32px from `md`;
- * - the step's heading, not the page, has focus as a step opens.
+ *   words of an app's action, words an app wrote with no space to break at,
+ *   and the member picker included;
+ * - each step's buttons, the "Delete everything" row, the choices' rows and
+ *   an app's "Open in …" link are at least 40px tall below `md` (DESIGN.md
+ *   §Touch targets), and the step buttons are `sm`'s 32px from `md`;
+ * - the step's heading, not the page, has focus as a step opens;
+ * - an unchosen radio's circle and box's edge clear 3:1 on the card in both
+ *   themes, read from the painted colours (DESIGN.md §Choices);
+ * - "Delete everything" dims each choice once, to 50%, words and circle alike.
  *
  * Each case writes screenshots to `__screenshots__/` beside this file
  * (gitignored): every step and state in light and dark, at 390px and 1280px.
@@ -138,7 +143,7 @@ const WEDDING: AccountDeletionOpenAction = {
       choice: "delete",
       description:
         "Deleted with its guests, replies and invite when your account is deleted. Download its guest list and other exports from Cire first if you want a copy. Any other wedding you are the only owner of by then is deleted too.",
-      erased_on: null,
+      erased_on: 1_796_860_800,
     },
   ],
   default_choice: null,
@@ -162,6 +167,20 @@ const EVENT: AccountDeletionOpenAction = {
       description: "Deleted when your account is deleted, with its guest list and messages.",
       erased_on: null,
     },
+  ],
+  default_choice: "cancel",
+  link: null,
+};
+
+/** An app's words with no space to break at: 60 characters each. */
+const UNBROKEN: AccountDeletionOpenAction = {
+  id: "pulse:event:ev_2",
+  app: "pulse",
+  kind: "events_hosted",
+  label: `You host ${"SundayPicnicAtTheBotanicGardens".repeat(2).slice(0, 60)}.`,
+  choices: [
+    { choice: "cancel", description: "https://pulse.example/e/".padEnd(60, "x"), erased_on: null },
+    { choice: "delete", description: "Deleted when your account is deleted.", erased_on: null },
   ],
   default_choice: "cancel",
   link: null,
@@ -236,6 +255,39 @@ function boxHeight(element: Element) {
   return element.getBoundingClientRect().height;
 }
 
+/** Paint `layers` bottom-up on a 1px canvas and read back the colour. */
+function composite(layers: readonly string[]): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  for (const layer of layers) {
+    ctx.fillStyle = layer;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** A drawn choice's edge against the card it sits on, as painted. */
+function edgeRatio(control: HTMLElement): number {
+  const drawn = control.parentElement!.querySelector<HTMLElement>('span[aria-hidden="true"]')!;
+  const layers: string[] = [];
+  for (let node: Element | null = drawn.parentElement; node; node = node.parentElement) {
+    layers.push(getComputedStyle(node).backgroundColor);
+  }
+  const ground = composite(layers.toReversed());
+  return contrastRatio(composite([ground, getComputedStyle(drawn).borderTopColor]), ground)!;
+}
+
+/** What an element is painted at: its opacity and every ancestor's, multiplied. */
+function shownOpacity(element: Element): number {
+  let opacity = 1;
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    opacity *= Number(getComputedStyle(node).opacity);
+  }
+  return opacity;
+}
+
 async function shot(name: string, viewport: Viewport, theme: "light" | "dark") {
   await painted();
   expectNoSideScroll(viewport);
@@ -256,6 +308,10 @@ afterEach(() => {
 
 describe("the deletion flow, in the shell", () => {
   it("fits a 320px phone on every step, with touch-sized controls", async () => {
+    mocks.preview.mockResolvedValue({
+      open_actions: [ORG, WEDDING, EVENT, UNBROKEN],
+      could_not_check: [],
+    });
     await open(PHONE_NARROW);
     expectNoSideScroll(PHONE_NARROW);
     expect(document.activeElement).not.toBe(screen.getByRole("heading", { name: "What happens" }));
@@ -272,7 +328,7 @@ describe("the deletion flow, in the shell", () => {
     expect(boxHeight(button("Continue"))).toBe(40);
     expect(boxHeight(screen.getByRole("link", { name: "Open in Cire" }))).toBe(40);
     expect(
-      boxHeight(screen.getByRole("switch", { name: "Delete everything" }).closest("label")!),
+      boxHeight(screen.getByRole("checkbox", { name: "Delete everything" }).closest("label")!),
     ).toBeGreaterThanOrEqual(44);
     for (const radio of screen.getAllByRole("radio")) {
       expect(boxHeight(radio.closest("label")!)).toBeGreaterThanOrEqual(44);
@@ -285,6 +341,30 @@ describe("the deletion flow, in the shell", () => {
     expectNoSideScroll(PHONE_NARROW);
     expect(boxHeight(button("Delete my account"))).toBe(40);
   }, 30_000);
+
+  for (const theme of ["light", "dark"] as const) {
+    it(`edges each unchosen choice at 3:1 on its card in ${theme}, and dims it once`, async () => {
+      if (theme === "dark") document.documentElement.classList.add("dark");
+      await open(PHONE);
+      await toAnswers();
+      const radio = screen.getByRole("radio", { name: "@bobwhite becomes the owner." });
+      const box = screen.getByRole("checkbox", { name: /^Deleted with its guests/ });
+      const everything = screen.getByRole("checkbox", { name: "Delete everything" });
+      for (const control of [radio, box, everything]) {
+        expect(edgeRatio(control)).toBeGreaterThanOrEqual(3);
+      }
+
+      fireEvent.click(everything);
+      await painted();
+      const circle = radio.parentElement!.querySelector('span[aria-hidden="true"]')!;
+      expect(shownOpacity(circle)).toBeCloseTo(0.5, 2);
+      expect(shownOpacity(screen.getByText("@bobwhite becomes the owner."))).toBeCloseTo(0.5, 2);
+      for (const day of screen.getAllByText(/^Deleted on /)) {
+        expect(shownOpacity(day)).toBeCloseTo(0.5, 2);
+      }
+      expect(shownOpacity(screen.getByText(ORG.label))).toBe(1);
+    }, 30_000);
+  }
 
   it("draws the step buttons at sm's 32px from md", async () => {
     await open(DESKTOP);
@@ -309,9 +389,9 @@ describe("the deletion flow, in the shell", () => {
         fireEvent.change(screen.getByLabelText("New owner"), { target: { value: "usr_carol" } });
         await shot("2-answers-successor", viewport, theme);
 
-        fireEvent.click(screen.getByRole("switch", { name: "Delete everything" }));
+        fireEvent.click(screen.getByRole("checkbox", { name: "Delete everything" }));
         await shot("2-delete-everything", viewport, theme);
-        fireEvent.click(screen.getByRole("switch", { name: "Delete everything" }));
+        fireEvent.click(screen.getByRole("checkbox", { name: "Delete everything" }));
 
         // Continue with the wedding unanswered marks it.
         fireEvent.click(button("Continue"));

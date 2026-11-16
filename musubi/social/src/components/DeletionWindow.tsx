@@ -1,17 +1,22 @@
+import { InlineAction } from "@osn/auth-ui/InlineAction";
 import { describeAuthError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
-import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, Match, onMount, Show, Switch } from "solid-js";
 
 import { formatMoment, statusOf } from "../lib/account-deletion";
-import { PRODUCT_NAME } from "../lib/auth";
 import { accountClient } from "../lib/authClients";
 import { createStepUp } from "../lib/step-up";
 import { createAccountData } from "./AccountDataActions";
-import { ResponsiveSkeleton } from "./ResponsiveSkeleton";
+import {
+  UNTIL_THEN,
+  WINDOW_HEADING,
+  WindowColumn,
+  WindowDateLoading,
+  WindowHeading,
+} from "./DeletionWindowFrame";
 
 type Status =
   | { state: "loading" }
@@ -27,8 +32,9 @@ type Status =
  * Kept: the session renews to an ordinary token and the app comes back, with
  * a toast. Too late (`cancelled: false`, and the status still pending): it
  * says so and offers Sign out alone; kept from another device meanwhile, the
- * app comes back as after a keep here. A status read refused at 401 signs out; any other failure says what
- * did not load, with Try again.
+ * app comes back as after a keep here, or says the account is back and offers
+ * Reload when the renewal does not bring the app. A status read refused at 401
+ * signs out; any other failure says what did not load, with Try again.
  */
 export default function DeletionWindow() {
   const { logout, renewSession } = useAuth();
@@ -51,9 +57,11 @@ export default function DeletionWindow() {
         return;
       }
       // Nothing pending any more (kept from another device): renew to an
-      // ordinary session, which brings the app back.
+      // ordinary session, which brings the app back. Still here after that,
+      // the session did not turn ordinary: the account is back all the same,
+      // and a reload brings the app.
       await renewSession();
-      setStatus({ state: "failed", error: undefined });
+      setKept(true);
     } catch (err) {
       if (statusOf(err) === 401) {
         void logout();
@@ -97,17 +105,12 @@ export default function DeletionWindow() {
   };
 
   return (
-    <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-6 py-10">
-      <p class="text-foreground text-title text-center font-medium" translate="no">
-        {PRODUCT_NAME}
-      </p>
-      <Card padding="lg" class="flex flex-col gap-6">
+    <>
+      <WindowColumn>
         <Switch>
           <Match when={closed()}>
             <div class="flex flex-col gap-2">
-              <h1 class="text-foreground text-title font-medium">
-                It's too late to keep this account
-              </h1>
+              <WindowHeading>It's too late to keep this account</WindowHeading>
               <p class="text-muted-foreground text-body">
                 The 7 days to keep it have ended, and it is being deleted.
               </p>
@@ -119,7 +122,7 @@ export default function DeletionWindow() {
 
           <Match when={kept()}>
             <div class="flex flex-col gap-2">
-              <h1 class="text-foreground text-title font-medium">Your account is back</h1>
+              <WindowHeading>Your account is back</WindowHeading>
               <p class="text-muted-foreground text-body">Reload to carry on.</p>
             </div>
             <Button size="lg" class="w-full max-md:h-11" onClick={() => location.reload()}>
@@ -129,19 +132,18 @@ export default function DeletionWindow() {
 
           <Match when={true}>
             <div class="flex flex-col gap-2">
-              <h1 class="text-foreground text-title font-medium">
-                Your account is set to be deleted
-              </h1>
+              <WindowHeading>{WINDOW_HEADING}</WindowHeading>
               <Switch>
                 <Match when={status().state === "loading"}>
-                  {/* The date's sentence: one line from `md`, two below it. */}
                   <div aria-busy="true">
-                    <ResponsiveSkeleton standsFor="line" height={4.5} phoneHeight={9} />
+                    <WindowDateLoading />
                   </div>
                 </Match>
                 <Match when={scheduledFor()}>
                   {(at) => (
-                    <p class="text-foreground text-body">
+                    // Two lines' room at every width, so a date of one line
+                    // leaves the card as tall as its placeholder.
+                    <p class="text-foreground text-body min-h-9">
                       We delete it on{" "}
                       <time datetime={new Date(at() * 1_000).toISOString()}>
                         {formatMoment(at())}
@@ -154,18 +156,15 @@ export default function DeletionWindow() {
                   <Notice tone="danger" size="inline" alert>
                     Your deletion date didn't load.
                     {loadDetail(status())}{" "}
-                    <button
-                      type="button"
-                      class="focus-visible:ring-ui-focus cursor-pointer font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-hidden"
-                      onClick={() => void readStatus()}
-                    >
-                      Try again
-                    </button>
+                    <InlineAction onClick={() => void readStatus()}>Try again</InlineAction>
                   </Notice>
                 </Match>
               </Switch>
+              {/* "Then" names the date, so it follows only a date on screen. */}
               <p class="text-muted-foreground text-body">
-                Until then, you can keep it. Your profiles and handles come back as they were.
+                {status().state === "failed"
+                  ? "Until it is deleted, you can keep it. Your profiles and handles come back as they were."
+                  : UNTIL_THEN}
               </p>
             </div>
 
@@ -209,10 +208,10 @@ export default function DeletionWindow() {
             </div>
           </Match>
         </Switch>
-      </Card>
+      </WindowColumn>
       <stepUp.Sheet />
       <data.Sheet />
-    </main>
+    </>
   );
 }
 

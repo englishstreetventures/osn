@@ -1,6 +1,6 @@
 import { OrgClientError } from "@osn/client";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
@@ -10,11 +10,15 @@ import "../../src/App.css";
  * The organisation page's decline block, from the "you now own" email's link,
  * in the shell and a real Chromium. Holds that Decline is 40px tall below
  * `md` and `sm`'s 32px from it, that nothing scrolls sideways on a 320px
- * phone, and writes the block's screenshots, offered and refused, light and
- * dark, at 390px and 1280px, to `__screenshots__/`.
+ * phone, a name with no space to break at included, and writes screenshots
+ * of the block offered and refused and of Delete's dialog, light and dark,
+ * at 390px and 1280px, to `__screenshots__/`.
  */
 
-const mocks = vi.hoisted(() => ({ declineOwnership: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  declineOwnership: vi.fn(),
+  org: { name: "Acme Climbing Club" },
+}));
 // A fixed day, so every screenshot carries the same sentence.
 const DECLINE_UNTIL = "2026-12-16T12:00:00.000Z";
 
@@ -72,7 +76,7 @@ vi.mock("../../src/lib/api", () => ({
       Promise.resolve({
         organisation: {
           handle: "acmeclimbing",
-          name: "Acme Climbing Club",
+          name: mocks.org.name,
           description: "Weekend climbs around the city.",
           avatarUrl: null,
           createdAt: "2026-01-01T00:00:00Z",
@@ -133,7 +137,16 @@ async function open(width: number, height: number) {
   await painted();
 }
 
+const SHOTS = "__screenshots__/OrgDetailPage.decline.browser.test.tsx";
+
+async function shot(name: string, width: number, theme: "light" | "dark") {
+  await painted();
+  expect(document.documentElement.scrollWidth).toBe(width);
+  await page.screenshot({ path: `${SHOTS}/${name}-${width}-${theme}.png` });
+}
+
 beforeEach(() => {
+  mocks.org.name = "Acme Climbing Club";
   mocks.declineOwnership
     .mockReset()
     .mockRejectedValue(new OrgClientError("refused", 409, "not_declinable"));
@@ -153,4 +166,34 @@ describe("the decline block", () => {
     await open(1280, 800);
     expect(screen.getByRole("button", { name: "Decline" }).getBoundingClientRect().height).toBe(32);
   }, 30_000);
+
+  it("keeps a name with no space to break at inside a 320px column", async () => {
+    mocks.org.name = "AcmeClimbingClubOfTheGreaterMetropolitan";
+    await open(320, 800);
+    expect(document.documentElement.scrollWidth).toBe(320);
+    const main = document.querySelector("main")!;
+    expect(main.scrollWidth).toBe(main.clientWidth);
+    await page.screenshot({ path: `${SHOTS}/long-name-320.png` });
+  }, 30_000);
+
+  for (const width of [390, 1280]) {
+    for (const theme of ["light", "dark"] as const) {
+      it(`draws the block, its refusal and Delete's dialog at ${width}px in ${theme}`, async () => {
+        if (theme === "dark") document.documentElement.classList.add("dark");
+        await open(width, 900);
+        await shot("decline", width, theme);
+        fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+        await screen.findByText(/You can no longer decline this organisation here\./);
+        expect(
+          screen.queryByRole("heading", { name: "This organisation passed to you" }),
+        ).toBeNull();
+        await shot("decline-refused", width, theme);
+        fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+        await screen.findByRole("dialog", { name: "Delete this organisation?" });
+        // The sheet's slide and the card's fade run their course first.
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await shot("delete-dialog", width, theme);
+      }, 30_000);
+    }
+  }
 });

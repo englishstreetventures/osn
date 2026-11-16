@@ -11,8 +11,9 @@
  * `native` is the browser's own input, visible. Ticked, it is the browser's
  * box — the platform's blue and tick, which reads as a form control. Unticked,
  * this module draws it so it sits on its surface rather than standing out as a
- * white square: no fill, the strong hairline for an edge, 2px corners (a radio
- * round), the secondary ink for the edge under the pointer, 40% when disabled.
+ * white square: no fill, the choice edge (`--ui-choice-edge`) for an edge, 2px
+ * corners (a radio round), the secondary ink for the edge under the pointer,
+ * 40% when disabled.
  * Both states keep the native box's 13px, so ticking moves nothing. Cire draws
  * every checkbox and radio this way, and its apps draw any bare native box
  * with the same values in a base-layer rule (`cire/host/DESIGN.md` §4,
@@ -46,7 +47,7 @@ export type ChoiceAlign = "center" | "start";
 const NATIVE_BOX =
   "base:m-0 base:size-[13px] base:shrink-0 base:cursor-pointer base:disabled:cursor-not-allowed " +
   "base:not-checked:appearance-none base:not-checked:border " +
-  "base:not-checked:border-ui-hairline-strong base:not-checked:bg-transparent " +
+  "base:not-checked:border-ui-choice-edge base:not-checked:bg-transparent " +
   "base:not-checked:enabled:hover:border-ui-ink-secondary " +
   "base:not-checked:disabled:opacity-40 " +
   "base:transition-[border-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] " +

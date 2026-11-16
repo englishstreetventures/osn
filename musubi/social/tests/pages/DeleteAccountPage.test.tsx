@@ -205,9 +205,9 @@ describe("<DeleteAccountPage /> sends", () => {
     renderPage();
     await toAnswers();
 
-    // An answer given before the switch is not sent while it is on.
+    // An answer given before the box is not sent while it is ticked.
     fireEvent.click(radio("The organisation and its memberships are deleted."));
-    fireEvent.click(screen.getByRole("switch", { name: "Delete everything" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Delete everything" }));
     expect(radio("@bob becomes the owner.").disabled).toBe(true);
     await toConfirm();
     submit();

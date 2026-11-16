@@ -1,3 +1,4 @@
+import { InlineAction } from "@osn/auth-ui/InlineAction";
 import {
   AccountDeletionRefusedError,
   describeAuthError,
@@ -7,11 +8,11 @@ import { useAuth } from "@osn/client/solid";
 import { clsx } from "@shared/ui/lib/utils";
 import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
-import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
-import { Switch as Toggle } from "@shared/ui/ui/switch";
+import { UsernameInput } from "@shared/ui/ui/username-input";
 import { A } from "@solidjs/router";
 import {
   batch,
@@ -28,6 +29,7 @@ import {
 import { AccountDataActions } from "../components/AccountDataActions";
 import { EmptyNote } from "../components/EmptyNote";
 import { OpenActionCard, type ActionMark } from "../components/OpenActionCard";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { useShellDialogs } from "../components/ShellDialogs";
 import { SignedOutNote } from "../components/SignedOutNote";
 import {
@@ -66,6 +68,14 @@ type Problem = { kind: "line"; text: string } | { kind: "session" };
 const HANDLE_MISMATCH = "The handle you typed doesn't match. Check it and try again.";
 
 /**
+ * The "Delete everything" card's height in spacing steps, unticked: 104.5px
+ * from `md`, and 124px on a 360–430px phone, where its words take a line
+ * more (143.5px at 320px, a line more again). Step 2's placeholder stands in
+ * it; `tests/components/LoadingShapes.browser.test.tsx` holds both.
+ */
+const DELETE_EVERYTHING_HEIGHT = { desktop: 26.125, phone: 31 } as const;
+
+/**
  * Settings → Account → "Delete account…": the account's deletion, in three
  * steps on a page of its own, then a step-up.
  *
@@ -78,7 +88,7 @@ const HANDLE_MISMATCH = "The handle you typed doesn't match. Check it and try ag
  * (`renewSession({ pending: true })`): the shell gives way to the window
  * screen, which is this flow's last state. A refusal lands on the step the
  * person can act on: an answer missing, gone or refused on step 2, the handle
- * on step 3, anything else as a line under step 3's buttons.
+ * on step 3, anything else as a line under step 3's heading.
  */
 export function DeleteAccountPage() {
   const { session, profiles, activeProfileId, renewSession, logout } = useAuth();
@@ -381,91 +391,97 @@ export function DeleteAccountPage() {
 
           <Match when={step() === 2}>
             <div class="flex flex-col gap-4">
-              <div class="flex flex-col gap-1">
-                <StepHeading ref={(el) => (heading = el)}>What needs an answer</StepHeading>
-                <p class="text-muted-foreground text-body">
-                  We asked {PRODUCT_NAME} and each app what you have there that needs a decision.
-                </p>
-              </div>
+              {/* The heading and its subtitle, the step's lines, then its
+                  cards, 12px apart, as on steps 1 and 3. */}
+              <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-1">
+                  <StepHeading ref={(el) => (heading = el)}>What needs an answer</StepHeading>
+                  <p class="text-muted-foreground text-body">
+                    We asked {PRODUCT_NAME} and each app what you have there that needs a decision.
+                  </p>
+                </div>
 
-              <Show when={stepNotice()}>
-                {(notice) => (
-                  <Show
-                    when={notice() !== "stale"}
-                    fallback={
-                      <Notice tone="info" size="sm" alert>
-                        Something changed since you last looked. Check your answers below.
+                <Show when={stepNotice()}>
+                  {(notice) => (
+                    <Show
+                      when={notice() !== "stale"}
+                      fallback={
+                        <Notice tone="info" size="sm" alert>
+                          Something changed since you last looked. Check your answers below.
+                        </Notice>
+                      }
+                    >
+                      <Notice tone="danger" size="inline" alert>
+                        {STEP_NOTICE[notice() as Exclude<StepNotice, "stale">]}
                       </Notice>
-                    }
-                  >
-                    <Notice tone="danger" size="inline" alert>
-                      {STEP_NOTICE[notice() as Exclude<StepNotice, "stale">]}
-                    </Notice>
-                  </Show>
-                )}
-              </Show>
+                    </Show>
+                  )}
+                </Show>
 
-              <Show when={unreached().length > 0}>
-                <Notice tone="danger" size="inline" alert>
-                  {joinNames(unreached().map(appName))} didn't answer, so we can't check what you
-                  have there. Your account can't be deleted until{" "}
-                  {unreached().length === 1 ? "it does" : "they do"}.{" "}
-                  <Show when={!loading()}>
-                    <TryAgain onClick={() => void loadPreview()} />
-                  </Show>
-                </Notice>
-              </Show>
+                <Show when={unreached().length > 0}>
+                  <Notice tone="danger" size="inline" alert>
+                    {joinNames(unreached().map(appName))} didn't answer, so we can't check what you
+                    have there. Your account can't be deleted until{" "}
+                    {unreached().length === 1 ? "it does" : "they do"}.{" "}
+                    <Show when={!loading()}>
+                      <TryAgain onClick={() => void loadPreview()} />
+                    </Show>
+                  </Notice>
+                </Show>
 
-              <Show when={preview() !== null && loadError() !== undefined && !loading()}>
-                <Notice tone="danger" size="inline" alert>
-                  We couldn't ask the apps again.{loadDetail(loadError())}
-                </Notice>
-              </Show>
+                <Show when={preview() !== null && loadError() !== undefined && !loading()}>
+                  <Notice tone="danger" size="inline" alert>
+                    We couldn't ask the apps again.{loadDetail(loadError())}
+                  </Notice>
+                </Show>
 
-              <Show
-                when={preview()}
-                fallback={
-                  <Show
-                    when={loadError() !== undefined && !loading()}
-                    fallback={<PreviewLoading />}
-                  >
-                    <Notice tone="danger" size="inline" alert>
-                      What you have in each app didn't load.
-                      {loadDetail(loadError())} <TryAgain onClick={() => void loadPreview()} />
-                    </Notice>
-                  </Show>
-                }
-              >
                 <Show
-                  when={groups().length > 0}
+                  when={preview()}
                   fallback={
-                    <Show when={unreached().length === 0}>
-                      <EmptyNote size="section">Nothing else needs an answer.</EmptyNote>
+                    <Show
+                      when={loadError() !== undefined && !loading()}
+                      fallback={<PreviewLoading />}
+                    >
+                      <Notice tone="danger" size="inline" alert>
+                        What you have in each app didn't load.
+                        {loadDetail(loadError())} <TryAgain onClick={() => void loadPreview()} />
+                      </Notice>
                     </Show>
                   }
                 >
-                  <DeleteEverything on={everything()} onChange={setDeleteEverything} />
-                  <div ref={list} class="flex flex-col gap-6">
-                    <For each={groups()}>
-                      {(group) => (
-                        <AppSection name={group.name}>
-                          <For each={group.actions}>
-                            {(action) => (
-                              <OpenActionCard
-                                action={action}
-                                answer={answers()[action.id]}
-                                disabled={everything()}
-                                mark={everything() ? undefined : marks()[action.id]}
-                                onAnswer={(next) => answer(action.id, next)}
-                              />
-                            )}
-                          </For>
-                        </AppSection>
-                      )}
-                    </For>
-                  </div>
+                  <Show
+                    when={groups().length > 0}
+                    fallback={
+                      <Show when={unreached().length === 0}>
+                        <EmptyNote size="section">Nothing else needs an answer.</EmptyNote>
+                      </Show>
+                    }
+                  >
+                    {/* "Delete everything", then each app's section, 24px
+                        apart, as step 1's sections are. */}
+                    <div ref={list} class="flex flex-col gap-6">
+                      <DeleteEverything on={everything()} onChange={setDeleteEverything} />
+                      <For each={groups()}>
+                        {(group) => (
+                          <AppSection name={group.name}>
+                            <For each={group.actions}>
+                              {(action) => (
+                                <OpenActionCard
+                                  action={action}
+                                  answer={answers()[action.id]}
+                                  disabled={everything()}
+                                  mark={everything() ? undefined : marks()[action.id]}
+                                  onAnswer={(next) => answer(action.id, next)}
+                                />
+                              )}
+                            </For>
+                          </AppSection>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                 </Show>
-              </Show>
+              </div>
 
               <StepActions>
                 <Button variant="secondary" size="sm" class="max-md:h-10" onClick={() => goTo(1)}>
@@ -493,6 +509,24 @@ export function DeleteAccountPage() {
             >
               <div class="flex flex-col gap-3">
                 <StepHeading ref={(el) => (heading = el)}>Confirm</StepHeading>
+                {/* Why the last press did not go through: a line about the
+                    whole step, under its heading. */}
+                <Show when={problem()} keyed>
+                  {(current) => (
+                    <Notice tone="danger" size="inline" alert>
+                      {current.kind === "session" ? (
+                        <>
+                          For your security, sign in again to finish this.{" "}
+                          <InlineAction onClick={() => void signInAgain()}>
+                            Sign in again
+                          </InlineAction>
+                        </>
+                      ) : (
+                        current.text
+                      )}
+                    </Notice>
+                  )}
+                </Show>
                 <Card padding="md" class="flex flex-col gap-4">
                   <p class="text-foreground text-body">
                     We sign you out on your other devices now, and delete your account in 7 days.
@@ -510,46 +544,23 @@ export function DeleteAccountPage() {
                     errors={handleError() ? [handleError()!] : undefined}
                   >
                     {(field) => (
-                      <div class="flex items-center gap-2">
-                        <span aria-hidden="true" class="text-muted-foreground text-title">
-                          @
-                        </span>
-                        <Input
-                          {...field}
-                          ref={(el: HTMLInputElement) => (handleField = el)}
-                          class="flex-1"
-                          value={typed()}
-                          onInput={(event) => {
-                            setTyped(event.currentTarget.value);
-                            if (handleError()) setHandleError(null);
-                          }}
-                          autocomplete="off"
-                          autocapitalize="none"
-                          spellcheck={false}
-                          enterkeyhint="go"
-                        />
-                      </div>
+                      <UsernameInput
+                        {...field}
+                        ref={(el: HTMLInputElement) => (handleField = el)}
+                        value={typed()}
+                        onInput={(value) => {
+                          setTyped(value);
+                          if (handleError()) setHandleError(null);
+                        }}
+                        autocomplete="off"
+                        autocapitalize="none"
+                        spellcheck={false}
+                        enterkeyhint="go"
+                      />
                     )}
                   </Field>
                 </Card>
               </div>
-
-              <Show when={problem()} keyed>
-                {(current) => (
-                  <Notice tone="danger" size="inline" alert>
-                    {current.kind === "session" ? (
-                      <>
-                        For your security, sign in again to finish this.{" "}
-                        <InlineButton onClick={() => void signInAgain()}>
-                          Sign in again
-                        </InlineButton>
-                      </>
-                    ) : (
-                      current.text
-                    )}
-                  </Notice>
-                )}
-              </Show>
 
               <StepActions>
                 <Button
@@ -619,52 +630,56 @@ function AppSection(props: { name: string; children: JSX.Element }) {
   );
 }
 
-/** "Delete everything": on, no answer is sent, and every app deletes what it can. */
+/**
+ * "Delete everything": ticked, no answer is sent, and every app deletes what it
+ * can. A box rather than a switch: like each answer below it, it is collected
+ * here and sent only when the account is deleted on step 3.
+ */
 function DeleteEverything(props: { on: boolean; onChange: (on: boolean) => void }) {
-  const descriptionId = createUniqueId();
   return (
-    <Card padding="md" class="flex flex-col gap-2">
-      <Toggle
-        label="Delete everything"
+    <Card padding="md">
+      <Checkbox
+        size="sm"
+        align="start"
         checked={props.on}
         onChange={props.onChange}
-        describedBy={descriptionId}
-        class="self-start max-md:min-h-11"
+        label="Delete everything"
+        description={
+          <>
+            Each app deletes what you have there as soon as it can. An organisation still passes to
+            another member where there is one.
+            <Show when={props.on}> The answers below are not used while this is ticked.</Show>
+          </>
+        }
       />
-      <p id={descriptionId} class="text-muted-foreground text-body">
-        Each app deletes what you have there as soon as it can. An organisation still passes to
-        another member where there is one.
-        <Show when={props.on}> The answers below are not used while this is on.</Show>
-      </p>
     </Card>
   );
 }
 
-/** The ends of an error line: underlined, in the line's ink (DESIGN.md §Links). */
-function InlineButton(props: { onClick: () => void; children: JSX.Element }) {
-  return (
-    <button
-      type="button"
-      class="focus-visible:ring-ui-focus cursor-pointer font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-hidden"
-      onClick={() => props.onClick()}
-    >
-      {props.children}
-    </button>
-  );
-}
-
+/** The end of a failed load's line (DESIGN.md §Links). */
 function TryAgain(props: { onClick: () => void }) {
-  return <InlineButton onClick={props.onClick}>Try again</InlineButton>;
+  return <InlineAction onClick={props.onClick}>Try again</InlineAction>;
 }
 
-/** Step 2 while the apps are asked: the switch's card and two actions' cards. */
+/**
+ * Step 2 while the apps are asked, in the loaded list's shape: the "Delete
+ * everything" card, then 24px to an app's section, its name over two actions'
+ * cards 12px apart. The first card's height is the loaded one's; an action's
+ * depends on what the app says, so its two blocks are a guess.
+ */
 function PreviewLoading() {
   return (
-    <div aria-busy="true" class="flex flex-col gap-4">
-      <Skeleton standsFor="card" height={22} />
-      <Skeleton standsFor="line" width={16} height={5} />
-      <Skeleton standsFor="card" height={40} />
-      <Skeleton standsFor="card" height={40} />
+    <div aria-busy="true" class="flex flex-col gap-6">
+      <ResponsiveSkeleton
+        standsFor="card"
+        height={DELETE_EVERYTHING_HEIGHT.desktop}
+        phoneHeight={DELETE_EVERYTHING_HEIGHT.phone}
+      />
+      <div class="flex flex-col gap-3">
+        <Skeleton standsFor="line" width={16} height={5} />
+        <Skeleton standsFor="card" height={40} />
+        <Skeleton standsFor="card" height={40} />
+      </div>
     </div>
   );
 }

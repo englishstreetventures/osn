@@ -30,8 +30,11 @@ export const CONTRACT_COLOR_TOKENS = {
   ink: ["--ui-ink", "--ui-ink-secondary"],
   /** Large-text, ornament and disabled ink. Clears {@link WCAG_UI} only — never body copy. */
   inkLarge: ["--ui-ink-tertiary"],
-  /** Non-text UI that must be perceivable: control boundaries, the focus ring. Clears {@link WCAG_UI}. */
-  ui: ["--ui-hairline-strong", "--ui-focus"],
+  /**
+   * Non-text UI that must be perceivable: control boundaries, a drawn
+   * choice's edge, the focus ring. Clears {@link WCAG_UI}.
+   */
+  ui: ["--ui-hairline-strong", "--ui-choice-edge", "--ui-focus"],
   /** Decoration with no contrast floor. A card is told apart by its surface, not its edge. */
   decorative: ["--ui-hairline", "--ui-accent-soft"],
   /**
@@ -50,6 +53,22 @@ export const CONTRACT_COLOR_TOKENS = {
 
 /** Every colour token in the contract, flattened. */
 export const ALL_COLOR_TOKENS: readonly string[] = Object.values(CONTRACT_COLOR_TOKENS).flat();
+
+/**
+ * Colour tokens an app need not map: unmapped, each reads the token named
+ * here, as its alias in `tokens.css` falls back to it. The conformance check
+ * measures it as that token then, under that token's waiver.
+ */
+export const COLOR_FALLBACKS = {
+  "--ui-choice-edge": "--ui-hairline-strong",
+} as const satisfies Readonly<Record<string, string>>;
+
+/** The token an unmapped `token` is drawn in, if it falls back to one. */
+export function colorFallback(token: string): string | undefined {
+  return Object.hasOwn(COLOR_FALLBACKS, token)
+    ? COLOR_FALLBACKS[token as keyof typeof COLOR_FALLBACKS]
+    : undefined;
+}
 
 /** Radius, type-family, weight and motion tokens. No contrast obligation, so they are listed separately. */
 export const CONTRACT_SCALAR_TOKENS = {

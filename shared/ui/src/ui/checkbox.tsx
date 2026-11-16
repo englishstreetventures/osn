@@ -160,7 +160,7 @@ const Checkbox: Component<CheckboxProps> = (props) => {
       aria-hidden="true"
       data-checked={flag(local.checked)}
       data-disabled={flag(field.disabled)}
-      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:peer-focus-visible:ring-ui-focus base:h-4 base:w-4 base:shrink-0 base:rounded-ui-sm base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
+      class="base:border-ui-choice-edge base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:peer-focus-visible:ring-ui-focus base:h-4 base:w-4 base:shrink-0 base:rounded-ui-sm base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
     >
       <Show when={local.checked}>
         <span class="base:flex base:items-center base:justify-center">

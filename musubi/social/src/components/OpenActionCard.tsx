@@ -81,71 +81,81 @@ export function OpenActionCard(props: OpenActionCardProps) {
       data-action={props.action.id}
       data-marked={props.mark ? "" : undefined}
     >
-      <p id={labelId} class="text-foreground text-body">
+      {/* The app wrote these words, so they break anywhere: a name with no
+          spaces must not push the page sideways. */}
+      <p id={labelId} class="text-foreground text-body wrap-anywhere">
         {props.action.label}
       </p>
 
-      {/* Dimmed with its words while "Delete everything" is on, so the
-          choices read as out of play; the label above stays, since what the
-          app holds is still what goes. */}
-      <div classList={{ "opacity-50": props.disabled }}>
-        <Switch>
-          <Match when={props.action.choices.length > 1}>
-            <RadioGroup
-              value={shown()}
-              onChange={choose}
-              orientation="vertical"
+      {/* While "Delete everything" is on, each choice's words dim to 50%
+          (`ChoiceWords`) and each circle or box dims itself as it is
+          disabled, so the choices read as out of play at one strength. The
+          label above stays, since what the app holds is still what goes. */}
+      <Switch>
+        <Match when={props.action.choices.length > 1}>
+          <RadioGroup
+            value={shown()}
+            onChange={choose}
+            orientation="vertical"
+            size="sm"
+            disabled={props.disabled}
+            aria-labelledby={labelId}
+            aria-describedby={lineMark() ? markId : undefined}
+            aria-invalid={lineMark() ? "true" : undefined}
+          >
+            <For each={props.action.choices}>
+              {(choice) => (
+                <RadioGroupItem
+                  value={choice.choice}
+                  align="start"
+                  // Below `md` each choice is at least 44px tall, its circle
+                  // and words centred in the row, so one-line and wrapped
+                  // choices sit evenly apart. From `md` the circle sits on
+                  // the first line.
+                  class="max-md:min-h-11 max-md:items-center"
+                  label={
+                    <ChoiceWords
+                      description={choice.description}
+                      erasedOn={choice.erased_on}
+                      dimmed={props.disabled}
+                    />
+                  }
+                />
+              )}
+            </For>
+          </RadioGroup>
+        </Match>
+        <Match when={needsAnswer(props.action) ? only() : undefined}>
+          {(choice) => (
+            <Checkbox
               size="sm"
+              align="start"
+              class="max-md:min-h-11"
+              checked={props.answer?.choice === choice().choice}
+              onChange={(on) => props.onAnswer(on ? { choice: choice().choice } : null)}
               disabled={props.disabled}
-              aria-labelledby={labelId}
+              label={
+                <ChoiceWords
+                  description={choice().description}
+                  erasedOn={choice().erased_on}
+                  dimmed={props.disabled}
+                />
+              }
               aria-describedby={lineMark() ? markId : undefined}
               aria-invalid={lineMark() ? "true" : undefined}
-            >
-              <For each={props.action.choices}>
-                {(choice) => (
-                  <RadioGroupItem
-                    value={choice.choice}
-                    align="start"
-                    // Below `md` each choice is at least 44px tall, its circle
-                    // and words centred in the row, so one-line and wrapped
-                    // choices sit evenly apart. From `md` the circle sits on
-                    // the first line.
-                    class="max-md:min-h-11 max-md:items-center"
-                    label={
-                      <ChoiceWords description={choice.description} erasedOn={choice.erased_on} />
-                    }
-                  />
-                )}
-              </For>
-            </RadioGroup>
-          </Match>
-          <Match when={needsAnswer(props.action) ? only() : undefined}>
-            {(choice) => (
-              <Checkbox
-                size="sm"
-                align="start"
-                class="max-md:min-h-11"
-                checked={props.answer?.choice === choice().choice}
-                onChange={(on) => props.onAnswer(on ? { choice: choice().choice } : null)}
-                disabled={props.disabled}
-                label={choice().description}
-                description={
-                  choice().erased_on === null
-                    ? undefined
-                    : `Deleted on ${formatDay(choice().erased_on!)}`
-                }
-                aria-describedby={lineMark() ? markId : undefined}
-                aria-invalid={lineMark() ? "true" : undefined}
-              />
-            )}
-          </Match>
-          <Match when={only()}>
-            {(choice) => (
-              <ChoiceWords description={choice().description} erasedOn={choice().erased_on} />
-            )}
-          </Match>
-        </Switch>
-      </div>
+            />
+          )}
+        </Match>
+        <Match when={only()}>
+          {(choice) => (
+            <ChoiceWords
+              description={choice().description}
+              erasedOn={choice().erased_on}
+              dimmed={props.disabled}
+            />
+          )}
+        </Match>
+      </Switch>
 
       <Show when={shown() === "successor" && props.action.candidates}>
         {(candidates) => (
@@ -213,10 +223,14 @@ export function OpenActionCard(props: OpenActionCardProps) {
   );
 }
 
-/** A choice's words as the app wrote them, and the day it deletes what it keeps. */
-function ChoiceWords(props: { description: string; erasedOn: number | null }) {
+/**
+ * A choice's words as the app wrote them, breaking anywhere, and the day it
+ * deletes what it keeps: the one look of that day under a radio, a box or a
+ * choice with nothing to pick. Dimmed with the choice it names.
+ */
+function ChoiceWords(props: { description: string; erasedOn: number | null; dimmed: boolean }) {
   return (
-    <span class="flex flex-col gap-0.5">
+    <span class="flex flex-col gap-0.5 wrap-anywhere" classList={{ "opacity-50": props.dimmed }}>
       <span>{props.description}</span>
       <Show when={props.erasedOn}>
         {(day) => (

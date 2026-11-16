@@ -201,7 +201,7 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
       aria-hidden="true"
       data-checked={flag(chosen())}
       data-disabled={flag(off())}
-      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:peer-focus-visible:ring-ui-focus base:aspect-square base:h-4 base:w-4 base:rounded-ui-pill base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
+      class="base:border-ui-choice-edge base:bg-ui-ground base:data-[checked]:border-ui-accent base:peer-focus-visible:ring-ui-focus base:aspect-square base:h-4 base:w-4 base:rounded-ui-pill base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
     >
       <Show when={chosen()}>
         <span class="base:after:bg-ui-accent base:flex base:items-center base:justify-center base:after:block base:after:h-2.5 base:after:w-2.5 base:after:rounded-full base:forced-colors:after:forced-color-adjust-none base:forced-colors:after:bg-current" />

@@ -3,7 +3,7 @@ import { OrgClientError } from "@osn/client";
 import { AuthContext } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -11,7 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * only on that link and only when the server says this caller may decline,
  * so a link sent to anyone else shows no claim that they own it; Decline
  * passes the organisation on or deletes it and goes back to the list, and a
- * refusal says it can no longer be declined.
+ * refusal says it can no longer be declined, in place of the card. Delete asks
+ * first, in the app's dialog.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   listMembers: vi.fn(),
   declineOwnership: vi.fn(),
   declineOwnershipStatus: vi.fn(),
+  deleteOrg: vi.fn(),
 }));
 
 vi.mock("../../src/lib/api", () => ({
@@ -29,6 +31,7 @@ vi.mock("../../src/lib/api", () => ({
     listMembers: mocks.listMembers,
     declineOwnership: mocks.declineOwnership,
     declineOwnershipStatus: mocks.declineOwnershipStatus,
+    deleteOrg: mocks.deleteOrg,
     listMyOrgs: () => Promise.resolve({ organisations: [] }),
   },
 }));
@@ -86,6 +89,7 @@ beforeEach(() => {
   mocks.getOrg.mockReset().mockResolvedValue({ organisation: ORG });
   mocks.listMembers.mockReset().mockResolvedValue({ members: [] });
   mocks.declineOwnership.mockReset();
+  mocks.deleteOrg.mockReset();
   mocks.declineOwnershipStatus
     .mockReset()
     .mockResolvedValue({ declineUntil: "2026-12-16T12:00:00.000Z" });
@@ -146,10 +150,32 @@ describe("<OrgDetailPage /> decline", () => {
     const history = renderOrg("/organisations/acme?decline=1");
     fireEvent.click(await screen.findByRole("button", { name: "Decline" }));
 
-    expect(
-      await screen.findByText(/You can no longer decline this organisation here\./),
-    ).toBeTruthy();
+    const line = await screen.findByText(/You can no longer decline this organisation here\./);
+    expect(line.closest("[role='alert']")).not.toBeNull();
+    // The card gives way: no "until" above a line that says otherwise.
+    expect(screen.queryByText(/passed to you/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Decline" })).toBeNull();
     expect(history.get()).toBe("/organisations/acme?decline=1");
+  });
+});
+
+describe("<OrgDetailPage /> delete", () => {
+  it("asks first in the app's dialog, and Cancel deletes nothing", async () => {
+    renderOrg("/organisations/acme");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete this organisation?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(mocks.deleteOrg).not.toHaveBeenCalled();
+  });
+
+  it("deletes from the dialog's Delete, and goes back to the list", async () => {
+    mocks.deleteOrg.mockResolvedValue(undefined);
+    const history = renderOrg("/organisations/acme");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(mocks.deleteOrg).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog", { name: "Delete this organisation?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(history.get()).toBe("/organisations"));
+    expect(mocks.deleteOrg).toHaveBeenCalledWith("acme");
   });
 });

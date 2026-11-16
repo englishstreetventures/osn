@@ -14,10 +14,14 @@ import "../../src/App.css";
  * §Empty states and failed loads): the product name above one card, centred
  * in the column; its buttons as wide as the card, 44px tall below `md` and
  * 40px from it; nothing of the shell (no rail, no top bar, no tab bar); and
- * nothing scrolls sideways on a 320px phone.
+ * nothing scrolls sideways on a 320px phone. And that nothing moves as it
+ * loads: the frame `App.tsx` draws while the screen's chunk loads is as tall
+ * as the screen while its date loads, and the date's block as tall as the
+ * longest date of the year once it lands.
  *
  * Screenshots go to `__screenshots__/` beside this file (gitignored): the
- * screen, and the too-late state, in light and dark at 390px and 1280px.
+ * screen, its frame, the frame after a failed chunk, the date that did not
+ * load and the too-late state, in light and dark at 390px and 1280px.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -72,9 +76,18 @@ vi.mock("../../src/components/StepUpSheet", () => ({
 }));
 
 import { Layout } from "../../src/App";
+import { DeletionWindowFrame } from "../../src/components/DeletionWindowFrame";
 
 /** 23 November 2026, 09:00 UTC. */
 const SCHEDULED_FOR = 1_795_424_400;
+
+/**
+ * Wednesday 30 September 2026, 12:00 in the reader's zone: the year's longest
+ * date in en-US, "Wednesday, September 30, 2026 at 12:00 PM".
+ */
+const LONGEST = new Date(2026, 8, 30, 12, 0).getTime() / 1_000;
+
+const SHOTS = "__screenshots__/DeletionWindow.browser.test.tsx";
 
 const NARROW = { width: 320, height: 640 };
 const PHONE = { width: 390, height: 844 };
@@ -105,7 +118,10 @@ async function painted() {
 }
 
 /** The app at `/`, for a pending session: the window screen, once its date is in. */
-async function open(viewport: Viewport) {
+async function open(
+  viewport: Viewport,
+  wait: () => unknown = () => document.querySelector("time"),
+) {
   await atViewport(viewport);
   const history = createMemoryHistory();
   history.set({ value: "/" });
@@ -114,8 +130,30 @@ async function open(viewport: Viewport) {
       <Route path="/" component={() => <p>Connections page</p>} />
     </MemoryRouter>
   ));
-  await waitFor(() => expect(document.querySelector("time")).not.toBeNull(), { timeout: 5_000 });
+  await waitFor(() => expect(wait()).toBeTruthy(), { timeout: 5_000 });
   await painted();
+}
+
+/** The frame alone, as `App.tsx` draws it while the screen's chunk loads or after it failed. */
+async function openFrame(viewport: Viewport, failed: boolean) {
+  await atViewport(viewport);
+  render(() => <DeletionWindowFrame failed={failed} />);
+  await painted();
+}
+
+/** The one block a reader sees inside `region`: a block hidden at this width takes no box. */
+function shownBlock(region: Element): HTMLElement {
+  const blocks = [...region.querySelectorAll<HTMLElement>('[aria-hidden="true"]')].filter(
+    (block) => block.getClientRects().length > 0,
+  );
+  expect(blocks).toHaveLength(1);
+  return blocks[0]!;
+}
+
+async function shot(name: string, viewport: Viewport, theme: "light" | "dark") {
+  await painted();
+  expect(document.documentElement.scrollWidth).toBe(viewport.width);
+  await page.screenshot({ path: `${SHOTS}/${name}-${viewport.width}-${theme}.png` });
 }
 
 function card() {
@@ -158,4 +196,68 @@ describe("the window screen", () => {
       cleanup();
     }
   }, 30_000);
+
+  for (const viewport of [NARROW, PHONE, { width: 768, height: 800 }, DESKTOP]) {
+    it(`holds its place as it loads at ${viewport.width}px`, async () => {
+      await openFrame(viewport, false);
+      const frame = card().getBoundingClientRect().height;
+      cleanup();
+
+      let land!: (value: unknown) => void;
+      mocks.status.mockReset().mockReturnValue(new Promise((resolve) => (land = resolve)));
+      await open(viewport, () => document.querySelector("[aria-busy='true']"));
+      const loading = card().getBoundingClientRect().height;
+      expect(loading).toBeCloseTo(frame, 0);
+      const block = shownBlock(document.querySelector("[aria-busy='true']")!);
+      const held = block.getBoundingClientRect().height;
+
+      land({ scheduled: true, scheduledFor: LONGEST, softDeletedAt: LONGEST - 7 * 86_400 });
+      const time = await waitFor(() => {
+        const found = document.querySelector("time");
+        if (!found) throw new Error("no date yet");
+        return found;
+      });
+      await painted();
+      expect(time.textContent).toContain("Wednesday");
+      expect(time.closest("p")!.getBoundingClientRect().height).toBeCloseTo(held, 0);
+      expect(card().getBoundingClientRect().height).toBeCloseTo(loading, 0);
+    }, 30_000);
+  }
+
+  for (const viewport of [PHONE, DESKTOP]) {
+    for (const theme of ["light", "dark"] as const) {
+      it(`draws each state at ${viewport.width}px in ${theme}`, async () => {
+        if (theme === "dark") document.documentElement.classList.add("dark");
+        await open(viewport);
+        expect(
+          screen.getByRole("heading", { name: "Your account is set to be deleted" }),
+        ).toBeTruthy();
+        await shot("window", viewport, theme);
+        cleanup();
+
+        await openFrame(viewport, false);
+        await shot("window-frame", viewport, theme);
+        cleanup();
+        await openFrame(viewport, true);
+        await shot("window-frame-failed", viewport, theme);
+        cleanup();
+
+        mocks.status.mockReset().mockRejectedValue(new Error("offline"));
+        await open(viewport, () => screen.queryByText(/didn't load/));
+        await shot("window-date-failed", viewport, theme);
+        cleanup();
+
+        mocks.status.mockReset().mockResolvedValue({
+          scheduled: true,
+          scheduledFor: SCHEDULED_FOR,
+          softDeletedAt: SCHEDULED_FOR - 7 * 86_400,
+        });
+        mocks.cancel.mockResolvedValue({ cancelled: false });
+        await open(viewport);
+        screen.getByRole("button", { name: "Keep my account" }).click();
+        await screen.findByRole("heading", { name: "It's too late to keep this account" });
+        await shot("window-too-late", viewport, theme);
+      }, 30_000);
+    }
+  }
 });
