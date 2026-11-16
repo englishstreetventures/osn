@@ -920,8 +920,19 @@ function organiserSessions(): number {
   return row?.n ?? 0;
 }
 
-/** Signs in to Pulse through OSN and finishes Pulse's first-run onboarding. */
-export async function signInToPulse(flow: Flow, page: Page, who: string): Promise<void> {
+/**
+ * Signs in to Pulse through OSN, which lands a new account on Pulse's
+ * first-run onboarding at `/welcome`. With `onboarding` "skip" it presses
+ * "Skip for now" there and ends on `/`, and pulse-api writes no onboarding row. With
+ * "stay" it checks the page is on `/welcome` and leaves it there, so the
+ * caller can walk the steps (`walkPulseOnboarding` in `pulse-onboarding.ts`).
+ */
+export async function signInToPulse(
+  flow: Flow,
+  page: Page,
+  who: string,
+  onboarding: "skip" | "stay" = "skip",
+): Promise<void> {
   const authorizePages: string[] = [];
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame() && frame.url().startsWith(`${ORIGINS.musubi}/authorize`)) {
@@ -934,11 +945,17 @@ export async function signInToPulse(flow: Flow, page: Page, who: string): Promis
     await page.getByRole("button", { name: "Continue with musubi" }).click();
   });
 
-  await flow.step(`${who}: finish onboarding`, async () => {
-    await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
-    await page.getByRole("button", { name: "Skip for now" }).click();
-    await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/`);
-  });
+  if (onboarding === "skip") {
+    await flow.step(`${who}: finish onboarding`, async () => {
+      await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
+      await page.getByRole("button", { name: "Skip for now" }).click();
+      await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/`);
+    });
+  } else {
+    await flow.step(`${who}: land on /welcome`, async () => {
+      await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
+    });
+  }
 
   flow.check(`${who}: Musubi /authorize page not shown`, 0, authorizePages.length);
   // The consent screen is the only thing that reads the context, so a

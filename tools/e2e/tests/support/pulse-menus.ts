@@ -40,7 +40,7 @@ const SCHEMES = ["light", "dark"] as const;
 const CONTRACT_SCALE_ENTER = 0.96;
 
 /** The avatar trigger, the last menu trigger in the page's header. */
-const trigger = (page: Page) => page.locator('header button[aria-haspopup="true"]').last();
+export const trigger = (page: Page) => page.locator('header button[aria-haspopup="true"]').last();
 
 async function dark(page: Page, on: boolean): Promise<void> {
   await page.evaluate((value) => document.documentElement.classList.toggle("dark", value), on);

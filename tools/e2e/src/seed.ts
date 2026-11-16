@@ -180,7 +180,7 @@ export function seedOsn(path: string): void {
   }
 }
 
-/** pulse-api: the schema only. The flow creates the one event it needs. */
+/** pulse-api: the schema only. The flow creates every row it reads. */
 export function seedPulse(path: string): void {
   const sqlite = freshDatabase(path);
   try {
