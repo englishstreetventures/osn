@@ -7,7 +7,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[d1-read-replication]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-16
 ---
 # Guest + Event Editor — plan
 
@@ -225,6 +225,7 @@ The `/import/{preview,apply,revert,list}` one-release alias (the repo's decided 
 - **Route**: authz (guest session rejected, member accepted), 409 on stale `baseRevision`, alias routes serve both prefixes.
 - **Component**: draft editing, inline validation, attendance matrix, preview modal, history revert (happy-dom harness as today).
 - **D1 integration**: editor-save write sets respect the ≤50-statement chunking (extend `d1-integration.test.ts`).
+- **End to end**: `cire-seating` applies a guests sheet that adds a household, opens Change history, reverts it, and reads cire's database to find the household gone and the earlier sheet's address kept ([`cire-seating.flow.ts`](../../tools/e2e/tests/flows/cire-seating.flow.ts), [[testing-patterns#The end-to-end suite]]).
 
 ## 10. PR slicing
 

@@ -18,7 +18,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-16
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -559,6 +559,13 @@ success the tier is patched into the wedding list at once, so the locked
 modules open, and the list is fetched again for the guest cap
 (`handleTierRaised` in `OrganiserApp.tsx`). The dialog stands on its own so the
 onboarding tier step can place it under the tier cards.
+
+The E2E flow `cire-checklist-holders` redeems seeded codes on a Gold wedding of
+its own: one that names nothing (404), a Gold code (409 `tier_already_held`,
+left unspent) and a Crimson code, which moves the wedding to Crimson, and reads
+the redemption back from cire's database
+([`cire-checklist-holders.flow.ts`](../../tools/e2e/tests/flows/cire-checklist-holders.flow.ts),
+[[testing-patterns#The end-to-end suite]]).
 
 ## How a wedding reaches a tier
 

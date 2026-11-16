@@ -11,7 +11,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[toast]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-16
 ---
 # Budget
 
@@ -183,6 +183,17 @@ Previously: `Budget` v0 (Phase 1 spec artifact) had the cap editor in the Settin
 **Decision:** Settings is for profile + co-host roles; budget cap is domain-specific and grows with the feature (Phase 2: vendor links, Phase 3: pricing seeding). Putting it in the Budget tab keeps the concerns separate and mirrors the "upcoming payments" widget on Overview (another Phase 1 surface).
 
 **Governance:** `weddingOwner()` gate on the `PUT .../budget/total` endpoint (organiser can only set their own wedding's cap).
+
+## End to end
+
+`cire-registry-money` drives the Budget module on two seeded weddings
+([`cire-registry-money.flow.ts`](../../tools/e2e/tests/flows/cire-registry-money.flow.ts),
+[[testing-patterns#The end-to-end suite]]). On Money Wedding the owner adds a
+line with an estimate, records its actual cost, sets a total the line runs
+over, schedules a deposit and ticks it paid, then deletes the line and lets its
+Undo toast run out; the flow reads `budget_items` and `payments` at each step.
+On a Crimson wedding it adds a vendor's quote from an enquiry with Add to
+budget, and finds the line in the module at the quoted figure.
 
 ## Deferred Items
 

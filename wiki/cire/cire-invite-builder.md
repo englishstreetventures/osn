@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-16
 ---
 # Cire invite builder
 
@@ -1368,7 +1368,11 @@ nothing there edits the page. `ModuleShell` mounts ONE builder
 while the module is Invite and hands it `view`; a move between views is a
 route change the builder's unsaved guard keeps, so the draft survives with no
 prompt. All four views are an editor's (owners and editors); only the re-mint
-is the owner's.
+is the owner's. The E2E flow `cire-checklist-holders` re-mints a seeded
+wedding's two households onto the simple style from Codes, after the warning
+that one household's code was sent, and checks in cire's database that both
+codes changed and neither counts as sent
+([`cire-checklist-holders.flow.ts`](../../tools/e2e/tests/flows/cire-checklist-holders.flow.ts)).
 
 **The invite message copies a household's message.** Under the first-line
 field sit a household picker, a preview of the composed message and a copy
