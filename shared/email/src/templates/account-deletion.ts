@@ -23,6 +23,7 @@
  * sender passes in: this package names no product of its own.
  */
 
+import { emailButton } from "./button";
 import type { RenderedEmail } from "./index";
 
 /** One line of what the deletion does outside the account itself. */
@@ -109,8 +110,9 @@ const esc = (s: string): string =>
 const wrap = (bodyHtml: string): string =>
   `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:24px">${bodyHtml}</body></html>`;
 
+/** The button, then the link as text for a client that drops its styles. */
 const button = (url: string, label: string): string =>
-  `<p><a href="${esc(url)}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600">${esc(label)}</a></p><p style="color:#666;word-break:break-all">${esc(url)}</p>`;
+  `${emailButton(url, label)}<p style="color:#666;word-break:break-all">${esc(url)}</p>`;
 
 const MONTHS = [
   "January",

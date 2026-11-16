@@ -149,9 +149,11 @@ Each template draws its own HTML in inline styles, inside the same `wrap`
 frame: the system font stack, `#0a0a0a` ink, 480px wide. A message that asks
 the reader to open one link draws it as a button, and every button is the same
 one: `display:inline-block;padding:12px 24px;background:#0a0a0a;color:#fff;text-decoration:none;border-radius:6px`,
-at the text's own weight. `link-registration` and `vendor-claim-invite` draw it
-today. The link also appears as text under the button, in `#666`, for a client
-that drops the button's styles. The button and the page the link opens use one
+at the text's own weight. Every template draws it through `emailButton`
+([`templates/button.ts`](../../shared/email/src/templates/button.ts)), and
+`tests/templates.test.ts` fails on a button drawn any other way. The link also
+appears as text under the button, in `#666`, for a client that drops the
+button's styles. The button and the page the link opens use one
 verb: `link-registration` says "Confirm" in its subject, its heading and its
 button, as [[email-links]]'s page does.
 

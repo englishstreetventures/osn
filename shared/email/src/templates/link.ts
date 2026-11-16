@@ -12,6 +12,7 @@
  * sender passes in: this package names no product of its own.
  */
 
+import { emailButton } from "./button";
 import type { RenderedEmail } from "./index";
 
 export interface LinkData {
@@ -68,7 +69,7 @@ export function renderRegistrationLink(data: RegistrationLinkData): RenderedEmai
   const minutes = String(data.ttlMinutes);
   const text = `Someone asked to create the ${name} account @${data.handle} with this email address. If that was you, open this link and confirm:\n\n${data.url}\n\nThe link works for ${minutes} minutes. The device that asked finishes signing up, not the one you open the link on.\n\nIf you didn't ask for @${data.handle}, ignore this email. No account is made.`;
   const html = wrap(
-    `<h2>Confirm your ${esc(name)} email</h2><p>Someone asked to create the ${esc(name)} account <strong>@${esc(data.handle)}</strong> with this email address. If that was you, open this link and confirm:</p><p><a href="${esc(data.url)}" style="display:inline-block;padding:12px 24px;background:#0a0a0a;color:#fff;text-decoration:none;border-radius:6px">Confirm this email</a></p><p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked finishes signing up, not the one you open the link on.</p><p style="color:#666">If you didn't ask for @${esc(data.handle)}, ignore this email. No account is made.</p>`,
+    `<h2>Confirm your ${esc(name)} email</h2><p>Someone asked to create the ${esc(name)} account <strong>@${esc(data.handle)}</strong> with this email address. If that was you, open this link and confirm:</p>${emailButton(data.url, "Confirm this email")}<p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked finishes signing up, not the one you open the link on.</p><p style="color:#666">If you didn't ask for @${esc(data.handle)}, ignore this email. No account is made.</p>`,
   );
   return { subject: `Confirm your ${name} email`, text, html };
 }
@@ -89,7 +90,7 @@ export function renderRecoveryLink(data: RecoveryLinkData): RenderedEmail {
   const asked = data.device ? ` from ${data.device}` : "";
   const text = `Someone asked${asked} to get back into the ${name} account for this email address. If that was you, open this link and type the number your screen shows:\n\n${data.url}\n\nThe link works for ${minutes} minutes. The device that asked gets back in, not the one you open the link on. It can only add a passkey, and every other device is signed out.\n\nIf you didn't ask, open the link and choose "I didn't ask for this", or ignore this email. Nothing changes on the account.`;
   const html = wrap(
-    `<h2>Recover your ${esc(name)} account</h2><p>Someone asked${esc(asked)} to get back into the ${esc(name)} account for this email address. If that was you, open this link and type the number your screen shows:</p><p><a href="${esc(data.url)}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600">Get back in</a></p><p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked gets back in, not the one you open the link on. It can only add a passkey, and every other device is signed out.</p><p style="color:#666">If you didn't ask, open the link and choose &ldquo;I didn't ask for this&rdquo;, or ignore this email. Nothing changes on the account.</p>`,
+    `<h2>Recover your ${esc(name)} account</h2><p>Someone asked${esc(asked)} to get back into the ${esc(name)} account for this email address. If that was you, open this link and type the number your screen shows:</p>${emailButton(data.url, "Get back in")}<p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked gets back in, not the one you open the link on. It can only add a passkey, and every other device is signed out.</p><p style="color:#666">If you didn't ask, open the link and choose &ldquo;I didn't ask for this&rdquo;, or ignore this email. Nothing changes on the account.</p>`,
   );
   return { subject: `Recover your ${name} account`, text, html };
 }
@@ -109,7 +110,7 @@ export function renderStepUpLink(data: StepUpLinkData): RenderedEmail {
   const asked = data.device ? ` on ${data.device}` : "";
   const text = `Someone signed in to your ${name} account${asked} asked to ${data.action}. If that was you, open this link and type the number your screen shows:\n\n${data.url}\n\nThe link works for ${minutes} minutes. The device that asked goes ahead, not the one you open the link on.\n\nIf you didn't ask, open the link and choose "I didn't ask for this", then check the devices signed in to your account. Nothing happens unless the number is confirmed.`;
   const html = wrap(
-    `<h2>Confirm it's you</h2><p>Someone signed in to your ${esc(name)} account${esc(asked)} asked to ${esc(data.action)}. If that was you, open this link and type the number your screen shows:</p><p><a href="${esc(data.url)}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600">Confirm it's you</a></p><p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked goes ahead, not the one you open the link on.</p><p style="color:#666">If you didn't ask, open the link and choose &ldquo;I didn't ask for this&rdquo;, then check the devices signed in to your account. Nothing happens unless the number is confirmed.</p>`,
+    `<h2>Confirm it's you</h2><p>Someone signed in to your ${esc(name)} account${esc(asked)} asked to ${esc(data.action)}. If that was you, open this link and type the number your screen shows:</p>${emailButton(data.url, "Confirm it's you")}<p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked goes ahead, not the one you open the link on.</p><p style="color:#666">If you didn't ask, open the link and choose &ldquo;I didn't ask for this&rdquo;, then check the devices signed in to your account. Nothing happens unless the number is confirmed.</p>`,
   );
   return { subject: `Confirm it's you on ${name}`, text, html };
 }
@@ -126,7 +127,7 @@ export function renderEmailChangeLink(data: LinkData): RenderedEmail {
   const minutes = String(data.ttlMinutes);
   const text = `Someone asked to use this email address for their ${name} account. If that was you, open this link and pick the number your screen shows:\n\n${data.url}\n\nThe link works for ${minutes} minutes. The device that asked finishes the change, not the one you open the link on.\n\nIf that wasn't you, open the link and choose "I didn't ask for this", or ignore this email. Nothing changes.`;
   const html = wrap(
-    `<h2>Confirm your new ${esc(name)} email</h2><p>Someone asked to use this email address for their ${esc(name)} account. If that was you, open this link and pick the number your screen shows:</p><p><a href="${esc(data.url)}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600">Confirm this email</a></p><p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked finishes the change, not the one you open the link on.</p><p style="color:#666">If that wasn't you, open the link and choose &ldquo;I didn't ask for this&rdquo;, or ignore this email. Nothing changes.</p>`,
+    `<h2>Confirm your new ${esc(name)} email</h2><p>Someone asked to use this email address for their ${esc(name)} account. If that was you, open this link and pick the number your screen shows:</p>${emailButton(data.url, "Confirm this email")}<p style="color:#666;word-break:break-all">${esc(data.url)}</p><p style="color:#666">The link works for ${minutes} minutes. The device that asked finishes the change, not the one you open the link on.</p><p style="color:#666">If that wasn't you, open the link and choose &ldquo;I didn't ask for this&rdquo;, or ignore this email. Nothing changes.</p>`,
   );
   return { subject: `Confirm your new ${name} email`, text, html };
 }

@@ -305,6 +305,21 @@ describe("renderTemplate", () => {
       expect(out.html.length).toBeGreaterThan(0);
     }
   });
+
+  it("draws every button as the email page's one button", () => {
+    // `wiki/shared/email.md` §How a message looks: one button, 6px corners,
+    // at the text's own weight. A template that draws its own drifts.
+    const button =
+      "display:inline-block;padding:12px 24px;background:#0a0a0a;color:#fff;text-decoration:none;border-radius:6px";
+    const drawn = (Object.keys(fixtures) as readonly EmailTemplate[]).flatMap((template) =>
+      [...renderTemplate(template, fixtures[template]).html.matchAll(/<a [^>]*style="([^"]*)"/g)]
+        .map((match) => match[1]!)
+        .filter((style) => style.includes("inline-block"))
+        .map((style) => ({ template, style })),
+    );
+    expect(drawn.length).toBeGreaterThan(5);
+    expect(drawn.filter((b) => b.style !== button)).toEqual([]);
+  });
 });
 
 /**
