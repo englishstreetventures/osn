@@ -302,18 +302,15 @@ export function createAccountErasureRoutes(
   const preview = (accountId: string) =>
     Effect.all(
       [
-        // The organisations, then the members a `successor` answer may name
-        // in those another member could take over.
-        accountErasure.listOwnedOrganisations(accountId).pipe(
-          Effect.flatMap((owned) =>
-            accountErasure
-              .listSuccessorCandidates(
-                accountId,
-                owned.flatMap((org) => (org.successor === null ? [] : [org.orgId])),
-              )
-              .pipe(Effect.map((candidates) => ({ owned, candidates }))),
-          ),
-        ),
+        // The organisations, and beside them the members a `successor`
+        // answer may name in each.
+        Effect.all(
+          [
+            accountErasure.listOwnedOrganisations(accountId),
+            accountErasure.listSuccessorCandidates(accountId),
+          ],
+          { concurrency: 2 },
+        ).pipe(Effect.map(([owned, candidates]) => ({ owned, candidates }))),
         accountErasure.profileIdsOf(accountId).pipe(
           Effect.flatMap((profileIds) =>
             previewDeletionApps(deletionApps, {
@@ -487,6 +484,7 @@ export function createAccountErasureRoutes(
                 accountErasure.checkErasureChoices(
                   profile.accountId,
                   owned,
+                  candidates,
                   apps,
                   (body.choices ?? []).map((c) => ({
                     action: c.action,
@@ -558,21 +556,24 @@ export function createAccountErasureRoutes(
             if (result.newlyScheduled) {
               // The scheduled notice: the date, how to keep the account, and
               // what each answer does, as this request's own preview said.
-              await run(
-                forkBackground(
-                  auth.notifySecurityEventByAccountId(
-                    profile.accountId,
-                    "account_deletion_scheduled",
-                    "account-deletion-scheduled",
-                    {
-                      deletesAt: result.scheduledFor,
-                      appUrl,
-                      deleteEverything,
-                      plan: deletionPlan(fresh.open_actions, choices, deleteEverything),
-                    },
+              // To the address this request read with the profile.
+              if (profile.email.length > 0) {
+                await run(
+                  forkBackground(
+                    auth.notifySecurityEventTo(
+                      profile.email,
+                      "account_deletion_scheduled",
+                      "account-deletion-scheduled",
+                      {
+                        deletesAt: result.scheduledFor,
+                        appUrl,
+                        deleteEverything,
+                        plan: deletionPlan(fresh.open_actions, choices, deleteEverything),
+                      },
+                    ),
                   ),
-                ),
-              );
+                );
+              }
               await run(forkBackground(endAppSessions(deletionApps, result.profileIds)));
               await run(
                 forkBackground(
@@ -716,11 +717,12 @@ export function createAccountErasureRoutes(
             }
 
             const result = await run(accountErasure.cancelErasure(profile.accountId));
-            if (result.cancelled) {
+            // To the address this request read with the profile.
+            if (result.cancelled && profile.email.length > 0) {
               await run(
                 forkBackground(
-                  auth.notifySecurityEventByAccountId(
-                    profile.accountId,
+                  auth.notifySecurityEventTo(
+                    profile.email,
                     "account_deletion_cancelled",
                     "account-deletion-cancelled",
                     { appUrl },

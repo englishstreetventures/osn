@@ -3,7 +3,8 @@ import { accounts, deletionJobs, organisationMembers, organisations } from "@osn
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService } from "@shared/email";
 import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import { beforeAll } from "vitest";
 
 import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
@@ -19,7 +20,7 @@ import { everyAppDone } from "../helpers/deletion-apps";
  * built from what the job held before the batch took it, and one
  * `organisation-ownership-received` to each member an organisation passed to.
  * They go only once the batch has removed the account, and a mail transport
- * that fails never holds up an erasure.
+ * that fails or hangs never holds up an erasure.
  */
 
 const digest = makeHeldHandleDigest(undefined);
@@ -183,6 +184,58 @@ describe("hard-delete notices", () => {
           .where(eq(organisationMembers.organisationId, acme.id)),
       );
       expect(members).toEqual([{ profileId: bob.id }]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("give up on a transport that never answers, and finish the pass", () => {
+    // Red without the send's timeout: the pass, and every account behind it,
+    // would wait on the provider for ever.
+    const { db } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const reached = yield* Deferred.make<void>();
+      const hanging = Layer.succeed(EmailService, {
+        send: () => Deferred.succeed(reached, undefined).pipe(Effect.andThen(Effect.never)),
+        sendBatch: () => Deferred.succeed(reached, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      const layer = Layer.merge(Layer.succeed(Db, { db }), hanging);
+      yield* Effect.gen(function* () {
+        const alice = yield* auth.registerProfile("alice@example.com", "alice");
+        const bob = yield* auth.registerProfile("bob@example.com", "bob");
+        const acme = yield* orgs.createOrganisation(alice.id, "acme", "Acme");
+        yield* orgs.addMember(acme.id, alice.id, bob.id, "member");
+        const nowMs = yield* scheduleAndFinishApps(alice.accountId, {});
+
+        const sweep = yield* Effect.forkChild(
+          accountErasure.runHardDeleteSweep({ nowMs, notices }),
+        );
+        yield* Deferred.await(reached);
+        yield* TestClock.adjust("10 seconds");
+        expect(yield* Fiber.join(sweep)).toEqual({ purged: 1 });
+      }).pipe(Effect.provide(layer));
+    });
+  });
+
+  it.effect("send at most ten ownership notices one by one on a transport with no batch", () => {
+    // Each is a subrequest of its own there: 100 would overrun a Worker's
+    // allowance for one invocation.
+    const { db } = createTestLayerWithSqlite();
+    const sent: string[] = [];
+    const single = Layer.succeed(EmailService, {
+      send: (input) => Effect.sync(() => void sent.push(input.template)),
+    });
+    const layer = Layer.merge(Layer.succeed(Db, { db }), single);
+    return Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("alice@example.com", "alice");
+      const bob = yield* auth.registerProfile("bob@example.com", "bob");
+      for (let i = 0; i < 11; i++) {
+        const org = yield* orgs.createOrganisation(alice.id, `org${i}`, `Org ${i}`);
+        yield* orgs.addMember(org.id, alice.id, bob.id, "member");
+      }
+      const nowMs = yield* scheduleAndFinishApps(alice.accountId, {});
+      expect(yield* accountErasure.runHardDeleteSweep({ nowMs, notices })).toEqual({ purged: 1 });
+
+      expect(sent.filter((t) => t === "organisation-ownership-received")).toHaveLength(10);
+      expect(sent.filter((t) => t === "account-deleted")).toHaveLength(1);
     }).pipe(Effect.provide(layer));
   });
 

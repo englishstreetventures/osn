@@ -112,14 +112,17 @@ export type DeclineOwnershipResult =
   /** The caller does not own it. */
   | { readonly outcome: "not_owner" }
   /** The caller owns it, but not by succession inside the last 30 days. */
-  | { readonly outcome: "not_declinable" };
+  | { readonly outcome: "not_declinable" }
+  /** No organisation has the handle. */
+  | { readonly outcome: "not_found" };
 
 /** Whether the caller may decline an organisation now; see `declineOwnershipStatus`. */
 export type DeclineOwnershipStatus =
   /** The caller owns it by succession; a decline is open until `declineUntil` (seconds). */
   | { readonly outcome: "declinable"; readonly declineUntil: number }
   | { readonly outcome: "not_owner" }
-  | { readonly outcome: "not_declinable" };
+  | { readonly outcome: "not_declinable" }
+  | { readonly outcome: "not_found" };
 
 export interface OrganisationServiceOptions {
   /**
@@ -465,17 +468,19 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
     }).pipe(withOrgOp("delete"));
 
   /**
-   * Whether the caller may decline the organisation at `nowSec`: the one read
-   * the decline and {@link declineOwnershipStatus} share, so the page that
-   * offers a decline and the decline itself cannot disagree.
+   * Whether the caller may decline the organisation `handle` names at
+   * `nowSec`: the one read the decline and {@link declineOwnershipStatus}
+   * share, so the page that offers a decline and the decline itself cannot
+   * disagree. By handle, as the routes have it, so they read nothing first.
    */
-  const readDeclineStanding = (orgId: string, callerId: string, nowSec: number) =>
+  const readDeclineStanding = (handle: string, callerId: string, nowSec: number) =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const [found] = yield* Effect.tryPromise({
         try: () =>
           db
             .select({
+              orgId: organisations.id,
               ownerId: organisations.ownerId,
               ownerInheritedAt: organisations.ownerInheritedAt,
               handle: organisations.handle,
@@ -483,13 +488,11 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
             })
             .from(organisations)
             .leftJoin(users, eq(users.id, callerId))
-            .where(eq(organisations.id, orgId))
+            .where(eq(organisations.handle, handle))
             .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      if (!found) {
-        return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
-      }
+      if (!found) return { outcome: "not_found" } as const;
       if (found.ownerId !== callerId || found.callerAccountId === null) {
         return { outcome: "not_owner" } as const;
       }
@@ -499,6 +502,7 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
       }
       return {
         outcome: "declinable",
+        orgId: found.orgId,
         handle: found.handle,
         accountId: found.callerAccountId,
         declineUntil: found.ownerInheritedAt + OWNERSHIP_DECLINE_WINDOW_SECONDS,
@@ -512,10 +516,10 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
    * than {@link OWNERSHIP_DECLINE_WINDOW_SECONDS} ago, is `not_declinable`.
    */
   const declineOwnershipStatus = (
-    orgId: string,
+    handle: string,
     callerId: string,
-  ): Effect.Effect<DeclineOwnershipStatus, NotFoundError | DatabaseError, Db> =>
-    readDeclineStanding(orgId, callerId, Math.floor(Date.now() / 1_000)).pipe(
+  ): Effect.Effect<DeclineOwnershipStatus, DatabaseError, Db> =>
+    readDeclineStanding(handle, callerId, Math.floor(Date.now() / 1_000)).pipe(
       Effect.map((standing) =>
         standing.outcome === "declinable"
           ? ({ outcome: "declinable", declineUntil: standing.declineUntil } as const)
@@ -539,19 +543,22 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
    * at the hard delete, so a stale read of the owner can grant or change
    * nothing afterwards (`addMember`, `updateMemberRole`); `removeMember` and
    * `deleteOrganisation` carry the owner in their writes.
+   *
+   * Two round trips: the read of the caller's standing, then the batch, whose
+   * last statement reads who owns it now and their address.
    */
   const declineOwnership = (
-    orgId: string,
+    handle: string,
     callerId: string,
-  ): Effect.Effect<DeclineOwnershipResult, NotFoundError | DatabaseError, Db> =>
+  ): Effect.Effect<DeclineOwnershipResult, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1_000);
       const cutoff = nowSec - OWNERSHIP_DECLINE_WINDOW_SECONDS;
 
-      const standing = yield* readDeclineStanding(orgId, callerId, nowSec);
+      const standing = yield* readDeclineStanding(handle, callerId, nowSec);
       if (standing.outcome !== "declinable") return standing;
-      const accountId = standing.accountId;
+      const { orgId, accountId } = standing;
 
       // Still the caller's, received inside the window: every statement below
       // writes only while this holds.
@@ -619,58 +626,59 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
             ),
           )
           .returning({ id: organisations.id }),
+        // 5. Who owns it now, and their address: the next owner's when it
+        //    passed, for the notice; the reason for a refusal when nothing
+        //    above wrote; no row when it is gone.
+        db
+          .select({ ownerId: organisations.ownerId, email: accounts.email })
+          .from(organisations)
+          .leftJoin(users, eq(users.id, organisations.ownerId))
+          .leftJoin(accounts, eq(accounts.id, users.accountId))
+          .where(eq(organisations.id, orgId))
+          .limit(1),
       ] as const;
 
-      const [leave, promote, transfer, dropMemberships, dropOrganisation] = statements;
-      const { passed, deleted } = yield* Effect.tryPromise({
+      const [leave, promote, transfer, dropMemberships, dropOrganisation, ownerNow] = statements;
+      const { passed, deleted, after } = yield* Effect.tryPromise({
         // One batch on D1; one statement at a time on bun:sqlite, each guarded
         // on its own. Either way the transfer's and the delete's RETURNING
         // rows come back.
         try: async () => {
           if (canBatch(db)) {
-            const [, , moved, , gone] = await db.batch([
+            const [, , moved, , gone, owner] = await db.batch([
               leave,
               promote,
               transfer,
               dropMemberships,
               dropOrganisation,
+              ownerNow,
             ]);
-            return { passed: moved, deleted: gone };
+            return { passed: moved, deleted: gone, after: owner };
           }
           await leave;
           await promote;
           const moved = await transfer;
           await dropMemberships;
           const gone = await dropOrganisation;
-          return { passed: moved, deleted: gone };
+          const owner = await ownerNow;
+          return { passed: moved, deleted: gone, after: owner };
         },
         catch: (cause) => new DatabaseError({ cause }),
       });
 
+      const [now] = after;
       if (passed.length > 0) {
-        const newOwnerId = passed[0]!.ownerId;
-        const [address] = yield* Effect.tryPromise({
-          try: () =>
-            db
-              .select({ email: accounts.email })
-              .from(users)
-              .innerJoin(accounts, eq(accounts.id, users.accountId))
-              .where(eq(users.id, newOwnerId))
-              .limit(1),
-          catch: (cause) => new DatabaseError({ cause }),
-        });
         return {
           outcome: "passed",
           handle: standing.handle,
-          newOwnerEmail: address?.email || null,
+          newOwnerEmail: now?.email || null,
           declineUntil: nowSec + OWNERSHIP_DECLINE_WINDOW_SECONDS,
         } as const;
       }
       if (deleted.length > 0) return { outcome: "deleted" } as const;
       // Neither: the owner or the window changed since the read. Refused as a
       // fresh request would be.
-      const [now] = yield* readOrganisation(orgId);
-      if (!now) return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+      if (!now) return { outcome: "not_found" } as const;
       if (now.ownerId !== callerId) return { outcome: "not_owner" } as const;
       return { outcome: "not_declinable" } as const;
     }).pipe(withOrgOp("decline_ownership"));

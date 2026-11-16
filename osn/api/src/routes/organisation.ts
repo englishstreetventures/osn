@@ -363,11 +363,13 @@ export function createOrganisationRoutes(
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
 
-          const organisation = await resolveOrg(params.handle, set);
-          if (!organisation) return { error: "Organisation not found" };
-
           try {
-            const status = await run(org.declineOwnershipStatus(organisation.id, caller.profileId));
+            // The service reads the organisation by handle itself.
+            const status = await run(org.declineOwnershipStatus(params.handle, caller.profileId));
+            if (status.outcome === "not_found") {
+              set.status = 404;
+              return { error: "Organisation not found" };
+            }
             if (status.outcome === "not_owner") {
               set.status = 403;
               return { error: "not_owner" };
@@ -416,11 +418,13 @@ export function createOrganisationRoutes(
           if (!(await requireRateLimit(caller.profileId, set)))
             return { error: "Too many requests" };
 
-          const organisation = await resolveOrg(params.handle, set);
-          if (!organisation) return { error: "Organisation not found" };
-
           try {
-            const result = await run(org.declineOwnership(organisation.id, caller.profileId));
+            // The service reads the organisation by handle itself.
+            const result = await run(org.declineOwnership(params.handle, caller.profileId));
+            if (result.outcome === "not_found") {
+              set.status = 404;
+              return { error: "Organisation not found" };
+            }
             if (result.outcome === "not_owner") {
               set.status = 403;
               return { error: "not_owner" };

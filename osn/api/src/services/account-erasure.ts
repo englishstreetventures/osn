@@ -851,54 +851,47 @@ export interface SuccessorCandidate {
 }
 
 /**
- * The members of each of `orgIds` a `successor` answer may name — every
- * member whose profile belongs to another account — in succession order
- * (admins first, then the longest-standing), at most
- * {@link MAX_SUCCESSOR_CANDIDATES} an organisation. One statement.
+ * The members a `successor` answer may name in each organisation a profile of
+ * `accountId` owns — every member whose profile belongs to another account —
+ * in succession order (admins first, then the longest-standing), at most
+ * {@link MAX_SUCCESSOR_CANDIDATES} an organisation. One statement, keyed on
+ * the account alone, so it runs beside {@link listOwnedOrganisations} rather
+ * than after it. Each organisation's members come from a correlated
+ * subquery with its own LIMIT, which walks `org_members_succession_idx` and
+ * stops at the cap, whatever the organisation's size.
  */
 export const listSuccessorCandidates = (
   accountId: string,
-  orgIds: ReadonlyArray<string>,
 ): Effect.Effect<ReadonlyArray<SuccessorCandidate>, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
-    if (orgIds.length === 0) return [];
     const { db } = yield* Db;
-    const ranked = db
-      .select({
-        orgId: organisationMembers.organisationId,
-        profileId: organisationMembers.profileId,
-        handle: users.handle,
-        displayName: users.displayName,
-        role: organisationMembers.role,
-        rank: sql<number>`row_number() OVER (PARTITION BY ${organisationMembers.organisationId} ORDER BY ${organisationMembers.role}, ${organisationMembers.createdAt}, ${organisationMembers.id})`.as(
-          "rank",
-        ),
-      })
-      .from(organisationMembers)
-      .innerJoin(users, eq(users.id, organisationMembers.profileId))
-      .where(
-        and(
-          inArray(organisationMembers.organisationId, jsonEachIn(orgIds)),
-          ne(users.accountId, accountId),
-        ),
-      )
-      .as("ranked");
-    const rows = yield* Effect.tryPromise({
+    const firstMembers = sql`(SELECT m.id FROM organisation_members m
+      JOIN users u ON u.id = m.profile_id
+      WHERE m.organisation_id = ${organisations.id} AND u.account_id <> ${accountId}
+      ORDER BY m.role, m.created_at, m.id
+      LIMIT ${MAX_SUCCESSOR_CANDIDATES})`;
+    return yield* Effect.tryPromise({
       try: () =>
         db
           .select({
-            orgId: ranked.orgId,
-            profileId: ranked.profileId,
-            handle: ranked.handle,
-            displayName: ranked.displayName,
-            role: ranked.role,
+            orgId: organisations.id,
+            profileId: organisationMembers.profileId,
+            handle: users.handle,
+            displayName: users.displayName,
+            role: organisationMembers.role,
           })
-          .from(ranked)
-          .where(lte(ranked.rank, MAX_SUCCESSOR_CANDIDATES))
-          .orderBy(asc(ranked.orgId), asc(ranked.rank)),
+          .from(organisations)
+          .innerJoin(organisationMembers, sql`${organisationMembers.id} IN ${firstMembers}`)
+          .innerJoin(users, eq(users.id, organisationMembers.profileId))
+          .where(inArray(organisations.ownerId, profilesOf(db, accountId)))
+          .orderBy(
+            asc(organisations.id),
+            asc(organisationMembers.role),
+            asc(organisationMembers.createdAt),
+            asc(organisationMembers.id),
+          ),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
-    return rows;
   });
 
 /** One answer as `DELETE /account` received it. */
@@ -946,15 +939,19 @@ const appOfAction = (action: string): AppPreview["app"] | null =>
  *
  * In order: an answer is refused (`invalid`) when its action is answered
  * twice, its choice is not one the action offers, or it names a successor who
- * is not a member of that organisation from another account (one read, for
- * every named successor at once); then an answer to an app action the fresh
- * preview does not list makes the whole set `stale`; then every action with
- * choices and no default must have an answer (`open`). On success answers the
- * choices to store, keyed by action id.
+ * is not a member of that organisation from another account; then an answer
+ * to an app action the fresh preview does not list makes the whole set
+ * `stale`; then every action with choices and no default must have an answer
+ * (`open`). On success answers the choices to store, keyed by action id.
+ *
+ * A named successor among the same preview's `candidates` is a member from
+ * another account already; only the others are read, in one statement for all
+ * of them.
  */
 export const checkErasureChoices = (
   accountId: string,
   owned: ReadonlyArray<OwnedOrganisation>,
+  candidates: ReadonlyArray<SuccessorCandidate>,
   apps: ReadonlyArray<AppPreview>,
   answers: ReadonlyArray<ErasureChoiceAnswer>,
 ): Effect.Effect<ErasureChoicesCheck, AccountErasureDbError, Db> =>
@@ -1007,7 +1004,9 @@ export const checkErasureChoices = (
       chosen.set(answer.action, { choice: answer.choice });
     }
 
-    if (named.length > 0) {
+    const offered = new Set(candidates.map((c) => `${c.orgId} ${c.profileId}`));
+    const unread = named.filter((n) => !offered.has(`${n.orgId} ${n.profileId}`));
+    if (unread.length > 0) {
       const { db } = yield* Db;
       const members = yield* Effect.tryPromise({
         try: () =>
@@ -1021,14 +1020,14 @@ export const checkErasureChoices = (
             .where(
               and(
                 ne(users.accountId, accountId),
-                inArray(organisationMembers.organisationId, jsonEachIn(named.map((n) => n.orgId))),
-                inArray(organisationMembers.profileId, jsonEachIn(named.map((n) => n.profileId))),
+                inArray(organisationMembers.organisationId, jsonEachIn(unread.map((n) => n.orgId))),
+                inArray(organisationMembers.profileId, jsonEachIn(unread.map((n) => n.profileId))),
               ),
             ),
         catch: (cause) => new AccountErasureDbError({ cause }),
       });
       const isMember = new Set(members.map((m) => `${m.orgId} ${m.profileId}`));
-      const stranger = named.find((n) => !isMember.has(`${n.orgId} ${n.profileId}`));
+      const stranger = unread.find((n) => !isMember.has(`${n.orgId} ${n.profileId}`));
       if (stranger) return { kind: "invalid", action: stranger.action } as const;
     }
 
@@ -1451,6 +1450,15 @@ export interface DeletionNotices {
 /** Most ownership notices one account's hard delete sends in a pass: one Resend batch. */
 const MAX_OWNERSHIP_NOTICES = 100;
 
+/**
+ * Most ownership notices one account's hard delete sends in a pass on a
+ * transport with no batch send, where each is a subrequest of its own.
+ */
+const MAX_SINGLE_OWNERSHIP_NOTICES = 10;
+
+/** How long a hard delete's notice send may take before the sweep gives up on it. */
+const NOTICE_SEND_TIMEOUT = "10 seconds";
+
 /** The app's name as people know it, for the kept items an app reported. */
 const APP_NAMES = new Map<string, string>([
   ["pulse", "Pulse"],
@@ -1509,10 +1517,13 @@ const keptByApps = (stored: string | null): KeptAfterDeletion[] => {
 
 /**
  * After a hard delete removed the account: `account-deleted` to the address it
- * had, then `organisation-ownership-received` to each member an organisation
- * passed to, at most {@link MAX_OWNERSHIP_NOTICES} in one batch. Best effort:
- * a failure is logged with the template alone, never an address or an id, and
- * the sweep goes on.
+ * had and, alongside it, `organisation-ownership-received` to each member an
+ * organisation passed to — at most {@link MAX_OWNERSHIP_NOTICES} in one batch,
+ * or {@link MAX_SINGLE_OWNERSHIP_NOTICES} one by one on a transport with no
+ * batch send. Best effort: each send gives up after
+ * {@link NOTICE_SEND_TIMEOUT}, a failure is logged with the template alone,
+ * never an address or an id, and the sweep goes on. The account is gone by
+ * then, so a send that gives up loses only its email.
  */
 const sendHardDeleteNotices = (
   mailer: EmailServiceImpl,
@@ -1531,36 +1542,36 @@ const sendHardDeleteNotices = (
         template,
         ...safeErrorSummary(cause),
       });
-    if (row.email.length > 0) {
-      yield* mailer
-        .send({
-          template: "account-deleted",
-          to: row.email,
-          data: {
-            instanceName: notices.instanceName,
-            handles: heldHandles(row.restore),
-            handlesHeldUntil: nowSec + HANDLE_HOLD_AFTER_ERASURE_SECONDS,
-            kept: keptByApps(row.appOutcomes),
-            organisations: owned.map((org) => ({
-              handle: org.handle,
-              newOwnerHandle: org.successorProfileId === null ? null : org.successorHandle,
-            })),
-          },
-        })
-        .pipe(Effect.catch(notSent("account-deleted")));
-    }
+    const deleted =
+      row.email.length === 0
+        ? Effect.void
+        : mailer.send({
+            template: "account-deleted",
+            to: row.email,
+            data: {
+              instanceName: notices.instanceName,
+              handles: heldHandles(row.restore),
+              handlesHeldUntil: nowSec + HANDLE_HOLD_AFTER_ERASURE_SECONDS,
+              kept: keptByApps(row.appOutcomes),
+              organisations: owned.map((org) => ({
+                handle: org.handle,
+                newOwnerHandle: org.successorProfileId === null ? null : org.successorHandle,
+              })),
+            },
+          });
 
     const heirs = owned.flatMap((org) =>
       org.successorProfileId !== null && org.successorEmail
         ? [{ handle: org.handle, email: org.successorEmail }]
         : [],
     );
-    if (heirs.length > MAX_OWNERSHIP_NOTICES) {
+    const cap = mailer.sendBatch ? MAX_OWNERSHIP_NOTICES : MAX_SINGLE_OWNERSHIP_NOTICES;
+    if (heirs.length > cap) {
       yield* Effect.logWarning("account.deletion ownership notices over the cap", {
-        unsent: heirs.length - MAX_OWNERSHIP_NOTICES,
+        unsent: heirs.length - cap,
       });
     }
-    const inputs: SendEmailInput[] = heirs.slice(0, MAX_OWNERSHIP_NOTICES).map((heir) => ({
+    const inputs: SendEmailInput[] = heirs.slice(0, cap).map((heir) => ({
       template: "organisation-ownership-received",
       to: heir.email,
       data: {
@@ -1571,11 +1582,22 @@ const sendHardDeleteNotices = (
         cause: "owner_deleted",
       },
     }));
-    if (inputs.length === 0) return;
-    const sendAll = mailer.sendBatch
-      ? mailer.sendBatch(inputs)
-      : Effect.forEach(inputs, (input) => mailer.send(input), { discard: true });
-    yield* sendAll.pipe(Effect.catch(notSent("organisation-ownership-received")));
+    const ownership =
+      inputs.length === 0
+        ? Effect.void
+        : mailer.sendBatch
+          ? mailer.sendBatch(inputs)
+          : Effect.forEach(inputs, (input) => mailer.send(input), { discard: true });
+    yield* Effect.all(
+      [
+        deleted.pipe(Effect.timeout(NOTICE_SEND_TIMEOUT), Effect.catch(notSent("account-deleted"))),
+        ownership.pipe(
+          Effect.timeout(NOTICE_SEND_TIMEOUT),
+          Effect.catch(notSent("organisation-ownership-received")),
+        ),
+      ],
+      { concurrency: 2, discard: true },
+    );
   }).pipe(Effect.withSpan("account.deletion.notify"));
 
 /**

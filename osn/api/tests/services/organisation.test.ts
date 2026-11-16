@@ -17,6 +17,19 @@ let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
 const org = createOrganisationService({ heldHandleDigest: makeHeldHandleDigest(undefined) });
 
+/** `declineOwnership` of the organisation `orgId` names, by its handle, as the route calls it. */
+const declineById = (orgId: string, callerId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const [row] = yield* Effect.promise(() =>
+      db
+        .select({ handle: organisations.handle })
+        .from(organisations)
+        .where(eq(organisations.id, orgId)),
+    );
+    return yield* org.declineOwnership(row!.handle, callerId);
+  });
+
 beforeAll(async () => {
   config = await makeTestAuthConfig();
   auth = createAuthService(config);
@@ -875,7 +888,7 @@ describe("a membership write holds only while what it checked still holds", () =
         h,
         removal,
         org.removeMember(orgId, alice.id, carol.id),
-        org.declineOwnership(orgId, alice.id),
+        declineById(orgId, alice.id),
       );
       expect(removed).toBe("Only admins can remove members");
       expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
@@ -899,7 +912,7 @@ describe("a membership write holds only while what it checked still holds", () =
           h,
           /^delete from "connections"/,
           createProfileService(auth).deleteProfile(bob.accountId, heir.id),
-          org.declineOwnership(organisation.id, alice.id),
+          declineById(organisation.id, alice.id),
         );
         expect(deleted).toBe("Delete the organisations this profile owns before deleting it");
         expect((yield* org.getOrganisation(organisation.id)).ownerId).toBe(heir.id);
@@ -918,8 +931,8 @@ describe("a membership write holds only while what it checked still holds", () =
       const second = yield* across(
         h,
         /^delete from "organisation_members"/,
-        org.declineOwnership(orgId, alice.id).pipe(Effect.map((r) => r.outcome)),
-        org.declineOwnership(orgId, alice.id),
+        declineById(orgId, alice.id).pipe(Effect.map((r) => r.outcome)),
+        declineById(orgId, alice.id),
       );
       expect(second).toBe("ok");
       expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
@@ -937,7 +950,7 @@ describe("a membership write holds only while what it checked still holds", () =
         h,
         removal,
         org.deleteOrganisation(orgId, alice.id),
-        org.declineOwnership(orgId, alice.id),
+        declineById(orgId, alice.id),
       );
       expect(deleted).toBe("Only the owner can delete the organisation");
       expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
@@ -1002,7 +1015,7 @@ describe("declineOwnership", () => {
     () =>
       Effect.gen(function* () {
         const { alice, bob, carol, orgId } = yield* setup("member", "admin");
-        const result = yield* org.declineOwnership(orgId, alice.id);
+        const result = yield* declineById(orgId, alice.id);
         expect(result).toMatchObject({
           outcome: "passed",
           handle: "acme",
@@ -1020,7 +1033,7 @@ describe("declineOwnership", () => {
   it.effect("with no other admin, makes the longest-standing member its admin and owner", () =>
     Effect.gen(function* () {
       const { alice, bob, orgId } = yield* setup("member", "member");
-      expect((yield* org.declineOwnership(orgId, alice.id)).outcome).toBe("passed");
+      expect((yield* declineById(orgId, alice.id)).outcome).toBe("passed");
       expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
       expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1042,7 +1055,7 @@ describe("declineOwnership", () => {
         yield* org.addMember(organisation.id, alice.id, own, "admin");
         yield* inheritedNow(organisation.id);
 
-        expect(yield* org.declineOwnership(organisation.id, alice.id)).toEqual({
+        expect(yield* declineById(organisation.id, alice.id)).toEqual({
           outcome: "deleted",
         });
         const left = yield* Effect.promise(() =>
@@ -1056,7 +1069,7 @@ describe("declineOwnership", () => {
   it.effect("refuses someone who does not own it, and changes nothing", () =>
     Effect.gen(function* () {
       const { alice, bob, orgId } = yield* setup("admin", "member");
-      expect(yield* org.declineOwnership(orgId, bob.id)).toEqual({ outcome: "not_owner" });
+      expect(yield* declineById(orgId, bob.id)).toEqual({ outcome: "not_owner" });
       expect((yield* org.getOrganisation(orgId)).ownerId).toBe(alice.id);
       expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1065,8 +1078,8 @@ describe("declineOwnership", () => {
   it.effect("refuses one who declined it already: no longer the owner", () =>
     Effect.gen(function* () {
       const { alice, bob, orgId } = yield* setup("admin", "member");
-      expect((yield* org.declineOwnership(orgId, alice.id)).outcome).toBe("passed");
-      expect(yield* org.declineOwnership(orgId, alice.id)).toEqual({ outcome: "not_owner" });
+      expect((yield* declineById(orgId, alice.id)).outcome).toBe("passed");
+      expect(yield* declineById(orgId, alice.id)).toEqual({ outcome: "not_owner" });
       expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -1076,7 +1089,7 @@ describe("declineOwnership", () => {
       const { alice, organisation } = yield* setupOrgWithOwner;
       const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
-      expect(yield* org.declineOwnership(organisation.id, alice.id)).toEqual({
+      expect(yield* declineById(organisation.id, alice.id)).toEqual({
         outcome: "not_declinable",
       });
       expect((yield* org.getOrganisation(organisation.id)).ownerId).toBe(alice.id);
@@ -1087,7 +1100,7 @@ describe("declineOwnership", () => {
     Effect.gen(function* () {
       const { alice, orgId } = yield* setup("admin", "member");
       yield* inheritedNow(orgId, 30 * 24 * 60 * 60 + 1);
-      expect(yield* org.declineOwnership(orgId, alice.id)).toEqual({ outcome: "not_declinable" });
+      expect(yield* declineById(orgId, alice.id)).toEqual({ outcome: "not_declinable" });
       expect((yield* org.getOrganisation(orgId)).ownerId).toBe(alice.id);
       expect(yield* org.getMemberRole(orgId, alice.id)).toBe("admin");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1106,7 +1119,7 @@ describe("declineOwnership", () => {
         vi.setSystemTime(new Date("2026-11-16T12:00:00Z"));
         const { alice, orgId } = yield* setup("admin", "member");
         yield* inheritedNow(orgId, THIRTY_DAYS);
-        expect(yield* org.declineOwnership(orgId, alice.id)).toEqual({
+        expect(yield* declineById(orgId, alice.id)).toEqual({
           outcome: "not_declinable",
         });
       }).pipe(Effect.provide(createTestLayer())),
@@ -1118,7 +1131,7 @@ describe("declineOwnership", () => {
         vi.setSystemTime(new Date("2026-11-16T12:00:00Z"));
         const { alice, orgId } = yield* setup("admin", "member");
         yield* inheritedNow(orgId, THIRTY_DAYS - 1);
-        expect((yield* org.declineOwnership(orgId, alice.id)).outcome).toBe("passed");
+        expect((yield* declineById(orgId, alice.id)).outcome).toBe("passed");
       }).pipe(Effect.provide(createTestLayer())),
     );
   });

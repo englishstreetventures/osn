@@ -2187,7 +2187,7 @@ describe("account-erasure: successor candidates", () => {
         yield* member(other.profileId, i === 50 ? "admin" : "member", 10 + i);
       }
 
-      const candidates = yield* accountErasure.listSuccessorCandidates(owner.accountId, [orgId]);
+      const candidates = yield* accountErasure.listSuccessorCandidates(owner.accountId);
 
       expect(candidates).toHaveLength(50);
       expect(candidates[0]!.profileId).toBe(others[50]);
@@ -2195,6 +2195,23 @@ describe("account-erasure: successor candidates", () => {
       expect(candidates.map((c) => c.profileId)).not.toContain(owner.profileId);
       // The longest-standing members follow; the 50th is the 49th to join.
       expect(candidates[49]!.profileId).toBe(others[48]);
+
+      // A member past the first 50 may still be named: the check reads the
+      // membership the candidates do not cover.
+      const owned = yield* accountErasure.listOwnedOrganisations(owner.accountId);
+      const action = accountErasure.organisationActionId(orgId);
+      expect(
+        yield* accountErasure.checkErasureChoices(
+          owner.accountId,
+          owned,
+          candidates,
+          [],
+          [{ action, choice: "successor", successorProfileId: others[49]! }],
+        ),
+      ).toEqual({
+        kind: "ok",
+        choices: { [action]: { choice: "successor", successorProfileId: others[49] } },
+      });
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

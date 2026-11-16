@@ -542,7 +542,7 @@ describe("a decline of an organisation received by succession, on D1", () => {
     ]);
     await received(orgId);
 
-    expect(await run(orgs.declineOwnership(orgId, heir.profileId))).toMatchObject({
+    expect(await run(orgs.declineOwnership("d1heirorg1", heir.profileId))).toMatchObject({
       outcome: "passed",
     });
     expect(await orgState(orgId)).toEqual({
@@ -556,7 +556,7 @@ describe("a decline of an organisation received by succession, on D1", () => {
     const orgId = await organisation(heir.profileId, "d1heirorg2", []);
     await received(orgId);
 
-    expect(await run(orgs.declineOwnership(orgId, heir.profileId))).toEqual({
+    expect(await run(orgs.declineOwnership("d1heirorg2", heir.profileId))).toEqual({
       outcome: "deleted",
     });
     expect(await orgState(orgId)).toEqual({ gone: true, members: 0 });
