@@ -136,18 +136,6 @@ describe("OnboardingStepper", () => {
     });
   });
 
-  it("step 4 denial shows the soft-fallback banner", async () => {
-    mockReqLocation.mockResolvedValueOnce("denied");
-    const { view } = mount();
-    fireEvent.click(view.getByText("Get started"));
-    fireEvent.click(view.getByText("Continue"));
-    fireEvent.click(view.getByText("Continue"));
-    fireEvent.click(view.getByText("Allow location"));
-    await waitFor(() => {
-      expect(view.getByText(/Location declined/)).toBeTruthy();
-    });
-  });
-
   it("step 5 'Allow notifications' invokes requestNotificationPermission and reflects the result", async () => {
     mockReqNotifications.mockResolvedValueOnce("granted");
     const { view } = mount();

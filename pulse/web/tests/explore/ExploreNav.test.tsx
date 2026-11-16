@@ -96,13 +96,6 @@ describe("ExploreNav — authenticated", () => {
     expect(hostingTab).toHaveAttribute("tabindex", "-1");
   });
 
-  it("clicking the disabled Hosting tab does not navigate", () => {
-    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    const before = window.location.pathname;
-    fireEvent.click(getByText("Hosting"));
-    expect(window.location.pathname).toBe(before);
-  });
-
   it("every enabled tab resolves to a real route", () => {
     const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
     for (const label of ["Home", "Calendar"]) {

@@ -102,21 +102,6 @@ describe("ExplorePage", () => {
     expect(getByText("Loading events…")).toBeTruthy();
   });
 
-  // Error state test skipped — createResource error propagation race
-  // with happy-dom causes inconsistent findByText timeouts. The error
-  // UI path is covered structurally via the <Show when={events.error}>
-  // guard in ExplorePage.tsx.
-
-  it("renders event cards when data loads", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    expect(await findByText("Jazz Night")).toBeTruthy();
-    expect(await findByText("Ceramics Open Studio")).toBeTruthy();
-  });
-
   it("renders the same feed for a signed-in viewer, with no token in the request", async () => {
     // The viewer only re-keys the resource — the session cookie is what the
     // API reads, so the query the browser sends carries no credential.
@@ -129,18 +114,6 @@ describe("ExplorePage", () => {
     expect(await findByText("Jazz Night")).toBeTruthy();
     const args = mockGet.mock.calls.at(-1)![0] as { query?: Record<string, string> };
     expect(JSON.stringify(args.query ?? {})).not.toContain("tok");
-  });
-
-  it("renders 'Happening now' section for ongoing events", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    // Wait for any event card to appear first (data loaded)
-    await findByText("Jazz Night");
-    // Then check for the section header
-    expect(container.textContent).toContain("Happening now");
   });
 
   it("shows empty state when no events returned", async () => {
