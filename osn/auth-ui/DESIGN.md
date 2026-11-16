@@ -1244,8 +1244,9 @@ As built:
 
 The package has one motion of its own, `CheckEmailView`'s wait fill, below.
 Otherwise a view takes its host's: in Musubi, colour and opacity transitions
-only, beside the two `Button` draws, the orb and the press, and the wait fill
-(`musubi/social/DESIGN.md` §Motion). The host's
+only, beside the two `Button` draws, the orb and the press
+(`musubi/social/DESIGN.md` §Motion). Musubi's §Motion lists the wait fill
+among its exceptions. The host's
 `transition-ui-colors` utility fades colours and leaves the outline out, so a
 control's focus mark lands at once (§9). A view draws five motions from
 `@shared/ui` parts: the press, which scales a `Button` to 0.97 while it is

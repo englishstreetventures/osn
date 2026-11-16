@@ -303,6 +303,30 @@ function drain(fill: HTMLElement): CSSTransition {
   return run;
 }
 
+/**
+ * How far `run` has gone through a wait of `waitMs`, read the moment the label
+ * reads "Resend link", before the page paints again. `performance.now()` and
+ * the document timeline share one clock.
+ *
+ * The caller holds it within a tenth of the wait of 1, either side: the drain
+ * and the label read one deadline, the drain on the frame clock, which may
+ * start it a frame or more late on a loaded runner, and the label on the next
+ * timer tick, which may land late.
+ */
+async function progressAtUnlock(run: CSSTransition, waitMs: number): Promise<number> {
+  await run.ready;
+  const start = Number(run.startTime);
+  const delay = Number(run.effect?.getTiming().delay ?? 0);
+  return new Promise<number>((resolve) => {
+    const watch = new MutationObserver(() => {
+      if (!screen.queryByRole("button", { name: "Resend link" })) return;
+      watch.disconnect();
+      resolve((performance.now() - start - delay) / waitMs);
+    });
+    watch.observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+}
+
 /** A colour the way the browser paints it: a `var()` chain resolved on a throwaway element. */
 function paint(value: string): string {
   const probe = document.createElement("div");
@@ -373,13 +397,25 @@ describe("the fill that empties behind Resend's label over the wait", () => {
       // Its leading edge, a 2px line.
       expect([style.borderRightWidth, style.borderRightStyle]).toEqual(["2px", "solid"]);
 
-      // Halfway, it is half full and its edge sits mid-button: the label's
-      // seconds and the fill agree.
+      // A second in, its edge sits 29/30 of the way across; halfway, mid-button;
+      // a second from the end, 1/30 of the way: it empties towards the start,
+      // and the label's seconds and the fill agree. Only the points off the
+      // middle tell a fill that empties from one that grows.
       run.pause();
-      run.currentTime = 15_000 + Number(run.effect?.getTiming().delay ?? 0);
-      await nextFrame();
+      const delay = Number(run.effect?.getTiming().delay ?? 0);
       const button = resend.getBoundingClientRect();
-      expect(fill.getBoundingClientRect().right - button.left).toBeCloseTo(button.width / 2, 0);
+      for (const [at, share] of [
+        [1_000, 29 / 30],
+        [15_000, 1 / 2],
+        [29_000, 1 / 30],
+      ] as const) {
+        run.currentTime = at + delay;
+        await nextFrame();
+        expect(fill.getBoundingClientRect().right - button.left).toBeCloseTo(
+          button.width * share,
+          0,
+        );
+      }
       run.play();
     });
   }
@@ -388,27 +424,8 @@ describe("the fill that empties behind Resend's label over the wait", () => {
     await atViewport(PHONE);
     await mountWaiting(2);
     const fill = waitFill() as HTMLElement;
-    const run = drain(fill);
-    const start = Number(run.startTime);
-    const delay = Number(run.effect?.getTiming().delay ?? 0);
 
-    // How far the drain has run, read the moment the label changes, before the
-    // page paints again. `performance.now()` and the document timeline share
-    // one clock.
-    const atUnlock = new Promise<number>((resolve) => {
-      const watch = new MutationObserver(() => {
-        if (!screen.queryByRole("button", { name: "Resend link" })) return;
-        watch.disconnect();
-        resolve((performance.now() - start - delay) / 2_000);
-      });
-      watch.observe(document.body, { subtree: true, childList: true, characterData: true });
-    });
-
-    // Within a tenth of the wait of the end, either side: the drain and the
-    // label read one deadline, the drain on the frame clock, which may start
-    // it a frame or more late on a loaded runner, and the label on the next
-    // timer tick, which may land late.
-    const progress = await atUnlock;
+    const progress = await progressAtUnlock(drain(fill), 2_000);
     expect(progress).toBeGreaterThan(0.9);
     expect(progress).toBeLessThan(1.1);
     expect(fill.isConnected).toBe(false);
@@ -436,10 +453,17 @@ describe("the fill that empties behind Resend's label over the wait", () => {
     finishSend();
     await expect.element(page.getByRole("button", { name: /^Resend in/ })).toBeInTheDocument();
 
-    const timing = drain(waitFill() as HTMLElement).effect?.getComputedTiming();
+    const run = drain(waitFill() as HTMLElement);
+    const timing = run.effect?.getComputedTiming();
     expect(timing?.duration).toBe(2_000);
     expect(timing?.progress).toBeGreaterThan(0.2);
     expect(timing?.progress).toBeLessThan(0.4);
+
+    // The fill drawn late still empties on the wait's deadline, as the label
+    // unlocks.
+    const progress = await progressAtUnlock(run, 2_000);
+    expect(progress).toBeGreaterThan(0.9);
+    expect(progress).toBeLessThan(1.1);
   });
 
   for (const theme of ["light", "dark"] as const) {

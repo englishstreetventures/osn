@@ -2356,11 +2356,12 @@ both buttons at 40px below `md` and 32px from it, the six-digit number
 inside that column at 24px on a 30px line in tabular figures, its label a 1px
 box and the paragraph's accessible text "Your number: 123456", and the wait's
 fill: inside the label, the button's whole box behind its words, clipped to
-its corners, with a 2px leading edge, starting full on a 30-second linear run
-and half out halfway, at 40px and 32px; within a tenth of the wait of empty
-as the label reads "Resend link", and gone with it; after a Resend
+its corners, with a 2px leading edge, on a 30-second linear run whose edge
+sits 29/30 of the way across a second in, mid-button halfway and 1/30 of the
+way a second from the end, at 40px and 32px; within a tenth of the wait of
+empty as the label reads "Resend link", and gone with it; after a Resend
 whose send takes half a second, the whole 2-second wait again from a quarter
-in; painted in `--ui-surface-sunk` with an `--ui-ink-tertiary` edge in light and
+in, empty again as the label unlocks; painted in `--ui-surface-sunk` with an `--ui-ink-tertiary` edge in light and
 dark at 320 and 1280px, with a frame for each second of a 4-second wait; and
 not drawn under reduced motion or forced colours, the label still on one line
 ([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each

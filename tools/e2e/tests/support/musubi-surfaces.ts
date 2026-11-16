@@ -73,8 +73,27 @@ async function at(
   if (!bare) await expect(size.width >= 768 ? rail(page) : primaryBar(page)).toBeVisible();
   // A scheme change fades every `transition-ui-colors` row; a read or a shot
   // taken mid-fade sees the colour between the two themes.
+  await animationsSettled(page);
+}
+
+/**
+ * Waits out every animation on the page that ends, but two: a loop (a loading
+ * pulse), which never ends, and the fill behind `CheckEmailView`'s "Resend in
+ * …s", which ends only with the wait, 30 or 120 seconds, so a flow on the
+ * "Check your email" screen never stalls here.
+ */
+async function animationsSettled(page: Page): Promise<void> {
   await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))),
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        .filter((a) => {
+          const target = (a.effect as KeyframeEffect | null)?.target;
+          return !target?.closest("button")?.textContent?.startsWith("Resend in");
+        })
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
   );
 }
 
@@ -881,16 +900,10 @@ export async function otpDigitSurfaces(flow: Flow, page: Page, box: Locator): Pr
 /** The vertical space between the bottom of `above` and the top of `below`, in whole px. */
 async function gapBetween(above: Locator, below: Locator): Promise<string> {
   // The two boxes are read one after the other, so every animation that ends
-  // is waited out first and nothing on the page moves between the reads. A
-  // loading pulse never ends, so it is left running.
-  await above.page().evaluate(() =>
-    Promise.all(
-      document
-        .getAnimations()
-        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
-        .map((a) => a.finished.catch(() => undefined)),
-    ),
-  );
+  // is waited out first and nothing on the page moves between the reads, but
+  // a loading pulse and the Resend wait's fill, which `animationsSettled`
+  // leaves running.
+  await animationsSettled(above.page());
   const [a, b] = await Promise.all([above.boundingBox(), below.boundingBox()]);
   if (!a || !b) return "no box";
   return `${Math.round(b.y - (a.y + a.height))}px`;
