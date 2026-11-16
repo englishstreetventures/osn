@@ -1,5 +1,11 @@
 # @shared/ui
 
+## 0.17.1
+
+### Patch Changes
+
+- 7b90b0c: `Button`'s `ghostDanger` takes no fill on hover, so its red ink stays at 4.5:1 or better against the page or card behind it in Musubi's light and dark themes.
+
 ## 0.17.0
 
 ### Minor Changes

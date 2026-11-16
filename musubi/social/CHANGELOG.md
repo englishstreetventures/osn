@@ -1,5 +1,14 @@
 # @osn/social
 
+## 0.23.11
+
+### Patch Changes
+
+- 7b90b0c: Settings' Connected apps rows take the 8px nested-row corner, drawn as `Card radius="md" padding="sm"`, and the placeholder holds the new 70px (74px below `md`) row height.
+- Updated dependencies [7b90b0c]
+  - @shared/ui@0.17.1
+  - @osn/auth-ui@6.2.1
+
 ## 0.23.10
 
 ### Patch Changes
