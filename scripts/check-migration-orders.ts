@@ -18,6 +18,11 @@
  * columns added to one table land in a different order on the two paths, and
  * nothing here reads columns by position.
  *
+ * In the directories Alchemy migrates (`ALCHEMY_DIRS`), every new file must
+ * also sort after every file already on the base: Alchemy, from 2.0.0-beta.86,
+ * refuses a pending migration that sorts before one the database already applied, so a late
+ * file would stop the dev deploy and the production migrate step.
+ *
  * Imports nothing but Node built-ins and sibling scripts, so the CI job that
  * runs it needs no install.
  */
@@ -36,6 +41,9 @@ export const LIVE_DIRS = [
   "pulse/db/drizzle",
   "zap/db/drizzle",
 ];
+
+/** The directories Alchemy migrates on every deployed database. */
+export const ALCHEMY_DIRS = ["cire/db/migrations", "osn/db/drizzle", "zap/db/drizzle"];
 
 export type OrderVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
@@ -140,6 +148,21 @@ export function checkOrders(dir: string, newFiles: readonly string[]): OrderVerd
   return { ok: true };
 }
 
+/** Whether every one of `newFiles` in `dir` sorts after every other file there. */
+export function checkSortsLast(dir: string, newFiles: readonly string[]): OrderVerdict {
+  if (newFiles.length === 0) return { ok: true };
+  const fresh = new Set(newFiles);
+  const byName = listMigrations(dir);
+  const newest = byName.findLast((file) => !fresh.has(file));
+  if (newest === undefined) return { ok: true };
+  const late = byName.slice(0, byName.indexOf(newest)).filter((file) => fresh.has(file));
+  if (late.length === 0) return { ok: true };
+  return {
+    ok: false,
+    reason: `${dir}: ${late.join(", ")} ${late.length === 1 ? "sorts" : "sort"} before ${newest}, which is already on the base. Alchemy (from 2.0.0-beta.86) refuses a migration that sorts before one a database applied, so rename ${late.length === 1 ? "it" : "them"} to the current UTC time (\`YYYYMMDDHHMMSS_\`), keeping the rest of the name.`,
+  };
+}
+
 if (import.meta.main) {
   const args = Bun.argv.slice(2);
   const base = args[args.indexOf("--base") + 1];
@@ -160,7 +183,8 @@ if (import.meta.main) {
     }
     const atBase = new Set(listed.stdout.split("\n").map((path) => path.slice(dir.length + 1)));
     const added = listMigrations(dir).filter((file) => !atBase.has(file));
-    const verdict = checkOrders(dir, added);
+    const order = ALCHEMY_DIRS.includes(dir) ? checkSortsLast(dir, added) : { ok: true as const };
+    const verdict = order.ok ? checkOrders(dir, added) : order;
     if (!verdict.ok) {
       failed = true;
       process.stderr.write(`::error::check-migration-orders: ${verdict.reason}\n`);

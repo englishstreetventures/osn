@@ -16,7 +16,7 @@ related:
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
   - "[[zap]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-16
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -753,8 +753,8 @@ summary under **Live, listed**, never a row:
 `cire-db migration ledger (__alchemy_migrations): R rows, M match a migration file, U
 match none; P to apply, L of them older than the newest applied; Wrangler's ledger frozen`.
 "To apply" is what the migrate step will run; "older than the newest applied" is a
-migration merged after a newer one shipped, which CI proved applies in either order. The
-guard refuses the release, before anything writes, on any count §4.2 lists.
+migration merged after a newer one shipped, which CI refuses and the guard refuses too.
+The guard refuses the release, before anything writes, on any count §4.2 lists.
 
 cire's live chain begins with one baseline, `0001_initial.sql`, holding the whole schema,
 then the numbered files `0082` to `0091` and the timestamped files
@@ -811,6 +811,7 @@ there.
 | The ledger was not read | The live read failed | Re-run the release once Cloudflare answers |
 | No migration ledger, or an empty one | A wrong database, or a first conversion that could not read `d1_migrations` and left an empty `__alchemy_migrations` (its first migration then failed on a table that exists, writing nothing else) | When `__alchemy_migrations` holds no row and `d1_migrations` does: `DROP TABLE "__alchemy_migrations"`, then dispatch the release again |
 | A row names no migration file | A migration ran there that this checkout lacks, or a file was renamed or deleted after it applied | Read the names; restore the file under its name, or, for a file the chain never needed, a pull request that names it as archived |
+| Timestamped files that sort before one the ledger records | A migration merged after a newer one shipped, past CI's check that new files sort last | A pull request that renames each to the current UTC time, keeping the rest of its name, then a new release. Never a write on the database |
 | Files missing behind ones applied after them, or archived files missing | The chain was applied without them: Alchemy would run them (an archived one fails on its placeholder) | Read the names; a pull request that brings the database level forward, never the archived SQL applied by hand under the Worker serving |
 | Wrangler names missing from `__alchemy_migrations` | A conversion that copied part of Wrangler's ledger | Insert the missing names with their files' hashes (`migrationHash()` in `shared/infra/src/migrations.ts`). `DROP TABLE "__alchemy_migrations"` instead only while it names nothing but Wrangler's names: not the freeze file, nor any later one |
 | `d1_migrations` frozen, `__alchemy_migrations` gone | Alchemy's ledger was dropped after the move: only the conversion release creates the trigger. Wrangler's ledger stops at the move, so a new conversion would apply every migration since again | Put `__alchemy_migrations` back: restore a D1 Time Travel bookmark from before the drop, or rebuild it by hand with every applied migration's name and its file's hash, the freeze file and each later one included |

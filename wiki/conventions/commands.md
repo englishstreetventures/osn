@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-16
 ---
 
 # CLI Commands Reference
@@ -93,7 +93,10 @@ migrations every deployed database has already run.
 
 CI proves the result. The lockstep tests replay each chain against its schema;
 `scripts/check-migration-orders.ts` replays a pull request's new files in the
-two orders a database can meet them; `scripts/guard-migration-history.ts`
+two orders a database can meet them, and refuses a new cire, osn or zap file
+that sorts before a file already on `main`: Alchemy migrates those databases
+and from `2.0.0-beta.86` refuses a migration that sorts before one it applied. The fix is to rename
+the new file to the current UTC time, keeping the rest of its name; `scripts/guard-migration-history.ts`
 (the `Migration history` check) refuses an edited, renamed, deleted or empty
 migration. That check runs `main`'s copy of the guard, so a pull request's own
 edits to it apply only once it merges. The merge queue runs the first two on

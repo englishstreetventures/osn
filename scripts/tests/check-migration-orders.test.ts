@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { checkOrders } from "../check-migration-orders";
+import { checkOrders, checkSortsLast } from "../check-migration-orders";
 
 let dir: string;
 
@@ -65,6 +65,28 @@ test("refuses orders that both apply but leave different schemas", () => {
 test("has nothing to compare when the pull request adds no migration", () => {
   write("20261021000001_on_main.sql", "ALTER TABLE `t` ADD `a` text;");
   expect(checkOrders(dir, [])).toEqual({ ok: true });
+});
+
+// Alchemy migrates every deployed cire, osn and zap database, and refuses a
+// pending migration that sorts before one the database already applied.
+
+test("passes new files that sort after every file already on the base", () => {
+  write("20261021000001_on_main.sql", "ALTER TABLE `t` ADD `a` text;");
+  write("20261021000002_this_pr.sql", "ALTER TABLE `t` ADD `b` text;");
+  write("20261021000003_this_pr_too.sql", "ALTER TABLE `t` ADD `c` text;");
+  expect(
+    checkSortsLast(dir, ["20261021000002_this_pr.sql", "20261021000003_this_pr_too.sql"]),
+  ).toEqual({ ok: true });
+  expect(checkSortsLast(dir, [])).toEqual({ ok: true });
+});
+
+test("refuses a new file that sorts before the base's newest, naming both", () => {
+  write("20261021000002_on_main.sql", "ALTER TABLE `t` ADD `a` text;");
+  write("20261021000001_this_pr.sql", "ALTER TABLE `t` ADD `b` text;");
+  const result = checkSortsLast(dir, ["20261021000001_this_pr.sql"]);
+  expect(result.ok).toBe(false);
+  expect(!result.ok && result.reason).toContain("20261021000001_this_pr.sql");
+  expect(!result.ok && result.reason).toContain("20261021000002_on_main.sql");
 });
 
 // ── the command, on a real repository ────────────────────────────────────────
@@ -139,6 +161,47 @@ test("the command passes a pull request whose new file applies in both orders", 
     const result = runCommand(root, ["--base", base]);
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("osn/db/drizzle: 1 new, both orders agree");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the command fails a cire, osn or zap file that sorts before the base's newest, though both orders agree", () => {
+  const { root, git } = repository();
+  try {
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(
+      join(root, "cire/db/migrations/20261021000001_this_pr.sql"),
+      "CREATE TABLE `u` (`id` text PRIMARY KEY NOT NULL);",
+    );
+    git("add", "-A");
+    git("commit", "-q", "-m", "pull request");
+    const result = runCommand(root, ["--base", base]);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("20261021000001_this_pr.sql sorts before");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the command leaves pulse, which Alchemy does not migrate, to the order check alone", () => {
+  const { root, git } = repository();
+  try {
+    writeFileSync(
+      join(root, "pulse/db/drizzle/20261021000002_on_main.sql"),
+      "ALTER TABLE `t` ADD `a` text;",
+    );
+    git("add", "-A");
+    git("commit", "-q", "-m", "pulse on main");
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(
+      join(root, "pulse/db/drizzle/20261021000001_this_pr.sql"),
+      "ALTER TABLE `t` ADD `b` text;",
+    );
+    git("add", "-A");
+    git("commit", "-q", "-m", "pull request");
+    const result = runCommand(root, ["--base", base]);
+    expect(result.exitCode).toBe(0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
