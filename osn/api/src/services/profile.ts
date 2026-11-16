@@ -374,36 +374,55 @@ export function createProfileService(authService: AuthService) {
       const ts = now();
       const target = alias(users, "target");
 
-      yield* Effect.tryPromise({
-        // Clear the current default then set the new one — pure writes, no
-        // read. The clear runs only while the target is still the account's,
-        // so a delete of the target landing first leaves the old default in
-        // place rather than none. Atomic batch on D1, sequential on
-        // bun:sqlite.
-        try: () =>
-          commitBatch(db, [
-            db
-              .update(users)
-              .set({ isDefault: false, updatedAt: ts })
-              .where(
-                and(
-                  eq(users.accountId, accountId),
-                  eq(users.isDefault, true),
-                  exists(
-                    db
-                      .select({ id: target.id })
-                      .from(target)
-                      .where(and(eq(target.id, targetProfileId), eq(target.accountId, accountId))),
-                  ),
-                ),
+      // Clear the current default then set the new one, and read back
+      // whether the target is the default now. The clear runs only while the
+      // target is still the account's, so a delete of the target landing
+      // first leaves the old default in place rather than none, and the read
+      // then finds no target: refused, not answered as done. Atomic batch on
+      // D1; sequential on bun:sqlite.
+      const writes = [
+        db
+          .update(users)
+          .set({ isDefault: false, updatedAt: ts })
+          .where(
+            and(
+              eq(users.accountId, accountId),
+              eq(users.isDefault, true),
+              exists(
+                db
+                  .select({ id: target.id })
+                  .from(target)
+                  .where(and(eq(target.id, targetProfileId), eq(target.accountId, accountId))),
               ),
-            db
-              .update(users)
-              .set({ isDefault: true, updatedAt: ts })
-              .where(eq(users.id, targetProfileId)),
-          ]),
+            ),
+          ),
+        db
+          .update(users)
+          .set({ isDefault: true, updatedAt: ts })
+          .where(and(eq(users.id, targetProfileId), eq(users.accountId, accountId))),
+      ] as const;
+      const outcome = db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.id, targetProfileId),
+            eq(users.accountId, accountId),
+            eq(users.isDefault, true),
+          ),
+        )
+        .limit(1);
+      const after = yield* Effect.tryPromise({
+        try: async () => {
+          if (canBatch(db)) return (await db.batch([...writes, outcome]))[2];
+          await commitBatch(db, [...writes]);
+          return await outcome;
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (after.length === 0) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
+      }
 
       return {
         id: profile.id,

@@ -1,7 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
-import { users } from "@osn/db/schema";
+import { blocks, connections as connectionRows, organisationMembers, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
@@ -405,6 +405,15 @@ describe("deleteProfile", () => {
     return Effect.gen(function* () {
       const { profile: main, accountId } = yield* setupAccount("pair@test.com", "pairuser");
       const alt = yield* profile.createProfile(accountId, "pair_alt");
+      // What the surviving profile owns, which the losing delete must leave.
+      const { profile: stranger } = yield* setupAccount("pairs@test.com", "pairstranger");
+      yield* graph.sendConnectionRequest(main.id, stranger.id);
+      yield* graph.acceptConnection(stranger.id, main.id);
+      // A block ends a connection, so another account blocks.
+      const { profile: blocker } = yield* setupAccount("pairb@test.com", "pairblocker");
+      yield* graph.blockProfile(blocker.id, main.id);
+      const club = yield* org.createOrganisation(stranger.id, "pairclub", "Pair Club");
+      yield* org.addMember(club.id, stranger.id, main.id, "member");
 
       const batch = queries.hold(/^delete from "connections"/);
       const first = yield* Effect.forkChild(
@@ -421,6 +430,20 @@ describe("deleteProfile", () => {
         failure: { _tag: "AuthError", message: "Cannot delete the last profile" },
       });
       expect(yield* defaultRows(accountId)).toEqual({ [main.id]: true });
+      const { db } = yield* Db;
+      const kept = yield* Effect.promise(() =>
+        Promise.all([
+          db
+            .select()
+            .from(connectionRows)
+            .where(
+              or(eq(connectionRows.requesterId, main.id), eq(connectionRows.addresseeId, main.id)),
+            ),
+          db.select().from(blocks).where(eq(blocks.blockedId, main.id)),
+          db.select().from(organisationMembers).where(eq(organisationMembers.profileId, main.id)),
+        ]),
+      );
+      expect(kept.map((rows) => rows.length)).toEqual([1, 1, 1]);
     }).pipe(Effect.provide(layer));
   });
 
@@ -466,8 +489,11 @@ describe("deleteProfile", () => {
         yield* Effect.promise(() => clear.reached);
         yield* profile.deleteProfile(accountId, gone.id);
         clear.release();
-        yield* Fiber.join(choosing);
 
+        expect(yield* Fiber.join(choosing)).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "AuthError", message: "Profile not found" },
+        });
         expect(yield* defaultRows(accountId)).toEqual({ [main.id]: true });
       }).pipe(Effect.provide(layer));
     },
