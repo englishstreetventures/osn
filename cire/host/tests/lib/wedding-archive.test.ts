@@ -1,5 +1,5 @@
 import { AuthExpiredError } from "@shared/rp-auth";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@shared/rp-auth/solid", async () => {
   const { rpAuthSolidMock } = await import("../test-support/mocks");
@@ -15,7 +15,6 @@ vi.mock("../../src/lib/download", () => ({
 }));
 
 import {
-  __resetWeddingArchives,
   formatBytes,
   startWeddingArchive,
   weddingArchiveState,
@@ -47,7 +46,10 @@ import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support
  */
 
 const SLUG = "aisha-and-ben-1a2b3c";
-const WEDDING = "wed_1";
+/** A wedding of each test's own: the store keeps one download per wedding for
+ *  the life of the page, so a fresh id is a fresh download. */
+let weddings = 0;
+let WEDDING = "wed_0";
 
 /** An empty ZIP: the end-of-central-directory record alone, no comment. */
 const END_RECORD = Uint8Array.from([
@@ -96,10 +98,14 @@ async function savedBytes(): Promise<Uint8Array> {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+beforeEach(() => {
+  weddings += 1;
+  WEDDING = `wed_${weddings}`;
+});
+
 afterEach(() => {
   resetOrganiserMocks();
   saved.mockReset();
-  __resetWeddingArchives();
 });
 
 describe("startWeddingArchive", () => {

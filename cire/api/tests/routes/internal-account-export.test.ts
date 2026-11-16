@@ -1,6 +1,7 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 
 import { weddingHosts } from "@cire/db";
+import { generateArcKeyPair } from "@shared/crypto/jwk";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
@@ -126,6 +127,23 @@ describe("ARC on the account export (refusals)", () => {
       exportBody(),
     );
     expect(res.status).toBe(401);
+  });
+
+  it("C2: a forged, an expired or a Bearer-sent token is refused before anything is read", async () => {
+    const { db, app } = setup();
+    insertWedding(db, { id: "w1", slug: "w1", displayName: "One", owners: [P] });
+    const other = await generateArcKeyPair();
+    const forged = await arc.token("account:export", { signWith: other.privateKey });
+    const expired = await arc.token("account:export", { ttl: 1 });
+    const bearer = (await arc.token("account:export")).replace(/^ARC /, "Bearer ");
+    const reads = failStatements(db, () => true);
+    expect((await post(app, forged, exportBody())).status).toBe(401);
+    expect((await post(app, bearer, exportBody())).status).toBe(401);
+    setSystemTime(new Date(Date.now() + 10 * 60 * 1000));
+    expect((await post(app, expired, exportBody())).status).toBe(401);
+    setSystemTime();
+    expect(reads.failed()).toBe(0);
+    reads.restore();
   });
 
   it("C4: a deletion scope does not open the export", async () => {
@@ -293,6 +311,30 @@ describe("what the export answers about the person's seats", () => {
       deletedAt: "2026-01-01T00:00:00.000Z",
       deletedByYou: false,
       download: null,
+    });
+  });
+
+  it("C6: two of the account's own profiles on one wedding are not each other's other owner", async () => {
+    const { db, app } = setup();
+    insertWedding(db, { id: "w_both", slug: "both", displayName: "Both", owners: [P, P2] });
+    insertWedding(db, {
+      id: "w_gone",
+      slug: "gone",
+      displayName: "Gone",
+      owners: [P2],
+      deletedAt: new Date("2026-10-01T00:00:00Z"),
+      deletedByOsnProfileId: P2,
+    });
+    seat(db, "w_gone", P, "editor", P2);
+    const all = records(
+      await lines(await post(app, await arc.token("account:export"), exportBody([P, P2]))),
+    );
+    expect(all.filter((r) => r.weddingId === "w_both").map((r) => r.otherOwners)).toEqual([0, 0]);
+    const editorSeat = all.find((r) => r.weddingId === "w_gone" && r.profileId === P);
+    expect(editorSeat).toMatchObject({
+      role: "editor",
+      deletedAt: "2026-10-01T00:00:00.000Z",
+      deletedByYou: true,
     });
   });
 

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@shared/rp-auth/solid", async () => {
   const { rpAuthSolidMock } = await import("../test-support/mocks");
@@ -15,7 +15,6 @@ const haptic = vi.hoisted(() => vi.fn());
 vi.mock("../../src/lib/touch-feedback", () => ({ haptic }));
 
 import WeddingExport from "../../src/components/WeddingExport";
-import { __resetWeddingArchives } from "../../src/lib/wedding-archive";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
 /**
@@ -31,37 +30,45 @@ import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
  *     is claimed before the file is saved.
  */
 describe("WeddingExport", () => {
+  // A wedding of each test's own: the download store keeps one download per
+  // wedding for the life of the page, so a fresh id is a fresh download.
+  let weddings = 0;
+  let wid = "wed_0";
+  beforeEach(() => {
+    weddings += 1;
+    wid = `wed_${weddings}`;
+  });
+
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
     haptic.mockReset();
-    __resetWeddingArchives();
   });
 
   const owner = () =>
-    render(() => <WeddingExport weddingId="wed_1" weddingSlug="a-and-b" canManage />);
+    render(() => <WeddingExport weddingId={wid} weddingSlug="a-and-b" canManage />);
   const saved = () => screen.queryByRole("status", { name: "Wedding downloaded" });
 
   const download = () => screen.queryByRole("button", { name: "Download wedding" });
 
   it("14. offers a non-owner no download, says only an owner can, and to ask one", () => {
-    render(() => <WeddingExport weddingId="wed_1" weddingSlug="a-and-b" canManage />);
+    render(() => <WeddingExport weddingId={wid} weddingSlug="a-and-b" canManage />);
     expect(download()).not.toBeNull();
     cleanup();
 
     render(() => (
       <WeddingExport
-        weddingId="wed_1"
+        weddingId={wid}
         weddingSlug="a-and-b"
         canManage={false}
-        coHosts={{ href: "#/w/wed_1/settings/hosts", onOpen: () => {} }}
+        coHosts={{ href: `#/w/${wid}/settings/hosts`, onOpen: () => {} }}
       />
     ));
     expect(download()).toBeNull();
     expect(screen.getByText(/only an owner can download the whole wedding/i)).not.toBeNull();
     expect(screen.getByText(/ask one of its owners/i)).not.toBeNull();
     expect(screen.getByRole("link", { name: "Co-hosts" }).getAttribute("href")).toBe(
-      "#/w/wed_1/settings/hosts",
+      `#/w/${wid}/settings/hosts`,
     );
   });
 

@@ -189,8 +189,3 @@ export function formatBytes(bytes: number): string {
   if (bytes < MB - KB / 2) return `${Math.max(1, Math.round(bytes / KB))}${NO_BREAK}KB`;
   return `${(bytes / MB).toFixed(1)}${NO_BREAK}MB`;
 }
-
-/** Test-only: the entries outlive a test otherwise. */
-export function __resetWeddingArchives(): void {
-  entries.clear();
-}

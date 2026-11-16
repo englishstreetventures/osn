@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { events, weddingHosts } from "@cire/db";
+import { events, weddingHosts, weddings } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
@@ -160,6 +161,22 @@ describe("who may download a wedding (refusals)", () => {
     expect((await post(app)).status).toBe(401);
   });
 
+  it("A1: a cookie naming no session, or a token signed by another key, is refused before any read", async () => {
+    const { db, app } = buildApp();
+    const stranger = await makeOsnTestAuth();
+    const statements = recordStatements(db);
+    const cookie = await appRequest(app, ARCHIVE, {
+      method: "POST",
+      headers: { cookie: `cire_org_session=${"x".repeat(43)}` },
+    });
+    const forged = await appRequest(app, ARCHIVE, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${await stranger.sign(OWNER)}` },
+    });
+    expect([cookie.status, forged.status]).toEqual([401, 401]);
+    expect(statements.some((s) => s.sql.includes('"budget_items"'))).toBe(false);
+  });
+
   it("A2–A5: an editor, a viewer, a helper and another wedding's owner are refused", async () => {
     const { app } = buildApp();
     for (const who of [EDITOR, VIEWER, HELPER, OTHER_OWNER]) {
@@ -198,6 +215,22 @@ describe("who may download a wedding (refusals)", () => {
       headers: { Authorization: `Bearer ${await auth.sign(OWNER)}` },
     });
     expect(csv.status).toBe(429);
+
+    // A refused archive spends nothing from the shared allowance.
+    const both = buildApp({
+      archiveLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      exportLimiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }),
+    });
+    expect((await post(both.app, OWNER)).status).toBe(200);
+    expect((await post(both.app, OWNER)).status).toBe(429);
+    const tasksCsv = async () =>
+      (
+        await appRequest(both.app, `/api/organiser/weddings/${W}/tasks.csv`, {
+          headers: { Authorization: `Bearer ${await auth.sign(OWNER)}` },
+        })
+      ).status;
+    expect(await tasksCsv()).toBe(200);
+    expect(await tasksCsv()).toBe(429);
 
     const get = await appRequest(limited.app, ARCHIVE, {
       headers: { Authorization: `Bearer ${await auth.sign(OWNER)}` },
@@ -594,6 +627,32 @@ describe("what an archive holds when R2 or a limit gets in the way", () => {
       "Uploaded events sheet, 1970-01-21",
       "Uploaded guest sheet, 1970-01-21",
     ]);
+  });
+
+  it("B16: another wedding's rows never reach an archive", async () => {
+    const { db, assets, sheets } = seedWedding();
+    const before = await archiveOf(db, { assets, sheets });
+    const now = new Date("2026-10-01T00:00:00Z");
+    db.delete(weddings).where(eq(weddings.id, "w2")).run();
+    for (const statement of fullWeddingStatements("w2", { owner: OTHER_OWNER, now })) {
+      db.run(statement);
+    }
+    for (const key of fullWeddingKeys("w2").assets) {
+      assets.put(key, jpeg(16), { httpMetadata: { contentType: "image/jpeg" } });
+    }
+    for (const key of fullWeddingKeys("w2").sheets) sheets.put(key, `Sheet,${key}\n`);
+    const after = await archiveOf(db, { assets, sheets });
+    expect(after.entries.map((e) => e.name)).toEqual(before.entries.map((e) => e.name));
+    for (const [i, entry] of after.entries.entries()) {
+      expect({
+        name: entry.name,
+        same: Buffer.from(entry.bytes).equals(Buffer.from(before.entries[i]!.bytes)),
+      }).toEqual({
+        name: entry.name,
+        same: true,
+      });
+    }
+    expect([...after.texts.values()].join("")).not.toContain(fullWeddingCode("w2"));
   });
 
   it("B11: a new wedding with nothing in it, and pictures nowhere, still downloads whole", async () => {
