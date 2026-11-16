@@ -29,6 +29,17 @@ Three rules decide what kind of test a change gets. They come before every patte
 
 The bar for keeping any non-E2E test: **name the real bug it catches that no E2E test would.** No name, no test. One exception: a test that checks a refusal or a redaction (an authorisation gate, a permission table, a rate limit, a CSP, an input rejection, log redaction) stays unless a named, existing test checks the same refusal. "An E2E test could catch it" is not enough; one has to exist. [[#Assertions that cannot fail]] lists the shapes that fail that bar most often.
 
+### Cutting tests
+
+Size and speed follow from the bar above, not from a ratio of test lines to source lines: every agent session reruns the suite, so a test that catches nothing costs time on every change. A test goes when it matches one of these shapes:
+
+- **It pins implementation detail.** Tailwind class strings on a component whose look a browser test or a flow already checks, a child tree mocked out to read props pass through, `mock.calls` on an internal collaborator, a count of how often a formatter was built.
+- **It repeats another test.** An E2E flow step or a sibling test checks the same behaviour. Name that step or test; "an E2E test could catch it" is not a name.
+- **It asserts nothing.** A file behind an opt-in environment flag that only takes pictures, or one that disables `expect-expect`. Such a file belongs under `tools/`, not in the suite.
+- **It waits on the real clock.** A test that sits out a five-second undo window uses fake timers instead; it keeps every assertion.
+
+A deletion is read case by case, never cut by line range: most ranges one audit proposed held a refusal or a case no flow reached. Each removed case goes in the plan's table with the test or flow step that covers it afterwards. These stay even when a flow touches them: a refusal or role gate, a per-currency money case where the flow proves one currency, and a drift guard for something the type checker cannot see (a renamed key that silently stops a prefetch). A flow that proves a deleted case's behaviour joins an existing flow's sign-in: the suite caps organiser sign-ins at seven (`tools/e2e/tests/flows.test.ts`), a cap its OIDC rate limits set.
+
 ## The end-to-end suite
 
 `tools/e2e` (`@tools/e2e`) is where E2E tests live. `bun run test:e2e` boots the real stack, runs every flow in Chromium, and writes the artifact. `bun run test:e2e:repro` runs it twice and fails unless both runs wrote the same `results.json` byte for byte.
