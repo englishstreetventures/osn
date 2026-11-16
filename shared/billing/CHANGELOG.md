@@ -1,5 +1,12 @@
 # @shared/billing
 
+## 0.1.16
+
+### Patch Changes
+
+- Updated dependencies [05ca2d8]
+  - @shared/observability@0.26.0
+
 ## 0.1.15
 
 ### Patch Changes
