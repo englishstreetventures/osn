@@ -106,7 +106,7 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 | `email-changed`          | `{ newEmail, instanceName }` — the renderer masks the address (`a•••@example.com`) and keeps it out of the subject | `completeEmailChange`, through `notifySecurityEventTo`, to the address the change replaced |
 | `account-deletion-scheduled` | `{ instanceName, deletesAt, appUrl, deleteEverything, plan: [{ label, outcome, keptUntil }] }` | `DELETE /account` on a new schedule, through `notifySecurityEventByAccountId` — see [[dsar#Emails]] |
 | `account-deletion-cancelled` | `{ instanceName, appUrl }` | `POST /account/restore` when it cancels, through `notifySecurityEventByAccountId` |
-| `account-deleted` | `{ instanceName, handles, handlesHeldUntil, kept: [{ app, what, erasedOn, requestUrl }], organisations: [{ name, handle, newOwnerHandle }] }` | the hard-delete sweep, once its batch removed the account, to the address it had |
+| `account-deleted` | `{ instanceName, handles, handlesHeldUntil, kept: [{ app, what, erasedOn, requestUrl }], organisations: [{ handle, newOwnerHandle }] }` — names each organisation by handle only | the hard-delete sweep, once its batch removed the account, to the address it had |
 | `organisation-ownership-received` | `{ instanceName, organisationHandle, declineUrl, declineUntil, cause }` — names the organisation by handle only | the hard-delete sweep for each organisation passed on, and `POST /organisations/:handle/decline-ownership` for the next owner |
 | `account-data-link` | `{ instanceName, url }` — a link to the download page, never the data | `POST /account/data-link` |
 

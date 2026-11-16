@@ -15,6 +15,8 @@ import "../../src/App.css";
  */
 
 const mocks = vi.hoisted(() => ({ declineOwnership: vi.fn() }));
+// A fixed day, so every screenshot carries the same sentence.
+const DECLINE_UNTIL = "2026-12-16T12:00:00.000Z";
 
 vi.mock("@osn/client/solid", async () => {
   const actual = await vi.importActual<typeof import("@osn/client/solid")>("@osn/client/solid");
@@ -90,6 +92,7 @@ vi.mock("../../src/lib/api", () => ({
         ],
       }),
     declineOwnership: mocks.declineOwnership,
+    declineOwnershipStatus: () => Promise.resolve({ declineUntil: DECLINE_UNTIL }),
   },
 }));
 

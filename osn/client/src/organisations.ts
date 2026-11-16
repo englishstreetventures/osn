@@ -86,6 +86,12 @@ export interface OrgClient {
    * received it more than 30 days ago.
    */
   declineOwnership(handle: string): Promise<{ outcome: "passed" | "deleted" }>;
+  /**
+   * Whether the caller may decline the organisation now, and until when (an
+   * ISO date-time); it writes nothing. Refused as {@link declineOwnership}
+   * would be: 403 (`not_owner`), 409 (`not_declinable`).
+   */
+  declineOwnershipStatus(handle: string): Promise<{ declineUntil: string }>;
 }
 
 export function createOrgClient(config: OrgClientConfig): OrgClient {
@@ -134,5 +140,8 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
 
     declineOwnership: (handle) =>
       authPost<{ outcome: "passed" | "deleted" }>(`${org(handle)}/decline-ownership`),
+
+    declineOwnershipStatus: (handle) =>
+      authGet<{ declineUntil: string }>(`${org(handle)}/decline-ownership`),
   };
 }

@@ -8,14 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * The decline block the "you now own" email links to (`?decline=1`): shown
- * only on that link, Decline passes the organisation on or deletes it and
- * goes back to the list, and a refusal says it can no longer be declined.
+ * only on that link and only when the server says this caller may decline,
+ * so a link sent to anyone else shows no claim that they own it; Decline
+ * passes the organisation on or deletes it and goes back to the list, and a
+ * refusal says it can no longer be declined.
  */
 
 const mocks = vi.hoisted(() => ({
   getOrg: vi.fn(),
   listMembers: vi.fn(),
   declineOwnership: vi.fn(),
+  declineOwnershipStatus: vi.fn(),
 }));
 
 vi.mock("../../src/lib/api", () => ({
@@ -25,6 +28,7 @@ vi.mock("../../src/lib/api", () => ({
     getOrg: mocks.getOrg,
     listMembers: mocks.listMembers,
     declineOwnership: mocks.declineOwnership,
+    declineOwnershipStatus: mocks.declineOwnershipStatus,
     listMyOrgs: () => Promise.resolve({ organisations: [] }),
   },
 }));
@@ -82,6 +86,9 @@ beforeEach(() => {
   mocks.getOrg.mockReset().mockResolvedValue({ organisation: ORG });
   mocks.listMembers.mockReset().mockResolvedValue({ members: [] });
   mocks.declineOwnership.mockReset();
+  mocks.declineOwnershipStatus
+    .mockReset()
+    .mockResolvedValue({ declineUntil: "2026-12-16T12:00:00.000Z" });
   vi.spyOn(toast, "success");
 });
 
@@ -94,6 +101,30 @@ describe("<OrgDetailPage /> decline", () => {
   it("offers Decline only on the email's link", async () => {
     renderOrg("/organisations/acme");
     await screen.findByRole("heading", { name: "Acme" });
+    expect(screen.queryByRole("button", { name: "Decline" })).toBeNull();
+    expect(mocks.declineOwnershipStatus).not.toHaveBeenCalled();
+  });
+
+  it("says until when the owner may decline it", async () => {
+    renderOrg("/organisations/acme?decline=1");
+    await screen.findByRole("button", { name: "Decline" });
+    expect(mocks.declineOwnershipStatus).toHaveBeenCalledWith("acme");
+    const day = new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(
+      Date.parse("2026-12-16T12:00:00.000Z"),
+    );
+    expect(screen.getByText(new RegExp(`You can decline it until ${day}\\.`))).toBeTruthy();
+  });
+
+  it.each([
+    [403, "not_owner"],
+    [409, "not_declinable"],
+  ])("claims nothing on the link when the server refuses at %i", async (status, code) => {
+    mocks.declineOwnershipStatus.mockRejectedValue(new OrgClientError("refused", status, code));
+    renderOrg("/organisations/acme?decline=1");
+    expect(
+      await screen.findByText(/You can no longer decline this organisation here\./),
+    ).toBeTruthy();
+    expect(screen.queryByText(/passed to you/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Decline" })).toBeNull();
   });
 

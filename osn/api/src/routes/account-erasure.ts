@@ -90,6 +90,8 @@ interface PlannedAction {
   readonly default_choice: string | null;
   readonly successor?: { readonly handle: string } | null;
   readonly candidates?: ReadonlyArray<{ readonly profile_id: string; readonly handle: string }>;
+  /** Set on an organisation the account owns; its line names it by handle alone. */
+  readonly organisation?: { readonly handle: string } | null;
 }
 
 /**
@@ -102,7 +104,8 @@ interface PlannedAction {
  * With "delete everything", nothing is stored: each app deletes what the
  * person has there as soon as it can, as the app contract says, and each
  * organisation passes to the member the preview named, or is deleted when
- * there is none.
+ * there is none. An organisation is named by its handle, never by its name,
+ * which any of its admins can rewrite.
  */
 export function deletionPlan(
   actions: ReadonlyArray<PlannedAction>,
@@ -110,18 +113,19 @@ export function deletionPlan(
   deleteEverything: boolean,
 ): DeletionPlanLine[] {
   return actions.map((action) => {
+    const label = action.organisation ? `You own @${action.organisation.handle}.` : action.label;
     if (deleteEverything) {
       if (action.app === "osn") {
         const handle = action.successor?.handle;
         return {
-          label: action.label,
+          label,
           outcome: handle ? `It passes to @${handle}.` : "It is deleted.",
           keptUntil: null,
         };
       }
       const app = APP_DISPLAY_NAMES.get(action.app) ?? action.app;
       return {
-        label: action.label,
+        label,
         outcome: `You chose to delete everything, so ${app} deletes this as soon as it can.`,
         keptUntil: null,
       };
@@ -129,13 +133,13 @@ export function deletionPlan(
     const answer = choices[action.id];
     const chosen = answer?.choice ?? action.default_choice;
     const choice = action.choices.find((c) => c.choice === chosen);
-    if (!choice) return { label: action.label, outcome: "", keptUntil: null };
+    if (!choice) return { label, outcome: "", keptUntil: null };
     const named =
       chosen === "successor"
         ? action.candidates?.find((c) => c.profile_id === answer?.successorProfileId)?.handle
         : undefined;
     return {
-      label: action.label,
+      label,
       outcome: named ? `@${named} becomes the owner.` : choice.description,
       keptUntil: choice.erased_on,
     };

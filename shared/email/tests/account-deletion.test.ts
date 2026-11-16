@@ -101,8 +101,8 @@ const deleted: AccountDeletedData = {
     },
   ],
   organisations: [
-    { name: "Ada <Co>", handle: "adaco", newOwnerHandle: "bea" },
-    { name: "Side project", handle: "side", newOwnerHandle: null },
+    { handle: "adaco", newOwnerHandle: "bea" },
+    { handle: "side", newOwnerHandle: null },
   ],
 };
 
@@ -129,12 +129,11 @@ describe("account-deleted", () => {
     expect(out.html).not.toContain("<b>Launch</b>");
   });
 
-  it("says where each organisation went", () => {
+  it("says where each organisation went, by handle", () => {
     const out = renderTemplate("account-deleted", deleted);
-    expect(out.text).toContain("@adaco");
-    expect(out.text).toContain("@bea");
-    expect(out.text).toContain("@side");
-    expect(out.html).toContain("Ada &lt;Co&gt;");
+    expect(out.text).toContain("@adaco now belongs to @bea.");
+    expect(out.text).toContain("@side was deleted.");
+    expect(out.html).toContain("@adaco now belongs to @bea.");
   });
 
   it("says nothing is kept when no app kept anything", () => {

@@ -94,6 +94,7 @@ const CALLS: Record<keyof OrgClient, () => Promise<unknown>> = {
   removeMember: () => client.removeMember("acme", "alice"),
   updateMemberRole: () => client.updateMemberRole("acme", "alice", "admin"),
   declineOwnership: () => client.declineOwnership("acme"),
+  declineOwnershipStatus: () => client.declineOwnershipStatus("acme"),
 };
 
 /** The JSON schema a route answers with on success. */
@@ -133,6 +134,7 @@ const CREATE_ORG: Record<keyof Body<"createOrg">, true> = { ok: true, organisati
 const UPDATE_ORG: Record<keyof Body<"updateOrg">, true> = { ok: true, organisation: true };
 const LIST_MEMBERS: Record<keyof Body<"listMembers">, true> = { members: true };
 const DECLINE: Record<keyof Body<"declineOwnership">, true> = { outcome: true };
+const DECLINE_STATUS: Record<keyof Body<"declineOwnershipStatus">, true> = { declineUntil: true };
 
 describe("organisations client against shared/openapi/osn.json", () => {
   it.each(Object.entries(CALLS))("%s calls a route the spec has", async (_name, run) => {
@@ -201,6 +203,9 @@ describe("organisations client against shared/openapi/osn.json", () => {
     expect(fieldsOf(successBody("patch", "/organisations/{handle}"))).toEqual(keysOf(UPDATE_ORG));
     expect(fieldsOf(successBody("post", "/organisations/{handle}/decline-ownership"))).toEqual(
       keysOf(DECLINE),
+    );
+    expect(fieldsOf(successBody("get", "/organisations/{handle}/decline-ownership"))).toEqual(
+      keysOf(DECLINE_STATUS),
     );
     expect(fieldsOf(successBody("get", "/organisations/{handle}/members"))).toEqual(
       keysOf(LIST_MEMBERS),

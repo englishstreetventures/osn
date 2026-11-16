@@ -18,8 +18,10 @@ import { createTestLayerWithSqlite } from "../helpers/db";
 /**
  * `POST /organisations/:handle/decline-ownership` as a request reaches it:
  * who may send it, what each refusal answers, and the email to the next
- * owner. Each case is red on one wrong line of the route. What the decline
- * does to the rows is `tests/services/organisation.test.ts` (`declineOwnership`).
+ * owner; and `GET` on the same path, which answers the same refusals and
+ * writes nothing. Each case is red on one wrong line of the route. What the
+ * decline does to the rows is `tests/services/organisation.test.ts`
+ * (`declineOwnership`).
  */
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -74,6 +76,13 @@ async function seed(limiter: RateLimiterBackend = allow, members = true) {
         headers: token === null ? {} : { Authorization: `Bearer ${token}` },
       }),
     );
+  const standing = (handle: string, token: string | null) =>
+    settledHandle(
+      app,
+      new Request(`http://localhost/organisations/${handle}/decline-ownership`, {
+        headers: token === null ? {} : { Authorization: `Bearer ${token}` },
+      }),
+    );
   const ownerOf = async () =>
     (
       await db
@@ -95,7 +104,20 @@ async function seed(limiter: RateLimiterBackend = allow, members = true) {
     )[0]?.role ?? null;
   const sent = () =>
     email.recorded().filter((m) => m.template === "organisation-ownership-received");
-  return { layer, auth, alice, bob, acme, tokenOf, decline, ownerOf, membership, sent, db };
+  return {
+    layer,
+    auth,
+    alice,
+    bob,
+    acme,
+    tokenOf,
+    decline,
+    standing,
+    ownerOf,
+    membership,
+    sent,
+    db,
+  };
 }
 
 describe("POST /organisations/:handle/decline-ownership", () => {
@@ -181,5 +203,69 @@ describe("POST /organisations/:handle/decline-ownership", () => {
     const h = await seed(deny);
     expect((await h.decline("acme", await h.tokenOf(h.alice))).status).toBe(429);
     expect(await h.ownerOf()).toBe(h.alice.id);
+  });
+});
+
+describe("GET /organisations/:handle/decline-ownership", () => {
+  it("answers the owner by succession with the end of the window, and changes nothing", async () => {
+    const h = await seed();
+    const [{ inherited }] = await h.db
+      .select({ inherited: organisations.ownerInheritedAt })
+      .from(organisations)
+      .where(eq(organisations.id, h.acme.id));
+    const res = await h.standing("acme", await h.tokenOf(h.alice));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      declineUntil: new Date((inherited! + 30 * 24 * 60 * 60) * 1_000).toISOString(),
+    });
+    expect(await h.ownerOf()).toBe(h.alice.id);
+    expect(await h.membership(h.alice.id)).toBe("admin");
+  });
+
+  it("refuses a request with no token", async () => {
+    const h = await seed();
+    expect((await h.standing("acme", null)).status).toBe(401);
+  });
+
+  it("refuses a member who does not own it, 403 not_owner", async () => {
+    const h = await seed();
+    const res = await h.standing("acme", await h.tokenOf(h.bob));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "not_owner" });
+  });
+
+  it("refuses a signed-in stranger, 403 not_owner", async () => {
+    const h = await seed();
+    const carol = await runOn(h.layer, h.auth.registerProfile("carol@example.com", "carol"));
+    const res = await h.standing("acme", await h.tokenOf(carol));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "not_owner" });
+  });
+
+  it("refuses the owner who created it, 409 not_declinable", async () => {
+    const h = await seed();
+    await h.db
+      .update(organisations)
+      .set({ ownerInheritedAt: null })
+      .where(eq(organisations.id, h.acme.id));
+    const res = await h.standing("acme", await h.tokenOf(h.alice));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "not_declinable" });
+  });
+
+  it("refuses an owner who received it more than 30 days ago, 409 not_declinable", async () => {
+    const h = await seed();
+    await h.db
+      .update(organisations)
+      .set({ ownerInheritedAt: Math.floor(Date.now() / 1_000) - 30 * 24 * 60 * 60 - 1 })
+      .where(eq(organisations.id, h.acme.id));
+    const res = await h.standing("acme", await h.tokenOf(h.alice));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "not_declinable" });
+  });
+
+  it("answers 404 for a handle no organisation has", async () => {
+    const h = await seed();
+    expect((await h.standing("nosuchorg", await h.tokenOf(h.alice))).status).toBe(404);
   });
 });

@@ -352,6 +352,56 @@ export function createOrganisationRoutes(
         },
       )
       // -----------------------------------------------------------------------
+      // GET /organisations/:handle/decline-ownership — whether the caller may
+      // decline it now, and until when. Writes nothing; the page shows its
+      // decline card only on a 200, so a link cannot make the card appear
+      // for anyone the decline would refuse.
+      // -----------------------------------------------------------------------
+      .get(
+        "/:handle/decline-ownership",
+        async ({ params, headers, set }) => {
+          const caller = await requireAuth(headers.authorization, set);
+          if (!caller) return { error: "Unauthorized" };
+
+          const organisation = await resolveOrg(params.handle, set);
+          if (!organisation) return { error: "Organisation not found" };
+
+          try {
+            const status = await run(org.declineOwnershipStatus(organisation.id, caller.profileId));
+            if (status.outcome === "not_owner") {
+              set.status = 403;
+              return { error: "not_owner" };
+            }
+            if (status.outcome === "not_declinable") {
+              set.status = 409;
+              return { error: "not_declinable" };
+            }
+            return { declineUntil: new Date(status.declineUntil * 1_000).toISOString() };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          params: HandleParam,
+          response: {
+            200: t.Object({ declineUntil: t.String({ format: "date-time" }) }),
+            401: errorResponse,
+            // `not_owner`: the caller does not own it.
+            403: errorResponse,
+            404: errorResponse,
+            // `not_declinable`: the caller created it, or received it more
+            // than 30 days ago.
+            409: errorResponse,
+            500: errorResponse,
+          },
+          detail: {
+            operationId: "getOrganisationDeclineOwnership",
+            security: [{ bearerAuth: [] }],
+          },
+        },
+      )
+      // -----------------------------------------------------------------------
       // POST /organisations/:handle/decline-ownership — a member who received
       // the organisation by succession hands it back within 30 days: it
       // passes to the next admin or member from another account, who is

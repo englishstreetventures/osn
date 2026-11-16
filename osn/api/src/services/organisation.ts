@@ -114,6 +114,13 @@ export type DeclineOwnershipResult =
   /** The caller owns it, but not by succession inside the last 30 days. */
   | { readonly outcome: "not_declinable" };
 
+/** Whether the caller may decline an organisation now; see `declineOwnershipStatus`. */
+export type DeclineOwnershipStatus =
+  /** The caller owns it by succession; a decline is open until `declineUntil` (seconds). */
+  | { readonly outcome: "declinable"; readonly declineUntil: number }
+  | { readonly outcome: "not_owner" }
+  | { readonly outcome: "not_declinable" };
+
 export interface OrganisationServiceOptions {
   /**
    * The `handle_holds` digest (`auth.heldHandleDigest`). `createOrganisation`
@@ -458,6 +465,65 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
     }).pipe(withOrgOp("delete"));
 
   /**
+   * Whether the caller may decline the organisation at `nowSec`: the one read
+   * the decline and {@link declineOwnershipStatus} share, so the page that
+   * offers a decline and the decline itself cannot disagree.
+   */
+  const readDeclineStanding = (orgId: string, callerId: string, nowSec: number) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const [found] = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              ownerId: organisations.ownerId,
+              ownerInheritedAt: organisations.ownerInheritedAt,
+              handle: organisations.handle,
+              callerAccountId: users.accountId,
+            })
+            .from(organisations)
+            .leftJoin(users, eq(users.id, callerId))
+            .where(eq(organisations.id, orgId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (!found) {
+        return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+      }
+      if (found.ownerId !== callerId || found.callerAccountId === null) {
+        return { outcome: "not_owner" } as const;
+      }
+      const cutoff = nowSec - OWNERSHIP_DECLINE_WINDOW_SECONDS;
+      if (found.ownerInheritedAt === null || found.ownerInheritedAt <= cutoff) {
+        return { outcome: "not_declinable" } as const;
+      }
+      return {
+        outcome: "declinable",
+        handle: found.handle,
+        accountId: found.callerAccountId,
+        declineUntil: found.ownerInheritedAt + OWNERSHIP_DECLINE_WINDOW_SECONDS,
+      } as const;
+    });
+
+  /**
+   * Whether the caller may decline the organisation now, and until when; it
+   * writes nothing. The same refusals as {@link declineOwnership}: anyone but
+   * the owner is `not_owner`; an owner who created it, or received it more
+   * than {@link OWNERSHIP_DECLINE_WINDOW_SECONDS} ago, is `not_declinable`.
+   */
+  const declineOwnershipStatus = (
+    orgId: string,
+    callerId: string,
+  ): Effect.Effect<DeclineOwnershipStatus, NotFoundError | DatabaseError, Db> =>
+    readDeclineStanding(orgId, callerId, Math.floor(Date.now() / 1_000)).pipe(
+      Effect.map((standing) =>
+        standing.outcome === "declinable"
+          ? ({ outcome: "declinable", declineUntil: standing.declineUntil } as const)
+          : standing,
+      ),
+    );
+
+  /**
    * The caller hands back an organisation it received by succession — the
    * hard delete of the previous owner's account, or a decline by the member
    * before it — inside {@link OWNERSHIP_DECLINE_WINDOW_SECONDS} of receiving
@@ -483,31 +549,9 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
       const nowSec = Math.floor(Date.now() / 1_000);
       const cutoff = nowSec - OWNERSHIP_DECLINE_WINDOW_SECONDS;
 
-      const [found] = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({
-              ownerId: organisations.ownerId,
-              ownerInheritedAt: organisations.ownerInheritedAt,
-              handle: organisations.handle,
-              callerAccountId: users.accountId,
-            })
-            .from(organisations)
-            .leftJoin(users, eq(users.id, callerId))
-            .where(eq(organisations.id, orgId))
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      if (!found) {
-        return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
-      }
-      if (found.ownerId !== callerId || found.callerAccountId === null) {
-        return { outcome: "not_owner" } as const;
-      }
-      if (found.ownerInheritedAt === null || found.ownerInheritedAt <= cutoff) {
-        return { outcome: "not_declinable" } as const;
-      }
-      const accountId = found.callerAccountId;
+      const standing = yield* readDeclineStanding(orgId, callerId, nowSec);
+      if (standing.outcome !== "declinable") return standing;
+      const accountId = standing.accountId;
 
       // Still the caller's, received inside the window: every statement below
       // writes only while this holds.
@@ -617,7 +661,7 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
         });
         return {
           outcome: "passed",
-          handle: found.handle,
+          handle: standing.handle,
           newOwnerEmail: address?.email || null,
           declineUntil: nowSec + OWNERSHIP_DECLINE_WINDOW_SECONDS,
         } as const;
@@ -1090,6 +1134,7 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
     updateOrganisation,
     deleteOrganisation,
     declineOwnership,
+    declineOwnershipStatus,
     listProfileOrganisations,
     addMember,
     removeMember,

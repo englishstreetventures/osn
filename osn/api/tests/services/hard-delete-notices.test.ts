@@ -99,8 +99,11 @@ describe("hard-delete notices", () => {
         expect(deleted[0]!.text).toContain("@alice");
         expect(deleted[0]!.text).toContain("Pulse: Your event Launch, for its guests.");
         expect(deleted[0]!.text).toContain("https://pulse.example.test/request");
-        expect(deleted[0]!.text).toContain("Acme <Co> (@acme) now belongs to @bob.");
-        expect(deleted[0]!.text).toContain("Alone (@alone) was deleted.");
+        expect(deleted[0]!.text).toContain("@acme now belongs to @bob.");
+        expect(deleted[0]!.text).toContain("@alone was deleted.");
+        // Named by handle alone: any admin can rewrite the name.
+        expect(deleted[0]!.text).not.toContain("Acme <Co>");
+        expect(deleted[0]!.html).not.toContain("Acme &lt;Co&gt;");
 
         const heirs = email
           .recorded()
@@ -201,7 +204,7 @@ describe("hard-delete notices", () => {
       yield* accountErasure.runHardDeleteSweep({ nowMs, notices });
 
       const [deleted] = email.recorded().filter((m) => m.template === "account-deleted");
-      expect(deleted!.text).toContain("Acme (@acme) was deleted.");
+      expect(deleted!.text).toContain("@acme was deleted.");
       expect(
         email.recorded().filter((m) => m.template === "organisation-ownership-received"),
       ).toEqual([]);
@@ -229,7 +232,7 @@ describe("hard-delete notices", () => {
         .filter((m) => m.template === "organisation-ownership-received");
       expect(heirs.map((m) => m.to)).toEqual(["carol@example.com"]);
       const [deleted] = email.recorded().filter((m) => m.template === "account-deleted");
-      expect(deleted!.text).toContain("Acme (@acme) now belongs to @carol.");
+      expect(deleted!.text).toContain("@acme now belongs to @carol.");
     }).pipe(Effect.provide(layer));
   });
 

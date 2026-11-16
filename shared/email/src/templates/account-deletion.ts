@@ -13,11 +13,11 @@
  * - `account-data-link`: a link to the page that downloads the data. Never
  *   the data itself.
  *
- * Every one of them may carry text someone other than the reader wrote: an
- * app's label, a wedding's or an organisation's name. That text is escaped in
- * the HTML part and never reaches a subject. The ownership notice goes to
- * someone who may never have agreed to join the organisation, so it names it
- * by its handle alone, never by its free-text name.
+ * Every one of them may carry text someone other than the reader wrote, such
+ * as an app's label or a wedding's name. That text is escaped in the HTML part
+ * and never reaches a subject. An organisation is named by its handle alone,
+ * never by its free-text name: any of its admins can rewrite the name, and a
+ * mail client turns a URL in it into a link.
  *
  * Each names the identity instance it comes from (`instanceName`), which the
  * sender passes in: this package names no product of its own.
@@ -64,7 +64,7 @@ export interface KeptAfterDeletion {
 
 /** An organisation the account owned, and who owns it now. */
 export interface OrganisationAfterDeletion {
-  readonly name: string;
+  /** The organisation's handle. Its name is free text its admins wrote, and is left out. */
   readonly handle: string;
   /** The new owner's handle; null when the organisation was deleted. */
   readonly newOwnerHandle: string | null;
@@ -203,8 +203,8 @@ export function renderAccountDeletionCancelled(data: AccountDeletionCancelledDat
 
 const organisationLine = (org: OrganisationAfterDeletion): string =>
   org.newOwnerHandle === null
-    ? `${org.name} (@${org.handle}) was deleted.`
-    : `${org.name} (@${org.handle}) now belongs to @${org.newOwnerHandle}.`;
+    ? `@${org.handle} was deleted.`
+    : `@${org.handle} now belongs to @${org.newOwnerHandle}.`;
 
 const keptLine = (item: KeptAfterDeletion): string => {
   const until = item.erasedOn === null ? "" : ` Kept until ${utcDate(item.erasedOn)}.`;

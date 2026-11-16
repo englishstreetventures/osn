@@ -187,7 +187,7 @@ describe("renderTemplate", () => {
       handles: ["ada"],
       handlesHeldUntil: 1_800_000_000,
       kept: [{ app: "Pulse", what: "An event", erasedOn: null, requestUrl: null }],
-      organisations: [{ name: "Ada Co", handle: "adaco", newOwnerHandle: null }],
+      organisations: [{ handle: "adaco", newOwnerHandle: null }],
     },
     "account-deletion-cancelled": { instanceName: "Musubi", appUrl: "https://example.test" },
     "account-deletion-scheduled": {

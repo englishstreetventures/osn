@@ -13,11 +13,12 @@ import { Notice } from "@shared/ui/ui/notice";
 import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate, useSearchParams } from "@solidjs/router";
-import { createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
+import { formatDay } from "../lib/account-deletion";
 import { orgClient } from "../lib/api";
 import { scopeMark } from "../lib/page-cache";
 import {
@@ -151,10 +152,27 @@ export function OrgDetailPage() {
   }
 
   // `?decline=1`: the "you now own" email's link. The owner may hand back an
-  // organisation that came to them by succession, within 30 days; the server
-  // decides whether this one still can be.
+  // organisation that came to them by succession, within 30 days. The link
+  // alone shows nothing: the card appears only when the server says this
+  // caller may decline it now, so a link cannot tell a stranger they own it.
   const [search] = useSearchParams();
-  const offerDecline = () => search.decline === "1";
+  const [declineStanding] = createResource(
+    () => (search.decline === "1" ? params.handle : null),
+    (handle) => orgClient.declineOwnershipStatus(handle),
+  );
+  // Read by state, not by calling the resource: a call in flight would raise
+  // the nearest Suspense, and a call after a refusal would throw.
+  const offerDecline = () => declineStanding.state === "ready";
+  const declineUntil = () =>
+    declineStanding.state === "ready"
+      ? formatDay(Date.parse(declineStanding.latest.declineUntil) / 1_000)
+      : "";
+  // 403 or 409: the link is for someone else, or its 30 days have passed.
+  const declineClosed = () => {
+    if (declineStanding.state !== "errored") return false;
+    const status = statusOf(declineStanding.error);
+    return status === 403 || status === 409;
+  };
   const [declining, setDeclining] = createSignal(false);
   const [declineRefused, setDeclineRefused] = createSignal(false);
 
@@ -285,6 +303,12 @@ export function OrgDetailPage() {
                 </div>
               </div>
 
+              <Show when={declineClosed()}>
+                <Notice tone="info" size="sm" class="mb-8">
+                  You can no longer decline this organisation here. If you own it, you can still
+                  delete it.
+                </Notice>
+              </Show>
               <Show when={offerDecline()}>
                 <Card padding="md" class="mb-8 flex flex-col gap-3">
                   <h2 class="text-foreground text-title font-medium">
@@ -292,7 +316,7 @@ export function OrgDetailPage() {
                   </h2>
                   <p class="text-muted-foreground text-body">
                     It is yours because its owner deleted their account, or the member before you
-                    declined it. You can decline it within 30 days of getting it.
+                    declined it. You can decline it until {declineUntil()}.
                   </p>
                   <p class="text-muted-foreground text-body">
                     If you decline, it passes to its next admin or member, or is deleted if there is

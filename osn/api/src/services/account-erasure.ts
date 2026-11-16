@@ -1349,7 +1349,6 @@ const NOTHING_DELETED: HardDeleteResult = { deleted: false, transfers: [], orgsD
  */
 interface OwnedAtHardDelete {
   readonly orgId: string;
-  readonly name: string;
   readonly handle: string;
   readonly successorProfileId: string | null;
   readonly successorHandle: string | null;
@@ -1543,7 +1542,6 @@ const sendHardDeleteNotices = (
             handlesHeldUntil: nowSec + HANDLE_HOLD_AFTER_ERASURE_SECONDS,
             kept: keptByApps(row.appOutcomes),
             organisations: owned.map((org) => ({
-              name: org.name,
               handle: org.handle,
               newOwnerHandle: org.successorProfileId === null ? null : org.successorHandle,
             })),
@@ -1741,7 +1739,6 @@ const hardDeleteWithOutcome = (
     const ownedNow = db
       .select({
         orgId: organisations.id,
-        name: organisations.name,
         handle: organisations.handle,
         successorProfileId: sql<
           string | null
@@ -1755,7 +1752,6 @@ const hardDeleteWithOutcome = (
     const readOwned = db
       .select({
         orgId: ownedNow.orgId,
-        name: ownedNow.name,
         handle: ownedNow.handle,
         successorProfileId: ownedNow.successorProfileId,
         // Named apart: D1 answers a batched select keyed by column name, and

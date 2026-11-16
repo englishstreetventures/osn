@@ -195,7 +195,9 @@ describe("DELETE /account sends the scheduled notice", () => {
     expect(mail!.to).toBe("eraser@example.com");
     const when = new Date(scheduled_for * 1_000);
     expect(mail!.text).toContain(`${when.getUTCDate()} `);
-    expect(mail!.text).toContain("You own Acme (@acme).");
+    expect(mail!.text).toContain("You own @acme.");
+    // Named by handle alone: any admin can rewrite the name.
+    expect(mail!.text).not.toContain("Acme");
     // The named successor, by handle: what the hard delete will do.
     expect(mail!.text).toContain("@bob becomes the owner.");
 
