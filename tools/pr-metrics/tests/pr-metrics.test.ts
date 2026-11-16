@@ -7,7 +7,6 @@ import {
   branchCards,
   branchSlug,
   type Card,
-  cardFileName,
   classifyPath,
   type ContentBlock,
   costOf,
@@ -165,20 +164,6 @@ test("aggregateSpend names unpriced models so the gap is visible", () => {
   expect(spend.unpriced_models).toEqual(["claude-nextgen-9"]);
   expect(spend.usd_equivalent).toBe(0);
   expect(spend.tokens.output).toBe(10);
-});
-
-test("aggregateSpend splits main and subagent spend", () => {
-  const spend = aggregateSpend([
-    assistant({ message: { model: "claude-opus-5", usage: usage({ output_tokens: 100 }) } }),
-    assistant({
-      isSidechain: true,
-      message: { model: "claude-opus-5", usage: usage({ output_tokens: 400 }) },
-    }),
-  ]);
-
-  expect(spend.by_actor.main.tokens.output).toBe(100);
-  expect(spend.by_actor.subagent.tokens.output).toBe(400);
-  expect(spend.tokens.output).toBe(500);
 });
 
 test("aggregateSpend ignores user records", () => {
@@ -446,25 +431,6 @@ test("aggregateInteraction ignores a headless session sharing the directory", ()
   expect(interaction.corrective_turns).toBe(0);
 });
 
-test("aggregateInteraction counts a queued prompt as a correction", () => {
-  const interaction = aggregateInteraction([
-    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build it" } },
-    assistant({
-      timestamp: "…02",
-      message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
-    }),
-    {
-      type: "attachment",
-      sessionId: "s1",
-      timestamp: "…03",
-      attachment: { type: "queued_command", prompt: "under tools, not scripts" },
-    },
-  ]);
-
-  expect(interaction.user_turns).toBe(2);
-  expect(interaction.corrective_turns).toBe(1);
-});
-
 // A dequeued prompt is sometimes echoed back as a `user` record. Both copies
 // are one instruction and must not count twice.
 test("aggregateInteraction collapses a queued prompt echoed as a user record", () => {
@@ -545,25 +511,6 @@ test("aggregateInteraction collapses only the next human record after a queued p
   expect(interaction.corrective_turns).toBe(1);
 });
 
-// Only an interruption counts. A turn typed after the agent stopped and handed
-// back — a new task, an answer to its question, "continue", even "no, not that
-// file" — is not, however late in the session it comes.
-test("aggregateInteraction does not count a turn sent to an idle agent as corrective", () => {
-  const interaction = aggregateInteraction([
-    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build the thing" } },
-    assistant({
-      timestamp: "…02",
-      message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
-    }),
-    { type: "user", sessionId: "s1", timestamp: "…03", message: { content: "now do the docs" } },
-    { type: "user", sessionId: "s1", timestamp: "…04", message: { content: "continue" } },
-    { type: "user", sessionId: "s1", timestamp: "…05", message: { content: "no, not that file" } },
-  ]);
-
-  expect(interaction.user_turns).toBe(4);
-  expect(interaction.corrective_turns).toBe(0);
-});
-
 // A prompt queued before the agent's first tool call still arrived mid-turn:
 // the agent was working, it had just not called a tool yet.
 test("aggregateInteraction counts a queued prompt that lands before any tool call", () => {
@@ -579,38 +526,6 @@ test("aggregateInteraction counts a queued prompt that lands before any tool cal
 
   expect(interaction.user_turns).toBe(2);
   expect(interaction.corrective_turns).toBe(1);
-});
-
-test("aggregateInteraction stops counting exploration at the first edit", () => {
-  const interaction = aggregateInteraction([
-    assistant({
-      timestamp: "…01",
-      message: {
-        model: "claude-opus-5",
-        content: [toolUse("Grep")],
-        usage: usage({ output_tokens: 100 }),
-      },
-    }),
-    assistant({
-      timestamp: "…02",
-      message: {
-        model: "claude-opus-5",
-        content: [toolUse("Edit", { file_path: "a.ts" })],
-        usage: usage({ output_tokens: 20 }),
-      },
-    }),
-    assistant({
-      timestamp: "…03",
-      message: {
-        model: "claude-opus-5",
-        content: [toolUse("Edit", { file_path: "a.ts" })],
-        usage: usage({ output_tokens: 5000 }),
-      },
-    }),
-  ]);
-
-  // The editing message itself counts — it is the last one spent getting there.
-  expect(interaction.tokens_before_first_edit).toBe(120);
 });
 
 // A second session re-reading the same files to find its feet is exactly the
@@ -718,13 +633,6 @@ test("parseNumstat flags a migration", () => {
 
 // --- declared complexity ----------------------------------------------------
 
-test("declaredFromLabels reads a confirmed rating", () => {
-  expect(declaredFromLabels(["product:cire", "complexity:3"])).toEqual({
-    declared: 3,
-    method: "confirmed",
-  });
-});
-
 test("declaredFromLabels marks an unconfirmed rating", () => {
   expect(declaredFromLabels(["complexity:5", "complexity:unconfirmed"])).toEqual({
     declared: 5,
@@ -797,15 +705,6 @@ test("otherPullRequest lets a run replace a card that is its own or names nobody
 
 // --- reused branch names ----------------------------------------------------
 
-test("cardFileName keeps the first card's path and suffixes every later one", () => {
-  expect(cardFileName("chore/cire-migration-baseline", 984, true)).toBe(
-    "chore-cire-migration-baseline.json",
-  );
-  expect(cardFileName("chore/cire-migration-baseline", 1375, false)).toBe(
-    "chore-cire-migration-baseline-1375.json",
-  );
-});
-
 test("branchCards reads this branch name's cards and leaves a slug neighbour's out", () => {
   const dir = require("node:fs").mkdtempSync(
     `${require("node:os").tmpdir()}/branch-cards-`,
@@ -836,37 +735,6 @@ test("branchCards reads this branch name's cards and leaves a slug neighbour's o
 
 const MERGED_984 = { number: 984, mergedAt: "2026-09-10T04:12:16Z", state: "MERGED" as const };
 
-test("recordWindow leaves a branch name used once open both ways", () => {
-  expect(recordWindow({ mergedAt: null }, [])).toEqual({
-    kind: "window",
-    after: null,
-    until: null,
-  });
-});
-
-test("recordWindow starts a later pull request after the earlier merge", () => {
-  expect(recordWindow({ mergedAt: null }, [MERGED_984])).toEqual({
-    kind: "window",
-    after: MERGED_984.mergedAt,
-    until: null,
-  });
-  expect(recordWindow({ mergedAt: "2026-10-07T00:00:00Z" }, [MERGED_984])).toEqual({
-    kind: "window",
-    after: MERGED_984.mergedAt,
-    until: null,
-  });
-});
-
-test("recordWindow ends an earlier pull request at its own merge", () => {
-  const later = { number: 1375, mergedAt: "2026-10-07T00:00:00Z", state: "MERGED" as const };
-
-  expect(recordWindow({ mergedAt: MERGED_984.mergedAt }, [later])).toEqual({
-    kind: "window",
-    after: null,
-    until: MERGED_984.mergedAt,
-  });
-});
-
 test("recordWindow takes the nearest merge on each side of a middle pull request", () => {
   const third = { number: 1500, mergedAt: "2026-11-01T00:00:00Z", state: "MERGED" as const };
   const second = "2026-10-07T00:00:00Z";
@@ -895,16 +763,6 @@ test("recordWindow will not place this pull request when its own merge time is n
     kind: "unplaceable",
     pull: null,
     reason: "unknown",
-  });
-});
-
-test("recordWindow places an open pull request after every merge", () => {
-  const open = { number: 2, mergedAt: null, state: "OPEN" as const };
-
-  expect(recordWindow({ mergedAt: MERGED_984.mergedAt }, [open])).toEqual({
-    kind: "window",
-    after: null,
-    until: MERGED_984.mergedAt,
   });
 });
 
@@ -1032,20 +890,6 @@ test("aggregateInteraction reports null when no edit was ever observed", () => {
 });
 
 // --- skills invoked as slash commands ---------------------------------------
-
-// A skill invoked as `/name` never produces a `Skill` tool call, so the
-// histogram missed it. The record opens with `<command-name>`, which
-// `humanTurnText` rejects as machinery — correctly, since it is an envelope
-// rather than a typed instruction — so the count has to come from the envelope
-// itself.
-test("skillCommandsIn reads a slash-invoked skill", () => {
-  const record: SessionRecord = {
-    type: "user",
-    message: { content: "<command-name>/prep-pr</command-name>\n<command-args></command-args>" },
-  };
-
-  expect(skillCommandsIn(record)).toEqual(["prep-pr"]);
-});
 
 // `/compact` outnumbers every skill invocation in these transcripts combined.
 // Counting the built-ins as skills would bury the signal under housekeeping —

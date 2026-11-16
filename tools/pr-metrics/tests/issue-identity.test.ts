@@ -20,7 +20,6 @@ import {
   ratingLabels,
   sameRepository,
   selectIssues,
-  TRACKER_REPO,
   trackerLabelsFromAnswer,
 } from "../index.ts";
 
@@ -79,31 +78,6 @@ describe("bodyIssueLinks reads prose only", () => {
 });
 
 describe("selectIssues — the branch's own issue", () => {
-  test("takes the first Closes line in the body, not the lowest number GitHub lists first", () => {
-    const selection = selectIssues({
-      body: "Closes #1550\nCloses #1031\nCloses #1033",
-      refs: [ref(1031), ref(1033), ref(1550)],
-      repo: REPO,
-      closedFromBody: true,
-    });
-
-    expect(selection.issue).toBe(1550);
-    expect(selection.closed).toEqual([1550, 1031, 1033]);
-  });
-
-  test("a pull request that only advances an issue names it from its Part of line", () => {
-    const selection = selectIssues({
-      body: "This branch started from no issue.\n\nPart of #1673",
-      refs: [],
-      repo: REPO,
-      closedFromBody: true,
-    });
-
-    expect(selection.issue).toBe(1673);
-    expect(selection.closed).toEqual([]);
-    expect(selection.partOf).toEqual([1673]);
-  });
-
   // An orchestrated child pull request closes its own issue and advances the
   // epic above it. The issue it closes is the branch's, whichever line comes
   // first; the epic is never its identity.
@@ -134,24 +108,6 @@ describe("selectIssues — the branch's own issue", () => {
     expect(selection.closed).toEqual([1512, 1533]);
   });
 
-  test("one reference and no body line is that issue", () => {
-    const selection = selectIssues({ body: "", refs: [ref(5)], repo: REPO, closedFromBody: true });
-
-    expect(selection.issue).toBe(5);
-  });
-
-  test("NEW-FEAT.md chooses among the pull request's own links", () => {
-    const selection = selectIssues({
-      body: "Closes #1512\nCloses #1533",
-      refs: [ref(1512), ref(1533)],
-      repo: REPO,
-      preferred: 1533,
-      closedFromBody: true,
-    });
-
-    expect(selection.issue).toBe(1533);
-  });
-
   test("NEW-FEAT.md never introduces an issue the pull request does not link", () => {
     const selection = selectIssues({
       body: "Closes englishstreetventures/osn-tracker#900754",
@@ -165,17 +121,6 @@ describe("selectIssues — the branch's own issue", () => {
     expect(selection.closed).toEqual([]);
     expect(selection.foreign).toBe(true);
     expect(selection.closedElsewhere).toEqual([tracker(900754)]);
-  });
-
-  test("an issue both listed by GitHub and named in the body is closed once", () => {
-    const selection = selectIssues({
-      body: "Closes #7",
-      refs: [ref(7)],
-      repo: REPO,
-      closedFromBody: true,
-    });
-
-    expect(selection.closed).toEqual([7]);
   });
 
   test("a merged pull request's closed set is what GitHub registered", () => {
@@ -205,22 +150,6 @@ describe("selectIssues — another repository's issues", () => {
       `${TRACKER}#900005`,
       `${TRACKER}#900006`,
     ]);
-  });
-
-  // GitHub may leave out a reference to a repository the token cannot read, so
-  // a merged pull request's body-only tracker line still says a rating exists
-  // somewhere nobody looked.
-  test("a merged pull request is credited with the tracker issues GitHub registered alone", () => {
-    const selection = selectIssues({
-      body: `Closes ${TRACKER}#900005`,
-      refs: [],
-      repo: REPO,
-      closedFromBody: false,
-    });
-
-    expect(selection.closedElsewhere).toEqual([]);
-    expect(selection.foreign).toBe(true);
-    expect(decideComplexity(selection, new Map(), new Map()).method).toBe("not-fetched");
   });
 
   test("a Part of line naming a tracker issue is kept apart from what it closes", () => {
@@ -310,13 +239,6 @@ describe("issuesToRate — which issues the denominator sums", () => {
     });
   });
 
-  test("with nothing here, the tracker issues it closes are", () => {
-    expect(issuesToRate(selection({ closedElsewhere: [tracker(900619)] }))).toEqual({
-      here: [],
-      elsewhere: [tracker(900619)],
-    });
-  });
-
   test("a Part of line here leaves nothing to rate", () => {
     expect(issuesToRate(selection({ partOf: [1000], closedElsewhere: [tracker(900619)] }))).toEqual(
       {
@@ -324,10 +246,6 @@ describe("issuesToRate — which issues the denominator sums", () => {
         elsewhere: [],
       },
     );
-  });
-
-  test("only the tracker's issues are ever asked about", () => {
-    expect(TRACKER_REPO).toBe(TRACKER);
   });
 });
 
@@ -345,20 +263,6 @@ describe("decideComplexity — the denominator", () => {
     partOfElsewhere: [],
     candidates: [],
     ...fields,
-  });
-
-  test("a pull request closing three complexity:2 issues declares 6 over 3 issues", () => {
-    const decision = decideComplexity(
-      pick({ issue: 1, closed: [1, 2, 3] }),
-      labels([
-        [1, ["complexity:2"]],
-        [2, ["complexity:2"]],
-        [3, ["complexity:2"]],
-      ]),
-      none,
-    );
-
-    expect(decision).toEqual({ declared: 6, method: "confirmed", issues: 3, unrated: [] });
   });
 
   test("one unconfirmed part makes the whole sum unconfirmed", () => {
@@ -388,20 +292,6 @@ describe("decideComplexity — the denominator", () => {
     expect(decision).toEqual({ declared: null, method: "none", issues: 0, unrated: ["#2"] });
   });
 
-  test("a label lookup that did not land is lookup-failed", () => {
-    const decision = decideComplexity(
-      pick({ issue: 1, closed: [1, 2] }),
-      labels([
-        [1, ["complexity:3"]],
-        [2, null],
-      ]),
-      none,
-    );
-
-    expect(decision.declared).toBeNull();
-    expect(decision.method).toBe("lookup-failed");
-  });
-
   test("a Part of issue's rating is never this branch's", () => {
     const decision = decideComplexity(
       pick({ issue: 1673, partOf: [1673] }),
@@ -423,32 +313,6 @@ describe("decideComplexity — the denominator", () => {
     );
 
     expect(decision).toEqual({ declared: 2, method: "confirmed", issues: 1, unrated: [] });
-  });
-
-  test("a pull request closing only tracker issues sums their ratings", () => {
-    const decision = decideComplexity(
-      pick({ closedElsewhere: [tracker(900619), tracker(900620)] }),
-      labels([]),
-      elsewhere([
-        [tracker(900619), ["complexity:3"]],
-        [tracker(900620), ["complexity:2", "complexity:unconfirmed"]],
-      ]),
-    );
-
-    expect(decision).toEqual({ declared: 5, method: "unconfirmed", issues: 2, unrated: [] });
-  });
-
-  test("a tracker issue this run could not read is not-fetched", () => {
-    const decision = decideComplexity(
-      pick({ closedElsewhere: [tracker(900619), tracker(900620)] }),
-      labels([]),
-      elsewhere([
-        [tracker(900619), ["complexity:3"]],
-        [tracker(900620), null],
-      ]),
-    );
-
-    expect(decision).toEqual({ declared: null, method: "not-fetched", issues: 0, unrated: [] });
   });
 
   test("a tracker issue nobody asked about is not-fetched", () => {

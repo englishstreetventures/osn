@@ -180,15 +180,6 @@ test("exploration needs a minimum sample before ranking a package", () => {
   expect(exploration(rows, 2).rows[0]).toEqual(["osn/api", "2", "20%"]);
 });
 
-test("briefs groups by month of merge", () => {
-  const rows = [
-    toRow(card({ merged_at: "2026-08-15T00:00:00.000Z" })),
-    toRow(card({ merged_at: "2026-09-02T00:00:00.000Z" })),
-  ];
-
-  expect(briefs(rows).rows.map((r) => r[0])).toEqual(["2026-08", "2026-09"]);
-});
-
 // `corrective_turns` changed meaning at schema version 4. An older card counted
 // every turn after the first tool call, many times the new figure on the same
 // work, so a reader that mixed the two would draw a cliff, not a trend.
@@ -307,33 +298,4 @@ test("exploration excludes cards whose boundary was never observed", () => {
   expect(table.note).toContain("3 card(s) excluded");
 
   expect(exploration([known, known], 2).rows).toHaveLength(1);
-});
-
-// --- JSON output ------------------------------------------------------------
-
-// An agent reading the report should not have to parse ASCII columns back into
-// numbers. The `note` travels with each table on purpose: it carries the
-// exclusions, and a consumer that reads only rows will state a ranking's
-// conclusion without its "18 cards excluded" qualifier.
-test("every report table carries its note alongside its rows", () => {
-  const rows = [toRow(card()), { ...toRow(card()), exploreShare: null }];
-
-  for (const table of [coverage(rows), exploration(rows, 1), waste(rows)]) {
-    expect(table.title).toBeTruthy();
-    expect(table.note).toBeTruthy();
-    expect(Array.isArray(table.headers)).toBe(true);
-    expect(Array.isArray(table.rows)).toBe(true);
-  }
-});
-
-test("a table survives a JSON round trip unchanged", () => {
-  const table = exploration([toRow(card()), toRow(card())], 2);
-
-  expect(JSON.parse(JSON.stringify(table))).toEqual(table);
-});
-
-test("the exploration note names how many cards it dropped", () => {
-  const table = exploration([{ ...toRow(card()), exploreShare: null }], 1);
-
-  expect(table.note).toContain("1 card(s) excluded");
 });

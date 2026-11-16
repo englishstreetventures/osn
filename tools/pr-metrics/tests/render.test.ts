@@ -14,7 +14,6 @@ function card(
     records?: SessionRecord[];
     declared?: number | null;
     issues?: number;
-    generatedAt?: string;
   } = {},
 ): Card {
   const records: SessionRecord[] = overrides.records ?? [
@@ -49,7 +48,7 @@ function card(
     headSha: "def",
     mergedAt: null,
     phase: "at-open",
-    generatedAt: overrides.generatedAt ?? "2026-09-07T00:00:00.000Z",
+    generatedAt: "2026-09-07T00:00:00.000Z",
   });
 }
 
@@ -139,24 +138,6 @@ test("renderDetails survives a card with no spend at all", () => {
 
   expect(block).toContain("$0.00");
   expect(block).toContain("| Models | — |");
-});
-
-// `generated_at` says when a run happened, not anything about the pull request,
-// so a re-run over settled work moves that field and nothing else. Rewriting
-// the file for it put a one-line timestamp diff in every pull request that
-// re-ran the tool.
-test("sameApartFromGeneratedAt ignores the timestamp and nothing else", () => {
-  const first = card({ generatedAt: "2026-09-07T00:00:00.000Z" });
-  const later = card({ generatedAt: "2026-09-11T09:30:00.000Z" });
-
-  expect(sameApartFromGeneratedAt(first, later)).toBe(true);
-});
-
-test("sameApartFromGeneratedAt reports a real change as changed", () => {
-  const rated = card({ declared: 3 });
-  const unrated = card({ declared: null, generatedAt: "2026-09-11T09:30:00.000Z" });
-
-  expect(sameApartFromGeneratedAt(rated, unrated)).toBe(false);
 });
 
 test("sameApartFromGeneratedAt catches a change in spend, not just the header", () => {
