@@ -499,6 +499,12 @@ variants, five sizes, `busy`, the press, and the focus every one of them
 draws. `buttonVariants` carries every class but `busy`'s, so a link styled as
 a button looks and presses the same.
 
+`ghostDanger` is muted ink at rest and `--ui-danger` ink on hover, with no
+hover fill: red text on `--ui-surface-sunk` measures 4.34:1 in Musubi's light
+theme, under the 4.5:1 floor, so the ink alone marks hover and the red sits on
+the page or card the button already stands on. `ghost` keeps its fill, since
+its ink stays `--ui-ink`.
+
 #### Sizes
 
 `default`, `sm`, `lg` and `icon` draw a box: one centred row, glyph and label,

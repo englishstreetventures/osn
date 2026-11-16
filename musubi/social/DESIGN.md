@@ -103,7 +103,8 @@ Three hues, each held to its uses:
   security-events banner (`border-ui-warn/40 bg-ui-warn/10`, in
   `@osn/auth-ui`'s `SecurityEventsBanner`), a wash with no warn ink.
 - **Red** — `--destructive`. Remove and delete: the `destructive` Button (red
-  fill, at rest) and `ghostDanger` (red on hover only, for a Remove repeated
+  fill, at rest) and `ghostDanger` (red ink on hover only, with no hover fill — red text never
+  sits on `--muted` — for a Remove repeated
   down a list).
 
 Red text also renders as the error line: `@shared/ui`'s `Notice`
@@ -247,13 +248,13 @@ Where the app does not follow this yet — known breaks include:
   floating panel drawn as the menus are: `rounded-md`, `bg-popover`,
   `shadow-md`. A bordered row nested inside a card takes 8px too, the card's
   own corner already spent; a row standing alone takes 16px ([the owner's
-  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06): `@osn/auth-ui`'s Settings rows, `Card
+  call](https://github.com/englishstreetventures/osn/issues/2034#issuecomment-6680062893), 2026-11-06): `@osn/auth-ui`'s Settings rows, Settings' connected apps, `Card
   radius="md" padding="sm"` inside Settings' card, and the new recovery codes'
   well.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
   organisations list's rows, `/authorize`'s scope rows and its dead-end and
-  error boxes), bordered rows (Settings' connected apps), dialogs, empty
+  error boxes), dialogs, empty
   states. No card takes a hover wash: one that is a link says so with its
   chevron (below). A row that is a link or a button, and not a `Card`, does
   take one.
@@ -689,7 +690,7 @@ the step-up sheet, "Generate a new set?" and "Create a new profile".
   `src/components/ResponsiveSkeleton.tsx`: one block per width, each hidden
   at the other, since `Skeleton` takes one height. Rows: a connection or a
   member with Remove 56px and 60px below `md`, a Discover card 114px and
-  126px, a connected app 62px and 66px; an organisation card is 74px at
+  126px, a connected app 70px and 74px; an organisation card is 74px at
   both. Settings' Security fallback stands for `@osn/auth-ui`'s passkey
   head, 32px and 40px below `md`, and one of its rows, 92px and 144px,
   copying the package's own placeholder, which it keeps internal; `/authorize`'s
