@@ -46,9 +46,14 @@ describe("onRequest middleware", () => {
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=()");
     expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
-    // The Chrome origin trial the guest site uses, and not the portal's.
-    expect(res.headers.get("Origin-Trial")).toContain(ORIGIN_TRIAL_TOKENS.htmlInCanvas);
+    // The Chrome origin trial the guest site uses, for production and the dev
+    // zone, in one header; not the portal's.
+    expect(res.headers.get("Origin-Trial")?.split(", ")).toEqual([
+      ORIGIN_TRIAL_TOKENS.htmlInCanvas,
+      ORIGIN_TRIAL_TOKENS.htmlInCanvasDev,
+    ]);
     expect(res.headers.get("Origin-Trial")).not.toContain(ORIGIN_TRIAL_TOKENS.webmcp);
+    expect(res.headers.get("Origin-Trial")).not.toContain(ORIGIN_TRIAL_TOKENS.webmcpDev);
     // The downstream response is passed through (headers added in place), and an
     // HTML response with no charset gets one.
     expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");

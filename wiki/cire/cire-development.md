@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-16
 ---
 
 # Cire development guide
@@ -758,16 +758,18 @@ the portal, and holds back the next release behind it.
 
 Cire uses two Chrome features that are not on by default yet. Each runs on a
 token that Chrome checks against the page's origin, sent in an `Origin-Trial`
-response header. The tokens are public and cover `cireweddings.com` with
-subdomain matching, so they work on `invite.`, `host.`, `vendor.` and `api.`
-there and nowhere else. The dev tier runs on its own zone and gets none of the
-features; Chrome ignores a token on another origin, so every tier sends the
-same header.
+response header. The tokens are public and first-party, and each feature has
+two, both with subdomain matching: one for `cireweddings.com`, which works on
+`invite.`, `host.`, `vendor.` and `api.` there, and one for the dev zone
+(`DEV_DOMAIN`, `esv.tools`), which works on `invite.cire.` and `host.cire.`
+there. Every tier sends both tokens of a feature in one header, separated by a
+comma; Chrome uses the one whose origin matches the page and ignores the other.
+A new dev zone needs new dev tokens ([[dev-environment#What dev turns on that production does not]]).
 
-| Feature | Used by | Served from | Token lapses |
+| Feature | Used by | Served from | Tokens lapse |
 |---|---|---|---|
-| `HTMLInCanvas` | the invite envelope ([[cire-envelope]]) | every guest-site SSR response | 2 Mar 2027 |
-| `WebMCP` | the organiser portal's agent tools, once englishstreetventures/osn#2209 lands | every organiser-portal path | 30 Mar 2027 |
+| `HTMLInCanvas` | the invite envelope ([[cire-envelope]]) | every guest-site SSR response | 2 Mar 2027, both |
+| `WebMCP` | the organiser portal's agent tools, once englishstreetventures/osn#2209 lands | every organiser-portal path | 30 Mar 2027, both |
 
 **The autofill event is not used.** Chrome's `autofill` event (`AutofillEvent`
 trial) fires at `document` just before the browser fills a field, with the
@@ -781,27 +783,34 @@ can read that in every Chrome, with no trial and no token.
 
 The strings, a decoder and the renewal window are in
 `cire/build-tools/src/origin-trial.ts` (`@cire/build-tools/origin-trial`, pure,
-so the guest Worker imports it). The guest site adds its token in
-`securityHeaders()` (`cire/invites/src/lib/security-headers.ts`), SSR-only like
-`X-Robots-Tag`, so the prerendered legal pages do not enable it. The portal is a
-static build, so its token is a line in `cire/host/public/_headers`, a second copy
-of the string that its test compares with the module's. The vendor portal and
-the marketing site carry none.
+so the guest Worker imports it), as `htmlInCanvas`, `htmlInCanvasDev`, `webmcp`
+and `webmcpDev`. The guest site adds its two tokens in `securityHeaders()`
+(`cire/invites/src/lib/security-headers.ts`), as one comma-separated header,
+SSR-only like `X-Robots-Tag`, so the prerendered legal pages do not enable it.
+The portal is a static build, so its tokens are two `Origin-Trial` lines in
+`cire/host/public/_headers`, which Cloudflare joins into one header with a comma;
+they are second copies of the strings, and its test compares them with the
+module's. The vendor portal and the marketing site carry none.
 
 **Renewal.** `cire/build-tools/tests/origin-trial.test.ts` fails once a token is
-within 14 days of its expiry, so a pull request goes red with time to act. Register
-the origin again for the feature on the Chrome origin-trials site (Match
-subdomains on), replace the string in `origin-trial.ts` (and, for WebMCP, in the
-host `_headers`), and move the expiry date in that test, in the table above and
+within 14 days of its expiry, so a pull request goes red with time to act; it
+also checks each token's Chrome signature, origin and feature, and that none is
+third-party. Register the origin again for the feature on the Chrome
+origin-trials site (Match subdomains on, third-party off), replace the string in
+`origin-trial.ts` (and, for a WebMCP token, its line in the host `_headers`), and
+move the expiry date in that test, in the table above and
 in the `Lapses` comment beside the string. A trial can also end before its token
 does, so a page tests for a feature before it uses it. The envelope does:
 `"requestPaint" in HTMLCanvasElement.prototype`
 (`cire/envelope/src/boot.ts`). The WebMCP code must do the same.
 
-**What a token cannot prove.** Chrome checks the signature and the origin, so
-no local test shows a feature turned on. The check is on production after a
-release, in stable Chrome with no flags, from the console of the page that uses
-it.
+**What a token cannot prove.** Chrome checks the token against the page's
+origin, so no local test shows a feature turned on. The check is in stable
+Chrome with no flags, from the console of the page that uses it: on the dev
+tier after the merge deploys it, and on production after a release. On a guest
+invite, `"requestPaint" in HTMLCanvasElement.prototype` is `true`. On any page,
+DevTools → Application → Frames → `top` lists the page's origin trials and
+whether Chrome accepted each token.
 
 ## Links to a site's own pages
 
