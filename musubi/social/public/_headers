@@ -5,7 +5,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Origin-Trial: AqTqmLMcrKr8+PFVA23imFcvHCFMBd6YMZ/iBXRhxn58k+6P4bZux3kvpdoF//5ocQVlda6/bSRSYTOqAZrU9QcAAABgeyJvcmlnaW4iOiJodHRwczovL211c3ViaS5zb2NpYWw6NDQzIiwiZmVhdHVyZSI6IkVtYWlsVmVyaWZpY2F0aW9uUHJvdG9jb2wiLCJleHBpcnkiOjE4MDM5NDU2MDB9
-  Origin-Trial: Amg/3dXxbvQstYgNayED06q3SPrL+YZxbqpwtE4LrJSp4HIvgYXRmUyE9Di8Tuo40vN07lILVK23NoF4UD5K6AQAAABveyJvcmlnaW4iOiJodHRwczovL2Vzdi50b29sczo0NDMiLCJmZWF0dXJlIjoiRW1haWxWZXJpZmljYXRpb25Qcm90b2NvbCIsImV4cGlyeSI6MTgwMzk0NTYwMCwiaXNTdWJkb21haW4iOnRydWV9
+  Origin-Trial: AlgDNUjOD5hsebFoLN9W5MENa1D7oJSKEu8SlUBqCSghgodoCNbD00URgV6acrBP75SEHB7lQhs7HkAJfFAkXQUAAAB2eyJvcmlnaW4iOiJodHRwczovL211c3ViaS5lc3YudG9vbHM6NDQzIiwiZmVhdHVyZSI6IkVtYWlsVmVyaWZpY2F0aW9uUHJvdG9jb2wiLCJleHBpcnkiOjE4MDM5NDU2MDAsImlzU3ViZG9tYWluIjp0cnVlfQ==
 
 # Framing is the one thing a consent screen must never allow, so it is covered
 # twice (frame-ancestors + X-Frame-Options). object-src/base-uri/form-action are
@@ -25,9 +25,10 @@
 # Protocol trial, so Chrome fills the sign-up form's email-verification-token
 # field. Both tokens are first-party:
 # - the first is for https://musubi.social, that exact origin (production);
-# - the second is for the dev zone, https://esv.tools, with its subdomains, so
-#   it covers the dev Musubi host musubi.<DEV_DOMAIN>. A new DEV_DOMAIN needs a
-#   new token.
+# - the second is for the dev Musubi host, https://musubi.esv.tools, with its
+#   subdomains. It names the host itself: a token for the parent zone,
+#   https://esv.tools, shows as valid in DevTools yet Chrome fills no
+#   verification token under it. A new DEV_DOMAIN needs a new token.
 # Chrome ignores a token whose origin does not match the page, so each tier
 # carries the other's harmlessly. The two lines go out as one header, the
 # values joined by a comma, a form Chrome reads. Both tokens expire on
