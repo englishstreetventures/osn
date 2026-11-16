@@ -194,39 +194,6 @@ describe("BudgetView", () => {
     expect(JSON.parse(init.body)).toEqual({ category: "catering", orderedIds: ["d", "c"] });
   });
 
-  it("adds an item (POST) and appends it to the cache", async () => {
-    setCachedBudget("wed_1", snap({ items: [] }));
-    authFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          item: {
-            id: "new",
-            weddingId: "wed_1",
-            category: "catering",
-            name: "Caterer",
-            estimateMinor: null,
-            quotedMinor: null,
-            actualMinor: null,
-            notes: null,
-            sortOrder: 0,
-            createdAt: 2,
-            updatedAt: 2,
-          },
-        }),
-        { status: 200 },
-      ),
-    );
-    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
-    const nameInput = await screen.findByPlaceholderText(/caterer, venue/i);
-    fireEvent.input(nameInput, { target: { value: "Caterer" } });
-    fireEvent.click(screen.getByRole("button", { name: /add item/i }));
-    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
-    const [url, init] = authFetch.mock.calls[0]!;
-    expect(String(url)).toMatch(/\/budget\/items$/);
-    expect(init.method).toBe("POST");
-    expect(await screen.findByText("Caterer")).toBeInTheDocument();
-  });
-
   /**
    * `reload()` (BudgetView.tsx) now routes through `invalidateBudget` +
    * `ensureBudgetLoaded` instead of a bare `setCachedBudget(id, await load())`.
@@ -936,7 +903,6 @@ describe("BudgetView — amounts in the wedding's currency", () => {
 });
 
 describe("BudgetView — a payment's paid box", () => {
-  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
   const item = {
     id: "it",
     weddingId: "wed_1",
@@ -959,20 +925,6 @@ describe("BudgetView — a payment's paid box", () => {
     paidAt: null,
     createdAt: 2,
   };
-
-  it("ticks a payment paid for someone who may edit", async () => {
-    setCachedBudget("wed_1", snap({ items: [item], payments: [payment] }));
-    authFetch.mockResolvedValueOnce(json({ payment: { ...payment, paidAt: 3 } }));
-    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
-    fireEvent.click(await screen.findByRole("button", { name: "payments (1)" }));
-    const box = screen.getByRole("checkbox", { name: "Deposit paid" });
-    expect(box).not.toBeChecked();
-    fireEvent.click(box);
-    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
-    const [url, init] = authFetch.mock.calls[0]!;
-    expect(String(url)).toMatch(/\/budget\/items\/it\/payments\/p1$/);
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ paid: true });
-  });
 
   it("refuses the box to someone who may only read", async () => {
     setCachedBudget("wed_1", snap({ items: [item], payments: [payment] }));

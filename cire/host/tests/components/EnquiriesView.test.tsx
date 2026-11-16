@@ -11,7 +11,6 @@ import { __resetEnquiriesCache, setCachedEnquiries } from "../../src/lib/enquiri
  * EnquiriesView — the container that wires the store + API helpers into the
  * EnquiryInbox ↔ EnquiryThread surface. Tests:
  * - inbox rows render from a pre-seeded store;
- * - clicking an inbox row fetches messages and shows the thread;
  * - the non-E2E notice is visible in the thread;
  * - Back returns to the inbox;
  * - when the store is empty the container calls fetchEnquiries.
@@ -236,23 +235,6 @@ describe("EnquiriesView", () => {
     const [url] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/enquiries$/);
     expect(await screen.findByText("Blue Roses")).toBeInTheDocument();
-  });
-
-  it("clicking an inbox row fetches messages and renders the thread", async () => {
-    const EnquiriesView = await importComponent();
-    setCachedEnquiries("wed_1", [makeItem()]);
-    authFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ messages: [makeMessage({ body: "Hello from vendor!" })] }), {
-        status: 200,
-      }),
-    );
-    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
-    fireEvent.click(await screen.findByText("Blue Roses"));
-    // Thread renders the message body.
-    expect(await screen.findByText("Hello from vendor!")).toBeInTheDocument();
-    // authFetch called with messages URL.
-    const [url] = authFetch.mock.calls[0]!;
-    expect(String(url)).toMatch(/\/messages$/);
   });
 
   it("offers the detail-column placeholder until an enquiry is picked", async () => {

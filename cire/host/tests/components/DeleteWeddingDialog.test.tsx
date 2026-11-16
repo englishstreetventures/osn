@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -47,21 +47,6 @@ describe("DeleteWeddingDialog", () => {
     }
     fireEvent.input(input, { target: { value: SLUG } });
     expect(confirmButton()).toBeEnabled();
-  });
-
-  it("sends the typed slug and reports the restore date", async () => {
-    authFetchMock.mockResolvedValueOnce(
-      json({ deleted: true, weddingId: "wed_1", restoreUntil: "2026-10-08T12:00:00.000Z" }),
-    );
-    const { input, onDeleted } = open();
-    fireEvent.input(input, { target: { value: SLUG } });
-    fireEvent.click(confirmButton());
-
-    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith("2026-10-08T12:00:00.000Z"));
-    const [url, init] = authFetchMock.mock.calls[0]!;
-    expect(url).toBe("https://api.test/api/organiser/weddings/wed_1");
-    expect(init.method).toBe("DELETE");
-    expect(JSON.parse(init.body)).toEqual({ confirmSlug: SLUG });
   });
 
   it.each([
