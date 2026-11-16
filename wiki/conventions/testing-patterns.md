@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Testing Patterns
@@ -36,9 +36,25 @@ Size and speed follow from the bar above, not from a ratio of test lines to sour
 - **It pins implementation detail.** Tailwind class strings on a component whose look a browser test or a flow already checks, a child tree mocked out to read props pass through, `mock.calls` on an internal collaborator, a count of how often a formatter was built.
 - **It repeats another test.** An E2E flow step or a sibling test checks the same behaviour. Name that step or test; "an E2E test could catch it" is not a name.
 - **It asserts nothing.** A file behind an opt-in environment flag that only takes pictures, or one that disables `expect-expect`. Such a file belongs under `tools/`, not in the suite.
-- **It waits on the real clock.** A test that sits out a five-second undo window uses fake timers instead; it keeps every assertion.
+- **It waits on the real clock.** A test that sits out a five-second undo window uses fake timers instead; it keeps every assertion, and a setup that still fails when the behaviour it names breaks.
 
-A deletion is read case by case, never cut by line range: most ranges one audit proposed held a refusal or a case no flow reached. Each removed case goes in the plan's table with the test or flow step that covers it afterwards. A cover counts only when it reaches the same branch whatever today's data holds, and through the same entry point. A stack test that reaches a branch because one product declares a value today (a location hint, invocation logs left on, a file present in two directories) stops covering it the day that value changes, with nothing turning red. A test of a function does not cover a test that runs the script around it: the script's argument parsing and exit codes are their own branch. These stay even when a flow touches them: a refusal or role gate, a per-currency money case where the flow proves one currency, and a drift guard for something the type checker cannot see (a renamed key that silently stops a prefetch). A flow that proves a deleted case's behaviour joins an existing flow's sign-in: the suite caps organiser sign-ins at seven (`tools/e2e/tests/flows.test.ts`), a cap its OIDC rate limits set.
+**Find flakes before planning.** Run the package's unit suite about 20 times, four copies at once, before choosing any cut. A case that fails under that load is fixed, with a time budget of its own or fake timers, and is never cut for being flaky.
+
+A deletion is read case by case, never cut by line range: most ranges one audit proposed held a refusal or a case no flow reached. Each removed case goes in the plan's table with the test or flow step that covers it afterwards. A cover counts only when it reaches the same branch whatever today's data holds, and through the same entry point. A stack test that reaches a branch because one product declares a value today (a location hint, invocation logs left on, a file present in two directories) stops covering it the day that value changes, with nothing turning red. A test of a function does not cover a test that runs the script around it: the script's argument parsing and exit codes are their own branch. A test in another package does not cover a library's case: that package may later be trimmed against this one, and this package's own mutation run no longer sees the line. `cire/envelope`'s `src/index.ts` scores 73.33 instead of 93.33 without "accepts every catalog id", the only case in the package that kills three of its mutants.
+
+*Measured 2026-11-16 — `bun run --cwd cire/envelope test:mutation --mutate src/index.ts`, with and without "accepts every catalog id" in `cire/envelope`'s tests*
+
+**A cover is proved, not read.** Before a case is cut, break the source line it guards, by hand ([[#Commit before you red-proof]]) or with `test:mutation --mutate <src>` where the package has it, and see the named cover go red with the case deleted; a cover that stays green is not a cover, and the case stays. Covers named by reading failed in every trim that checked them: 3 of 8 in `@shared/billing`, 8 of 31 in `@shared/infra`, 3 of 47 in `@tools/pr-metrics` and 4 of about 50 across fifteen small packages.
+
+*Measured 2026-11-16 — a hand break of each guarded source line, then the package's tests, in `@shared/billing`, `@tools/pr-metrics` and the fifteen small packages; in `@shared/infra`, a plan review and a test review that traced each cover's branch*
+
+**A cover survives the same pass.** When two cases each name the other as cover, one of them stays; a cut table never lists a cover as a cut.
+
+**A flow step is a cover no merge waits on.** The `E2E` job is not a required check on `main` and never runs in the merge queue ([[#The end-to-end suite]]): the `main` ruleset requires `CI`, `Require changeset`, `Migration history` and `Secret scan`, and the `CI` job in [`ci.yml`](../../.github/workflows/ci.yml) does not wait on `E2E`. So a case whose only cover is a flow step is cut only where the plan says so and the pull request lists it, and that flow is proved against the break like any other cover ([[#What to do with a survivor]], item 4). These stay even when a flow covers them: a refusal or role gate, a redaction, a per-currency money case where the flow proves one currency, and a drift guard for something the type checker cannot see (a renamed key that silently stops a prefetch). A flow that proves a deleted case's behaviour joins an existing flow's sign-in: the suite caps organiser sign-ins at seven (`tools/e2e/tests/flows.test.ts`), a cap its OIDC rate limits set.
+
+**A case that cannot fail is repaired, or cut against a proved cover; it is never moved as it is.** These look like tests and cannot fail: a duplicate-key check the type checker already makes, an idempotency case whose two calls land at the same instant, a pointer event with no `pointerId`, and a real-clock case whose setup hides the bug its name describes. Moving such a case to fake timers without fixing its setup keeps a test that cannot fail; [[#Assertions that cannot fail]] lists more shapes.
+
+**Report time honestly.** Give three runs before the cut and three after, interleaved (the base's tests and the branch's in turn), with their spread, or each file's duration from the test reporter. Where a suite's time sits in subprocess fixtures or environment start-up, cuts save lines, not seconds, and the report says so.
 
 ## The end-to-end suite
 
