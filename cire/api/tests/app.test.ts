@@ -196,6 +196,8 @@ describe("CORS preflight for the deployed portal origins", () => {
 const BEFORE_GUARD = new Set([
   "POST /api/csp-report/",
   "POST /internal/revoke-organiser-sessions",
+  "POST /internal/account-deletion-preview",
+  "POST /internal/account-deleted",
   "POST /api/rsvp-digest/stop",
   "POST /api/invite/resolve",
 ]);

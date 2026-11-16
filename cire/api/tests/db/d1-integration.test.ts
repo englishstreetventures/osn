@@ -69,6 +69,7 @@ import { INVITE_IMAGE_SLOTS } from "../../src/schemas/invite";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
 import { MAX_PLANS_PER_EVENT } from "../../src/schemas/seating";
+import { accountErasureService } from "../../src/services/account-erasure";
 import { AccountLinkConflict, accountLinkService } from "../../src/services/account-link";
 import { type AssetsBucket, assetReconcileService } from "../../src/services/asset-reconcile";
 import {
@@ -6667,6 +6668,78 @@ describe("the RSVP view and events export over real D1 (Miniflare)", () => {
       expect(reception.unresponded.map((g) => g.guestId)).toEqual([GUEST_1]);
       const ceremony = view.events.find((e) => e.id === EVENT_A)!;
       expect(ceremony.unresponded.map((g) => g.guestId)).toEqual([GUEST_1, GUEST_2]);
+    },
+    MF_TIMEOUT_MS,
+  );
+  it(
+    "erases an account on D1: the preview read, a co-owned wedding's batch and the account's clean-up",
+    async () => {
+      // Every statement binds the profile list as one JSON parameter, so a
+      // hundred profiles stay far inside D1's 100-parameter limit.
+      const shared = "wed_d1_shared";
+      const erased = "usr_d1_erased";
+      const profiles = [erased, ...Array.from({ length: 99 }, (_, i) => `usr_d1_other_${i}`)];
+      for (const statement of fullWeddingStatements(shared, { owner: "usr_d1_owner" })) {
+        await db.run(statement);
+      }
+      await db.insert(weddingHosts).values({
+        id: `whost_${shared}_erased`,
+        weddingId: shared,
+        osnProfileId: erased,
+        addedByOsnProfileId: "usr_d1_owner",
+        role: "owner",
+        createdAt: new Date(),
+      });
+      await db.insert(weddingHosts).values({
+        id: `whost_${shared}_editor`,
+        weddingId: shared,
+        osnProfileId: "usr_d1_editor",
+        addedByOsnProfileId: erased,
+        role: "editor",
+        createdAt: new Date(),
+      });
+      await db.run(
+        sql.raw(
+          `UPDATE rsvp_changes SET actor_osn_profile_id = '${erased}' WHERE wedding_id = '${shared}'`,
+        ),
+      );
+
+      const actions = await run(
+        accountErasureService.preview({
+          profileIds: profiles,
+          deletesAt: Math.floor(Date.now() / 1000),
+          organiserOrigin: "https://host.example.test",
+        }),
+      );
+      expect(actions.map((a) => [a.id, a.kind])).toEqual([
+        [`cire:wedding:${shared}`, "wedding_co_owned"],
+      ]);
+
+      const answer = await run(
+        accountErasureService.erase({
+          accountId: "acc_d1_erased",
+          profileIds: profiles,
+          choices: {},
+          deleteEverything: false,
+          email: "erased@example.test",
+          organiserOrigin: "https://host.example.test",
+        }),
+      );
+      expect(answer).toEqual({ status: "done", kept: [] });
+      const seats = await db
+        .select({ profile: weddingHosts.osnProfileId, addedBy: weddingHosts.addedByOsnProfileId })
+        .from(weddingHosts)
+        .where(eq(weddingHosts.weddingId, shared))
+        .orderBy(asc(weddingHosts.osnProfileId));
+      expect(seats).toEqual([
+        { profile: "usr_d1_editor", addedBy: "deleted" },
+        { profile: "usr_d1_owner", addedBy: "usr_d1_owner" },
+      ]);
+      const [change] = await db
+        .select({ actor: rsvpChanges.actorOsnProfileId })
+        .from(rsvpChanges)
+        .where(eq(rsvpChanges.weddingId, shared));
+      expect(change?.actor).toBe("");
     },
     MF_TIMEOUT_MS,
   );
