@@ -191,7 +191,7 @@ component was previously reading a container it did not live in.
   open, so the row count is asked for on the first open and kept per wedding
   (`module-rows-store.ts`, dropped with the other caches). Settings → Profile
   lists the same downloads for an owner in one place (`LockedModuleDownloads.tsx`).
-  Settings → Export (`#/w/<weddingId>/settings/export`, `WeddingExport.tsx`)
+  Settings › Export (`#/w/<weddingId>/settings/export`, `WeddingExport.tsx`)
   downloads the whole wedding as one ZIP at any plan, for an owner; every other
   role sees the page with a note and no button, and a helper, who has no
   Settings, sees that note over the run sheet at the same address. The page's

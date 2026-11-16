@@ -304,7 +304,7 @@ The organiser portal decides every role-driven affordance in one place, `cire/ho
 | The module write surfaces, and marking a household sent when its message is copied          | ✅    | ✅     | ❌     | ❌     | `weddingEditor()` |
 | The add-someone form, the role dropdown and the remove control on another person's row       | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | The CSV download buttons — guests, RSVPs, events, gifts, and the import's current-rows export | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
-| The whole-wedding download on Settings → Export; others see a note that only an owner can, a helper over the run sheet | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
+| The whole-wedding download on Settings › Export; others see a note that only an owner can, a helper over the run sheet | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | Stepping down, from the dropdown on the caller's own row (no remove there)                  | ✅    | ❌     | ❌     | ❌     | `weddingOwner()`  |
 | The "Sees:" dropdown on a helper's row — their own tasks or the whole run sheet; widening asks first | ✅ | ❌ | ❌ | ❌ | `weddingOwner()` |
 | The same scope as a read-only "Sees:" line on a helper's row                                 | ❌    | ✅     | ✅     | ❌     | `weddingMember()` |
