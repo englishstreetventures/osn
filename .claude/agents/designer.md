@@ -20,6 +20,7 @@ to show the result rendered. If the skill is not available in this session, read
 **Design skills run in stages, and `design-system` holds the routing.**
 
 - *Start.* Read `emil-design-eng` and `apple-design` before you design, for polish and feel.
+- *Before markup, CSS or client JS.* Search `modern-web-guidance` for the platform feature the task needs, with the pinned command `design-system` gives. A `DESIGN.md` value still wins.
 - *Middle.* When the owner must choose between versions, build them with `prototype`
   and show them with `stageshow`, as `design-system` says, and return the options
   as `NEEDS INPUT`.

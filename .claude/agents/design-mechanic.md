@@ -14,7 +14,9 @@ names the `DESIGN.md` or wiki page that governs the surface, and how to show the
 result rendered. If the skill is not available in this session, read
 `.claude/skills/design-system/SKILL.md` and follow it as written. You need no
 design skill from its Step 3: a change the system settles is applied from the
-document, not designed.
+document, not designed. When the change adds markup, CSS or client-side JS beyond
+a value swap, search `modern-web-guidance` first, with the pinned command in the
+same table.
 
 **Stop and report rather than decide.** Hand the task back, saying what the
 design system leaves open, when the change needs any of these:

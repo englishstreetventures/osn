@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
@@ -33,6 +33,31 @@ describe("skill files that routers open by path", () => {
       ".claude/skills/animation-performance/SKILL.md",
     ]) {
       expect(text).toContain(path);
+    }
+  });
+});
+
+describe("modern-web-guidance routing", () => {
+  const PINNED = "DISABLE_TELEMETRY=1 npx -y modern-web-guidance@1.0.0";
+
+  test("the design-system row holds the pinned, telemetry-off command", () => {
+    const text = readFileSync(join(ROOT, ".claude/skills/design-system/SKILL.md"), "utf8");
+    expect(text).toContain(PINNED);
+    expect(text).not.toMatch(/npx -y modern-web-guidance@latest/);
+  });
+
+  test("every file that routes to the skill is installed and linked", () => {
+    expect(existsSync(join(ROOT, ".agents/skills/modern-web-guidance/SKILL.md"))).toBe(true);
+    expect(lstatSync(join(ROOT, ".claude/skills/modern-web-guidance")).isSymbolicLink()).toBe(true);
+    for (const path of [
+      ".claude/agents/designer.md",
+      ".claude/agents/implementer.md",
+      ".claude/agents/design-mechanic.md",
+      ".claude/skills/design-system/SKILL.md",
+      ".claude/skills/new-feat/references/skills-routing.md",
+      ".claude/skills/review-design/SKILL.md",
+    ]) {
+      expect(readFileSync(join(ROOT, path), "utf8")).toContain("modern-web-guidance");
     }
   });
 });

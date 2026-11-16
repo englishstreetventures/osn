@@ -403,6 +403,19 @@ you could only reason about as `unmeasured` in `## Measurements`, with the metho
   gotchas apply: a `transform` on an ancestor of something `fixed`, `sticky`
   offsets against the scrollport, `overflow: hidden` making a scroll container.
 
+### Platform features
+
+`dialog|popover|anchor|position-anchor|@starting-style|view-transition|scroll-timeline|addEventListener("scroll"|getBoundingClientRect`
+
+- Where the diff hand-builds a modal, popover, tooltip, scroll effect or
+  transition, check that `modern-web-guidance` has no guide for it
+  (`design-system` Step 3 names the pinned command). A guide that fits, which
+  the diff ignores, is a finding, unless the surface's `DESIGN.md` names a
+  different value. A guide never overrides a `DESIGN.md`.
+- A script loaded from a CDN URL (`unpkg`, `esm.sh`, `jsdelivr`), copied from a guide's fallback, is a finding: a polyfill is a pinned dependency.
+- The skill's `### Modern Web Guidance` reply section belongs in chat only: a
+  commit message or PR body that carries it is a finding.
+
 ### Boundaries between surfaces
 
 - An edit to `@shared/ui` or `@shared/design-tokens` changes every surface that
