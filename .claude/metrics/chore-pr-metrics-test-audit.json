@@ -1,0 +1,191 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/pr-metrics-test-audit",
+    "base_sha": "76e4193a5a415b1ab1d7393848a5b444dc04de03",
+    "head_sha": "11112e1451dc0cbb4dd48ca6dd74fa2daa23d39b",
+    "generated_at": "2026-11-16T12:49:16.438Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2340,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-16T09:13:10.461Z",
+    "last_ts": "2026-11-16T12:49:08.247Z",
+    "span_seconds": 12958,
+    "active_seconds": 3849,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 42.807496799999974,
+    "tokens": {
+      "input": 792,
+      "output": 358079,
+      "thinking": 177263,
+      "cache_write_5m": 2468618,
+      "cache_write_1h": 0,
+      "cache_read": 58249147
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 792,
+          "output": 358079,
+          "thinking": 177263,
+          "cache_write_5m": 2468618,
+          "cache_write_1h": 0,
+          "cache_read": 58249147
+        },
+        "usd_equivalent": 42.807496799999974,
+        "messages": 377
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 792,
+          "output": 358079,
+          "thinking": 177263,
+          "cache_write_5m": 2468618,
+          "cache_write_1h": 0,
+          "cache_read": 58249147
+        },
+        "usd_equivalent": 42.807496799999974,
+        "messages": 378
+      }
+    },
+    "effort": {
+      "high": 171,
+      "xhigh": 206
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 10,
+      "docs": 0,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 11,
+        "deleted": 717
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "tools/pr-metrics"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 263,
+      "Read": 107,
+      "Edit": 33,
+      "Write": 10,
+      "SubagentHandback": 9,
+      "Agent": 8,
+      "Skill": 6,
+      "ToolSearch": 3,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 9
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "review-tests": 1,
+      "write-pr": 1
+    },
+    "subagents": {
+      "reviewer": 7,
+      "implementer": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 377,
+      "with_tools": 366,
+      "with_one_tool": 316,
+      "context_median": 140712,
+      "context_p90": 318821
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 3,
+    "located": 3,
+    "acted_on": 3,
+    "paired": 3,
+    "acted_on_paired": 3,
+    "control_changed": 0,
+    "acted_on_by_test": 3,
+    "acted_on_paired_by_test": 3
+  }
+}
