@@ -8,9 +8,11 @@
 -- default is untouched. The token grant mints for the account's default
 -- profile, so each account keeps one to sign in as.
 --
--- The Worker this release replaces writes nothing the index refuses: every
--- writer clears the old default before it sets a new one, in one batch, and
--- a new account's profile is its only one.
+-- The Worker this release replaces sets a default only by clearing the old
+-- one in the same batch, or on a new account's only profile. Its dev-tier
+-- sign-in alone would meet the index, by putting its fixed profile back as
+-- the default beside another; this release makes that insert plain where the
+-- account already has a default.
 UPDATE `users` SET `is_default` = 0
 WHERE `is_default` = 1
 	AND `id` <> (
