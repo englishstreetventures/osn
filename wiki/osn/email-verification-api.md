@@ -7,7 +7,7 @@ related:
   - "[[email-links]]"
   - "[[account-recovery-factors]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Email Verification API status
@@ -47,9 +47,11 @@ Register the host itself, never the parent zone. A token for `https://esv.tools`
 | Chrome versions | Available in Chrome 150 to 160 |
 | Ends | With the rollout of the Chrome release after 160, and no later than 2 March 2027, both tokens' own expiry. Chrome may end it sooner |
 | Served from | Two `Origin-Trial` lines in the `/*` rule of [`musubi/social/public/_headers`](../../musubi/social/public/_headers), on every page of both tiers. Cloudflare joins the two lines into one header, the tokens separated by a comma, which Chrome reads as two tokens; it ignores the one whose origin does not match the page |
-| Checked by | [`origin-trial.test.ts`](../../musubi/social/tests/origin-trial.test.ts): one token for each origin above, each signed by Chrome's key, for this feature, first-party, matching subdomains only on the dev zone, and more than 14 days from its expiry, so CI fails while there is time to renew |
+| Checked by | [`origin-trial.test.ts`](../../musubi/social/tests/origin-trial.test.ts): one token for each origin above, each signed by Chrome's key, for this feature, first-party, matching subdomains only on the dev host, and more than 14 days from its expiry, so CI fails while there is time to renew |
 
-Local stacks get no token: there Chrome never fills the field, and sign-up takes the emailed link. The dev token names the zone, so a new `DEV_DOMAIN` needs a new token ([[dev-environment#4. Bootstrapping the dev account]]). When Chrome announces the trial's end, decide whether to renew the tokens or remove the lines, and record the decision here.
+On dev, a token for the parent zone `https://esv.tools` showed `Success` in DevTools yet Chrome filled no token (observed 2026-11-16, before the nonce was set after insertion, so the nonce fault alone may have caused part of it); the token for `https://musubi.esv.tools` filled it. Keep the token on the host itself.
+
+Local stacks get no token: there Chrome never fills the field, and sign-up takes the emailed link. The dev token names the dev Musubi host, so a new `DEV_DOMAIN` needs a new token ([[dev-environment#4. Bootstrapping the dev account]]). When Chrome announces the trial's end, decide whether to renew the tokens or remove the lines, and record the decision here.
 
 ## Our code
 
@@ -107,7 +109,7 @@ You need desktop Chrome 150 or later, a Chrome profile signed in to a Gmail acco
 
 **When the email arrives instead**, find which of three things went wrong.
 
-- **Chrome sent no token**: the begin body has no `emailVerificationToken`. Suspect first the `nonce` attribute. Musubi's `Content-Security-Policy` arrives in a header, so the HTML standard hides the hidden field's `nonce` attribute from the page once the field is in the document; DevTools' Elements tab then shows `nonce=""`. The WICG text has the browser read "the value of the `nonce` attribute". If Chrome reads the attribute as the page now sees it, empty, no token ever comes. Then check the trial itself: DevTools → Application → Frames → `top` lists the page's origin trials, and `EmailVerificationProtocol` should show the dev token as valid. Last, check the address came from the autofill list and the profile is signed in to that Gmail account.
+- **Chrome sent no token**: the begin body has no `emailVerificationToken`. Check the hidden field's `nonce` attribute first: `document.querySelector('input[autocomplete="email-verification-token"]').getAttribute('nonce').length` is 43 in DevTools' console. Chrome blanks a `nonce` attribute set while the field is inserted into a page whose `Content-Security-Policy` arrives in a header, and the form sets it afterwards for that reason; an empty value means the form regressed. Then check the trial itself: DevTools → Application → Frames → `top` lists the page's origin trials, and `EmailVerificationProtocol` should show the dev token as valid. Last, check the address came from the autofill list and the profile is signed in to that Gmail account.
 - **Chrome sent a token and the verifier refused it**: read the `outcome` attribute on the `auth.email_verification.verify` span in osn-api-dev's traces, in the dev account's Cloudflare dashboard (Workers Observability). The counter `osn.auth.email_verification.tokens{outcome}` records the same value but reaches no exporter yet.
 - **The begin failed outright**, with an error on the page and no email: read osn-api-dev's Workers Logs. Dev is on Workers Free, which allows 10 ms of CPU time a request ([[free-tier-limits#Cloudflare Workers]]), and a token with no `kid` makes the verifier try each of Gmail's keys in turn.
 

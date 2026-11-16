@@ -310,7 +310,7 @@ musubi stack's Worker alike: `frame-ancestors 'none'` plus
 `X-Frame-Options: DENY` (a consent screen must never be framed),
 `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`.
 Two `Origin-Trial` lines enrol the sign-up form in Chrome's Email Verification
-Protocol trial, one token for `musubi.social` and one for the dev zone; each tier
+Protocol trial, one token for `musubi.social` and one for the dev host `musubi.<DEV_DOMAIN>`; each tier
 sends both, and Chrome ignores the one for the other origin
 ([[email-verification-api#Our origin trial]]).
 

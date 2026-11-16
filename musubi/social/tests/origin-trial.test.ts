@@ -107,7 +107,7 @@ describe("the Email Verification Protocol origin trial", () => {
 
   // A header can carry only a first-party token; a third-party one works only
   // from an external script.
-  it("matches subdomains only on the dev zone, and is never third-party", () => {
+  it("matches subdomains only on the dev host, and is never third-party", () => {
     for (const token of tokens) {
       const { payload } = decode(token);
       const origin = String(payload.origin);

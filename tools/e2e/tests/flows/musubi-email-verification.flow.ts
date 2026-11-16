@@ -75,9 +75,7 @@ test("musubi-email-verification", async ({ page, context, browser, flow }) => {
     await expect(page.locator(TOKEN_FIELD)).toBeAttached();
   });
 
-  const nonce = await page
-    .locator(TOKEN_FIELD)
-    .evaluate((el) => (el as HTMLInputElement).nonce || el.getAttribute("nonce") || "");
+  const nonce = await page.locator(TOKEN_FIELD).evaluate((el) => el.getAttribute("nonce") ?? "");
   flow.check("the field carries a nonce", true, nonce.length > 0);
   const token = await emailVerificationTokenFor(hedy.email, nonce);
 

@@ -132,8 +132,8 @@ osn-api.
   it unset. A Chrome signed in to Gmail can prove its address at sign-up with no
   email; the owner's steps are in [[email-verification-api#Testing on the dev tier]].
 - **Chrome origin-trial tokens for the dev zone.** Each trial that has a
-  production token has a second one registered for `DEV_DOMAIN` with its
-  subdomains. Every tier serves both, and Chrome accepts the dev one only on a
+  production token has a second one registered for the dev host itself
+  (`musubi.<DEV_DOMAIN>`), with its subdomains. Every tier serves both, and Chrome accepts the dev one only on a
   dev host: `EmailVerificationProtocol` on musubi social
   ([[email-verification-api#Our origin trial]]), `HTMLInCanvas` on the guest site
   and `WebMCP` on the organiser portal ([[cire-development#Chrome origin trials]]).
@@ -481,7 +481,7 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
 2. **The `dev` Environment's variables.** `DEV_DOMAIN`: the zone, bare, no
    scheme. `PUBLIC_TURNSTILE_SITEKEY` and `PUBLIC_GOOGLE_MAPS_EMBED_KEY` stay as
    they are. Leave `CIRE_DEV_OWNER_PROFILE_ID` unset until step 8. A new zone
-   also needs new dev origin-trial tokens: each is registered for the zone, and
+   also needs new dev origin-trial tokens: each is registered for its dev host, and
    Chrome ignores it on any other, with no error
    ([[#What dev turns on that production does not]]).
 3. **Credentials.** `CLOUDFLARE_DEV_ACCOUNT_ID`;
