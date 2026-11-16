@@ -123,6 +123,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-upgrades]] — self-serve purchase of a plan tier: catalogue, platform Stripe checkout, the webhook that raises the tier
 - [[cire-invite-designs]] — the invite design selector
 - [[cire-envelope]] — the wax-sealed envelope a guest opens before the invite: who sees it, the card drawn from the live hero, boot and failure rules
+- [[cire-invite-look-study]] — investigation: how a leading digital-invite service builds its invites and envelope, cire's gaps, and the open questions for iPhone, App Clips, Pulse iOS and AI-made materials
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
 - [[cire-plus-ones]] — a guest's plus-one: the organiser's permission, the household's naming, how the change pipeline treats them
