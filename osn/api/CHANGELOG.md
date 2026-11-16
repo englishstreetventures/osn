@@ -1,5 +1,11 @@
 # @osn/osn
 
+## 3.42.5
+
+### Patch Changes
+
+- 048a636: Production sign-up accepts a browser Email Verification API token: a person on Chrome signed in to Gmail joins with no emailed link. Dev already did.
+
 ## 3.42.4
 
 ### Patch Changes

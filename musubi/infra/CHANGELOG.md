@@ -1,5 +1,11 @@
 # @musubi/infra
 
+## 0.6.4
+
+### Patch Changes
+
+- 048a636: Production sign-up accepts a browser Email Verification API token: a person on Chrome signed in to Gmail joins with no emailed link. Dev already did.
+
 ## 0.6.3
 
 ### Patch Changes
