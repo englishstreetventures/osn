@@ -322,19 +322,22 @@ describe("the account-deletion calls", () => {
 
   // osn-api reads any 2xx as cire finished and goes on to the hard delete, so
   // a failed batch must answer 500 for osn-api to call again.
-  it("T-E1: a failed erasure answers 500, writes nothing, and the next call finishes", async () => {
+  // Each case fails the first statement of one step: on bun:sqlite a batch is
+  // not atomic, and on D1 a failed batch writes nothing.
+  it.each([
+    ["the read of owned weddings", /^select .* from "wedding_hosts"/i],
+    ["a wedding's batch", /^delete from "host_rsvp_notices" where (?!.*NOT EXISTS)/i],
+    ["the account's clean-up", /^delete from "host_rsvp_notices" where .*NOT EXISTS/i],
+  ])("T-E1: a failure in %s answers 500, and the next call finishes", async (_step, pattern) => {
     const { db, app } = setup([P]);
     const token = await arc.token("account:erase");
-    const failing = failStatements(db, (statement) =>
-      /^delete from "host_rsvp_notices"/i.test(statement),
-    );
+    const failing = failStatements(db, (statement) => pattern.test(statement));
     const before = await erasures("error");
     const res = await post(app, ERASE, token, eraseBody);
     expect(res.status).toBe(500);
     expect(await jsonBody(res)).toEqual({ error: "internal_error" });
     expect(await erasures("error")).toBe(before + 1);
     expect(failing.failed()).toBeGreaterThan(0);
-    expect(untouched(db)).toBe(true);
 
     failing.restore();
     expect((await post(app, ERASE, token, eraseBody)).status).toBe(200);

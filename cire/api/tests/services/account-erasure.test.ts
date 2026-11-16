@@ -308,6 +308,20 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(liveWithNoOwner(db)).toEqual([]);
   });
 
+  it("F21: a seat another call removed first is not counted again", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P, OTHER]);
+    // The read finds the person's owner seat; another call removes it before
+    // this call's batch.
+    beforeStatement(db, /delete from "host_rsvp_notices"/i, () => {
+      db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, P)).run();
+    });
+    const before = await weddingOutcomes();
+    expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+    expect(await weddingOutcomes()).toEqual(before);
+    expect(weddingRow(db, "w1")?.deletedAt).toBeNull();
+  });
+
   it("F21: a repeat call writes nothing more and answers the same", async () => {
     const db = makeDb();
     wedding(db, "w1", [P]);
