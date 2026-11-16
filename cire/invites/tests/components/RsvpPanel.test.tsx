@@ -2810,7 +2810,9 @@ describe("RsvpPanel", () => {
       // Each box, and Save, is found once and held: all three stay on the page
       // through every step, and a lookup by name reads the name of every
       // checkbox in the sheet. A box the sheet re-created would be a detached
-      // node here, which a click cannot tick, so the next step would fail.
+      // node here, which a click cannot tick, so the next step would fail. No
+      // click follows the last step, so it checks the page still holds these
+      // two boxes and no other.
       const own = ownBox();
       const attest = attestBox();
       const save = screen.getByText("Save");
@@ -2841,6 +2843,14 @@ describe("RsvpPanel", () => {
       await waitFor(() =>
         expect(screen.getByRole("alert").textContent).toMatch(/Could not connect/),
       );
+      // One lookup matches both, since both end with these words. `toBe`, as
+      // `toEqual` would pass a re-created node with the same attributes.
+      const boxes = screen.getAllByRole("checkbox", {
+        name: /stored and shared with the caterers/i,
+      });
+      expect(boxes).toHaveLength(2);
+      expect(boxes[0]).toBe(own);
+      expect(boxes[1]).toBe(attest);
       expect(unlinked(own)).toEqual([false, false]);
       expect(unlinked(attest)).toEqual([false, false]);
     });
