@@ -1600,8 +1600,15 @@ person's Cire data), so the decisions below start from someone arriving on it:
   line, "Preparing your download…", pulsing on the loaders' pulse until the
   archive ends, and one line saying many pictures can take a minute. The
   answer has no length, so the count is the only progress there is.
+  This is not the look of Profile's per-module CSV downloads (`LockedExport`:
+  the label becomes "Downloading…", the button is `disabled`, a toast reports):
+  that pattern stays the look for short downloads, while the archive has no
+  known length and can take a minute, so it keeps the button's name with
+  `aria-disabled` (focus stays), shows `Loading` and the count, and reports in
+  a `Notice`.
 - **Saved.** A `success` `Notice` at `sm`: "Downloaded
-  cire-wedding-<slug>.zip (4.2 MB).", the file name in the code face. It sits in
+  cire-wedding-<slug>.zip (4.2 MB).", the file name in the code face, which may break anywhere
+  (a slug can be 60 letters with no hyphen). It sits in
   a `role="status"` region mounted with the page and named "Wedding downloaded"
   only while it holds the notice: a live region inserted with its words is read
   unreliably (`PaletteField` does the same).

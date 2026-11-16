@@ -162,7 +162,8 @@ export default function WeddingExport(props: {
             <Show when={ready()}>
               {(saved) => (
                 <Notice tone="success" size="sm" class="mt-3">
-                  Downloaded <span class="font-ui-mono">{saved().fileName}</span> (
+                  Downloaded{" "}
+                  <span class="font-ui-mono [overflow-wrap:anywhere]">{saved().fileName}</span> (
                   <span data-numeric>{formatBytes(saved().size)}</span>).
                 </Notice>
               )}
@@ -187,7 +188,7 @@ export default function WeddingExport(props: {
         <ul class="font-body text-text-muted text-ui-sm leading-ui-normal flex max-w-prose list-disc flex-col gap-1 pl-5">
           <For each={CONTENTS}>{(line) => <li>{line}</li>}</For>
         </ul>
-        <p class={`${hintClass} max-w-prose`}>
+        <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">
           A file named <span class="font-ui-mono">manifest.json</span> lists every file and says why
           any were left out. Messages with vendors are not included. It holds your guests&apos;
           details, so keep it somewhere private.
