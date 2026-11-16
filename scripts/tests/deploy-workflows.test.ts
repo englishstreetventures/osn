@@ -31,6 +31,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2500,39 +2501,53 @@ describe("ci-swift.yml's change filter", () => {
     (s) => s.id === "filter",
   );
 
-  function ios(files: readonly string[]): string {
+  // git's defaults, whatever the machine sets: `core.quotepath` is what
+  // quotes a non-ASCII name.
+  const GIT = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
+
+  /** The filter step's `ios` output, and its log, for a push that adds `files`. */
+  function filterRun(files: readonly string[]): { ios: string; log: string } {
     const dir = mkdtempSync(join(tmpdir(), "ci-swift-changes-"));
-    const git = (...args: string[]) =>
-      Bun.spawnSync(["git", "-c", "user.email=t@example.com", "-c", "user.name=T", ...args], {
-        cwd: dir,
-        env: { PATH: process.env.PATH ?? "", GIT_CONFIG_GLOBAL: "/dev/null" },
-      })
-        .stdout.toString()
-        .trim();
-    git("init", "-q", "-b", "main");
-    writeFileSync(join(dir, "README.md"), "1\n");
-    git("add", ".");
-    git("commit", "-qm", "base");
-    const base = git("rev-parse", "HEAD");
-    for (const file of files) {
-      mkdirSync(dirname(join(dir, file)), { recursive: true });
-      writeFileSync(join(dir, file), "1\n");
+    try {
+      const git = (...args: string[]) => {
+        const proc = Bun.spawnSync(
+          ["git", "-c", "user.email=t@example.com", "-c", "user.name=T", ...args],
+          { cwd: dir, env: { PATH: process.env.PATH ?? "", ...GIT } },
+        );
+        if (proc.exitCode !== 0)
+          throw new Error(`git ${args.join(" ")}: ${proc.stderr.toString()}`);
+        return proc.stdout.toString().trim();
+      };
+      git("init", "-q", "-b", "main");
+      writeFileSync(join(dir, "base.txt"), "base\n");
+      git("add", ".");
+      git("commit", "-qm", "base");
+      const base = git("rev-parse", "HEAD");
+      for (const file of files) {
+        mkdirSync(dirname(join(dir, file)), { recursive: true });
+        writeFileSync(join(dir, file), "changed\n");
+      }
+      git("add", ".");
+      git("commit", "-qm", "change");
+      const outputFile = join(dir, "github-output");
+      const step = Bun.spawnSync(
+        ["bash", "--noprofile", "--norc", "-e", "-c", filter?.run ?? "exit 9"],
+        {
+          cwd: dir,
+          env: {
+            PATH: process.env.PATH ?? "",
+            ...GIT,
+            GITHUB_OUTPUT: outputFile,
+            EVENT_NAME: "push",
+            BEFORE_SHA: base,
+          },
+        },
+      );
+      const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
+      return { ios: /^ios=(.*)$/m.exec(written)?.[1] ?? "<none>", log: step.stdout.toString() };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
-    git("add", ".");
-    git("commit", "-qm", "change");
-    const outputFile = join(dir, "github-output");
-    Bun.spawnSync(["bash", "--noprofile", "--norc", "-e", "-c", filter?.run ?? "exit 9"], {
-      cwd: dir,
-      env: {
-        PATH: process.env.PATH ?? "",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GITHUB_OUTPUT: outputFile,
-        EVENT_NAME: "push",
-        BEFORE_SHA: base,
-      },
-    });
-    const written = existsSync(outputFile) ? readFileSync(outputFile, "utf8") : "";
-    return /^ios=(.*)$/m.exec(written)?.[1] ?? "<none>";
   }
 
   test.each([
@@ -2542,6 +2557,13 @@ describe("ci-swift.yml's change filter", () => {
     ["README.md", "false"],
     ['wiki/Say "hi".md', "false"],
   ])("%s runs the Swift jobs: %s", (file, expected) => {
-    expect(ios([file])).toBe(expected);
+    expect(filterRun([file]).ios).toBe(expected);
+  });
+
+  test("a file's name cannot write a workflow command into the step's log", () => {
+    const { ios, log } = filterRun(["::warning::forged", "pulse/ios/a.swift"]);
+    expect(ios).toBe("true");
+    expect(log).toContain("  - ::warning::forged\n");
+    expect(log.split("\n").filter((line) => line.trimStart().startsWith("::"))).toEqual([]);
   });
 });

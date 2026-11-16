@@ -240,19 +240,31 @@ test("changedFiles lists each name as written, whatever bytes it holds", async (
   });
 });
 
+// The runner trims a log line's leading whitespace, then reads a line that
+// starts with `::` as a workflow command; it splits lines on \n and \r only.
 test("a file's name cannot write a workflow command into the run log", async () => {
   await withRepo(async (repo, output) => {
     const before = await commit(repo, { "README.md": "1" });
-    await commit(repo, { "cire/landing/src/x\n::warning::forged\u001b[31m.astro": "1" });
+    await commit(repo, {
+      "cire/landing/src/x\n::warning::forged\u001b[31m.astro": "1",
+      "::warning::top-level": "1",
+      " ::warning::after a no-break space": "1",
+      "\u0085::warning::after a next-line character": "1",
+      " ::warning::after an em space": "1",
+    });
     const { exitCode, stdout } = await run(
       ["bun", "run", SCRIPT, "--event", "push", "--base", before],
       repo,
       { GITHUB_OUTPUT: output },
     );
     expect(exitCode).toBe(0);
-    expect(stdout.split("\n").filter((line) => line.startsWith("::"))).toEqual([]);
+    // .NET's whitespace, which the runner trims: JavaScript's, and U+0085.
+    const trimmed = (line: string) => line.replace(/^[\s\u0085]+/, "");
+    const commands = stdout.split(/\r?\n|\r/).filter((line) => trimmed(line).startsWith("::"));
+    expect(commands).toEqual([]);
     expect(stdout).not.toContain("\u001b");
-    expect(stdout).toContain("  cire/landing/src/x\\u000a::warning::forged\\u001b[31m.astro\n");
+    expect(stdout).toContain("  - cire/landing/src/x\\u000a::warning::forged\\u001b[31m.astro\n");
+    expect(stdout).toContain("  - ::warning::top-level\n");
     expect(parseOutput(await readFile(output, "utf8")).cire_landing).toBe("true");
   });
 });

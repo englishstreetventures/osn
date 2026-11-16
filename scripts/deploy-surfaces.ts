@@ -410,9 +410,11 @@ export function changedFiles(
 }
 
 /**
- * Text for the run log. A file's name can hold a line break or another control
- * character, and a log line that starts with `::` is a workflow command to the
- * runner, so each control character is written as an escape.
+ * Text for the run log, with each control character written as an escape. The
+ * runner reads a log line as a workflow command when it starts with `::` once
+ * its leading whitespace is trimmed, and a file's name can hold a line break
+ * or start with `::`. So a name is printed escaped, and never first on its
+ * line: the CLI puts `- ` before each one.
  */
 export function forLog(text: string): string {
   return text.replace(
@@ -535,7 +537,7 @@ if (import.meta.main) {
   if (event === "push" && files === undefined) {
     process.stdout.write(`cannot diff against '${forLog(base)}' — deploying every dev surface\n`);
   } else if (files !== undefined && files.length > 0) {
-    process.stdout.write(`changed files:\n${files.map((f) => `  ${forLog(f)}`).join("\n")}\n`);
+    process.stdout.write(`changed files:\n${files.map((f) => `  - ${forLog(f)}`).join("\n")}\n`);
   }
   const decisions = devDecisions({ event, files });
   for (const d of decisions) {
