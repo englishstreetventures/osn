@@ -358,10 +358,11 @@ export function createOsnAuthLive(
       // undefined = not loaded, null = no session, AccountSession = loaded
       let cache: AccountSession | null | undefined;
 
-      // Profiles this page has deleted. A renewal that was out when one was
-      // deleted can come back with a token for it, minted before the delete
-      // committed; that token is never kept (`doRefresh`). Profile ids are
-      // never reused, so the set is never cleared.
+      // Profiles this page has deleted. A renewal or a switch that was out
+      // when one was deleted can come back with a token for it, minted before
+      // the delete committed; that token is never kept (`doRefresh`,
+      // `switchProfile`). Profile ids are never reused, so the set is never
+      // cleared.
       const deletedProfiles = new Set<string>();
 
       // Moves whenever the session this page holds is replaced or ended
@@ -1464,6 +1465,13 @@ export function createOsnAuthLive(
           // Use the server-authoritative profile ID, not the caller-supplied one
           const account = yield* currentAccount();
           const serverProfileId = (res.profile as PublicProfile).id;
+          // The profile was deleted while the switch was out: its token is not
+          // kept and the active profile stays, as for a renewal (`doRefresh`).
+          if (deletedProfiles.has(serverProfileId)) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "the profile was deleted during the switch" }),
+            );
+          }
           const expiresAt = Date.now() + res.expires_in * 1000;
           account.profileTokens[serverProfileId] = {
             accessToken: res.access_token,

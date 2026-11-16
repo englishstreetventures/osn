@@ -981,6 +981,49 @@ describe("authFetch on the page's runtime", () => {
     );
   });
 
+  it("F48: a switch to a profile deleted while the switch was out keeps no token for it and changes nothing", async () => {
+    // The issuer minted for the profile before the delete committed.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const fetches = stubFetch({
+      api: async (call) => {
+        if (call.url === `${ISSUER}/profiles/switch`) {
+          await released;
+          return json(200, {
+            access_token: jwt({ sub: OTHER, iat: nowSec(), exp: nowSec() + 300 }),
+            expires_in: 300,
+            profile: {
+              id: OTHER,
+              handle: "other",
+              email: "other@example.com",
+              displayName: null,
+              avatarUrl: null,
+            },
+          });
+        }
+        if (call.url === `${ISSUER}/profiles/delete`) {
+          return json(200, { deleted: true, default_profile_id: DEFAULT });
+        }
+        return json(200, { ok: true });
+      },
+    });
+    const { runtime } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
+
+    const switching = rejection(
+      runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.switchProfile(OTHER))),
+    );
+    await vi.waitFor(() => expect(fetches.to("/profiles/switch")).toHaveLength(1));
+    await deleteProfile(runtime, OTHER);
+    release();
+
+    expect(tagOf(await switching)).toBe("ProfileManagementError");
+    expect(await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getActiveProfile()))).toBe(
+      DEFAULT,
+    );
+    await runtime.authFetch(API);
+    expect(bearerSub(fetches.api()[0])).toBe(DEFAULT);
+  });
+
   it("F31: concurrent refusals end the session once, and a throwing listener stops no other", async () => {
     const thrown: unknown[] = [];
     const realQueue = globalThis.queueMicrotask;
