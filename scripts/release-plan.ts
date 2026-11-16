@@ -39,6 +39,12 @@
  * shared ones) as the release commit. Otherwise it is held back, and the next
  * release asks again.
  *
+ * What a release's version bump wrote is not content. Each diff, for both
+ * checks, first sets aside the files whose only change is a package version
+ * or a changelog — the bot commits release.yml pushes after a merge — so a
+ * surface whose only change is a version is unchanged, and dev's run of the
+ * merge counts for the version commits after it (scripts/version-bump.ts).
+ *
  * A release never rolls a surface back. When production already runs a commit
  * that contains the release commit — an older release re-run in full — the
  * surface is left alone unless the release is forced.
@@ -81,7 +87,6 @@
 import { appendFileSync } from "node:fs";
 
 import {
-  changedFiles,
   changesContent,
   deployReason,
   isAncestor,
@@ -99,6 +104,7 @@ import {
   type Tier,
   WORKFLOW_FILE,
 } from "./deploy-surfaces";
+import { contentDiff } from "./version-bump";
 
 /**
  * Where Deployment records are read: each tier's Environment, and
@@ -626,7 +632,10 @@ export interface PlanDecision {
   readonly reason: string;
 }
 
-/** Files that differ between `from` and the release commit; undefined when git cannot say. */
+/**
+ * Files that differ between `from` and the release commit, less those a
+ * version bump alone changed; undefined when git cannot say.
+ */
 export type Diff = (from: string) => readonly string[] | undefined;
 
 const short = (sha: string) => sha.slice(0, 7);
@@ -1120,11 +1129,9 @@ export async function runReleasePlan(options: {
     repository,
     apiUrl: env.GITHUB_API_URL || "https://api.github.com",
   });
-  const diffs = new Map<string, readonly string[] | undefined>();
-  const diff: Diff = (from) => {
-    if (!diffs.has(from)) diffs.set(from, changedFiles(from, head, options.cwd));
-    return diffs.get(from);
-  };
+  // Every comparison below, the production check and the dev gate alike,
+  // reads this one diff, which leaves out what a release's version bump wrote.
+  const diff: Diff = contentDiff(head, options.cwd);
 
   const newer = new Map<string, boolean>();
   const productionIsNewer = (commit: string): boolean => {
