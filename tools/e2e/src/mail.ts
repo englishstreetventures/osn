@@ -1,9 +1,11 @@
 /**
- * A stand-in for the Resend API, so osn-api's real email path runs and the
- * flows can read the one-time codes it sends.
+ * A stand-in for the Resend API, so osn-api's and cire-api's real email paths
+ * run and the flows can read what they send: osn-api's one-time codes, and
+ * cire-api's owner notices.
  *
- * osn-api sends through Resend when `RESEND_API_KEY` and a loopback
- * `RESEND_API_URL` are both set (`osn/api/src/local.ts`); it posts to `/emails`
+ * Each sends through Resend when `RESEND_API_KEY` and a loopback
+ * `RESEND_API_URL` are both set (`osn/api/src/local.ts`,
+ * `cire/api/src/lib/resend-email.ts`); they post to `/emails`
  * and `/emails/batch` (`shared/email/src/resend.ts`). This server takes both,
  * keeps every message in arrival order, and serves them back at
  * `GET /__e2e/mail?to=<address>`.

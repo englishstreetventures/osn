@@ -18,6 +18,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { oidcConfigFromEnv } from "./lib/oidc";
 import { organiserOriginFrom } from "./lib/organiser-origin";
+import { createOwnerNotices } from "./lib/owner-notice-email";
 import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile-alert-email";
 import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { resendEmailConfig } from "./lib/resend-email";
@@ -911,10 +912,21 @@ const handler: ExportedHandler<Env> = {
     // keep being asked for even where upgrades are no longer sold.
     const upgradeStripe = createStripeClientFromEnv(env);
     if (upgradeStripe) {
+      // A refund the reconciliation lands is told to the wedding's owners, as
+      // the webhook's is, where cire can send owner mail.
+      const refundNotices =
+        organiserEmailLookup && resendConfig
+          ? createOwnerNotices({
+              lookup: organiserEmailLookup,
+              emailLayer: makeResendEmailLive(resendConfig),
+              portalUrl: organiserOriginFrom(env.WEB_ORIGIN).replace(/\/+$/, ""),
+            })
+          : undefined;
       const upgrades = createUpgradeService({
         stripe: upgradeStripe,
         // `reconcile` prices nothing; the service needs a catalogue to exist.
         catalogue: createUpgradeCatalogue({ stripe: upgradeStripe, prices: {} }),
+        notifyRefund: refundNotices?.refundIssued,
       });
       runSweep(() =>
         runCire(

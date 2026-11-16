@@ -48,6 +48,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { dispatchNotice } from "../lib/owner-notice-email";
 import { MAX_EVENT_BYTES, readBoundedText } from "../lib/webhook-body";
 import { runCire } from "../observability";
 import { RefundFailedObject } from "../schemas/upgrade";
@@ -160,6 +161,10 @@ export const createStripePlatformWebhookRoutes = (db: Db, deps: StripePlatformWe
                 typeof session?.amount_total === "number" ? session.amount_total : null,
               paidCurrency: str(session?.currency),
               paymentIntentId: str(session?.payment_intent),
+              // The owners' refund mail goes after the answer, so Stripe is
+              // not kept waiting on osn-api and Resend.
+              deferNotice: (notice) =>
+                dispatchNotice(request, notice.pipe(Effect.provideService(DbService, db))),
             });
             return { received: true, outcome };
           }

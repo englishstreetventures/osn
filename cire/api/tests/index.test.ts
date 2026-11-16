@@ -1387,6 +1387,122 @@ describe("D1 session routing at the entry points", () => {
     }
   }, 30_000);
 
+  /**
+   * Lands one refund Stripe refused a day ago through the Worker's `scheduled`
+   * entry, with Stripe, osn-api and Resend stubbed at `fetch`, and reports
+   * what reached each and the record left behind.
+   */
+  async function landRefundThroughCron(id: string, env: Record<string, unknown>) {
+    const db = createD1Db(DB);
+    const now = new Date();
+    await db
+      .insert(weddings)
+      .values({
+        id: `wed_${id}`,
+        slug: id.replaceAll("_", "-"),
+        displayName: "Cron Refund",
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: now,
+      })
+      .onConflictDoNothing();
+    await db
+      .insert(weddingHosts)
+      .values(ownerSeat(`wed_${id}`, "usr_cron_owner"))
+      .onConflictDoNothing();
+    // Decided a day ago and refused since: the oldest refund in the queue.
+    const decided = Math.floor(now.getTime() / 1000) - 24 * 60 * 60;
+    await DB.batch([
+      DB.prepare(
+        `INSERT INTO wedding_upgrade_purchases
+           (id, wedding_id, entitlement, from_tier, status, checkout_session_id, payment_intent_id,
+            amount_minor, currency, created_by_osn_profile_id, created_at, updated_at)
+         VALUES (?, ?, 'gold', 'ivory', 'refunding', ?, ?, 4900, 'AUD', 'usr_cron_owner', ?, 1)`,
+      ).bind(`upg_${id}`, `wed_${id}`, `cs_${id}`, `pi_${id}`, decided),
+      DB.prepare(
+        `INSERT INTO platform_refunds
+           (id, purchase_id, entitlement, payment_intent_id, amount_minor, currency, reason,
+            status, refund_id, owners_notified_at, created_at, updated_at)
+         VALUES (?, ?, 'gold', ?, 4900, 'AUD', 'wedding_not_live', 'refunding', NULL, NULL, ?, 1)`,
+      ).bind(`rfd_${id}`, `upg_${id}`, `pi_${id}`, decided),
+    ]);
+
+    const refunds: string[] = [];
+    const lookups: string[] = [];
+    const mail: { to: string[]; subject: string }[] = [];
+    const spy = spyOn(globalThis, "fetch").mockImplementation(((
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === "https://api.stripe.com/v1/refunds") {
+        refunds.push(String(init?.body));
+        return Promise.resolve(Response.json({ id: `re_${id}`, status: "succeeded" }));
+      }
+      if (url === "https://osn.example.test/internal/accounts/emails") {
+        lookups.push(url);
+        return Promise.resolve(
+          Response.json({
+            emails: [{ profile_id: "usr_cron_owner", email: "owner@example.test" }],
+          }),
+        );
+      }
+      if (url.startsWith("https://api.resend.com/")) {
+        const body = JSON.parse(String(init?.body)) as unknown;
+        for (const one of Array.isArray(body) ? body : [body]) {
+          mail.push(one as { to: string[]; subject: string });
+        }
+        return Promise.resolve(Response.json({ id: "email_test", data: [{ id: "email_test" }] }));
+      }
+      // Any other sweep's call is not what is under test.
+      return Promise.resolve(Response.json({}, { status: 404 }));
+    }) as typeof fetch);
+    try {
+      await captureLogs(() =>
+        runCron({
+          STRIPE_SECRET_KEY: "sk_test_cron",
+          WEB_ORIGIN: "https://invite.example.com,https://host.example.com",
+          ...env,
+        }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    const record = await DB.prepare(
+      "SELECT status, refund_id, owners_notified_at FROM platform_refunds WHERE purchase_id = ?",
+    )
+      .bind(`upg_${id}`)
+      .first<{ status: string; refund_id: string | null; owners_notified_at: number | null }>();
+    const ours = refunds.filter((body) => body.includes(`payment_intent=pi_${id}`));
+    const told = mail.filter((m) => m.subject === "Your Cire upgrade payment has been refunded");
+    return { ours, lookups, told, record };
+  }
+
+  // The daily run is the second way a refund lands, and the cron builds its
+  // own owner notices for it: a refund it completes mails the wedding's owner,
+  // through Resend, at the address osn-api gives.
+  it("mails the wedding's owner when the daily run lands a refund Stripe refused before", async () => {
+    const landed = await landRefundThroughCron("cron", {
+      RESEND_API_KEY: "re_test",
+      ...(await osnArc()),
+    });
+    expect(landed.ours).toHaveLength(1);
+    expect(landed.told).toEqual([expect.objectContaining({ to: ["owner@example.test"] })]);
+    expect(landed.record).toMatchObject({ status: "auto_refunded", refund_id: "re_cron" });
+    expect(landed.record?.owners_notified_at).not.toBeNull();
+  }, 30_000);
+
+  // Owner mail needs both the address lookup and a transport. With osn-api
+  // but no Resend key the refund still lands, and nobody is looked up or told.
+  it("lands the refund but tells nobody without a Resend key", async () => {
+    const landed = await landRefundThroughCron("cron_quiet", await osnArc());
+    expect(landed.ours).toHaveLength(1);
+    expect(landed.lookups).toEqual([]);
+    expect(landed.told).toEqual([]);
+    expect(landed.record).toMatchObject({ status: "auto_refunded", refund_id: "re_cron_quiet" });
+    expect(landed.record?.owners_notified_at).toBeNull();
+  }, 30_000);
+
   it("adds the RSVP digest, in a session of its own, only when it has a transport and osn-api", async () => {
     const jwk = await exportKeyToJwk((await generateArcKeyPair()).privateKey);
     const mail = { RESEND_API_KEY: "re_test", OSN_API_URL: "https://osn.example.test" };
