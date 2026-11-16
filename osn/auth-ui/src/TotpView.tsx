@@ -4,6 +4,7 @@ import {
   type StepUpToken,
   type TotpClient,
   type TotpEnrollment,
+  type TotpStatus,
 } from "@osn/client";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
@@ -13,11 +14,12 @@ import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { QrCode } from "@shared/ui/ui/qr-code";
-import { createResource, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 
 import { describedBy, fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
 import { RowPlaceholder } from "./RowPlaceholder";
+import { ownRead, writeEnd, type SettingsRead, type WriteEnd } from "./settings-read";
 import { SettingsRow } from "./SettingsRow";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
@@ -44,6 +46,9 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
  * - The authenticator can authorise its own removal — the disable ceremony
  *   accepts a TOTP code, which proves the person still holds the device they
  *   are asking to unbind.
+ * - The status may be one the host remembered, being read again behind it
+ *   (`read`). Add and Remove are busy from the press until that read lands,
+ *   then act only if it still says so.
  */
 
 export interface TotpViewProps {
@@ -61,6 +66,12 @@ export interface TotpViewProps {
    * See `StepUpDialog.passkeyOnly`. No host passes it today.
    */
   passkeyOnly?: boolean;
+  /**
+   * The status, read by the host (Musubi's page cache), which may draw it
+   * from memory and read it again behind it. Read once, when the view mounts.
+   * Omitted, the view reads `client.status()` itself.
+   */
+  read?: SettingsRead<TotpStatus>;
 }
 
 type Pending = "enroll" | "disable" | null;
@@ -71,17 +82,15 @@ function formatTs(ts: number | null): string {
 }
 
 export function TotpView(props: TotpViewProps) {
-  const [reloadKey, setReloadKey] = createSignal(0);
-  const [status] = createResource(reloadKey, () => props.client.status());
+  const status = props.read ?? ownRead(() => props.client.status());
   /**
-   * The status once a read has landed, and nothing while one is out or after
-   * one failed. It reads `state` first and never calls `status()`: a failed
-   * resource throws when read, and a loading one joins the host's Suspense
-   * boundary, which on Settings swaps the whole tab for its fallback. While a
-   * read is out the view shows its own placeholder instead, on a refetch too,
-   * since the status it reads again is the thing that just changed.
+   * The status once a read has landed, and nothing before, after one failed,
+   * or after a change to it, until it is read again: the view shows its own
+   * placeholder meanwhile.
    */
-  const current = () => (status.state === "ready" ? status.latest : undefined);
+  const current = status.value;
+  /** A first read, or one after a change, is out. */
+  const loading = () => status.state() === "pending";
   /** The app's name, or what the row calls an unnamed one. */
   const appName = () => current()?.label?.trim() || "Authenticator app";
 
@@ -108,27 +117,40 @@ export function TotpView(props: TotpViewProps) {
 
   onCleanup(clearEnrollment);
 
-  const locked = () => busy() || pending() !== null;
+  // The action pressed while the status is read again: busy until it lands.
+  const [checking, setChecking] = createSignal<Pending>(null);
+  const locked = () => busy() || pending() !== null || checking() !== null;
 
-  function requestEnroll() {
+  /**
+   * Opens the step-up for `action` once no read of the status is out, and
+   * only if the status then still says `enrolled` is `wanted`. Busy from the
+   * press; when no read is out the wait ends before anything paints.
+   */
+  async function onFreshStatus(action: "enroll" | "disable", wanted: boolean) {
     if (locked()) return;
     setError(null);
-    setPending("enroll");
+    setChecking(action);
+    try {
+      const fresh = await status.settled();
+      if (fresh?.enrolled === wanted) setPending(action);
+    } finally {
+      setChecking(null);
+    }
   }
+
+  const requestEnroll = () => void onFreshStatus("enroll", false);
 
   // The step-up sheet asks before the removal: its title names it, its warning
   // says what it costs, and the factor picked there commits it.
-  function requestDisable() {
-    if (locked()) return;
-    setError(null);
-    setPending("disable");
-  }
+  const requestDisable = () => void onFreshStatus("disable", true);
 
   async function handleStepUp(token: StepUpToken) {
     const action = pending();
     if (!action) return;
     setBusy(true);
     setError(null);
+    // The removal changes the status; starting an enrolment does not.
+    let finish: ((end: WriteEnd<TotpStatus>) => void) | undefined;
     try {
       if (action === "enroll") {
         setEnrollment(
@@ -137,14 +159,16 @@ export function TotpView(props: TotpViewProps) {
           }),
         );
       } else {
+        finish = status.write();
         await props.client.disable({
           stepUpToken: token.token,
         });
+        finish("unknown");
         clearEnrollment();
-        setReloadKey((k) => k + 1);
         toast.success("Authenticator app removed");
       }
     } catch (e) {
+      finish?.(writeEnd(e));
       setError({ ...plainError(describeAuthError(e)), code: false });
     } finally {
       setBusy(false);
@@ -156,18 +180,21 @@ export function TotpView(props: TotpViewProps) {
     if (busy() || code().length !== 6) return;
     setBusy(true);
     setError(null);
+    const finish = status.write();
     try {
       await props.client.enrollComplete({
         code: code(),
         label: label().trim() || undefined,
       });
-      // Before the refetch, and before anything else can fail: once the
-      // credential exists the secret has no further use here, and the panel
-      // that displays it must not survive this line.
+      // Before anything else can fail: once the credential exists the secret
+      // has no further use here, and the panel that displays it must not
+      // survive this line.
       clearEnrollment();
-      setReloadKey((k) => k + 1);
+      // Its times are the server's: read again, the placeholder meanwhile.
+      finish("unknown");
       toast.success("Authenticator app added");
     } catch (e) {
+      finish(writeEnd(e));
       // The pending secret is parked server-side for ten minutes. Past that
       // the code cannot be checked against anything and the user has to start
       // again — so the error keeps the panel, and "Cancel" is the way out.
@@ -183,8 +210,14 @@ export function TotpView(props: TotpViewProps) {
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-ui-ink text-ui-md font-ui-title">Authenticator app</h2>
         <Show when={current()?.enrolled === false && enrollment() === null}>
-          <Button size="sm" class="max-md:h-10" onClick={requestEnroll} disabled={locked()}>
-            Add an authenticator app
+          <Button
+            size="sm"
+            class="max-md:h-10"
+            onClick={requestEnroll}
+            busy={checking() === "enroll"}
+            disabled={checking() !== "enroll" && locked()}
+          >
+            {checking() === "enroll" ? "Checking…" : "Add an authenticator app"}
           </Button>
         </Show>
       </div>
@@ -207,19 +240,20 @@ export function TotpView(props: TotpViewProps) {
           an account with none set up gets no empty slot. */}
       <Show
         when={
-          enrollment() === null && (status.loading || status.error || current()?.enrolled === true)
+          enrollment() === null &&
+          (loading() || status.state() === "errored" || current()?.enrolled === true)
         }
       >
-        <div aria-busy={status.loading || undefined}>
-          <Show when={status.loading}>
+        <div aria-busy={loading() || undefined}>
+          <Show when={loading()}>
             <RowPlaceholder />
           </Show>
-          <Show when={!status.loading && status.error}>
-            {(err) => (
+          <Show when={status.failure()}>
+            {(failure) => (
               <LoadFailed
                 lead="Your authenticator app didn't load."
-                error={err()}
-                onRetry={() => setReloadKey((k) => k + 1)}
+                error={failure().error}
+                onRetry={status.retry}
               />
             )}
           </Show>
@@ -236,10 +270,11 @@ export function TotpView(props: TotpViewProps) {
                   size="sm"
                   class="max-md:h-10"
                   onClick={requestDisable}
-                  disabled={locked()}
+                  busy={checking() === "disable"}
+                  disabled={checking() !== "disable" && locked()}
                   aria-label={`Remove ${appName()}`}
                 >
-                  Remove
+                  {checking() === "disable" ? "Checking…" : "Remove"}
                 </Button>
               }
             />

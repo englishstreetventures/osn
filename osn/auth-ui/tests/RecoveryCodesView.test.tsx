@@ -507,9 +507,9 @@ describe("RecoveryCodesView — under a host's Suspense", () => {
     expect(screen.getByRole("button", { name: /Checking/i })).toBeTruthy();
   });
 
-  it("keeps the count on screen while it reads the status again", async () => {
+  it("never shows the old set's count after a new set, and holds its place until the new one lands", async () => {
     stub.getRecoveryCodesStatus
-      .mockResolvedValueOnce({ active: 10, total: 10, generatedAt: 1_750_000_000 })
+      .mockResolvedValueOnce({ active: 7, total: 10, generatedAt: 1_750_000_000 })
       .mockReturnValue(new Promise(() => {}));
     stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
     renderInSuspense();
@@ -518,13 +518,18 @@ describe("RecoveryCodesView — under a host's Suspense", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Generate new set/i }));
     await usePasskey();
     await screen.findByText(sampleCodes[0]!);
+    // Read again at once, behind the codes on screen.
+    await waitFor(() => expect(stub.getRecoveryCodesStatus).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /^Done$/ }));
 
-    await waitFor(() => expect(stub.getRecoveryCodesStatus).toHaveBeenCalledTimes(2));
     await Promise.resolve();
     expect(screen.queryByText("HOST FALLBACK")).toBeNull();
-    expect(screen.getByText(/10 of 10 codes unused/)).toBeTruthy();
+    expect(screen.queryByText(/7 of 10 codes unused/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Checking/i })).toBeTruthy();
+    expect(document.querySelector('[aria-busy="true"] [aria-hidden="true"]')).toBeTruthy();
+    // Done reads nothing more.
+    expect(stub.getRecoveryCodesStatus).toHaveBeenCalledTimes(2);
   });
 });
 

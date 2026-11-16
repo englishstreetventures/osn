@@ -9,12 +9,13 @@ import {
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
-import { createResource, createSignal, createUniqueId, For, Show } from "solid-js";
+import { createSignal, createUniqueId, For, Show } from "solid-js";
 
 import { fieldError, plainError, type FieldError } from "./error-lines";
 import { LoadFailed } from "./LoadFailed";
 import { describePasskeyError } from "./passkey-errors";
 import { RowPlaceholder } from "./RowPlaceholder";
+import { ownRead, writeEnd, type SettingsRead, type WriteEnd } from "./settings-read";
 import { SettingsRow } from "./SettingsRow";
 import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
 
@@ -36,6 +37,9 @@ import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } fr
  * - A removal asks nothing of its own: the step-up sheet opens titled with
  *   the passkey's name, its warning says what removing it costs, and the
  *   factor picked there commits it.
+ * - The list may be one the host remembered, being read again behind it
+ *   (`read`). Remove and Save are busy from the press until that read lands,
+ *   then act only on a passkey still in it, under its name as it now reads.
  */
 
 export interface PasskeysViewProps {
@@ -68,6 +72,12 @@ export interface PasskeysViewProps {
    * See `StepUpDialog.passkeyOnly`. No host passes it today.
    */
   passkeyOnly?: boolean;
+  /**
+   * The list, read by the host (Musubi's page cache), which may draw it from
+   * memory and read it again behind it. Read once, when the view mounts.
+   * Omitted, the view reads `client.list()` itself.
+   */
+  read?: SettingsRead<PasskeySummary[]>;
 }
 
 function formatTs(ts: number | null): string {
@@ -106,28 +116,23 @@ type PendingAction =
   | { kind: "add" };
 
 export function PasskeysView(props: PasskeysViewProps) {
-  const [reloadKey, setReloadKey] = createSignal(0);
-  const [passkeys] = createResource(reloadKey, async () => {
-    const res = await props.client.list();
-    return res.passkeys;
-  });
+  const passkeys = props.read ?? ownRead(async () => (await props.client.list()).passkeys);
   /**
    * The list once a read has landed, kept on screen while it is read again,
-   * and nothing before the first read lands or after one fails. It reads
-   * `state` first and never calls `passkeys()`: a failed resource throws when
-   * read, and a loading one joins the host's Suspense boundary, which on
-   * Settings swaps the whole tab for its fallback.
+   * and nothing before the first read lands, after one fails, or after a
+   * write whose effect only the server knows.
    */
-  const list = () => {
-    const state = passkeys.state;
-    return state === "ready" || state === "refreshing" ? passkeys.latest : undefined;
-  };
+  const list = passkeys.value;
   // A refused rename sits under the rename field, tied to it; any other
   // failure sits under the heading.
   const [error, setError] = createSignal<(FieldError & { rename: boolean }) | null>(null);
   const errorId = createUniqueId();
   const renameError = () => (error()?.rename ? error() : null);
+  /** Whether the passkey being renamed is on screen, its field and line with it. */
+  const renameOnScreen = () => list()?.some((row) => row.id === editingId()) ?? false;
   const [busy, setBusy] = createSignal(false);
+  // The action pressed while the list is read again: busy until it lands.
+  const [checking, setChecking] = createSignal<string | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [draftLabel, setDraftLabel] = createSignal("");
   const [pending, setPending] = createSignal<PendingAction | null>(null);
@@ -147,23 +152,44 @@ export function PasskeysView(props: PasskeysViewProps) {
   // button on the page. Otherwise a rapid double-click could open the
   // dialog with a different `pending` than the one the user thought they
   // confirmed (the sheet opens asynchronously; the second click overwrites).
-  // And while a landed list is read again: a passkey just deleted is still on
-  // screen until the read lands, and acting on it would run a step-up for
-  // nothing. Not on the first read, when there is no row to act on.
-  const locked = () => busy() || pending() !== null || passkeys.state === "refreshing";
+  // And while a press waits for the list to be read again: the press is the
+  // one that opens the sheet.
+  const locked = () => busy() || pending() !== null || checking() !== null;
+
+  /**
+   * Runs `act` with `p` as the list now reads it, once no read of it is out,
+   * and nothing when the read has taken it off. The pressed action is busy,
+   * and every other one disabled, from the press: when no read is out the
+   * wait ends before anything paints.
+   */
+  async function onFreshRow(
+    action: string,
+    p: PasskeySummary,
+    act: (fresh: PasskeySummary) => void,
+  ) {
+    if (locked()) return;
+    setError(null);
+    setChecking(action);
+    try {
+      const fresh = (await passkeys.settled())?.find((row) => row.id === p.id);
+      if (fresh) act(fresh);
+    } finally {
+      setChecking(null);
+    }
+  }
 
   function requestRename(p: PasskeySummary) {
-    if (locked()) return;
     const label = draftLabel().trim();
     if (label.length === 0) return;
-    setError(null);
-    setPending({ kind: "rename", id: p.id, label, name: friendlyLabel(p) });
+    void onFreshRow(`save:${p.id}`, p, (fresh) =>
+      setPending({ kind: "rename", id: fresh.id, label, name: friendlyLabel(fresh) }),
+    );
   }
 
   function requestDelete(p: PasskeySummary) {
-    if (locked()) return;
-    setError(null);
-    setPending({ kind: "delete", id: p.id, name: friendlyLabel(p) });
+    void onFreshRow(`remove:${p.id}`, p, (fresh) =>
+      setPending({ kind: "delete", id: fresh.id, name: friendlyLabel(fresh) }),
+    );
   }
 
   function requestAdd() {
@@ -178,21 +204,33 @@ export function PasskeysView(props: PasskeysViewProps) {
     if (!action) return;
     setBusy(true);
     setError(null);
+    // Told how the write ended, once it settles; set just before the request
+    // that may change the list.
+    let finish: ((end: WriteEnd<PasskeySummary[]>) => void) | undefined;
     try {
       if (action.kind === "rename") {
+        finish = passkeys.write();
         await props.client.rename({
           id: action.id,
           label: action.label,
           stepUpToken: token.token,
         });
+        // The server stores the label trimmed, as it was sent.
+        finish({
+          outcome: (rows) =>
+            rows.map((row) => (row.id === action.id ? { ...row, label: action.label } : row)),
+        });
         cancelEdit();
       } else if (action.kind === "delete") {
+        finish = passkeys.write();
         await props.client.delete({
           id: action.id,
           stepUpToken: token.token,
         });
+        finish({ outcome: (rows) => rows.filter((row) => row.id !== action.id) });
       } else {
-        // kind === "add" — guarded by requestAdd().
+        // kind === "add" — guarded by requestAdd(). The step-up and the
+        // browser's ceremony change no row; the last call does.
         const profileId = props.profileId!;
         const runRegistration = props.runPasskeyRegistration!;
         const options = await props.client.registerBegin({
@@ -200,13 +238,16 @@ export function PasskeysView(props: PasskeysViewProps) {
           stepUpToken: token.token,
         });
         const attestation = await runRegistration(options);
+        finish = passkeys.write();
         await props.client.registerComplete({
           profileId,
           attestation,
         });
+        // The new row's fields are the server's.
+        finish("unknown");
       }
-      setReloadKey((k) => k + 1);
     } catch (e) {
+      finish?.(writeEnd(e));
       if (action.kind === "rename") {
         setError({ ...fieldError(describeAuthError(e), e), rename: true });
       } else if (action.kind === "delete") {
@@ -236,7 +277,7 @@ export function PasskeysView(props: PasskeysViewProps) {
           </Button>
         </Show>
       </div>
-      <Show when={!error()?.rename && error()}>
+      <Show when={(!error()?.rename || !renameOnScreen()) && error()}>
         {(line) => (
           <Notice tone="danger" size="inline" alert>
             {line().text}
@@ -245,16 +286,16 @@ export function PasskeysView(props: PasskeysViewProps) {
       </Show>
       {/* The list's place: one row's placeholder until the first read lands
           (every account has a passkey), the failure, or the list. */}
-      <div aria-busy={passkeys.loading || undefined}>
-        <Show when={passkeys.loading && list() === undefined}>
+      <div aria-busy={passkeys.state() === "pending" || undefined}>
+        <Show when={passkeys.state() === "pending"}>
           <RowPlaceholder />
         </Show>
-        <Show when={!passkeys.loading && passkeys.error}>
-          {(err) => (
+        <Show when={passkeys.failure()}>
+          {(failure) => (
             <LoadFailed
               lead="Your passkeys didn't load."
-              error={err()}
-              onRetry={() => setReloadKey((k) => k + 1)}
+              error={failure().error}
+              onRetry={passkeys.retry}
             />
           )}
         </Show>
@@ -294,9 +335,13 @@ export function PasskeysView(props: PasskeysViewProps) {
                               size="sm"
                               class="shrink-0 max-md:h-10"
                               onClick={() => requestRename(p)}
-                              disabled={locked() || draftLabel().trim().length === 0}
+                              busy={checking() === `save:${p.id}`}
+                              disabled={
+                                checking() !== `save:${p.id}` &&
+                                (locked() || draftLabel().trim().length === 0)
+                              }
                             >
-                              Save
+                              {checking() === `save:${p.id}` ? "Checking…" : "Save"}
                             </Button>
                             <Button
                               variant="ghost"
@@ -340,10 +385,11 @@ export function PasskeysView(props: PasskeysViewProps) {
                             size="sm"
                             class="max-md:h-10"
                             onClick={() => requestDelete(p)}
-                            disabled={locked()}
+                            busy={checking() === `remove:${p.id}`}
+                            disabled={checking() !== `remove:${p.id}` && locked()}
                             aria-label={`Remove ${friendlyLabel(p)}`}
                           >
-                            Remove
+                            {checking() === `remove:${p.id}` ? "Checking…" : "Remove"}
                           </Button>
                         </>
                       }
