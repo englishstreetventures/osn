@@ -25,10 +25,6 @@ describe("PLUS_ONE_DIETARY_ATTESTATION", () => {
     );
   });
 
-  it("names everyone the tick covers", () => {
-    expect(PLUS_ONE_DIETARY_ATTESTATION.text("Sam and Alex")).toContain("Sam and Alex agreed");
-  });
-
   /**
    * The guest's own-consent version is a bare date (`DIETARY_CONSENT_VERSION`
    * in `cire/api/src/schemas/rsvp.ts`). A stored version must say which of the

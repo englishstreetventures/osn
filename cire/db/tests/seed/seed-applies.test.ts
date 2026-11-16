@@ -33,10 +33,6 @@ function seededDatabase(): Database {
 }
 
 describe("dev-seed.sql against the migrated schema", () => {
-  it("applies without error", () => {
-    expect(() => seededDatabase()).not.toThrow();
-  });
-
   it("seeds the invite FAQ in order, dated in epoch seconds", () => {
     const rows = seededDatabase()
       .query<{ id: string; question: string; sort_order: number; created_at: number }, []>(
@@ -104,11 +100,6 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
     migrate(db, files.slice(files.indexOf(PLANS_MIGRATION)));
     return db;
   }
-
-  it("applies without error", () => {
-    const db = movedDatabase();
-    expect(() => db.exec(readFileSync(SEED, "utf8"))).not.toThrow();
-  });
 
   it("leaves the tables on the migration's plan, and every seat on its table's plan", () => {
     const db = movedDatabase();

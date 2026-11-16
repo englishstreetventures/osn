@@ -4,12 +4,12 @@ import { getTableConfig } from "drizzle-orm/sqlite-core";
 
 import * as schema from "../src/schema";
 
-// Composite-index drift guard (mirrors pulse/db's equivalent test). Migration 0026
-// replaced the dead single-column events_sort_order_idx + events_wedding_idx
-// pair with one composite index covering the (wedding filter, sort) access
-// pattern used by every events read. This pins the schema declaration so the
-// composite can't silently regress back to the old pair. The DDL mirror in
-// cire/api/src/db/setup.ts has its own companion test (setup.test.ts).
+// Every events read filters by wedding and orders by sort_order, so the schema
+// declares one composite index, events_wedding_id_sort_idx, and neither the
+// single-column events_sort_order_idx nor events_wedding_idx.
+// cire/api/tests/db/ddl-lockstep.test.ts holds this schema, cire/api/src/db/setup.ts
+// and the migrations to the same index shapes but ignores index names, so this
+// test is what pins them.
 describe("events schema indexes", () => {
   it("declares the (wedding_id, sort_order) composite index", () => {
     const { indexes } = getTableConfig(schema.events);

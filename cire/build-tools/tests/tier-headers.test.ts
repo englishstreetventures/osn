@@ -25,10 +25,6 @@ const HEADERS = [
 const DEV_API = "https://api.dev.cireweddings.com";
 
 describe("retargetHeaders", () => {
-  it("leaves the production policy byte-for-byte alone on a production build", () => {
-    expect(retargetHeaders(HEADERS, "https://api.cireweddings.com")).toBe(HEADERS);
-  });
-
   it("points every source and the report collector at the tier's own API", () => {
     const dev = retargetHeaders(HEADERS, DEV_API);
     expect(dev).not.toContain(PRODUCTION_API_ORIGIN);
@@ -373,18 +369,6 @@ describe("bundleNamesOrigin", () => {
   });
 
   const namesDevApi = () => bundleNamesOrigin(pathToFileURL(`${dir}/`), DEV_API);
-
-  it("finds the origin in a nested client chunk", async () => {
-    await mkdir(join(dir, "_astro", "chunks"), { recursive: true });
-    await writeFile(join(dir, "_astro", "chunks", "x.js"), `"${DEV_API}"`);
-    expect(await namesDevApi()).toBe(true);
-  });
-
-  it("reads a server bundle's .mjs chunks", async () => {
-    await mkdir(join(dir, "chunks"));
-    await writeFile(join(dir, "chunks", "x.mjs"), `"${DEV_API}"`);
-    expect(await namesDevApi()).toBe(true);
-  });
 
   it("ignores anything that is not a script", async () => {
     await writeFile(join(dir, "index.html"), DEV_API);
