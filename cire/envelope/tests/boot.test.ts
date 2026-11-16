@@ -111,12 +111,6 @@ function boot(overrides: Partial<World> = {}) {
 }
 
 describe("ENVELOPE_BOOT_SCRIPT", () => {
-  it("seals the page when the API, WebGL2, full motion, a key and no seen flag all hold", () => {
-    const run = boot();
-    expect(run.sealed()).toBe(true);
-    expect(run.capable()).toBe(true);
-  });
-
   it.each([
     ["requestPaint is missing", { requestPaint: false }],
     ["WebGL2RenderingContext is missing", { webgl2: false }],

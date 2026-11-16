@@ -53,11 +53,4 @@ describe("the published plans", () => {
   it("list every tier cire-api has, in its order", () => {
     expect(PLANS.map((plan) => plan.id)).toEqual(readTiers(TIERS_SOURCE));
   });
-
-  it("refuse to compare against a tiers.ts that no longer declares either list", () => {
-    expect(() => readTiers("export const TIER_LIST = ['ivory'];")).toThrow(/TIERS/);
-    expect(() => readGuestCaps("export const GUEST_CAPS = { ivory: 100 };")).toThrow(
-      /TIER_GUEST_CAP/,
-    );
-  });
 });

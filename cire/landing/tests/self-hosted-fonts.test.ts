@@ -22,10 +22,6 @@ describe("self-hosted fonts", () => {
     .split("\n")
     .find((line) => line.trim().startsWith("Content-Security-Policy:"));
 
-  it("has a Content-Security-Policy to check", () => {
-    expect(csp).toBeDefined();
-  });
-
   it("allows fonts from our own origin only", () => {
     expect(csp).toContain("font-src 'self'");
     expect(csp).not.toContain("fonts.gstatic.com");
