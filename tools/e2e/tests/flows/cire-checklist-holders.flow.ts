@@ -30,15 +30,16 @@
  *   never recorded.
  * - Settings → Delete wedding: a link name one letter short keeps Delete off;
  *   the exact one deletes the wedding, which leaves the list's tiles for
- *   "Recently deleted" while its row stays, marked deleted; Restore brings it
- *   back, still on Crimson.
+ *   "Recently deleted", offered for restore until a week after the delete,
+ *   while its row stays, marked deleted; Restore brings it back, still on
+ *   Crimson.
  */
 
 import { resolve } from "node:path";
 
 import type { Page } from "@playwright/test";
 
-import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { CIRE_ORGANISER, CLOCK_T0, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
   expect,
   onSuiteClock,
@@ -330,6 +331,23 @@ const SETTINGS = CIRE_ORGANISER.settings;
 const SETTINGS_API = `${ORIGINS.cireApi}/api/organiser/weddings/${SETTINGS.weddingId}`;
 const SETTINGS_PAGE = `${ORIGINS.cireHost}/#/w/${SETTINGS.weddingId}/settings`;
 
+/** How long a deleted wedding can be restored: `RESTORE_WINDOW_S`, `cire/api/src/db/live-wedding.ts`. */
+const RESTORE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The last day the deleted wedding can be restored, worded as the list words
+ * it (`restoreUntilLabel`, en-AU, in the browser's UTC). The delete lands in
+ * the suite clock's first hour ("deleted on the suite clock"), which starts at
+ * midnight UTC, so the day is `CLOCK_T0` plus the window on every run:
+ * "8 October 2026".
+ */
+const RESTORE_DAY = new Intl.DateTimeFormat("en-AU", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+}).format(CLOCK_T0 + RESTORE_WINDOW_MS);
+
 /** The settings wedding's tier, where it came from, and whether it is deleted. */
 function settingsWeddingInDb() {
   return queryOne<{
@@ -527,13 +545,23 @@ async function settingsSteps(flow: Flow, page: Page): Promise<void> {
     const status = (await answered).status();
     await expect(page).toHaveURL(/#\/weddings$/);
     await expect(recentlyDeleted).toContainText(SETTINGS.name);
+    const restoreLine = recentlyDeleted
+      .getByRole("listitem")
+      .filter({ hasText: SETTINGS.name })
+      .getByText(/^Deleted — you can restore it until/);
     return {
       status,
       tiles: await page.getByRole("button", { name: new RegExp(`^${SETTINGS.name}`) }).count(),
+      restoreLine: (await restoreLine.textContent())?.trim() ?? "",
     };
   });
   flow.check("cire-api deletes the wedding", 200, deleted.status);
   flow.check("the wedding leaves the list's tiles", 0, deleted.tiles);
+  flow.check(
+    "the list offers a restore until a week after the delete",
+    `Deleted — you can restore it until ${RESTORE_DAY}.`,
+    deleted.restoreLine,
+  );
   const softDeleted = settingsWeddingInDb();
   flow.check("the wedding's row stays, marked deleted", true, softDeleted?.deletedAt != null);
   flow.check("deleted on the suite clock", true, onSuiteClock(softDeleted?.deletedAt ?? undefined));
