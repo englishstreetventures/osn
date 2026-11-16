@@ -307,6 +307,10 @@ OSN_EMAIL_FROM = "hello@cireweddings.com"
 # `/authorize` on the FIRST OSN_ORIGIN, which is fine only because that is now
 # the apex too; set it anyway, because the fallback silently follows list order.
 OSN_AUTHORIZE_UI_URL = "https://musubi.social/authorize"
+# Sign-up accepts a browser Email Verification API token, read by `build-deps.ts`.
+# The verifier binds the token to the origin of OSN_AUTHORIZE_UI_URL, which the
+# `musubi.social` origin-trial token in musubi/social/public/_headers names.
+OSN_EMAIL_VERIFICATION_API = "true"
 # Chunks of 500 expired rotation records the 6-hourly sweep deletes per run, read
 # by `rotatedSweepMaxChunks` (src/services/auth/tokens.ts) in the `scheduled`
 # handler (src/index.ts). 100 chunks is 50 000 records a run, inside Workers

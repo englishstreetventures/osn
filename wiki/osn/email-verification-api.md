@@ -60,7 +60,7 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 | Tier | Flag | Set in |
 |---|---|---|
 | Dev | **On** from the dev deploy of the pull request that closes englishstreetventures/osn#2317, by the owner's decision, for the trial in [[#Testing on the dev tier]] | `musubiDeclaration` in [`musubi/infra/src/declaration.ts`](../../musubi/infra/src/declaration.ts), on stage `dev` only; investigation stages leave it off |
-| Production | **Off**: unset | Neither `musubiProductionApis` in the same file nor `[env.production.vars]` in [`osn/api/wrangler.toml`](../../osn/api/wrangler.toml), which `musubi/infra/tests/parity.test.ts` (PA1) holds equal |
+| Production | **On**, by the owner's decision of 2026-11-17, from the production release of the pull request that closes englishstreetventures/osn#2364 | `musubiProductionApis` in the same file and `[env.production.vars]` in [`osn/api/wrangler.toml`](../../osn/api/wrangler.toml), which `musubi/infra/tests/parity.test.ts` (PA1) holds equal |
 | Local E2E | On, for the second osn-api only | `tools/e2e/src/stack.ts` |
 
 | Part | File | What it does |
@@ -86,7 +86,7 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 **Departures from the text read.** Each fails closed, to the emailed link:
 
 - The nonce is bound to the tab by `nonceSecret`, which the tab holds in memory, not by a session: sign-up has none.
-- `iss` may be the issuer's origin (draft-02) or its bare host (draft-00 deployments); the EVT's `typ` may be `evt+jwt` (the drafts) or `evp-sd-jwt` (the WICG explainer's example); `alg` may be `EdDSA`, `Ed25519` or `ES256`. We have not seen a real Gmail token.
+- `iss` may be the issuer's origin (draft-02) or its bare host (draft-00 deployments); the EVT's `typ` may be `evt+jwt` (the drafts) or `evp-sd-jwt` (the WICG explainer's example); `alg` may be `EdDSA`, `Ed25519` or `ES256`. A real Gmail token verified on the dev tier on 2026-11-16 and 2026-11-17.
 - DNSSEC is not required: the resolver is reached over HTTPS, and `gmail.com` is unsigned.
 
 **Observability.** Span `auth.email_verification.verify`, with the check's `outcome` as an attribute; counter `osn.auth.email_verification.tokens{outcome}`. `outcome` is `verified`, `malformed`, `issuer`, `signature`, `binding`, `email`, `expired`, `replayed` or `unavailable`. The counter reaches no exporter yet ([[metrics]]), so the dev tier's Workers traces are where an outcome can be read; production's API Workers trace nothing. Our code puts neither the token, the address nor the issuer in a log line or an attribute; `emailVerificationToken` and `nonceSecret` are on the log redaction list. Cloudflare's own outbound-fetch spans do record each lookup's URL ([[tracing]]), so on dev, where osn-api traces every request, a trace holds the issuer's host names and can hold the address's domain, which is in the resolver query; whether dev's `redactQueryString` also covers outbound fetches is unchecked. Cloudflare keeps traces for seven days.
@@ -127,15 +127,6 @@ You need desktop Chrome 150 or later, a Chrome profile signed in to a Gmail acco
 
 Never write a real address into an issue, a pull request or this page; a captured token holds one.
 
-## Before the flag goes on in production
-
-The owner's, in this order:
-
-1. Serve an origin-trial token on the sign-up origin. Done: see [[#Our origin trial]].
-2. Check with a real Chrome, signed in to Gmail, against a build served with `_headers`: [[#Testing on the dev tier]]. The `nonce` question there is the first unknown it settles.
-3. Check one real Gmail token against the verifier, so the departures above are tested against a real issuer: on dev, an `outcome` of `verified` does it.
-4. Confirm the transfer basis for the DNS lookups ([[subprocessors#Outbound lookups (not processors)]]), then set `OSN_EMAIL_VERIFICATION_API` for production through a pull request, in both places PA1 holds equal: `musubiProductionApis` in `musubi/infra/src/declaration.ts` and `[env.production.vars]` in `osn/api/wrangler.toml`.
-
 ## Exit test: turn the flag on by default
 
 All three hold:
@@ -144,7 +135,7 @@ All three hold:
 2. At least one more browser, or one more issuer, supports it.
 3. The spec's token format has not changed for 12 weeks.
 
-The 12 weeks is a proposal; the owner may change it.
+The 12 weeks is a proposal; the owner may change it. Both deployed tiers, dev and production, have the flag on today; this test decides only whether the flag setting stays in the declaration or becomes the code's default.
 
 ## Exit test: drop the flag
 

@@ -143,7 +143,7 @@ describe("the musubi stack, evaluated offline", () => {
 
     // An investigation stage derives every name and host from its own name
     // and keeps the dev posture, except the Email Verification API trial,
-    // which is dev's alone.
+    // which only dev and production have.
     const investigation = resourcesOf(
       await evaluateMusubi({ stage: "probe", env: stackEnv(arcPublicJwk) }),
     );

@@ -92,6 +92,19 @@ function decode(token: string): { payload: Payload; signed: boolean } {
 describe("the Email Verification Protocol origin trial", () => {
   const tokens = ruleHeaders(HEADERS, "Origin-Trial");
 
+  // The verifier binds a token to the origin of osn-api's OSN_AUTHORIZE_UI_URL. When
+  // that origin differs from the origin the production token names, Chrome fills a
+  // token the verifier refuses, and production signs up by the emailed link with no
+  // outcome recorded.
+  it("names the origin production osn-api verifies tokens against", () => {
+    const wrangler = readFileSync(resolve(ROOT, "..", "..", "osn", "api", "wrangler.toml"), "utf8");
+    const production = wrangler.slice(wrangler.indexOf("[env.production.vars]"));
+    const url = /^OSN_AUTHORIZE_UI_URL\s*=\s*"([^"]+)"/m.exec(production)?.[1];
+    expect(url).toBeDefined();
+    const origin = `${new URL(url ?? "").origin}:443`;
+    expect(tokens.map((token) => decode(token).payload.origin)).toContain(origin);
+  });
+
   it("serves one token for each expected origin on every page", () => {
     const origins = tokens.map((token) => decode(token).payload.origin);
     expect(origins.toSorted()).toEqual(Object.keys(EXPECTED_ORIGINS).toSorted());
