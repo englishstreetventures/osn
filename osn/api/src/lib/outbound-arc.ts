@@ -8,9 +8,9 @@
  * `GET /.well-known/arc-jwks.json` serves. Apps verify osn-api's tokens
  * against that set (`@shared/osn-auth-client/arc`), so a key written by any
  * isolate verifies at any app isolate, with no registration call to each app.
- * The kid carries the key's expiry and an HMAC under `INTERNAL_SERVICE_SECRET`
- * (`@shared/crypto/arc-kid`), so an app refuses a made-up kid before it
- * fetches the set.
+ * The kid carries the key's expiry and an HMAC under a key derived from
+ * `INTERNAL_SERVICE_SECRET` (`@shared/crypto/arc-kid`), so an app refuses a
+ * made-up kid before it fetches the set.
  *
  * {@link publishOutboundKey} answers the key it published, and every
  * signature is made with that key ({@link arcAuthHeader}), never with
@@ -41,8 +41,9 @@ const EXPIRED_KEY_GRACE_SECONDS = 86_400;
 /** What signing needs from the deployment. */
 export interface OutboundArcConfig {
   /**
-   * `INTERNAL_SERVICE_SECRET`: the kid MAC key. Unset only on a local run. A
-   * value shorter than 32 characters keys no MAC (`@shared/crypto/arc-kid`).
+   * `INTERNAL_SERVICE_SECRET`, from which the kid MAC key is derived. Unset
+   * only on a local run. A value shorter than 32 characters keys no MAC
+   * (`@shared/crypto/arc-kid`).
    */
   readonly kidSecret: string | undefined;
 }

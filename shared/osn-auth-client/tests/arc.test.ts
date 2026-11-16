@@ -188,6 +188,40 @@ describe("verifyOsnArcToken", () => {
       expect(fetches).toBe(0);
     });
 
+    it("refuses a published key whose kid's MAC is keyed with the secret itself, before any fetch", async () => {
+      const key = await osnKey();
+      const [uuid, expiry] = key.kid.split(".") as [string, string];
+      const encoder = new TextEncoder();
+      const directKey = await crypto.subtle.importKey(
+        "raw",
+        encoder.encode(SECRET),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+      const signature = await crypto.subtle.sign(
+        "HMAC",
+        directKey,
+        encoder.encode(`osn-arc-kid:${uuid}.${expiry}`),
+      );
+      const directMac = btoa(String.fromCharCode(...new Uint8Array(signature)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "")
+        .slice(0, 22);
+      const directKid = `${uuid}.${expiry}.${directMac}`;
+      published.push({ ...key.jwk, kid: directKid });
+      expect(await verify(await token({ privateKey: key.privateKey, kid: directKid }))).toEqual({
+        ok: false,
+        reason: "unknown_issuer",
+      });
+      expect(fetches).toBe(0);
+
+      published.push(key.jwk);
+      expect(await verify(await token(key))).toEqual({ ok: true });
+      expect(fetches).toBe(1);
+    });
+
     it("admits a kid with no MAC when this app's secret is too short to key one", async () => {
       const short = "s".repeat(31);
       const pair = await generateKeyPair("ES256");
