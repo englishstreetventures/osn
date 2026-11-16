@@ -510,7 +510,8 @@ describe("erasure cancel and purge on D1", () => {
     const cancel = outcomeOf(cancelErasure(accountId));
     await batch.reached;
     await run(runFanOutRetrySweep({ nowMs: pastWindowMs, config }));
-    expect(purgesOf(accountId)).toBe(2);
+    // Pulse, Zap and cire, each once.
+    expect(purgesOf(accountId)).toBe(3);
     batch.release();
 
     expect(await cancel).toMatchObject({ _tag: "Success", success: { cancelled: false } });
