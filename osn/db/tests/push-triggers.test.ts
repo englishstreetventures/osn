@@ -16,6 +16,7 @@ import { expect, it } from "vitest";
 const PACKAGE_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const REFUSAL = "organisation member role is not admin or member";
 const EMAIL_REFUSAL = "account email is not lower case";
+const CHOICES_REFUSAL = "a deletion job that deletes everything holds no choices";
 
 function push(url: string): void {
   const result = spawnSync("bun", ["run", "db:push"], {
@@ -26,7 +27,7 @@ function push(url: string): void {
   expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
 }
 
-it("a database built by db:push, then pushed again, refuses a member role outside the set and a capital in an email", () => {
+it("a database built by db:push, then pushed again, refuses a member role outside the set, a capital in an email, and answers beside delete everything", () => {
   const dir = mkdtempSync(join(tmpdir(), "osn-db-push-"));
   try {
     const url = join(dir, "osn.db");
@@ -43,6 +44,8 @@ it("a database built by db:push, then pushed again, refuses a member role outsid
       ).toEqual([
         "accounts_email_lower_case",
         "accounts_email_lower_case_update",
+        "deletion_jobs_delete_everything_no_choices",
+        "deletion_jobs_delete_everything_no_choices_update",
         "organisation_members_role_known",
         "organisation_members_role_known_update",
       ]);
@@ -64,6 +67,15 @@ it("a database built by db:push, then pushed again, refuses a member role outsid
       expect(() =>
         db.run("UPDATE accounts SET email = 'Plain@x.com' WHERE id = 'acc_plain'"),
       ).toThrow(EMAIL_REFUSAL);
+
+      const addJob = db.query(
+        "INSERT INTO deletion_jobs (account_id, soft_deleted_at, hard_delete_at, delete_everything, choices) VALUES ('acc_plain', 1, 2, ?, ?)",
+      );
+      expect(() => addJob.run(1, "{}")).toThrow(CHOICES_REFUSAL);
+      addJob.run(1, null);
+      expect(() =>
+        db.run("UPDATE deletion_jobs SET choices = '{}' WHERE account_id = 'acc_plain'"),
+      ).toThrow(CHOICES_REFUSAL);
     } finally {
       db.close();
     }

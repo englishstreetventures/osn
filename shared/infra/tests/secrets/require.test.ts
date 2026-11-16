@@ -14,6 +14,7 @@ import type { Tier } from "../../src/stage";
 const RULE_ABIDING: Readonly<Record<string, string>> = {
   STRIPE_SECRET_KEY: "sk_test_value-of-STRIPE_SECRET_KEY",
   DEV_LOGIN_SECRET: "value-of-DEV_LOGIN_SECRET-32-characters-or-more",
+  INTERNAL_SERVICE_SECRET: "value-of-INTERNAL_SERVICE_SECRET-32-characters",
 };
 
 const envFor = (worker: WorkerKey, tier: Tier): Record<string, string> =>
@@ -187,6 +188,21 @@ describe("SH1: requireSecrets refuses a dev secret that breaks its tier's rule b
           Redacted.value(requireSecrets({ worker, stage, env: long }).CIRE_INTERNAL_REVOKE_SECRET),
         ).toBe("s3cr3t".padEnd(32, "x"));
       }
+    }
+  });
+
+  test("INTERNAL_SERVICE_SECRET under 32 characters is refused on dev for both Workers that hold it; 32 is taken", () => {
+    const short = "s3cr3t".padEnd(31, "x");
+    for (const worker of ["osn-api", "zap-api"] as const) {
+      const env = { ...envFor(worker, "dev"), INTERNAL_SERVICE_SECRET: short };
+      const error = thrown(() => requireSecrets({ worker, stage: "dev", env }));
+      expect(error).toMatchObject({ breaksRule: ["INTERNAL_SERVICE_SECRET"] });
+      expect((error as Error).message).toContain("at least 32 characters");
+      expect((error as Error).message).not.toContain(short);
+      const long = { ...envFor(worker, "dev"), INTERNAL_SERVICE_SECRET: "s3cr3t".padEnd(32, "x") };
+      expect(
+        Redacted.value(requireSecrets({ worker, stage: "dev", env: long }).INTERNAL_SERVICE_SECRET),
+      ).toBe("s3cr3t".padEnd(32, "x"));
     }
   });
 

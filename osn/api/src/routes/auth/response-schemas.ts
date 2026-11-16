@@ -301,13 +301,17 @@ export const accountDeletionStatusResponse = t.Union([
 
 /**
  * One thing the person must know about, or answer, before their account is
- * deleted: today, an organisation one of their profiles owns. `id` is the
- * action id a `DELETE /account` choice names (`osn:organisation:<orgId>`).
- * `choices` lists what the person may answer, each with a plain sentence;
- * `default_choice` is what the hard delete does with no answer, and null means
- * the deletion waits for one. `successor` is the member the organisation
- * passes to with no successor named, null when no one from another account
- * is a member. `erased_on` and `link` are null for an organisation.
+ * deleted: an organisation one of their profiles owns (`app: "osn"`), or
+ * something an app holds (`app` names it). `id` is the action id a
+ * `DELETE /account` choice names: `osn:organisation:<orgId>`, or `<app>:…`.
+ * `choices` lists what the person may answer, each with a plain sentence and
+ * the date the data it keeps is erased (null when it keeps nothing past the
+ * deletion); an action with no choices is shown for information only.
+ * `default_choice` is what happens with no answer, and null on an action with
+ * choices means the deletion waits for one. `link` is where the person can
+ * deal with it in the app. `organisation` and `successor` come with an
+ * organisation only: `successor` is the member it passes to with no successor
+ * named, null when no one from another account is a member.
  */
 export const accountDeletionOpenAction = t.Object({
   id: t.String(),
@@ -316,38 +320,49 @@ export const accountDeletionOpenAction = t.Object({
   label: t.String(),
   choices: t.Array(
     t.Object({
-      choice: t.Union([t.Literal("transfer"), t.Literal("successor"), t.Literal("delete")]),
+      choice: t.String(),
       description: t.String(),
+      erased_on: t.Union([t.Number(), t.Null()]),
     }),
   ),
-  default_choice: t.Union([t.Literal("transfer"), t.Null()]),
-  erased_on: t.Null(),
-  link: t.Null(),
-  organisation: t.Object({ id: t.String(), handle: t.String(), name: t.String() }),
-  successor: t.Union([
-    t.Object({
-      profile_id: t.String(),
-      handle: t.String(),
-      display_name: t.Union([t.String(), t.Null()]),
-      role: t.Union([t.Literal("admin"), t.Literal("member")]),
-    }),
-    t.Null(),
-  ]),
+  default_choice: t.Union([t.String(), t.Null()]),
+  link: t.Union([t.String(), t.Null()]),
+  organisation: t.Optional(t.Object({ id: t.String(), handle: t.String(), name: t.String() })),
+  successor: t.Optional(
+    t.Union([
+      t.Object({
+        profile_id: t.String(),
+        handle: t.String(),
+        display_name: t.Union([t.String(), t.Null()]),
+        role: t.Union([t.Literal("admin"), t.Literal("member")]),
+      }),
+      t.Null(),
+    ]),
+  ),
 });
 
-/** `GET /account/deletion-preview`: every open action of the account, oldest organisation first. */
+/**
+ * `GET /account/deletion-preview`: every open action of the account,
+ * organisations oldest first, then each app's; and each app that could not be
+ * asked, which holds the deletion until it answers.
+ */
 export const accountDeletionPreviewResponse = t.Object({
   open_actions: t.Array(accountDeletionOpenAction),
+  could_not_check: t.Array(t.String()),
 });
 
 /**
  * `DELETE /account` at 409: `session_stale` (the access token's session has
- * ended), or `open_actions` with the actions that still need an answer.
+ * ended); `could_not_check` (an app could not be asked) or `stale_choices` (an
+ * answer names an app action the fresh preview no longer lists), each with
+ * the fresh preview; or `open_actions` with the actions that still need an
+ * answer.
  */
 export const accountDeletionConflictResponse = t.Object({
   error: t.String(),
   message: t.Optional(t.String()),
   open_actions: t.Optional(t.Array(accountDeletionOpenAction)),
+  could_not_check: t.Optional(t.Array(t.String())),
 });
 
 /**

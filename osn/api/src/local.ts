@@ -6,7 +6,7 @@ import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
 import { createInMemoryCoordination } from "./lib/coordination/memory";
 import { selectEmailLayer } from "./lib/email-layer";
-import { startOutboundKeyRotation } from "./lib/outbound-arc";
+import { DELETION_SWEEP_DEFAULT_MAX_JOBS, deletionSweepMaxJobs } from "./services/account-erasure";
 import { runLocalSweeps } from "./services/sweeps";
 
 export { SERVICE_NAME };
@@ -76,14 +76,17 @@ export async function buildAppDeps_Bun(): Promise<
 }
 
 /**
- * Bun-only startup side effects: bind the port, warn about ephemeral keys, kick
- * off outbound ARC key rotation, and start the account-erasure sweeper. Kept
+ * Bun-only startup side effects: bind the port, warn about ephemeral keys, and
+ * start the account-erasure sweeper. Kept
  * out of `app.ts` (the pure factory) and out of the Workers path entirely (the
  * Workers entry moves the sweeper to a cron `scheduled` handler).
  */
 export function startBunServer(
   app: App,
-  built: Pick<BuiltDeps, "jwtEphemeral" | "envNonLocal" | "trustedProxyCountUnconfigured"> & {
+  built: Pick<
+    BuiltDeps,
+    "deps" | "jwtEphemeral" | "envNonLocal" | "trustedProxyCountUnconfigured"
+  > & {
     observabilityLayer: Layer.Layer<never>;
   },
 ): void {
@@ -113,16 +116,6 @@ export function startBunServer(
     ),
   );
 
-  // Outbound ARC key registration with downstream services. Used by the
-  // account-erasure fan-out to call Pulse / Zap `/internal/account-deleted`.
-  // Falls through gracefully in local dev when downstreams aren't up yet.
-  void startOutboundKeyRotation({
-    pulseApiUrl: process.env.PULSE_API_URL,
-    zapApiUrl: process.env.ZAP_API_URL,
-    internalServiceSecret: process.env.INTERNAL_SERVICE_SECRET,
-    osnEnv: process.env.OSN_ENV,
-  }).catch(() => undefined);
-
   // Fan-out retry, hard-delete, OIDC code, rotated-session and retention sweeper.
   // Single-instance — a multi-instance deploy would need a lock; for now the
   // fixed 6-hour cadence + idempotent per-row writes keep multi-instance safe
@@ -130,15 +123,17 @@ export function startBunServer(
   // same sweeps on a cron.)
   const SWEEPER_INTERVAL_MS =
     Number(process.env.OSN_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
-  const fanoutUrls = {
-    pulseApiUrl: process.env.PULSE_API_URL,
-    zapApiUrl: process.env.ZAP_API_URL,
-  };
+  // The apps the fan-out reaches come from the same settings the app was
+  // built from (`buildAppDeps`), so the sweep and the routes agree.
+  const maxJobs = deletionSweepMaxJobs(process.env.OSN_DELETION_FANOUT_MAX_JOBS);
   // Each sweep's failure, a defect included, is logged and the next sweep
   // still runs (`runLocalSweeps`).
   const runSweep = (): void => {
     void Effect.runPromise(
-      runLocalSweeps(fanoutUrls).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)),
+      runLocalSweeps(
+        built.deps.deletionApps,
+        maxJobs === "invalid" ? DELETION_SWEEP_DEFAULT_MAX_JOBS : maxJobs,
+      ).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)),
     ).catch(() => undefined);
   };
   setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
@@ -160,6 +155,7 @@ export type { App };
 
 if (process.env.NODE_ENV !== "test") {
   startBunServer(app, {
+    deps: built.deps,
     observabilityLayer: built.observabilityLayer,
     jwtEphemeral: built.jwtEphemeral,
     envNonLocal: built.envNonLocal,

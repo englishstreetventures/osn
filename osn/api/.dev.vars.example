@@ -40,8 +40,8 @@
 
 # --- S2S + fan-out (optional) ---
 # INTERNAL_SERVICE_SECRET = "<shared-secret>"   # enables /graph/internal/register-service
-# PULSE_API_URL = "http://localhost:3001"
-# ZAP_API_URL   = "http://localhost:3002"
+# PULSE_API_URL = "http://localhost:3001"   # unset: the deletion skips Pulse
+# ZAP_API_URL   = "http://localhost:3002"   # unset: the deletion skips Zap
 # Ending cire organiser sessions: cire-api's origin (HTTPS, or HTTP to a
 # loopback host) and the bearer cire-api's own CIRE_INTERNAL_REVOKE_SECRET
 # holds, at least 32 characters. Either unset or unusable ⇒ skipped with a

@@ -35,6 +35,7 @@ import { Effect, Layer } from "effect";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { LiveSessionGateEndpoint } from "../../src/metrics";
+import { NO_DELETION_APPS } from "../../src/services/deletion-apps";
 import { settledHandle } from "../helpers/background";
 import { confirmLinkThroughRoutes, linkForRequest } from "../helpers/step-up-link";
 import { mintStepUpToken } from "../helpers/step-up-session";
@@ -156,7 +157,7 @@ function makeApp(overrides: Partial<AuthConfig> = {}) {
     undefined,
     proxied,
     undefined,
-    [],
+    NO_DELETION_APPS,
   );
   const auth = createAuthService(merged);
   const svc = <A, E, R>(effect: Effect.Effect<A, E, R>) =>

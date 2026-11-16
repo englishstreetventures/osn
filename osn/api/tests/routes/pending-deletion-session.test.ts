@@ -18,6 +18,8 @@ import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { NO_DELETION_APPS } from "../../src/services/deletion-apps";
+
 // No route test can produce a real WebAuthn attestation or assertion, so only
 // the two verifiers are stubbed: `generate*Options` still plant real
 // challenges, and everything around the verifiers runs for real.
@@ -143,7 +145,7 @@ function harness() {
     undefined,
     { trustedProxyCount: 1 },
     undefined,
-    [],
+    NO_DELETION_APPS,
   );
   const erasureApp = createAccountErasureRoutes(
     config,

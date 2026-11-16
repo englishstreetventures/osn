@@ -4,7 +4,7 @@ import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 
 import * as metrics from "../../src/metrics";
 import {
@@ -13,10 +13,12 @@ import {
 } from "../../src/routes/account-erasure";
 import { runHardDeleteSweep } from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
+import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/deletion-apps";
 import { createOrganisationService } from "../../src/services/organisation";
 import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { appStandIns, everyAppDone, type AppAnswer, type AppCall } from "../helpers/deletion-apps";
 import { holdQueries } from "../helpers/held-query";
 import { mintStepUpToken } from "../helpers/step-up-session";
 
@@ -165,7 +167,10 @@ const allowAll = (): AccountErasureRateLimiters => {
 const IP_HEADERS = { "x-forwarded-for": "1.2.3.4" };
 
 /** A live account, "eraser", signed in, and the erasure routes on `layer`. */
-async function seed(layer: Layer.Layer<Db | EmailService>) {
+async function seed(
+  layer: Layer.Layer<Db | EmailService>,
+  deletionApps: DeletionAppsConfig = NO_DELETION_APPS,
+) {
   const auth = createAuthService(config);
   const profile = await Effect.runPromise(
     auth.registerProfile("eraser@example.com", "eraser", "Erase Me").pipe(Effect.provide(layer)),
@@ -188,6 +193,8 @@ async function seed(layer: Layer.Layer<Db | EmailService>) {
     allowAll(),
     { secure: false },
     { trustedProxyCount: 1 },
+    undefined,
+    deletionApps,
   );
   const authed = { ...IP_HEADERS, Authorization: `Bearer ${tokens.accessToken}` };
   return { auth, profile, app, authed };
@@ -464,7 +471,7 @@ describe("account-erasure routes refuse a missing, forged or recovery bearer", (
       method: "GET",
       path: "/account/deletion-preview",
       body: undefined,
-      admitted: { status: 200, body: { open_actions: [] } },
+      admitted: { status: 200, body: { open_actions: [], could_not_check: [] } },
     },
   ];
 
@@ -674,6 +681,7 @@ describe("a handle held through the erasure routes", () => {
 
     expect(await attempts("eraser")).toEqual(refusedEverywhere);
 
+    await runOn(layer, everyAppDone(profile.accountId));
     const [job] = await runOn(
       layer,
       Effect.gen(function* () {
@@ -752,12 +760,19 @@ describe("the organisations an account owns", () => {
       kind: "organisation_owned",
       label: "You own With Admin (@withadmin).",
       choices: [
-        { choice: "transfer", description: "@carol becomes the owner." },
-        { choice: "successor", description: "The member you name becomes the owner." },
-        { choice: "delete", description: "The organisation and its memberships are deleted." },
+        { choice: "transfer", description: "@carol becomes the owner.", erased_on: null },
+        {
+          choice: "successor",
+          description: "The member you name becomes the owner.",
+          erased_on: null,
+        },
+        {
+          choice: "delete",
+          description: "The organisation and its memberships are deleted.",
+          erased_on: null,
+        },
       ],
       default_choice: "transfer",
-      erased_on: null,
       link: null,
       organisation: { id: withAdmin.id, handle: "withadmin", name: "With Admin" },
       successor: { profile_id: carol.id, handle: "carol", display_name: null, role: "admin" },
@@ -952,5 +967,252 @@ describe("the organisations an account owns", () => {
     });
 
     expect(res.status).toBe(202);
+  });
+});
+
+/**
+ * What the apps hold: the preview lists each app's open actions beside the
+ * organisations, an app that cannot be asked holds the deletion, and the
+ * answers, or "delete everything", are checked before the step-up is spent and
+ * stored on the job.
+ */
+describe("the apps' open actions", () => {
+  let answer: (call: AppCall) => AppAnswer | undefined = () => undefined;
+  const apps = appStandIns((call) => answer(call));
+  afterAll(() => apps.stop());
+
+  const hosted = (id: string, defaultChoice: string | null = "cancel") => ({
+    id: `pulse:event:${id}`,
+    kind: "events_hosted",
+    label: `You host ${id}.`,
+    choices: [
+      { choice: "cancel", description: "Shown as cancelled.", erasedOn: 1_900_000_000 },
+      { choice: "delete", description: "Deleted.", erasedOn: null },
+    ],
+    defaultChoice,
+    link: null,
+  });
+
+  /** Pulse previews `actions`; Zap answers none. */
+  const pulseHolds = (...actions: unknown[]) => {
+    answer = (call) =>
+      call.app === "pulse" && call.path === "/internal/account-deletion-preview"
+        ? { body: { openActions: actions } }
+        : undefined;
+  };
+
+  async function person() {
+    const layer = createTestLayer();
+    const seeded = await seed(layer, apps.config());
+    const token = await stepUpFor(seeded.auth, seeded.profile.accountId, "account_delete", layer);
+    const attempt = (body: Record<string, unknown> = {}) =>
+      requestDeletion(seeded.app, seeded.authed, {
+        confirm_handle: seeded.profile.handle,
+        step_up_token: token,
+        ...body,
+      });
+    const job = async () =>
+      (
+        await runOn(
+          layer,
+          Effect.gen(function* () {
+            const { db } = yield* Db;
+            return yield* Effect.promise(() =>
+              db
+                .select()
+                .from(deletionJobs)
+                .where(eq(deletionJobs.accountId, seeded.profile.accountId)),
+            );
+          }),
+        )
+      )[0];
+    return { ...seeded, layer, attempt, job };
+  }
+
+  /** The calls to `path` about `profileId`: no preview or session end names the account. */
+  const callsTo = (path: string, profileId: string) =>
+    apps.calls.filter(
+      (call) =>
+        call.path === path && (call.body.profileIds as string[] | undefined)?.includes(profileId),
+    );
+
+  it("GET /account/deletion-preview lists each app's actions in the route's field names", async () => {
+    pulseHolds(hosted("evt_1"));
+    const p = await person();
+    const res = await p.app.handle(
+      new Request("http://localhost/account/deletion-preview", { headers: p.authed }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      open_actions: [
+        {
+          id: "pulse:event:evt_1",
+          app: "pulse",
+          kind: "events_hosted",
+          label: "You host evt_1.",
+          choices: [
+            { choice: "cancel", description: "Shown as cancelled.", erased_on: 1_900_000_000 },
+            { choice: "delete", description: "Deleted.", erased_on: null },
+          ],
+          default_choice: "cancel",
+          link: null,
+        },
+      ],
+      could_not_check: [],
+    });
+    const [call] = callsTo("/internal/account-deletion-preview", p.profile.id).filter(
+      (c) => c.app === "pulse",
+    );
+    expect(call!.body.profileIds).toEqual([p.profile.id]);
+    expect(call!.body).not.toHaveProperty("accountId");
+    expect(call!.body.deletesAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 6 * 86_400);
+  });
+
+  it("GET /account/deletion-preview names an app that could not be asked", async () => {
+    answer = (call) => (call.app === "zap" ? { status: 503, body: {} } : undefined);
+    const p = await person();
+    const res = await p.app.handle(
+      new Request("http://localhost/account/deletion-preview", { headers: p.authed }),
+    );
+    expect(await res.json()).toEqual({ open_actions: [], could_not_check: ["zap"] });
+  });
+
+  it("DELETE /account refuses answers with delete everything before asking any app", async () => {
+    pulseHolds(hosted("evt_1"));
+    const p = await person();
+    const res = await p.attempt({
+      delete_everything: true,
+      choices: [{ action: "pulse:event:evt_1", choice: "delete" }],
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "choices_with_delete_everything" });
+    expect(callsTo("/internal/account-deletion-preview", p.profile.id)).toEqual([]);
+  });
+
+  it("DELETE /account is held while an app cannot be asked, before the answers and the step-up", async () => {
+    answer = (call) => (call.app === "pulse" ? { status: 500, body: {} } : undefined);
+    const p = await person();
+    const held = await p.attempt({ choices: [{ action: "pulse:event:evt_1", choice: "keep" }] });
+    expect(held.status).toBe(409);
+    expect(await held.json()).toEqual({
+      error: "could_not_check",
+      open_actions: [],
+      could_not_check: ["pulse"],
+    });
+    expect(await p.job()).toBeUndefined();
+
+    // The step-up token was not spent: once Pulse answers, it schedules.
+    pulseHolds();
+    expect((await p.attempt()).status).toBe(202);
+  });
+
+  it("DELETE /account waits for an app action with no default, and refuses an answer it does not offer", async () => {
+    pulseHolds(hosted("evt_1", null), hosted("evt_2"));
+    const p = await person();
+
+    const waiting = await p.attempt();
+    expect(waiting.status).toBe(409);
+    const open = (await waiting.json()) as { error: string; open_actions: { id: string }[] };
+    expect(open.error).toBe("open_actions");
+    expect(open.open_actions.map((a) => a.id)).toEqual(["pulse:event:evt_1"]);
+
+    for (const choices of [
+      [{ action: "pulse:event:evt_1", choice: "keep" }],
+      [
+        { action: "pulse:event:evt_1", choice: "cancel" },
+        { action: "pulse:event:evt_1", choice: "delete" },
+      ],
+    ]) {
+      const refused = await p.attempt({ choices });
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toEqual({
+        error: "invalid_choice",
+        action: "pulse:event:evt_1",
+      });
+    }
+
+    const scheduled = await p.attempt({
+      choices: [
+        { action: "pulse:event:evt_1", choice: "delete" },
+        { action: "elsewhere:thing", choice: "x" },
+      ],
+    });
+    expect(scheduled.status).toBe(202);
+    expect(JSON.parse((await p.job())!.choices!)).toEqual({
+      "pulse:event:evt_1": { choice: "delete" },
+    });
+  });
+
+  it("DELETE /account refuses an invalid answer even while another action waits", async () => {
+    pulseHolds(hosted("evt_1", null), hosted("evt_2"));
+    const p = await person();
+    const refused = await p.attempt({ choices: [{ action: "pulse:event:evt_2", choice: "keep" }] });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: "invalid_choice", action: "pulse:event:evt_2" });
+  });
+
+  it("DELETE /account answers stale_choices for an app action the fresh preview no longer lists", async () => {
+    pulseHolds(hosted("evt_2"));
+    const p = await person();
+    const res = await p.attempt({ choices: [{ action: "pulse:event:evt_1", choice: "delete" }] });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; open_actions: { id: string }[] };
+    expect(body.error).toBe("stale_choices");
+    expect(body.open_actions.map((a) => a.id)).toEqual(["pulse:event:evt_2"]);
+    expect(await p.job()).toBeUndefined();
+    // The refusal spent no step-up: answers to the fresh preview go through
+    // with the same token.
+    const retried = await p.attempt({
+      choices: [{ action: "pulse:event:evt_2", choice: "delete" }],
+    });
+    expect(retried.status).toBe(202);
+  });
+
+  it("DELETE /account takes delete everything with an empty list of answers", async () => {
+    pulseHolds(hosted("evt_1", null));
+    const p = await person();
+    const res = await p.attempt({ delete_everything: true, choices: [] });
+    expect(res.status).toBe(202);
+    expect((await p.job())!.deleteEverything).toBe(true);
+  });
+
+  it("DELETE /account with delete everything stores the flag and no answers, whatever waits", async () => {
+    pulseHolds(hosted("evt_1", null));
+    const p = await person();
+    const solo = await runOn(
+      p.layer,
+      createOrganisationService({ heldHandleDigest: p.auth.heldHandleDigest }).createOrganisation(
+        p.profile.id,
+        "solo",
+        "Solo",
+      ),
+    );
+    expect(solo.id).toBeTruthy();
+    const res = await p.attempt({ delete_everything: true });
+    expect(res.status).toBe(202);
+    const job = await p.job();
+    expect(job!.deleteEverything).toBe(true);
+    expect(job!.choices).toBeNull();
+  });
+
+  it("a soft delete ends the person's Pulse sessions, with their profiles, and only Pulse's", async () => {
+    pulseHolds();
+    const p = await person();
+    expect((await p.attempt()).status).toBe(202);
+    await vi.waitFor(() =>
+      expect(callsTo("/internal/account-sessions/revoke", p.profile.id)).toHaveLength(1),
+    );
+    const [call] = callsTo("/internal/account-sessions/revoke", p.profile.id);
+    expect(call).toMatchObject({ app: "pulse", body: { profileIds: [p.profile.id] } });
+    expect(call!.body).not.toHaveProperty("accountId");
+    expect(call!.authorization).toMatch(/^ARC /);
+  });
+
+  it("a soft delete stands when Pulse refuses to end the sessions", async () => {
+    answer = (call) =>
+      call.path === "/internal/account-sessions/revoke" ? { status: 503, body: {} } : undefined;
+    const p = await person();
+    expect((await p.attempt()).status).toBe(202);
+    expect((await p.job())!.accountId).toBe(p.profile.accountId);
   });
 });

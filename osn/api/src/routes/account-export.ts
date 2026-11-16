@@ -11,18 +11,18 @@ import { Elysia } from "elysia";
 import { resolveAccountWindowPrincipal } from "../lib/auth-derive";
 import type { CookieSessionConfig } from "../lib/cookie-session";
 import { createLiveSessionCheck } from "../lib/live-session";
-import { arcFetchStream } from "../lib/outbound-arc";
+import {
+  arcFetchStream,
+  OutboundKeyNotPublishedError,
+  publishOutboundKey,
+} from "../lib/outbound-arc";
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountExportRequested } from "../metrics";
-import {
-  defaultExportDownstreams,
-  exportLines,
-  ndjsonStream,
-  type ExportDownstream,
-} from "../services/account-export";
+import { exportDownstreams, exportLines, ndjsonStream } from "../services/account-export";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { isAuthError } from "../services/auth/errors";
+import { NO_DELETION_APPS, type DeletionAppsConfig } from "../services/deletion-apps";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import { errorResponse, stepUpRequiredResponse } from "./auth/response-schemas";
 
@@ -81,8 +81,10 @@ export function createAccountExportRoutes(
   ipRateLimiter: RateLimiterBackend = memoryLimiter(OSN_RATE_LIMITS.accountExportIp),
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
   runtime?: AppRuntime,
-  downstreams: ExportDownstream[] = defaultExportDownstreams(),
+  /** Where each app is on this tier, and the ARC kid secret its call carries. */
+  deletionApps: DeletionAppsConfig = NO_DELETION_APPS,
 ) {
+  const downstreams = exportDownstreams(deletionApps);
   const auth = createAuthService(authConfig);
   const contentDisposition = `attachment; filename="${exportFileName(authConfig.instanceName)}"`;
   const { run } = makeAppRunner<Db>(runtime, Layer.merge(dbLayer, loggerLayer));
@@ -188,17 +190,26 @@ export function createAccountExportRoutes(
         }
 
         const { db } = await run(Db);
+        // Every app verifies osn-api's call against the key it publishes, so
+        // the key is written before the stream signs anything, and the stream
+        // signs with that key. A failure here leaves each app's section
+        // degraded rather than failing the export.
+        const key = downstreams.some((ds) => ds.url !== null)
+          ? await run(publishOutboundKey(deletionApps.arc)).catch(() => null)
+          : null;
         const stream = ndjsonStream(
           exportLines({
             db,
             accountId: profile.accountId,
             downstreams,
             fetchStream: (ds, body) =>
-              arcFetchStream(ds.url, body, {
-                audience: ds.audience,
-                scope: "account:export",
-                timeoutMs: 10_000,
-              }),
+              key === null
+                ? Promise.reject(new OutboundKeyNotPublishedError())
+                : arcFetchStream(key, ds.url ?? "", body, {
+                    audience: ds.audience,
+                    scope: "account:export",
+                    timeoutMs: 10_000,
+                  }),
           }),
         );
         metricAccountExportRequested("ok");
