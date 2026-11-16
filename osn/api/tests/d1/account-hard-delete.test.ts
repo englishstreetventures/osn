@@ -431,14 +431,17 @@ describe("the hard delete waits for every app, on D1", () => {
   });
 
   it.each([
-    ["an app still pending", 1_700_000_000, null],
+    ["an app still pending", "waitnull", 1_700_000_000, null, 1_700_000_002],
     [
       "the not-enrolled mark a job written before every account went to every app holds",
+      "waitold",
       1_700_000_000,
       -1,
+      1_700_000_002,
     ],
-  ])("erases nothing while a job has %s", async (_label, pulse, zap) => {
-    const { accountId, profileId, job } = await withMarks(`wait${String(zap)}`, pulse, zap);
+    ["cire alone still pending", "waitcire", 1_700_000_000, 1_700_000_001, null],
+  ])("erases nothing while a job has %s", async (_label, handle, pulse, zap, cire) => {
+    const { accountId, profileId, job } = await withMarks(handle, pulse, zap, cire);
     expect((await run(hardDeleteAccount(job, HARD_DELETE_AT))).deleted).toBe(false);
     expect(await db.select().from(accounts).where(eq(accounts.id, accountId))).toHaveLength(1);
     expect(await db.select().from(users).where(eq(users.id, profileId))).toHaveLength(1);
@@ -449,12 +452,13 @@ describe("the hard delete waits for every app, on D1", () => {
   // claim no longer guards it: only the batch's job delete does, and D1 rolls
   // the whole batch back when the account's delete then fails on the job.
   it.each([
-    ["an app still pending", 1_700_000_000, null],
-    ["the old not-enrolled mark", 1_700_000_000, -1],
+    ["an app still pending", "claimednull", 1_700_000_000, null, 1_700_000_002],
+    ["the old not-enrolled mark", "claimedold", 1_700_000_000, -1, 1_700_000_002],
+    ["cire alone still pending", "claimedcire", 1_700_000_000, 1_700_000_001, null],
   ])(
     "erases nothing of a job the fan-out already claimed while it has %s",
-    async (_label, pulse, zap) => {
-      const { accountId, profileId, job } = await withMarks(`claimed${String(zap)}`, pulse, zap);
+    async (_label, handle, pulse, zap, cire) => {
+      const { accountId, profileId, job } = await withMarks(handle, pulse, zap, cire);
       await db
         .update(deletionJobs)
         .set({ purgeStartedAt: HARD_DELETE_AT - 60 })
