@@ -48,7 +48,7 @@
     "@shared/typescript-config": "workspace:*",
     "miniflare": "^4.20260730.0",
     "vitest": "5.0.5",
-    "wrangler": "4.156.0"
+    "wrangler": "4.156.1"
   },
   "portless": {
     "name": "id.musubi",

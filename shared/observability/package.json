@@ -40,6 +40,6 @@
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "vitest": "5.0.5",
-    "wrangler": "4.156.0"
+    "wrangler": "4.156.1"
   }
 }
