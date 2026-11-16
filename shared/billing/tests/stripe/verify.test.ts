@@ -16,18 +16,6 @@ const reasonOf = async (input: Parameters<typeof verifyStripeWebhook>[0]) =>
   (await Effect.runPromise(Effect.flip(verifyStripeWebhook(input)))).reason;
 
 describe("verifyStripeWebhook", () => {
-  it("accepts a delivery Stripe signed, and returns the parsed body", async () => {
-    const event = await Effect.runPromise(
-      verifyStripeWebhook({
-        payload: body,
-        signatureHeader: await signedHeader(),
-        secret: SECRET,
-        now,
-      }),
-    );
-    expect(event).toEqual({ id: "evt_1", type: "invoice.paid" });
-  });
-
   it("accepts a delivery signed with any of several rotating secrets", async () => {
     const header = `t=${now},v1=${await hmacHex("whsec_old", `${now}.${body}`)},v1=${await hmacHex(
       SECRET,

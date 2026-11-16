@@ -112,7 +112,8 @@ describe("handleWebhook", () => {
       duplex: "half",
     } as RequestInit & { duplex: "half" });
     for (const request of [declared, streamed]) {
-      expect((await run(h.billing.handleWebhook(request))).status).toBe(400);
+      const result = await run(h.billing.handleWebhook(request));
+      expect([result.status, result.body.outcome]).toEqual([400, "too_large"]);
     }
   });
 
@@ -382,7 +383,7 @@ describe("handleWebhook", () => {
   });
 
   it("answers 500 and releases the claim when the access lease stays busy", async () => {
-    const h = await createHarness();
+    const h = await createHarness({ tuning: { accessBudgetMs: 1 } });
     await customerWithStripe(h);
     stripeHas(h);
     await run(
