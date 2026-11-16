@@ -1033,6 +1033,13 @@ export function apiAheadOfHost(decisions: readonly PlanDecision[]): boolean {
   return api?.ship === true && host?.ship === true;
 }
 
+/**
+ * Text for one cell of the summary's table. A reason can name any file in the
+ * diff, and a file's name can hold a `|` or a line break, which would end the
+ * cell or the row and let the name draw a row of its own.
+ */
+const cell = (text: string): string => text.replace(/[\r\n]+/g, " ").replaceAll("|", "\\|");
+
 /** The table the approver reads on the run page before approving. */
 export function renderSummary(
   release: ReleaseDecisions,
@@ -1045,7 +1052,7 @@ export function renderSummary(
       d.production === undefined
         ? "—"
         : `[\`${short(d.production)}\`](${repo}/commit/${d.production}) ([diff](${repo}/compare/${d.production}...${context.head}))`;
-    return `| \`${d.key}\` | ${production} | ${d.status} | ${d.reason} |`;
+    return `| \`${d.key}\` | ${production} | ${d.status} | ${cell(d.reason)} |`;
   });
   const shipping = decisions.filter((d) => d.ship).map((d) => `\`${d.key}\``);
   const stacks = release.stacks.filter((s) => s.ship).map((s) => `the ${s.key} stack`);
@@ -1054,7 +1061,7 @@ export function renderSummary(
       s.production === undefined
         ? "—"
         : `[\`${short(s.production)}\`](${repo}/commit/${s.production}) ([diff](${repo}/compare/${s.production}...${context.head}))`;
-    return `| ${s.key} stack | ${production} | ${s.ship ? "ships" : "waits"} | ${s.reason} |`;
+    return `| ${s.key} stack | ${production} | ${s.ship ? "ships" : "waits"} | ${cell(s.reason)} |`;
   });
   const approvals =
     stacks.length === 0

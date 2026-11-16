@@ -1596,6 +1596,26 @@ describe("what the plan job writes", () => {
     expect(summary).toContain(`https://github.com/${REPO}/compare/${base}...${head}`);
     expect(summary).toContain("osn/api/x.ts changed");
   });
+
+  // git hands the planner a file's name as written, and a name may hold a
+  // `|` or a line break: in the approver's table either would draw a row the
+  // planner never wrote.
+  test("RP20: a file name cannot add a row or a cell to the summary's table", () => {
+    const summary = renderSummary(
+      release(decide(["shared/a|b\n| `zap_api` | — | unchanged | x |.ts"])),
+      {
+        head,
+        repository: REPO,
+        serverUrl: "https://github.com",
+      },
+    );
+    const rows = summary.split("\n").filter((line) => line.startsWith("|"));
+    expect(rows).toHaveLength(2 + PRODUCTION_SURFACES.length + PRODUCTION_STACKS.length);
+    for (const row of rows) expect(row.split(/(?<!\\)\|/)).toHaveLength(6);
+    expect(summary).toContain(
+      "shared/a\\|b \\| `zap_api` \\| — \\| unchanged \\| x \\|.ts changed",
+    );
+  });
 });
 
 describe("runReleasePlan refuses a broken environment", () => {

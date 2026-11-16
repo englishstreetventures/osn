@@ -8,8 +8,11 @@
  * commits.
  *
  * No surface is built from a package's version or its changelog: no file a
- * surface or stack builds from reads either (scripts/tests/version-bump.test.ts
- * holds that). So scripts/release-plan.ts sets these files aside in every diff
+ * surface or stack builds from names a package.json, an npm_package_ variable
+ * or a CHANGELOG in its code, and nothing sets the service version
+ * (scripts/tests/version-bump.test.ts fails when one does; a read it cannot
+ * see, such as a path assembled from parts, is the author's to report). So
+ * scripts/release-plan.ts sets these files aside in every diff
  * before the surface map sees it, in the production check and the dev gate
  * alike: a surface whose only change is a version is unchanged, and dev's run
  * of the merge counts as a run of the version commits after it.
@@ -122,7 +125,7 @@ export function versionOnly(
 }
 
 /** One changed path, with the object each side holds; undefined where the side has none. */
-interface Change {
+export interface Change {
   readonly path: string;
   readonly before: string | undefined;
   readonly after: string | undefined;
@@ -138,7 +141,8 @@ const absent = (oid: string): boolean => /^0+$/.test(oid);
  * The paths that differ between two commits' trees and the object each side
  * holds, or undefined when git cannot compare them or its answer does not
  * parse. The same commits and options as deploy-surfaces.ts's changedFiles,
- * so the two list the same paths.
+ * with `-z`: each path comes as written, where changedFiles gets a path holding
+ * a quote, a backslash or a byte outside printable ASCII quoted and escaped.
  */
 function rawDiff(from: string, to: string, cwd: string): readonly Change[] | undefined {
   if (!/^[0-9a-f]{4,40}$/i.test(from) || !/^([0-9a-f]{4,40}|HEAD)$/i.test(to)) return undefined;
@@ -146,8 +150,15 @@ function rawDiff(from: string, to: string, cwd: string): readonly Change[] | und
     ["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", from, to, "--"],
     { cwd, stdout: "pipe", stderr: "pipe" },
   );
-  if (proc.exitCode !== 0) return undefined;
-  const fields = proc.stdout.toString().split("\0");
+  return proc.exitCode === 0 ? parseRawDiff(proc.stdout.toString()) : undefined;
+}
+
+/**
+ * `git diff --raw -z` output as changes, in its order; undefined when any
+ * part of it is not the shape git writes.
+ */
+export function parseRawDiff(output: string): readonly Change[] | undefined {
+  const fields = output.split("\0");
   if (fields.at(-1) === "") fields.pop();
   if (fields.length % 2 !== 0) return undefined;
   const changes: Change[] = [];

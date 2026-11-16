@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { sharedPath, STACKS, SURFACES } from "../deploy-surfaces";
-import { contentDiff, versionOnly, workspaceDirs } from "../version-bump";
+import { contentDiff, parseRawDiff, versionOnly, workspaceDirs } from "../version-bump";
 import {
   AFTER,
   authUiManifest,
@@ -167,6 +167,18 @@ describe("bun.lock", () => {
     expect(judge("bun.lock", broken, lockfile(AFTER))).toBe(false);
   });
 
+  // Its line looks like a workspace's version line, so only the parsed check sees it.
+  test("content: a workspace dependency named version changed", () => {
+    const withDependency = (range: string) => (versions: typeof BEFORE | typeof AFTER) =>
+      lockfile(versions, { uiDependencies: `\n        "version": "${range}",` });
+    expect(
+      judge("bun.lock", withDependency("^1.0.0")(BEFORE), withDependency("^1.0.0")(AFTER)),
+    ).toBe(true);
+    expect(
+      judge("bun.lock", withDependency("^1.0.0")(BEFORE), withDependency("^1.0.1")(AFTER)),
+    ).toBe(false);
+  });
+
   test("content: a bun.lock anywhere but the root", () => {
     expect(judge("tools/x/bun.lock", lockfile(BEFORE), lockfile(AFTER))).toBe(false);
   });
@@ -240,6 +252,58 @@ describe("contentDiff and the CLI", () => {
     }
   });
 
+  test("content: a submodule where a workspace's CHANGELOG.md was", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "version-bump-"));
+    try {
+      git(dir, "init", "--initial-branch=main", ".");
+      const a = await commit(dir, released());
+      git(dir, "rm", "--cached", "-q", "shared/ui/CHANGELOG.md");
+      await rm(join(dir, "shared/ui/CHANGELOG.md"));
+      git(dir, "update-index", "--add", "--cacheinfo", `160000,${a},shared/ui/CHANGELOG.md`);
+      git(dir, "commit", "-q", "-m", "gitlink");
+      const b = git(dir, "rev-parse", "HEAD");
+      expect(contentDiff(b, dir)(a)).toEqual(["shared/ui/CHANGELOG.md"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("content: a package.json whose copy git cannot return", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "version-bump-"));
+    try {
+      git(dir, "init", "--initial-branch=main", ".");
+      const a = await commit(dir, released());
+      const b = await commit(dir, { "shared/ui/package.json": uiManifest(AFTER.ui) });
+      expect(contentDiff(b, dir)(a)).toEqual([]);
+      // The diff reads only the trees; the blob itself is gone.
+      const blob = git(dir, "rev-parse", `${b}:shared/ui/package.json`);
+      await rm(join(dir, ".git/objects", blob.slice(0, 2), blob.slice(2)));
+      expect(contentDiff(b, dir)(a)).toEqual(["shared/ui/package.json"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("parseRawDiff: undefined for anything but the shape git writes", () => {
+    const oid = "1".repeat(40);
+    const zero = "0".repeat(40);
+    const good = `:100644 100644 ${oid} ${oid} M\0a/package.json\0:000000 100644 ${zero} ${oid} A\0b\0`;
+    expect(parseRawDiff(good)).toEqual([
+      { path: "a/package.json", before: oid, after: oid, blobs: true },
+      { path: "b", before: undefined, after: oid, blobs: true },
+    ]);
+    expect(parseRawDiff("")).toEqual([]);
+    for (const bad of [
+      `:100644 100644 ${oid} ${oid} M\0`,
+      `:100644 100644 ${oid} M\0a\0`,
+      `100644 100644 ${oid} ${oid} M\0a\0`,
+      `:100644 100644 ${oid} ${oid} M\0\0`,
+      `a/package.json\0:100644 100644 ${oid} ${oid} M\0`,
+    ]) {
+      expect(parseRawDiff(bad)).toBeUndefined();
+    }
+  });
+
   test("the CLI lists what the planner keeps and what it sets aside", async () => {
     const dir = await mkdtemp(join(tmpdir(), "version-bump-"));
     try {
@@ -282,15 +346,26 @@ describe("contentDiff and the CLI", () => {
 
 // Setting a version bump aside is safe only while no surface is built from a
 // package's version or changelog. A file any surface, stack or shared path
-// counts that reads a package.json, an npm_package_* variable or a CHANGELOG,
-// or a deploy that sets the service version, makes a version bump content:
-// change scripts/version-bump.ts before adding one here.
+// counts that names a package.json, an npm_package_* variable or a CHANGELOG
+// in its code, or a glob or raw import of Markdown, or a deploy that sets the
+// service version, makes a version bump content: change scripts/version-bump.ts
+// before adding one here. Comments are left out, since they read nothing; a
+// path assembled from parts is beyond any pattern.
 describe("no surface is built from a package version or a changelog", () => {
   const READS = [
-    { what: "a package.json", pattern: /["'][^"'\n]*package\.json["']/ },
+    { what: "a package.json", pattern: /[`"'][^`"'\n]*package\.json/ },
     { what: "an npm_package_ variable", pattern: /npm_package_/ },
-    { what: "a CHANGELOG", pattern: /["'][^"'\n]*CHANGELOG[^"'\n]*["']/ },
+    { what: "a CHANGELOG", pattern: /[`"'][^`"'\n]*CHANGELOG/ },
+    { what: "a Markdown glob", pattern: /glob\w*\s*\([^)]*\.md\b/ },
+    { what: "a raw Markdown import", pattern: /\.md\?raw/ },
   ];
+  /** The code of a file, less its comment lines and trailing line comments. */
+  const code = (text: string): string =>
+    text
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\/\*|\*|#|<!--)/.test(line))
+      .map((line) => line.replace(/\s\/\/\s.*$/, ""))
+      .join("\n");
   /** Each file allowed a read, and what it reads. */
   const ALLOWED: ReadonlyMap<string, string> = new Map([
     // The local devloop's launcher reads the app's `name`, never its version,
@@ -314,12 +389,24 @@ describe("no surface is built from a package version or a changelog", () => {
     expect(source.length).toBeGreaterThan(500);
     const found: string[] = [];
     for (const file of source) {
-      const text = await readFile(join(ROOT, file), "utf8");
+      const text = code(await readFile(join(ROOT, file), "utf8"));
       for (const { what, pattern } of READS) {
         if (pattern.test(text) && ALLOWED.get(file) !== what) found.push(`${file}: ${what}`);
       }
     }
     expect(found).toEqual([]);
+  });
+
+  test.each([
+    ["a template literal", "const p = `${dir}/package.json`;"],
+    ["an import", 'import pkg from "../package.json";'],
+    ["a CHANGELOG import", 'import log from "../CHANGELOG.md?raw";'],
+    ["a Markdown glob", 'const all = import.meta.glob("../**/*.md");'],
+    ["npm's variable", "const v = process.env.npm_package_version;"],
+  ])("the patterns see %s, and skip it in a comment", (_name, line) => {
+    expect(READS.some(({ pattern }) => pattern.test(code(line)))).toBe(true);
+    expect(READS.some(({ pattern }) => pattern.test(code(`// ${line}`)))).toBe(false);
+    expect(READS.some(({ pattern }) => pattern.test(code(` * ${line}`)))).toBe(false);
   });
 
   test("nothing sets the service version a trace reports", async () => {
