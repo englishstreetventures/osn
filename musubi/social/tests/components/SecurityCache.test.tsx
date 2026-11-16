@@ -770,6 +770,28 @@ describe("a step-up with no write after it", () => {
   });
 });
 
+describe("a confirm that runs no step-up", () => {
+  it("F21: reads the authenticator again, and nothing else", async () => {
+    mountTab();
+    await landed();
+    fireEvent.click(await screen.findByRole("button", { name: "Add an authenticator app" }));
+    await passStepUp();
+    await screen.findByText(SECRET);
+    await settle();
+    const before = { ...server.reads };
+    const boxes = screen.getAllByLabelText(/^Digit \d$/);
+    for (const [i, ch] of [..."123456"].entries()) {
+      fireEvent.input(boxes[i]!, { target: { value: ch } });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await screen.findByRole("button", { name: "Remove Authenticator app" });
+    await settle();
+    expect(server.reads.totp! - before.totp!).toBe(1);
+    expect(server.reads.passkeys).toBe(before.passkeys);
+    expect(server.reads.recovery).toBe(before.recovery);
+  });
+});
+
 describe("what never enters the cache", () => {
   /** What a fresh reader of `query` would draw from memory. */
   function held<T>(query: { use: (args: () => [] | undefined) => () => T | undefined }) {

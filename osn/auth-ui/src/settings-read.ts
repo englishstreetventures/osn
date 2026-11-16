@@ -65,8 +65,10 @@ export interface SettingsRead<T> {
   /**
    * Called just before a request that may change what this read shows. Call
    * what it returns once, when that request settles, with how it ended.
+   * `steppedUp: false` says the request ran no step-up of its own (an
+   * enrolment's confirm), so no factor's "Last used" moved with it.
    */
-  write(): (end: WriteEnd<T>) => void;
+  write(options?: { readonly steppedUp?: boolean }): (end: WriteEnd<T>) => void;
 }
 
 /**

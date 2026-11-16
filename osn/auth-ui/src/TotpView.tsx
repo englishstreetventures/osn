@@ -183,7 +183,8 @@ export function TotpView(props: TotpViewProps) {
     if (busy() || code().length !== 6) return;
     setBusy(true);
     setError(null);
-    const finish = status.write();
+    // The confirm runs no step-up: the one before the enrolment began did.
+    const finish = status.write({ steppedUp: false });
     try {
       await props.client.enrollComplete({
         code: code(),
