@@ -1,5 +1,11 @@
 # @osn/ui
 
+## 6.2.3
+
+### Patch Changes
+
+- 3ba8aa7: Chrome fills the email verification token on dev Musubi: the dev trial token names `musubi.esv.tools` itself, and the sign-up form sets the hidden field's nonce after the field is in the page.
+
 ## 6.2.2
 
 ### Patch Changes

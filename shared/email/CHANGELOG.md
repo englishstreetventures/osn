@@ -1,5 +1,13 @@
 # @shared/email
 
+## 0.19.0
+
+### Minor Changes
+
+- 59eb9a9: New template `upgrade-refund`: tells a wedding's owners that an upgrade payment
+  cire could not grant was refunded in full, naming the wedding, the tier, the
+  amount (formatted by the caller) and the address to write to, and no reason.
+
 ## 0.18.7
 
 ### Patch Changes
