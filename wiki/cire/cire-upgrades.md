@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-development]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-17
 ---
 
 # Self-serve upgrades — buying a plan tier
@@ -334,8 +334,9 @@ The row moves to `refunding` **before** Stripe is asked, recording the payment
 intent and what arrived, so no later delivery can grant it. The same batch
 writes the refund's record, `platform_refunds`: the purchase id, product,
 payment intent, amount, reason and status, with no foreign key, no wedding id
-so it outlives the purge; it is pseudonymous, not anonymous, since its
-PaymentIntent and refund ids open the charge in Stripe. Every later move of the refund
+and no profile id, so it outlives the purge; it is pseudonymous, not anonymous,
+since its PaymentIntent and refund ids open the charge in Stripe. Cire keeps it
+for 7 years from its `created_at` ([[retention]]). Every later move of the refund
 (`auto_refunded`, `refunded`, `refund_failed`) changes the record and, while it
 exists, the purchase row, in one batch; the record decides. Then
 `POST /v1/refunds` with the payment intent and `metadata[purchaseId]`, a full
