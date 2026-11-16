@@ -31,10 +31,10 @@
     "@shared/toast": "workspace:*",
     "@shared/ui": "workspace:*",
     "@solidjs/router": "^1.0.1",
-    "@solidjs/start": "2.0.6",
+    "@solidjs/start": "2.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "leaflet": "^1.9.4",
-    "nitro": "^3.0.260903-beta",
+    "nitro": "^3.0.261103-rc",
     "solid-js": "^1.9.18",
     "tailwindcss": "^4.3.3"
   },

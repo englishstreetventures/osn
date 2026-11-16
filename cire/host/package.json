@@ -20,7 +20,7 @@
     "typecheck": "bun ../../scripts/astro-typecheck.ts"
   },
   "dependencies": {
-    "@astrojs/solid-js": "7.1.0",
+    "@astrojs/solid-js": "7.1.5",
     "@cire/dietary": "workspace:*",
     "@cire/envelope": "workspace:*",
     "@cire/guest-email": "workspace:*",
@@ -37,9 +37,9 @@
     "@shared/toast": "workspace:*",
     "@shared/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "7.4.4",
+    "astro": "7.4.11",
     "cropperjs": "2.3.1",
-    "lucide-solid": "1.59.0",
+    "lucide-solid": "1.66.0",
     "solid-js": "^1.9.18",
     "tailwindcss": "^4.3.3"
   },

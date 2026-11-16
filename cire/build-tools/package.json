@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "astro": "7.4.4",
+    "astro": "7.4.11",
     "vitest": "5.0.5"
   }
 }

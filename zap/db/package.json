@@ -32,7 +32,7 @@
   "dependencies": {
     "@shared/db-utils": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.1.2"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
@@ -41,6 +41,6 @@
     "better-sqlite3": "^13.0.3",
     "drizzle-kit": "1.0.0-rc.5",
     "vitest": "5.0.5",
-    "wrangler": "4.149.0"
+    "wrangler": "4.156.0"
   }
 }

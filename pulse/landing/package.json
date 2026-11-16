@@ -23,10 +23,10 @@
     "script": "dev:app"
   },
   "dependencies": {
-    "@astrojs/solid-js": "7.1.0",
+    "@astrojs/solid-js": "7.1.5",
     "@shared/legal": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "7.4.4",
+    "astro": "7.4.11",
     "solid-js": "^1.9.18",
     "tailwindcss": "^4.3.3"
   },
