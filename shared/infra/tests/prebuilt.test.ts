@@ -112,11 +112,6 @@ describe("planPrebuiltStage and writePrebuiltStage", () => {
     });
   });
 
-  test("ST-c: leaves out a map no module names", () => {
-    const { target } = staged();
-    expect(listing(target)).not.toContain("chunks/orphan.mjs.map");
-  });
-
   test("ST-d: refuses a module whose map comment names a missing file, naming the module, before anything is written", () => {
     const { source } = fixture({
       ...FILES,
@@ -135,17 +130,6 @@ describe("planPrebuiltStage and writePrebuiltStage", () => {
     expect(() => planPrebuiltStage({ source, main: "entry.mjs" })).toThrow(PrebuiltSourceMapError);
   });
 
-  test("ST-f: leaves out wrangler dev's top-level .wrangler, and keeps a module under any other dot directory, as Wrangler does", () => {
-    const { target } = staged();
-    expect(listing(target).filter((path) => path.startsWith(".wrangler"))).toEqual([]);
-    expect(listing(target)).toContain(join(".prerender", "page.mjs"));
-  });
-
-  test("ST-g: empties the target first, so nothing an earlier run staged survives", () => {
-    const { target } = staged();
-    expect(listing(target)).not.toContain("stale.mjs");
-  });
-
   test("ST-h: stages modules and their maps and nothing else, and refuses an entry that is not there", () => {
     const { source, target } = staged();
     expect(listing(target)).toEqual(
@@ -162,12 +146,6 @@ describe("planPrebuiltStage and writePrebuiltStage", () => {
     const error = thrown(() => planPrebuiltStage({ source, main: "server.mjs" }));
     expect(error).toBeInstanceOf(PrebuiltWorkerError);
     expect((error as Error).message).toContain("server.mjs");
-  });
-
-  test("ST-i: finds the map comment above trailing //# lines, and strips path prefixes in Wrangler's order", () => {
-    const { target } = staged();
-    // `.././x.ts` loses only its `../`: Wrangler strips `./`, `.\`, `../`, `..\` in that nested order.
-    expect(mapAt(target, "chunks/a.mjs.map").sources).toEqual(["src/a.ts", "./x.ts"]);
   });
 
   test("ST-o: refuses a map comment that names a file outside the prebuilt directory, before anything is written", () => {

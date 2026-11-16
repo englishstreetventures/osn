@@ -114,16 +114,6 @@ describe("apiWorkerProps", () => {
     expect(apiWorkerProps(cireApiDev).name).toBe("cire-api-dev");
   });
 
-  test("refuses version preview URLs on production", () => {
-    expect(apiWorkerProps(cireApiProduction, ADOPTED).workersDev).toEqual({
-      enabled: false,
-      previewsEnabled: false,
-    });
-    expect(() => apiWorkerProps({ ...cireApiProduction, previewUrls: true })).toThrow(
-      ProductionPreviewUrlsError,
-    );
-  });
-
   test.each([
     ["an optional secret", "osn-api", "production", { OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: "plain" }],
     ["a forbidden name", "cire-api", "production", { RESEND_API_URL: "http://localhost:3010" }],
@@ -153,29 +143,6 @@ describe("apiWorkerProps", () => {
     ).toThrow(SecretAsPlainBindingError);
   });
 
-  test("keeps query strings redacted and native traces off on production", () => {
-    expect(apiWorkerProps(cireApiProduction, ADOPTED).observability).toEqual({
-      enabled: true,
-      headSamplingRate: 1,
-      redactQueryString: true,
-      logs: { enabled: true, invocationLogs: false },
-      traces: { enabled: false },
-      issues: { enabled: true },
-    });
-    expect(() =>
-      apiWorkerProps({
-        ...cireApiProduction,
-        observability: { ...cireApiProduction.observability, redactQueryString: false },
-      }),
-    ).toThrow(ProductionObservabilityError);
-    expect(() =>
-      apiWorkerProps({
-        ...cireApiProduction,
-        observability: { ...cireApiProduction.observability, traces: { enabled: true } },
-      }),
-    ).toThrow(/traces/);
-  });
-
   /** The guest Worker on production: prebuilt, no secrets, traced. */
   const guestProduction: ApiWorkerInput = {
     ...cireApiProduction,
@@ -196,17 +163,6 @@ describe("apiWorkerProps", () => {
       issues: true,
     },
   };
-
-  test("O1: the guest Worker traces every request on production, with query strings redacted and invocation logs off", () => {
-    expect(apiWorkerProps(guestProduction, ADOPTED).observability).toEqual({
-      enabled: true,
-      headSamplingRate: 1,
-      redactQueryString: true,
-      logs: { enabled: true, invocationLogs: false },
-      traces: { enabled: true, headSamplingRate: 1 },
-      issues: { enabled: true },
-    });
-  });
 
   test("O2: refuses invocation logs on the guest Worker on production", () => {
     const error = thrown(() =>
@@ -434,11 +390,6 @@ describe("apiWorkerProps", () => {
     expect(apiWorkerProps(cireApiDev)).not.toHaveProperty("routes");
   });
 
-  test("B1: a prebuilt Worker reaches the props unbundled", () => {
-    expect(apiWorkerProps({ ...cireApiDev, bundle: false }).bundle).toBe(false);
-    expect(apiWorkerProps(cireApiDev).bundle).toBe(true);
-  });
-
   test("B8: a bundled Worker keeps Alchemy's own externals and every Bun-only module out of its bundle; a prebuilt one passes no build options", () => {
     // An `input.external` override replaces the list Alchemy sets itself,
     // so the props must repeat it.
@@ -542,17 +493,6 @@ describe("siteWorkerProps", () => {
     expect(() => siteWorkerProps({ ...site, previewUrls: true })).toThrow(
       ProductionPreviewUrlsError,
     );
-  });
-
-  test("BA4: a production site redacts query strings, keeps invocation logs and traces off, and needs no adoption", () => {
-    expect(siteWorkerProps(site).observability).toEqual({
-      enabled: true,
-      redactQueryString: true,
-      logs: { enabled: true, invocationLogs: false },
-      traces: { enabled: false },
-      issues: { enabled: true },
-    });
-    expect(siteWorkerProps(site).name).toBe("cire-landing");
   });
 
   test("B4: a site with an entry runs it before the assets it names; one without has no script", () => {

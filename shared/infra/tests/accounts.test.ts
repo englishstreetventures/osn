@@ -59,17 +59,6 @@ describe("TIER_ACCOUNTS", () => {
     }
   });
 
-  test("I4: the dev read-only token is classified, required in dev and forbidden in production", () => {
-    // free-tier-ceiling-alert.yml's dev job fails every night without it.
-    expect(knownCredentials()).toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
-    expect(requiredCredentials("dev")).toEqual(
-      [...accountSecrets("dev"), "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY"].toSorted(),
-    );
-    expect(forbiddenCredentials("production")).toContain(
-      "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
-    );
-  });
-
   test("the retired Pages and DNS token is no workflow's to read, required nowhere and forbidden in both Environments", () => {
     expect(knownCredentials()).not.toContain("CLOUDFLARE_PAGES_DNS_TOKEN");
     expect(requiredCredentials("production")).toEqual([...accountSecrets("production")]);

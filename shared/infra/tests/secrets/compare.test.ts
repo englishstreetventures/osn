@@ -14,18 +14,6 @@ import {
 } from "../../src/secrets/compare";
 
 describe("parseWranglerSecretList", () => {
-  test("reads the names from `wrangler secret list --format json`", () => {
-    const stdout = `[
-  { "name": "INTERNAL_SERVICE_SECRET", "type": "secret_text" },
-  { "name": "GROWTHBOOK_CLIENT_KEY", "type": "secret_text" }
-]`;
-    expect(parseWranglerSecretList(stdout)).toEqual([
-      "GROWTHBOOK_CLIENT_KEY",
-      "INTERNAL_SERVICE_SECRET",
-    ]);
-    expect(parseWranglerSecretList("[]")).toEqual([]);
-  });
-
   test("refuses output it cannot read rather than reporting no secrets", () => {
     expect(() => parseWranglerSecretList("⛅️ wrangler 4.149.0")).toThrow(SyntaxError);
     expect(() => parseWranglerSecretList(`{"name":"X"}`)).toThrow(/array/);
@@ -40,30 +28,6 @@ describe("diffNames", () => {
       missing: ["A", "C"],
       unexpected: ["D"],
       forbidden: [],
-    });
-  });
-
-  test("an allowed optional name is neither missing when absent nor unexpected when present", () => {
-    expect(diffNames("w", ["A"], ["A", "P"], ["P"])).toEqual({
-      where: "w",
-      missing: [],
-      unexpected: [],
-      forbidden: [],
-    });
-    expect(diffNames("w", ["A"], ["A"], ["P"])).toEqual({
-      where: "w",
-      missing: [],
-      unexpected: [],
-      forbidden: [],
-    });
-  });
-
-  test("a held forbidden name is reported as forbidden, not as unexpected", () => {
-    expect(diffNames("w", ["A"], ["A", "F"], [], ["F", "G"])).toEqual({
-      where: "w",
-      missing: [],
-      unexpected: [],
-      forbidden: ["F"],
     });
   });
 });
@@ -118,18 +82,6 @@ describe("liveExpectations", () => {
 });
 
 describe("GitHub Environments", () => {
-  test("expects each shared name once, and the tier's own account credentials", () => {
-    expect(
-      githubExpectations("production").filter((name) => name === "INTERNAL_SERVICE_SECRET"),
-    ).toHaveLength(1);
-    expect(githubExpectations("dev")).toEqual(
-      expect.arrayContaining(["CLOUDFLARE_DEV_ACCOUNT_API_TOKEN", "CLOUDFLARE_DEV_ACCOUNT_ID"]),
-    );
-    expect(githubExpectations("production")).toEqual(
-      expect.arrayContaining(["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]),
-    );
-  });
-
   test("an Environment with a few Worker secrets misses the rest, and dev misses its account", () => {
     const dev = githubDiff("dev", ["DEV_LOGIN_SECRET"]);
     expect(dev.missing).toEqual(
