@@ -101,7 +101,11 @@ export function startBunServer(
   const keepSentAddress = process.env.OSN_E2E_CLIENT_ADDRESS === "1" && !envNonLocal;
   if (keepSentAddress && app.server) {
     const server = app.server;
-    const peer = (request: Request): RequestAddress => server.requestIP(request);
+    // The socket peer, read through the server's own method as it stands
+    // before the swap below (a closure over `server.requestIP` would call the
+    // swapped one and never return).
+    const socketPeer = server.requestIP.bind(server);
+    const peer = (request: Request): RequestAddress => socketPeer(request);
     server.requestIP = keepSentClientAddress(peer);
   }
   void Effect.runPromise(
