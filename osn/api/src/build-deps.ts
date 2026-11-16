@@ -76,7 +76,6 @@ export type EnvVars = {
   // The back-channel to cire-api's organiser sessions. Any of the three unset
   // or unusable ⇒ sign out everywhere else and cire's connection revoke skip
   // it, with a warning.
-  readonly CIRE_INTERNAL_REVOKE_URL?: string;
   readonly CIRE_INTERNAL_REVOKE_SECRET?: string;
   readonly CIRE_OIDC_CLIENT_ID?: string;
   // Where the account deletion reaches each app, and which apps this tier does
@@ -84,6 +83,9 @@ export type EnvVars = {
   // refuses the boot on a name that is no app.
   readonly PULSE_API_URL?: string;
   readonly ZAP_API_URL?: string;
+  // cire-api's origin: where the deletion reaches cire, and where the
+  // organiser-session revoke above is sent.
+  readonly CIRE_API_URL?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
 };
 
@@ -614,7 +616,8 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
         : null,
     // KEY-OPTIONAL in every tier: cire-api holds the same secret, and until
     // both sides hold it the revoke is skipped (osn-api unset) or refused (cire
-    // unset), each logged. Never a reason to refuse the boot.
+    // unset), each logged. The secret is never a reason to refuse the boot; a
+    // `CIRE_API_URL` the deletion cannot use is (below).
     cireOrganiserRevoke: cireOrganiserRevokeConfig(env),
     // Throws on a deployed tier without INTERNAL_SERVICE_SECRET, or a name in
     // OSN_DELETION_ABSENT_APPS that is no app: the Worker answers 503.

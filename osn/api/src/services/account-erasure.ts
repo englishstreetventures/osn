@@ -353,6 +353,7 @@ export const requestErasure = (
             hardDeleteAt: bound(hardDeleteAt, deletionJobs.hardDeleteAt),
             pulseDoneAt: bound(null, deletionJobs.pulseDoneAt),
             zapDoneAt: bound(null, deletionJobs.zapDoneAt),
+            cireDoneAt: bound(null, deletionJobs.cireDoneAt),
             reason: bound(reason, deletionJobs.reason),
             cancelSessionId: bound(cancel?.sessionId ?? null, deletionJobs.cancelSessionId),
             restore: sql<string>`json_object(
@@ -1228,7 +1229,13 @@ const finishApp = (
 /** A job as the fan-out reads it: its marks, its claim, and what every app is sent. */
 interface FanOutJob extends Pick<
   DeletionJob,
-  "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt" | "choices" | "deleteEverything"
+  | "accountId"
+  | "pulseDoneAt"
+  | "zapDoneAt"
+  | "cireDoneAt"
+  | "purgeStartedAt"
+  | "choices"
+  | "deleteEverything"
 > {
   readonly email: string;
   /** The account's profile ids, a JSON array. */
@@ -1715,6 +1722,7 @@ export const runFanOutRetrySweep = (opts: {
                 accountId: deletionJobs.accountId,
                 pulseDoneAt: deletionJobs.pulseDoneAt,
                 zapDoneAt: deletionJobs.zapDoneAt,
+                cireDoneAt: deletionJobs.cireDoneAt,
                 purgeStartedAt: deletionJobs.purgeStartedAt,
                 choices: deletionJobs.choices,
                 deleteEverything: deletionJobs.deleteEverything,

@@ -5,6 +5,7 @@ import { afterAll, afterEach, describe, expect, vi } from "vitest";
 import { _resetOutboundKeyForTests } from "../../src/lib/outbound-arc";
 import * as metrics from "../../src/metrics";
 import {
+  appTarget,
   deletionAppsConfig,
   DeletionAppsConfigError,
   endAppSessions,
@@ -31,12 +32,13 @@ describe("deletionAppsConfig", () => {
     const config = deletionAppsConfig({
       OSN_ENV: "production",
       ZAP_API_URL: "https://zap.example/",
+      CIRE_API_URL: "https://api.cire.example/",
       OSN_DELETION_ABSENT_APPS: " pulse ",
       INTERNAL_SERVICE_SECRET: SECRET,
     });
     expect(config).toEqual({
       local: false,
-      urls: { zap: "https://zap.example" },
+      urls: { zap: "https://zap.example", cire: "https://api.cire.example" },
       absent: new Set(["pulse"]),
       arc: { kidSecret: SECRET },
       previewTimeoutMs: 8_000,
@@ -66,9 +68,24 @@ describe("deletionAppsConfig", () => {
       { OSN_ENV: "dev", INTERNAL_SERVICE_SECRET: SECRET, ZAP_API_URL: "http://localhost:3002" },
     ],
     ["plain HTTP to another host on a local run", { ZAP_API_URL: "http://zap.example" }],
+    [
+      "a plain-HTTP cire URL on a deployed tier, where it used to only disable the session revoke",
+      { OSN_ENV: "dev", INTERNAL_SERVICE_SECRET: SECRET, CIRE_API_URL: "http://api.cire.example" },
+    ],
     ["an app URL that does not parse", { ZAP_API_URL: "zap.example" }],
   ])("refuses %s", (_label, env) => {
     expect(() => deletionAppsConfig(env)).toThrow(DeletionAppsConfigError);
+  });
+
+  it("fails closed for cire on a deployed tier with no CIRE_API_URL, and skips it on a local run", () => {
+    const deployed = deletionAppsConfig({
+      OSN_ENV: "production",
+      ZAP_API_URL: "https://zap.example",
+      OSN_DELETION_ABSENT_APPS: "pulse",
+      INTERNAL_SERVICE_SECRET: SECRET,
+    });
+    expect(appTarget(deployed, "cire")).toEqual({ kind: "unconfigured" });
+    expect(appTarget(deletionAppsConfig({}), "cire")).toEqual({ kind: "skip" });
   });
 
   it("treats an unset or local OSN_ENV as a local run, as the rest of osn-api does", () => {
@@ -111,12 +128,14 @@ describe("previewDeletionApps", () => {
         expect(previews).toEqual([
           { app: "pulse", status: "checked", actions: [action] },
           { app: "zap", status: "checked", actions: [] },
+          { app: "cire", status: "checked", actions: [] },
         ]);
         const calls = apps.calls.slice(before);
         expect(calls.map((call) => [call.app, call.path])).toEqual(
           expect.arrayContaining([
             ["pulse", "/internal/account-deletion-preview"],
             ["zap", "/internal/account-deletion-preview"],
+            ["cire", "/internal/account-deletion-preview"],
           ]),
         );
         for (const call of calls) {

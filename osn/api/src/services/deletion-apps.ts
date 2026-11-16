@@ -46,10 +46,15 @@ export interface DeletionAppEntry {
   /** Its `deletion_jobs` mark: positive once the fan-out is done with it. */
   readonly done: AnySQLiteColumn;
   /** The mark's field on a `deletion_jobs` row. */
-  readonly doneKey: "pulseDoneAt" | "zapDoneAt";
+  readonly doneKey: "pulseDoneAt" | "zapDoneAt" | "cireDoneAt";
   /** The URL variable osn-api reads it from. */
-  readonly urlVariable: "PULSE_API_URL" | "ZAP_API_URL";
-  /** Whether the soft delete ends the person's sessions there. */
+  readonly urlVariable: "PULSE_API_URL" | "ZAP_API_URL" | "CIRE_API_URL";
+  /**
+   * Whether the soft delete ends the person's sessions there over ARC
+   * (`/internal/account-sessions/revoke`). cire's organiser sessions are ended
+   * through its existing revoke instead (`services/cire-organiser-revoke.ts`),
+   * the one way osn-api ends them for every reason.
+   */
   readonly endsSessionsAtSoftDelete: boolean;
   /**
    * Whether the erasure sends the app the account's email address: only an
@@ -77,6 +82,17 @@ export const DELETION_APPS: ReadonlyArray<DeletionAppEntry> = [
     urlVariable: "ZAP_API_URL",
     endsSessionsAtSoftDelete: false,
     receivesEmail: false,
+  },
+  {
+    // A wedding whose only owner is erased can be kept with no owner, with
+    // the person's address beside it, so they can ask about it by email.
+    app: "cire",
+    audience: "cire-api",
+    done: deletionJobs.cireDoneAt,
+    doneKey: "cireDoneAt",
+    urlVariable: "CIRE_API_URL",
+    endsSessionsAtSoftDelete: false,
+    receivesEmail: true,
   },
 ];
 
@@ -127,6 +143,7 @@ export interface DeletionAppsEnv {
   readonly OSN_ENV?: string;
   readonly PULSE_API_URL?: string;
   readonly ZAP_API_URL?: string;
+  readonly CIRE_API_URL?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
 }
@@ -182,6 +199,7 @@ export function deletionAppsConfig(env: DeletionAppsEnv): DeletionAppsConfig {
   const given = {
     PULSE_API_URL: env.PULSE_API_URL,
     ZAP_API_URL: env.ZAP_API_URL,
+    CIRE_API_URL: env.CIRE_API_URL,
   } satisfies Record<DeletionAppEntry["urlVariable"], string | undefined>;
   const urls: Partial<Record<DeletionApp, string>> = {};
   for (const entry of DELETION_APPS) {

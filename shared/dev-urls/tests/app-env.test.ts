@@ -27,7 +27,7 @@ describe("buildDevEnv", () => {
       PULSE_API_URL: "https://api.pulse.localhost",
       ZAP_API_URL: "https://zap.cire.localhost",
       // Must equal what @cire/api is told is its own origin, below.
-      CIRE_INTERNAL_REVOKE_URL: "https://api.cire.localhost",
+      CIRE_API_URL: "https://api.cire.localhost",
     });
   });
 

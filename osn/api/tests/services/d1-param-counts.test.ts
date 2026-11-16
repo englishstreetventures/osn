@@ -200,6 +200,7 @@ describe("account erasure and export", () => {
               hardDeleteAt: 2_000,
               pulseDoneAt: 1_500,
               zapDoneAt: 1_500,
+              cireDoneAt: 1_500,
               reason: "user_request",
               cancelSessionId: null,
               choices: JSON.stringify({

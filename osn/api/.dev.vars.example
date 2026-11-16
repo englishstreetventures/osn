@@ -42,11 +42,12 @@
 # INTERNAL_SERVICE_SECRET = "<shared-secret>"   # enables /graph/internal/register-service
 # PULSE_API_URL = "http://localhost:3001"   # unset: the deletion skips Pulse
 # ZAP_API_URL   = "http://localhost:3002"   # unset: the deletion skips Zap
-# Ending cire organiser sessions: cire-api's origin (HTTPS, or HTTP to a
-# loopback host) and the bearer cire-api's own CIRE_INTERNAL_REVOKE_SECRET
-# holds, at least 32 characters. Either unset or unusable ⇒ skipped with a
+# cire-api's origin (HTTPS, or HTTP to a loopback host): the deletion reaches
+# cire there, and so does the organiser-session revoke, whose bearer is the
+# value cire-api's own CIRE_INTERNAL_REVOKE_SECRET holds, at least 32
+# characters. Either unset or unusable ⇒ the revoke is skipped with a
 # warning. (CIRE_OIDC_CLIENT_ID is a [vars] entry in wrangler.toml.)
-# CIRE_INTERNAL_REVOKE_URL    = "http://localhost:8787"
+# CIRE_API_URL                = "http://localhost:8787"   # unset: the deletion skips cire
 # CIRE_INTERNAL_REVOKE_SECRET = "<same value as cire-api's>"
 
 # --- Rate-limit IP keying behind a proxy (optional) ---

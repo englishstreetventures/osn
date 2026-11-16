@@ -155,15 +155,15 @@ export interface AppDeps {
   devLogin: DevLoginConfig | null;
   /**
    * The back-channel that ends an account's cire organiser sessions on sign
-   * out everywhere else and on revoking cire's connection. Built from
-   * `CIRE_INTERNAL_REVOKE_URL`, `CIRE_INTERNAL_REVOKE_SECRET` and
+   * out everywhere else, on revoking cire's connection and at an account
+   * deletion's soft delete. Built from `CIRE_API_URL`, `CIRE_INTERNAL_REVOKE_SECRET` and
    * `CIRE_OIDC_CLIENT_ID`; with any of them unset or unusable, each such
    * request is skipped with a warning. See `services/cire-organiser-revoke`.
    */
   cireOrganiserRevoke: CireOrganiserRevokeConfig;
   /**
    * Where the account deletion's preview, session end and export reach each
-   * app (`PULSE_API_URL`, `ZAP_API_URL`, `OSN_DELETION_ABSENT_APPS`), and the
+   * app (`PULSE_API_URL`, `ZAP_API_URL`, `CIRE_API_URL`, `OSN_DELETION_ABSENT_APPS`), and the
    * ARC kid secret their calls carry. See `services/deletion-apps`.
    */
   deletionApps: DeletionAppsConfig;
@@ -377,6 +377,7 @@ export function createApp(deps: AppDeps) {
         clientIpConfig,
         appRuntime,
         deletionApps,
+        cireOrganiserRevoke,
       ),
     )
     .use(

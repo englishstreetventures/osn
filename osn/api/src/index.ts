@@ -102,15 +102,16 @@ export interface Env {
   // not run (comma-separated). `deletionAppsConfig` reads them.
   PULSE_API_URL?: string;
   ZAP_API_URL?: string;
+  // cire-api's origin: the deletion reaches cire here, and so does the
+  // organiser-session revoke (bearer: CIRE_INTERNAL_REVOKE_SECRET below).
+  CIRE_API_URL?: string;
   OSN_DELETION_ABSENT_APPS?: string;
   // Jobs one deletion fan-out pass reaches, and accounts one hard-delete pass
   // erases. Unset: 4, inside Workers Free's 50 queries a cron run. Production
   // sets 50.
   OSN_DELETION_FANOUT_MAX_JOBS?: string;
-  // cire-api's origin and cire's OIDC client id, for ending an account's cire
-  // organiser sessions on sign out everywhere else and on cire's connection
-  // revoke. The bearer secret is CIRE_INTERNAL_REVOKE_SECRET below.
-  CIRE_INTERNAL_REVOKE_URL?: string;
+  // cire's OIDC client id, for ending an account's cire organiser sessions on
+  // cire's connection revoke.
   CIRE_OIDC_CLIENT_ID?: string;
   TRUSTED_PROXY_COUNT?: string;
   // Secrets (`wrangler secret put`) — present ONLY on `env`, never process.env.

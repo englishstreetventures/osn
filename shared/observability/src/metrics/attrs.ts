@@ -376,7 +376,7 @@ export type DeletionCompletedResult = "soft" | "hard" | "hard_failed" | "cancell
 export type DeletionCompletedSource = "user" | "sweeper" | "minor_runbook" | "admin";
 
 /** Per-bridge fan-out outcome during cross-service deletion. */
-export type DeletionFanoutService = "pulse" | "zap";
+export type DeletionFanoutService = "pulse" | "zap" | "cire";
 export type DeletionFanoutResult = "ok" | "timeout" | "error" | "skipped";
 
 /**

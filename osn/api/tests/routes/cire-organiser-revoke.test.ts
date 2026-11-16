@@ -407,11 +407,11 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
   });
 
   it.each([
-    ["the URL is unset", "CIRE_INTERNAL_REVOKE_URL", { CIRE_INTERNAL_REVOKE_URL: undefined }],
+    ["the URL is unset", "CIRE_API_URL", { CIRE_API_URL: undefined }],
     [
       "the URL is plain HTTP to another machine",
-      "CIRE_INTERNAL_REVOKE_URL",
-      { CIRE_INTERNAL_REVOKE_URL: "http://cire-api.test" },
+      "CIRE_API_URL",
+      { CIRE_API_URL: "http://cire-api.test" },
     ],
     [
       "the secret is unset",
@@ -428,7 +428,7 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
   ] as const)("skips cire with a warning when %s", async (_, missing, override) => {
     const h = setup(
       cireOrganiserRevokeConfig({
-        CIRE_INTERNAL_REVOKE_URL: CIRE_URL,
+        CIRE_API_URL: CIRE_URL,
         CIRE_INTERNAL_REVOKE_SECRET: SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_CLIENT_ID,
         ...override,
@@ -455,7 +455,7 @@ describe("POST /sessions/revoke-all-other ends cire organiser sessions", () => {
   ])("posts to the revoke path of a URL given %s", async (_, given) => {
     const h = setup(
       cireOrganiserRevokeConfig({
-        CIRE_INTERNAL_REVOKE_URL: given,
+        CIRE_API_URL: given,
         CIRE_INTERNAL_REVOKE_SECRET: SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_CLIENT_ID,
       }),

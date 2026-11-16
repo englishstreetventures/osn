@@ -1,4 +1,4 @@
-import { deletionJobs, users } from "@osn/db/schema";
+import { deletionJobs, oauthConsents, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
@@ -13,6 +13,10 @@ import {
 } from "../../src/routes/account-erasure";
 import { runHardDeleteSweep } from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
+import {
+  DISABLED_CIRE_ORGANISER_REVOKE,
+  type CireOrganiserRevokeConfig,
+} from "../../src/services/cire-organiser-revoke";
 import { NO_DELETION_APPS, type DeletionAppsConfig } from "../../src/services/deletion-apps";
 import { createOrganisationService } from "../../src/services/organisation";
 import { createProfileService } from "../../src/services/profile";
@@ -170,6 +174,7 @@ const IP_HEADERS = { "x-forwarded-for": "1.2.3.4" };
 async function seed(
   layer: Layer.Layer<Db | EmailService>,
   deletionApps: DeletionAppsConfig = NO_DELETION_APPS,
+  cireOrganiserRevoke: CireOrganiserRevokeConfig = DISABLED_CIRE_ORGANISER_REVOKE,
 ) {
   const auth = createAuthService(config);
   const profile = await Effect.runPromise(
@@ -195,6 +200,7 @@ async function seed(
     { trustedProxyCount: 1 },
     undefined,
     deletionApps,
+    cireOrganiserRevoke,
   );
   const authed = { ...IP_HEADERS, Authorization: `Bearer ${tokens.accessToken}` };
   return { auth, profile, app, authed };
@@ -1001,9 +1007,9 @@ describe("the apps' open actions", () => {
         : undefined;
   };
 
-  async function person() {
+  async function person(cireOrganiserRevoke?: CireOrganiserRevokeConfig) {
     const layer = createTestLayer();
-    const seeded = await seed(layer, apps.config());
+    const seeded = await seed(layer, apps.config(), cireOrganiserRevoke);
     const token = await stepUpFor(seeded.auth, seeded.profile.accountId, "account_delete", layer);
     const attempt = (body: Record<string, unknown> = {}) =>
       requestDeletion(seeded.app, seeded.authed, {
@@ -1206,6 +1212,47 @@ describe("the apps' open actions", () => {
     expect(call).toMatchObject({ app: "pulse", body: { profileIds: [p.profile.id] } });
     expect(call!.body).not.toHaveProperty("accountId");
     expect(call!.authorization).toMatch(/^ARC /);
+  });
+
+  it("a soft delete ends the person's cire organiser sessions once, through cire's revoke", async () => {
+    pulseHolds();
+    const cire = {
+      url: apps.config().urls.cire!,
+      secret: "s".repeat(32),
+      clientId: "cid_cire",
+    };
+    const p = await person(cire);
+    await runOn(
+      p.layer,
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.insert(oauthConsents).values({
+            id: "ocs_cire",
+            accountId: p.profile.accountId,
+            clientId: "cid_cire",
+            profileId: p.profile.id,
+            scope: "openid profile",
+            grantedAt: 1_000,
+          }),
+        );
+      }),
+    );
+    const revokes = () =>
+      apps.calls.filter(
+        (call) =>
+          call.app === "cire" &&
+          call.path === "/internal/revoke-organiser-sessions" &&
+          call.body.osnProfileId === p.profile.id,
+      );
+
+    expect((await p.attempt()).status).toBe(202);
+    await vi.waitFor(() => expect(revokes()).toHaveLength(1));
+    expect(revokes()[0]!.authorization).toBe(`Bearer ${cire.secret}`);
+
+    // A repeat while the deletion stands ends nothing again.
+    expect((await p.attempt()).status).toBe(202);
+    expect(revokes()).toHaveLength(1);
   });
 
   it("a soft delete stands when Pulse refuses to end the sessions", async () => {

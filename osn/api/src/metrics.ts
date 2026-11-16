@@ -678,7 +678,11 @@ export const metricSessionStaleRefused = (endpoint: LiveSessionGateEndpoint): vo
 // ---------------------------------------------------------------------------
 
 /** What made osn-api end the account's cire organiser sessions. */
-export type CireSessionRevokeTrigger = "sign_out_everywhere" | "connection_revoked";
+export type CireSessionRevokeTrigger =
+  | "sign_out_everywhere"
+  | "connection_revoked"
+  /** The account asked for its deletion: its cire sessions end at the soft delete. */
+  | "account_deletion";
 /**
  * One request's outcome: `ok` (cire answered 2xx), `rejected` (any other
  * status, a redirect included), `timeout`, `error` (unreachable, or the

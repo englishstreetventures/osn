@@ -11,10 +11,12 @@ import { DELETION_APP_HOSTS, musubiDeclaration, musubiProductionApis } from "../
  * given its address.
  */
 
-const URL_VARS = { pulse: "PULSE_API_URL", zap: "ZAP_API_URL" } as const;
+const URL_VARS = { pulse: "PULSE_API_URL", zap: "ZAP_API_URL", cire: "CIRE_API_URL" } as const;
 
 /** The `StageHosts` key an app's API Worker would have. */
-const API_HOST_KEYS = { pulse: "pulseApi", zap: "zapApi" } as const;
+const API_HOST_KEYS = { pulse: "pulseApi", zap: "zapApi", cire: "cireApi" } as const;
+
+const APPS = ["pulse", "zap", "cire"] as const;
 
 const tiers: ReadonlyArray<readonly [string, StageHosts, Readonly<Record<string, string>>]> = [
   [
@@ -38,12 +40,12 @@ describe("where osn-api's account deletion reaches each app", () => {
     "on %s, every app has its API origin or is declared absent",
     (_tier, hosts, vars) => {
       const absent = new Set((vars.OSN_DELETION_ABSENT_APPS ?? "").split(",").filter(Boolean));
-      const found = (["pulse", "zap"] as const).map((app) => ({
+      const found = APPS.map((app) => ({
         app,
         url: vars[URL_VARS[app]],
         absent: absent.has(app),
       }));
-      const expected = (["pulse", "zap"] as const).map((app) => {
+      const expected = APPS.map((app) => {
         const host = (hosts as unknown as Readonly<Record<string, string | undefined>>)[
           API_HOST_KEYS[app]
         ];
@@ -60,10 +62,12 @@ describe("where osn-api's account deletion reaches each app", () => {
     expect(Object.keys(DELETION_APP_HOSTS).toSorted()).toEqual(Object.keys(URL_VARS).toSorted());
   });
 
-  test("zap-api runs on dev and production, so neither may skip it", () => {
+  test("zap-api and cire-api run on dev and production, so neither may skip them", () => {
     for (const [, , vars] of tiers) {
       expect(vars.ZAP_API_URL).toMatch(/^https:\/\//);
+      expect(vars.CIRE_API_URL).toMatch(/^https:\/\//);
       expect(vars.OSN_DELETION_ABSENT_APPS ?? "").not.toContain("zap");
+      expect(vars.OSN_DELETION_ABSENT_APPS ?? "").not.toContain("cire");
     }
   });
 });

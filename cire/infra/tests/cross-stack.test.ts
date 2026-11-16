@@ -85,7 +85,7 @@ describe("the cire and musubi stacks together", () => {
         stage,
         clientId: cire.CIRE_OIDC_CLIENT_ID,
       });
-      expect({ stage, url: osnApi.CIRE_INTERNAL_REVOKE_URL }).toEqual({
+      expect({ stage, url: osnApi.CIRE_API_URL }).toEqual({
         stage,
         url: cire.CIRE_API_ORIGIN,
       });
@@ -97,6 +97,6 @@ describe("the cire and musubi stacks together", () => {
     const cire = productionVars("cire/api/wrangler.toml");
 
     expect(osnApi.CIRE_OIDC_CLIENT_ID).toBe(cire.CIRE_OIDC_CLIENT_ID);
-    expect(osnApi.CIRE_INTERNAL_REVOKE_URL).toBe(cire.CIRE_API_ORIGIN);
+    expect(osnApi.CIRE_API_URL).toBe(cire.CIRE_API_ORIGIN);
   });
 });

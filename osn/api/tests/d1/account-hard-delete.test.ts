@@ -131,7 +131,11 @@ const HARD_DELETE_AT = 2_000_000_000;
 async function everyAppDone(accountId: string) {
   await db
     .update(deletionJobs)
-    .set({ pulseDoneAt: HARD_DELETE_AT - 1, zapDoneAt: HARD_DELETE_AT - 1 })
+    .set({
+      pulseDoneAt: HARD_DELETE_AT - 1,
+      zapDoneAt: HARD_DELETE_AT - 1,
+      cireDoneAt: HARD_DELETE_AT - 1,
+    })
     .where(eq(deletionJobs.accountId, accountId));
 }
 
@@ -394,13 +398,21 @@ describe("two deletions of one account at once on D1", () => {
 });
 
 describe("the hard delete waits for every app, on D1", () => {
-  /** A scheduled account whose job's marks are then set to `pulse` and `zap`. */
-  const withMarks = async (handle: string, pulse: number | null, zap: number | null) => {
+  /**
+   * A scheduled account whose job's marks are then set to `pulse` and `zap`,
+   * and cire's to `cire` (done unless given).
+   */
+  const withMarks = async (
+    handle: string,
+    pulse: number | null,
+    zap: number | null,
+    cire: number | null = 1_700_000_002,
+  ) => {
     const { accountId, profileId } = await person(handle);
     await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest }));
     await db
       .update(deletionJobs)
-      .set({ pulseDoneAt: pulse, zapDoneAt: zap })
+      .set({ pulseDoneAt: pulse, zapDoneAt: zap, cireDoneAt: cire })
       .where(eq(deletionJobs.accountId, accountId));
     const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
     return { accountId, profileId, job: job! };
@@ -411,7 +423,11 @@ describe("the hard delete waits for every app, on D1", () => {
     await run(joinApp(accountId, "pulse"));
     await run(requestErasure({ accountId, cancel: null, heldHandleDigest: digest }));
     const [job] = await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId));
-    expect({ pulse: job!.pulseDoneAt, zap: job!.zapDoneAt }).toEqual({ pulse: null, zap: null });
+    expect({ pulse: job!.pulseDoneAt, zap: job!.zapDoneAt, cire: job!.cireDoneAt }).toEqual({
+      pulse: null,
+      zap: null,
+      cire: null,
+    });
   });
 
   it.each([

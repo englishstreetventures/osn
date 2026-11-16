@@ -185,24 +185,30 @@ export const DELETION_APP_HOSTS = {
   // pulse-api has no deployed tier (wiki/shared/dev-environment.md §1).
   pulse: null,
   zap: "zapApi",
-} as const satisfies Readonly<Record<"pulse" | "zap", keyof StageHosts | null>>;
+  cire: "cireApi",
+} as const satisfies Readonly<Record<"pulse" | "zap" | "cire", keyof StageHosts | null>>;
 
 /** osn-api's deletion vars: each app's address, or its declaration as absent. */
 interface DeletionAppVars {
   readonly PULSE_API_URL?: string;
   readonly ZAP_API_URL?: string;
+  readonly CIRE_API_URL?: string;
   readonly OSN_DELETION_ABSENT_APPS?: string;
 }
 
 /**
- * osn-api's deletion vars on a tier with `hosts`: Zap's API origin, and Pulse,
- * which has no API Worker, named in `OSN_DELETION_ABSENT_APPS` so osn-api
- * skips it instead of failing closed. tests/deletion-apps.test.ts fails when
- * an app gains an API host and this does not follow.
+ * osn-api's deletion vars on a tier with `hosts`: Zap's and cire's API
+ * origins, and Pulse, which has no API Worker, named in
+ * `OSN_DELETION_ABSENT_APPS` so osn-api skips it instead of failing closed.
+ * `CIRE_API_URL` is also where osn-api ends a person's cire organiser
+ * sessions (osn/api/src/services/cire-organiser-revoke.ts).
+ * tests/deletion-apps.test.ts fails when an app gains an API host and this
+ * does not follow.
  */
 export function deletionAppVars(hosts: StageHosts): DeletionAppVars {
   return {
     ZAP_API_URL: origin(hosts[DELETION_APP_HOSTS.zap]),
+    CIRE_API_URL: origin(hosts[DELETION_APP_HOSTS.cire]),
     OSN_DELETION_ABSENT_APPS: "pulse",
   };
 }
@@ -280,7 +286,6 @@ export function musubiProductionApis(input: {
         OSN_EMAIL_FROM: "hello@cireweddings.com", // not a host: the sender
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
         OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "100",
-        CIRE_INTERNAL_REVOKE_URL: origin(hosts.cireApi),
         CIRE_OIDC_CLIENT_ID: "cid_cire",
         ...deletionAppVars(hosts),
         OSN_DELETION_FANOUT_MAX_JOBS: "50",
@@ -448,10 +453,10 @@ export function musubiDeclaration(input: {
         // verified before a deploy (englishstreetventures/osn#1548). Dev shares the address
         // production moves to, by the owner's choice on that issue.
         OSN_EMAIL_FROM: "Musubi <hello@musubi.social>", // not a host: the sender
-        // Sign out everywhere else, and revoking cire's connection, end the account's
-        // cire organiser sessions through cire-api. Both equal cire-api's own
+        // Sign out everywhere else, revoking cire's connection and an account's
+        // deletion end its cire organiser sessions through cire-api, at
+        // CIRE_API_URL (deletionAppVars). Both equal cire-api's own
         // CIRE_API_ORIGIN and CIRE_OIDC_CLIENT_ID (cire/infra/tests/cross-stack.test.ts).
-        CIRE_INTERNAL_REVOKE_URL: origin(hosts.cireApi),
         CIRE_OIDC_CLIENT_ID: "cid_cire",
         // Where the account deletion reaches each app on this tier.
         ...deletionAppVars(hosts),

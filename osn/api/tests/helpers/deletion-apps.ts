@@ -22,7 +22,7 @@ export type AppAnswer = {
 
 /**
  * One HTTP server standing in for every app the deletion reaches, each under
- * its own path prefix (`/pulse`, `/zap`), recording every call and answering
+ * its own path prefix (`/pulse`, `/zap`, `/cire`), recording every call and answering
  * by `answer`. The default answers keep the contract: a preview with no
  * actions, an erasure that kept nothing, a session end.
  */
@@ -61,7 +61,7 @@ export function appStandIns(answer: (call: AppCall) => AppAnswer | undefined = (
     calls,
     config: (overrides = {}) => ({
       local: true,
-      urls: { pulse: `${base}/pulse`, zap: `${base}/zap` },
+      urls: { pulse: `${base}/pulse`, zap: `${base}/zap`, cire: `${base}/cire` },
       absent: new Set(),
       arc: { kidSecret: "test-internal-secret-of-32-chars!" },
       previewTimeoutMs: 8_000,
@@ -82,7 +82,7 @@ export const everyAppDone = (accountId: string): Effect.Effect<void, never, Db> 
     yield* Effect.promise(() =>
       db
         .update(deletionJobs)
-        .set({ pulseDoneAt: 1_700_000_000, zapDoneAt: 1_700_000_000 })
+        .set({ pulseDoneAt: 1_700_000_000, zapDoneAt: 1_700_000_000, cireDoneAt: 1_700_000_000 })
         .where(eq(deletionJobs.accountId, accountId)),
     );
   });
