@@ -2752,19 +2752,19 @@ describe("RsvpPanel", () => {
       pickPreset(fieldsetFor("Sam"), /^nuts$/i);
 
       // Two boxes: the household's own consent names only Bo; the attestation
-      // is the shared wording, naming only Sam.
-      expect(ownBox().closest("label")?.textContent).toMatch(/for Bo —/);
-      expect(ownBox().closest("label")?.textContent).not.toContain("Sam");
-      expect(attestBox().closest("label")?.textContent).toContain(
-        PLUS_ONE_DIETARY_ATTESTATION.text("Sam"),
-      );
-      expect(ownBox().checked).toBe(false);
-      expect(attestBox().checked).toBe(false);
+      // is the shared wording, naming only Sam. Each is found by name once.
+      const own = ownBox();
+      const attest = attestBox();
+      const ownWords = own.closest("label")?.textContent;
+      const attestWords = attest.closest("label")?.textContent;
+      expect(ownWords).toMatch(/for Bo —/);
+      expect(ownWords).not.toContain("Sam");
+      expect(attestWords).toContain(PLUS_ONE_DIETARY_ATTESTATION.text("Sam"));
+      expect(own.checked).toBe(false);
+      expect(attest.checked).toBe(false);
       // The words read as sentences: each link is spaced from the words round it.
-      expect(ownBox().closest("label")?.textContent).toContain(
-        "for this wedding. See our privacy notice",
-      );
-      expect(attestBox().closest("label")?.textContent).toContain(
+      expect(ownWords).toContain("for this wedding. See our privacy notice");
+      expect(attestWords).toContain(
         `${PLUS_ONE_DIETARY_ATTESTATION.text("Sam")} See our privacy notice`,
       );
     });
@@ -2807,35 +2807,42 @@ describe("RsvpPanel", () => {
       fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
       pickPreset(fieldsetFor("Bo"), /^vegan$/i);
       pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      // Each box, and Save, is found once and held: all three stay on the page
+      // through every step, and a lookup by name reads the name of every
+      // checkbox in the sheet. A box the sheet re-created would be a detached
+      // node here, which a click cannot tick, so the next step would fail.
+      const own = ownBox();
+      const attest = attestBox();
+      const save = screen.getByText("Save");
       const unlinked = (box: HTMLInputElement) => [
         box.hasAttribute("aria-describedby"),
         box.hasAttribute("aria-invalid"),
       ];
-      expect(unlinked(ownBox())).toEqual([false, false]);
-      expect(unlinked(attestBox())).toEqual([false, false]);
+      expect(unlinked(own)).toEqual([false, false]);
+      expect(unlinked(attest)).toEqual([false, false]);
 
-      fireEvent.click(screen.getByText("Save"));
+      fireEvent.click(save);
       await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/tick the box/));
-      expect(description(ownBox())).toMatch(
+      expect(description(own)).toMatch(
         /Please tick the box to let us store your dietary requirements\./,
       );
-      expect(ownBox().getAttribute("aria-invalid")).toBe("true");
-      expect(unlinked(attestBox())).toEqual([false, false]);
+      expect(own.getAttribute("aria-invalid")).toBe("true");
+      expect(unlinked(attest)).toEqual([false, false]);
 
-      fireEvent.click(ownBox());
-      fireEvent.click(screen.getByText("Save"));
+      fireEvent.click(own);
+      fireEvent.click(save);
       await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Sam agreed/));
-      expect(description(attestBox())).toMatch(/Please confirm that Sam agreed/);
-      expect(attestBox().getAttribute("aria-invalid")).toBe("true");
-      expect(unlinked(ownBox())).toEqual([false, false]);
+      expect(description(attest)).toMatch(/Please confirm that Sam agreed/);
+      expect(attest.getAttribute("aria-invalid")).toBe("true");
+      expect(unlinked(own)).toEqual([false, false]);
 
-      fireEvent.click(attestBox());
-      fireEvent.click(screen.getByText("Save"));
+      fireEvent.click(attest);
+      fireEvent.click(save);
       await waitFor(() =>
         expect(screen.getByRole("alert").textContent).toMatch(/Could not connect/),
       );
-      expect(unlinked(ownBox())).toEqual([false, false]);
-      expect(unlinked(attestBox())).toEqual([false, false]);
+      expect(unlinked(own)).toEqual([false, false]);
+      expect(unlinked(attest)).toEqual([false, false]);
     });
 
     it("sends the attestation's version on the plus-one's reply, and only there", async () => {
