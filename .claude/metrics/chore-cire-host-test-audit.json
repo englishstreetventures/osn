@@ -3,9 +3,9 @@
   "pr": {
     "number": null,
     "branch": "chore/cire-host-test-audit",
-    "base_sha": "05fd3c81e1c49be9bf5cdc064e11b9964696127b",
-    "head_sha": "28da101237c86ea2fdb5e36423deab5b3913380f",
-    "generated_at": "2026-11-16T04:57:21.881Z",
+    "base_sha": "43ff4ccde58064f613651b87208e378f92e525eb",
+    "head_sha": "45062656f9ec93b67a41178fb46a5236dfe9f372",
+    "generated_at": "2026-11-16T07:36:46.482Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -27,78 +27,78 @@
   "window": {
     "sessions": 1,
     "first_ts": "2026-11-16T03:32:00.586Z",
-    "last_ts": "2026-11-16T04:57:14.541Z",
-    "span_seconds": 5114,
-    "active_seconds": 4862,
+    "last_ts": "2026-11-16T07:36:34.640Z",
+    "span_seconds": 14674,
+    "active_seconds": 7823,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 60.23575800000002,
+    "usd_equivalent": 87.66658939999995,
     "tokens": {
-      "input": 991,
-      "output": 311922,
-      "thinking": 129521,
-      "cache_write_5m": 1455341,
-      "cache_write_1h": 57988,
-      "cache_read": 119147550
+      "input": 1717,
+      "output": 524900,
+      "thinking": 193209,
+      "cache_write_5m": 2504237,
+      "cache_write_1h": 326194,
+      "cache_read": 166493538
     },
     "by_model": {
       "claude-sonnet-5-5": {
         "tokens": {
-          "input": 75,
-          "output": 29713,
-          "thinking": 6880,
+          "input": 159,
+          "output": 61960,
+          "thinking": 13902,
           "cache_write_5m": 70888,
-          "cache_write_1h": 57988,
-          "cache_read": 3499115
+          "cache_write_1h": 326194,
+          "cache_read": 12322584
         },
-        "usd_equivalent": 1.406275,
-        "messages": 37
+        "usd_equivalent": 4.5664308,
+        "messages": 79
       },
       "claude-opus-5-5": {
         "tokens": {
-          "input": 916,
-          "output": 282209,
-          "thinking": 122641,
-          "cache_write_5m": 1384453,
+          "input": 1558,
+          "output": 462940,
+          "thinking": 179307,
+          "cache_write_5m": 2433349,
           "cache_write_1h": 0,
-          "cache_read": 115648435
+          "cache_read": 154170954
         },
-        "usd_equivalent": 58.829483000000025,
-        "messages": 449
+        "usd_equivalent": 83.10015859999997,
+        "messages": 765
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 43,
-          "output": 20368,
-          "thinking": 6364,
+          "input": 127,
+          "output": 52615,
+          "thinking": 13386,
           "cache_write_5m": 0,
-          "cache_write_1h": 57988,
-          "cache_read": 2720714
+          "cache_write_1h": 326194,
+          "cache_read": 11544183
         },
-        "usd_equivalent": 0.9798608,
-        "messages": 21
+        "usd_equivalent": 4.1400166,
+        "messages": 63
       },
       "subagent": {
         "tokens": {
-          "input": 948,
-          "output": 291554,
-          "thinking": 123157,
-          "cache_write_5m": 1455341,
+          "input": 1590,
+          "output": 472285,
+          "thinking": 179823,
+          "cache_write_5m": 2504237,
           "cache_write_1h": 0,
-          "cache_read": 116426836
+          "cache_read": 154949355
         },
-        "usd_equivalent": 59.25589720000002,
-        "messages": 465
+        "usd_equivalent": 83.52657279999998,
+        "messages": 781
       }
     },
     "effort": {
-      "medium": 21,
+      "medium": 63,
       "low": 16,
-      "xhigh": 394,
-      "high": 55
+      "high": 199,
+      "xhigh": 566
     },
     "unpriced_models": []
   },
@@ -106,8 +106,8 @@
     "files": {
       "generated": 2,
       "test": 18,
-      "docs": 6,
-      "config": 0,
+      "docs": 8,
+      "config": 1,
       "source": 3
     },
     "loc": {
@@ -116,20 +116,20 @@
         "deleted": 0
       },
       "test": {
-        "added": 785,
-        "deleted": 447
+        "added": 907,
+        "deleted": 448
       },
       "docs": {
-        "added": 33,
-        "deleted": 8
+        "added": 49,
+        "deleted": 9
       },
       "config": {
-        "added": 0,
+        "added": 187,
         "deleted": 0
       },
       "source": {
-        "added": 235,
-        "deleted": 10
+        "added": 257,
+        "deleted": 14
       }
     },
     "packages": [
@@ -138,50 +138,68 @@
       "tools/e2e"
     ],
     "touches_migration": false,
-    "commits": 11
+    "commits": 19
   },
   "interaction": {
-    "user_turns": 0,
+    "user_turns": 1,
     "corrective_turns": 0,
     "tokens_before_first_edit": 659582,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 383,
-      "Edit": 95,
-      "Read": 90,
-      "Write": 34,
-      "Skill": 8,
-      "Agent": 4,
-      "SubagentHandback": 4,
-      "ToolSearch": 3,
-      "EnterWorktree": 1,
-      "Monitor": 1,
-      "TaskStop": 1
+      "Bash": 676,
+      "Edit": 145,
+      "Read": 133,
+      "Write": 55,
+      "Skill": 20,
+      "Agent": 10,
+      "SubagentHandback": 10,
+      "ToolSearch": 5,
+      "Monitor": 2,
+      "TaskStop": 2,
+      "EnterWorktree": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 13,
-      "max_edits_one_file": 18
+      "files_edited_3plus": 20,
+      "max_edits_one_file": 24
     },
     "skills": {
       "stress-plan": 1,
-      "new-feat": 2,
-      "write-wiki": 2,
-      "obsidian:obsidian-markdown": 2,
-      "retro": 1
+      "new-feat": 3,
+      "write-wiki": 4,
+      "obsidian:obsidian-markdown": 4,
+      "retro": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "review-design": 1,
+      "review-state": 1,
+      "write-pr": 1
     },
     "subagents": {
       "explorer": 1,
       "attacker": 1,
-      "implementer": 2
+      "implementer": 3,
+      "reviewer": 5
     },
     "requests": {
-      "main": 21,
-      "subagent": 465,
-      "with_tools": 480,
-      "with_one_tool": 384,
-      "context_median": 274983,
-      "context_p90": 402613
+      "main": 63,
+      "subagent": 781,
+      "with_tools": 829,
+      "with_one_tool": 669,
+      "context_median": 176607,
+      "context_p90": 383550
     }
   },
-  "review": null
+  "review": {
+    "reports": 1,
+    "findings": 2,
+    "located": 1,
+    "acted_on": 0,
+    "paired": 1,
+    "acted_on_paired": 0,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
 }
