@@ -1,0 +1,193 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/shared-billing-test-audit",
+    "base_sha": "6bf77cdb4da65e21caaad621e7f172b34f541ea2",
+    "head_sha": "77d4c5a3747b07748ed7ade27f75b2c455ac40d2",
+    "generated_at": "2026-11-16T10:04:41.921Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2338,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-16T09:13:10.490Z",
+    "last_ts": "2026-11-16T10:04:33.065Z",
+    "span_seconds": 3083,
+    "active_seconds": 2920,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 31.268619900000008,
+    "tokens": {
+      "input": 678,
+      "output": 278372,
+      "thinking": 134290,
+      "cache_write_5m": 1995732,
+      "cache_write_1h": 0,
+      "cache_read": 39780498
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 664,
+          "output": 274788,
+          "thinking": 134244,
+          "cache_write_5m": 1951891,
+          "cache_write_1h": 0,
+          "cache_read": 39545894
+        },
+        "usd_equivalent": 31.076228600000004,
+        "messages": 318
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 14,
+          "output": 3584,
+          "thinking": 46,
+          "cache_write_5m": 43841,
+          "cache_write_1h": 0,
+          "cache_read": 234604
+        },
+        "usd_equivalent": 0.19239130000000002,
+        "messages": 7
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 678,
+          "output": 278372,
+          "thinking": 134290,
+          "cache_write_5m": 1995732,
+          "cache_write_1h": 0,
+          "cache_read": 39780498
+        },
+        "usd_equivalent": 31.268619900000008,
+        "messages": 325
+      }
+    },
+    "effort": {
+      "xhigh": 173,
+      "high": 145,
+      "medium": 7
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 8,
+      "docs": 0,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 37,
+        "deleted": 41
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "shared/billing"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 276,
+      "Read": 41,
+      "Edit": 21,
+      "Write": 8,
+      "Agent": 8,
+      "SubagentHandback": 8,
+      "Skill": 7
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 6
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "reviewer": 5,
+      "attacker": 1,
+      "implementer": 1,
+      "mechanic": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 325,
+      "with_tools": 317,
+      "with_one_tool": 282,
+      "context_median": 102660,
+      "context_p90": 259440
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 2,
+    "located": 2,
+    "acted_on": 2,
+    "paired": 2,
+    "acted_on_paired": 2,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
