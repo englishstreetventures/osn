@@ -102,7 +102,14 @@ export async function exploreFeed(
   const applied = await flow.step("explore feed: More filters, price max 30, Apply", async () => {
     await page.getByRole("button", { name: "More filters" }).click();
     await expect(filters).toBeVisible();
-    await filters.getByLabel("Price max").fill("30");
+    // The dialog moves focus to its first field on a timer after it opens; a
+    // fill that starts before that types into whichever field then has focus.
+    await expect
+      .poll(() => filters.evaluate((el) => el.contains(document.activeElement)))
+      .toBe(true);
+    const priceMax = filters.getByLabel("Price max");
+    await priceMax.fill("30");
+    await expect(priceMax).toHaveValue("30");
     const response = await discover(() =>
       filters.getByRole("button", { name: "Apply", exact: true }).click(),
     );
