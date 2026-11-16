@@ -31,14 +31,23 @@
  * page, before any seating step: the file carries each guest's reply to both
  * events, and seating writes nothing it reads.
  *
- * The guest-email, change-history and RSVP steps share this flow's sign-in
- * because `flows.test.ts` caps organiser sign-ins at seven. They run first, so
- * the flow's screenshot is the seating chart.
+ * The whole wedding (the same wedding, still before any seating step). The
+ * owner downloads it from Settings › Export as one ZIP: the flow checks its
+ * file list, that its RSVP sheet is the one just downloaded byte for byte,
+ * that its venue file holds the reception's three seats, that its invite
+ * picture is the seeded hero's bytes, and that its manifest calls every file
+ * whole.
+ *
+ * The guest-email, change-history, RSVP and archive steps share this flow's
+ * sign-in because `flows.test.ts` caps organiser sign-ins at seven. They run
+ * first, so the flow's screenshot is the seating chart.
  */
 
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { Locator, Page } from "@playwright/test";
+import { unzipSync } from "fflate";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
@@ -500,6 +509,91 @@ test("cire-seating", async ({ page, flow }) => {
       "TESTSEAT-CHA-0002,Charlie,Cy,Charlie,Attending,,,,Guest,",
     ].join("\n"),
     rsvps.body.split("\r\n").join("\n"),
+  );
+
+  const archive = await flow.step("download the whole wedding from Settings → Export", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/settings/export`);
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download wedding" }).click();
+    const file = await download;
+    await expect(page.getByRole("status", { name: "Wedding downloaded" })).toBeVisible();
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    return { name: file.suggestedFilename(), entries: unzipSync(Buffer.concat(chunks)) };
+  });
+  const folder = `cire-wedding-${slug}/`;
+  const entry = (path: string) => archive.entries[`${folder}${path}`];
+  const text = (path: string) => new TextDecoder().decode(entry(path) ?? new Uint8Array());
+  flow.check("the archive is named for the wedding", `cire-wedding-${slug}.zip`, archive.name);
+  flow.check(
+    "the archive holds the wedding's files",
+    [
+      "README.txt",
+      "wedding.csv",
+      "guests.csv",
+      "households.csv",
+      "events.csv",
+      "rsvps.csv",
+      "seating.csv",
+      "seating-plans.csv",
+      "registry.csv",
+      "gifts.csv",
+      "budget.csv",
+      "tasks.csv",
+      "vendors.csv",
+      "invite.csv",
+      "questions.csv",
+      "for-import/events.csv",
+      "for-import/guests.csv",
+      "files/invite/hero.jpg",
+      "manifest.json",
+    ].join("\n"),
+    Object.keys(archive.entries)
+      .map((name) => name.slice(folder.length))
+      .join("\n"),
+  );
+  flow.check(
+    "the archive's RSVP sheet is the one the RSVPs page gives",
+    rsvps.body,
+    text("rsvps.csv"),
+  );
+  flow.check(
+    "the archive's venue file seats the reception",
+    [
+      "Event,Table,Capacity,Guest,Household,RSVP",
+      `Reception,${tables.one},4,${ada.name},Alpha,Attending`,
+      `Reception,${tables.one},4,${bo.name},Alpha,Attending`,
+      `Reception,${tables.two},4,${cy.name},Charlie,Attending`,
+    ].join("\n"),
+    text("seating.csv").split("\r\n").join("\n"),
+  );
+  flow.check(
+    "the archive's invite picture is the wedding's hero",
+    true,
+    Buffer.from(entry("files/invite/hero.jpg") ?? []).equals(
+      readFileSync(
+        resolve(import.meta.dirname, "../../../../cire/api/src/db/e2e-envelope-hero.jpg"),
+      ),
+    ),
+  );
+  const manifest = JSON.parse(text("manifest.json") || "{}") as {
+    format?: string;
+    version?: number;
+    data?: { complete: boolean }[];
+    files?: { status: string }[];
+  };
+  flow.check(
+    "the archive's manifest names its format",
+    "cire-wedding-archive 1",
+    `${manifest.format ?? ""} ${manifest.version ?? ""}`,
+  );
+  flow.check(
+    "the manifest calls every file whole and every picture included",
+    "16 whole, 1 included",
+    `${(manifest.data ?? []).filter((d) => d.complete).length} whole, ${
+      (manifest.files ?? []).filter((f) => f.status === "included").length
+    } included`,
   );
 
   await flow.step("open the wedding's seating chart", async () => {

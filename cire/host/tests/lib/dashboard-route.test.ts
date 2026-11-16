@@ -268,6 +268,7 @@ describe("dashboard-route", () => {
       { view: "weddings", weddingId: "wed_1", module: "invite", sub: "codes" },
       { view: "weddings", weddingId: "wed_1", module: "settings", sub: "wedding" },
       { view: "weddings", weddingId: "wed_1", module: "settings", sub: "hosts" },
+      { view: "weddings", weddingId: "wed_1", module: "settings", sub: "export" },
       { view: "weddings", weddingId: "wed/with spaces", module: "guests", sub: "rsvps" },
       {
         view: "security",

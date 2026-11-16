@@ -12,8 +12,8 @@
  *   #/security                              → the account-security view
  *
  * `<module>` is one of {@link MODULES} below, and each module carries an
- * optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`,
- * `settings/hosts`). The RSVP page alone goes one level deeper: it shows one
+ * optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`, `settings/hosts`,
+ * `settings/export`). The RSVP page alone goes one level deeper: it shows one
  * event at a time, and the event it shows is part of the address, so a reload
  * or a shared link opens the same event. Any other page ignores a segment past
  * its sub, and nothing else inside a view (an open modal, a selected row, a
@@ -89,7 +89,10 @@ export const MODULE_SUBS = {
   guests: ["list", "edit", "rsvps"],
   seating: ["index"],
   invite: INVITE_VIEWS,
-  settings: ["wedding", "hosts"],
+  // `export` is the whole wedding as one download. Its address is handed out
+  // beyond the portal — in a Musubi account's export, and from the flows that
+  // delete an account or a person's Cire data — so the segment stays `export`.
+  settings: ["wedding", "hosts", "export"],
 } satisfies Record<Module, readonly string[]>;
 
 export function defaultSub(module: Module): string {

@@ -187,6 +187,7 @@ guest surface never tells a caller which of those it is.
 | `GET …/budget.csv`, `GET …/tasks.csv` | The budget lines, payments and tasks the couple entered; they can take them away whatever tier the wedding is on ([[cire-budget]], [[cire-checklist-tasks]]) |
 | `GET …/seating.csv` | The seating chart the couple set out; they can take it away whatever tier the wedding is on ([[cire-seating]]) |
 | `GET …/module-rows` | How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and `seating.csv` would carry (`{ budgetLines, tasks, gifts, seats }`), so a locked card offers a download only when there is something in it |
+| `POST …/archive` | The whole wedding as one ZIP, the gift, budget, checklist, seating, vendor and registry rows included: how an owner takes the wedding away, at any tier, before deleting it or their account ([[cire-development#CSV exports]]). `cire/api/tests/routes/wedding-archive.test.ts` downloads it for an Ivory wedding |
 | `PUT …/settings` with `budgetTotalMinor` | A single number written by onboarding, not the budget module ([[cire-budget]]) |
 
 A wedding whose tier no longer includes a module keeps that module's rows; it

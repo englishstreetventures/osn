@@ -1,7 +1,8 @@
 /**
  * Musubi's dev profile proves it is itself through a link emailed to its own
  * address, and exports its data with the step-up token that link's claim
- * hands over. Then it moves to a new address: a link to the new address proves
+ * hands over; the export carries cire's section, fetched from cire-api over
+ * ARC, with the profile's seat on the seating flow's wedding. Then it moves to a new address: a link to the new address proves
  * the inbox, a passkey step-up for `email_change` authorises the move, and the
  * account holds the new address.
  *
@@ -20,7 +21,7 @@
  * `expired`.
  */
 
-import { DB_FILES, ORIGINS } from "../../src/config";
+import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
 import {
   addVirtualAuthenticator,
   confirmLinkOnPage,
@@ -174,6 +175,34 @@ test("musubi-step-up-email", async ({ page, browser, flow }) => {
     "Pulse's section arrives undegraded",
     false,
     exported.some((line) => line.includes('"degraded":"pulse"')),
+  );
+  // cire-api verifies the same signed call without the kid's MAC, and
+  // answers the dev profile's seats; it owns the seating flow's wedding.
+  flow.check(
+    "the export's header lists cire's section",
+    true,
+    ((JSON.parse(exported[0] ?? "{}") as { sections?: string[] }).sections ?? []).includes(
+      "cire.weddings",
+    ),
+  );
+  flow.check(
+    "cire's section arrives undegraded",
+    false,
+    exported.some((line) => line.includes('"degraded":"cire"')),
+  );
+  const seatingSeat = exported
+    .filter((line) => line.startsWith('{"section":"cire.weddings"'))
+    .map((line) => (JSON.parse(line) as { record: Record<string, unknown> }).record)
+    .find((record) => record.weddingId === CIRE_ORGANISER.seating.weddingId);
+  flow.check(
+    "cire's section names the dev profile an owner of the seating wedding",
+    "owner",
+    String(seatingSeat?.role ?? "missing"),
+  );
+  flow.check(
+    "cire's section points the owner at the wedding's download page",
+    `${ORIGINS.cireHost}/#/w/${CIRE_ORGANISER.seating.weddingId}/settings/export`,
+    String(seatingSeat?.download ?? "missing"),
   );
 
   // -------------------------------------------------------------------------

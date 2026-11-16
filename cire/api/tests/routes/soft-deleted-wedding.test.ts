@@ -80,6 +80,7 @@ const LIMITER_OPTIONS = [
   "accountLinkLimiter",
   "exportLimiter",
   "giftExportLimiter",
+  "archiveLimiter",
   "inviteLimiter",
   "previewLimiter",
   "weddingCreateLimiter",
@@ -466,6 +467,8 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
     "osn-api's ARC call: lists live weddings by the account's profiles, never by a wedding id it is given",
   "POST /internal/account-deleted":
     "osn-api's ARC call: erases an account's seats and attribution across weddings, deleted ones included, by profile",
+  "POST /internal/account-export":
+    "osn-api's ARC call: lists the seats an account's profiles hold, by profile, never by a wedding id it is given",
   "GET /api/rsvp-digest/stop":
     "a signed, seat-scoped digest preference; harmless on a deleted wedding and kept for a restore",
   "POST /api/rsvp-digest/stop":

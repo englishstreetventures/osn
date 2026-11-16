@@ -50,10 +50,11 @@ runbook, two regimes, because the operational steps overlap.
 Status: **shipped**. `GET /account/export` — bearer +
 `x-step-up-token` (purpose `account_export`) gated, 1 export / 24 h / account,
 streams the NDJSON bundle below. Implementation: `osn/api/src/routes/account-export.ts`
-+ `osn/api/src/services/account-export.ts`; the `pulse.*` / `zap.*` sections are
-fetched over ARC (scope `account:export`) from each app's
-`POST /internal/account-export` and streamed through line-by-line, degrading to a
-`{"degraded":...}` line if a bridge fails. Building Zap's inbound-ARC stack for
++ `osn/api/src/services/account-export.ts`; the `pulse.*`, `zap.*` and `cire.*`
+sections are fetched over ARC (scope `account:export`) from the
+`POST /internal/account-export` of every app in `DELETION_APPS`
+(`osn/api/src/services/deletion-apps.ts`) and streamed through line-by-line,
+degrading to a `{"degraded":...}` line if a bridge fails. Building Zap's inbound-ARC stack for
 this also closed the gap where Zap had no `/internal` ARC surface.
 
 Use `GET /account/export`. The endpoint returns a JSON bundle:
@@ -74,6 +75,7 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 - `pulse.events_hosted[]` — events created by the account's profiles.
 - `pulse.close_friends[]`.
 - `zap.chats[]` — chat ids, role, joined-at. **Message content is excluded** because it is E2E-encrypted and we cannot decrypt; the user's local Zap client can export the decrypted history separately.
+- `cire.weddings[]` — fetched via ARC from `@cire/api` (`cire/api/src/routes/internal-account-export.ts`, `services/account-export.ts`): one record for every seat a profile of the account holds on a cire wedding, a soft-deleted wedding's included until its purge. Each has `weddingId`, `name`, `profileId` (the account's own profile holding the seat), `role`, `seatAddedAt`, `seatAddedBy` (the profile that gave the seat, the source of the data, Art. 15(1)(g)), `otherOwners` (a count; other owners are never named, Art. 15(4)), `deletedAt`, `restoreUntil` and `deletedByYou` (filled only where the requester owns the wedding or deleted it: cire never tells a co-host a wedding was deleted), and `download`: for an owner of a live wedding, the host-portal page that downloads the whole wedding, `<organiser origin>/#/w/<weddingId>/settings/export` (null unless the portal is `https:`, or `http:` on a loopback host). The wedding's own data is not in the bundle — guest data is not the owner's personal data ([[#Cire (wedding-invite) data]]), the fan-out gives each app 10 seconds for its whole answer, and NDJSON cannot carry the wedding's pictures — so the owner takes it from that download. The link works only while the account can sign in to cire: a pending deletion ends cire's organiser sessions and `/authorize` refuses the account, so the download comes before the deletion is confirmed. Past 500 seats the section ends with `{"degraded":"cire","reason":"too_many_weddings"}`. Tests: `cire/api/tests/routes/internal-account-export.test.ts`; end to end, `tools/e2e/tests/flows/musubi-step-up-email.flow.ts`.
 - `consents[]` — once consent records ship.
 - `dsar_requests[]` — prior requests for this user.
 
@@ -81,7 +83,7 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 
 - **NDJSON envelope** — one JSON object per line, prefixed by a header line `{"version":1,"sections":[...]}` and terminated by `{"end":true}`. This lets the response stream via `ReadableStream` without ever holding the full bundle in memory.
 - **Per-section keyset pagination** — every multi-row section (`security_events`, `sessions`, `connections`, `pulse.rsvps`, `pulse.events_hosted`, `zap.chats`) is fetched in batches of `LIMIT 500` ordered by `id` with `WHERE id > :cursor`. No `OFFSET` (degrades on large tables).
-- **ARC fan-out sub-bundles streamed** — `pulse.*` and `zap.*` sections are fetched via ARC and re-serialised line-by-line into the outer NDJSON; the bridge call uses chunked transfer too.
+- **ARC fan-out sub-bundles streamed** — `pulse.*`, `zap.*` and `cire.*` sections are fetched via ARC and re-serialised line-by-line into the outer NDJSON; the bridge call uses chunked transfer too.
 - **Memory budget** — ≤32 MB resident per export. A run that exceeds the budget logs a warning + truncates with a tombstone record, so the user gets a partial bundle + a notice rather than an OOM.
 
 Auth: bearer access token + step-up token. Rate-limit: 1 export per 24 h per account.
@@ -220,11 +222,21 @@ opaque profile-id string with **no cross-DB FK**. A wedding can have several
 owners, each with an `owner` seat. Two consequences:
 
 - **DSAR reachability (Art. 15 / 17 / 20).** A DSAR from the *organiser*
-  reaches their cire data via their `wedding_hosts` seats: export/erasure can
-  query cire's D1 for the weddings they own, the `families` / `guests` /
-  `rsvps` / `seating_plans` / `seating_tables` / `seating_assignments` /
-  `imports` rows under them, and the R2
-  `cire-sheets` CSVs. On a
+  reaches their cire data via their `wedding_hosts` seats. The account export
+  lists every seat (`cire.weddings`, [[#Art. 15 — Right of access]]), and an
+  owner downloads a whole wedding they own from the host portal as one ZIP
+  (`POST /api/organiser/weddings/:weddingId/archive`, the page
+  `#/w/<weddingId>/settings/export`; [[cire-development#CSV exports]]): every
+  CSV the portal offers, households, vendors, the gift list, every seating
+  plan, the wedding's settings and the invitation's words and questions, the
+  schedule and guest list as the import reads them, and the pictures and
+  uploaded spreadsheets in R2 (`cire-assets`, and the `cire-sheets` uploads
+  the couple applied or reverted), with a `manifest.json` naming anything a
+  limit kept out. It is owner-only, never locked by tier, and refuses a
+  soft-deleted wedding as every organiser read does: an owner restores it
+  first. Erasure reaches the `families` / `guests` / `rsvps` /
+  `seating_plans` / `seating_tables` / `seating_assignments` / `imports` rows
+  under the weddings they own, and the R2 `cire-sheets` CSVs. On a
   wedding with another owner, erasing one owner removes their seat and leaves
   the wedding to the others. **A wedding never exists without an owner**
   (owner decision, 2026-11-16): an OSN account cannot be deleted while it is
@@ -278,9 +290,16 @@ owners, each with an `owner` seat. Two consequences:
   co-owner, whose rights Art. 15(4) protects; the co-owner can ask for their
   own. Who added the requester's seat **is** included: it is the source of
   the requester's data (Art. 15(1)(g)), and the portal already shows it to
-  every member. Guest data under the wedding is not the
+  every member. The account export's `cire.weddings` section answers the
+  seats this way on its own. Guest data under the wedding is not the
   owner's personal data, so it is not part of this answer at all: an owner
-  reads and exports it in the portal, as a joint controller.
+  reads and exports it in the portal, as a joint controller, the whole
+  wedding at once from its archive download. The rest of an organiser's
+  answer in the entries below — the replies and changes they wrote or
+  attested, the addresses they attested, the Stripe account they connected,
+  the codes they redeemed, the tasks they hold — is not in the account export
+  yet: an operator answers it by hand with the queries each entry gives
+  (englishstreetventures/osn#2330).
 - **Who connected a wedding's Stripe account (migration
   `20261104040827_registry_stripe_connected_by`).**
   `registry_settings.stripe_connected_by_osn_profile_id` names the owner who
@@ -301,7 +320,10 @@ owners, each with an `owner` seat. Two consequences:
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
   right is the responsibility of the wedding's owners as **joint
   controllers** (cire is their processor — see [[data-map]]). Route guest
-  requests to an owner and assist as processor.
+  requests to an owner and assist as processor. An owner meets a guest's
+  access request from the wedding's archive download, which holds every row
+  about the guest the portal shows (their guest row, household, invitations,
+  replies, seats and gifts).
 - **Plus-ones (migration 0066).** A plus-one's `guests` row — their name, their
   replies and the link to the guest who brought them
   (`plus_one_of_guest_id`) — holds data another guest supplied, and the
@@ -549,7 +571,7 @@ Tracked with `C-` IDs, all rolled up under  (DSAR runbook):
 3. Postal address published on `@musubi/landing` legal page.
 4. Internal triage doc with the team rotation.
 5. SLA monitoring (alert when a request is >25 d unresponded).
-6. **Cire DSAR export** — the cire section of `GET /account/export` and the
-   wedding export (account-deletion design, phase 4). The erasure fan-out to
-   cire is built ([[#Cire (wedding-invite) data]]); until the export is, an
-   operator with cire D1/R2 access answers a cire access request by hand.
+6. **Cire DSAR export** — built: the `cire.weddings` section of
+   `GET /account/export` and the owner's whole-wedding archive
+   ([[#Cire (wedding-invite) data]]). The organiser attribution records listed
+   there are still answered by hand (englishstreetventures/osn#2330).

@@ -1990,6 +1990,12 @@ function seedE2eLegacyEvent(db: TestDb, now: Date): void {
 const E2E_ENVELOPE_HERO_KEY = "assets/wed_e2e_envelope/hero-e0000000-0000-4000-8000-0000000000e1";
 
 /**
+ * The R2 key of `wed_e2e_seating`'s invite hero: the envelope hero's bytes
+ * again, under that wedding's own key (`applyE2eOrganiserAssets`).
+ */
+const E2E_SEATING_HERO_KEY = "assets/wed_e2e_seating/hero-e0000000-0000-4000-8000-0000000000e2";
+
+/**
  * Three weddings for the envelope E2E flow (`cire-invite-envelope.flow.ts`),
  * for {@link seedE2eOrganiser}. None has a seat: guests open them, and no
  * organiser flow changes them. Their own weddings, so no other flow's invite
@@ -2189,6 +2195,17 @@ function seedE2eSeating(db: TestDb, now: Date): void {
         .run();
     }
   });
+  // An invite hero picture, so the whole-wedding archive the flow downloads
+  // holds a file from R2 (`cire-seating.flow.ts`). The flow never opens the
+  // invite.
+  db.insert(schema.weddingInviteCustomisations)
+    .values({
+      weddingId,
+      heroImageKey: E2E_SEATING_HERO_KEY,
+      updatedAt: now,
+      imagesUpdatedAt: now,
+    })
+    .run();
 }
 
 /**
@@ -2207,8 +2224,8 @@ export function applyE2eOrganiser(
 /**
  * The image bytes behind the organiser weddings' keys, for the local server's
  * assets stub, under the same `CIRE_E2E_ORGANISER` reading as
- * {@link applyE2eOrganiser}. Today that is one picture: the envelope wedding's
- * hero, a generated bokeh backdrop committed beside this file.
+ * {@link applyE2eOrganiser}: one picture, a generated bokeh backdrop committed
+ * beside this file, as the envelope wedding's hero and the seating wedding's.
  */
 export async function applyE2eOrganiserAssets(
   assets: AssetsBucket,
@@ -2216,5 +2233,9 @@ export async function applyE2eOrganiserAssets(
 ): Promise<void> {
   if (env.CIRE_E2E_ORGANISER !== "1") return;
   const bytes = await Bun.file(new URL("./e2e-envelope-hero.jpg", import.meta.url)).arrayBuffer();
-  await assets.put(E2E_ENVELOPE_HERO_KEY, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+  await Promise.all(
+    [E2E_ENVELOPE_HERO_KEY, E2E_SEATING_HERO_KEY].map((key) =>
+      assets.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } }),
+    ),
+  );
 }

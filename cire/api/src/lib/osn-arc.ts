@@ -22,10 +22,15 @@ import { verifyOsnArcToken } from "@shared/osn-auth-client/arc";
 /** cire-api's audience on osn-api's tokens. */
 export const CIRE_ARC_AUDIENCE = "cire-api";
 
-/** The scopes cire-api lets osn-api use: an account deletion's preview, and its erasure. */
+/**
+ * The scopes cire-api lets osn-api use: an account deletion's preview, its
+ * erasure, and the person's section of their account export. Each route asks
+ * for its own scope, so a token for one opens no other.
+ */
 export const OSN_ARC_SCOPES = {
   deletionPreview: "account:deletion-preview",
   erase: "account:erase",
+  export: "account:export",
 } as const;
 
 const PERMITTED: ReadonlySet<string> = new Set(Object.values(OSN_ARC_SCOPES));

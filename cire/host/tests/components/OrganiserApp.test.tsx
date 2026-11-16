@@ -1214,6 +1214,29 @@ describe("OrganiserApp Dashboard", () => {
       expect(seat.reads()).toBe(2);
     });
 
+    // 17. A helper who opens the export page's address is told nothing, and
+    //     reads their run sheet with no word on what they came for.
+    it("17. tells a helper who opens the export page's address that only an owner can download it", async () => {
+      const ownerOnly = () => screen.queryByText(/only an owner can download the whole wedding/i);
+      await helperSeat();
+      expect(ownerOnly()).toBeNull();
+      cleanup();
+
+      // Another Settings view's address says nothing about the download.
+      history.replaceState(null, "", "#/w/wed_a/settings/hosts");
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(screen.getByTestId("run-sheet-seat")).toBeTruthy());
+      expect(ownerOnly()).toBeNull();
+      cleanup();
+
+      history.replaceState(null, "", "#/w/wed_a/settings/export");
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(screen.getByTestId("run-sheet-seat")).toBeTruthy());
+      expect(ownerOnly()).not.toBeNull();
+      // A helper cannot open Co-hosts, so no way there is offered.
+      expect(screen.queryByRole("link", { name: "Co-hosts" })).toBeNull();
+    });
+
     it("releases the run sheet when the wedding leaves the helper's list", async () => {
       let listed = true;
       await helperSeat(() => listed);

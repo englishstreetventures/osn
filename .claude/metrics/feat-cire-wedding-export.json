@@ -1,0 +1,223 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/cire-wedding-export",
+    "base_sha": "43ff4ccde58064f613651b87208e378f92e525eb",
+    "head_sha": "6d03d59463ece5e05379a1b1d5b72788fb2bd194",
+    "generated_at": "2026-11-16T08:38:23.648Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2323,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-16T03:47:36.525Z",
+    "last_ts": "2026-11-16T08:38:15.487Z",
+    "span_seconds": 17439,
+    "active_seconds": 7986,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 165.2785829000001,
+    "tokens": {
+      "input": 1922,
+      "output": 794339,
+      "thinking": 334551,
+      "cache_write_5m": 6145687,
+      "cache_write_1h": 0,
+      "cache_read": 299394455
+    },
+    "by_model": {
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 72,
+          "output": 21820,
+          "thinking": 5355,
+          "cache_write_5m": 109639,
+          "cache_write_1h": 0,
+          "cache_read": 3048303
+        },
+        "usd_equivalent": 1.1021021000000002,
+        "messages": 36
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1850,
+          "output": 772519,
+          "thinking": 329196,
+          "cache_write_5m": 6036048,
+          "cache_write_1h": 0,
+          "cache_read": 296346152
+        },
+        "usd_equivalent": 164.17648080000006,
+        "messages": 896
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1922,
+          "output": 794339,
+          "thinking": 334551,
+          "cache_write_5m": 6145687,
+          "cache_write_1h": 0,
+          "cache_read": 299394455
+        },
+        "usd_equivalent": 165.2785829000001,
+        "messages": 934
+      }
+    },
+    "effort": {
+      "medium": 36,
+      "high": 238,
+      "xhigh": 658
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 4,
+      "test": 17,
+      "docs": 11,
+      "config": 2,
+      "source": 26
+    },
+    "loc": {
+      "generated": {
+        "added": 20,
+        "deleted": 0
+      },
+      "test": {
+        "added": 3042,
+        "deleted": 34
+      },
+      "docs": {
+        "added": 180,
+        "deleted": 35
+      },
+      "config": {
+        "added": 3,
+        "deleted": 1
+      },
+      "source": {
+        "added": 2269,
+        "deleted": 44
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "osn/api",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 7
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 796,
+      "Read": 111,
+      "Write": 32,
+      "Skill": 22,
+      "Agent": 8,
+      "SubagentHandback": 7,
+      "Edit": 4,
+      "ToolSearch": 2,
+      "WebFetch": 1,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 3
+    },
+    "skills": {
+      "new-feat": 2,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "design-system": 2,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "emil-design-eng": 1,
+      "apple-design": 1,
+      "find-animation-opportunities": 1,
+      "animation-vocabulary": 1,
+      "animate": 1,
+      "web-design-guidelines": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-design": 1,
+      "review-security": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "designer": 1,
+      "reviewer": 4,
+      "design-mechanic": 1
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 932,
+      "with_tools": 921,
+      "with_one_tool": 867,
+      "context_median": 240616,
+      "context_p90": 724755
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 7,
+    "located": 7,
+    "acted_on": 3,
+    "paired": 7,
+    "acted_on_paired": 3,
+    "control_changed": 0,
+    "acted_on_by_test": 2,
+    "acted_on_paired_by_test": 2
+  }
+}

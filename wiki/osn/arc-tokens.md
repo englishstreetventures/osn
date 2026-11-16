@@ -288,8 +288,10 @@ other service, so it holds no key registry. Zap: `account:erase`,
 `account:export`, `account:deletion-preview`. Zap routes a token by the issuer
 it claims before reading anything else: `osn-api` goes to the published keys
 and never to its registry, which refuses a key registered for `osn-api` and
-holds `chat:c2b` keys for cire-api only. cire-api: `account:deletion-preview`
-and `account:erase`, audience `cire-api`, verified in `cire/api/src/lib/osn-arc.ts`.
+holds `chat:c2b` keys for cire-api only. cire-api: `account:deletion-preview`,
+`account:erase` and `account:export`, audience `cire-api`, verified in
+`cire/api/src/lib/osn-arc.ts`; each of its three routes asks for its own
+scope, so a token for one opens neither other.
 
 **cire-api holds no kid secret.** The value that keys the kid MAC is the
 registration bearer above, and cire-api is not given it, so a compromised

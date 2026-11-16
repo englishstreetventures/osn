@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-16
 ---
 # Host Portal Layout System
 
@@ -191,6 +191,14 @@ component was previously reading a container it did not live in.
   open, so the row count is asked for on the first open and kept per wedding
   (`module-rows-store.ts`, dropped with the other caches). Settings → Profile
   lists the same downloads for an owner in one place (`LockedModuleDownloads.tsx`).
+  Settings › Export (`#/w/<weddingId>/settings/export`, `WeddingExport.tsx`)
+  downloads the whole wedding as one ZIP at any plan, for an owner; every other
+  role sees the page with a note and no button, and a helper, who has no
+  Settings, sees that note over the run sheet at the same address. The page's
+  download logic is `lib/wedding-archive.ts`, which saves nothing unless the
+  archive ends with a ZIP end record; the delete-wedding dialog links to it
+  through `lib/link-click.ts`. Its address is the link osn-api's account export
+  gives an owner ([[cire-development#CSV exports]]).
   Above them it names the wedding's plan and, below Crimson, offers a **Have a
   code?** link (`UnlockCodeDialog.tsx`) for an unlock code. The keyboard path
   is pinned in real Chromium by

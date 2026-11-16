@@ -47,6 +47,9 @@ import {
   toastSuccess,
 } from "../test-support/mocks";
 
+/** Where the danger zone's dialog points for a copy first; ModuleShell's own. */
+const EXPORT_PAGE = { href: "#/w/wed_1/settings/export", onOpen: () => {} };
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -85,7 +88,9 @@ describe("SettingsPanel", () => {
 
   it("loads and seeds the form from the profile", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy();
@@ -105,7 +110,13 @@ describe("SettingsPanel", () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
     const onWeddingUpdated = vi.fn();
     render(() => (
-      <SettingsPanel weddingId="wed_1" tier="gold" canManage onWeddingUpdated={onWeddingUpdated} />
+      <SettingsPanel
+        exportPage={EXPORT_PAGE}
+        weddingId="wed_1"
+        tier="gold"
+        canManage
+        onWeddingUpdated={onWeddingUpdated}
+      />
     ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
@@ -134,7 +145,9 @@ describe("SettingsPanel", () => {
 
   it("saves a date picked through the DatePicker", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     // Open the DatePicker (its trigger shows the current formatted date) and pick
@@ -156,7 +169,9 @@ describe("SettingsPanel", () => {
 
   it("sends nulls for cleared optional fields", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
@@ -171,7 +186,9 @@ describe("SettingsPanel", () => {
 
   it("seeds the RSVP deadline and explains what guests get", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     expect(screen.getByText("RSVP by")).toBeTruthy();
@@ -183,7 +200,9 @@ describe("SettingsPanel", () => {
 
   it("offers to leave RSVPs open when no deadline is set", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     expect(screen.getByText(/Leave this empty to keep RSVPs open/)).toBeTruthy();
@@ -194,7 +213,9 @@ describe("SettingsPanel", () => {
     // A wedding with no deadline yet: picking one must send BOTH halves, or the
     // server has a date whose day it can only measure in UTC.
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /RSVP by, no date set/ }));
@@ -225,7 +246,9 @@ describe("SettingsPanel", () => {
 
   it("sends both halves of the deadline as null when it is cleared", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
@@ -241,7 +264,9 @@ describe("SettingsPanel", () => {
 
   it("rejects a bad currency client-side without a request", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     fireEvent.input(screen.getByDisplayValue("AUD"), { target: { value: "$$" } });
@@ -255,7 +280,9 @@ describe("SettingsPanel", () => {
 
   it("renders read-only for a viewer co-host", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage={false} />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage={false} />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     expect(screen.queryByText("Save settings")).toBeNull();
@@ -269,7 +296,13 @@ describe("SettingsPanel", () => {
   it("lets an editor co-host change the RSVP-by date and nothing else", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
     render(() => (
-      <SettingsPanel weddingId="wed_1" tier="gold" canManage={false} canEditRsvpDeadline />
+      <SettingsPanel
+        exportPage={EXPORT_PAGE}
+        weddingId="wed_1"
+        tier="gold"
+        canManage={false}
+        canEditRsvpDeadline
+      />
     ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
@@ -311,7 +344,13 @@ describe("SettingsPanel", () => {
     // hint, not the "leave this empty" fallback) and a different save.
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
     render(() => (
-      <SettingsPanel weddingId="wed_1" tier="gold" canManage={false} canEditRsvpDeadline />
+      <SettingsPanel
+        exportPage={EXPORT_PAGE}
+        weddingId="wed_1"
+        tier="gold"
+        canManage={false}
+        canEditRsvpDeadline
+      />
     ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
@@ -335,7 +374,9 @@ describe("SettingsPanel", () => {
     // saves, so the server refuses it (400 rsvp_deadline_in_past) — mirrored
     // here so the mistake never round-trips.
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /20 February 2027/ }));
@@ -359,7 +400,9 @@ describe("SettingsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ wedding: { ...PROFILE, rsvpDeadline: "2020-01-01" } }),
     );
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(
@@ -378,7 +421,9 @@ describe("SettingsPanel", () => {
     // owner_only_fields / read_only_role. "Check the fields and try again"
     // would send them hunting for a validation error that isn't there.
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(
@@ -396,7 +441,9 @@ describe("SettingsPanel", () => {
     // currency change while money gifts are on and Stripe pays out in another
     // currency or has not said which.
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-    render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+    render(() => (
+      <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+    ));
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     authFetchMock.mockResolvedValueOnce(json({ error: "currency_locked_by_cash_gifts" }, 409));
@@ -414,7 +461,13 @@ describe("SettingsPanel", () => {
     it("is offered to an owner", async () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
       render(() => (
-        <SettingsPanel weddingId="wed_1" tier="gold" canManage onWeddingDeleted={vi.fn()} />
+        <SettingsPanel
+          exportPage={EXPORT_PAGE}
+          weddingId="wed_1"
+          tier="gold"
+          canManage
+          onWeddingDeleted={vi.fn()}
+        />
       ));
       expect(await screen.findByRole("button", { name: "Delete wedding…" })).toBeInTheDocument();
     });
@@ -423,6 +476,7 @@ describe("SettingsPanel", () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
       render(() => (
         <SettingsPanel
+          exportPage={EXPORT_PAGE}
           weddingId="wed_1"
           tier="gold"
           canManage={false}
@@ -438,14 +492,18 @@ describe("SettingsPanel", () => {
   describe("the plan, and a code to raise it", () => {
     it("names an owner's plan and offers a code below Crimson", async () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-      render(() => <SettingsPanel weddingId="wed_1" tier="ivory" canManage />);
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="ivory" canManage />
+      ));
       expect(await screen.findByText(/this wedding is on Ivory/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Have a code?" })).toBeInTheDocument();
     });
 
     it("offers no code on Crimson, which a code cannot raise", async () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-      render(() => <SettingsPanel weddingId="wed_1" tier="crimson" canManage />);
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="crimson" canManage />
+      ));
       expect(await screen.findByText(/this wedding is on Crimson/i)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Have a code?" })).toBeNull();
     });
@@ -453,7 +511,13 @@ describe("SettingsPanel", () => {
     it("is not offered to a co-host", async () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
       render(() => (
-        <SettingsPanel weddingId="wed_1" tier="ivory" canManage={false} canEditRsvpDeadline />
+        <SettingsPanel
+          exportPage={EXPORT_PAGE}
+          weddingId="wed_1"
+          tier="ivory"
+          canManage={false}
+          canEditRsvpDeadline
+        />
       ));
       await screen.findByDisplayValue("Aisha & Ben");
       expect(screen.queryByText(/this wedding is on/i)).toBeNull();
@@ -464,7 +528,13 @@ describe("SettingsPanel", () => {
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
       const onTierRaised = vi.fn();
       render(() => (
-        <SettingsPanel weddingId="wed_1" tier="ivory" canManage onTierRaised={onTierRaised} />
+        <SettingsPanel
+          exportPage={EXPORT_PAGE}
+          weddingId="wed_1"
+          tier="ivory"
+          canManage
+          onTierRaised={onTierRaised}
+        />
       ));
       fireEvent.click(await screen.findByRole("button", { name: "Have a code?" }));
       fireEvent.input(screen.getByLabelText("Code"), { target: { value: "3f9a-0c1e-b7d2-48aa" } });
@@ -493,7 +563,9 @@ describe("SettingsPanel", () => {
 
     it("lists each locked module that holds rows, in the page's tab order", async () => {
       answer({ budgetLines: 2, tasks: 0, gifts: 1 });
-      render(() => <SettingsPanel weddingId="wed_1" tier="ivory" canManage />);
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="ivory" canManage />
+      ));
 
       const section = await screen.findByRole("region", { name: "Download what you entered" });
       expect(screen.getByText("Your 2 budget lines are still here.")).toBeInTheDocument();
@@ -516,7 +588,9 @@ describe("SettingsPanel", () => {
 
     it("lists nothing when the locked modules hold no rows", async () => {
       answer({ budgetLines: 0, tasks: 0, gifts: 0 });
-      render(() => <SettingsPanel weddingId="wed_1" tier="ivory" canManage />);
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="ivory" canManage />
+      ));
       await screen.findByDisplayValue("Aisha & Ben");
       await waitFor(() => expect(probes()).toHaveLength(1));
       expect(screen.queryByRole("region", { name: "Download what you entered" })).toBeNull();
@@ -524,7 +598,9 @@ describe("SettingsPanel", () => {
 
     it("asks nothing for a wedding whose plan locks none of them", async () => {
       answer({ budgetLines: 2, tasks: 2, gifts: 2 });
-      render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+      ));
       await screen.findByDisplayValue("Aisha & Ben");
       expect(probes()).toHaveLength(0);
       expect(screen.queryByText("Download what you entered")).toBeNull();
@@ -534,7 +610,13 @@ describe("SettingsPanel", () => {
     it("asks nothing and lists nothing for a co-host", async () => {
       answer({ budgetLines: 2, tasks: 2, gifts: 2 });
       render(() => (
-        <SettingsPanel weddingId="wed_1" tier="ivory" canManage={false} canEditRsvpDeadline />
+        <SettingsPanel
+          exportPage={EXPORT_PAGE}
+          weddingId="wed_1"
+          tier="ivory"
+          canManage={false}
+          canEditRsvpDeadline
+        />
       ));
       await screen.findByDisplayValue("Aisha & Ben");
       expect(probes()).toHaveLength(0);
@@ -550,7 +632,9 @@ describe("SettingsPanel", () => {
     async function saveAnswering(saved: typeof PROFILE) {
       setCachedTasks("wed_1", []);
       authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
-      render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+      ));
       await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
       authFetchMock.mockResolvedValueOnce(json({ wedding: saved }));
       fireEvent.click(screen.getByText("Save settings"));
@@ -577,7 +661,9 @@ describe("SettingsPanel", () => {
     async function saveAnswering(saved: typeof PROFILE, loaded: typeof PROFILE = PROFILE) {
       setCachedRegistry("wed_1", { currency: "AUD" } as RegistrySnapshot);
       authFetchMock.mockResolvedValueOnce(json({ wedding: loaded }));
-      render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+      render(() => (
+        <SettingsPanel exportPage={EXPORT_PAGE} weddingId="wed_1" tier="gold" canManage />
+      ));
       await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
       authFetchMock.mockResolvedValueOnce(json({ wedding: saved }));
       fireEvent.click(screen.getByText("Save settings"));
