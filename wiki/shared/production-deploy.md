@@ -917,14 +917,28 @@ what holds it.
    release, or — in the newest release only — re-run its failed job (see **Re-running**
    in §5.5).
 2. **`unchanged` is not a failure.** Nothing the surface builds from differs from the
-   commit production runs. Confirm with `git diff --name-only <production-sha> <sha>`
-   against the surface's paths in `scripts/deploy-surfaces.ts` — a cire surface also
+   commit production runs. Confirm with `bun scripts/version-bump.ts <production-sha> <sha>`,
+   which lists the changed files the planner judges and the ones it sets aside, against
+   the surface's paths in `scripts/deploy-surfaces.ts` — a cire surface also
    redeploys when a `@cire/*` package it bundles changes (`cire/host` on `cire/ui` or
    `cire/dietary`, for instance), and every surface redeploys on `shared/`, the lockfile
-   or the root build config.
+   or the root build config. The planner sets aside what a release's version bump
+   writes: a workspace's `CHANGELOG.md`, and a `package.json` or the root `bun.lock`
+   whose only change is `version` values (`scripts/version-bump.ts`). Any other change
+   to either — a dependency, a script, an export, an integrity hash, a file that does
+   not parse — counts. No surface reads a package's version or changelog today.
+   `scripts/tests/version-bump.test.ts` fails when code a surface or stack builds from
+   names a `package.json`, an `npm_package_` variable or a `CHANGELOG`, or globs
+   Markdown; a path built from parts gets past it. A surface that reads either needs
+   that rule changed first, since every later version bump would be set aside too.
 3. **`held back` is the dev gate.** The surface changed, but no recent successful dev
    deploy of it was built from the release commit's content: dev's deploy of the change
-   failed, its smoke check failed, or it has not finished. "Recent" means within the
+   failed, its smoke check failed, or it has not finished. The gate compares content the
+   way item 2 does, so the two `chore: version packages` commits the Release workflow
+   pushes after a merge never hold a surface: dev's deploy of the merge counts for them,
+   and a release dispatched while dev is still deploying them ships. A `held back` row
+   whose reason names `bun.lock` or a `package.json` means that file changed in more than
+   its versions. "Recent" means within the
    newest 300 Deployment records of the `dev` Environment, across every job that runs
    in it: each dev run leaves one per stack job and one per record job, and the
    free-tier alert's dev job, the latency probe and the state-store workflow leave
@@ -1321,7 +1335,8 @@ Nothing reaches production unattended, and nothing reaches it per merge.
 - **What.** The `plan` job runs `scripts/release-plan.ts`. For each surface it reads the
   commit production last deployed — the newest successful GitHub Deployment record in
   the `production-records` Environment made by that surface's record job — and diffs it
-  against the release commit using the paths in `scripts/deploy-surfaces.ts`. A surface
+  against the release commit using the paths in `scripts/deploy-surfaces.ts`, after
+  setting aside the files a release's version bump alone changed (§5.0 item 2). A surface
   ships when anything it builds from differs, its stack's `infra/` directory and
   `shared/infra/` included. A stack ships when one of its surfaces does, or when its own
   paths differ from the commit its stack job last deployed (its newest successful record
@@ -1335,8 +1350,9 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   Because the baseline is what production runs, a release that was skipped, cancelled
   or rejected leaves nothing behind: the next one finds the same gap.
 - **Dev first.** A changed surface ships only when a recent successful dev record of it
-  was built from the same content — its own paths and the shared ones. A dev record
-  exists only when the surface's stack deployed and its smoke check passed.
+  was built from the same content — its own paths and the shared ones, version bumps set
+  aside as above. A dev record exists only when the surface's stack deployed and its
+  smoke check passed.
   Otherwise the plan holds it back and says why (§5.0). The check does not cover what no
   path rule sees: a `.bun-version`, `bunfig.toml` or deploy-script change can reach
   production in a build dev never ran.
