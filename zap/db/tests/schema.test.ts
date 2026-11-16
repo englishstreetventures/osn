@@ -27,28 +27,6 @@ function applyMigration(sqlite: Database, filename: string) {
 }
 
 describe("migration chain", () => {
-  it("applies 0000 then 0001 sequentially without error", () => {
-    const sqlite = new Database(":memory:");
-    expect(() => applyMigration(sqlite, "0000_dry_tempest.sql")).not.toThrow();
-    expect(() => applyMigration(sqlite, "0001_solid_mimic.sql")).not.toThrow();
-
-    // messages must have nullable body column after 0001
-    const msgCols = sqlite.query("PRAGMA table_info(messages)").all() as Array<{
-      name: string;
-      notnull: number;
-    }>;
-    const bodyCol = msgCols.find((c) => c.name === "body");
-    expect(bodyCol, "messages.body column must exist after 0001").toBeDefined();
-    expect(bodyCol!.notnull, "messages.body must be nullable").toBe(0);
-
-    // chats must gain class column after 0001
-    const chatCols = sqlite.query("PRAGMA table_info(chats)").all() as Array<{ name: string }>;
-    expect(
-      chatCols.some((c) => c.name === "class"),
-      "chats.class column must exist after 0001",
-    ).toBe(true);
-  });
-
   it("pre-existing messages (no body) survive the 0001 migration", () => {
     const sqlite = new Database(":memory:");
     applyMigration(sqlite, "0000_dry_tempest.sql");

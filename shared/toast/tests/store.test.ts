@@ -99,6 +99,16 @@ describe("dismissal", () => {
     expect(toasts()).toHaveLength(0);
   });
 
+  it("keeps the first removal time when dismissed again on its way out", () => {
+    vi.useFakeTimers();
+    const id = upsert({ tone: "success", message: "Saved" });
+    dismiss(id);
+    vi.advanceTimersByTime(EXIT_MS - 50);
+    dismiss(id);
+    vi.advanceTimersByTime(50);
+    expect(toasts()).toHaveLength(0);
+  });
+
   it("dismisses everything when called with no id", () => {
     vi.useFakeTimers();
     upsert({ tone: "info", message: "One" });

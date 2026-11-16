@@ -35,11 +35,16 @@ describe("devUrls", () => {
     expect(urls["@pulse/api"]).toBe("http://api.pulse.localhost:1355");
   });
 
-  it("does not match the app name inside a longer label", () => {
-    // `cire` is a name in its own right; it must not match the `cire` inside
-    // `api.cire.localhost` and yield a bogus prefix.
+  it("takes an app name that starts the host as having no prefix", () => {
     const urls = devUrls("@cire/landing", portless("https://cire.localhost"));
     expect(urls["@cire/api"]).toBe("https://api.cire.localhost");
+  });
+
+  it("does not match the app name inside a longer label", () => {
+    // `apicire` is one label, not a prefix `api` before the name `cire`, so the
+    // caller's own name is not in the URL and siblings fall back.
+    const urls = devUrls("@cire/landing", portless("https://apicire.localhost"));
+    expect(urls["@cire/api"]).toBe("http://localhost:8787");
   });
 
   it("takes the app name from the right when a worktree prefix repeats it", () => {
