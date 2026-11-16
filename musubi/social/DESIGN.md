@@ -838,7 +838,9 @@ orb (§The orb).
   Create or Save runs, `@osn/auth-ui`'s sign-up Cancel while its link is
   sent or resent, and the profile switcher's Cancel while a switch runs,
   where Escape and a press outside are refused too, as on the step-up sheet.
-  A row's action leaves the other rows alone.
+  A row's action leaves the other rows alone, but on Settings → Security,
+  where a press opens the step-up sheet and the panel's other actions are
+  disabled with it, as an open sheet disables them.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge

@@ -115,7 +115,11 @@ type PendingAction =
   | { kind: "delete"; id: string; name: string }
   | { kind: "add" };
 
+/** The line when a pressed action's passkey is gone by the time the list is read again. */
+const GONE = "That passkey is no longer on your account.";
+
 export function PasskeysView(props: PasskeysViewProps) {
+  const [heading, setHeading] = createSignal<HTMLHeadingElement>();
   const passkeys = props.read ?? ownRead(async () => (await props.client.list()).passkeys);
   /**
    * The list once a read has landed, kept on screen while it is read again,
@@ -172,20 +176,29 @@ export function PasskeysView(props: PasskeysViewProps) {
     if (locked()) return;
     setError(null);
     setChecking(action);
+    let fresh: PasskeySummary | undefined;
     try {
-      const fresh = (await passkeys.settled())?.find((row) => row.id === p.id);
-      if (fresh) act(fresh);
+      fresh = (await passkeys.settled())?.find((row) => row.id === p.id);
     } finally {
       setChecking(null);
     }
+    if (fresh) {
+      act(fresh);
+      return;
+    }
+    // The row went with the pressed button: say so, and keep focus on the panel.
+    setError({ ...plainError(GONE), rename: false });
+    heading()?.focus();
   }
 
   function requestRename(p: PasskeySummary) {
     const label = draftLabel().trim();
     if (label.length === 0) return;
-    void onFreshRow(`save:${p.id}`, p, (fresh) =>
-      setPending({ kind: "rename", id: fresh.id, label, name: friendlyLabel(fresh) }),
-    );
+    void onFreshRow(`save:${p.id}`, p, (fresh) => {
+      // Only the rename still open: Cancel and the field are held while it waits.
+      if (editingId() !== fresh.id) return;
+      setPending({ kind: "rename", id: fresh.id, label, name: friendlyLabel(fresh) });
+    });
   }
 
   function requestDelete(p: PasskeySummary) {
@@ -275,7 +288,13 @@ export function PasskeysView(props: PasskeysViewProps) {
     <div class="flex flex-col gap-3">
       {/* The action goes under the heading when the two do not fit on one line. */}
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-ui-ink text-ui-md font-ui-title">Passkeys</h2>
+        <h2
+          ref={setHeading}
+          tabindex="-1"
+          class="text-ui-ink text-ui-md font-ui-title focus:outline-none"
+        >
+          Passkeys
+        </h2>
         <Show when={props.profileId && props.runPasskeyRegistration}>
           <Button size="sm" class="max-md:h-10" onClick={requestAdd} disabled={locked()}>
             Add a passkey
@@ -338,6 +357,7 @@ export function PasskeysView(props: PasskeysViewProps) {
                                 autocomplete="off"
                                 value={draftLabel()}
                                 maxLength={64}
+                                readOnly={checking() !== null}
                                 onInput={(e) => setDraftLabel(e.currentTarget.value)}
                                 aria-label="Passkey name"
                                 aria-describedby={renameError() ? errorId : undefined}
@@ -361,7 +381,7 @@ export function PasskeysView(props: PasskeysViewProps) {
                                 size="sm"
                                 class="shrink-0 max-md:h-10"
                                 onClick={cancelEdit}
-                                disabled={busy()}
+                                disabled={busy() || checking() !== null}
                               >
                                 Cancel
                               </Button>
@@ -400,7 +420,7 @@ export function PasskeysView(props: PasskeysViewProps) {
                               onClick={() => requestDelete(p())}
                               busy={checking() === `remove:${p().id}`}
                               disabled={checking() !== `remove:${p().id}` && locked()}
-                              aria-label={`Remove ${friendlyLabel(p())}`}
+                              aria-label={`${checking() === `remove:${p().id}` ? "Checking" : "Remove"} ${friendlyLabel(p())}`}
                             >
                               {checking() === `remove:${p().id}` ? "Checking…" : "Remove"}
                             </Button>

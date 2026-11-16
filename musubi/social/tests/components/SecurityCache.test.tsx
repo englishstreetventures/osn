@@ -603,13 +603,20 @@ describe("an action pressed while the tab reads behind its rows", () => {
     comeBack();
     await settle();
     const remove = screen.getByRole("button", { name: "Remove Work laptop" });
+    remove.focus();
     fireEvent.click(remove);
-    // Busy from the press, before the read answers.
+    // Busy from the press, before the read answers, and named by its words.
     expect(remove.getAttribute("aria-busy")).toBe("true");
     expect(remove.textContent).toContain("Checking…");
+    expect(remove.getAttribute("aria-label")).toBe("Checking Work laptop");
     await release("passkeys");
     await waitFor(() => expect(screen.queryByText("Work laptop")).toBeNull());
     expect(screen.queryByRole("dialog")).toBeNull();
+    // The button went with its row: focus stays on the panel, and a line says why.
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Passkeys" }));
+    expect(screen.getByRole("alert").textContent).toContain(
+      "That passkey is no longer on your account.",
+    );
   });
 
   it("F12: Generate on a remembered 'none' warns once the read says there are codes", async () => {
@@ -657,6 +664,13 @@ describe("an action pressed while the tab reads behind its rows", () => {
     const save = screen.getByRole("button", { name: "Save" });
     fireEvent.click(save);
     expect(save.getAttribute("aria-busy")).toBe("true");
+    // The rename it waits for cannot change or close meanwhile.
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(
+      (screen.getByRole("textbox", { name: "Passkey name" }) as HTMLInputElement).readOnly,
+    ).toBe(true);
     await release("passkeys");
     await waitFor(() => expect(screen.queryByText("Work laptop")).toBeNull());
     await settle();
@@ -685,12 +699,17 @@ describe("an action pressed while the tab reads behind its rows", () => {
       comeBack();
       await settle();
       const pressed = screen.getByRole("button", { name: button });
+      pressed.focus();
       fireEvent.click(pressed);
       expect(pressed.getAttribute("aria-busy")).toBe("true");
       await release("totp");
       await waitFor(() => expect(screen.queryByRole("button", { name: button })).toBeNull());
       await settle();
       expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { name: "Authenticator app" }),
+      );
+      expect(screen.getByRole("alert")).toBeTruthy();
     },
   );
 
@@ -789,6 +808,30 @@ describe("a confirm that runs no step-up", () => {
     expect(server.reads.totp! - before.totp!).toBe(1);
     expect(server.reads.passkeys).toBe(before.passkeys);
     expect(server.reads.recovery).toBe(before.recovery);
+  });
+});
+
+describe("a write's end, told once", () => {
+  it("F22: a confirm whose toast throws after it ends still reads the authenticator once", async () => {
+    const { toast } = await import("@shared/toast");
+    vi.mocked(toast.success).mockImplementationOnce(() => {
+      throw new Error("toast failed");
+    });
+    mountTab();
+    await landed();
+    fireEvent.click(await screen.findByRole("button", { name: "Add an authenticator app" }));
+    await passStepUp();
+    await screen.findByText(SECRET);
+    await settle();
+    const before = server.reads.totp!;
+    const boxes = screen.getAllByLabelText(/^Digit \d$/);
+    for (const [i, ch] of [..."123456"].entries()) {
+      fireEvent.input(boxes[i]!, { target: { value: ch } });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await screen.findByRole("button", { name: "Remove Authenticator app" });
+    await settle();
+    expect(server.reads.totp! - before).toBe(1);
   });
 });
 

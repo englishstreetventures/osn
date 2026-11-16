@@ -1014,7 +1014,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
       busyWhileHeld = await page.locator('main [aria-busy="true"]').count();
       const shots = join(SCREENSHOT_DIR, "musubi-page-cache");
       mkdirSync(shots, { recursive: true });
-      await page.screenshot({ path: join(shots, "security-return.png") });
+      // The tab whole, the recovery panel below the fold included.
+      await page.locator("main").screenshot({ path: join(shots, "security-return.png") });
       returnDrawn = await watch.stop();
     });
   } finally {

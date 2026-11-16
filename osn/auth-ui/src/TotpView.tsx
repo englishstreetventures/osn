@@ -82,6 +82,7 @@ function formatTs(ts: number | null): string {
 }
 
 export function TotpView(props: TotpViewProps) {
+  const [heading, setHeading] = createSignal<HTMLHeadingElement>();
   const status = props.read ?? ownRead(() => props.client.status());
   /**
    * The status once a read has landed, and nothing before, after one failed,
@@ -130,12 +131,29 @@ export function TotpView(props: TotpViewProps) {
     if (locked()) return;
     setError(null);
     setChecking(action);
+    let fresh: TotpStatus | undefined;
     try {
-      const fresh = await status.settled();
-      if (fresh?.enrolled === wanted) setPending(action);
+      fresh = await status.settled();
     } finally {
       setChecking(null);
     }
+    if (fresh?.enrolled === wanted) {
+      setPending(action);
+      return;
+    }
+    // The pressed button went with what the read changed: say so, and keep
+    // focus on the panel. A failed read says so in its own line.
+    if (fresh) {
+      setError({
+        ...plainError(
+          action === "enroll"
+            ? "An authenticator app is already set up."
+            : "That authenticator app is no longer set up.",
+        ),
+        code: false,
+      });
+    }
+    heading()?.focus();
   }
 
   const requestEnroll = () => void onFreshStatus("enroll", false);
@@ -212,7 +230,13 @@ export function TotpView(props: TotpViewProps) {
     <div class="flex flex-col gap-3">
       {/* The action goes under the heading when the two do not fit on one line. */}
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-ui-ink text-ui-md font-ui-title">Authenticator app</h2>
+        <h2
+          ref={setHeading}
+          tabindex="-1"
+          class="text-ui-ink text-ui-md font-ui-title focus:outline-none"
+        >
+          Authenticator app
+        </h2>
         <Show when={current()?.enrolled === false && enrollment() === null}>
           <Button
             size="sm"
@@ -276,7 +300,7 @@ export function TotpView(props: TotpViewProps) {
                   onClick={requestDisable}
                   busy={checking() === "disable"}
                   disabled={checking() !== "disable" && locked()}
-                  aria-label={`Remove ${appName()}`}
+                  aria-label={`${checking() === "disable" ? "Checking" : "Remove"} ${appName()}`}
                 >
                   {checking() === "disable" ? "Checking…" : "Remove"}
                 </Button>

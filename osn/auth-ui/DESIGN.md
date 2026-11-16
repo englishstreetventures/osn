@@ -498,7 +498,8 @@ own.
 
 **A first load.** Each Settings panel shows `@shared/ui`'s `Skeleton` in place
 of what it loads, never a "Loading…" line: one row's block for `PasskeysView`
-and `SessionsView` (every account has a passkey and a session), one for
+(one per passkey its host's read last landed, below) and `SessionsView`
+(every account has a passkey and a session), one for
 `TotpView`'s set-up row, a line's for `RecoveryCodesView`'s count. The region
 that holds the block and what replaces it carries `aria-busy` while the read
 is out: the list's place in `PasskeysView` and `SessionsView`, the count's in
@@ -525,7 +526,13 @@ Save in `PasskeysView`, Add and Remove in `TotpView`, Generate in
 `RecoveryCodesView` — is busy from its press ("Checking…") while a read is
 out, every other action in the view disabled with it, as a step-up disables
 them; it then acts only on what the read answers, or does nothing when the
-row is gone. `PasskeysView` keeps each row's element across a read, by id, so
+row is gone. While it waits a busy Remove is named "Checking {name}", its
+visible words in its name, and a rename's field and Cancel are held with
+Save. When the read has taken away what the press was for, the panel says so
+in its error line ("That passkey is no longer on your account.", "An
+authenticator app is already set up.", "That authenticator app is no longer
+set up.") and its heading takes focus, so focus never falls to `<body>` with
+the button. `PasskeysView` keeps each row's element across a read, by id, so
 a pressed action keeps focus. `SessionsView` keeps what it showed on a read
 again and disables every row's actions, and the header's, while a list it has
 shown is read again: a session just revoked stays on screen until the read
@@ -533,7 +540,7 @@ lands. `StepUpDialog` reads its `GET /totp/status` by `state`, so opening a
 step-up never swaps its host for the host's fallback.
 
 **`PasskeysView`** — heading "Passkeys" with "Add a passkey". States: loading
-(one row's placeholder); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
+(a row's placeholder for each passkey last landed, one when none is known); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
 "Device passkey" when unnamed, "(synced)" when backed up), "Added … · Last
 used …", Rename and Remove, named for a screen reader by the passkey
 ("Rename Work laptop", "Remove Work laptop"); a row being renamed (a field,
