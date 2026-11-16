@@ -91,7 +91,8 @@ let grants = 0;
 /**
  * What `/token` answers: a fresh token for the profile the grant named, as
  * osn-api does for a profile the account owns, or for the default profile.
- * `sub` overrides it, standing for a profile the account no longer owns.
+ * `sub` overrides it, standing for an issuer that renews another profile than
+ * the one named.
  */
 function grant(call?: Call, claims?: { sub?: string }): Response {
   grants += 1;
@@ -193,6 +194,35 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
 
 const tagOf = (err: unknown) => (err as { _tag?: string })._tag;
 
+/** The only profile of the account another cookie belongs to. */
+const STRANGER = "usr_stranger0001";
+
+/** osn-api's refusal of a grant naming a profile the cookie's account does not own. */
+const refused = () =>
+  json(400, { error: "invalid_grant", message: "AuthError: Invalid or expired session" });
+
+/**
+ * `/token` while the cookie belongs to another account, whose one profile is
+ * `STRANGER` (a sign-up held at its passkey step): a grant naming no profile
+ * is minted that account's default, one naming any other profile is refused.
+ */
+const strangersCookie: Route = (call) => {
+  const named = namedProfile(call);
+  return named === null || named === STRANGER ? grant(call, { sub: STRANGER }) : refused();
+};
+
+/**
+ * Every other route: `/profiles/delete` answers `body` (by default, as osn-api
+ * does, the account's default profile once the deleted one is gone).
+ */
+const deleteAnswer =
+  (body: object = { deleted: true, default_profile_id: DEFAULT }): Route =>
+  (call) =>
+    call.url === `${ISSUER}/profiles/delete` ? json(200, body) : json(200, { ok: true });
+
+const deleteProfile = (runtime: OsnAuthRuntime, profileId: string) =>
+  runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.deleteProfile(profileId)));
+
 describe("authFetch on the page's runtime", () => {
   it("F1: a retry that is refused again ends the session and tells the listeners", async () => {
     const fetches = stubFetch({ api: () => json(401) });
@@ -256,8 +286,8 @@ describe("authFetch on the page's runtime", () => {
   });
 
   it("F5: a grant for the default profile when another was named resets to it and sends nothing", async () => {
-    // osn-api mints for the default profile when the account no longer owns
-    // the one named.
+    // osn-api does this for a restricted recovery session, or an account
+    // scheduled for deletion, naming a profile the account owns.
     const fetches = stubFetch({ token: (call) => grant(call, { sub: DEFAULT }) });
     const { runtime, changes, stored } = await harness({ active: OTHER });
 
@@ -596,16 +626,35 @@ describe("authFetch on the page's runtime", () => {
     expect(bearer(fetches.api()[0])).toBe(`Bearer ${short.accessToken}`);
   });
 
-  it("F18: no token for the active profile renews and makes the grant's profile active", async () => {
-    const fetches = stubFetch({});
+  it("F18: a stored account that names no profile renews naming the empty id, which is refused", async () => {
+    // osn-api refuses `profile_id=` before any grant, as it refuses a profile
+    // the account does not own (`osn/api/tests/routes/token-grant-profile.test.ts`),
+    // rather than minting the cookie account's default profile.
+    const fetches = stubFetch({
+      token: (call) => (namedProfile(call) === "" ? refused() : grant(call)),
+    });
+    const { runtime, changes, stored } = await harness({ active: "" });
+
+    const err = await rejection(runtime.authFetch(API));
+
+    expect(isAuthExpiredError(err)).toBe(true);
+    expect(fetches.to("/token").map(namedProfile)).toEqual([""]);
+    expect(fetches.api()).toHaveLength(0);
+    expect(changes).toEqual([{ kind: "ended" }]);
+    expect(stored()).toBeNull();
+  });
+
+  it("F18b: ... and so does its reload, which loads no session and forgets the stored account", async () => {
+    const fetches = stubFetch({
+      token: (call) => (namedProfile(call) === "" ? refused() : grant(call)),
+    });
     const { runtime, stored } = await harness({ active: "" });
 
-    const res = await runtime.authFetch(API);
+    const session = await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession()));
 
-    expect(res.status).toBe(200);
-    expect(fetches.to("/token")).toHaveLength(1);
-    expect(namedProfile(fetches.to("/token")[0])).toBeNull();
-    expect(stored()?.activeProfileId).toBe(DEFAULT);
+    expect(session).toBeNull();
+    expect(fetches.to("/token").map(namedProfile)).toEqual([""]);
+    expect(stored()).toBeNull();
   });
 
   it("F19: a listener that unsubscribed is not called", async () => {
@@ -820,6 +869,159 @@ describe("authFetch on the page's runtime", () => {
 
     await vi.waitFor(() => expect(changes).toEqual([{ kind: "ended" }]));
     expect(read(storage)?.signInId).toBe("another-sign-in");
+  });
+
+  it("F45: after the active profile is deleted, with no other token held, the next grant names the default profile", async () => {
+    const fetches = stubFetch({ api: deleteAnswer() });
+    const { runtime, changes, stored } = await harness({
+      active: OTHER,
+      token: token(OTHER, 120_000),
+    });
+
+    await deleteProfile(runtime, OTHER);
+    const res = await runtime.authFetch(API);
+
+    expect(res.status).toBe(200);
+    expect(fetches.to("/token").map(namedProfile)).toEqual([DEFAULT]);
+    expect(bearerSub(fetches.api()[0])).toBe(DEFAULT);
+    expect(changes).toEqual([]);
+    expect(stored()).toEqual(storedFor(DEFAULT));
+  });
+
+  it("F45b: ... and while the cookie is another account's, that grant is refused and nothing goes out as that account", async () => {
+    const fetches = stubFetch({ token: strangersCookie, api: deleteAnswer() });
+    const { runtime, changes, stored } = await harness({
+      active: OTHER,
+      token: token(OTHER, 120_000),
+    });
+
+    await deleteProfile(runtime, OTHER);
+    const err = await rejection(runtime.authFetch(API));
+
+    expect(isAuthExpiredError(err)).toBe(true);
+    expect(fetches.to("/token").map(namedProfile)).toEqual([DEFAULT]);
+    expect(fetches.api()).toHaveLength(0);
+    expect(changes).toEqual([{ kind: "ended" }]);
+    expect(stored()).toBeNull();
+  });
+
+  it("F45c: the session load the provider runs after a delete names the default profile, and gets no session from another account's cookie", async () => {
+    const fetches = stubFetch({ token: strangersCookie, api: deleteAnswer() });
+    const { runtime, stored } = await harness({ active: OTHER, token: token(OTHER, 120_000) });
+
+    await deleteProfile(runtime, OTHER);
+    const session = await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession()));
+
+    expect(session).toBeNull();
+    expect(fetches.to("/token").map(namedProfile)).toEqual([DEFAULT]);
+    expect(stored()).toBeNull();
+  });
+
+  it.each([
+    ["names no default profile", { deleted: true }],
+    ["names an empty one", { deleted: true, default_profile_id: "" }],
+  ])(
+    "F46: a delete answer that %s drops the deleted profile's token, and its next grant names it and is refused",
+    async (_name, body) => {
+      // osn-api refuses a grant naming a profile that is gone.
+      const fetches = stubFetch({
+        token: (call) => (namedProfile(call) === OTHER ? refused() : grant(call)),
+        api: deleteAnswer(body),
+      });
+      const { runtime, changes, stored } = await harness({
+        active: OTHER,
+        token: token(OTHER, 120_000),
+      });
+
+      await deleteProfile(runtime, OTHER);
+      const err = await rejection(runtime.authFetch(API));
+
+      expect(isAuthExpiredError(err)).toBe(true);
+      expect(fetches.to("/token").map(namedProfile)).toEqual([OTHER]);
+      expect(fetches.api()).toHaveLength(0);
+      expect(changes).toEqual([{ kind: "ended" }]);
+      expect(stored()).toBeNull();
+    },
+  );
+
+  it("F47: a renewal for a profile deleted while it was out keeps no token for it, and its request is not sent", async () => {
+    // The issuer minted for the profile before the delete committed.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const defaults = [THIRD, DEFAULT];
+    let apiCalls = 0;
+    const fetches = stubFetch({
+      token: async (call) => {
+        await released;
+        return grant(call);
+      },
+      api: (call) => {
+        if (call.url === `${ISSUER}/profiles/delete`) {
+          return json(200, { deleted: true, default_profile_id: defaults.shift() });
+        }
+        apiCalls += 1;
+        return apiCalls === 1 ? json(401) : json(200, { ok: true });
+      },
+    });
+    const { runtime } = await harness({ active: OTHER, token: token(OTHER, 120_000) });
+
+    const pending = rejection(runtime.authFetch(API));
+    await vi.waitFor(() => expect(fetches.to("/token")).toHaveLength(1));
+    await deleteProfile(runtime, OTHER);
+    release();
+    const err = await pending;
+
+    expect(tagOf(err)).toBe("ActiveProfileResetError");
+    expect(fetches.api()).toHaveLength(1);
+    // Had the renewal kept its token, deleting the active profile now would
+    // make the deleted one active again, as the profile it holds a token for.
+    await deleteProfile(runtime, THIRD);
+    expect(await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getActiveProfile()))).toBe(
+      DEFAULT,
+    );
+  });
+
+  it("F48: a switch to a profile deleted while the switch was out keeps no token for it and changes nothing", async () => {
+    // The issuer minted for the profile before the delete committed.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const fetches = stubFetch({
+      api: async (call) => {
+        if (call.url === `${ISSUER}/profiles/switch`) {
+          await released;
+          return json(200, {
+            access_token: jwt({ sub: OTHER, iat: nowSec(), exp: nowSec() + 300 }),
+            expires_in: 300,
+            profile: {
+              id: OTHER,
+              handle: "other",
+              email: "other@example.com",
+              displayName: null,
+              avatarUrl: null,
+            },
+          });
+        }
+        if (call.url === `${ISSUER}/profiles/delete`) {
+          return json(200, { deleted: true, default_profile_id: DEFAULT });
+        }
+        return json(200, { ok: true });
+      },
+    });
+    const { runtime } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
+
+    const switching = rejection(
+      runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.switchProfile(OTHER))),
+    );
+    await vi.waitFor(() => expect(fetches.to("/profiles/switch")).toHaveLength(1));
+    await deleteProfile(runtime, OTHER);
+    release();
+
+    expect(tagOf(await switching)).toBe("ProfileManagementError");
+    expect(await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getActiveProfile()))).toBe(
+      DEFAULT,
+    );
+    await runtime.authFetch(API);
+    expect(bearerSub(fetches.api()[0])).toBe(DEFAULT);
   });
 
   it("F31: concurrent refusals end the session once, and a throwing listener stops no other", async () => {

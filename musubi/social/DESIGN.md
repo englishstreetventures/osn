@@ -394,8 +394,10 @@ holds at 3:1. A focus mark appears at once, never animated.
 ## Motion
 
 The app adds colour and opacity transitions only, and no spatial motion of its
-own, with two exceptions, both `@shared/ui`'s `Button`'s: the orb a busy button
-draws (§The orb), and the press (below). Rows, tabs and controls fade their colours with `transition-ui-colors`
+own, with four exceptions: three are `@shared/ui`'s, the orb a busy button
+draws (§The orb), the press (below), and a dialog below `md`, which slides up
+and down as a sheet (below); one is `@osn/auth-ui`'s, the fill that empties
+behind an emailed link's Resend as it waits (below). Rows, tabs and controls fade their colours with `transition-ui-colors`
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
@@ -423,22 +425,48 @@ than the screen either way, so the name does not move;
 `tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx` holds it at 320×640,
 390×844 and 1280×800.*
 
-**Overlays fade, with no scale.** `@shared/ui`'s Dialog (as card and as
-sheet), Popover (the sign-up form's `InfoPopover`) and the default menu (the
-account and theme menus) change their opacity alone as they open and close,
-the owner's decision on #2034. The contract block in `App.css` maps `--ui-scale-enter` and
-`--ui-scale-exit` to 1, so the shared `zoom-in` and `zoom-out` scale nothing
-(`wiki/shared/design-tokens.md` §Motion); a call site adds no motion class.
-The timing is the contract's: in over `--ui-dur-fast` (120ms) on
+**Sheets slide; cards and menus fade, with no scale.** Below `md` every
+dialog is a sheet (`ResponsiveDialogContent`, and `@osn/auth-ui`'s three,
+§Responsive layout), and it slides up from the bottom edge as it opens and
+back down as it closes, as an iOS sheet does: the owner's choice ("B: slide
+up"), recorded on #2045 on 2026-11-13. It rises from its own height below the
+edge over `--ui-dur-slow` (320ms) and falls over `--ui-dur-base` (200ms),
+both on `--ui-ease-sheet` (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity
+and with no scale. The scrim fades in and out on the same pace and curve.
+Closed part-way up, or reopened part-way down, the sheet turns round from
+where it is. The slide is `@shared/ui`'s, on every app's sheets; Musubi adds
+no class for it, and its scale tokens do not touch it.
+
+From `md` the same dialog is a centred card, and a card, Popover (the
+sign-up form's `InfoPopover`) and the default menu (the account and theme
+menus) change their opacity alone as they open and close, the owner's
+decision on #2034. The contract block in `App.css` maps `--ui-scale-enter`
+and `--ui-scale-exit` to 1, so the shared `zoom-in` and `zoom-out` scale
+nothing (`wiki/shared/design-tokens.md` §Motion); a call site adds no motion
+class. The timing is the contract's: in over `--ui-dur-fast` (120ms) on
 `--ui-ease-out`, out over `--ui-dur-exit` (80ms) on `--ui-ease-exit`, which
-carries the same curve. The scrim fades with the
-panel. Under reduced motion each one shows and hides at once
-(`tokens.css` sets the overlay animations to `none`). Only cire's `accent`
-menu look closes at once, and Musubi draws none.
+carries the same curve. The scrim fades with the panel. A sheet carried
+across `md` while open (a phone turned, a window resized) does not slide:
+down across it, it sits on the bottom edge at once; up across it, the card
+fades in at its new place.
+
+Under reduced motion a sheet does not slide: it fades in and out with its
+scrim, in place, on the same pace and curve (320ms in, 200ms out, on
+`--ui-ease-sheet`), with no transform on any frame. The owner chose it on
+2026-11-14: "you can do fade in and fade out for reduced motion right?
+Otherwise sure nothing moves". The card, Popover and menus show and hide at
+once (`tokens.css` sets their animations to `none`, and the sheet's
+transitions to `opacity` alone). Only cire's `accent` menu look closes at
+once, and Musubi draws none. On a browser older
+than Chrome 117, Firefox 129 or Safari 17.5, which cannot read
+`@starting-style`, a sheet appears at once and still slides out, or fades out
+under reduced motion.
 `tools/e2e/tests/support/musubi-surfaces.ts` holds the first frame of the
 account menu, the profile switcher and the create-organisation dialog, and
-the half-way frame of the menu and the switcher closing, and finds no
-transform on any.
+the half-way frame of the menu and the switcher closing: the menu and the
+card show no transform, and the switcher, a sheet at 390px, sits its own
+height below the edge as it opens and part-way down half-way out, at full
+opacity and unscaled.
 
 **A button presses.** While a pointer or a held Space presses one of
 `@shared/ui`'s `Button`s, it scales to 0.97 over `--ui-dur-fast` (120ms) on
@@ -454,13 +482,29 @@ still press. The press is `Button`'s alone: the app's own rows, tabs and rail
 links do not scale. `wiki/shared/component-library.md` §Press has the rest,
 and `shared/ui/tests/button-press.browser.test.tsx` holds it.
 
+**A link's wait empties.** On the "Check your email" step of sign-up,
+recovery, step-up and email change, while Resend reads "Resend in {n}s", a
+fill behind its label, in `--muted` (the button's own hover fill) led by a
+2px edge in `--subtle` (an ornament, §Ink hierarchy), at the disabled button's
+opacity, empties from full to nothing at an even pace over the whole wait,
+and is gone as the label reads "Resend link". The fill alone measures 1.05:1
+against the sheet there; the edge, 1.71:1 in light and 1.90:1 in dark, is
+what reads at a glance. It is
+`@osn/auth-ui`'s (`osn/auth-ui/DESIGN.md` §12), timed by the wait the view is
+given rather than a motion token, since no token's job is a countdown. It
+moves inside the button only, holds no room of its own, and says nothing to a
+screen reader. Under reduced motion it is not drawn, as the orb and `Skeleton`
+stand still there, and the label's seconds carry the wait; in a contrast theme
+it is not drawn either. `tests/components/CheckEmailView.layout.browser.test.tsx`
+holds it.
+
 ## The orb
 
 A busy button (§Busy buttons) draws `@shared/ui`'s `Orb` before its label: a
 20px sphere of dots, state `working`, in the button's own text colour, so it
 reads on a filled button and on the page alike. It is the app's one canvas
-animation, and with the press (§Motion) one of its two motions that are not a
-colour or opacity change.
+animation, and with the press and the emailed link's wait fill (§Motion) one of
+its three motions that are not a colour or opacity change.
 
 - **It stops.** It moves for five seconds at most, then holds one still frame,
   so it needs no pause control (WCAG 2.2.2). Under reduced motion it draws that

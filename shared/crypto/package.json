@@ -1,6 +1,6 @@
 {
   "name": "@shared/crypto",
-  "version": "0.14.34",
+  "version": "0.15.1",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",

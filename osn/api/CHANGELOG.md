@@ -1,5 +1,69 @@
 # @osn/osn
 
+## 3.41.1
+
+### Patch Changes
+
+- 4deee2c: `POST /profiles/delete` answers with `default_profile_id`, the account's default profile once the deleted one is gone; when the deleted profile was the default, or the account had none, the oldest remaining profile becomes the default. A delete removes nothing when its profile is the account's last at the moment it writes, and an account keeps exactly one default whichever profile write lands first; `POST /profiles/:profileId/default` answers `400` when the profile is gone by the time it writes. `POST /token` refuses an empty or malformed `profile_id` as it refuses a profile the account does not own, before it reads the cookie, and counts it as `validation_error` on `osn.auth.token.refresh`. The dev-tier sign-in puts its fixed profile back as a plain profile where its account already has a default. `@osn/db` adds a partial unique index, `users_one_default_per_account`; its migration first leaves each account exactly one default, its oldest. The local seed leaves a seeded default plain where its account already has another; new export `seedProfileRows`. `@osn/client` names a profile in every `POST /token` grant from a page that holds an account: deleting the active profile makes active a profile the page holds a token for, or else that default, and an answer that names none leaves the deleted profile active, whose next grant is refused. A token a renewal or a switch brings back for a profile the page has deleted is not kept. New export: `decodeDeleteProfileResponse`.
+- Updated dependencies [4deee2c]
+  - @osn/db@0.27.1
+  - @shared/crypto@0.15.1
+
+## 3.41.0
+
+### Minor Changes
+
+- 582649a: Account deletion reaches every app through one contract. `GET /account/deletion-preview` asks each app (`POST /internal/account-deletion-preview`) what it holds beside the organisations the account owns, and names any app it could not check; `DELETE /account` takes `delete_everything`, answers 409 `could_not_check` while an app cannot be asked and 409 `stale_choices` for an answer to an app action the fresh preview does not list, and stores app answers on the job. Once the window has passed, the fan-out sends every app (`POST /internal/account-deleted`) the person's answers to its actions and the delete-everything flag, and their email address only to an app whose entry says it receives it (neither Pulse nor Zap), for every account, a job written with the old `-1` marks included, and stores what each app kept in `deletion_jobs.app_outcomes`. The preview and the session end carry no account id. The fan-out reads each job once, marks a skipped app in its claim, counts an app done only when its own write set the mark, and stamps any job whose fan-out fails (`fanout_failed_at`), which is then read after the others. A deletion of everything stores no answers, and two triggers on `deletion_jobs` refuse the pair; the preview and erasure timeouts are part of the deletion's app settings; `OSN_DELETION_FANOUT_MAX_JOBS` caps the jobs and hard deletes per run; an app is skipped only on a local run without its URL or where `OSN_DELETION_ABSENT_APPS` declares it, a deployed tier with neither holds the deletion, and an app URL that is not `https:` (or, locally, `http:` to a loopback host) fails the boot. The soft delete ends the person's Pulse web sessions. `osn.account.deletion.fanout_oldest_age` records each app's oldest unfinished job.
+
+  osn-api publishes each isolate's outbound ARC public key in `arc_outbound_keys` and serves the set at `GET /.well-known/arc-jwks.json`; the registration it pushed to each app is gone. Each call signs with the key it published, and concurrent first calls share one write of it. A deployed osn-api needs `INTERNAL_SERVICE_SECRET`; when it is at least 32 characters long, a key derived from it MACs the outbound key ids. `@osn/client`'s deletion preview carries each app's actions and `could_not_check`, and `deleteAccount` takes `deleteEverything`.
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+- Updated dependencies [582649a]
+  - @osn/db@0.27.0
+  - @shared/crypto@0.15.0
+  - @shared/observability@0.25.1
+  - @shared/email@0.18.5
+
+## 3.40.1
+
+### Patch Changes
+
+- 9172b9c: `POST /token` mints for a named `profile_id` only when the session's account owns it, and answers any other named profile with `400 invalid_grant` before it mints or rotates anything; the client ends the session on that answer. A grant naming no profile mints for the default profile. `@osn/client` changes only comments.
+
+## 3.40.0
+
+### Minor Changes
+
+- 3437d4a: Make account erasure undoable for the whole seven-day window, keep deleted handles from being taken, and pass owned organisations on.
+
+  - The soft delete keeps passkeys, recovery codes and TOTP until the hard delete. It writes a restore record on the deletion job (each profile's handle, display name and avatar, and the app enrolments it closed) and holds each profile's handle.
+  - A sign-in or refresh of an account whose deletion is pending mints an access token with audience `osn-pending-deletion`. That token reaches only `GET /account/deletion-status`, `GET /account/export` (with an `account_export` step-up), `POST /account/restore` (with an `account_restore` step-up), the `already_pending` answer of `DELETE /account`, `GET /totp/status`, and the step-up routes for those two purposes. Every verifier that pins `osn-access` refuses it. The audience is on the reserved OIDC client-id list. A restricted recovery session of such an account may enrol a passkey, so email or TOTP recovery leads to a cancel.
+  - `POST /account/restore` needs a step-up token for the new purpose `account_restore`, from the body's `step_up_token` or the `x-step-up-token` header, and accepts any live session of the account. A cancel puts back each profile's handle, display name and avatar, reopens the enrolments the deletion closed, and releases the holds. A handle taken since stays redacted. A job written before the restore record cancels as before.
+  - Handle holds: `handle_holds` stores a keyed hash of each handle, held while the deletion is pending and for 30 days after the hard delete. Registration, sign-up finish, the handle check, profile creation and organisation creation refuse a held handle as they refuse a taken one. Every check that creates or offers a handle, sign-up finish included, refuses one that starts with `deleted_`, the form the soft delete gives a profile. When another profile already has a profile's `deleted_<id suffix>`, the soft delete gives it `deleted_<id suffix>_<8 hex>` instead, and a cancel puts back either form.
+  - The soft delete decides in its own statements what the job needs: the Pulse and Zap marks come from the enrolments the job insert reads, and the tombstone is written last. A cancel removes only the job it read, by the job's new random `job_id`. Profile creation and `joinApp` write nothing for an account whose deletion is pending; profile creation answers `Account not found`.
+  - `GET /account/deletion-preview` lists each organisation a profile of the account owns, who would take it over and the choices it allows. `DELETE /account` takes `choices`; it answers 409 `open_actions` when an organisation with no other admin has no answer, and 400 `invalid_choice` for a choice the organisation does not offer or a successor who is not a member. The checks run before the step-up token is spent.
+  - The hard delete passes each owned organisation to the named successor, else the longest-standing other admin, else the longest-standing other member (made admin), and deletes it when there is none or the person chose `delete`. It deletes the account's `app_enrollments` rows. `updateMemberRole` writes only while the caller still owns the organisation.
+  - One account's failed hard delete leaves the sweep running: it is logged without ids, counted as `hard_failed`, stamped on the job, and read last on the next pass. Three failures in a row end the pass, with one warning. New counter `osn.account.deletion.organisation` (`outcome`: `transferred` or `deleted`).
+  - Deleting a profile that owns an organisation answers "Delete the organisations this profile owns before deleting it".
+  - Two deletes at once answer one scheduled and one `already_pending`, and a repeat during the window answers `already_pending`.
+  - `/authorize` refuses an account whose deletion is pending with `access_denied`, for every client, before it records a consent or mints a code.
+  - The six-hourly cron sweeps `security_events` past 12 months, `email_changes` past 90 days and handle holds past their release, in chunks of 500, at most two a run, through one shared `runRetentionSweep`. The Bun dev server runs the same sweeps, the OIDC code sweep included.
+
+  `/internal/app-enrollment/join` and `/leave` write only for the calling service's own app (`pulse-api` for `pulse`, `zap-api` for `zap`); a token from any other service gets 401. A hard delete runs only while both app purges read done at the moment it claims and writes; a refused join that sends an app's purge back rolls the batch back.
+
+  A sign-in ends the family its cookie named for every account, an account scheduled for deletion and its cancel handle included: the account can sign in again. The one exception is the cancel handle of a deletion job written before the restore record existed (`deletion_jobs.restore` NULL), whose account has no credential left: a sign-in spares it and marks it `replaced_at`. `POST /account/restore` answers a database fault while it checks the step-up token as a 500, not `step_up_required`.
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+- Updated dependencies [3437d4a]
+  - @osn/db@0.26.0
+  - @shared/observability@0.25.0
+  - @shared/crypto@0.14.35
+  - @shared/email@0.18.4
+
 ## 3.39.2
 
 ### Patch Changes

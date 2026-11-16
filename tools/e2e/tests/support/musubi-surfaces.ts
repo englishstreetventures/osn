@@ -73,8 +73,27 @@ async function at(
   if (!bare) await expect(size.width >= 768 ? rail(page) : primaryBar(page)).toBeVisible();
   // A scheme change fades every `transition-ui-colors` row; a read or a shot
   // taken mid-fade sees the colour between the two themes.
+  await animationsSettled(page);
+}
+
+/**
+ * Waits out every animation on the page that ends, but two: a loop (a loading
+ * pulse), which never ends, and the fill behind `CheckEmailView`'s "Resend in
+ * …s", which ends only with the wait, 30 or 120 seconds, so a flow on the
+ * "Check your email" screen never stalls here.
+ */
+async function animationsSettled(page: Page): Promise<void> {
   await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))),
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        .filter((a) => {
+          const target = (a.effect as KeyframeEffect | null)?.target;
+          return !target?.closest("button")?.textContent?.startsWith("Resend in");
+        })
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
   );
 }
 
@@ -202,6 +221,30 @@ function fadesOnly(flow: Flow, what: string, run: "open" | "close", frame: HeldF
   flow.check(`${what}: no transform ${when}`, true, frame.identity);
   if (run === "open") flow.check(`${what}: opacity 0 as it opens`, 0, frame.opacity);
   else flow.check(`${what}: part-faded half-way out`, true, frame.opacity > 0 && frame.opacity < 1);
+}
+
+/**
+ * A sheet's held frame, read as its slide below `md` (DESIGN.md §Motion): at
+ * full opacity and unscaled throughout, its own height below the bottom edge
+ * as it starts to open, part-way down half-way out.
+ */
+function slides(flow: Flow, what: string, run: "open" | "close", frame: HeldFrame): void {
+  const when = run === "open" ? "as it opens" : "half-way out";
+  flow.check(`${what}: unscaled ${when}`, 1, frame.scale);
+  flow.check(`${what}: full opacity ${when}`, 1, frame.opacity);
+  if (run === "open") {
+    flow.check(
+      `${what}: its own height below the edge as it opens`,
+      true,
+      Math.abs(frame.shiftY - frame.height) <= 1,
+    );
+  } else {
+    flow.check(
+      `${what}: part-way down half-way out`,
+      true,
+      frame.shiftY > 0 && frame.shiftY < frame.height,
+    );
+  }
 }
 
 /** Focus `before` from script, then Tab to `target`, as a keyboard user arrives. */
@@ -384,8 +427,8 @@ async function shell(flow: Flow, page: Page): Promise<void> {
  * The rail's theme menu and account menu, then the phone's account menu and
  * the profile switcher it opens: the shared radio rows, the house outline on
  * two controls drawn by hand, the account menu's separator as a hairline, the
- * switcher's title on Musubi's title step, and the fade with no scale each
- * overlay opens and closes on.
+ * switcher's title on Musubi's title step, the fade with no scale each menu
+ * opens and closes on, and the switcher's slide, a sheet at the phone width.
  */
 async function menus(flow: Flow, page: Page): Promise<void> {
   await at(page, DESKTOP, "light");
@@ -477,7 +520,7 @@ async function menus(flow: Flow, page: Page): Promise<void> {
   const switcher = page.getByRole("dialog", { name: "Switch profile" });
   const title = switcher.getByRole("heading", { name: "Switch profile" });
   const profile = switcher.getByRole("button").first();
-  const switcherOpened = await holdOverlay(page, '[role="dialog"]', "ui-enter", 0);
+  const switcherOpened = await holdOverlay(page, '[role="dialog"]', "ui-sheet-enter", 0);
   const switcherCancel = switcher.getByRole("button", { name: "Cancel", exact: true });
   await flow.step("surfaces: open the profile switcher from the keyboard", async () => {
     await expect(switchProfile).toBeFocused();
@@ -492,7 +535,7 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     await expect(profile).toBeFocused();
     expect(await profile.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
   });
-  fadesOnly(flow, "profile switcher (sheet)", "open", await switcherOpened());
+  slides(flow, "profile switcher (sheet)", "open", await switcherOpened());
   flow.check(
     "profile switcher: the title is at title size and 500",
     await probedType(title, "text-title font-medium"),
@@ -523,12 +566,12 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     shoot(page, "profile-switcher", () => expect(title).toBeVisible()),
   );
   await at(page, PHONE, "light");
-  const switcherClosed = await holdOverlay(page, '[role="dialog"]', "ui-exit", 0.5);
+  const switcherClosed = await holdOverlay(page, '[role="dialog"]', "ui-sheet-exit", 0.5);
   await flow.step("surfaces: close the profile switcher", async () => {
     await page.keyboard.press("Escape");
     await expect(switcher).toHaveCount(0);
   });
-  fadesOnly(flow, "profile switcher (sheet)", "close", await switcherClosed());
+  slides(flow, "profile switcher (sheet)", "close", await switcherClosed());
 }
 
 /**
@@ -881,16 +924,10 @@ export async function otpDigitSurfaces(flow: Flow, page: Page, box: Locator): Pr
 /** The vertical space between the bottom of `above` and the top of `below`, in whole px. */
 async function gapBetween(above: Locator, below: Locator): Promise<string> {
   // The two boxes are read one after the other, so every animation that ends
-  // is waited out first and nothing on the page moves between the reads. A
-  // loading pulse never ends, so it is left running.
-  await above.page().evaluate(() =>
-    Promise.all(
-      document
-        .getAnimations()
-        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
-        .map((a) => a.finished.catch(() => undefined)),
-    ),
-  );
+  // is waited out first and nothing on the page moves between the reads, but
+  // a loading pulse and the Resend wait's fill, which `animationsSettled`
+  // leaves running.
+  await animationsSettled(above.page());
   const [a, b] = await Promise.all([above.boundingBox(), below.boundingBox()]);
   if (!a || !b) return "no box";
   return `${Math.round(b.y - (a.y + a.height))}px`;
@@ -1336,7 +1373,7 @@ export async function signedOutSurfaces(flow: Flow, page: Page, message: string)
  * though it is a bare `Label` beside its "i" — and the date of birth read with
  * its hint as its description. Then the "i" opens its popover, the one
  * Popover Musubi draws, held at its first frame opening and half-way closing
- * and found to fade with no scale, as the menus and dialogs do (DESIGN.md
+ * and found to fade with no scale, as the menus and card dialogs do (DESIGN.md
  * §Motion); the dialog stays open behind it.
  */
 export async function registerFieldSurfaces(flow: Flow, page: Page): Promise<void> {

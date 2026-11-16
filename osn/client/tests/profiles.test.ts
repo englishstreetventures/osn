@@ -254,7 +254,7 @@ it.effect("deleteProfile removes the profile token from storage", () =>
     // Third mock: deleteProfile
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ deleted: true }),
+      json: () => Promise.resolve({ deleted: true, default_profile_id: "usr_aaaaaaaaaaaa" }),
     } as Response);
 
     const auth = yield* OsnAuth;
@@ -295,10 +295,11 @@ it.effect("deleteProfile switches active profile when deleting the current one",
         }),
     } as Response);
 
-    // Mock: deleteProfile
+    // Mock: deleteProfile. The account's default is a third profile this
+    // page holds no token for.
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ deleted: true }),
+      json: () => Promise.resolve({ deleted: true, default_profile_id: "usr_cccccccccccc" }),
     } as Response);
 
     const auth = yield* OsnAuth;
@@ -311,7 +312,8 @@ it.effect("deleteProfile switches active profile when deleting the current one",
     // Delete the active (second) profile
     yield* auth.deleteProfile("usr_bbbbbbbbbbbb");
 
-    // Should have fallen back to the original profile
+    // Falls back to the profile it holds a token for, not the default: no
+    // grant is needed to go on
     const active = yield* auth.getActiveProfile();
     expect(active).toBe("usr_aaaaaaaaaaaa");
   }).pipe(Effect.provide(createTestLayer())),

@@ -87,7 +87,9 @@ value.
 **As built.** Every view follows the rule: the `@shared/ui` parts render
 through the contract, and the views' own classes are `ui-*` utilities alone —
 `text-ui-ink`, `text-ui-ink-secondary`, `text-ui-accent-ink`,
-`bg-ui-surface-sunk`, `border-ui-hairline`, `rounded-ui-sm`, `rounded-ui-md`,
+`bg-ui-surface-sunk`, `border-ui-ink-tertiary` (the leading edge of
+`CheckEmailView`'s wait fill, an ornament in the faintest ink),
+`border-ui-hairline`, `rounded-ui-sm`, `rounded-ui-md`,
 `font-ui-mono`, `font-ui-title`, the `text-ui-*` steps and `leading-ui-snug`
 — with weights no heavier than `font-medium`. `tests/token-contract.test.ts`
 holds it: it fails on any class in a view that names a host's colour (the
@@ -283,6 +285,14 @@ As built:
   (`flex-col gap-1`), unboxed; for sign-up and recovery, once the first wait
   ends, the junk-mail line; then Resend and "Start again" as
   full-width `ghost` `sm` Buttons, 40px tall below `md` (`max-md:h-10`).
+  While Resend counts down, its label holds the wait's fill (§12): the
+  button's whole box (`inset-0`) in `bg-ui-surface-sunk`, the ghost button's
+  own hover fill, its leading edge a 2px line in `border-ui-ink-tertiary`,
+  under the label (`-z-10` in the button's own stacking context, `isolate`)
+  and clipped to its corners (`overflow-clip`), placed against the button
+  (`relative`). It sits inside the label, out of the row's flow, so the
+  button keeps one child, its height and the label's one line; the label's
+  words are drawn over it.
   The junk-mail line arrives above the buttons, not under them: in a sheet
   anchored to the bottom the buttons stay put, and in a frame that grows
   downward a tap aimed at Resend as it unlocks lands on the line, never on
@@ -399,6 +409,10 @@ themselves:
   `PasskeysView`; its `<summary>` takes Button's ring (§9). `@cire/ui`'s
   `Disclosure` would draw it once it moves into `@shared/ui` (#2262).
 - The `SecurityEventsBanner` box (§4).
+- `CheckEmailView`'s wait fill behind Resend's label (§4, §12). No shared
+  part draws a countdown inside a `Button`; `@shared/ui`'s `Meter` is a
+  `progressbar` with a track and a name, which a screen reader would read
+  beside the label's own seconds.
 
 **Links.** A link standing alone is Button's `link` at `sm` (`StepLink`):
 `text-ui-sm` (13px in Musubi) at 500 in the accent ink, a 32px box with 12px
@@ -568,7 +582,7 @@ says "If that address has an account, …".
 
 | State | What shows |
 | --- | --- |
-| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery and step-up, whose pages ask the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Start again" when the host passes `onChangeEmail`, from the first moment |
+| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery and step-up, whose pages ask the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, with the wait's fill behind the label emptying as the seconds fall (§12), then "Resend link"; "Start again" when the host passes `onChangeEmail`, from the first moment |
 | Resend unlocked (sign-up, recovery) | As Waiting, and above Resend, from the moment the first wait ends and through every Resend after it: "Can't find it? Look in your junk or spam folder for an email about {productName}." ("Can't find it? Look in your junk or spam folder." with no `productName`). The same words whether or not the address has an account. Outside the live region, so it is never read out, and it moves no focus. It names what the email is about, not its sender: production mails from an address with no display name, and every link email's subject carries the product's name |
 | Sending | "Sending a new link…"; Resend busy, reading "Sending…"; "Start again" disabled; no error line |
 | Sent again | "We sent a new link to {email}." (recovery: "If {email} has an account, a new link is on its way."), ending "Check the number again." when a number shows |
@@ -827,16 +841,19 @@ host a short-lived token through `onToken`.
   link's wait every way out stays open while a Resend runs: leaving ends the
   request on this side, and the late answer is dropped.
 - **One outcome, after the exit.** The sheet closes itself and hands the host
-  its one outcome, `onToken` or `onCancel`, once its exit fade has ended, so
-  the sheet fades out as every Musubi dialog does before the host removes it.
-  If the fade has not ended 300ms after the close (a tab the browser has
-  hidden runs no animation), the outcome goes then. While it closes, its
-  body is `inert` and every action returns early. A host that removes the
-  sheet itself gets neither callback. The cost is the fade: the host's next
-  request starts `--ui-dur-exit` (80ms in Musubi) after the token, or up to
-  300ms in a hidden tab, rather than at once. That is the price of the host's
-  `<Show>` not cutting the fade short and of focus going back only once the
-  sheet has gone.
+  its one outcome, `onToken` or `onCancel`, once its exit has ended, so it
+  leaves as every Musubi dialog does before the host removes it: below `md` it
+  slides down (under reduced motion it fades, on the same pace), from `md` the
+  card fades. If the exit has not ended 300ms after
+  the close (a tab the browser has hidden runs no animation), the outcome goes
+  then; 300ms stays above both exits only while the host keeps
+  `--ui-dur-base` and `--ui-dur-exit` under it. While it closes, its body is
+  `inert` and every action returns early. A host that removes the sheet
+  itself gets neither callback. The cost is the exit: the host's next request
+  starts `--ui-dur-base` (200ms) after the token below `md`, `--ui-dur-exit`
+  (80ms in Musubi) from it, or up to 300ms in a hidden tab, rather than at
+  once. That is the price of the host's `<Show>` not cutting the exit short
+  and of focus going back only once the sheet has gone.
 - **The claim secret and the number** live in memory only, and every answer
   about the emailed link is checked against the wait it was for, so nothing
   reaches `onToken` after the person closed the sheet or went back. A status
@@ -1187,7 +1204,14 @@ As built:
   renders `CheckEmailView` in Musubi's auth sheet
   and holds its layout at 320px and 1280px (the long address, the countdown on
   one line, the 40px and 32px buttons, and the six-digit number at 24px in
-  tabular figures with its label read first).
+  tabular figures with its label read first), and the wait's fill (§12):
+  inside the label, the button's whole box behind its words, with a 2px
+  leading edge, at both widths, a linear run as long as the wait, half out
+  halfway, empty as the label reads "Resend link", the whole wait again after a
+  Resend from where the wait stands once the send ends, painted in light and
+  dark, and not drawn under reduced motion or forced colours. Its frames, one
+  per second of a 4-second wait in each theme at 320 and 1280px, are written
+  beside the file.
   `musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx`
   renders `ConfirmLinkPage` on a bare route and holds, at 320px, five six-digit
   numbers and a long address with nothing to scroll sideways, and at 320px and
@@ -1221,29 +1245,107 @@ As built:
 
 ## 12. Motion
 
-The package has no motion of its own. A view takes its host's: in Musubi, colour
-and opacity transitions only, beside the two `Button` draws, the orb and the
-press (`musubi/social/DESIGN.md` §Motion). The host's
+The package has one motion of its own, `CheckEmailView`'s wait fill, below.
+Otherwise a view takes its host's: in Musubi, colour and opacity transitions
+only, beside the two `Button` draws, the orb and the press
+(`musubi/social/DESIGN.md` §Motion). Musubi's §Motion lists the wait fill
+among its exceptions. The host's
 `transition-ui-colors` utility fades colours and leaves the outline out, so a
-control's focus mark lands at once (§9). A view draws five motions, all from
+control's focus mark lands at once (§9). A view draws five motions from
 `@shared/ui` parts: the press, which scales a `Button` to 0.97 while it is
 held (not while disabled or busy, nor a link inside a sentence); a busy
 button's `Orb`; `Skeleton`, the loading
 placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
 `RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
 in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`, all three sheets; and the open and close of a
-popover, `Register`'s `InfoPopover` beside the email field. The last two fade
-with no scale in Musubi, which maps both scale tokens to 1
+popover, `Register`'s `InfoPopover` beside the email field. Below `md` the
+three sheets slide up from the bottom edge and back down, as every
+`@shared/ui` sheet does (`musubi/social/DESIGN.md` §Motion, the owner's
+"B: slide up" on #2045); from `md` they are cards, and the cards and the
+popover fade with no scale in Musubi, which maps both scale tokens to 1
 (`musubi/social/DESIGN.md` §Motion); the press does not read those tokens and
 scales in Musubi too. Under reduced motion no button scales, the `Orb` and
-`Skeleton` stand still, and the overlays show and hide at once. `StepUpDialog`
-hands its host the outcome once its fade out has ended (§8), so the host's
-removal never cuts the fade short. `AuthHeader` adds no motion: a title it
+`Skeleton` stand still, a sheet fades in and out with its scrim and does not
+slide, and the cards and the popover show and hide at once. `StepUpDialog`
+hands its host the outcome once its exit has ended (§8), so the host's
+removal never cuts the slide or the fade short. `AuthHeader` adds no motion: a title it
 is given arrives at once, and it shows and hides with the dialog around it. What a skeleton
 stands for, a refused code's line and a step that replaces another arrive at
 once, with no fade (`musubi/social/DESIGN.md` §Motion), and so do a list
 that lands in place of its placeholder, `CheckEmailView`'s junk-mail line and
-`TurnstileWidget`'s failed-load line. A view never moves
-a panel, a field or an error across the screen, and never loads an
+`TurnstileWidget`'s failed-load line. Beyond the shared sheet's slide, a view
+never moves a panel, a field or an error across the screen, and never loads an
 animation library. A motion a view needs that the host does not have goes into
 the host's `DESIGN.md` first.
+
+**The wait fill.** While `CheckEmailView`'s Resend counts down, the fill
+behind its label (§4) empties from full to nothing towards the button's
+start, its 2px edge leading, and is gone the moment the label reads "Resend
+link". It tells how far the wait has gone at a glance, where the seconds have
+to be read. A full-height fill, not a bar under the label, is the owner's
+choice for #2289 (2026-11-16).
+
+- **Its timing is the wait's, not a token's.** It runs as long as the wait the
+  host passes (`resendWaitSeconds`, 30 seconds unless the host passes another;
+  `RecoveryLoginForm`, `StepUpDialog` and `ChangeEmailForm` pass 120), and at
+  an even pace (`linear`), so it agrees with the seconds in the label all the
+  way down. No
+  `--ui-dur-*` or `--ui-ease-*` token's job is a countdown, so the curve is
+  the one literal the package keeps, with its reason beside it
+  (`house/no-literal-motion`).
+- **It is timed from the wait's own deadline.** It is a `translate`
+  transition that starts from `@starting-style` (`-translate-x-full`, from
+  `starting:translate-x-0`) each time the label is built: as a wait starts,
+  and again as a send ends, since the busy "Sending…" draws no fill. It
+  slides out rather than scales, so its edge stays 2px wide all the way. Its
+  delay is negative by the part of the wait already gone, so a fill drawn
+  after a send starts part-empty and still empties as Resend unlocks. Each
+  wait after an accepted Resend runs the whole length again.
+- **It says nothing about the address or the server.** It reads only
+  `resendWaitSeconds` and the view's clock, the same for every address,
+  whatever the server did with the link.
+- **It runs past five seconds with no pause control.** WCAG 2.2.2 asks for
+  one on motion that starts by itself, lasts over five seconds and sits beside
+  other content, unless the motion is essential; the `Orb` stops at five
+  seconds for that reason (`musubi/social/DESIGN.md` §The orb). The fill is
+  the wait itself, as the label's seconds are, which change through the whole
+  wait too: it moves only while Resend cannot be pressed, and ends as it can.
+  It takes the exception for essential motion on that ground, the owner's
+  choice for #2289 (2026-11-16).
+- **It is silent and holds no place.** `aria-hidden`, with no text, and out of
+  the row's flow, so the button's accessible name, the live region, focus,
+  the button's height and the label's one line are as they were.
+- **Under reduced motion it is not drawn** (`motion-reduce:hidden`): the
+  seconds in the label carry the wait, as the `Orb` and `Skeleton` stand
+  still there. **In a contrast theme (forced colours) it is not drawn**
+  either (`forced-colors:hidden`): the theme would paint its fill in the
+  page's own colour. Not drawn under reduced motion is the owner's choice for
+  #2289 (2026-11-16), over a still or fading cue.
+- **In an older browser it is not drawn.** Below `@starting-style` (Chrome
+  117, Safari 17.5, Firefox 129; the floor is Chrome 111, Safari 16.4,
+  Firefox 114) the transition never starts and the fill rests at its end,
+  out of the button, which draws nothing. The label still counts.
+
+**Why it has an edge.** At the disabled button's 50% opacity no fill Musubi
+maps reads at a glance: `--ui-surface-sunk` (with `--ui-accent-soft` and
+`--ui-ground-deep`, which Musubi maps to the same `--muted`) measures 1.05:1
+against the sheet in both themes, and the edge tokens, which are not fills,
+reach 1.13:1 (`--ui-hairline-strong`). So the fill keeps the surface it is
+for, the ghost button's hover fill, and its leading edge is a 2px line in
+`--ui-ink-tertiary`, which Musubi gives to ornaments
+(`musubi/social/DESIGN.md` §Ink hierarchy): 1.71:1 against the light sheet
+and 1.90:1 against the dark one, and 1.63:1 and 1.81:1 against the fill
+behind it. The label's seconds carry the wait, and WCAG 1.4.11 asks nothing
+of a disabled control.
+
+| At 50% over the sheet | Light (`#ffffff`) | Dark (`#242424`) |
+| --- | --- | --- |
+| `--ui-surface-sunk` (`#f4f4f4` / `#2b2b2b`) | 1.05:1 | 1.05:1 |
+| `--ui-hairline` (`#ececec` / `#333333`) | 1.09:1 | 1.10:1 |
+| `--ui-hairline-strong` (`#e2e2e2` / `#3a3a3a`) | 1.13:1 | 1.16:1 |
+| `--ui-ink-tertiary`, the edge (`#8d8d8d` / `#7a7a7a`) | 1.71:1 | 1.90:1 |
+
+*Measured 2026-11-16 — Musubi's `App.css` values (`:root` and `.dark`),
+composited at 0.5 over the sheet's `--card`, contrast by the WCAG 2 formula;
+`CheckEmailView.layout.browser.test.tsx` reads the fill and the edge back from
+Chromium as the painted `--ui-surface-sunk` and `--ui-ink-tertiary`.*

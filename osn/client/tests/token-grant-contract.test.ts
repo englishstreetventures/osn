@@ -3,11 +3,13 @@
  *
  * The client reads a refused grant as "status unknown" from the text osn-api
  * puts in the body's `message`, and names the active profile in a field the
- * route must accept. Both live in osn-api, so this file builds each from
- * osn-api's own source: the message from `ROTATION_RACE_MESSAGE` and
- * `DatabaseError` printed the way the route prints them (`String(e)`), and
- * the field from `shared/openapi/osn.json`, which CI regenerates from the
- * routes. If either side changes alone, this file fails.
+ * route must accept; after deleting the active profile, that is the default
+ * profile `POST /profiles/delete` answers with. These live in osn-api, so
+ * this file builds each from osn-api's own source: the message from
+ * `ROTATION_RACE_MESSAGE` and `DatabaseError` printed the way the route
+ * prints them (`String(e)`), and the fields from `shared/openapi/osn.json`,
+ * which CI regenerates from the routes. If either side changes alone, this
+ * file fails.
  *
  * Reads files outside the package, so it runs as the `repo` project
  * (`test:repo`), which turbo reruns when those files change.
@@ -105,5 +107,26 @@ describe("the grant's profile_id", () => {
     ).paths["/token"]!["post"]!.requestBody.content["application/x-www-form-urlencoded"]!;
 
     expect(Object.keys(body.schema.properties)).toContain("profile_id");
+  });
+
+  it("after the active profile is deleted, comes from a field POST /profiles/delete always answers", () => {
+    const answer = (
+      openapi as unknown as {
+        paths: Record<
+          string,
+          Record<
+            string,
+            {
+              responses: Record<
+                string,
+                { content: Record<string, { schema: { required?: string[] } }> }
+              >;
+            }
+          >
+        >;
+      }
+    ).paths["/profiles/delete"]!["post"]!.responses["200"]!.content["application/json"]!;
+
+    expect(answer.schema.required).toContain("default_profile_id");
   });
 });

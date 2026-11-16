@@ -8,10 +8,11 @@ import {
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/sqlite-core";
+import { and, asc, desc, eq, exists, inArray, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
+import { canBatch } from "../lib/batch";
 import { bound } from "../lib/bound";
 import { handleArms } from "../lib/handle-hold";
 import { withProfileCrud } from "../metrics";
@@ -201,6 +202,12 @@ export function createProfileService(authService: AuthService) {
    * Cannot delete the last profile on an account or a profile that owns
    * an organisation (the organisation must be deleted first).
    *
+   * Returns the account's default profile once this one is gone: the default
+   * as it was, or, when the deleted profile was the default or the account
+   * had none, the oldest remaining profile, made the default here. A client
+   * that deleted the profile it was acting as names this one in its next
+   * grant.
+   *
    * Cross-DB data (Pulse RSVPs, Zap chat members) is not cleaned up here —
    * orphaned rows are inert. A `profile.deleted` domain event will handle
    * cross-service cleanup in a later phase.
@@ -208,9 +215,29 @@ export function createProfileService(authService: AuthService) {
   const deleteProfile = (
     accountId: string,
     targetProfileId: string,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ defaultProfileId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const profile = yield* authService.findProfileById(targetProfileId);
+      const { db } = yield* Db;
+
+      // Parallel pre-checks: the target, and the organisations it owns. Both
+      // are keyed on what the caller sent, so they run together and the
+      // refusals below apply in order afterwards.
+      const [profile, ownedOrgs] = yield* Effect.all(
+        [
+          authService.findProfileById(targetProfileId),
+          Effect.tryPromise({
+            try: () =>
+              db
+                .select({ id: organisations.id })
+                .from(organisations)
+                .where(eq(organisations.ownerId, targetProfileId))
+                .limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+        ],
+        { concurrency: "unbounded" },
+      );
+
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
@@ -218,29 +245,6 @@ export function createProfileService(authService: AuthService) {
         return yield* Effect.fail(
           new AuthError({ message: "Profile does not belong to this account" }),
         );
-      }
-
-      const { db } = yield* Db;
-
-      // Parallel pre-checks: profile count + org ownership
-      const [countResult, ownedOrgs] = yield* Effect.tryPromise({
-        try: () =>
-          Promise.all([
-            db
-              .select({ count: sql<number>`COUNT(*)` })
-              .from(users)
-              .where(eq(users.accountId, accountId)),
-            db
-              .select({ id: organisations.id })
-              .from(organisations)
-              .where(eq(organisations.ownerId, targetProfileId))
-              .limit(1),
-          ]),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      if (countResult[0]!.count <= 1) {
-        return yield* Effect.fail(new AuthError({ message: "Cannot delete the last profile" }));
       }
       if (ownedOrgs.length > 0) {
         return yield* Effect.fail(
@@ -250,62 +254,101 @@ export function createProfileService(authService: AuthService) {
         );
       }
 
-      const wasDefault = profile.isDefault;
-
-      // When the deleted profile was the default, pick its successor (oldest
-      // remaining profile) BEFORE the write batch — D1 has no interactive
-      // transaction, so the read-then-write is split. Including the promotion
-      // update in the same batch keeps "account always has a default" atomic on
-      // D1 (the batch is all-or-nothing).
-      let promoteId: string | undefined;
-      if (wasDefault) {
-        const remaining = yield* Effect.tryPromise({
-          try: () =>
-            db
-              .select({ id: users.id })
-              .from(users)
-              .where(and(eq(users.accountId, accountId), ne(users.id, targetProfileId)))
-              .orderBy(asc(users.createdAt))
-              .limit(1),
-          catch: (cause) => new DatabaseError({ cause }),
-        });
-        promoteId = remaining[0]?.id;
-      }
-
-      // Atomic cascade delete + default-promotion. Child rows
-      // are deleted before the profile row (FK safety); the promotion update (if
-      // any) runs last. Atomic batch on D1, sequential on bun:sqlite.
-      yield* Effect.tryPromise({
-        try: () =>
-          commitBatch(db, [
-            db
-              .delete(connections)
-              .where(
-                or(
-                  eq(connections.requesterId, targetProfileId),
-                  eq(connections.addresseeId, targetProfileId),
-                ),
+      // D1 has no interactive transaction, so another delete or default
+      // change can land between the reads above and this batch. Each
+      // statement therefore carries its own condition rather than a fact read
+      // earlier:
+      //  - every delete runs only while the account has another profile, so
+      //    two deletes at once never leave it with none, and a delete that
+      //    finds itself the last removes nothing;
+      //  - the promotion runs only while the account has no default, and
+      //    makes its oldest profile the default, so the account ends with
+      //    exactly one whichever request lands first.
+      // Child rows go before the profile row (FK safety). Atomic batch on
+      // D1; sequential on bun:sqlite, where each statement still checks.
+      // The batch ends with a read of what it did: the target first if it is
+      // still there (it was the account's last profile), otherwise the
+      // account's default.
+      const others = alias(users, "others");
+      const otherProfileRemains = exists(
+        db
+          .select({ id: others.id })
+          .from(others)
+          .where(and(eq(others.accountId, accountId), ne(others.id, targetProfileId))),
+      );
+      const current = alias(users, "current_default");
+      const oldest = alias(users, "oldest");
+      const writes = [
+        db
+          .delete(connections)
+          .where(
+            and(
+              or(
+                eq(connections.requesterId, targetProfileId),
+                eq(connections.addresseeId, targetProfileId),
               ),
-            db
-              .delete(blocks)
-              .where(
-                or(eq(blocks.blockerId, targetProfileId), eq(blocks.blockedId, targetProfileId)),
+              otherProfileRemains,
+            ),
+          ),
+        db
+          .delete(blocks)
+          .where(
+            and(
+              or(eq(blocks.blockerId, targetProfileId), eq(blocks.blockedId, targetProfileId)),
+              otherProfileRemains,
+            ),
+          ),
+        db
+          .delete(organisationMembers)
+          .where(and(eq(organisationMembers.profileId, targetProfileId), otherProfileRemains)),
+        db.delete(users).where(and(eq(users.id, targetProfileId), otherProfileRemains)),
+        db
+          .update(users)
+          .set({ isDefault: true, updatedAt: now() })
+          .where(
+            and(
+              inArray(
+                users.id,
+                db
+                  .select({ id: oldest.id })
+                  .from(oldest)
+                  .where(eq(oldest.accountId, accountId))
+                  .orderBy(asc(oldest.createdAt), asc(oldest.id))
+                  .limit(1),
               ),
-            db
-              .delete(organisationMembers)
-              .where(eq(organisationMembers.profileId, targetProfileId)),
-            db.delete(users).where(eq(users.id, targetProfileId)),
-            ...(promoteId
-              ? [
-                  db
-                    .update(users)
-                    .set({ isDefault: true, updatedAt: now() })
-                    .where(eq(users.id, promoteId)),
-                ]
-              : []),
-          ]),
+              notExists(
+                db
+                  .select({ id: current.id })
+                  .from(current)
+                  .where(and(eq(current.accountId, accountId), eq(current.isDefault, true))),
+              ),
+            ),
+          ),
+      ] as const;
+      const outcome = db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.accountId, accountId))
+        .orderBy(
+          desc(sql`${users.id} = ${targetProfileId}`),
+          desc(users.isDefault),
+          asc(users.createdAt),
+          asc(users.id),
+        )
+        .limit(1);
+      const after = yield* Effect.tryPromise({
+        try: async () => {
+          if (canBatch(db)) return (await db.batch([...writes, outcome]))[5];
+          await commitBatch(db, [...writes]);
+          return await outcome;
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
+      const first = after[0];
+      if (!first || first.id === targetProfileId) {
+        return yield* Effect.fail(new AuthError({ message: "Cannot delete the last profile" }));
+      }
+      return { defaultProfileId: first.id };
     }).pipe(withProfileCrud("delete"));
 
   /**
@@ -329,23 +372,57 @@ export function createProfileService(authService: AuthService) {
 
       const { db } = yield* Db;
       const ts = now();
+      const target = alias(users, "target");
 
-      yield* Effect.tryPromise({
-        // Clear the current default then set the new one — pure writes, no read.
-        // Atomic batch on D1, sequential on bun:sqlite.
-        try: () =>
-          commitBatch(db, [
-            db
-              .update(users)
-              .set({ isDefault: false, updatedAt: ts })
-              .where(and(eq(users.accountId, accountId), eq(users.isDefault, true))),
-            db
-              .update(users)
-              .set({ isDefault: true, updatedAt: ts })
-              .where(eq(users.id, targetProfileId)),
-          ]),
+      // Clear the current default then set the new one, and read back
+      // whether the target is the default now. The clear runs only while the
+      // target is still the account's, so a delete of the target landing
+      // first leaves the old default in place rather than none, and the read
+      // then finds no target: refused, not answered as done. Atomic batch on
+      // D1; sequential on bun:sqlite.
+      const writes = [
+        db
+          .update(users)
+          .set({ isDefault: false, updatedAt: ts })
+          .where(
+            and(
+              eq(users.accountId, accountId),
+              eq(users.isDefault, true),
+              exists(
+                db
+                  .select({ id: target.id })
+                  .from(target)
+                  .where(and(eq(target.id, targetProfileId), eq(target.accountId, accountId))),
+              ),
+            ),
+          ),
+        db
+          .update(users)
+          .set({ isDefault: true, updatedAt: ts })
+          .where(and(eq(users.id, targetProfileId), eq(users.accountId, accountId))),
+      ] as const;
+      const outcome = db
+        .select({ id: users.id })
+        .from(users)
+        .where(
+          and(
+            eq(users.id, targetProfileId),
+            eq(users.accountId, accountId),
+            eq(users.isDefault, true),
+          ),
+        )
+        .limit(1);
+      const after = yield* Effect.tryPromise({
+        try: async () => {
+          if (canBatch(db)) return (await db.batch([...writes, outcome]))[2];
+          await commitBatch(db, [...writes]);
+          return await outcome;
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (after.length === 0) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
+      }
 
       return {
         id: profile.id,

@@ -1,5 +1,12 @@
 # @tools/metrics
 
+## 0.2.57
+
+### Patch Changes
+
+- Updated dependencies [da04fab]
+  - @shared/ui@0.17.0
+
 ## 0.2.56
 
 ### Patch Changes

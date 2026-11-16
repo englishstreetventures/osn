@@ -7,9 +7,18 @@ import {
   readSessionCookie,
 } from "../../lib/cookie-session";
 import { sessionStatusUnknown } from "../../lib/grant-failure";
+import { metricAuthTokenRefreshMalformed } from "../../metrics";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, tokenResponse } from "./response-schemas";
+
+/**
+ * Every profile id osn-api issues: `genId`'s twelve hex digits and the dev
+ * principal's fixed id (`dev-login.ts`). Ownership is the service's check.
+ * The client reads a refusal here as a refused grant and signs the page out,
+ * so an issued id must never fail this pattern.
+ */
+const PROFILE_ID_PATTERN = /^usr_[a-z0-9_]{1,64}$/;
 
 export function createTokenRoutes(ctx: AuthRouteContext) {
   const { auth, run, cookieConfig } = ctx;
@@ -46,9 +55,21 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
             set.headers["set-cookie"] = buildClearSessionMarkerCookie(cookieConfig);
             return { error: "invalid_request" };
           }
+          // A `profile_id` that is no profile id, the empty one included, is
+          // refused as a grant naming a profile the account does not own is
+          // below: before anything rotates, with the marker retracted, so the
+          // page signs out and its next cold load does not take up the
+          // cookie's account. Never read as naming none.
+          if (profile_id !== undefined && !PROFILE_ID_PATTERN.test(profile_id)) {
+            metricAuthTokenRefreshMalformed();
+            set.status = 400;
+            set.headers["set-cookie"] = buildClearSessionMarkerCookie(cookieConfig);
+            return { error: "invalid_grant", message: "AuthError: Invalid or expired session" };
+          }
           try {
             // `profile_id` names the profile the caller is acting as; the
-            // service mints for it only when the session's account owns it.
+            // service mints for it when the session's account owns it and
+            // refuses the grant when it does not.
             const tokens = await run(auth.refreshTokens(refresh_token, profile_id));
             // The rotated cookie of the same family, so not `replaceSession`,
             // which would end the family this grant has just rotated.
@@ -56,12 +77,16 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
             return toTokenResponseCookieOnly(tokens);
           } catch (e) {
             set.status = 400;
-            // Retract the marker only when this failure proves the cookie is
-            // dead. A storage blip and the benign concurrent-rotation race both
-            // land here with a live cookie, and retracting on either would
+            // Retract the marker unless this failure leaves the cookie's status
+            // unknown. A storage blip and the benign concurrent-rotation race
+            // both land here with a live cookie, and retracting on either would
             // strand a cold-start browser — the population the marker exists to
-            // serve — permanently signed out. The session cookie itself
-            // is never cleared here for the same reason.
+            // serve — signed out until it signs in again. A grant refused for
+            // what it asked (a profile the cookie's account does not own, a
+            // replaced handle naming none) retracts though the cookie is live:
+            // the page that sent it signs out, and the next cold load shows
+            // that rather than taking up the cookie's account. The session
+            // cookie itself is never cleared here.
             if (!sessionStatusUnknown(e)) {
               set.headers["set-cookie"] = buildClearSessionMarkerCookie(cookieConfig);
             }
@@ -71,12 +96,10 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
         {
           body: t.Object({
             grant_type: t.String(),
-            // Every profile id osn-api issues: `genId`'s twelve hex digits and
-            // the dev principal's fixed id (`dev-login.ts`). Ownership is the
-            // service's check. The client reads any 4xx here as a refused
-            // grant and signs the page out, so an issued id must never fail
-            // this pattern.
-            profile_id: t.Optional(t.String({ pattern: "^usr_[a-z0-9_]{1,64}$" })),
+            // Checked against `PROFILE_ID_PATTERN` in the handler, not here: a
+            // schema refusal answers before the handler runs and cannot
+            // retract the marker. The anchored pattern bounds the length.
+            profile_id: t.Optional(t.String()),
           }),
           response: {
             200: tokenResponse,

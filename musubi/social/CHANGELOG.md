@@ -1,5 +1,56 @@
 # @osn/social
 
+## 0.23.10
+
+### Patch Changes
+
+- 721b0f7: `CheckEmailView`'s Resend shows how far its wait has gone: while it reads "Resend in {n}s", a fill behind the label, the ghost button's own hover fill led by a 2px edge in the faintest ink, at the disabled button's opacity, empties at an even pace over the whole wait and is gone as the label reads "Resend link". It is a CSS transition timed from the wait's own deadline, so a fill drawn after a send starts part-empty and still empties as Resend unlocks, and every wait after an accepted Resend runs the whole length again. It reads only `resendWaitSeconds`, the same for every address. It says nothing to a screen reader, holds no room in the button, and is not drawn under reduced motion, in a contrast theme or in a browser without `@starting-style`, where the label's seconds carry the wait alone. Musubi's `DESIGN.md` lists it among the app's motions, and its `CheckEmailView` layout browser test holds the fill's place, timing, colours in both themes, and absence under reduced motion and forced colours.
+- Updated dependencies [721b0f7]
+  - @osn/auth-ui@6.2.0
+
+## 0.23.9
+
+### Patch Changes
+
+- Updated dependencies [4deee2c]
+  - @osn/client@4.1.1
+  - @osn/auth-ui@6.1.5
+
+## 0.23.8
+
+### Patch Changes
+
+- da04fab: A `Dialog` sheet slides. Below `md`, `DialogContent presentation="sheet"` rises from its own height below the bottom edge over `--ui-dur-slow` and falls back over `--ui-dur-base`, both on the new `--ui-ease-sheet` token (`cubic-bezier(0.32, 0.72, 0, 1)`), at full opacity and unscaled, with its scrim fading on the same pace; closed part-way up or reopened part-way down it turns round from where it is. It moves by CSS transitions through two new utilities, `animate-sheet-in` and `animate-sheet-out`, beside two keyframes that move nothing and tell Kobalte how long to keep a closing sheet mounted. Under reduced motion it does not slide: it fades in and out with its scrim, in place, on the same pace and curve, with no transform on any frame; a new `sheet-hidden` utility holds where a sheet starts and ends, its own height below the edge or, under reduced motion, in place and transparent. At `md` and up, and with `presentation="centred"`, nothing changes. `DialogOverlay` takes the same optional `presentation`. Every sheet changes with it: Musubi's dialogs below `md`, `@osn/auth-ui`'s step-up, "Generate a new set?" and "Create a new profile", and pulse's share sheet. Musubi's, pulse's and `@osn/auth-ui`'s design documents say so; the lab adds a `DialogSheetSlide` story and lists the new curve.
+- Updated dependencies [da04fab]
+  - @shared/design-tokens@0.9.0
+  - @shared/ui@0.17.0
+  - @osn/auth-ui@6.1.4
+
+## 0.23.7
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+  - @osn/client@4.1.0
+  - @osn/auth-ui@6.1.3
+
+## 0.23.6
+
+### Patch Changes
+
+- Updated dependencies [9172b9c]
+  - @osn/client@4.0.1
+  - @osn/auth-ui@6.1.2
+
+## 0.23.5
+
+### Patch Changes
+
+- Updated dependencies [3437d4a]
+- Updated dependencies [3437d4a]
+  - @osn/auth-ui@6.1.1
+  - @osn/client@4.0.0
+
 ## 0.23.4
 
 ### Patch Changes

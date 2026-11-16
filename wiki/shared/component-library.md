@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-14
+last-reviewed: 2026-11-16
 ---
 
 # Component Library (Zaidan)
@@ -1221,7 +1221,8 @@ No call site sets it with a class: `shadcn/no-restyle` refuses typography on
 `shared/ui/tests/dialog-default.browser.test.tsx` holds what pulse draws today —
 the unmapped title's whole computed style as a snapshot written before the title
 read the token, and the panel entering from 0.96 over 120ms and leaving to 0.98
-over 80ms — so a `-u` that rewrites it changes pulse and needs the owner's
+over 80ms for its cards; its share sheet slides below `md` ("A sheet slides; a
+card fades", below) — so a `-u` that rewrites it changes pulse and needs the owner's
 approval. `dialog.browser.test.tsx` checks the title follows the token set on an
 ancestor. Musubi maps the token to 500 and `--ui-text-md` to its 14px title
 step, so its dialog titles draw 14px at 500. Overlays that fade without
@@ -1240,6 +1241,28 @@ the panel rounds it at a breakpoint under `md`: Tailwind emits a min-width
 query after the `max-md` ones, so it would round the sheet's bottom corners.
 `shared/ui/tests/dialog.browser.test.tsx` holds the shadow and the scrim,
 mapped and unmapped, and the sheet's corners at 390, 700, 767, 768 and 1440px.
+
+**A sheet slides; a card fades.** Below `md`, `presentation="sheet"` rises
+from its own height below the bottom edge over `--ui-dur-slow` (320ms) and
+falls back over `--ui-dur-base` (200ms), both on `--ui-ease-sheet`, at full
+opacity and unscaled, and its scrim fades on the same pace: the owner's
+choice for every sheet ("B: slide up", #2045, 2026-11-13). It runs on CSS
+transitions, so a sheet closed part-way up, or reopened part-way down, turns
+round from where it is; focus goes back to the trigger only once it has
+slid out. Under reduced motion it does not slide: it fades in and out with
+its scrim, in place, on the same pace and curve, with no transform on any
+frame, the owner's choice of 2026-11-14 ("you can do fade in and fade out
+for reduced motion right?"); the card shows and hides at once. From `md` the
+sheet is the card again and runs the card's motion,
+and `presentation="centred"` is unchanged at every width. `DialogContent`
+passes its `presentation` to `DialogOverlay`, which takes the same prop, so
+a hand-built `DialogOverlay` behind a sheet passes `presentation="sheet"`
+too. A call site adds no motion class, and none may set `transform` or
+`opacity` on a sheet below `md`: the slide is on `transform`, and the
+reduced-motion fade on `opacity`. How it is built, and why the
+slide is not on `translate`, is in [[design-tokens#Motion]];
+`shared/ui/tests/overlay-motion.browser.test.tsx` ("a sheet's slide") holds
+it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
 
 ### Checkbox and RadioGroup — native, in two boxes
 
@@ -1712,7 +1735,12 @@ has to sit _below_ them or the rows stop reading as rows, and
 `cire/invites/tests/components/consent/consent-dialog-surface.browser.test.tsx`
 is what holds that.
 
-`DialogContent` takes the same `sheet`, for the Kobalte-backed dialog.
+`DialogContent` takes the same `sheet`, for the Kobalte-backed dialog. The
+two move differently: `Modal`'s sheet rises `--ui-distance-enter` as it fades
+in and sinks `--ui-distance-exit` as it fades out, like its card, while
+`Dialog`'s sheet slides its whole height up and back down at full opacity,
+and under reduced motion fades in place instead
+([[#Kobalte components (Dialog, Popover, Tooltip, Tabs)]]).
 
 #### A dialog that only an answer closes
 
@@ -2276,10 +2304,26 @@ column never scrolls sideways.
 - **Recovery promises nothing.** Recovery answers every address alike, so its
   sentence reads "If ada@example.com has an account, a link is on its way". The
   other three say "We sent a link to …", as the code screens they replace did.
-- **No motion of its own.** It declares no transition or animation; `Button`'s
-  colour fade and its press ([[#Press]]) are the only motion, which
-  `musubi/social/DESIGN.md` allows. The countdown is text, so the view is the
-  same under reduced motion, where the press does not scale.
+- **The wait drains.** While Resend counts down, a fill behind its label
+  empties from full to nothing at an even pace towards the button's start,
+  ending as the label reads "Resend link": the button's whole box in the
+  ghost button's hover fill (`bg-ui-surface-sunk`), its leading edge a 2px
+  line in the faintest ink (`border-ui-ink-tertiary`), at the disabled
+  button's opacity, under the label and clipped to the button's corners
+  (`relative isolate overflow-clip` on the button, `-z-10` on the fill). The
+  fill alone measures 1.05:1 against Musubi's sheet, so the edge (1.71:1
+  light, 1.90:1 dark) is what reads ([osn/auth-ui/DESIGN.md](../../osn/auth-ui/DESIGN.md)
+  §12 has the measures). It is a child of the label, out of the row's flow,
+  so the button still holds one child and its height and the label's one
+  line do not change. It is the view's one motion beside `Button`'s colour
+  fade and its press ([[#Press]]): a `translate` transition from
+  `@starting-style`, linear, timed from the wait's own deadline with a
+  negative delay, so a fill drawn after a send starts part-empty and still
+  empties as Resend unlocks. It reads only `resendWaitSeconds`, the same for
+  every address. `aria-hidden`, with no text; under reduced motion and in a
+  contrast theme (forced colours) it is not drawn, and the label's seconds
+  carry the wait alone. A browser below `@starting-style` (Chrome 117,
+  Safari 17.5, Firefox 129) draws it at its end, out of the button.
 
 For a host:
 
@@ -2336,9 +2380,18 @@ browser tier, so
 in `@musubi/social` holds the layout in musubi's auth sheet under musubi's
 stylesheet: the long address that leaves a 320px phone's 288px column with
 nothing to scroll sideways, "Resend in 30s" as one run of text on one line,
-both buttons at 40px below `md` and 32px from it, and the six-digit number
+both buttons at 40px below `md` and 32px from it, the six-digit number
 inside that column at 24px on a 30px line in tabular figures, its label a 1px
-box and the paragraph's accessible text "Your number: 123456"
+box and the paragraph's accessible text "Your number: 123456", and the wait's
+fill: inside the label, the button's whole box behind its words, clipped to
+its corners, with a 2px leading edge, on a 30-second linear run whose edge
+sits 29/30 of the way across a second in, mid-button halfway and 1/30 of the
+way a second from the end, at 40px and 32px; within a tenth of the wait of
+empty as the label reads "Resend link", and gone with it; after a Resend
+whose send takes half a second, the whole 2-second wait again from a quarter
+in, empty again as the label unlocks; painted in `--ui-surface-sunk` with an `--ui-ink-tertiary` edge in light and
+dark at 320 and 1280px, with a frame for each second of a 4-second wait; and
+not drawn under reduced motion or forced colours, the label still on one line
 ([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
 state, every flow, a 320px phone, and the number at rest, on recovery and
 step-up, across a resend and on a phone ([[component-lab]]).

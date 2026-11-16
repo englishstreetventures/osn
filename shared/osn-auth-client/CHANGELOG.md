@@ -1,5 +1,28 @@
 # @shared/osn-auth-client
 
+## 0.5.1
+
+### Patch Changes
+
+- @shared/crypto@0.15.1
+
+## 0.5.0
+
+### Minor Changes
+
+- 582649a: `@shared/osn-auth-client/arc` verifies an ARC token osn-api sent an app against the keys osn-api publishes, refusing a token from another issuer, for a scope the app does not let osn-api use, or whose kid fails its MAC, before fetching anything. `@shared/crypto/arc-kid` mints and checks those key ids under a MAC key derived from the secret with HKDF-SHA-256, never the secret itself, and derives none from a secret under 32 characters; a dev deploy refuses an `INTERNAL_SERVICE_SECRET` that short; `@shared/crypto/arc-metrics` is a Worker-safe export of the ARC metrics. `DeletionRequestResult` gains `could_not_check` and `stale_choices`. The musubi stack gives osn-api Zap's address on dev and production and declares Pulse absent.
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+  - @shared/crypto@0.15.0
+
+## 0.4.73
+
+### Patch Changes
+
+- @shared/crypto@0.14.35
+
 ## 0.4.72
 
 ### Patch Changes
