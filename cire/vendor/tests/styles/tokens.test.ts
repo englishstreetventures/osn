@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { contrastOklch, cssRamp, type Oklch } from "@cire/theme";
+import { contrastOklch, cssBlockBody, cssRamp, type Oklch } from "@cire/theme";
 import { CONTRACT_SCALAR_TOKENS } from "@shared/design-tokens";
 import { checkContractConformance } from "@shared/design-tokens/conformance";
 import { describe, expect, it } from "vitest";
@@ -185,6 +185,33 @@ describe("ramp shape", () => {
         expect(value, `--${name} in ${selector}`).toEqual(theirs.get(name));
       }
     }
+  });
+
+  it("keeps the shadow tokens identical to the host portal's, and the two light blocks alike", () => {
+    // The ramp parse above reads `oklch()` values only, so the tokens that
+    // are whole shadows — the inner lip, the two lifts, the glass's ring —
+    // need their own check. A light ring that drifts in one copy puts the
+    // chosen glass back under 3:1 on its track in one portal or for one way
+    // of reaching light (the host's `glass-contrast.browser.test.tsx`).
+    const HOST = readSheet("host");
+    const shadows = (css: string, selector: string) =>
+      Object.fromEntries(
+        [
+          ...cssBlockBody(css, selector)
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g),
+        ]
+          .map(([, name, value]) => [name!, value!.replace(/\s+/g, " ").trim()] as const)
+          .filter(([, value]) => !value.startsWith("oklch(")),
+      );
+    const dark = shadows(CSS, ":root {\n  color-scheme: dark;");
+    const light = shadows(CSS, ':root[data-theme="light"]');
+    // A parse that found nothing would make every copy agree with it.
+    expect(Object.keys(dark)).toEqual(["--inner-lip", "--elev-1", "--glass-ring", "--elev-2"]);
+    expect(shadows(HOST, ":root {\n  color-scheme: dark;")).toEqual(dark);
+    expect(shadows(HOST, ':root[data-theme="light"]')).toEqual(light);
+    expect(shadows(CSS, ":root:not([data-theme])")).toEqual(light);
+    expect(shadows(HOST, ":root:not([data-theme])")).toEqual(light);
   });
 
   it("gives every ramp a whole set of grounds and ink", () => {

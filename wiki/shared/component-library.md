@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Component Library (Zaidan)
@@ -1868,14 +1868,18 @@ owner's choice on englishstreetventures/osn#1845): a 28px track — a 1px hairli
 on the surface at 30%, 2px inside — and 22px choices in sentence case at the
 extra-small step, the secondary ink at normal weight at rest and the readable
 accent ink at medium weight when chosen. The weight is the cue that is not
-colour, since the glass and the inks alone read under 3:1 between the chosen
-choice and the rest; a hidden copy of each word at medium weight holds its
-width, so a choice moving shifts nothing, and each choice names itself with
-`aria-label` so that copy is never read. The chosen one sits on glass: the raised surface at
+colour, since the inks read under 3:1 between the chosen choice and the rest,
+and in the dark theme the glass does too; a hidden copy of each word at medium weight holds its width, so a choice
+moving shifts nothing, and each choice names itself with `aria-label` so that
+copy is never read. The chosen one sits on glass: the raised surface at
 55% under the accent at 14% (composited into one colour, so a test can read
 what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
-app token; white at 10% when unset), a hairline ring, the first lift and a
-12px frosted backdrop. The glass glides at `--dur-slow`: its place on
+app token; white at 10% when unset), an outer ring (`--glass-ring`, an app
+token; the hairline at 0.5px when unset), the first lift and a 12px frosted
+backdrop. In the portals' light theme the ring is readable gold at 1px, and it
+is what sets the glass 3:1 apart from its track: the gold word needs a pale
+glass to read at 4.5:1, so on a pale track the fill alone cannot (host
+`DESIGN.md` §7, `cire/host/tests/styles/glass-contrast.browser.test.tsx`). The glass glides at `--dur-slow`: its place on
 `--ease-glide`, a spring that goes 3% past (falling back to the app's
 ease-out, never to the bouncier `--ease-spring`), its size on `--ease-out`, so
 it never grows past the choice (host `DESIGN.md` §4). It moves inside
