@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { buildDevEnv, resolveSelfId } from "../src/app-env";
 import { DEV_APPS, type DevAppId } from "../src/index";
 
-/** A portless URL for `app`, with an optional worktree prefix. */
-const urlFor = (app: DevAppId, prefix = "") => ({
-  PORTLESS_URL: `https://${prefix}${DEV_APPS[app].name}.localhost`,
+/** A portless URL for `app` in the main worktree. */
+const urlFor = (app: DevAppId) => ({
+  PORTLESS_URL: `https://${DEV_APPS[app].name}.localhost`,
 });
 
 describe("buildDevEnv", () => {
