@@ -8,6 +8,7 @@ import { afterEach, beforeAll, vi } from "vitest";
 import { makeHeldHandleDigest } from "../../src/lib/handle-hold";
 import { createAuthService } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
+import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 import { holdQueries } from "../helpers/held-query";
@@ -881,6 +882,52 @@ describe("a membership write holds only while what it checked still holds", () =
     }).pipe(Effect.provide(h.layer));
   });
 
+  it.live(
+    "a profile's delete held across a decline that makes it the owner deletes nothing",
+    () => {
+      // The decline passes acme to bob's second profile while bob's account is
+      // deleting that profile: the delete, read before the decline, must not
+      // remove an owner or its membership, and refuses as it would now.
+      const h = held();
+      return Effect.gen(function* () {
+        const { alice, organisation } = yield* setupOrgWithOwner;
+        const bob = yield* registerProfile("bob@example.com", "bob");
+        const heir = yield* createProfileService(auth).createProfile(bob.accountId, "bobtwo");
+        yield* org.addMember(organisation.id, alice.id, heir.id, "admin");
+        yield* inheritedNow(organisation.id);
+        const deleted = yield* across(
+          h,
+          /^delete from "connections"/,
+          createProfileService(auth).deleteProfile(bob.accountId, heir.id),
+          org.declineOwnership(organisation.id, alice.id),
+        );
+        expect(deleted).toBe("Delete the organisations this profile owns before deleting it");
+        expect((yield* org.getOrganisation(organisation.id)).ownerId).toBe(heir.id);
+        expect(yield* org.getMemberRole(organisation.id, heir.id)).toBe("admin");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live("a decline held across another decline of the same organisation writes nothing", () => {
+    // Two declines at once: the second, read before the first committed, finds
+    // its caller no longer the owner and changes nothing.
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      yield* inheritedNow(orgId);
+      const second = yield* across(
+        h,
+        /^delete from "organisation_members"/,
+        org.declineOwnership(orgId, alice.id).pipe(Effect.map((r) => r.outcome)),
+        org.declineOwnership(orgId, alice.id),
+      );
+      expect(second).toBe("ok");
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
+      expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
+      expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
+    }).pipe(Effect.provide(h.layer));
+  });
+
   it.live("an old owner's delete held across a decline leaves the new owner's organisation", () => {
     const h = held();
     return Effect.gen(function* () {
@@ -1012,6 +1059,15 @@ describe("declineOwnership", () => {
       expect(yield* org.declineOwnership(orgId, bob.id)).toEqual({ outcome: "not_owner" });
       expect((yield* org.getOrganisation(orgId)).ownerId).toBe(alice.id);
       expect(yield* org.getMemberRole(orgId, bob.id)).toBe("admin");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses one who declined it already: no longer the owner", () =>
+    Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setup("admin", "member");
+      expect((yield* org.declineOwnership(orgId, alice.id)).outcome).toBe("passed");
+      expect(yield* org.declineOwnership(orgId, alice.id)).toEqual({ outcome: "not_owner" });
+      expect((yield* org.getOrganisation(orgId)).ownerId).toBe(bob.id);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

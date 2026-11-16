@@ -502,23 +502,4 @@ describe("<DeleteAccountPage /> when a read or the renewal fails", () => {
     expect(await screen.findByText(WEDDING.label)).toBeTruthy();
     expect(mocks.preview).toHaveBeenCalledTimes(2);
   });
-
-  it("a renewal that fails twice after the deletion says it stands and offers a reload", async () => {
-    // Red on a page left on step 3 with its button busy while the account is
-    // already scheduled for deletion.
-    mocks.preview.mockResolvedValue(preview([]));
-    mocks.deleteAccount.mockResolvedValue({ scheduled_for: 1, already_pending: false });
-    mocks.renewSession.mockRejectedValue(new Error("no answer"));
-    renderPage();
-    await toAnswers();
-    await toConfirm();
-    submit();
-
-    expect(
-      await screen.findByText(/Your account is set to be deleted, but this page couldn't catch up/),
-    ).toBeTruthy();
-    expect(mocks.renewSession).toHaveBeenCalledTimes(2);
-    expect(button("Reload")).toBeTruthy();
-    expect(button("Delete my account").hasAttribute("disabled")).toBe(false);
-  });
 });

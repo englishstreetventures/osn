@@ -52,7 +52,8 @@ interface AuthContextValue {
    * deletion is asked for, the token moves to the pending audience; after it
    * is cancelled, back to the ordinary one. With `pending: true` the page
    * reads as pending at once, before the renewal answers, so nothing it shows
-   * sends an ordinary request in between.
+   * sends an ordinary request in between, and stays pending if the renewal
+   * fails: the deletion stands, and the next renewal of a request settles it.
    */
   renewSession: (options?: { readonly pending?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
@@ -204,6 +205,7 @@ export function AuthProvider(props: AuthProviderProps) {
     runtime.onSessionChange((change) => {
       switch (change.kind) {
         case "ended":
+          setPendingSoon(false);
           mutateSession(null);
           clearProfiles();
           setActiveProfileId(null);
@@ -213,6 +215,8 @@ export function AuthProvider(props: AuthProviderProps) {
           void refetchSession();
           return;
         case "pending-deletion":
+          // The token now says which, whatever this page assumed.
+          setPendingSoon(false);
           void refetchSession();
           return;
       }
@@ -262,8 +266,13 @@ export function AuthProvider(props: AuthProviderProps) {
         throw err;
       });
       await refetchSession();
-    } finally {
       setPendingSoon(false);
+    } catch (err) {
+      // Asked after a deletion was scheduled, the page stays pending however
+      // the renewal went: the deletion stands, and the screen that offers its
+      // way back renews by its own requests. Otherwise the token decides.
+      if (!options?.pending) setPendingSoon(false);
+      throw err;
     }
   };
 

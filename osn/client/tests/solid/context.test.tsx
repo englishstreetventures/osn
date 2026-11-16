@@ -596,7 +596,9 @@ describe("renewSession", () => {
     dispose();
   });
 
-  it("rejects on any other failure, and the page reads as its token says, not as pending", async () => {
+  it("after a deletion, stays pending when the renewal fails: the deletion stands", async () => {
+    // Red on a page that puts the shell back, on a session it can no longer
+    // serve, the moment a renewal fails after the deletion was scheduled.
     const { auth, dispose } = renewing(
       () => Effect.fail(new StorageError({ cause: "PLANTED" })),
       () => tokenOn("osn-access"),
@@ -604,6 +606,18 @@ describe("renewSession", () => {
     await settle();
 
     await expect(auth().renewSession({ pending: true })).rejects.toBeDefined();
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("otherwise rejects, and the page reads as its token says", async () => {
+    const { auth, dispose } = renewing(
+      () => Effect.fail(new StorageError({ cause: "PLANTED" })),
+      () => tokenOn("osn-access"),
+    );
+    await settle();
+
+    await expect(auth().renewSession()).rejects.toBeDefined();
     expect(auth().pendingDeletion()).toBe(false);
     dispose();
   });

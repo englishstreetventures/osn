@@ -139,6 +139,23 @@ describe("<DeletionWindow />", () => {
     expect(mocks.logout).toHaveBeenCalledOnce();
   });
 
+  it("brings the app back when cancelled: false means another device kept it first", async () => {
+    // Red on reading every `cancelled: false` as too late: the account is
+    // live, and this device would say it is being deleted.
+    mocks.status
+      .mockResolvedValueOnce({ scheduled: true, scheduledFor: SCHEDULED_FOR, softDeletedAt: 0 })
+      .mockResolvedValueOnce({ scheduled: false });
+    mocks.cancel.mockResolvedValue({ cancelled: false });
+    renderWindow();
+    fireEvent.click(screen.getByRole("button", { name: "Keep my account" }));
+
+    await waitFor(() => expect(mocks.renewSession).toHaveBeenCalledOnce());
+    expect(
+      screen.queryByRole("heading", { name: "It's too late to keep this account" }),
+    ).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith("Your account is back");
+  });
+
   it("says a refused restore failed, and stays", async () => {
     mocks.status.mockResolvedValue({
       scheduled: true,

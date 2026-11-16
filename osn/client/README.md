@@ -81,7 +81,7 @@ A client that sends through `authFetch` lets a rejection about the session
   says the session belongs to an account whose deletion is pending (it then
   lists no profiles); `renewSession({ pending? })` renews the token now, after
   a deletion is asked for or cancelled, and with `pending: true` reads as
-  pending at once.
+  pending at once, and stays so if the renewal fails.
 - `profiles` never throws when read. A list that fails to load keeps the
   last list it had (null before the first) and sets `profilesError`, which
   goes to `describeAuthError`; `refetchProfiles()` tries again. Losing the

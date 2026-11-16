@@ -623,7 +623,11 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
         } as const;
       }
       if (deleted.length > 0) return { outcome: "deleted" } as const;
-      // Neither: the owner or the window changed since the read.
+      // Neither: the owner or the window changed since the read. Refused as a
+      // fresh request would be.
+      const [now] = yield* readOrganisation(orgId);
+      if (!now) return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+      if (now.ownerId !== callerId) return { outcome: "not_owner" } as const;
       return { outcome: "not_declinable" } as const;
     }).pipe(withOrgOp("decline_ownership"));
 
@@ -729,9 +733,11 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
       // Inserts from the caller's own admin row, so the member is added only
       // while the caller is still an admin; a profile added since is left as
       // it is. The owner-only grant needs no guard of its own: the owner
-      // changes only in the hard delete of the owner's account, in the batch
-      // that also deletes that owner's membership rows, so an insert after a
-      // stale read of the owner finds no admin row and grants nothing.
+      // changes only by succession — the hard delete of the owner's account,
+      // or a decline (`declineOwnership`) — and each does it in a batch that
+      // also deletes the old owner's membership rows, so an insert after a
+      // stale read of the owner finds no admin row and grants nothing. A new
+      // writer of `owner_id` must do the same, or this grant needs a guard.
       const inserted = yield* Effect.tryPromise({
         try: () =>
           db
@@ -944,9 +950,9 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
       }
 
       // Changes the membership only while it is the one read and the caller
-      // still owns the organisation. The owner changes in the hard delete of
-      // the owner's account, which can pass the organisation on between the
-      // check above and this write.
+      // still owns the organisation. The owner changes by succession — the
+      // hard delete of the owner's account, or a decline — which can pass the
+      // organisation on between the check above and this write.
       const changed = yield* Effect.tryPromise({
         try: () =>
           db

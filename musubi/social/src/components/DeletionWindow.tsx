@@ -25,8 +25,9 @@ type Status =
  * session may: the deletion's status, the data download and the restore.
  *
  * Kept: the session renews to an ordinary token and the app comes back, with
- * a toast. Too late (`cancelled: false`): it says so and offers Sign out
- * alone. A status read refused at 401 signs out; any other failure says what
+ * a toast. Too late (`cancelled: false`, and the status still pending): it
+ * says so and offers Sign out alone; kept from another device meanwhile, the
+ * app comes back as after a keep here. A status read refused at 401 signs out; any other failure says what
  * did not load, with Try again.
  */
 export default function DeletionWindow() {
@@ -74,7 +75,9 @@ export default function DeletionWindow() {
     setKeeping(true);
     try {
       const { cancelled } = await accountClient.cancelAccountDeletion({ stepUpToken: token });
-      if (!cancelled) {
+      // `cancelled: false` is also the answer when another device kept the
+      // account first: a fresh read tells the two apart.
+      if (!cancelled && (await accountClient.getAccountDeletionStatus()).scheduled) {
         setClosed(true);
         return;
       }
