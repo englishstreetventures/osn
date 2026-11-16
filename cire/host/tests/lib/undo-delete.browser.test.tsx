@@ -12,7 +12,9 @@ import "../../src/styles/global.css";
  * portal's own `Toaster` mount, so the window is the toast's own clock — hover
  * included — and the toast's look is the portal's stylesheet.
  *
- * Two cases wait out the real five seconds: the window is the thing under test.
+ * The cases that wait out the window do so on fake timers, installed before the
+ * toast is raised so its own clock is the fake one: the window is the thing
+ * under test, and no case waits out the real five seconds.
  */
 
 vi.mock("../../src/lib/touch-feedback", () => ({
@@ -116,12 +118,13 @@ afterEach(async () => {
 });
 
 describe("the undo window", () => {
-  it("sends nothing while a toast is up, then each delete once, oldest first", async () => {
+  it("sends nothing while a toast is up, then each delete once, oldest first", () => {
+    vi.useFakeTimers();
     mountToaster();
     const first = deleteRow("Book the venue");
-    await sleep(250);
+    vi.advanceTimersByTime(250);
     const second = deleteRow("Order the cake");
-    await sleep(250);
+    vi.advanceTimersByTime(250);
     const third = deleteRow("Send the invitations");
 
     for (const seen of [first, second, third]) expect(seen.hidden).toBe(1);
@@ -144,7 +147,9 @@ describe("the undo window", () => {
     expect(newest!.bottom).toBeLessThanOrEqual(middle!.top + 0.5);
     expect(isPendingDelete("row:Order the cake")).toBe(true);
 
-    await waitFor(() => expect(third.commits).toHaveLength(1), { timeout: UNDO_MS + 2_000 });
+    // The third toast's dwell, then its exit.
+    vi.advanceTimersByTime(UNDO_MS + EXIT_MS);
+    expect(third.commits).toHaveLength(1);
 
     for (const seen of [first, second, third]) {
       expect(seen.commits).toHaveLength(1);
@@ -155,20 +160,23 @@ describe("the undo window", () => {
     expect(first.commits[0]!.at).toBeLessThan(second.commits[0]!.at);
     expect(second.commits[0]!.at).toBeLessThan(third.commits[0]!.at);
     expect(isPendingDelete("row:Order the cake")).toBe(false);
-  }, 15_000);
+  });
 
   it("holds the delete while the pointer rests on its toast", async () => {
+    vi.useFakeTimers();
     mountToaster();
     const seen = deleteRow("Book the venue");
     await userEvent.hover(toastOf("Book the venue")!);
 
-    await sleep(UNDO_MS + 400);
+    // Past the dwell and the exit: a toast whose clock ran would have gone.
+    vi.advanceTimersByTime(UNDO_MS + 400);
 
     expect(seen.commits).toHaveLength(0);
     expect(toastOf("Book the venue")).toBeDefined();
-  }, 15_000);
+  });
 
   it("takes a keyboard press of the ✕ to Undo, and holds the delete while focus stays there", async () => {
+    vi.useFakeTimers();
     const seen: { current?: Seen } = {};
     const cross = mountDeleteButton("Book the venue", seen);
     cross.focus();
@@ -180,7 +188,7 @@ describe("the undo window", () => {
     });
     await waitFor(() => expect(document.activeElement).toBe(undo));
 
-    await sleep(UNDO_MS + 400);
+    vi.advanceTimersByTime(UNDO_MS + 400);
 
     expect(seen.current!.commits).toHaveLength(0);
     expect(toastOf("Book the venue")).toBeDefined();
@@ -191,7 +199,7 @@ describe("the undo window", () => {
     expect(isPendingDelete("row:Book the venue")).toBe(false);
     // Undo hands focus back to the row's ✕, not to the page.
     expect(document.activeElement).toBe(cross);
-  }, 15_000);
+  });
 
   it("leaves no clock running behind an Undo pressed with focus on it, so the next delete keeps its whole window", () => {
     vi.useFakeTimers();
