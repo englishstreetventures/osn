@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { eyebrowClass } from "@cire/ui/eyebrow";
 import { Popover } from "@kobalte/core/popover";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
@@ -352,9 +353,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
           >
             {/* The heading alone in sight. The task's title is said to a
                 screen reader, which cannot see the row the popover grew from. */}
-            <Popover.Title class="text-text-muted font-body text-ui-xs tracking-ui-widest uppercase">
-              Set task time
-            </Popover.Title>
+            <Popover.Title class={eyebrowClass({ tone: "muted" })}>Set task time</Popover.Title>
             <Popover.Description class="sr-only">{props.task.title}</Popover.Description>
 
             <Field

@@ -1,3 +1,4 @@
+import { eyebrowClass } from "@cire/ui/eyebrow";
 import PersonAvatar from "@cire/ui/person-avatar";
 import { Popover } from "@kobalte/core/popover";
 import { Notice } from "@shared/ui/ui/notice";
@@ -223,7 +224,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
           }}
         >
           <div class="droplet-popover-body flex min-h-0 flex-col">
-            <Popover.Title class="text-text-muted font-body text-ui-xs tracking-ui-widest px-4 pt-3 pb-2 uppercase">
+            <Popover.Title class={`${eyebrowClass({ tone: "muted" })} px-4 pt-3 pb-2`}>
               Assign people
             </Popover.Title>
             <PeopleList {...props} answerPanel={(answer) => (fromPanel = answer)} />
