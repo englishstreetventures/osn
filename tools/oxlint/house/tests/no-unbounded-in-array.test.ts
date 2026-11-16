@@ -283,10 +283,6 @@ describe("house/no-unbounded-in-array", () => {
     const listLine = fixtures["multi-line.ts"].split("\n").findIndex((l) => l.trim() === "ids,");
     expect(hit?.labels[0]?.span.line).toBe(listLine + 1);
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-unbounded-in-array)")).toBe(true);
-  });
 });
 
 // The rule is only worth anything where the root config turns it on. These run

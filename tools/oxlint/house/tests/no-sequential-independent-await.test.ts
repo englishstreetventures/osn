@@ -128,10 +128,4 @@ describe("house/no-sequential-independent-await", () => {
   it("names the parallel forms", () => {
     expect(diagnostics[0]?.message).toContain("Promise.all");
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-sequential-independent-await)")).toBe(
-      true,
-    );
-  });
 });

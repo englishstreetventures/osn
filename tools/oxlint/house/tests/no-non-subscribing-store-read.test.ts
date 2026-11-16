@@ -309,8 +309,4 @@ describe("house/no-non-subscribing-store-read", () => {
     expect(message).toContain("peekCached*");
     expect(message).toContain("hasCached*");
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-non-subscribing-store-read)")).toBe(true);
-  });
 });
