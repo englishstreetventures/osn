@@ -1086,7 +1086,7 @@ describe("the apps' open actions", () => {
       ],
       could_not_check: [],
     });
-    const [call] = callsTo("/internal/account-deletion-preview", p.profile.id).filter(
+    const call = callsTo("/internal/account-deletion-preview", p.profile.id).find(
       (c) => c.app === "pulse",
     );
     expect(call!.body.profileIds).toEqual([p.profile.id]);

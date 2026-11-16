@@ -666,20 +666,20 @@ export function createOrganisationService({ heldHandleDigest }: OrganisationServ
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      const [now] = after;
+      const [ownerAfter] = after;
       if (passed.length > 0) {
         return {
           outcome: "passed",
           handle: standing.handle,
-          newOwnerEmail: now?.email || null,
+          newOwnerEmail: ownerAfter?.email || null,
           declineUntil: nowSec + OWNERSHIP_DECLINE_WINDOW_SECONDS,
         } as const;
       }
       if (deleted.length > 0) return { outcome: "deleted" } as const;
       // Neither: the owner or the window changed since the read. Refused as a
       // fresh request would be.
-      if (!now) return { outcome: "not_found" } as const;
-      if (now.ownerId !== callerId) return { outcome: "not_owner" } as const;
+      if (!ownerAfter) return { outcome: "not_found" } as const;
+      if (ownerAfter.ownerId !== callerId) return { outcome: "not_owner" } as const;
       return { outcome: "not_declinable" } as const;
     }).pipe(withOrgOp("decline_ownership"));
 

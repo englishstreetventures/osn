@@ -256,7 +256,7 @@ describe("hard-delete notices", () => {
       );
       yield* accountErasure.runHardDeleteSweep({ nowMs, notices });
 
-      const [deleted] = email.recorded().filter((m) => m.template === "account-deleted");
+      const deleted = email.recorded().find((m) => m.template === "account-deleted");
       expect(deleted!.text).toContain("@acme was deleted.");
       expect(
         email.recorded().filter((m) => m.template === "organisation-ownership-received"),
@@ -284,7 +284,7 @@ describe("hard-delete notices", () => {
         .recorded()
         .filter((m) => m.template === "organisation-ownership-received");
       expect(heirs.map((m) => m.to)).toEqual(["carol@example.com"]);
-      const [deleted] = email.recorded().filter((m) => m.template === "account-deleted");
+      const deleted = email.recorded().find((m) => m.template === "account-deleted");
       expect(deleted!.text).toContain("@acme now belongs to @carol.");
     }).pipe(Effect.provide(layer));
   });
