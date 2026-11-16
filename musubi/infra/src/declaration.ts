@@ -464,7 +464,7 @@ export function musubiDeclaration(input: {
           .map(origin)
           .join(","),
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
-        // Sign-up accepts a browser Email Verification API token on dev only.
+        // Sign-up accepts a browser Email Verification API token on dev; no investigation stage does.
         ...emailVerificationTrialVars(stage),
         // The session marker cookie's domain: the app's host, never a parent shared with production.
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
