@@ -16,12 +16,14 @@ import { existsSync } from "node:fs";
 
 import {
   accounts,
+  appEnrollments,
   oauthClients,
   organisationMembers,
   organisations,
   passkeys,
   serviceAccountKeys,
   serviceAccounts,
+  sessions,
   users,
 } from "@osn/db/schema";
 import { applySchema as applyOsnSchema } from "@osn/db/testing";
@@ -31,6 +33,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import {
   CIRE_OIDC,
   CLOCK_T0,
+  DELETION_PERSON,
   MUSUBI_ORG,
   PULSE_OIDC,
   RECOVERY_PERSON,
@@ -115,7 +118,8 @@ function thirdPartyClient() {
 /**
  * osn-api: the schema, Pulse and cire registered as first-party OIDC clients,
  * one third-party client, `MUSUBI_ORG`'s member profile with the organisation
- * it owns, and `RECOVERY_PERSON` with the passkey they have lost.
+ * it owns, `RECOVERY_PERSON` with the passkey they have lost, and
+ * `DELETION_PERSON` with a Pulse enrolment and a live session.
  */
 export function seedOsn(path: string, cireArc?: CireArcKey): void {
   const sqlite = freshDatabase(path);
@@ -226,6 +230,50 @@ export function seedOsn(path: string, cireArc?: CireArcKey): void {
           })
           .run();
       }
+
+      const leaver = DELETION_PERSON;
+      db.insert(accounts)
+        .values({
+          id: leaver.accountId,
+          email: leaver.email,
+          passkeyUserId: leaver.passkeyUserId,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      db.insert(users)
+        .values({
+          id: leaver.profileId,
+          accountId: leaver.accountId,
+          handle: leaver.handle,
+          displayName: leaver.name,
+          isDefault: true,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      const atSec = Math.floor(CLOCK_T0 / 1000);
+      db.insert(appEnrollments)
+        .values({
+          id: leaver.enrolmentId,
+          accountId: leaver.accountId,
+          app: "pulse",
+          joinedAt: atSec,
+        })
+        .run();
+      // A session as a sign-in leaves one: the row holds the token's SHA-256,
+      // never the token. It lasts the run (the suite clock starts at
+      // `CLOCK_T0`), and the first grant rotates it as any other.
+      db.insert(sessions)
+        .values({
+          id: createHash("sha256").update(leaver.session.token).digest("hex"),
+          accountId: leaver.accountId,
+          familyId: leaver.session.familyId,
+          createdAt: atSec,
+          authenticatedAt: atSec,
+          expiresAt: atSec + 30 * 24 * 60 * 60,
+        })
+        .run();
     })();
   } finally {
     sqlite.close();

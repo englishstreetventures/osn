@@ -598,6 +598,31 @@ export const RECOVERY_PERSON = {
 } as const;
 
 /**
+ * The account `musubi-account-deletion` deletes, keeps and deletes again. Rows
+ * `seedOsn` writes: the account, its one profile, an open Pulse enrolment (as
+ * Pulse's onboarding writes one) and one live session, whose raw token the
+ * flow puts in its browser's cookie jar, as a sign-in would, so it spends none
+ * of the run's sign-up or sign-in windows. Its token is readable on purpose:
+ * it is a fixture of a local stack, like `DEV_LOGIN_SECRET`, and grants
+ * nothing anywhere else. cire's `wed_e2e_leaver` (`seedE2eOrganiser` in
+ * `cire/api/src/db/setup.ts`) has this profile as its only owner.
+ */
+export const DELETION_PERSON = {
+  accountId: "acc_e2e_leaver",
+  profileId: "usr_e2e_leaver",
+  email: "leaver@e2e.test",
+  passkeyUserId: "pku_e2e_leaver",
+  handle: "e2e_leaver",
+  name: "Leaver E2E",
+  enrolmentId: "aenr_e2e_leaver_pulse",
+  session: {
+    token: "e2e-deletion-person-session",
+    familyId: "sfam_e2e_leaver",
+  },
+  wedding: { id: "wed_e2e_leaver", name: "Leaver Wedding", seatId: "whost_e2e_leaver_owner" },
+} as const;
+
+/**
  * Musubi's organisation pages (`musubi-org-detail`). The owner is osn-api's dev
  * principal (`DEV_PRINCIPAL` in osn/api/src/routes/auth/dev-login.ts), signed in
  * through `/dev/login/form`; `org` is the organisation the flow creates as them.
