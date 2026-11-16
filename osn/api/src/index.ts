@@ -110,8 +110,9 @@ export interface Env {
   // erases. Unset: 4, inside Workers Free's 50 queries a cron run. Production
   // sets 50.
   OSN_DELETION_FANOUT_MAX_JOBS?: string;
-  // cire's OIDC client id, for ending an account's cire organiser sessions on
-  // cire's connection revoke.
+  // cire's OIDC client id. Every cire organiser-session revoke needs it: it
+  // finds the account's profiles that signed in to cire by their consent to
+  // this client.
   CIRE_OIDC_CLIENT_ID?: string;
   TRUSTED_PROXY_COUNT?: string;
   // Secrets (`wrangler secret put`) — present ONLY on `env`, never process.env.

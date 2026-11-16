@@ -22,7 +22,7 @@ Answers to the spec's open questions (owner, 2026-10-01):
 9. **No database trigger in this work.** The guarded statements are the guard. A trigger is a follow-up, added only if a D1 test shows it does not block the cascade when a wedding is deleted.
 10. **One owner can delete the wedding.** The delete emails every other owner, and the wedding is held for 7 days before its data is erased, so another owner can undo it.
 11. **An owner can invite someone straight in as an owner**, with the same confirmation as promotion. Onboarding step 5 (#1294) uses this for "invite your partner".
-12. **When the last owner deletes their OSN account**, the longest-standing editor is promoted to owner and emailed. If no editor remains, the orphan-tolerance rule in `wiki/compliance/dsar.md` applies until the retention sweep erases the wedding.
+12. **When the last owner deletes their OSN account**, the longest-standing editor is promoted to owner and emailed. If no editor remains, the orphan-tolerance rule in `wiki/compliance/dsar.md` applies until the retention sweep erases the wedding. *Replaced by decision 2 of the account-deletion design (`2026-11-14-account-deletion-design.md`): an account cannot be deleted while it is the only owner of a live wedding, and no editor is promoted.*
 13. **Every owner removal or demotion is emailed** to the person affected and to every remaining owner, naming who did it.
 14. **Stripe stopgap now, shared payouts later.** Only the owner who connected the Express account may open onboarding or update links; other owners see status only. Shared payouts get their own design before the registry launches.
 
@@ -192,7 +192,7 @@ Self-leave (a co-host removing their own seat) is not built yet. When it lands i
 5. **Delete the wedding.** New owner-only route; 7-day hold with undo; email to every other owner; erase after the hold.
 6. **Drop the column.** Remove `weddings.owner_osn_profile_id` and its index, and every remaining write.
 7. **Stripe stopgap.** Record which owner connected the account; limit onboarding and update links to them.
-8. **Last owner deletes their OSN account.** Promote the longest-standing editor and email them; lands with the cire account-deletion fan-out, which does not exist yet.
+8. **Last owner deletes their OSN account.** Replaced by decision 2 of the account-deletion design: no editor is promoted.
 
 PR 1 comes first; 2 to 5 and 7 can follow in any order; 6 lands after 1 to 5.
 

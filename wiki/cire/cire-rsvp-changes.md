@@ -11,7 +11,7 @@ related:
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-16
 ---
 # RSVP changes
 
@@ -139,7 +139,7 @@ The portal link is the tier's organiser origin (`organiserOriginFrom` in `cire/a
 
 ## Retention
 
-The guest privacy notice (`cire/ui/src/guest-privacy-notice.astro`, on the guest site and cireweddings.com) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Organiser status-save rows keep the same 90 days: the record of who set a status lasts 90 days, while `rsvps.recorded_by_osn_profile_id` keeps the latest organiser writer for as long as the reply. Notice rows go with the seat or the wedding. An OSN account deletion does not reach `wedding_hosts`, so a deleted account's notice row lasts as long as its seat. See [[retention]] and [[data-map]].
+The guest privacy notice (`cire/ui/src/guest-privacy-notice.astro`, on the guest site and cireweddings.com) names the record and its window. Change rows are deleted **90 days** after they are written (`rsvpChangeService.sweepExpired`, daily cron), and go with their household or wedding before that — so the 1-year guest-data sweep reaches them. Organiser status-save rows keep the same 90 days: the record of who set a status lasts 90 days, while `rsvps.recorded_by_osn_profile_id` keeps the latest organiser writer for as long as the reply. Notice rows go with the seat or the wedding. An OSN account deletion removes the person's seats and their notice rows together, and empties `actor_osn_profile_id` on their status-save rows ([[dsar#Cire (wedding-invite) data]]). See [[retention]] and [[data-map]].
 
 ## Related
 
