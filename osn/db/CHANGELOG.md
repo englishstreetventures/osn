@@ -1,5 +1,11 @@
 # @osn/db
 
+## 0.27.1
+
+### Patch Changes
+
+- 4deee2c: `POST /profiles/delete` answers with `default_profile_id`, the account's default profile once the deleted one is gone; when the deleted profile was the default, or the account had none, the oldest remaining profile becomes the default. A delete removes nothing when its profile is the account's last at the moment it writes, and an account keeps exactly one default whichever profile write lands first; `POST /profiles/:profileId/default` answers `400` when the profile is gone by the time it writes. `POST /token` refuses an empty or malformed `profile_id` as it refuses a profile the account does not own, before it reads the cookie, and counts it as `validation_error` on `osn.auth.token.refresh`. The dev-tier sign-in puts its fixed profile back as a plain profile where its account already has a default. `@osn/db` adds a partial unique index, `users_one_default_per_account`; its migration first leaves each account exactly one default, its oldest. The local seed leaves a seeded default plain where its account already has another; new export `seedProfileRows`. `@osn/client` names a profile in every `POST /token` grant from a page that holds an account: deleting the active profile makes active a profile the page holds a token for, or else that default, and an answer that names none leaves the deleted profile active, whose next grant is refused. A token a renewal or a switch brings back for a profile the page has deleted is not kept. New export: `decodeDeleteProfileResponse`.
+
 ## 0.27.0
 
 ### Minor Changes

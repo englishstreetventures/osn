@@ -1,5 +1,12 @@
 # @zap/api
 
+## 0.10.1
+
+### Patch Changes
+
+- @shared/crypto@0.15.1
+  - @shared/osn-auth-client@0.5.1
+
 ## 0.10.0
 
 ### Minor Changes
