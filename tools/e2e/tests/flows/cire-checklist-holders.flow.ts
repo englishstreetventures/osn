@@ -428,7 +428,12 @@ async function settingsSteps(flow: Flow, page: Page): Promise<void> {
     "0 used, 0 redemptions",
     codeUses(SETTINGS.codes.gold.id),
   );
-  flow.check("the wedding stays on Gold", "gold", settingsWeddingInDb()?.tier ?? "missing");
+  const kept = settingsWeddingInDb();
+  flow.check(
+    "the wedding stays on its comped Gold",
+    "gold comp script:e2e-seed",
+    `${kept?.tier} ${kept?.source} ${kept?.grantedBy}`,
+  );
 
   const raised = await flow.step("the Crimson code moves the wedding to Crimson", async () => {
     const status = await redeem(SETTINGS.codes.crimson.code);

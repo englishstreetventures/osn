@@ -1764,7 +1764,8 @@ function seedE2eOrganiser(db: TestDb): void {
  * `wed_e2e_settings`, for {@link seedE2eOrganiser}: a Gold wedding the dev
  * profile owns alone, for `cire-checklist-holders`' settings steps, which
  * redeem codes on it, re-mint its family codes and delete and restore it, so
- * no other flow's wedding is changed by any of them.
+ * no other flow's wedding is changed by any of them. Its Gold is a comp, as
+ * an operator grant (`scripts/grant-tier.ts`) records one.
  *
  * - Two households of one guest each. Nguyen's code has been sent, so the
  *   re-mint warns that a family already holds a code that will stop working.
@@ -1781,6 +1782,8 @@ function seedE2eSettings(db: TestDb, now: Date): void {
       slug: "settings-wedding",
       displayName: "Settings Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1838,9 +1841,9 @@ function seedE2eSettings(db: TestDb, now: Date): void {
 
 /**
  * `wed_e2e_enquiries`, for {@link seedE2eOrganiser}: a Crimson wedding, the
- * tier the vendor directory and enquiries need, that the dev profile owns
- * alone, for `cire-registry-money`'s enquiry steps. Two listings are live in
- * the directory:
+ * tier the vendor directory and enquiries need, comped as an operator grant
+ * records one, that the dev profile owns alone, for `cire-registry-money`'s
+ * enquiry steps. Two listings are live in the directory:
  *
  * - Willow & Fern Florals, not yet in the wedding, listed as the vendor portal
  *   lists one: its organisation owns it and no vendor profile is on it
@@ -1863,6 +1866,8 @@ function seedE2eEnquiries(db: TestDb, now: Date): void {
       slug: "enquiries-wedding",
       displayName: "Enquiries Wedding",
       tier: "crimson",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
