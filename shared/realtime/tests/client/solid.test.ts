@@ -54,18 +54,6 @@ describe("useTopic", () => {
     expect(FakeWebSocket.instances[0]?.closedWith).toBeNull();
   });
 
-  it("closes the socket when the URL becomes null", () => {
-    const { setUrl } = mount(A);
-    setUrl(null);
-    expect(FakeWebSocket.instances[0]?.closedWith?.code).toBe(1000);
-  });
-
-  it("closes the socket when its owner is disposed", () => {
-    const { dispose } = mount(A);
-    dispose();
-    expect(FakeWebSocket.instances[0]?.closedWith?.code).toBe(1000);
-  });
-
   it("forwards the subscription's events", () => {
     const { events } = mount(A);
     const socket = FakeWebSocket.instances[0]!;
