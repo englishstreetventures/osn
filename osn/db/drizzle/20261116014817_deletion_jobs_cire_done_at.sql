@@ -1,0 +1,1 @@
+ALTER TABLE `deletion_jobs` ADD `cire_done_at` integer;

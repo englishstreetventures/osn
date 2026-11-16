@@ -775,6 +775,11 @@ export const deletionJobs = sqliteTable(
     pulseDoneAt: integer("pulse_done_at"),
     /** As `pulseDoneAt`, for Zap. */
     zapDoneAt: integer("zap_done_at"),
+    /**
+     * As `pulseDoneAt`, for cire. NULL on every row written before the column
+     * existed, which reads as pending, so such a job is sent to cire too.
+     */
+    cireDoneAt: integer("cire_done_at"),
     /** Trigger source — "user_request" | "minor_detected" | "admin". */
     reason: text("reason").notNull().default("user_request"),
     /**
