@@ -11,6 +11,7 @@ import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show }
 import { redirectToLogin } from "../lib/api";
 import { splitIso } from "../lib/event-datetime";
 import type { EventRow } from "../lib/events-store";
+import { focusPanelOnOpen } from "../lib/popover-focus";
 import { type ZonedTime, zonedTime } from "../lib/run-sheet-display";
 import { type RunTimePatch, type RunTimeRefusal, saveTaskRunTime } from "../lib/run-time-write";
 import type { TaskRow } from "../lib/tasks-store";
@@ -147,10 +148,12 @@ export function RunTimeChip(props: { task: TaskRow }) {
  * moves with it, so no zone is asked for. Unlinked, the zone defaults to the
  * one every event shares, else the browser's.
  *
- * The popover traps the focus while open — it is a form, and Tab moves between
- * its fields — and hands it back to the trigger when it closes, a save
- * included. The trigger is one node whatever it shows, and the row keeps it
- * across a save.
+ * The popover opens with the focus on its panel, so no field shows a ring or
+ * takes a key the organiser did not aim at it; Tab moves to the Event field.
+ * It traps the focus while open — it is a form, and Tab moves between its
+ * fields — and hands it back to the trigger when it closes, a save included.
+ * The trigger is one node whatever it shows, and the row keeps it across a
+ * save.
  */
 export default function RunTimeEditor(props: RunTimeEditorProps) {
   const { authFetch } = useAuth();
@@ -337,21 +340,22 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
         </Show>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content class="droplet-popover border-border bg-surface-raised z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none">
+        <Popover.Content
+          onOpenAutoFocus={focusPanelOnOpen}
+          class="droplet-popover border-border bg-surface-raised z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
+        >
           <form
             class="droplet-popover-body flex flex-col gap-4 p-4"
             onSubmit={save}
             noValidate
             aria-busy={saving() || undefined}
           >
-            <div class="flex flex-col gap-1">
-              <Popover.Title class="text-text-muted font-body text-ui-xs tracking-ui-widest uppercase">
-                Time on the day
-              </Popover.Title>
-              <Popover.Description class="font-body text-text text-ui-sm wrap-break-word">
-                {props.task.title}
-              </Popover.Description>
-            </div>
+            {/* The heading alone in sight. The task's title is said to a
+                screen reader, which cannot see the row the popover grew from. */}
+            <Popover.Title class="text-text-muted font-body text-ui-xs tracking-ui-widest uppercase">
+              Set task time
+            </Popover.Title>
+            <Popover.Description class="sr-only">{props.task.title}</Popover.Description>
 
             <Field
               label="Event"
@@ -360,6 +364,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
               {(field) => (
                 <Select
                   size="form"
+                  class="min-w-0"
                   {...field}
                   value={eventId()}
                   onChange={(e) => pickEvent(e.currentTarget.value)}
@@ -416,6 +421,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                     {(field) => (
                       <Select
                         size="form"
+                        class="min-w-0"
                         {...field}
                         value={zone()}
                         onChange={(e) => {

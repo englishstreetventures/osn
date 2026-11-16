@@ -234,7 +234,7 @@ function wordsIn(root: Element): HTMLElement[] {
 
 async function openFor(title: string) {
   triggerFor(title).click();
-  const dialog = await screen.findByRole("dialog", { name: "Time on the day" });
+  const dialog = await screen.findByRole("dialog", { name: "Set task time" });
   await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
   return dialog;
 }
@@ -350,7 +350,10 @@ describe("a task's time on its row, painted", () => {
           expect(dialog.textContent).toContain("Sat 20 Jun, 1:30 pm, on Ceremony's clock"),
         );
         // The row's droplet: the same spring the holders' popover lands with.
-        expect(getComputedStyle(dialog).animationName).toBe("droplet-grow, droplet-round");
+        expect(getComputedStyle(dialog).transitionProperty).toBe(
+          "transform, opacity, border-radius",
+        );
+        expect(getComputedStyle(dialog).transitionTimingFunction.startsWith("linear(")).toBe(true);
 
         expectPanelWhole(dialog, viewport);
         await page.screenshot({ path: shot(`editor-linked-${viewport.name}-${theme}`) });
@@ -412,9 +415,7 @@ describe("the event picker", () => {
     expect(picker.selectedOptions[0]?.textContent).toMatch(/^Reception/);
     // Again, with the events already read when the popover opens.
     await userEvent.keyboard("{Escape}");
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Time on the day" })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set task time" })).toBeNull());
     const again = await openFor("Cue the first dance");
     const reopened = within(again).getByLabelText("Event") as HTMLSelectElement;
     expect(reopened.value).toBe("evt_reception");
@@ -429,7 +430,7 @@ describe("the popover, from the keyboard", () => {
     await screen.findByTestId("tasks-day_of");
     triggerFor("Bring the rings").focus();
     await userEvent.keyboard("{Enter}");
-    const dialog = await screen.findByRole("dialog", { name: "Time on the day" });
+    const dialog = await screen.findByRole("dialog", { name: "Set task time" });
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     const stops = dialog.querySelectorAll("input, select, button").length;
     for (let i = 0; i < stops + 2; i++) {
@@ -439,9 +440,7 @@ describe("the popover, from the keyboard", () => {
       );
     }
     await userEvent.keyboard("{Escape}");
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Time on the day" })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set task time" })).toBeNull());
     // Kobalte hands it back as the panel unmounts, a tick after it leaves.
     await waitFor(() => expect(document.activeElement).toBe(triggerFor("Bring the rings")));
   });
@@ -452,16 +451,14 @@ describe("the popover, from the keyboard", () => {
     await screen.findByTestId("tasks-day_of");
     triggerFor("Bring the rings").focus();
     await userEvent.keyboard("{Enter}");
-    const dialog = await screen.findByRole("dialog", { name: "Time on the day" });
+    const dialog = await screen.findByRole("dialog", { name: "Set task time" });
     await waitFor(() =>
       expect((within(dialog).getByLabelText("Date") as HTMLInputElement).value).toBe("2099-06-20"),
     );
     await userEvent.fill(within(dialog).getByLabelText("Time"), "12:00");
     (within(dialog).getByLabelText("Time") as HTMLInputElement).focus();
     await userEvent.keyboard("{Enter}");
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Time on the day" })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set task time" })).toBeNull());
     const trigger = triggerFor("Bring the rings");
     expect(trigger.textContent).toMatch(/^12:00\spm/);
     expect(document.activeElement).toBe(trigger);

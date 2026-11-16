@@ -524,6 +524,29 @@ Animate a menu's opening only (`menu-pop`). The checklist row's
 the rule is to run a panel's keyboard test in the browser tier before giving it
 an exit, not to forbid one.
 
+Only a CSS animation holds it, never a transition, and only one whose name
+differs from the last animation that started on the panel: the presence that
+Kobalte keeps (`solid-presence`) lives in the popover's root across openings
+and compares names. A panel that moves on transitions, so a close caught
+mid-opening can go on from where it is, needs a keyframe that changes nothing
+on each side — `droplet-open` while it opens and `droplet-close` for the
+length of the exit (`cire/host` `global.css`, `droplet-popover`).
+
+### A Kobalte popover focuses its first field as it opens, and Chromium rings it
+
+Kobalte's focus scope focuses the first tabbable element in a popover or dialog
+a tick after it mounts. Chromium matches `:focus-visible` on that focus even
+when a mouse click opened the panel, so a select or a list wears the focus ring
+the reader never aimed at, and a listbox that also starts with its first option
+active reads that option as chosen. Where nothing should look picked on
+opening, cancel `onOpenAutoFocus` and focus the panel itself — Kobalte gives
+`Popover.Content` and `Dialog.Content` `tabindex="-1"` — without scrolling
+(`cire/host`'s `lib/popover-focus.ts`, `musubi/social`'s `AuthDialogs`). Then
+route Tab and the list's keys from the panel into the list, or a non-modal
+panel that closes on Tab has no way in. The unit tier parses no stylesheet,
+so only the browser tier sees the ring
+(`cire/host`'s `ChecklistView.popovers.browser.test.tsx`).
+
 ### A listbox option that cannot take focus loses its click to the field's blur
 
 In a combobox the field keeps focus and an option is only marked active

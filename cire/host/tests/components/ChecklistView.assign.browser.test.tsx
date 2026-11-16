@@ -485,7 +485,8 @@ describe("the assign popover, painted", () => {
         const { dialog, listbox } = await openPopover("Set up the welcome table");
 
         const search = within(dialog).getByRole("combobox", { name: "Search people" });
-        expect(document.activeElement).toBe(search);
+        // The panel holds the focus until a key moves it into the search.
+        expect(document.activeElement).toBe(dialog);
         const options = within(listbox).getAllByRole("option");
         expect(options).toHaveLength(8);
         expect(options.filter((o) => o.getAttribute("aria-selected") === "true")).toHaveLength(5);
@@ -556,14 +557,14 @@ describe("opening the popover on a scrolled phone", () => {
     },
   );
 
-  // Where the focus ends: four people stay on the list it opened on; eight
-  // bring a search, which takes it.
+  // The focus stays on the panel it opened on, whether the people bring a
+  // search or not: the next key moves it in.
   it.each([
-    ["four people", FOUR, "Hand the rings to the best man", "listbox"],
-    ["eight people", SEATS, "Set up the welcome table", "combobox"],
+    ["four people", FOUR, "Hand the rings to the best man"],
+    ["eight people", SEATS, "Set up the welcome table"],
   ] as const)(
     "leaves the page where it was, with the people arriving after it opened — %s",
-    async (_, seats, title, focused) => {
+    async (_, seats, title) => {
       await page.viewport(390, 844);
       const held: (() => void)[] = [];
       authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -591,7 +592,7 @@ describe("opening the popover on a scrolled phone", () => {
       await waitFor(() => expect(within(dialog).getAllByRole("option")).toHaveLength(seats.length));
       await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
       await photosSettled();
-      expect(document.activeElement).toBe(within(dialog).getByRole(focused));
+      expect(document.activeElement).toBe(dialog);
       expect(window.scrollY).toBe(scrolled);
       onScreen(dialog);
     },
@@ -635,8 +636,10 @@ describe("the popover's motion", () => {
     fireEvent.click(screen.getByRole("button", { name: "Assign people to Book venue" }));
     let dialog = await screen.findByRole("dialog", { name: "Assign people" });
     const style = getComputedStyle(dialog);
-    expect(style.animationName).toBe("droplet-grow, droplet-round");
-    expect(style.animationTimingFunction.startsWith("linear(")).toBe(true);
+    // Transitions, so a close or a reopening caught mid-flight goes on from
+    // where the panel is (`ChecklistView.popovers.browser.test.tsx`).
+    expect(style.transitionProperty).toBe("transform, opacity, border-radius");
+    expect(style.transitionTimingFunction.startsWith("linear(")).toBe(true);
     await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
     // The drop leaves from the panel's corner at the trigger: its right edge,
     // and its top when it opened below the trigger or its bottom when above.
@@ -690,8 +693,10 @@ describe("the popover from the keyboard, in Chrome", () => {
       </div>
     ));
     const { listbox } = await openPopover("Book venue");
+    // The first key moves from the panel into the list, onto its first
+    // person; the next onto the second.
+    await userEvent.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(listbox);
-
     await userEvent.keyboard("{ArrowDown}");
     await userEvent.keyboard(" ");
     await waitFor(() => expect(sent).toEqual([`PUT ${id("ben")}`]));
@@ -733,6 +738,8 @@ describe("the popover's list, in Chrome", () => {
     });
     const { dialog, listbox } = await openPopover("Set up the welcome table");
     const search = within(dialog).getByRole("combobox", { name: "Search people" });
+    // The first key moves from the panel into the search, onto the first person.
+    await userEvent.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(search);
     const options = within(listbox).getAllByRole("option");
     const paint = (el: Element) => getComputedStyle(el).backgroundColor;
@@ -807,6 +814,7 @@ describe("the highlighted person, in Chrome", () => {
       const { dialog, listbox } = await openPopover("Set up the welcome table");
       const options = within(listbox).getAllByRole("option");
       const search = within(dialog).getByRole("combobox", { name: "Search people" });
+      await userEvent.keyboard("{ArrowDown}");
       expect(search.getAttribute("aria-activedescendant")).toBe(options[0]!.id);
 
       /** The bar at the row's inline start, and what the name is inked in. */

@@ -1092,35 +1092,37 @@
  * done: the panel portals to `<body>`, away from the trigger, and the filter
  * would blur the panel's own border and shadow.
  *
- * Two animations on the panel, because each wants its own easing: the scale
- * springs; the corners only ease. The contents fade by keyframe percentage,
- * not by `animation-delay`: the reduced-motion block zeroes durations and
- * leaves delays alone, and a delayed fade would hold the list back for a
- * reader who asked for no motion at all. With it, the popover simply appears.
+ * The panel moves by transitions, not keyframes, so it can be caught: closed
+ * while it is still growing, it shrinks from the size it has reached; opened
+ * again while it is closing, it grows from there. Keyframes would jump to
+ * their own first frame. It arrives from `@starting-style`; each property
+ * keeps its own easing — the scale springs, the corners only ease, and the
+ * panel is opaque by 30% of the run. Leaving, it shrinks to 60% and fades, on
+ * the fast rung.
  *
- * Kobalte keeps a closing popover mounted until its *animation* ends, so the
- * exit is keyframes too.
+ * Kobalte keeps a closing popover mounted only while a CSS *animation* runs,
+ * and only one whose name differs from the last that started on it, so two
+ * keyframes that change nothing carry the lifecycle: `droplet-open` as it
+ * opens, `droplet-close` for the length of the exit.
+ *
+ * The transitions are declared only under `no-preference`: the reduced-motion
+ * clamp shortens a transition rather than removing it, and a starting style
+ * would still paint its first frame small and clear. With reduced motion the
+ * popover simply appears and goes. The contents fade by keyframe percentage,
+ * not by `animation-delay`, for the same reader: the clamp zeroes durations
+ * and leaves delays alone, and a delayed fade would hold the list back.
  */
-@keyframes droplet-grow {
-  from {
-    opacity: 0;
-    transform: scale(0.12);
-  }
-  30% {
-    opacity: 1;
-  }
+@keyframes droplet-open {
+  from,
   to {
-    opacity: 1;
-    transform: scale(1);
+    visibility: visible;
   }
 }
 
-@keyframes droplet-round {
-  from {
-    border-radius: var(--radius-pill);
-  }
+@keyframes droplet-close {
+  from,
   to {
-    border-radius: var(--radius-md);
+    visibility: visible;
   }
 }
 
@@ -1134,23 +1136,35 @@
   }
 }
 
-@keyframes droplet-out {
-  to {
-    opacity: 0;
-    transform: scale(0.6);
-  }
-}
-
 @utility droplet-popover {
   transform-origin: var(--kb-popover-content-transform-origin);
 
   &[data-expanded] {
-    animation:
-      droplet-grow var(--dur-slow) var(--ease-spring),
-      droplet-round var(--dur-slow) var(--ease-out);
+    animation: droplet-open var(--dur-slow);
   }
   &[data-closed] {
-    animation: droplet-out var(--dur-fast) var(--ease-in-out);
+    opacity: 0;
+    transform: scale(0.6);
+    animation: droplet-close var(--dur-fast);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition:
+      transform var(--dur-slow) var(--ease-spring),
+      opacity calc(var(--dur-slow) * 0.3) var(--ease-spring),
+      border-radius var(--dur-slow) var(--ease-out);
+
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.12);
+      border-radius: var(--radius-pill);
+    }
+
+    &[data-closed] {
+      transition:
+        transform var(--dur-fast) var(--ease-in-out),
+        opacity var(--dur-fast) var(--ease-in-out);
+    }
   }
 }
 

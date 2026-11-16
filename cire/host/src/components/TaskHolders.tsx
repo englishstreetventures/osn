@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 
 import { type HostSeat, type SeatFace, seatName } from "../lib/hosts-store";
+import { focusPanelOnOpen } from "../lib/popover-focus";
 import { ROLE_COPY } from "../lib/wedding-roles";
 
 /** One holder of a task, in stack order. `seat` is absent while the wedding's
@@ -166,6 +167,8 @@ export default function TaskHolders(props: TaskHoldersProps) {
 /** The + trigger and its popover, for an owner or editor. */
 function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) => JSX.Element }) {
   const [open, setOpen] = createSignal(false);
+  /** The people list's answer to a key pressed on the panel itself. */
+  let fromPanel: ((e: KeyboardEvent) => void) | undefined;
 
   return (
     <Popover
@@ -200,17 +203,20 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
         </span>
       </Popover.Trigger>
       <Popover.Portal>
-        {/* Kobalte focuses the first thing in it that takes the focus — the
-            search when there is one, else the list — without scrolling: the
-            panel opens at the page's top left and is put beside its trigger
-            a frame later, and a scrolling focus would jump the page there. */}
+        {/* It opens with the focus on the panel, so nobody is highlighted and
+            no ring shows until the pointer or a key moves there. */}
         <Popover.Content
+          onOpenAutoFocus={focusPanelOnOpen}
           class="droplet-popover border-border bg-surface-raised z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
           onKeyDown={(e: KeyboardEvent) => {
-            // Tab would carry the focus out of a popover portalled to the end
-            // of the page, past everything; it closes it instead, and the
-            // focus goes back to the trigger.
-            if (e.key === "Tab") {
+            // On the panel itself, Tab and the list's keys move into the
+            // people (`fromPanel`). Anywhere else, and Shift+Tab from the
+            // panel, Tab would carry the focus out of a popover portalled to
+            // the end of the page, past everything; it closes it instead, and
+            // the focus goes back to the trigger.
+            if (e.target === e.currentTarget && !(e.key === "Tab" && e.shiftKey)) {
+              fromPanel?.(e);
+            } else if (e.key === "Tab") {
               e.preventDefault();
               setOpen(false);
             }
@@ -220,7 +226,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
             <Popover.Title class="text-text-muted font-body text-ui-xs tracking-ui-widest px-4 pt-3 pb-2 uppercase">
               Assign people
             </Popover.Title>
-            <PeopleList {...props} />
+            <PeopleList {...props} answerPanel={(answer) => (fromPanel = answer)} />
           </div>
         </Popover.Content>
       </Popover.Portal>
@@ -228,14 +234,32 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
   );
 }
 
+/** No person highlighted: where the popover opens. */
+const NOBODY = -1;
+/** The keys the list answers. */
+const LIST_KEYS: ReadonlySet<string> = new Set([
+  "ArrowDown",
+  "ArrowUp",
+  "Home",
+  "End",
+  "Enter",
+  " ",
+]);
+
 /** The people in the popover: a listbox of toggles, with a search above it
- *  once there are more than five. */
-function PeopleList(props: TaskHoldersProps) {
+ *  once there are more than five. Nobody is highlighted until the pointer
+ *  moves over someone or a key moves the highlight. */
+function PeopleList(
+  props: TaskHoldersProps & {
+    /** Hands the popover what to do with a key pressed on its panel. */
+    answerPanel: (answer: (e: KeyboardEvent) => void) => void;
+  },
+) {
   const baseId = createUniqueId();
   const listId = `${baseId}-people`;
   const optionId = (index: number) => `${baseId}-person-${index}`;
   const [query, setQuery] = createSignal("");
-  const [active, setActive] = createSignal(0);
+  const [active, setActive] = createSignal(NOBODY);
   let listRef: HTMLUListElement | undefined;
   let searchRef: HTMLInputElement | undefined;
 
@@ -266,7 +290,9 @@ function PeopleList(props: TaskHoldersProps) {
   };
 
   /** Arrows, Home and End move the highlight; Enter toggles it. Space toggles
-   *  only on the list itself: in the search it types the space a name has. */
+   *  only on the list itself: in the search it types the space a name has.
+   *  With nobody highlighted, ArrowDown starts at the first person and ArrowUp
+   *  at the last, and Enter and Space toggle nobody. */
   const onKeyDown = (e: KeyboardEvent, spaceToggles: boolean) => {
     const count = results().length;
     switch (e.key) {
@@ -276,7 +302,7 @@ function PeopleList(props: TaskHoldersProps) {
         break;
       case "ArrowUp":
         e.preventDefault();
-        setActive((i) => (i - 1 + count) % Math.max(count, 1));
+        setActive((i) => (i === NOBODY ? count - 1 : (i - 1 + count) % Math.max(count, 1)));
         break;
       case "Home":
         e.preventDefault();
@@ -301,7 +327,29 @@ function PeopleList(props: TaskHoldersProps) {
   // Keep the highlight in range as the search narrows the list.
   createEffect(() => {
     const count = results().length;
-    if (active() >= count) setActive(Math.max(0, count - 1));
+    if (active() >= count) setActive(count - 1);
+  });
+
+  /** Where the keys go inside the popover: the search when there is one. */
+  const keyTarget = () => (searchable() ? searchRef : listRef);
+
+  // A key pressed on the panel, where the focus starts: Tab moves into the
+  // search or the list; the list's own keys move in and act there, so Enter
+  // toggles whoever the pointer left highlighted; with a search, a key that
+  // types moves into it and types there.
+  props.answerPanel((e) => {
+    const into = keyTarget();
+    if (!into) return;
+    const typing = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (e.key === "Tab") {
+      e.preventDefault();
+      into.focus({ preventScroll: true });
+    } else if (into === searchRef && typing) {
+      into.focus({ preventScroll: true });
+    } else if (LIST_KEYS.has(e.key)) {
+      into.focus({ preventScroll: true });
+      onKeyDown(e, into === listRef);
+    }
   });
 
   // Follow the highlight with the list's own scroll, so arrowing past the fold
@@ -321,14 +369,18 @@ function PeopleList(props: TaskHoldersProps) {
     }
   });
 
-  // The seats can arrive after the popover opened on the list alone. When
-  // they bring a search, the focus moves into it: Tab closes the popover, so
-  // from the list there would be no way to reach it.
+  // The seats can arrive after the focus moved onto the list alone. When they
+  // bring a search, the focus moves into it: Tab closes the popover, so from
+  // the list there would be no way to reach it. On the panel it stays, and
+  // the next key goes in.
   createEffect(() => {
-    if (searchable()) searchRef?.focus({ preventScroll: true });
+    if (searchable() && listRef && document.activeElement === listRef) {
+      searchRef?.focus({ preventScroll: true });
+    }
   });
 
-  const activeId = () => (results().length > 0 ? optionId(active()) : undefined);
+  const activeId = () =>
+    active() !== NOBODY && active() < results().length ? optionId(active()) : undefined;
 
   /** What the list says beside its options, read out politely as it changes:
    *  that it is still looking, how many people a search matches, or that it
@@ -382,7 +434,9 @@ function PeopleList(props: TaskHoldersProps) {
             value={query()}
             onInput={(e) => {
               setQuery(e.currentTarget.value);
-              setActive(0);
+              // Typing aims at the first match, so Enter takes it; an empty
+              // search aims at nobody.
+              setActive(e.currentTarget.value.trim() ? 0 : NOBODY);
             }}
             onKeyDown={(e) => onKeyDown(e, false)}
             class="font-body text-text placeholder:text-text-muted text-ui-sm min-w-0 flex-1 bg-transparent py-2 outline-none"

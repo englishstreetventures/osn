@@ -12,7 +12,7 @@ related:
   - "[[d1-limits]]"
   - "[[toast]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-17
 ---
 # Checklist / Tasks
 
@@ -372,12 +372,16 @@ name and their role. Clicking a row puts them on the task or takes them off at
 once, and the popover stays open until a click outside it, Escape or Tab, the
 last two giving the focus back to the button. Above five people a search over
 names and handles heads the list, which shows about four rows and scrolls; five
-or fewer show whole with no search. The focus starts in the search when there
-is one, else on the list; the arrows, Home and End move the highlight, and
-Enter toggles it — Space too on the list, but not in the search, where it types
-the space a name has. The highlighted person is marked by a bar in the focus
-ring's colour and gold ink on their name, since the ring itself stays on the
-search or the list. The rows stay usable while writes are out; the list says
+or fewer show whole with no search. The popover opens with the focus on its
+panel and nobody highlighted, so no stray Enter puts the reader, listed first,
+on the task. The highlight follows the pointer; from the panel, Tab moves into
+the search or the list, an arrow, Home or End moves in and onto a person, and
+a key that types goes into the search. The arrows, Home and End move the
+highlight, and Enter toggles it — Space too on the list, but not in the search,
+where it types the space a name has; typing aims the highlight at the first
+match. The highlighted person is marked by a bar in the focus ring's colour and
+gold ink on their name, since the ring itself stays on the search or the list
+(`cire/host/DESIGN.md` §7, Who holds a task). The rows stay usable while writes are out; the list says
 `aria-busy` instead. One polite status line (`<output>`) under the list, outside
 it, says the popover is finding the people, how many a search matches, or
 that it matches nobody.
