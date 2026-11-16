@@ -48,6 +48,7 @@ import {
   stackPlans,
   stackRecordKey,
 } from "../release-plan";
+import { contentDiff } from "../version-bump";
 import {
   API,
   dev,
@@ -61,6 +62,18 @@ import {
   stackJob,
   TOKEN,
 } from "./fake-github";
+import {
+  AFTER,
+  CHANGESET_PATH,
+  CLSX_HASH,
+  lockfile,
+  merge,
+  released,
+  stackMerge,
+  uiManifest,
+  versionLockfile,
+  versionPackages,
+} from "./version-commits";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -86,8 +99,13 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function commit(repo: string, files: Record<string, string>): Promise<string> {
+/** Commit `files`; a null content deletes the file. */
+async function commit(repo: string, files: Record<string, string | null>): Promise<string> {
   for (const [path, content] of Object.entries(files)) {
+    if (content === null) {
+      await rm(join(repo, path));
+      continue;
+    }
     await mkdir(dirname(join(repo, path)), { recursive: true });
     await writeFile(join(repo, path), content);
   }
@@ -1578,6 +1596,26 @@ describe("what the plan job writes", () => {
     expect(summary).toContain(`https://github.com/${REPO}/compare/${base}...${head}`);
     expect(summary).toContain("osn/api/x.ts changed");
   });
+
+  // git hands the planner a file's name as written, and a name may hold a
+  // `|` or a line break: in the approver's table either would draw a row the
+  // planner never wrote.
+  test("RP20: a file name cannot add a row or a cell to the summary's table", () => {
+    const summary = renderSummary(
+      release(decide(["shared/a|b\n| `zap_api` | — | unchanged | x |.ts"])),
+      {
+        head,
+        repository: REPO,
+        serverUrl: "https://github.com",
+      },
+    );
+    const rows = summary.split("\n").filter((line) => line.startsWith("|"));
+    expect(rows).toHaveLength(2 + PRODUCTION_SURFACES.length + PRODUCTION_STACKS.length);
+    for (const row of rows) expect(row.split(/(?<!\\)\|/)).toHaveLength(6);
+    expect(summary).toContain(
+      "shared/a\\|b \\| `zap_api` \\| — \\| unchanged \\| x \\|.ts changed",
+    );
+  });
 });
 
 describe("runReleasePlan refuses a broken environment", () => {
@@ -2110,5 +2148,228 @@ describe("retired inputs", () => {
         cire_vendor: "true",
       });
     });
+  });
+});
+
+// ── a version commit ────────────────────────────────────────────────────────
+
+// After each merge that carries a changeset, the Release workflow pushes two
+// bot commits: `changeset version`'s (package versions, changelogs, the
+// consumed changeset, the lint ceiling) and the lockfile's (each workspace's
+// `version` line in bun.lock). Neither changes what a surface is built from,
+// so neither may hold a surface back until dev has deployed it, nor ship one
+// production already runs. Built from the real pair, 355c9c2e9 and 9689d29c9
+// (./version-commits).
+describe("VC: a version commit is not content", () => {
+  /** P (released), M (the merge), V1 (versions), V2 (the lockfile), each a commit. */
+  async function cut(
+    repo: string,
+    alsoV1: Record<string, string | null> = {},
+    alsoV2: Record<string, string | null> = {},
+    merged: Record<string, string> = merge(),
+  ) {
+    const p = await commit(repo, released());
+    const m = await commit(repo, merged);
+    const v1 = await commit(repo, { ...versionPackages(), ...alsoV1 });
+    const v2 = await commit(repo, { ...versionLockfile(), ...alsoV2 });
+    return { p, m, v1, v2 };
+  }
+
+  const status = (plan: { decisions: readonly PlanDecision[] }, key: SurfaceKey) =>
+    plan.decisions.find((d) => d.key === key);
+
+  test("VC1: dev has deployed the merge but not yet the version commits: every changed surface ships", async () => {
+    await withRepo(async (repo) => {
+      const { p, m, v2 } = await cut(repo);
+      const github = fakeGitHub([
+        ...fullRun("production", p, 1),
+        ...fullRun("dev", m, 2),
+        ...fullRun("dev", p, 1),
+      ]);
+      const plan = await runReleasePlan({ env: env(v2), fetch: github.fetch, cwd: repo });
+      const outputs = parseOutputs(plan.outputs);
+      for (const s of PRODUCTION_SURFACES) expect(outputs[s.key]).toBe("true");
+      for (const s of PRODUCTION_STACKS) expect(outputs[`stack_${s.key}`]).toBe("true");
+      expect(plan.summary).not.toContain("held back");
+      expect(status(plan, "osn_social")?.reason).toContain(
+        "shared/ui/src/ui/button.tsx changed, which every surface builds from",
+      );
+      expect(status(plan, "osn_social")?.reason).toContain(
+        `dev ran this content at ${m.slice(0, 7)}`,
+      );
+    });
+  });
+
+  test("VC2: production already runs the merge: the version commits ship nothing, a stack's own version bump included", async () => {
+    await withRepo(async (repo) => {
+      const { m, v2 } = await cut(repo);
+      // Dev has deployed every commit, the version commits too: what holds a
+      // surface back here would be the production check alone.
+      const github = fakeGitHub([
+        ...fullRun("production", m, 2),
+        ...fullRun("dev", v2, 4),
+        ...fullRun("dev", m, 2),
+      ]);
+      const plan = await runReleasePlan({ env: env(v2), fetch: github.fetch, cwd: repo });
+      const outputs = parseOutputs(plan.outputs);
+      expect(Object.values(outputs).every((value) => value === "false")).toBe(true);
+      expect(status(plan, "osn_social")).toMatchObject({ status: "unchanged" });
+      expect(plan.stacks.find((s) => s.key === "musubi")?.reason).toBe("none of its sites ships");
+      expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
+    });
+  });
+
+  test("VC4: a stack whose own paths changed ships on dev's run of the merge, its version bump aside", async () => {
+    await withRepo(async (repo) => {
+      const { p, m, v2 } = await cut(repo, {}, {}, stackMerge());
+      const github = fakeGitHub([
+        ...fullRun("production", p, 1),
+        ...fullRun("dev", m, 2),
+        ...fullRun("dev", p, 1),
+      ]);
+      const plan = await runReleasePlan({ env: env(v2), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(plan.outputs).stack_musubi).toBe("true");
+      const musubi = plan.stacks.find((s) => s.key === "musubi");
+      expect(musubi?.reason).toContain("musubi/infra/src/stack.ts changed");
+      expect(musubi?.reason).toContain(`dev ran this stack at ${m.slice(0, 7)}`);
+      expect(plan.summary).not.toContain("held back");
+    });
+  });
+
+  // A version commit carries what the bot wrote and nothing else. Anything
+  // more in the same diff is content, whoever wrote it, so production sees it
+  // and the dev gate holds it until dev has deployed it.
+  const refusals: readonly {
+    readonly name: string;
+    readonly v1?: Record<string, string | null>;
+    readonly v2?: Record<string, string | null>;
+    readonly names: string;
+    /** Every file `contentDiff` keeps between the merge and the release commit. */
+    readonly kept: readonly string[];
+  }[] = [
+    {
+      name: "VR1: a dependency added beside the version bump, and its lockfile lines",
+      v1: {
+        "shared/ui/package.json": uiManifest(AFTER.ui, (m) => {
+          (m.dependencies as Record<string, string>).nanoid = "^5.1.5";
+        }),
+      },
+      v2: {
+        "bun.lock": lockfile(AFTER, {
+          uiDependencies: '\n        "nanoid": "^5.1.5",',
+          packages:
+            '\n    "nanoid": ["nanoid@5.1.5", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-Ir/+ZpE9fDsNH0hQ3C68uyThDXzYcim2EqcZ8zn8Chtt1iylPT9xXJB0kPCnqzgcEGikO9RxSrh63MsmVCU7Fw=="],',
+        }),
+      },
+      names: "bun.lock",
+      kept: ["bun.lock", "shared/ui/package.json"],
+    },
+    {
+      name: "VR2: a script changed beside the version bump",
+      v1: {
+        "shared/ui/package.json": uiManifest(AFTER.ui, (m) => {
+          (m.scripts as Record<string, string>).test = "bunx --bun vitest --project unit --bail";
+        }),
+      },
+      names: "shared/ui/package.json",
+      kept: ["shared/ui/package.json"],
+    },
+    {
+      name: "VR3: another package.json field, exports, changed beside the version bump",
+      v1: {
+        "shared/ui/package.json": uiManifest(AFTER.ui, (m) => {
+          (m.exports as Record<string, unknown>)["./ui/button"] = "./src/ui/button-v2.tsx";
+        }),
+      },
+      names: "shared/ui/package.json",
+      kept: ["shared/ui/package.json"],
+    },
+    {
+      name: "VR4: bun.lock edited by hand, an external package's integrity hash",
+      v2: {
+        "bun.lock": lockfile(AFTER).replace(CLSX_HASH, `sha512-${"A".repeat(86)}==`),
+      },
+      names: "bun.lock",
+      kept: ["bun.lock"],
+    },
+    {
+      name: "VR5: a package.json no parser reads",
+      v1: { "shared/ui/package.json": `${uiManifest(AFTER.ui).trimEnd().slice(0, -1)},}\n` },
+      names: "shared/ui/package.json",
+      kept: ["shared/ui/package.json"],
+    },
+    {
+      name: "VR6: a shared/ source change in the same diff",
+      v2: { "shared/ui/src/ui/button.tsx": "export const press = 0.9;\n" },
+      names: "shared/ui/src/ui/button.tsx",
+      kept: ["shared/ui/src/ui/button.tsx"],
+    },
+  ];
+
+  test.each(refusals)("$name: production sees it, and dev must deploy it first", async (c) => {
+    await withRepo(async (repo) => {
+      const { m, v2 } = await cut(repo, c.v1, c.v2);
+      // The consumed changeset and the lint ceiling stay in the diff; no
+      // surface's or stack's paths name either.
+      expect(contentDiff(v2, repo)(m)).toEqual(
+        [CHANGESET_PATH, "scripts/lint-warning-ceiling.txt", ...c.kept].toSorted(),
+      );
+      // Dev has deployed the merge only.
+      const waiting = fakeGitHub([...fullRun("production", m, 2), ...fullRun("dev", m, 2)]);
+      const held = await runReleasePlan({ env: env(v2), fetch: waiting.fetch, cwd: repo });
+      expect(parseOutputs(held.outputs).any).toBe("false");
+      expect(status(held, "osn_social")).toMatchObject({ status: "held back" });
+      expect(status(held, "osn_social")?.reason).toContain(
+        `dev's newest, ${m.slice(0, 7)}, differs in ${c.names}`,
+      );
+
+      // Once dev has deployed the release commit, it ships.
+      const deployed = fakeGitHub([
+        ...fullRun("production", m, 2),
+        ...fullRun("dev", v2, 4),
+        ...fullRun("dev", m, 2),
+      ]);
+      const shipped = await runReleasePlan({ env: env(v2), fetch: deployed.fetch, cwd: repo });
+      expect(parseOutputs(shipped.outputs).osn_social).toBe("true");
+      expect(status(shipped, "osn_social")?.reason).toContain(
+        `${c.names} changed, which every surface builds from`,
+      );
+    });
+  });
+});
+
+// production-release.yml's plan job installs nothing, and dev's stack jobs
+// load the planner through scripts/dev-deploy-order.ts. Whatever it imports
+// has to come with Bun or with the checkout.
+describe("what the planner loads", () => {
+  test("RP19: only Bun and Node built-ins, and its own files", async () => {
+    const root = new URL("../..", import.meta.url).pathname;
+    // A top-level `import … from`, `export … from`, bare `import "…"`, or `import("…")`.
+    const SPECIFIER =
+      /(?:^|\n)(?:import|export)\b[^;'"]*?\bfrom\s*["']([^"']+)["']|(?:^|\n)import\s*["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/g;
+    const loaded = new Set<string>();
+    const outside: string[] = [];
+    const visit = async (file: string): Promise<void> => {
+      if (loaded.has(file)) return;
+      loaded.add(file);
+      const text = await Bun.file(join(root, file)).text();
+      for (const match of text.matchAll(SPECIFIER)) {
+        const specifier = match[1] ?? match[2] ?? match[3] ?? "";
+        if (/^(node|bun):/.test(specifier)) continue;
+        if (!specifier.startsWith(".")) {
+          outside.push(`${file}: ${specifier}`);
+          continue;
+        }
+        await visit(join(dirname(file), `${specifier}.ts`));
+      }
+    };
+    await visit("scripts/release-plan.ts");
+    expect(outside).toEqual([]);
+    expect([...loaded].toSorted()).toEqual([
+      "scripts/deploy-surfaces.ts",
+      "scripts/release-plan.ts",
+      "scripts/version-bump.ts",
+      "shared/infra/src/production-sites.ts",
+    ]);
   });
 });

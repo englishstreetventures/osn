@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-16
 ---
 
 # Dev environment (cire + OSN identity)
@@ -426,7 +426,9 @@ again. The full procedure and the dispatch inputs are in [[production-deploy]] ย
 **A surface reaches production only after dev deployed the same content.** The
 release planner reads dev's Deployment records: a changed surface with no recent
 successful dev record built from the same content is held back until dev has it.
-A record exists only when the surface's smoke check passed. Dev redeploys a
+A release's version bump is not content, so dev's deploy of a merge counts for the
+`chore: version packages` commits after it ([[production-deploy]] ยง5.0 item 2). A
+record exists only when the surface's smoke check passed. Dev redeploys a
 stack only on a push that touches it, so after a failed dev deploy, dispatch
 **Deploy**. Musubi landing and pulse landing have no production surface in the
 release; zap-api's production release waits for its dev deploy like every other
