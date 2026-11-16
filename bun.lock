@@ -579,7 +579,7 @@
     },
     "shared/billing": {
       "name": "@shared/billing",
-      "version": "0.1.17",
+      "version": "0.1.18",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "@shared/observability": "workspace:*",
