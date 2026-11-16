@@ -4,6 +4,7 @@
 "@osn/client": minor
 "@shared/email": minor
 "@shared/observability": patch
+"@tools/lab": patch
 ---
 
 Account deletion gets its emails and the calls its screens need.
@@ -13,3 +14,4 @@ Account deletion gets its emails and the calls its screens need.
 - `@osn/db`: `organisations.owner_inherited_at` (migration `20261116094005_organisation_owner_inherited_at`), NULL for every existing row.
 - `@osn/client`: a 401 after a renewal that minted a pending-deletion token reaches the caller and ends nothing; `onSessionChange` gains `pending-deletion`; `isPendingDeletionToken`. The Solid provider gains `pendingDeletion` and `renewSession`, and lists no profiles for a pending-deletion session. `deleteAccount` throws `AccountDeletionRefusedError` with the open actions, fresh preview or refused action; new `exportAccount`, `sendDataLink` and `declineOwnership`.
 - `@shared/observability`: `OrgAction` gains `decline_ownership`; the auth rate-limit endpoint union gains `account_data_link`.
+- `@tools/lab`: the auth-ui stories' hand-built auth contexts carry `pendingDeletion` and `renewSession`.
