@@ -7,8 +7,9 @@
  * (`./push-triggers`). `tests/ddl-lockstep.test.ts` holds this list to the
  * migration chain. It compares SQL without case, so the exact text of each
  * trigger is held by the Miniflare D1 test that runs its migration itself:
- * `osn/api/tests/d1/organisation-member-role.test.ts` and
- * `osn/api/tests/d1/account-email-lower-case.test.ts`.
+ * `osn/api/tests/d1/organisation-member-role.test.ts`,
+ * `osn/api/tests/d1/account-email-lower-case.test.ts` and
+ * `osn/api/tests/d1/deletion-job-delete-everything.test.ts`.
  *
  * Each trigger is created only if absent, so every statement runs again
  * safely. Kept out of `./schema` so the Worker, which imports `./schema` and
@@ -36,5 +37,16 @@ END;`,
 WHEN NEW.\`email\` <> lower(NEW.\`email\`)
 BEGIN
 	SELECT RAISE(ABORT, 'account email is not lower case');
+END;`,
+  // A deletion job that deletes everything holds no stored answers.
+  `CREATE TRIGGER IF NOT EXISTS \`deletion_jobs_delete_everything_no_choices\` BEFORE INSERT ON \`deletion_jobs\`
+WHEN NEW.\`delete_everything\` = 1 AND NEW.\`choices\` IS NOT NULL
+BEGIN
+	SELECT RAISE(ABORT, 'a deletion job that deletes everything holds no choices');
+END;`,
+  `CREATE TRIGGER IF NOT EXISTS \`deletion_jobs_delete_everything_no_choices_update\` BEFORE UPDATE OF \`delete_everything\`, \`choices\` ON \`deletion_jobs\`
+WHEN NEW.\`delete_everything\` = 1 AND NEW.\`choices\` IS NOT NULL
+BEGIN
+	SELECT RAISE(ABORT, 'a deletion job that deletes everything holds no choices');
 END;`,
 ]);

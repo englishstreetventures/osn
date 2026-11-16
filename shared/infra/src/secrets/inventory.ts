@@ -223,7 +223,8 @@ export const SHARED_SECRET_VALUES: readonly {
   readonly name: string;
   readonly workers: readonly WorkerKey[];
 }[] = [
-  // zap-api registers its ARC key at osn-api with this value, so both must hold the same one.
+  // zap-api registers its ARC key at osn-api with this value, and checks the MAC
+  // on osn-api's outbound key ids with it, so both must hold the same one.
   { tier: "dev", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
   { tier: "production", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
   // osn-api presents this value to cire-api's organiser-session revoke, which

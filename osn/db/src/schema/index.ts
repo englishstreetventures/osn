@@ -99,6 +99,12 @@ export const users = sqliteTable(
     // keeps it stable if the unique constraint ever changes shape.
     index("users_handle_idx").on(t.handle),
     uniqueIndex("users_handle_unique").on(t.handle),
+    // At most one default profile per account. A writer that makes a profile
+    // the default clears the old one in the same batch, or does so only
+    // where the account has none.
+    uniqueIndex("users_one_default_per_account")
+      .on(t.accountId)
+      .where(sql`${t.isDefault} = 1`),
   ],
 );
 
@@ -750,11 +756,9 @@ export type NewAppEnrollment = typeof appEnrollments.$inferInsert;
 // the underlying account rows and this job. Idempotent re-requests return
 // the existing scheduledFor without inserting a duplicate.
 //
-// `*_done_at` columns track per-bridge fan-out completion. The hard-delete
-// sweeper refuses to fire until both are non-null AND `now >= hard_delete_at`.
-// Bridges not in this account's enrolled-apps set at soft-delete time are
-// pre-marked done (via a sentinel timestamp) so the gate doesn't block on
-// services the user never used.
+// `*_done_at` columns track the fan-out to each app; every account goes to
+// every app. The hard-delete sweeper refuses to fire until each is positive
+// AND `now >= hard_delete_at`.
 // ---------------------------------------------------------------------------
 
 export const deletionJobs = sqliteTable(
@@ -768,9 +772,14 @@ export const deletionJobs = sqliteTable(
     softDeletedAt: integer("soft_deleted_at").notNull(),
     /** Unix seconds. softDeletedAt + 7 days. */
     hardDeleteAt: integer("hard_delete_at").notNull(),
-    /** Unix seconds. Set by the Pulse purge bridge when its work is done. */
+    /**
+     * Unix seconds when the fan-out finished with Pulse: it answered, or the
+     * tier has no Pulse. A positive value is done; NULL is pending, and so is
+     * `-1`, which a row written before every account went to every app holds
+     * for an app the account was not enrolled in.
+     */
     pulseDoneAt: integer("pulse_done_at"),
-    /** Unix seconds. Set by the Zap purge bridge when its work is done. */
+    /** As `pulseDoneAt`, for Zap. */
     zapDoneAt: integer("zap_done_at"),
     /** Trigger source — "user_request" | "minor_detected" | "admin". */
     reason: text("reason").notNull().default("user_request"),
@@ -819,19 +828,59 @@ export const deletionJobs = sqliteTable(
      * column existed.
      */
     jobId: text("job_id"),
+    /**
+     * What each app reported when the fan-out finished with it, as JSON keyed
+     * by app: `{ "<app>": { "status": "done", "kept": [{ "what", "erasedOn",
+     * "requestUrl" }] } | { "status": "skipped" } }`. `kept` is the app's data
+     * that outlives the account, for the email after the hard delete. NULL
+     * until the first app finishes.
+     */
+    appOutcomes: text("app_outcomes"),
+    /**
+     * The person chose to delete everything: each app takes, for every action
+     * it has, the choice that erases their data soonest, and no organisation
+     * has a stored answer, so each passes to a successor where one exists.
+     */
+    deleteEverything: integer("delete_everything", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Unix seconds. The last time the fan-out failed to finish with an app of
+     * this job. The fan-out reads rows with no failure first, then the least
+     * recently failed, so a job that keeps failing never stands in front of
+     * the rest.
+     */
+    fanoutFailedAt: integer("fanout_failed_at"),
   },
   (t) => [
     // Sweeper scan: rows ready for hard-delete.
     index("deletion_jobs_hard_delete_idx").on(t.hardDeleteAt),
-    // Retry sweeper scan: pending fan-out.
-    index("deletion_jobs_pulse_pending_idx")
-      .on(t.softDeletedAt)
-      .where(sql`${t.pulseDoneAt} IS NULL`),
-    index("deletion_jobs_zap_pending_idx")
-      .on(t.softDeletedAt)
-      .where(sql`${t.zapDoneAt} IS NULL`),
+    // The fan-out's read order: never-failed jobs first, then by due date.
+    index("deletion_jobs_fanout_order_idx").on(t.fanoutFailedAt, t.hardDeleteAt),
   ],
 );
+
+/**
+ * osn-api's outbound ARC public keys. Each isolate mints its own key pair the
+ * first time it calls an app and writes the public half here before it signs
+ * anything; `GET /.well-known/arc-jwks.json` serves the unexpired rows, and
+ * apps verify osn-api's tokens against that set. Deleting a row revokes the
+ * key within the apps' five-minute key cache.
+ */
+export const arcOutboundKeys = sqliteTable(
+  "arc_outbound_keys",
+  {
+    /** The key id, `<uuid>.<expiry>.<mac>`, as the token header carries it. */
+    keyId: text("key_id").primaryKey(),
+    /** The public key, as a JWK JSON string. */
+    publicKeyJwk: text("public_key_jwk").notNull(),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+    /** Unix seconds. osn-api signs nothing with the key from this time. */
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [index("arc_outbound_keys_expires_idx").on(t.expiresAt)],
+);
+
+export type ArcOutboundKey = typeof arcOutboundKeys.$inferSelect;
 
 export type DeletionJob = typeof deletionJobs.$inferSelect;
 export type NewDeletionJob = typeof deletionJobs.$inferInsert;

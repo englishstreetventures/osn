@@ -1,6 +1,6 @@
 {
   "name": "@shared/osn-auth-client",
-  "version": "0.4.73",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -11,6 +11,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./arc": "./src/arc.ts",
     "./verify": "./src/verify.ts",
     "./verify-id-token": "./src/verify-id-token.ts",
     "./jwks-cache": "./src/jwks-cache.ts",

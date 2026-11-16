@@ -25,6 +25,7 @@ import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch } from "@shared/db-utils";
 import { createRateLimiter, isUnresolvedIp } from "@shared/rate-limit";
+import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -98,7 +99,9 @@ const provision = Effect.gen(function* () {
           accountId: DEV_PRINCIPAL.accountId,
           handle: DEV_PRINCIPAL.handle,
           displayName: DEV_PRINCIPAL.displayName,
-          isDefault: true,
+          // The account's default unless it already has one: an account holds
+          // one default profile, and a second is refused by its index.
+          isDefault: sql<boolean>`(NOT EXISTS (SELECT 1 FROM ${users} WHERE ${users.accountId} = ${DEV_PRINCIPAL.accountId} AND ${users.isDefault} = 1))`,
           createdAt: now,
           updatedAt: now,
         })

@@ -61,6 +61,7 @@ const deployedEnv = (osnEnv: string): Record<string, string> => ({
   OSN_JWT_PUBLIC_KEY: pubB64,
   OSN_SESSION_IP_PEPPER: "x".repeat(32),
   OSN_PAIRWISE_SALT: "p".repeat(32),
+  INTERNAL_SERVICE_SECRET: "i".repeat(32),
   OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
 });
 
@@ -286,6 +287,37 @@ describe("dev-login", () => {
 
     expect(await db.select().from(accounts)).toHaveLength(1);
     expect(await db.select().from(users)).toHaveLength(1);
+    expect(await db.select().from(organisations)).toHaveLength(1);
+  });
+
+  it("provisions the principal again beside another default profile of its account", async () => {
+    // An account holds one default profile. With the principal's profile and
+    // organisation deleted and another profile now the account's default, the
+    // next sign-in puts the principal back as a plain profile, not a second
+    // default the index refuses.
+    const { app, db } = await build(LOCAL);
+    await app.handle(devLogin(SECRET));
+    await db.delete(organisationMembers);
+    await db.delete(organisations);
+    await db.delete(users);
+    const now = new Date();
+    await db.insert(users).values({
+      id: "usr_dev_other0001",
+      accountId: DEV_PRINCIPAL.accountId,
+      handle: "dev_other",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const res = await app.handle(devLogin(SECRET));
+
+    expect(res.status).toBe(200);
+    const rows = await db.select({ id: users.id, isDefault: users.isDefault }).from(users);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.isDefault]))).toEqual({
+      usr_dev_other0001: true,
+      [DEV_PRINCIPAL.profileId]: false,
+    });
     expect(await db.select().from(organisations)).toHaveLength(1);
   });
 

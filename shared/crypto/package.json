@@ -1,6 +1,6 @@
 {
   "name": "@shared/crypto",
-  "version": "0.14.35",
+  "version": "0.15.1",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -11,6 +11,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./arc-kid": "./src/arc-kid.ts",
+    "./arc-metrics": "./src/arc-metrics.ts",
     "./jwk": "./src/jwk.ts",
     "./recovery": "./src/recovery.ts",
     "./testing": "./src/testing.ts",

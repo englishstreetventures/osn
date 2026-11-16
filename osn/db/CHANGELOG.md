@@ -1,5 +1,19 @@
 # @osn/db
 
+## 0.27.1
+
+### Patch Changes
+
+- 4deee2c: `POST /profiles/delete` answers with `default_profile_id`, the account's default profile once the deleted one is gone; when the deleted profile was the default, or the account had none, the oldest remaining profile becomes the default. A delete removes nothing when its profile is the account's last at the moment it writes, and an account keeps exactly one default whichever profile write lands first; `POST /profiles/:profileId/default` answers `400` when the profile is gone by the time it writes. `POST /token` refuses an empty or malformed `profile_id` as it refuses a profile the account does not own, before it reads the cookie, and counts it as `validation_error` on `osn.auth.token.refresh`. The dev-tier sign-in puts its fixed profile back as a plain profile where its account already has a default. `@osn/db` adds a partial unique index, `users_one_default_per_account`; its migration first leaves each account exactly one default, its oldest. The local seed leaves a seeded default plain where its account already has another; new export `seedProfileRows`. `@osn/client` names a profile in every `POST /token` grant from a page that holds an account: deleting the active profile makes active a profile the page holds a token for, or else that default, and an answer that names none leaves the deleted profile active, whose next grant is refused. A token a renewal or a switch brings back for a profile the page has deleted is not kept. New export: `decodeDeleteProfileResponse`.
+
+## 0.27.0
+
+### Minor Changes
+
+- 582649a: Account deletion reaches every app through one contract. `GET /account/deletion-preview` asks each app (`POST /internal/account-deletion-preview`) what it holds beside the organisations the account owns, and names any app it could not check; `DELETE /account` takes `delete_everything`, answers 409 `could_not_check` while an app cannot be asked and 409 `stale_choices` for an answer to an app action the fresh preview does not list, and stores app answers on the job. Once the window has passed, the fan-out sends every app (`POST /internal/account-deleted`) the person's answers to its actions and the delete-everything flag, and their email address only to an app whose entry says it receives it (neither Pulse nor Zap), for every account, a job written with the old `-1` marks included, and stores what each app kept in `deletion_jobs.app_outcomes`. The preview and the session end carry no account id. The fan-out reads each job once, marks a skipped app in its claim, counts an app done only when its own write set the mark, and stamps any job whose fan-out fails (`fanout_failed_at`), which is then read after the others. A deletion of everything stores no answers, and two triggers on `deletion_jobs` refuse the pair; the preview and erasure timeouts are part of the deletion's app settings; `OSN_DELETION_FANOUT_MAX_JOBS` caps the jobs and hard deletes per run; an app is skipped only on a local run without its URL or where `OSN_DELETION_ABSENT_APPS` declares it, a deployed tier with neither holds the deletion, and an app URL that is not `https:` (or, locally, `http:` to a loopback host) fails the boot. The soft delete ends the person's Pulse web sessions. `osn.account.deletion.fanout_oldest_age` records each app's oldest unfinished job.
+
+  osn-api publishes each isolate's outbound ARC public key in `arc_outbound_keys` and serves the set at `GET /.well-known/arc-jwks.json`; the registration it pushed to each app is gone. Each call signs with the key it published, and concurrent first calls share one write of it. A deployed osn-api needs `INTERNAL_SERVICE_SECRET`; when it is at least 32 characters long, a key derived from it MACs the outbound key ids. `@osn/client`'s deletion preview carries each app's actions and `could_not_check`, and `deleteAccount` takes `deleteEverything`.
+
 ## 0.26.0
 
 ### Minor Changes

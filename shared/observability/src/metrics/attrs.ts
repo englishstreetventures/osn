@@ -360,6 +360,10 @@ export type DeletionRequestResult =
   | "already_pending"
   | "step_up_failed"
   | "rate_limited"
+  // An app could not be asked what it holds; the delete waits for it.
+  | "could_not_check"
+  // An answer named an app action the fresh preview no longer lists.
+  | "stale_choices"
   | "error";
 
 /**

@@ -14,8 +14,9 @@
  * as the driver does, so code that looks for a batch takes the same path.
  * Imports no test framework: the D1 tier runs under `bun test`.
  *
- * The same file as `zap/api/tests/helpers/held-query.ts`: a test helper cannot
- * cross packages, so each keeps a copy, and a change to one goes to both.
+ * The same file as `zap/api/tests/helpers/held-query.ts` and `pulse/api/tests/helpers/held-query.ts`: a test
+ * helper cannot cross packages, so each keeps a copy, and a change to one goes
+ * to all three.
  */
 
 export interface Hold {

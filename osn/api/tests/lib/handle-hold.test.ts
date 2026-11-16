@@ -14,6 +14,7 @@ import { createProfileService } from "../../src/services/profile";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createTestLayer } from "../helpers/db";
+import { everyAppDone } from "../helpers/deletion-apps";
 import { latestLinkTo } from "../helpers/registration";
 
 let config: AuthConfig;
@@ -233,6 +234,7 @@ const erasedHolder = (sites: Sites) =>
       cancel: null,
       heldHandleDigest: createAuthService(config).heldHandleDigest,
     });
+    yield* everyAppDone(holder.accountId);
     const { db } = yield* Db;
     const [job] = yield* Effect.promise(() =>
       db.select().from(deletionJobs).where(eq(deletionJobs.accountId, holder.accountId)),

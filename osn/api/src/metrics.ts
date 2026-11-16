@@ -132,7 +132,9 @@ export const OSN_METRICS = {
   accountDeletionCompleted: "osn.account.deletion.completed",
   accountDeletionDuration: "osn.account.deletion.duration",
   accountDeletionFanout: "osn.account.deletion.fanout",
-  accountDeletionFanoutPendingAge: "osn.account.deletion.fanout_pending_age",
+  accountDeletionFanoutOldestAge: "osn.account.deletion.fanout_oldest_age",
+  accountDeletionAppPreview: "osn.account.deletion.app_preview",
+  accountDeletionAppSessionsEnded: "osn.account.deletion.app_sessions_ended",
   accountDeletionOrganisation: "osn.account.deletion.organisation",
   // App enrollments
   appEnrollmentJoined: "osn.account.app_enrollment.joined",
@@ -612,6 +614,16 @@ export const withSessionRotation = <A, E, Ctx>(
       Effect.sync(() => authSessionRotations.inc({ result: classifyError(e) })),
     ),
   );
+
+/**
+ * A token grant the route refuses for a `profile_id` that is no profile id,
+ * before it reads the cookie: counted on the refresh counter as
+ * `validation_error`. Nothing rotated, and no cookie was verified, so it is
+ * not `forbidden`, which counts refusals of a live cookie's grant.
+ */
+export const metricAuthTokenRefreshMalformed = (): void => {
+  authTokenRefresh.inc({ result: "validation_error" });
+};
 
 export const metricSessionReuseDetected = (): void => authSessionReuseDetected.inc({});
 
@@ -1339,7 +1351,12 @@ type DeletionCompletedAttrs = {
 };
 type DeletionDurationAttrs = { phase: DeletionPhase; result: "ok" | "error" };
 type DeletionFanoutAttrs = { service: DeletionFanoutService; result: DeletionFanoutResult };
-type DeletionFanoutPendingAgeAttrs = { service: DeletionFanoutService };
+type DeletionFanoutOldestAgeAttrs = { service: DeletionFanoutService };
+/** One app's answer to a deletion preview, or to the soft delete's session end. */
+type DeletionAppCallAttrs = {
+  service: DeletionFanoutService;
+  result: DeletionFanoutResult;
+};
 /**
  * What a hard delete did with an organisation the erased account owned:
  * passed it to another member, or deleted it.
@@ -1374,13 +1391,25 @@ const accountDeletionFanout = createCounter<DeletionFanoutAttrs>({
   unit: "{call}",
 });
 
-const accountDeletionFanoutPendingAge = createHistogram<DeletionFanoutPendingAgeAttrs>({
-  name: OSN_METRICS.accountDeletionFanoutPendingAge,
+const accountDeletionFanoutOldestAge = createHistogram<DeletionFanoutOldestAgeAttrs>({
+  name: OSN_METRICS.accountDeletionFanoutOldestAge,
   description:
-    "Age (seconds) of unfinished fan-out jobs at sweeper scan time — early warning for a stuck bridge",
+    "Seconds since the oldest deletion job an app has not finished became due, recorded per app on every fan-out sweep; 0 when none",
   unit: "s",
-  // Minute-scale buckets — these jobs are background-retried, not request-path latency.
-  boundaries: [60, 300, 900, 1800, 3600, 7200, 14400, 43200, 86400],
+  // Hours to the month a deletion must finish within.
+  boundaries: [0, 3600, 21600, 43200, 86400, 172800, 604800, 1209600, 2592000],
+});
+
+const accountDeletionAppPreview = createCounter<DeletionAppCallAttrs>({
+  name: OSN_METRICS.accountDeletionAppPreview,
+  description: "Each app's answer to a deletion preview: ok, timeout, error, or skipped",
+  unit: "{call}",
+});
+
+const accountDeletionAppSessionsEnded = createCounter<DeletionAppCallAttrs>({
+  name: OSN_METRICS.accountDeletionAppSessionsEnded,
+  description: "Each app's answer when the soft delete ends the person's sessions there",
+  unit: "{call}",
 });
 
 const accountDeletionOrganisation = createCounter<DeletionOrganisationAttrs>({
@@ -1423,10 +1452,20 @@ export const metricAccountDeletionFanout = (
   result: DeletionFanoutResult,
 ): void => accountDeletionFanout.inc({ service, result });
 
-export const metricAccountDeletionFanoutPendingAge = (
+export const metricAccountDeletionFanoutOldestAge = (
   service: DeletionFanoutService,
   ageSeconds: number,
-): void => accountDeletionFanoutPendingAge.record(ageSeconds, { service });
+): void => accountDeletionFanoutOldestAge.record(ageSeconds, { service });
+
+export const metricAccountDeletionAppPreview = (
+  service: DeletionFanoutService,
+  result: DeletionFanoutResult,
+): void => accountDeletionAppPreview.inc({ service, result });
+
+export const metricAccountDeletionAppSessionsEnded = (
+  service: DeletionFanoutService,
+  result: DeletionFanoutResult,
+): void => accountDeletionAppSessionsEnded.inc({ service, result });
 
 export const metricAccountDeletionOrganisation = (
   outcome: DeletionOrganisationOutcome,

@@ -23,7 +23,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -701,9 +701,17 @@ describe.skipIf(!TIER)(
         expect(withoutAlchemy(await snapshot(DB))).toEqual(before);
         const { ledger, judged } = await counted(DB, ZAP);
         record(ZAP, "countsAfterAnUnreadLedger", ledger);
-        expect(ledger).toMatchObject({ table: "__alchemy_migrations", rows: 0, wranglerRows: 4 });
+        // Every migration of zap's chain was applied by Wrangler.
+        const zapChain = readdirSync(ZAP.history[0]!).filter((file) =>
+          file.endsWith(".sql"),
+        ).length;
+        expect(ledger).toMatchObject({
+          table: "__alchemy_migrations",
+          rows: 0,
+          wranglerRows: zapChain,
+        });
         expect(judged.refusals.join("\n")).toContain(
-          "zap-db-prod's __alchemy_migrations is empty beside 4 rows of d1_migrations",
+          `zap-db-prod's __alchemy_migrations is empty beside ${zapChain} rows of d1_migrations`,
         );
       } finally {
         await local.dispose();

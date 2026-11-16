@@ -16,6 +16,86 @@
   },
   "openapi": "3.1.2",
   "paths": {
+    "/.well-known/arc-jwks.json": {
+      "get": {
+        "operationId": "getArcJwks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "keys": {
+                      "items": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "alg": {
+                            "const": "ES256",
+                            "type": "string"
+                          },
+                          "crv": {
+                            "type": "string"
+                          },
+                          "kid": {
+                            "type": "string"
+                          },
+                          "kty": {
+                            "type": "string"
+                          },
+                          "use": {
+                            "const": "sig",
+                            "type": "string"
+                          },
+                          "x": {
+                            "type": "string"
+                          },
+                          "y": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kid",
+                          "alg",
+                          "use"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "keys"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 500"
+          }
+        }
+      }
+    },
     "/.well-known/jwks.json": {
       "get": {
         "operationId": "getJwks",
@@ -222,6 +302,9 @@
                     "minLength": 1,
                     "type": "string"
                   },
+                  "delete_everything": {
+                    "type": "boolean"
+                  },
                   "step_up_token": {
                     "type": "string"
                   }
@@ -265,6 +348,9 @@
                     "minLength": 1,
                     "type": "string"
                   },
+                  "delete_everything": {
+                    "type": "boolean"
+                  },
                   "step_up_token": {
                     "type": "string"
                   }
@@ -307,6 +393,9 @@
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "delete_everything": {
+                    "type": "boolean"
                   },
                   "step_up_token": {
                     "type": "string"
@@ -429,6 +518,12 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "could_not_check": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
                     "error": {
                       "type": "string"
                     },
@@ -445,34 +540,32 @@
                             "items": {
                               "properties": {
                                 "choice": {
-                                  "enum": [
-                                    "transfer",
-                                    "successor",
-                                    "delete"
-                                  ],
                                   "type": "string"
                                 },
                                 "description": {
                                   "type": "string"
+                                },
+                                "erased_on": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
                                 }
                               },
                               "required": [
                                 "choice",
-                                "description"
+                                "description",
+                                "erased_on"
                               ],
                               "type": "object"
                             },
                             "type": "array"
                           },
                           "default_choice": {
-                            "const": "transfer",
                             "type": [
                               "string",
                               "null"
                             ]
-                          },
-                          "erased_on": {
-                            "type": "null"
                           },
                           "id": {
                             "type": "string"
@@ -484,7 +577,10 @@
                             "type": "string"
                           },
                           "link": {
-                            "type": "null"
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "organisation": {
                             "properties": {
@@ -546,10 +642,7 @@
                           "label",
                           "choices",
                           "default_choice",
-                          "erased_on",
-                          "link",
-                          "organisation",
-                          "successor"
+                          "link"
                         ],
                         "type": "object"
                       },
@@ -624,6 +717,12 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "could_not_check": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
                     "open_actions": {
                       "items": {
                         "properties": {
@@ -634,34 +733,32 @@
                             "items": {
                               "properties": {
                                 "choice": {
-                                  "enum": [
-                                    "transfer",
-                                    "successor",
-                                    "delete"
-                                  ],
                                   "type": "string"
                                 },
                                 "description": {
                                   "type": "string"
+                                },
+                                "erased_on": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
                                 }
                               },
                               "required": [
                                 "choice",
-                                "description"
+                                "description",
+                                "erased_on"
                               ],
                               "type": "object"
                             },
                             "type": "array"
                           },
                           "default_choice": {
-                            "const": "transfer",
                             "type": [
                               "string",
                               "null"
                             ]
-                          },
-                          "erased_on": {
-                            "type": "null"
                           },
                           "id": {
                             "type": "string"
@@ -673,7 +770,10 @@
                             "type": "string"
                           },
                           "link": {
-                            "type": "null"
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "organisation": {
                             "properties": {
@@ -735,10 +835,7 @@
                           "label",
                           "choices",
                           "default_choice",
-                          "erased_on",
-                          "link",
-                          "organisation",
-                          "successor"
+                          "link"
                         ],
                         "type": "object"
                       },
@@ -746,7 +843,8 @@
                     }
                   },
                   "required": [
-                    "open_actions"
+                    "open_actions",
+                    "could_not_check"
                   ],
                   "type": "object"
                 }
@@ -11253,12 +11351,16 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "default_profile_id": {
+                      "type": "string"
+                    },
                     "deleted": {
                       "type": "boolean"
                     }
                   },
                   "required": [
-                    "deleted"
+                    "deleted",
+                    "default_profile_id"
                   ],
                   "type": "object"
                 }
@@ -15174,7 +15276,6 @@
                     "type": "string"
                   },
                   "profile_id": {
-                    "pattern": "^usr_[a-z0-9_]{1,64}$",
                     "type": "string"
                   }
                 },
@@ -15191,7 +15292,6 @@
                     "type": "string"
                   },
                   "profile_id": {
-                    "pattern": "^usr_[a-z0-9_]{1,64}$",
                     "type": "string"
                   }
                 },
@@ -15208,7 +15308,6 @@
                     "type": "string"
                   },
                   "profile_id": {
-                    "pattern": "^usr_[a-z0-9_]{1,64}$",
                     "type": "string"
                   }
                 },

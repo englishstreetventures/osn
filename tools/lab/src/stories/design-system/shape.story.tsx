@@ -259,7 +259,8 @@ export const Motion: Story<MotionArgs> = {
             <Mono>slow</Mono> for something that moves across the screen, <Mono>exit</Mono> for an
             overlay closing. <Mono>ease-out</Mono> is for things arriving; <Mono>ease-in-out</Mono>{" "}
             for things that go somewhere and stay there; <Mono>ease-exit</Mono> for an overlay
-            closing. Custom properties, read inside a component's own <Mono>transition</Mono>.
+            closing; <Mono>ease-sheet</Mono> for a sheet rising and leaving. Custom properties, read
+            inside a component's own <Mono>transition</Mono>.
           </>
         }
       >

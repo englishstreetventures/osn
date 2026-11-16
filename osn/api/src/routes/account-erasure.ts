@@ -10,6 +10,7 @@ import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal, resolveAccountWindowPrincipal } from "../lib/auth-derive";
+import { forkBackground } from "../lib/background";
 import type { CookieSessionConfig } from "../lib/cookie-session";
 import { createLiveSessionCheck } from "../lib/live-session";
 import { publicError } from "../lib/public-error";
@@ -18,6 +19,14 @@ import { metricAccountDeletionRequested, metricAuthRateLimited } from "../metric
 import * as accountErasure from "../services/account-erasure";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { isAuthError } from "../services/auth/errors";
+import {
+  endAppSessions,
+  NO_DELETION_APPS,
+  previewDeletionApps,
+  type AppOpenAction,
+  type AppPreview,
+  type DeletionAppsConfig,
+} from "../services/deletion-apps";
 import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   accountDeletionBadRequestResponse,
@@ -70,6 +79,8 @@ export function createAccountErasureRoutes(
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
+  /** Where each app the deletion reaches is on this tier. */
+  deletionApps: DeletionAppsConfig = NO_DELETION_APPS,
 ) {
   const auth = createAuthService(authConfig);
   const rl = rateLimiters;
@@ -131,9 +142,9 @@ export function createAccountErasureRoutes(
           : choice === "successor"
             ? "The member you name becomes the owner."
             : "The organisation and its memberships are deleted.",
+      erased_on: null,
     })),
     default_choice: accountErasure.organisationDefaultChoice(org),
-    erased_on: null,
     link: null,
     organisation: { id: org.orgId, handle: org.handle, name: org.name },
     successor: org.successor
@@ -145,6 +156,60 @@ export function createAccountErasureRoutes(
         }
       : null,
   });
+
+  /** An app's open action, in the route's field names. */
+  const toAppOpenAction = (app: AppPreview["app"], action: AppOpenAction) => ({
+    id: action.id,
+    app,
+    kind: action.kind,
+    label: action.label,
+    choices: action.choices.map((choice) => ({
+      choice: choice.choice,
+      description: choice.description,
+      erased_on: choice.erasedOn,
+    })),
+    default_choice: action.defaultChoice,
+    link: action.link,
+  });
+
+  /** The open actions and unreachable apps of a fresh preview, as the routes answer them. */
+  const previewBody = (
+    owned: ReadonlyArray<accountErasure.OwnedOrganisation>,
+    apps: ReadonlyArray<AppPreview>,
+  ) => ({
+    open_actions: [
+      ...owned.map(toOpenAction),
+      ...apps.flatMap((preview) =>
+        preview.status === "checked"
+          ? preview.actions.map((action) => toAppOpenAction(preview.app, action))
+          : [],
+      ),
+    ],
+    could_not_check: apps.flatMap((preview) =>
+      preview.status === "could_not_check" ? [preview.app] : [],
+    ),
+  });
+
+  /**
+   * The account's organisations and every app's open actions, as if the
+   * deletion were requested now. The organisations are read while the
+   * profile ids are read and the apps asked.
+   */
+  const preview = (accountId: string) =>
+    Effect.all(
+      [
+        accountErasure.listOwnedOrganisations(accountId),
+        accountErasure.profileIdsOf(accountId).pipe(
+          Effect.flatMap((profileIds) =>
+            previewDeletionApps(deletionApps, {
+              profileIds,
+              deletesAt: Math.floor(Date.now() / 1_000) + accountErasure.DELETION_WINDOW_SECONDS,
+            }),
+          ),
+        ),
+      ],
+      { concurrency: "unbounded" },
+    ).pipe(Effect.withSpan("account.deletion.preview"));
 
   return (
     new Elysia({ prefix: "/account" })
@@ -180,12 +245,8 @@ export function createAccountErasureRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const owned = await run(
-              accountErasure
-                .listOwnedOrganisations(profile.accountId)
-                .pipe(Effect.withSpan("account.deletion.preview")),
-            );
-            return { open_actions: owned.map(toOpenAction) };
+            const [owned, apps] = await run(preview(profile.accountId));
+            return previewBody(owned, apps);
           } catch (e) {
             const { status, body: errBody } = handleError(e);
             set.status = status;
@@ -267,6 +328,15 @@ export function createAccountErasureRoutes(
               return { error: "handle_mismatch" };
             }
 
+            // Either answers or "delete everything", never both: refused
+            // before any app is asked anything.
+            const deleteEverything = body.delete_everything === true;
+            if (deleteEverything && (body.choices ?? []).length > 0) {
+              set.status = 400;
+              metricAccountDeletionRequested("error");
+              return { error: "choices_with_delete_everything" };
+            }
+
             // Before the step-up token is read: one minted while the session
             // was live is not spent once it has ended. The session found here
             // is the device the soft delete keeps signed in.
@@ -282,29 +352,56 @@ export function createAccountErasureRoutes(
               return live.refusal;
             }
 
-            // The owned organisations, before the step-up token is read, so a
-            // missing or refused answer spends nothing.
-            const owned = await run(accountErasure.listOwnedOrganisations(profile.accountId));
-            const checked = await run(
-              accountErasure.checkErasureChoices(
-                profile.accountId,
-                owned,
-                (body.choices ?? []).map((c) => ({
-                  action: c.action,
-                  choice: c.choice,
-                  successorProfileId: c.successor_profile_id,
-                })),
-              ),
-            );
-            if (checked.kind === "invalid") {
-              set.status = 400;
-              metricAccountDeletionRequested("error");
-              return { error: "invalid_choice", action: checked.action };
-            }
-            if (checked.kind === "open") {
+            // A fresh preview of the organisations and every app, before the
+            // step-up token is read, so a refusal here spends nothing. An app
+            // that cannot be asked holds the deletion until it answers.
+            const [owned, apps] = await run(preview(profile.accountId));
+            const fresh = previewBody(owned, apps);
+            if (fresh.could_not_check.length > 0) {
               set.status = 409;
-              metricAccountDeletionRequested("error");
-              return { error: "open_actions", open_actions: checked.open.map(toOpenAction) };
+              metricAccountDeletionRequested("could_not_check");
+              return { error: "could_not_check", ...fresh };
+            }
+
+            // With "delete everything" nothing is stored: each app erases the
+            // person's data soonest, and each organisation passes to a
+            // successor where one exists.
+            let choices: accountErasure.ErasureChoices = {};
+            if (!deleteEverything) {
+              const checked = await run(
+                accountErasure.checkErasureChoices(
+                  profile.accountId,
+                  owned,
+                  apps,
+                  (body.choices ?? []).map((c) => ({
+                    action: c.action,
+                    choice: c.choice,
+                    successorProfileId: c.successor_profile_id,
+                  })),
+                ),
+              );
+              if (checked.kind === "invalid") {
+                set.status = 400;
+                metricAccountDeletionRequested("error");
+                return { error: "invalid_choice", action: checked.action };
+              }
+              if (checked.kind === "stale") {
+                set.status = 409;
+                metricAccountDeletionRequested("stale_choices");
+                return { error: "stale_choices", ...fresh };
+              }
+              if (checked.kind === "open") {
+                set.status = 409;
+                metricAccountDeletionRequested("error");
+                return {
+                  error: "open_actions",
+                  open_actions: [
+                    ...checked.organisations.map(toOpenAction),
+                    ...checked.appActions.map(({ app, action }) => toAppOpenAction(app, action)),
+                  ],
+                };
+              }
+              choices = checked.choices;
             }
 
             const stepUpToken = body.step_up_token ?? headers["x-step-up-token"];
@@ -330,16 +427,20 @@ export function createAccountErasureRoutes(
                 accountId: profile.accountId,
                 cancel: { sessionId: live.sessionHash, familyId: live.familyId },
                 heldHandleDigest: auth.heldHandleDigest,
-                choices: checked.choices,
+                choices,
+                deleteEverything,
               }),
             );
 
             metricAccountDeletionRequested(result.newlyScheduled ? "ok" : "already_pending");
 
-            // No fan-out here: cross-service purges only fire from
-            // the sweeper AFTER the 7-day grace window elapses, so a
-            // restore during the window loses nothing on Pulse / Zap.
-            // See `runFanOutRetrySweep` in services/account-erasure.ts.
+            // No erasure in any app here: that waits for the window to pass
+            // (`runFanOutRetrySweep`), so a cancel loses nothing. The
+            // person's own sessions in an app that keeps them end now, in the
+            // background; the app's erasure deletes any that survive.
+            if (result.newlyScheduled) {
+              await run(forkBackground(endAppSessions(deletionApps, result.profileIds)));
+            }
 
             set.status = 202;
             return {
@@ -357,8 +458,14 @@ export function createAccountErasureRoutes(
           body: t.Object({
             confirm_handle: t.String({ minLength: 1, maxLength: 64 }),
             step_up_token: t.Optional(t.String()),
+            // Delete everything: every app erases the person's data soonest,
+            // and each organisation passes to a successor where one exists.
+            // Refused together with `choices`.
+            delete_everything: t.Optional(t.Boolean()),
             // Answers to the open actions `GET /account/deletion-preview`
-            // lists, by action id. An id the account does not have is ignored.
+            // lists, by action id. An organisation id the account does not
+            // have is ignored; an app action the fresh preview does not list
+            // is refused (409 `stale_choices`).
             choices: t.Optional(
               t.Array(
                 t.Object({
@@ -376,11 +483,13 @@ export function createAccountErasureRoutes(
             // closes at `scheduled_for`.
             202: accountDeletionScheduledResponse,
             // `handle_mismatch` — the typed confirmation did not match —
-            // `invalid_choice`, plus whatever `publicError` maps a service
-            // failure to.
+            // `invalid_choice`, `choices_with_delete_everything`, plus
+            // whatever `publicError` maps a service failure to.
             400: accountDeletionBadRequestResponse,
             401: errorResponse,
-            // `session_stale`, or `open_actions` waiting for an answer.
+            // `session_stale`; `could_not_check` while an app cannot be asked;
+            // `stale_choices` when an answer names an app action the fresh
+            // preview does not list; `open_actions` waiting for an answer.
             409: accountDeletionConflictResponse,
             // Missing or rejected step-up. The only status in this group that
             // carries a `detail`; see `stepUpRequiredResponse`.

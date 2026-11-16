@@ -19,8 +19,9 @@ import "./test-support/tailwind.css";
 
 /**
  * Pictures of each overlay opening and closing, for a person comparing motion
- * before and after a change: `Dialog` as a card and as a sheet, the sheet again
- * with both scale tokens at 1 (the fade with no scale an app opts into),
+ * before and after a change: `Dialog` as a card and as a sheet (which slides
+ * at 390px and is the card at 1440px), the card again with both scale tokens
+ * at 1 (the fade with no scale an app opts into),
  * `DropdownMenu` in both looks, `Popover`, `Tooltip` and `Modal`, at 390 and
  * 1440px. Each run is held still through the
  * Web Animations API at 0, 25, 50, 75 and 100% of its longest animation and
@@ -201,10 +202,21 @@ const SUBJECTS: Subject[] = [
     close: () => userEvent.keyboard("{Escape}"),
   },
   {
-    // The opt-in fade with no scale: both scale tokens at 1.
-    name: "dialog-sheet-fade",
-    view: stage(() => <SheetDialog />),
-    open: () => userEvent.click(byName("Open sheet")()),
+    // The opt-in fade with no scale: both scale tokens at 1. On the card, since
+    // a sheet below `md` slides whatever the scale tokens hold.
+    name: "dialog-fade",
+    view: stage(() => (
+      <Dialog>
+        <DialogTrigger>Open dialog</DialogTrigger>
+        <DialogContent>
+          <div style={{ padding: "24px" }}>
+            <DialogTitle>A dialog</DialogTitle>
+            <p>Its body.</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )),
+    open: () => userEvent.click(byName("Open dialog")()),
     close: () => userEvent.keyboard("{Escape}"),
     tokens: { "--ui-scale-enter": "1", "--ui-scale-exit": "1" },
   },

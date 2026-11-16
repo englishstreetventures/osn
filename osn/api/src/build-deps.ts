@@ -26,6 +26,7 @@ import {
   emulatedIssuerFetch,
 } from "./services/auth/email-verification-network";
 import { cireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
+import { deletionAppsConfig } from "./services/deletion-apps";
 
 export const SERVICE_NAME = "osn-api";
 
@@ -78,6 +79,12 @@ export type EnvVars = {
   readonly CIRE_INTERNAL_REVOKE_URL?: string;
   readonly CIRE_INTERNAL_REVOKE_SECRET?: string;
   readonly CIRE_OIDC_CLIENT_ID?: string;
+  // Where the account deletion reaches each app, and which apps this tier does
+  // not run. Read by `deletionAppsConfig` (services/deletion-apps.ts), which
+  // refuses the boot on a name that is no app.
+  readonly PULSE_API_URL?: string;
+  readonly ZAP_API_URL?: string;
+  readonly OSN_DELETION_ABSENT_APPS?: string;
 };
 
 const isNonLocal = (env: EnvVars): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
@@ -609,6 +616,9 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     // both sides hold it the revoke is skipped (osn-api unset) or refused (cire
     // unset), each logged. Never a reason to refuse the boot.
     cireOrganiserRevoke: cireOrganiserRevokeConfig(env),
+    // Throws on a deployed tier without INTERNAL_SERVICE_SECRET, or a name in
+    // OSN_DELETION_ABSENT_APPS that is no app: the Worker answers 503.
+    deletionApps: deletionAppsConfig(env),
     // AOT and the observability plugin co-vary by runtime: both ON for Bun,
     // both OFF for workerd (AOT's `new Function` is forbidden there). The
     // `includeObservabilityPlugin` flag is the single Bun-vs-Workers

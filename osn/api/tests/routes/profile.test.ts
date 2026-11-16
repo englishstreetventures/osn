@@ -113,8 +113,14 @@ describe("profile routes", () => {
         }),
       );
       expect(res.status).toBe(200);
-      const json = (await res.json()) as { deleted: boolean };
+      const json = (await res.json()) as { deleted: boolean; default_profile_id: string };
       expect(json.deleted).toBe(true);
+      // The account's default once the deleted profile is gone: the one it
+      // registered with, which the access token was issued for.
+      const registered = (
+        JSON.parse(Buffer.from(at.split(".")[1]!, "base64url").toString()) as { sub: string }
+      ).sub;
+      expect(json.default_profile_id).toBe(registered);
     });
 
     it("returns 400 for deleting the last profile", async () => {

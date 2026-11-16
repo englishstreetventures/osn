@@ -1,7 +1,8 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CookieSessionConfig } from "../../src/lib/cookie-session";
+import * as metrics from "../../src/metrics";
 import type { AuthRouteContext } from "../../src/routes/auth/context";
 import { DEV_PRINCIPAL } from "../../src/routes/auth/dev-login";
 import { createTokenRoutes } from "../../src/routes/auth/tokens";
@@ -46,6 +47,10 @@ function grant(app: ReturnType<typeof createTokenRoutes>, fields: Record<string,
   );
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("POST /token profile_id", () => {
   it("hands the named profile to the grant", async () => {
     const { app, grants } = recordingApp();
@@ -77,13 +82,30 @@ describe("POST /token profile_id", () => {
     expect(grants).toEqual([["ses_live", undefined]]);
   });
 
-  it("refuses a value that is not a profile id, before any grant", async () => {
-    const { app, grants } = recordingApp();
+  // A page whose active profile id is empty sends it as `profile_id=`. Read as
+  // "none", the grant would mint the cookie account's default profile for a
+  // page that may hold another account. Refused like a grant naming a profile
+  // the account does not own, the marker goes with it, so the next cold load
+  // does not take up the cookie's account either.
+  it.each([
+    ["an empty profile_id", ""],
+    ["a value that is not a profile id", "usr_0123456789ab' OR 1=1"],
+  ])(
+    "refuses %s before any grant, and retracts the marker but not the session cookie",
+    async (_name, profileId) => {
+      const { app, grants } = recordingApp();
+      const counted = vi.spyOn(metrics, "metricAuthTokenRefreshMalformed");
 
-    const res = await grant(app, { profile_id: "usr_0123456789ab' OR 1=1" });
+      const res = await grant(app, { profile_id: profileId });
 
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
-    expect(grants).toEqual([]);
-  });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error?: string }).error).toBe("invalid_grant");
+      const cookies = res.headers.getSetCookie();
+      expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+      expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(false);
+      expect(grants).toEqual([]);
+      // Counted apart from a live cookie's refused grant: no cookie was read.
+      expect(counted).toHaveBeenCalledTimes(1);
+    },
+  );
 });

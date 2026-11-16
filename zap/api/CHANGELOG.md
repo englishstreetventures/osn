@@ -1,5 +1,27 @@
 # @zap/api
 
+## 0.10.1
+
+### Patch Changes
+
+- @shared/crypto@0.15.1
+  - @shared/osn-auth-client@0.5.1
+
+## 0.10.0
+
+### Minor Changes
+
+- 582649a: Pulse and Zap take part in account deletion. Pulse's preview lists the upcoming events a person hosts, one action per series and per other event (one for all past 100), with the 14-day cancellation as the default; its erasure takes the answers and `deleteEverything`, keeps a cancelled event 14 days for its guests or deletes it, deletes the person's series and web sessions, and answers what it kept. `POST /internal/account-sessions/revoke` ends a person's Pulse web sessions. Zap's preview lists nothing; its erasure removes the person's memberships, deletes a chat left with no one, replaces their sender id on what stays with a deletion sentinel and wipes the body of a plain-text message they wrote, recording each account in `zap_account_purges`. Each erasure checks state as each write runs and answers a call that overlaps another with the same kept list; the preview and session-end bodies carry no account id, and the erasure body no email address. Both verify osn-api's ARC tokens against the keys osn-api publishes, treating an `INTERNAL_SERVICE_SECRET` under 32 characters as absent; Pulse's key registry and register-service routes are gone, and Zap's registry refuses keys for osn-api.
+
+### Patch Changes
+
+- Updated dependencies [582649a]
+- Updated dependencies [582649a]
+  - @zap/db@0.7.0
+  - @shared/osn-auth-client@0.5.0
+  - @shared/crypto@0.15.0
+  - @shared/observability@0.25.1
+
 ## 0.9.58
 
 ### Patch Changes
