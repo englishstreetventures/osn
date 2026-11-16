@@ -114,14 +114,28 @@ const json = (body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
+/** The events, the seats, and a holder write answered as the API stores it. */
 function answering(seats: HostSeat[]) {
   authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url.endsWith("/events")) return json(EVENTS);
     if (url.endsWith("/hosts"))
       return json({ hosts: seats, total: seats.length, peopleLimit: null });
+    const holder = /\/tasks\/([^/]+)\/assignees\/([^/]+)$/.exec(url);
+    if (holder) {
+      const task = TASKS.find((t) => t.id === holder[1])!;
+      return json({
+        task: { ...task, assigneeHostIds: init?.method === "PUT" ? [holder[2]] : [] },
+      });
+    }
     throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
   });
 }
+
+/** The holder writes sent so far, as "PUT whost_ben". */
+const writes = () =>
+  authFetch.mock.calls
+    .filter(([url]) => String(url).includes("/assignees/"))
+    .map(([url, init]) => `${(init as RequestInit).method} ${String(url).split("/").pop()}`);
 
 function checklist() {
   setCachedTasks("wed_1", readTaskList("wed_1", { tasks: TASKS, viewerHostId: "whost_ana" }));
@@ -272,6 +286,58 @@ describe("a row's popover opens with nothing focused or highlighted", () => {
     expect(search.getAttribute("aria-activedescendant")).toBe(options[0]!.id);
   });
 
+  it("keys on the panel: a modifier or a letter with no search stays put, End goes to the last person, Space toggles the one the pointer lit", async () => {
+    await page.viewport(1280, 800);
+    checklist();
+    const trigger = await screen.findByRole("button", { name: `Assign people to ${TITLE}` });
+    await userEvent.click(trigger);
+    let dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    await waitFor(() => expect(within(dialog).queryAllByRole("option")).toHaveLength(4));
+    await settled(dialog);
+
+    // None of these is aimed at the list: the panel keeps the focus.
+    await userEvent.keyboard("{Shift}");
+    await userEvent.keyboard("{Control>}a{/Control}");
+    await userEvent.keyboard("g");
+    expectPanelFocused(dialog);
+    expectNobodyLit(dialog);
+
+    // End moves in and onto the last person.
+    await userEvent.keyboard("{End}");
+    const listbox = within(dialog).getByRole("listbox", { name: "People" });
+    expect(document.activeElement).toBe(listbox);
+    expect(listbox.getAttribute("aria-activedescendant")).toBe(
+      within(listbox).getAllByRole("option").at(-1)!.id,
+    );
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(dialog.isConnected).toBe(false));
+
+    // Opened again, the pointer lights Ben, and Space on the panel puts him on.
+    await userEvent.click(trigger);
+    dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    await waitFor(() => expect(within(dialog).queryAllByRole("option")).toHaveLength(4));
+    await settled(dialog);
+    expectPanelFocused(dialog);
+    await userEvent.hover(within(dialog).getAllByRole("option")[1]!);
+    await userEvent.keyboard(" ");
+    await waitFor(() => expect(writes()).toEqual(["PUT whost_ben"]));
+  });
+
+  it("over a search, a capital letter typed on the panel goes into the search as typed", async () => {
+    await page.viewport(1280, 800);
+    answering(EIGHT);
+    checklist();
+    await userEvent.click(await screen.findByRole("button", { name: `Assign people to ${TITLE}` }));
+    const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    const search = await within(dialog).findByRole("combobox", { name: "Search people" });
+    await settled(dialog);
+    await userEvent.keyboard("{Shift}");
+    expectPanelFocused(dialog);
+    await userEvent.keyboard("{Shift>}G{/Shift}");
+    expect(document.activeElement).toBe(search);
+    await waitFor(() => expect((search as HTMLInputElement).value).toBe("G"));
+  });
+
   it("a hover lights the person under the pointer, and only then", async () => {
     await page.viewport(1280, 800);
     checklist();
@@ -361,13 +427,20 @@ describe("the droplet, caught mid-flight", () => {
     await waitFor(() => expect(painted(dialog).scale).toBeGreaterThan(0.65), { interval: 16 });
     const caught = painted(dialog).scale;
     expect(caught).toBeLessThan(0.97);
+    // Still rounder than the panel's 10px: the drop's corners are settling.
+    expect(Number.parseFloat(getComputedStyle(dialog).borderTopLeftRadius)).toBeGreaterThan(10.5);
     await userEvent.keyboard("{Escape}");
+    await frame();
+    const radii = [Number.parseFloat(getComputedStyle(dialog).borderTopLeftRadius)];
     const closing = await scales(dialog, 300);
     expect(closing.length).toBeGreaterThan(3);
     // Never back up to full size: it goes on from where it was.
     expect(Math.max(...closing)).toBeLessThanOrEqual(caught + 0.05);
     expect(closing.at(-1)!).toBeLessThan(closing[0]!);
     expect(dialog.isConnected).toBe(true);
+
+    // Its corners went on from where they were, rather than jumping to 10px.
+    expect(radii.at(0)!).toBeGreaterThan(10.5);
 
     // Opened again before it has gone: it grows from where it is, not from a
     // drop at the trigger.
@@ -377,6 +450,31 @@ describe("the droplet, caught mid-flight", () => {
     expect(dialog.getAttribute("data-expanded")).toBe("");
     expect(Math.min(...reopening)).toBeGreaterThanOrEqual(before - 0.05);
     expect(reopening.at(-1)!).toBeGreaterThan(before);
+  });
+
+  it("caught before it reaches 60%, eases to 60% as it fades, never jumping", async () => {
+    await page.viewport(1280, 800);
+    document.documentElement.style.setProperty("--motion-scale", "20");
+    checklist();
+    await userEvent.click(await screen.findByRole("button", { name: `Assign people to ${TITLE}` }));
+    const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    await waitFor(() => expect(painted(dialog).scale).toBeGreaterThan(0.2), { interval: 16 });
+    const caught = painted(dialog).scale;
+    expect(caught).toBeLessThan(0.5);
+    await userEvent.keyboard("{Escape}");
+    const opacities: number[] = [];
+    const seen: number[] = [];
+    const end = performance.now() + 300;
+    while (performance.now() < end && dialog.isConnected) {
+      await frame();
+      if (!dialog.isConnected) break;
+      seen.push(painted(dialog).scale);
+      opacities.push(painted(dialog).opacity);
+    }
+    expect(seen.length).toBeGreaterThan(3);
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(caught - 0.05);
+    expect(Math.max(...seen)).toBeLessThanOrEqual(0.6 + 0.01);
+    expect(opacities.at(-1)!).toBeLessThan(opacities[0]!);
   });
 
   it("simply appears and goes for a reader who asked for no motion", async () => {

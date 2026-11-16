@@ -1098,7 +1098,7 @@
  * their own first frame. It arrives from `@starting-style`; each property
  * keeps its own easing — the scale springs, the corners only ease, and the
  * panel is opaque by 30% of the run. Leaving, it shrinks to 60% and fades, on
- * the fast rung.
+ * the fast rung, its corners going on to 10px from wherever they were.
  *
  * Kobalte keeps a closing popover mounted only while a CSS *animation* runs,
  * and only one whose name differs from the last that started on it, so two
@@ -1154,16 +1154,22 @@
       opacity calc(var(--dur-slow) * 0.3) var(--ease-spring),
       border-radius var(--dur-slow) var(--ease-out);
 
+    /* On the open state, so the drop's round corners outrank the call
+       site's `rounded-md`, a single class the cascade would otherwise let
+       win the starting style too. */
     @starting-style {
-      opacity: 0;
-      transform: scale(0.12);
-      border-radius: var(--radius-pill);
+      &[data-expanded] {
+        opacity: 0;
+        transform: scale(0.12);
+        border-radius: var(--radius-pill);
+      }
     }
 
     &[data-closed] {
       transition:
         transform var(--dur-fast) var(--ease-in-out),
-        opacity var(--dur-fast) var(--ease-in-out);
+        opacity var(--dur-fast) var(--ease-in-out),
+        border-radius var(--dur-fast) var(--ease-in-out);
     }
   }
 }

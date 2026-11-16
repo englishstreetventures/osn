@@ -852,7 +852,9 @@ panel's size, springs out to the panel (`transform` on `--dur-slow` and
 to the popover's 10px (`--ease-out`), and the contents fade in once there is
 room. `transform-origin` is Kobalte's `--kb-popover-content-transform-origin`,
 the panel's corner at the trigger whichever side it opened on. The exit is a
-quick shrink to 60% and a fade, on `--dur-fast` and `--ease-in-out`.
+quick shrink to 60% and a fade, its corners easing to 10px, on `--dur-fast`
+and `--ease-in-out`; a close caught while the panel is still under 60% eases
+to 60% as it fades.
 
 The panel moves on transitions from `@starting-style`, never keyframes, so it
 can be caught: closed while it is still growing it goes on from the size it
@@ -1500,10 +1502,11 @@ reader is listed first, and a highlight there on opening would read as already
 chosen, one stray Enter from putting them on the task. The highlight follows
 the pointer, and the keys bring it in: from the panel, Tab moves into the
 search or the list on nobody; an arrow, Home or End moves in and onto a person
-(ArrowDown and Home the first, ArrowUp and End the last); Enter and Space move
-in and toggle whoever the pointer left highlighted, else nobody; and with a
-search, a key that types goes into the search. Typing aims the highlight at
-the first match, so Enter takes it; an emptied search aims at nobody.
+(ArrowDown and Home the first, ArrowUp and End the last); Enter moves in and
+toggles whoever the pointer left highlighted, else nobody, and Space does the
+same on a list with no search. With a search, a key that types, Space
+included, goes into the search. Typing aims the highlight at the first match,
+so Enter takes it; a search emptied or left blank aims at nobody.
 Shift+Tab on the panel, and Tab or Shift+Tab inside it, close the popover.
 
 A popover focuses as it opens without scrolling, and

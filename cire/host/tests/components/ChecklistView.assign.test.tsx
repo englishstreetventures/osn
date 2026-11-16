@@ -1099,27 +1099,9 @@ describe("the popover from the keyboard", () => {
     expect(activeName(search, listbox)).toBe(listed(listbox)[0]);
     fireEvent.input(search, { target: { value: "moore" } });
     expect(activeName(search, listbox)).toBe("Alex Moore");
-    // An emptied search aims at nobody.
-    fireEvent.input(search, { target: { value: "" } });
+    // A search emptied or left blank aims at nobody.
+    fireEvent.input(search, { target: { value: "  " } });
     expect(search).not.toHaveAttribute("aria-activedescendant");
-  });
-
-  it("leaves the focus on the panel when the people arriving after it opened bring a search", async () => {
-    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
-    const seats = held();
-    api({ hosts: seats.route });
-    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
-    await screen.findByText("Book venue");
-    fireEvent.click(assignButton("Book venue"));
-    const dialog = await screen.findByRole("dialog", { name: "Assign people" });
-    await waitFor(() => expect(document.activeElement).toBe(dialog));
-
-    seats.answer(hostsAnswer([SAM, JO, ANON, KIM, ROBIN, ALEX])());
-    const search = await within(dialog).findByRole("combobox", { name: "Search people" });
-    expect(document.activeElement).toBe(dialog);
-    // The next key goes in: a letter is typed in the search.
-    fireEvent.keyDown(dialog, { key: "k" });
-    expect(document.activeElement).toBe(search);
   });
 
   it("moves into the search when the people arriving after the list took the focus bring one", async () => {

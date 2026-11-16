@@ -369,8 +369,9 @@ The button opens a Kobalte popover: a listbox of everyone on the wedding,
 `GET /hosts` lists them. Each row is a toggle circle — an outline when the person
 does not hold the task, filled with a tick when they do — their face, their
 name and their role. Clicking a row puts them on the task or takes them off at
-once, and the popover stays open until a click outside it, Escape or Tab, the
-last two giving the focus back to the button. Above five people a search over
+once, and the popover stays open until a click outside it, Escape, Shift+Tab
+on its panel, or Tab from inside it, each of the last three giving the focus
+back to the button. Above five people a search over
 names and handles heads the list, which shows about four rows and scrolls; five
 or fewer show whole with no search. The popover opens with the focus on its
 panel and nobody highlighted, so no stray Enter puts the reader, listed first,
