@@ -45,24 +45,28 @@ vi.mock("../../src/lib/authClients", () => {
     });
   }
   const unused = () => new Promise(() => {});
+  function passkey(id: string, label: string) {
+    return {
+      id,
+      label,
+      aaguid: null,
+      transports: null,
+      backupEligible: false,
+      backupState: false,
+      createdAt: 1_700_000_000,
+      lastUsedAt: null,
+    };
+  }
   return {
     passkeysClient: {
       list: () =>
         held("passkeys", (profile) => ({
           passkeys: [
-            { id: `pk_${profile}`, label: `Key of ${profile}` },
+            passkey(`pk_${profile}`, `Key of ${profile}`),
             // One profile's list holds a passkey under another's id, so an
             // outcome written into the wrong list would show.
-            ...(profile === "prof_7" ? [{ id: "pk_prof_6", label: "Same id as prof_6's" }] : []),
-          ].map((row) => ({
-            ...row,
-            aaguid: null,
-            transports: null,
-            backupEligible: false,
-            backupState: false,
-            createdAt: 1_700_000_000,
-            lastUsedAt: null,
-          })),
+            ...(profile === "prof_7" ? [passkey("pk_prof_6", "Same id as prof_6's")] : []),
+          ],
         })),
       delete: () =>
         new Promise((resolve) => {
