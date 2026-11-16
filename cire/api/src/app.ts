@@ -33,6 +33,7 @@ import {
 } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInternalAccountDeletionRoutes } from "./routes/internal-account-deletion";
+import { createInternalAccountExportRoutes } from "./routes/internal-account-export";
 import { createInternalRevokeRoutes } from "./routes/internal-revoke";
 import {
   createInviteImageServeRoutes,
@@ -105,6 +106,7 @@ import {
 import { createVendorEnquiriesRoutes } from "./routes/vendor-enquiries";
 import { createVendorPortalRoutes } from "./routes/vendor-portal";
 import { createVendorReadRoutes, createVendorWriteRoutes } from "./routes/vendors";
+import { createWeddingArchiveRoutes } from "./routes/wedding-archive";
 import { createDirectoryService } from "./services/directory";
 import { createEnquiryService } from "./services/enquiries";
 import type { AssetsBucket } from "./services/invite-assets";
@@ -197,6 +199,16 @@ const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_0
  * as every in-memory limiter here does.
  */
 const defaultGiftExportLimiter = createRateLimiter({ maxRequests: 3, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the whole-wedding archive
+ * (`POST …/archive`), checked before the shared export one, which an archive
+ * also spends. An archive reads what every CSV download reads together, and
+ * up to 900 R2 objects, so it is counted by the day: ten a day is more than an
+ * owner taking their wedding away needs, retries included, and adds about 1%
+ * to the reads the shared limiter already admits. Keys on `osnProfileId`;
+ * counts per isolate, as every export limiter here does.
+ */
+const defaultArchiveLimiter = createRateLimiter({ maxRequests: 10, windowMs: 86_400_000 });
 /**
  * Default per-USER limiter for the co-host add/remove endpoints, behind the
  * owner gate. It caps the ARC-sign + S2S handle-resolve amplifier on add (and
@@ -466,6 +478,8 @@ export interface AppOptions {
   exportLimiter?: RateLimiterBackend;
   /** Override the gift-log download's own per-user rate limiter (useful for testing). */
   giftExportLimiter?: RateLimiterBackend;
+  /** Per-user limiter for the whole-wedding archive, before the shared export one. */
+  archiveLimiter?: RateLimiterBackend;
   /**
    * The realtime hub binding (`REALTIME_HUB`). Absent ⇒ host changes publish
    * nothing, and the Worker's `/realtime/*` answers 503. Most tests run that
@@ -845,6 +859,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     accountLinkLimiter = defaultAccountLinkLimiter,
     exportLimiter = defaultExportLimiter,
     giftExportLimiter = defaultGiftExportLimiter,
+    archiveLimiter = defaultArchiveLimiter,
     inviteLimiter = defaultInviteLimiter,
     inviteDesigns,
     previewLimiter = defaultPreviewLimiter,
@@ -1153,6 +1168,8 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           organiserOrigin,
         }),
       )
+      // osn-api's account export, cire's section of it: the same reasons.
+      .use(createInternalAccountExportRoutes(db, { osnIssuer: osnIssuerUrl, organiserOrigin }))
       // The digest's one-click stop link. Mounted BEFORE the origin guard: a
       // mail provider's one-click POST has no Origin, and the confirm page's
       // form posts from this API's own origin. A signed token authorises it.
@@ -1264,6 +1281,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           exportLimiter,
           options.effectDb,
         ),
+      )
+      // The whole wedding as one archive: its own daily limiter, then the
+      // shared export one. After the origin guard, since it is a POST.
+      .use(
+        createWeddingArchiveRoutes(db, osnAuthOptions, {
+          archiveLimiter,
+          exportLimiter,
+          effectDb: options.effectDb,
+          assets,
+          sheets: r2,
+        }),
       )
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))

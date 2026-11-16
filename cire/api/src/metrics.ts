@@ -158,6 +158,12 @@ export const CIRE_METRICS = {
   accountDeletionPreviews: "cire.account_deletion.previews",
   accountDeletionErasures: "cire.account_deletion.erasures",
   accountDeletionWeddings: "cire.account_deletion.weddings",
+  // osn-api's account export: each call for a person's cire section.
+  accountExportRequests: "cire.account_export.requests",
+  // The whole-wedding archive: each download, and what became of each file
+  // the wedding holds in R2.
+  weddingArchiveDownloads: "cire.wedding.archive.downloads",
+  weddingArchiveFiles: "cire.wedding.archive.files",
   // The email to a wedding's owners when one is removed or demoted, or the
   // wedding is deleted: one count per notice, not per recipient.
   ownerNotice: "cire.owner_notice.dispatched",
@@ -315,6 +321,17 @@ export type AccountDeletionErasureResult = "done" | "not_finished" | "error";
 /** What an erasure did to one wedding the person owned: deleted, no other
  *  owner being left, or only their seat removed, another owner remaining. */
 export type AccountDeletionWeddingOutcome = "deleted" | "seat_removed";
+/** How osn-api's account-export call for a person's cire section ended. */
+export type AccountExportResult = "ok" | "error";
+/** How a whole-wedding archive download ended: written to its end, or failed. */
+export type WeddingArchiveDownloadResult = "ok" | "error";
+/** What became of one R2 object an archive tried to hold. */
+export type WeddingArchiveFileStatus =
+  | "included"
+  | "over_limit"
+  | "missing"
+  | "unreadable"
+  | "unavailable";
 /** Which owner notice was attempted. */
 export type OwnerNoticeKind = "owner_change" | "delete_started";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
@@ -817,6 +834,9 @@ type WeddingPurgedAttrs = { result: WeddingPurgedResult };
 type AccountDeletionPreviewAttrs = { result: AccountDeletionPreviewResult };
 type AccountDeletionErasureAttrs = { result: AccountDeletionErasureResult };
 type AccountDeletionWeddingAttrs = { outcome: AccountDeletionWeddingOutcome };
+type AccountExportAttrs = { result: AccountExportResult };
+type WeddingArchiveDownloadAttrs = { result: WeddingArchiveDownloadResult };
+type WeddingArchiveFileAttrs = { status: WeddingArchiveFileStatus };
 type OwnerNoticeAttrs = { kind: OwnerNoticeKind; result: OwnerNoticeResult };
 type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent; account: StripeUnmatchedAccount };
 type StripeOAuthAttrs = { outcome: StripeOAuthOutcome };
@@ -1324,6 +1344,25 @@ const accountDeletionWeddings = createCounter<AccountDeletionWeddingAttrs>({
   unit: "{wedding}",
 });
 
+const accountExportRequests = createCounter<AccountExportAttrs>({
+  name: CIRE_METRICS.accountExportRequests,
+  description: "osn-api's account-export calls for a person's cire section, by outcome",
+  unit: "{call}",
+});
+
+const weddingArchiveDownloads = createCounter<WeddingArchiveDownloadAttrs>({
+  name: CIRE_METRICS.weddingArchiveDownloads,
+  description: "Whole-wedding archive downloads, written to their end or failed",
+  unit: "{download}",
+});
+
+const weddingArchiveFiles = createCounter<WeddingArchiveFileAttrs>({
+  name: CIRE_METRICS.weddingArchiveFiles,
+  description:
+    "R2 objects a whole-wedding archive tried to hold: included, kept out by a limit, missing, unreadable, or with no bucket bound",
+  unit: "{file}",
+});
+
 const weddingPurgeBacklog = createHistogram<Record<never, never>>({
   name: CIRE_METRICS.weddingPurgeBacklog,
   description:
@@ -1719,6 +1758,15 @@ export const metricAccountDeletionErasure = (result: AccountDeletionErasureResul
 
 export const metricAccountDeletionWedding = (outcome: AccountDeletionWeddingOutcome): void =>
   accountDeletionWeddings.inc({ outcome });
+
+export const metricAccountExport = (result: AccountExportResult): void =>
+  accountExportRequests.inc({ result });
+
+export const metricWeddingArchiveDownload = (result: WeddingArchiveDownloadResult): void =>
+  weddingArchiveDownloads.inc({ result });
+
+export const metricWeddingArchiveFile = (status: WeddingArchiveFileStatus): void =>
+  weddingArchiveFiles.inc({ status });
 
 /** The purge backlog one run left behind, recorded every run (zero included). */
 export const metricWeddingPurgeBacklog = (due: number): void => weddingPurgeBacklog.record(due, {});

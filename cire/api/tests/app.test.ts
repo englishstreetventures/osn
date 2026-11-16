@@ -198,6 +198,7 @@ const BEFORE_GUARD = new Set([
   "POST /internal/revoke-organiser-sessions",
   "POST /internal/account-deletion-preview",
   "POST /internal/account-deleted",
+  "POST /internal/account-export",
   "POST /api/rsvp-digest/stop",
   "POST /api/invite/resolve",
 ]);

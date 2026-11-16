@@ -1,7 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
+import type { D1Database } from "@cloudflare/workers-types";
 import type { HubStub } from "@shared/realtime/server";
 import { Miniflare } from "miniflare";
+
+import { createD1Db } from "../../src/db";
+import { DDL } from "../../src/db/setup";
+import { ddlStatements } from "../test-helpers/ddl-statements";
+import { fullWeddingKeys, fullWeddingStatements } from "../test-helpers/full-wedding";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
+import { readZip } from "../test-helpers/zip";
 
 /**
  * The Worker module (`src/entry.ts`) evaluated on real workerd, with the hub
@@ -82,5 +90,74 @@ describe("src/entry.ts on workerd", () => {
         { evict: [], revoke: [] },
       ),
     ).toBe(0);
+  });
+});
+
+/**
+ * W1 in `NEW-FEAT.md`: the whole-wedding archive from the same bundle, under
+ * the compatibility flags the production stack deploys with
+ * (`cire/infra/src/declaration.ts`), not the ones `wrangler.toml` names. Only
+ * workerd shows that `node:zlib`'s `crc32` and the streamed body both work in
+ * the Worker: every other archive test runs under Bun.
+ */
+describe("the wedding archive on workerd", () => {
+  const PRODUCTION_FLAGS = [
+    "nodejs_compat",
+    "nodejs_compat_populate_process_env",
+    "legacy_module_registry",
+  ];
+  const W = "wed_workerd";
+  const OWNER = "usr_workerd_owner";
+  let archiveMf: Miniflare;
+  let cookie: string;
+
+  beforeAll(async () => {
+    archiveMf = new Miniflare({
+      modules: true,
+      scriptPath: `${import.meta.dirname}/../../.wrangler/entry-test/entry.js`,
+      compatibilityDate: wrangler.compatibility_date,
+      compatibilityFlags: PRODUCTION_FLAGS,
+      d1Databases: { DB: "cire-test-archive" },
+      r2Buckets: ["ASSETS", "SHEETS"],
+      durableObjects: { REALTIME_HUB: { className: "TopicHub", useSQLite: true } },
+      bindings: {
+        OSN_ENV: "local",
+        WEB_ORIGIN: "https://invite.example.test,https://host.example.test",
+        OSN_JWKS_URL: "https://id.example.test/.well-known/jwks.json",
+        OSN_ISSUER_URL: "https://id.example.test",
+        OSN_AUDIENCE: "osn-access",
+      },
+    });
+    const d1 = (await archiveMf.getD1Database("DB")) as unknown as D1Database;
+    for (const statement of ddlStatements(DDL)) await d1.prepare(statement).run();
+    const db = createD1Db(d1);
+    for (const statement of fullWeddingStatements(W, { owner: OWNER })) await db.run(statement);
+    cookie = `cire_org_session=${await seedOrganiserSession(db, OWNER)}`;
+    const assets = await archiveMf.getR2Bucket("ASSETS");
+    for (const key of fullWeddingKeys(W).assets) {
+      await assets.put(key, new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3]), {
+        httpMetadata: { contentType: "image/jpeg" },
+      });
+    }
+    const sheets = await archiveMf.getR2Bucket("SHEETS");
+    for (const key of fullWeddingKeys(W).sheets) await sheets.put(key, `Sheet,${key}\n`);
+  }, HOOK_TIMEOUT_MS);
+
+  afterAll(async () => {
+    await archiveMf?.dispose();
+  });
+
+  it("W1: streams an owner's archive whose every entry checks", async () => {
+    const res = await archiveMf.dispatchFetch(
+      `https://api.example.test/api/organiser/weddings/${W}/archive`,
+      { method: "POST", headers: { cookie, Origin: "https://host.example.test" } },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/zip");
+    const entries = readZip(new Uint8Array(await res.arrayBuffer()));
+    const names = entries.map((entry) => entry.name);
+    expect(names).toContain(`cire-wedding-slug-${W}/manifest.json`);
+    expect(names.filter((name) => name.includes("/files/"))).toHaveLength(7);
+    expect(entries.every((entry) => entry.crcMatches)).toBe(true);
   });
 });

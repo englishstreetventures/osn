@@ -1,5 +1,5 @@
 /**
- * C-H1 — DSAR Art. 15 (access) / Art. 20 (portability) data export.
+ * The DSAR data export: GDPR Art. 15 (access) and Art. 20 (portability).
  *
  * Produces the `GET /account/export` bundle as a streamed **NDJSON** envelope
  * so the response never materialises the full dataset in memory:
@@ -13,9 +13,10 @@
  *
  * Every multi-row osn section is read with **keyset pagination**
  * (`LIMIT 500 WHERE id > :cursor ORDER BY id`) — no OFFSET — so a large table
- * streams in bounded batches. The `pulse.*` / `zap.*` sections are fetched via
- * ARC (`POST /internal/account-export`, scope `account:export`) and their
- * NDJSON sub-bundles are piped through line-by-line.
+ * streams in bounded batches. The `pulse.*`, `zap.*` and `cire.*` sections are
+ * fetched via ARC (`POST /internal/account-export`, scope `account:export`)
+ * from every app in `DELETION_APPS`, and their NDJSON sub-bundles are piped
+ * through line-by-line.
  *
  * Privacy invariant (P6 / [[identity-model]]): the internal `accountId` is the
  * multi-account correlation key and MUST NOT appear anywhere in the output —
@@ -57,8 +58,10 @@ const PAGE_SIZE = 500;
 
 /**
  * The sections the bundle can contain, advertised in the header line so a
- * consumer knows the full shape up front. `pulse.*` / `zap.*` are attempted
- * via ARC fan-out and may instead surface a `{"degraded":...}` line.
+ * consumer knows the full shape up front. `pulse.*`, `zap.*` and `cire.*` are
+ * attempted via ARC fan-out and may instead surface a `{"degraded":...}` line.
+ * `cire.weddings` lists the person's seats on cire weddings, with a link to
+ * download a wedding they own; the wedding's own data is in that download.
  */
 const EXPORT_SECTIONS = [
   "account",
@@ -77,6 +80,7 @@ const EXPORT_SECTIONS = [
   "pulse.events_hosted",
   "pulse.close_friends",
   "zap.chats",
+  "cire.weddings",
 ] as const;
 
 /** A downstream service to fan the export out to over ARC. */
@@ -429,8 +433,8 @@ export async function* exportLines(opts: {
     yield jsonLine({ section: "email_changes", record });
   }
 
-  // oidc_consents — the apps this account authorised via the OIDC provider
-  // (C-M1 oidc). Revoked grants are included with their `revokedAt`: the
+  // oidc_consents — the apps this account authorised via the OIDC provider.
+  // Revoked grants are included with their `revokedAt`: the
   // history of a withdrawal is still the person's data. Left join — a consent
   // outlives a hand-deleted client row, so the name may be null.
   for await (const row of keyset(async (cursor) =>
@@ -579,7 +583,7 @@ export async function* exportLines(opts: {
     }
   }
 
-  // pulse.* / zap.* — ARC fan-out, streamed sub-bundles, degraded-tolerant.
+  // pulse.* / zap.* / cire.* — ARC fan-out, streamed sub-bundles, degraded-tolerant.
   for (const ds of downstreams) {
     yield* fanOutSection(ds, accountId, profileIds, fetchStream);
   }
