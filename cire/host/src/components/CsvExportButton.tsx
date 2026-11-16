@@ -14,13 +14,15 @@ import { haptic } from "../lib/touch-feedback";
  * beside it, as a `LinkPill` leads with its mark. Every page download takes
  * it, so a host sees one control for one job.
  *
- * `compact` drops the word to hidden text and the pill to `Button`'s `icon`
- * size, a 28px circle, as a marked `LinkPill` does in a narrow row: for a row
- * with no room for the word,
- * the RSVP page's phone search row. The word stays the button's name, and
- * `data-tip` hands it to the portal's tooltip.
+ * `compact` is for a row with no room for the word, the RSVP page's phone
+ * search row: the word becomes hidden text and the button the bar's icon
+ * button (`bar` at `icon`, a 28px circle, its glyph at 16px), as the reply key
+ * beside it is drawn. The word stays the button's name, and `data-tip` hands
+ * it to the portal's tooltip.
  *
- * `busy` disables the button and shows `busyLabel` in place of `label`.
+ * `busy` shows `busyLabel` in place of `label` and marks the button
+ * `aria-disabled`, which `Button` holds to swallowing the press. Not
+ * `disabled`: that would drop the keyboard focus the press left on it.
  */
 export function DownloadButton(props: {
   label: string;
@@ -33,14 +35,18 @@ export function DownloadButton(props: {
   const text = () => (props.busy && props.busyLabel ? props.busyLabel : props.label);
   return (
     <Button
-      variant="outline"
+      variant={props.compact ? "bar" : "outline"}
       size={props.compact ? "icon" : "sm"}
       class={props.class}
       data-tip={props.compact ? text() : undefined}
-      disabled={props.busy}
+      aria-disabled={props.busy ? "true" : undefined}
       onClick={() => props.onClick()}
     >
-      <Download aria-hidden="true" strokeWidth={1.75} class="size-3.5 shrink-0" />
+      <Download
+        aria-hidden="true"
+        strokeWidth={1.75}
+        class={props.compact ? "size-4 shrink-0" : "size-3.5 shrink-0"}
+      />
       <span class={props.compact ? "sr-only" : undefined}>{text()}</span>
     </Button>
   );
@@ -104,8 +110,8 @@ export function CsvExportButton(props: {
     toast.error(copy().failed);
   }
 
-  // No second request while one runs: the button is `disabled` until this
-  // settles, so a press then never reaches here.
+  // No second request while one runs: the button is `aria-disabled` until
+  // this settles, and `Button` swallows a press on it.
   async function download() {
     setBusy(true);
     try {

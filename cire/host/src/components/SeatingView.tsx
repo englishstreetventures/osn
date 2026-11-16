@@ -372,8 +372,8 @@ export default function SeatingView(props: SeatingViewProps) {
   });
 
   // One download at a time, as every page download runs: the button is
-  // `disabled` until this settles, so a second press spends no second call
-  // from the owner's export rate limit.
+  // `aria-disabled` until this settles, so a second press spends no second
+  // call from the owner's export rate limit.
   const [downloading, setDownloading] = createSignal(false);
   async function downloadCsv() {
     setDownloading(true);

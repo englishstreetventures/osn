@@ -14,7 +14,7 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-11-12
+last-reviewed: 2026-11-17
 ---
 
 # Gift registry
@@ -536,7 +536,7 @@ Cells are formula-guarded by `serialiseCsv` like every other export: a `=`, `+`,
 
 *Measured 2026-10-08 — `serialiseCsv` over 2,000 fourteen-cell rows with a 1,000-character note, before and after the segment guard, minimum of 12 rounds, Node 24 (V8) on an Apple M-series laptop: plain notes 1.84 → 2.21 ms, notes with 16 `;` 1.65 → 3.05 ms, `\n` × 1,000 3.62 → 6.99 ms, `;=` × 500 1.66 → 45.5 ms, `"` × 1,000 34.8 → 39.8 ms. Not workerd; compare the ratios, not the figures, with the Workers number above.*
 
-The portal side is a single quiet button in the Gifts tab of `RegistryView.tsx`, shown only to an owner and only when there is a gift to export, and it downloads `cire-gifts-<slug>.csv`.
+The portal side is the portal's download button, "Download gifts CSV" (`CsvExportButton.tsx`), in the Gifts tab of `RegistryView.tsx`, shown only to an owner and only when there is a gift to export, and it downloads `cire-gifts-<slug>.csv`.
 
 ### External URLs
 

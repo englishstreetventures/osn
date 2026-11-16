@@ -477,7 +477,10 @@ describe("RsvpView", () => {
     authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
     fireEvent.click(button);
     await waitFor(() => expect(button.textContent).toBe("Exporting RSVPs…"));
-    expect(button).toHaveProperty("disabled", true);
+    // Unavailable through `aria-disabled`, never `disabled`, which would drop
+    // the focus a keyboard press left on it.
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button).toHaveProperty("disabled", false);
     fireEvent.click(button);
     const csvCalls = () => authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith(".csv"));
     expect(csvCalls().map((c) => String(c[0]))).toEqual([
@@ -523,10 +526,9 @@ describe("RsvpView", () => {
     expect(hapticSpy).toHaveBeenLastCalledWith("reject");
     expect(downloadBlobMock).not.toHaveBeenCalled();
     expect(redirectSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Download RSVPs CSV" })).toHaveProperty(
-      "disabled",
-      false,
-    );
+    expect(
+      screen.getByRole("button", { name: "Download RSVPs CSV" }).hasAttribute("aria-disabled"),
+    ).toBe(false);
   });
 
   it("says so, and keeps the owner signed in, when the RSVP download cannot reach the API", async () => {

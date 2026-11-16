@@ -783,6 +783,8 @@ describe("the RSVP bar's one pill language", () => {
     expect(download.textContent).toBe("Download RSVPs CSV");
     expect(box.width).toBeGreaterThan(28);
     expect(download.querySelector("svg")!.getBoundingClientRect().width).toBe(14);
+    // `outline`'s word: the readable gold, as on every page's download.
+    expect(getComputedStyle(download).color).toBe(probe("text-gold-ink", "color"));
   });
 
   it("rests the search box on the track's look, led by a magnifier, its edge strong under the pointer and on focus", async () => {
@@ -905,6 +907,11 @@ describe("the RSVPs page's own lines", () => {
     expect(download.getBoundingClientRect().height).toBe(28);
     expect(download.getBoundingClientRect().width).toBe(28);
     expect(download.getAttribute("data-tip")).toBe("Download RSVPs CSV");
+    // The bar's icon button, drawn as the reply key beside it is.
+    const key = within(viewBar()).getByRole("button", { name: "What the reply icons mean" });
+    for (const property of ["borderTopColor", "backgroundColor", "color"] as const) {
+      expect(getComputedStyle(download)[property]).toBe(getComputedStyle(key)[property]);
+    }
     expect(
       Math.abs(download.getBoundingClientRect().top - search.getBoundingClientRect().top),
     ).toBeLessThanOrEqual(0.5);

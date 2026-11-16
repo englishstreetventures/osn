@@ -241,7 +241,7 @@ region a reader moves to, or data; a line that only decorates is not drawn
 intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
 reader moving by headings the name the visible intros of Households and Edit
 give theirs. Its download ends the bar's first row, after the event strip,
-and on a phone the search row (§4, One pill language).
+and on a phone the search row (§4, One pill language, A page's download).
 
 **An eyebrow over a heading says what the screen does not** (the owner's
 choice, englishstreetventures/osn#1991). Where the module's header, the open
@@ -529,8 +529,9 @@ one row:
   the ink turns the body ink, with a gold edge; while what it opens is open it
   stands on the raised surface in the body ink and its hairline, whatever the
   pointer does (the owner's choice). It is an icon button that
-  stands alone in a page's chrome — the reply key, Add household on a narrow
-  panel and the getting-started guide's Dismiss. A row's icon action, repeated once per
+  stands alone in a page's chrome — the reply key, the RSVP page's download on
+  a phone, Add household on a narrow panel and the getting-started guide's
+  Dismiss. A row's icon action, repeated once per
   row — a household's four actions and its "⋯" — is `quiet` at `icon`: the
   same circle, its hover a gold edge and readable gold, held while what it
   opens is open. `round` stays the guest sheet's ×. A dialog's or a drawer's
@@ -540,19 +541,27 @@ one row:
 - **A page's download** is one button wherever it is drawn
   (`DownloadButton`, `src/components/CsvExportButton.tsx`): `outline` at
   `sm`, the 28px pill, led by the `download` glyph at 14px, stroke 1.75, and
-  its words, "Download <what> CSV" — events, guests, RSVPs, gifts, seating
-  (the owner's choice, englishstreetventures/osn#2357: "Button should have
-  both icon and 'Download events CSV'"). Each page offers one, for the list
-  it shows: the Households tab the guest list alone, the RSVP sheet being the
-  RSVPs tab's. It sits at the top right — beside the intro on Events and
-  Households, at the end of the view bar's first row on RSVPs, beside Print
-  on the seating chart — and under the gift log on the registry. While the
-  file is fetched its words read "Exporting <what>…" and it is `disabled`,
-  so a second press spends nothing from the owner's export limit; a toast
-  says how it went (the chart says it in its own live region). In a row with
-  no room for its words, the RSVP page's phone search row, its words become
-  hidden text and the pill a 28px circle, as a marked `LinkPill` does, the
-  words its name and its tooltip.
+  its words, "Download <what> CSV" — events, guests, RSVPs, gifts, seating.
+  The owner chose the icon with its words for every download, and the guest
+  list alone on the Households tab, the RSVP sheet being the RSVPs tab's
+  (englishstreetventures/osn#2357: "Button should have both icon and
+  'Download events CSV'"). It sits beside the intro on Events and
+  Households, beside Print on the seating chart, and on the registry above
+  the gift log, under its totals. While the file is fetched its words read
+  "Exporting <what>…" and it is `aria-disabled`, so a second press spends
+  nothing from the owner's export limit and the focus a keyboard press left
+  on it stays; a toast says how it went, where the seating chart says only a
+  failure, in its own live region. Settings' per-module downloads
+  (`LockedExport`) and the import panel's template and round-trip downloads
+  keep their own look (§The whole wedding as one download).
+  Two places are the builder's choice, which the owner has not ruled on
+  (englishstreetventures/osn#2357). On RSVPs it ends the view bar's first
+  row, after the event strip, which scrolls when the row runs short: the
+  second row, beside the search box, the reply filter and the key, has no
+  room for its words at 1280px with the sidebar open. On a phone it ends the
+  search row as the bar's icon button, its words hidden text, its name and
+  its tooltip, as the reply key beside it is drawn: that row has about 358px
+  for the search box, the sort select, the key and the download.
 - **A block pressed to choose** — the code-style and re-mint radio cards
   (14px), a design or an envelope card (16px, both `invite/picker-card.ts`) — is marked as `choice` marks an answer, at
   its own corner: a gold edge and a 2px ring at 60%, no wash; under the
