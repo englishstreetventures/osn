@@ -104,11 +104,13 @@ describe("Toaster", () => {
   it("offers a dismiss button only when asked", () => {
     vi.useFakeTimers();
     render(() => <Toaster />);
+    toast.info("Plain note");
+    expect(screen.queryByLabelText("Dismiss notification")).toBeNull();
     toast.info("Standing note", { dismissible: true, duration: 10_000 });
     const close = screen.getByLabelText("Dismiss notification");
     close.click();
     vi.advanceTimersByTime(EXIT_MS);
-    expect(toasts()).toHaveLength(0);
+    expect(toasts().map((t) => t.message)).toEqual(["Plain note"]);
   });
 });
 
@@ -160,6 +162,18 @@ describe("toast.promise", () => {
     el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
     el.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
     vi.advanceTimersByTime(DEFAULT_DURATION + EXIT_MS);
+    expect(toasts()).toHaveLength(0);
+  });
+
+  it("hands the caller's options on to the outcome", async () => {
+    vi.useFakeTimers();
+    render(() => <Toaster />);
+    await toast.promise(
+      Promise.resolve(1),
+      { loading: "Saving…", success: "Saved", error: "No" },
+      { duration: 60 },
+    );
+    vi.advanceTimersByTime(60 + EXIT_MS);
     expect(toasts()).toHaveLength(0);
   });
 });

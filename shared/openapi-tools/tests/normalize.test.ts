@@ -6,6 +6,7 @@ import {
   normalizeOpenApiDocument,
   resolveBareRefs,
   sortKeys,
+  stripComponentIds,
   stripRedundantNullable,
   stripVoidContent,
 } from "../src/normalize";
@@ -126,6 +127,16 @@ describe("resolveBareRefs", () => {
     const doc = { components: { schemas: {} }, paths: { $ref: "#/components/schemas/Event" } };
     resolveBareRefs(doc);
     expect(doc.paths.$ref).toBe("#/components/schemas/Event");
+  });
+});
+
+describe("stripComponentIds", () => {
+  it("drops the plugin's `$id` pointer from every component", () => {
+    const doc = {
+      components: { schemas: { Event: { $id: "#/components/schemas/Event", type: "object" } } },
+    };
+    stripComponentIds(doc);
+    expect(doc.components.schemas.Event).toEqual({ type: "object" });
   });
 });
 
