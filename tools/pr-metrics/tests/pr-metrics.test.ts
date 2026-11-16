@@ -735,6 +735,19 @@ test("branchCards reads this branch name's cards and leaves a slug neighbour's o
 
 const MERGED_984 = { number: 984, mergedAt: "2026-09-10T04:12:16Z", state: "MERGED" as const };
 
+test("recordWindow starts a later pull request after the earlier merge", () => {
+  expect(recordWindow({ mergedAt: null }, [MERGED_984])).toEqual({
+    kind: "window",
+    after: MERGED_984.mergedAt,
+    until: null,
+  });
+  expect(recordWindow({ mergedAt: "2026-10-07T00:00:00Z" }, [MERGED_984])).toEqual({
+    kind: "window",
+    after: MERGED_984.mergedAt,
+    until: null,
+  });
+});
+
 test("recordWindow takes the nearest merge on each side of a middle pull request", () => {
   const third = { number: 1500, mergedAt: "2026-11-01T00:00:00Z", state: "MERGED" as const };
   const second = "2026-10-07T00:00:00Z";

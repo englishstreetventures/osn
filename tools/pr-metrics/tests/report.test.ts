@@ -299,3 +299,20 @@ test("exploration excludes cards whose boundary was never observed", () => {
 
   expect(exploration([known, known], 2).rows).toHaveLength(1);
 });
+
+// --- JSON output ------------------------------------------------------------
+
+// An agent reading the report should not have to parse ASCII columns back into
+// numbers. The `note` travels with each table on purpose: it carries the
+// exclusions, and a consumer that reads only rows will state a ranking's
+// conclusion without its "18 cards excluded" qualifier.
+test("every report table carries its note alongside its rows", () => {
+  const rows = [toRow(card()), { ...toRow(card()), exploreShare: null }];
+
+  for (const table of [coverage(rows), exploration(rows, 1), waste(rows)]) {
+    expect(table.title).toBeTruthy();
+    expect(table.note).toBeTruthy();
+    expect(Array.isArray(table.headers)).toBe(true);
+    expect(Array.isArray(table.rows)).toBe(true);
+  }
+});

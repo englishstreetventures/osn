@@ -1256,6 +1256,48 @@ test("backfill never replaces a rating on disk with a lookup that failed", async
   }
 });
 
+// A card before version 3 rates one issue. Under version 3 `declared` is the sum over
+// every issue the pull request closes, so one issue's rating cannot be carried
+// into a rebuilt card for a pull request that closes several: it would count
+// four issues of work at one issue's rating. When this run cannot read the sum
+// either, the card on disk stays exactly as it was, on its old version.
+test("backfill leaves a one-issue card alone rather than relabel it as a batched sum", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-batched";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8005, branch, [
+        { id: "I_p", number: 1070 },
+        { id: "I_q", number: 1074 },
+      ])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]}}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8005":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    const planted = `${JSON.stringify({
+      schema_version: 1,
+      pr: { number: 8005, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+      issue: { number: 1070, type: "Bug", labels: ["complexity:1"] },
+      complexity: { declared: 1, method: "confirmed" },
+      spend: { usd_equivalent: 1 },
+      interaction: {},
+    })}\n`;
+    await writeFile(cardPath, planted);
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toContain("#8005");
+    expect(await readFile(cardPath, "utf8")).toBe(planted);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 // `wiki/conventions/session-metrics.md` §Backfilling: a pull request that links
 // no issue here takes its rating from the tracker issues GitHub registered as
 // closed — their `complexity:` pair and nothing else. The tracker's ids go in a
