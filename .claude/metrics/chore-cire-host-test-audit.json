@@ -1,0 +1,187 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "chore/cire-host-test-audit",
+    "base_sha": "05fd3c81e1c49be9bf5cdc064e11b9964696127b",
+    "head_sha": "28da101237c86ea2fdb5e36423deab5b3913380f",
+    "generated_at": "2026-11-16T04:57:21.881Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2319,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "area:ops",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-16T03:32:00.586Z",
+    "last_ts": "2026-11-16T04:57:14.541Z",
+    "span_seconds": 5114,
+    "active_seconds": 4862,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 60.23575800000002,
+    "tokens": {
+      "input": 991,
+      "output": 311922,
+      "thinking": 129521,
+      "cache_write_5m": 1455341,
+      "cache_write_1h": 57988,
+      "cache_read": 119147550
+    },
+    "by_model": {
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 75,
+          "output": 29713,
+          "thinking": 6880,
+          "cache_write_5m": 70888,
+          "cache_write_1h": 57988,
+          "cache_read": 3499115
+        },
+        "usd_equivalent": 1.406275,
+        "messages": 37
+      },
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 916,
+          "output": 282209,
+          "thinking": 122641,
+          "cache_write_5m": 1384453,
+          "cache_write_1h": 0,
+          "cache_read": 115648435
+        },
+        "usd_equivalent": 58.829483000000025,
+        "messages": 449
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 43,
+          "output": 20368,
+          "thinking": 6364,
+          "cache_write_5m": 0,
+          "cache_write_1h": 57988,
+          "cache_read": 2720714
+        },
+        "usd_equivalent": 0.9798608,
+        "messages": 21
+      },
+      "subagent": {
+        "tokens": {
+          "input": 948,
+          "output": 291554,
+          "thinking": 123157,
+          "cache_write_5m": 1455341,
+          "cache_write_1h": 0,
+          "cache_read": 116426836
+        },
+        "usd_equivalent": 59.25589720000002,
+        "messages": 465
+      }
+    },
+    "effort": {
+      "medium": 21,
+      "low": 16,
+      "xhigh": 394,
+      "high": 55
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 18,
+      "docs": 6,
+      "config": 0,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 785,
+        "deleted": 447
+      },
+      "docs": {
+        "added": 33,
+        "deleted": 8
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 235,
+        "deleted": 10
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 11
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 659582,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 383,
+      "Edit": 95,
+      "Read": 90,
+      "Write": 34,
+      "Skill": 8,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "ToolSearch": 3,
+      "EnterWorktree": 1,
+      "Monitor": 1,
+      "TaskStop": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 13,
+      "max_edits_one_file": 18
+    },
+    "skills": {
+      "stress-plan": 1,
+      "new-feat": 2,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "retro": 1
+    },
+    "subagents": {
+      "explorer": 1,
+      "attacker": 1,
+      "implementer": 2
+    },
+    "requests": {
+      "main": 21,
+      "subagent": 465,
+      "with_tools": 480,
+      "with_one_tool": 384,
+      "context_median": 274983,
+      "context_p90": 402613
+    }
+  },
+  "review": null
+}
