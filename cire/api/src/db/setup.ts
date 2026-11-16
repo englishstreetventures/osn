@@ -1236,8 +1236,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   redeeming a code, re-minting the family codes and deleting and restoring
  *   the wedding (`seedE2eSettings`).
  * - `wed_e2e_enquiries`: on Crimson, with two live directory listings, one
- *   unclaimed and one whose enquiry has a quote, for enquiring with a vendor
- *   and adding a quote to the budget (`seedE2eEnquiries`).
+ *   made in the vendor portal with no vendor profile on it and one whose
+ *   enquiry has a quote, for enquiring with a vendor and adding a quote to the
+ *   budget (`seedE2eEnquiries`).
  * - `wed_e2e_legacy_event`: an event saved before the editor checked one
  *   (`seedE2eLegacyEvent`).
  *
@@ -1841,9 +1842,11 @@ function seedE2eSettings(db: TestDb, now: Date): void {
  * alone, for `cire-registry-money`'s enquiry steps. Two listings are live in
  * the directory:
  *
- * - Willow & Fern Florals, unclaimed and not yet in the wedding. An enquiry to
- *   it waits on the listing (`pending_body`) until the vendor claims it, so
- *   sending one needs no vendor chat, which this stack does not run.
+ * - Willow & Fern Florals, not yet in the wedding, listed as the vendor portal
+ *   lists one: its organisation owns it and no vendor profile is on it
+ *   (`claimed_by_profile_id` NULL). An enquiry to it waits on the listing
+ *   (`pending_body`), so sending one needs no vendor chat, which this stack
+ *   does not run; and since the listing is owned, it mints no claim link.
  * - Harbour Strings, claimed, whose enquiry from this wedding the vendor has
  *   already answered with a $4,800 quote. A quote reaches a couple only
  *   through the vendor chat, so it is seeded; Add to budget reads the quote
@@ -1869,6 +1872,8 @@ function seedE2eEnquiries(db: TestDb, now: Date): void {
     .values([
       {
         id: "dir_e2e_enq_florals",
+        ownerOrgId: "org_e2e_willow_fern",
+        claimedByProfileId: null,
         name: "Willow & Fern Florals",
         description: "Seasonal flowers, arranged loose.",
         locationText: "Sydney",

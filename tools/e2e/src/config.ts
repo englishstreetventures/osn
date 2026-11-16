@@ -366,9 +366,11 @@ export const CIRE_ORGANISER = {
     },
   },
   /**
-   * On Crimson, with two live directory listings: `open`, unclaimed and not in
-   * the wedding, and `quoted`, claimed, whose enquiry from this wedding the
-   * vendor has answered with a $4,800 quote.
+   * On Crimson, with two live directory listings: `open`, not in the wedding,
+   * owned by the organisation that made it in the vendor portal with no vendor
+   * profile on it, so an enquiry to it waits on the listing and mints no claim
+   * link; and `quoted`, claimed, whose enquiry from this wedding the vendor has
+   * answered with a $4,800 quote.
    */
   enquiries: {
     weddingId: "wed_e2e_enquiries",

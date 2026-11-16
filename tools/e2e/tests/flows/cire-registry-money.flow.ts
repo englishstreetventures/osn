@@ -69,14 +69,15 @@
  * cire-api together.
  *
  * And Enquiries Wedding (`CIRE_ORGANISER.enquiries`, on Crimson, the tier the
- * vendor directory needs): from the directory the owner enquires with an
- * unclaimed florist. Its first message waits on the listing until the vendor
- * joins, the florist joins the wedding's own vendor list, and a claim link is
- * minted for the listing. The inbox holds that enquiry and a seeded one a
- * claimed string quartet has quoted. The stack runs no vendor chat, so that
- * thread's messages answer 503 and the thread says messaging is unavailable,
- * while its quote, from the enquiry itself, goes to the budget with Add to
- * budget, and the Budget module lists it.
+ * vendor directory needs): from the directory the owner enquires with a
+ * florist whose listing was made in the vendor portal, so its organisation
+ * owns it but no vendor profile is on it. Its first message waits on the
+ * listing, the florist joins the wedding's own vendor list, and no claim link
+ * is minted for an owned listing. The inbox holds that enquiry and a seeded
+ * one a claimed string quartet has quoted. The stack runs no vendor chat, so
+ * that thread's messages answer 503 and the thread says messaging is
+ * unavailable, while its quote, from the enquiry itself, goes to the budget
+ * with Add to budget, and the Budget module lists it.
  *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
@@ -995,11 +996,11 @@ async function budgetSteps(flow: Flow, page: Page): Promise<void> {
 }
 
 /**
- * Enquiries Wedding, on Crimson: the owner enquires with an unclaimed vendor
- * from the directory, whose first message waits on the listing until the
- * vendor joins, then adds a claimed vendor's quote to the budget. The stack
- * runs no vendor chat, so that vendor's messages answer 503 and the thread
- * says messaging is unavailable; the quote comes from the enquiry row.
+ * Enquiries Wedding, on Crimson: the owner enquires with a vendor from the
+ * directory whose listing has no vendor profile on it, so its first message
+ * waits on the listing, then adds a claimed vendor's quote to the budget. The
+ * stack runs no vendor chat, so that vendor's messages answer 503 and the
+ * thread says messaging is unavailable; the quote comes from the enquiry row.
  */
 async function enquirySteps(flow: Flow, page: Page): Promise<void> {
   const { weddingId: wedding, open, quoted } = CIRE_ORGANISER.enquiries;
@@ -1064,7 +1065,7 @@ async function enquirySteps(flow: Flow, page: Page): Promise<void> {
     "SELECT count(*) AS n FROM vendor_claims WHERE directory_vendor_id = ?",
     open.listingId,
   );
-  flow.check("a claim link is minted for the unclaimed listing", 1, claims?.n ?? -1);
+  flow.check("an owned listing mints no claim link", 0, claims?.n ?? -1);
 
   const thread = await flow.step(
     "the inbox holds both enquiries; open the one just sent",
