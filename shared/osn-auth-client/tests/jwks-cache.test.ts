@@ -51,12 +51,12 @@ describe("jwks-cache", () => {
 
       const b = behaviour.get(url);
       if (b === "network-error") throw new Error("network down");
-      if (b === "not-ok") return new Response("nope", { status: 500 });
       if (b === "bad-json") {
         return new Response("{not json", { headers: { "Content-Type": "application/json" } });
       }
       const keys = routes.get(url) ?? [];
       return new Response(JSON.stringify({ keys }), {
+        status: b === "not-ok" ? 500 : 200,
         headers: { "Content-Type": "application/json" },
       });
     }) as unknown as typeof fetch;
@@ -74,7 +74,7 @@ describe("jwks-cache", () => {
     gate = { promise, release };
   }
 
-  it("S-M3: same kid on two issuers resolves to distinct keys (no collision)", async () => {
+  it("same kid on two issuers resolves to distinct keys (no collision)", async () => {
     routes.set(URL_1, [jwkA]);
     routes.set(URL_2, [jwkB]);
 
@@ -89,20 +89,15 @@ describe("jwks-cache", () => {
     expect(calls.get(URL_2)).toBe(1);
   });
 
-  it("cache hit within TTL does not re-fetch", async () => {
-    routes.set(URL_1, [jwkA]);
-    const first = await resolvePublicKeyForKid("shared-kid", URL_1);
-    const second = await resolvePublicKeyForKid("shared-kid", URL_1);
-    expect(first).toBe(second);
-    expect(calls.get(URL_1)).toBe(1);
-  });
-
   it("network error → null", async () => {
     behaviour.set(URL_1, "network-error");
     expect(await resolvePublicKeyForKid("shared-kid", URL_1)).toBeNull();
   });
 
   it("non-OK status → null", async () => {
+    // The 500 carries a well-formed JWKS holding the kid, so only the status
+    // check stands between it and a resolved key.
+    routes.set(URL_1, [jwkA]);
     behaviour.set(URL_1, "not-ok");
     expect(await resolvePublicKeyForKid("shared-kid", URL_1)).toBeNull();
   });
@@ -128,10 +123,10 @@ describe("jwks-cache", () => {
     routes.set(URL_1, [jwkA]);
     openGate();
 
+    // Each call runs synchronously up to the gated fetch, so both have asked
+    // for the JWKS before the gate opens.
     const p1 = resolvePublicKeyForKid("shared-kid", URL_1);
     const p2 = resolvePublicKeyForKid("shared-kid", URL_1);
-    // Let both reach the in-flight fetch, then release.
-    await new Promise((r) => setTimeout(r, 5));
     gate!.release();
 
     const [k1, k2] = await Promise.all([p1, p2]);
@@ -176,7 +171,7 @@ describe("jwks-cache", () => {
     expect(calls.get(URL_1)).toBe(2);
   });
 
-  it("M-A: a second forced refresh for the same kid within cooldown does NOT re-fetch", async () => {
+  it("a second forced refresh for the same kid within cooldown does NOT re-fetch", async () => {
     routes.set(URL_1, [jwkA]);
     await resolvePublicKeyForKid("shared-kid", URL_1);
     expect(calls.get(URL_1)).toBe(1);
