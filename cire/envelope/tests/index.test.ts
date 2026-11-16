@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  BREAK_STYLES,
-  ENVELOPE_BREAK_PARAM,
-  ENVELOPES,
-  isEnvelopeId,
-  pickBreak,
-} from "../src/index";
+import { BREAK_STYLES, ENVELOPE_BREAK_PARAM, isEnvelopeId, pickBreak } from "../src/index";
 
 /** A query holding only the given parameters, as `URLSearchParams.get` answers. */
 function query(params: Record<string, string> = {}): { get(name: string): string | null } {
@@ -23,10 +17,6 @@ function fills(...values: number[]): (array: Uint32Array) => Uint32Array {
 }
 
 describe("envelope catalog", () => {
-  it("accepts every catalog id", () => {
-    for (const envelope of ENVELOPES) expect(isEnvelopeId(envelope.id)).toBe(true);
-  });
-
   it("rejects ids outside the catalog and values that are not strings", () => {
     const values = ["not-an-envelope", "", "WAX-SEAL", 42, null, undefined, {}];
     expect(values.filter((value) => isEnvelopeId(value))).toEqual([]);

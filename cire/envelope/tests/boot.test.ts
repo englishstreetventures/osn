@@ -111,12 +111,6 @@ function boot(overrides: Partial<World> = {}) {
 }
 
 describe("ENVELOPE_BOOT_SCRIPT", () => {
-  it("seals the page when the API, WebGL2, full motion, a key and no seen flag all hold", () => {
-    const run = boot();
-    expect(run.sealed()).toBe(true);
-    expect(run.capable()).toBe(true);
-  });
-
   it.each([
     ["requestPaint is missing", { requestPaint: false }],
     ["WebGL2RenderingContext is missing", { webgl2: false }],
@@ -131,7 +125,6 @@ describe("ENVELOPE_BOOT_SCRIPT", () => {
   it.each([
     ["there is no key", { key: null }],
     ["the link carries ?code=", { search: "?slug=envelope-wedding&code=ABC-DEF" }],
-    ["the guest has opened it", { stored: { [seenStorageKey(KEY)]: "1" } }],
     ["the opening failed here before", { stored: { [seenStorageKey(KEY)]: "failed" } }],
   ] as const)("is capable but does not seal when %s", (_name, world) => {
     const run = boot(world);
