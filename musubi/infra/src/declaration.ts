@@ -389,6 +389,22 @@ export const PRODUCTION_ADOPTED: AdoptedResources = (() => {
 })();
 
 /**
+ * osn-api's vars for sign-up's browser Email Verification API trial: on for
+ * stage `dev`, and for no investigation stage. Production declares none, so
+ * it stays off there. The verifier wants the token bound to the origin of
+ * OSN_AUTHORIZE_UI_URL, the app the sign-up page runs on, and
+ * musubi/social/public/_headers serves the dev zone's origin-trial token there.
+ */
+function emailVerificationTrialVars(stage: string): EmailVerificationTrialVars {
+  if (stage !== "dev") return {};
+  return { OSN_EMAIL_VERIFICATION_API: "true" };
+}
+
+interface EmailVerificationTrialVars {
+  readonly OSN_EMAIL_VERIFICATION_API?: "true";
+}
+
+/**
  * Every name, var, binding, domain and setting the musubi stack declares at
  * `stage`: osn-api and its database, musubi social and musubi landing. Pure;
  * every host comes from `hosts`. The production tier is refused:
@@ -447,6 +463,8 @@ export function musubiDeclaration(input: {
           .map(origin)
           .join(","),
         OSN_AUTHORIZE_UI_URL: `${app}/authorize`,
+        // Sign-up accepts a browser Email Verification API token on dev only.
+        ...emailVerificationTrialVars(stage),
         // The session marker cookie's domain: the app's host, never a parent shared with production.
         OSN_COOKIE_DOMAIN: hosts.musubiSocial,
         // Resend refuses a sender on a domain it has not verified, so musubi.social must be

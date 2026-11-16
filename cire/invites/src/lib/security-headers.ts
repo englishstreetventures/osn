@@ -240,10 +240,13 @@ export function securityHeaders(apiOrigin: string = API_ORIGIN) {
     "X-Robots-Tag": "noindex, nofollow",
     // The Chrome origin trial the guest site uses: HTML-in-Canvas for the
     // envelope opening. SSR-only like `X-Robots-Tag`, so the prerendered legal
-    // pages do not enable it. The token is valid on cireweddings.com only;
-    // Chrome ignores it on any other origin, so every tier sends the same
-    // header.
-    "Origin-Trial": originTrialHeader(ORIGIN_TRIAL_TOKENS.htmlInCanvas),
+    // pages do not enable it. One token is valid on cireweddings.com, the other
+    // on the dev zone; Chrome uses the one whose origin matches the page and
+    // ignores the other, so every tier sends the same header.
+    "Origin-Trial": originTrialHeader(
+      ORIGIN_TRIAL_TOKENS.htmlInCanvas,
+      ORIGIN_TRIAL_TOKENS.htmlInCanvasDev,
+    ),
   } satisfies Record<string, string>;
 }
 

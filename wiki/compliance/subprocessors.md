@@ -11,7 +11,7 @@ related:
   - "[[access-control]]"
   - "[[cire]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-11
+last-reviewed: 2026-11-16
 ---
 
 # Subprocessor Register
@@ -137,7 +137,7 @@ User-initiated outbound links that send no OSN-held personal data on our behalf 
 
 Server-side requests that carry no account, no token and no address's local part. Listed so the audit question has its answer:
 
-- **Cloudflare's DNS-over-HTTPS resolver** (`cloudflare-dns.com`, the public 1.1.1.1 service, not our account) — osn-api's sign-up, only while `OSN_EMAIL_VERIFICATION_API` is on ([[email-verification-api]]). For each Email Verification API token it checks, it asks for the TXT record at `_email-verification.<domain>`, where `<domain>` is the sign-up address's domain, and for the A and AAAA records of the issuer's host and of the issuer's key server. A personal domain (`me@lastname.example`) can name a person, so the query can be personal data; it leaves from the Worker, never with the person's IP address. Lawful basis: Art. 6(1)(b), the sign-up the person started. Retention: the resolver deletes its logs within 25 hours and keeps no source IP on disk ([1.1.1.1 privacy commitments](https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/), page updated 2026-05-06); OSN keeps nothing. Our Customer DPA does not cover this service and the page names no transfer mechanism, so the transfer basis is **TODO — confirm before `OSN_EMAIL_VERIFICATION_API` is set in any tier**. Off in every deployed tier today. Row in [[data-map]].
+- **Cloudflare's DNS-over-HTTPS resolver** (`cloudflare-dns.com`, the public 1.1.1.1 service, not our account) — osn-api's sign-up, only while `OSN_EMAIL_VERIFICATION_API` is on ([[email-verification-api]]). For each Email Verification API token it checks, it asks for the TXT record at `_email-verification.<domain>`, where `<domain>` is the sign-up address's domain, and for the A and AAAA records of the issuer's host and of the issuer's key server. A personal domain (`me@lastname.example`) can name a person, so the query can be personal data; it leaves from the Worker, never with the person's IP address. Lawful basis: Art. 6(1)(b), the sign-up the person started. Retention: the resolver deletes its logs within 25 hours and keeps no source IP on disk ([1.1.1.1 privacy commitments](https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/), page updated 2026-05-06); OSN keeps nothing. Our Customer DPA does not cover this service and the page names no transfer mechanism, so the transfer basis is **TODO — confirm before `OSN_EMAIL_VERIFICATION_API` is set in production**. Off in production. On in the dev tier only, from the dev deploy of the pull request that closes englishstreetventures/osn#2317, by the owner's decision, for the team's test sign-ups. Row in [[data-map]].
 - **The address's mail provider** (for Gmail, `accounts.google.com` and `verifiablecredentials-pa.googleapis.com`) — on the same path, a GET of its public metadata (`/.well-known/email-verification`) and its public signing keys. The request carries nothing of the person's; the provider learns only that some token of its was checked at that time.
 
 Nothing else leaves: the token is verified on our side, and neither recipient gets it.

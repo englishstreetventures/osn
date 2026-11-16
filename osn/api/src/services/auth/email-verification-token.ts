@@ -306,7 +306,10 @@ export function createEmailVerificationModule(ctx: AuthContext) {
   /**
    * Whether `input` proves the person controls `email` (lowercased). False,
    * with nothing said, for every refusal, and always while the flag is off.
-   * Counted on `osn.auth.email_verification.tokens{outcome}`; never logged.
+   * Counted on `osn.auth.email_verification.tokens{outcome}` and set as the
+   * span's `outcome` attribute, which the dev tier's traces show (production's
+   * API Workers trace nothing, and the counter reaches no exporter until
+   * englishstreetventures/osn#501 lands); never logged.
    */
   const verify = (email: string, input: EmailVerificationInput): Effect.Effect<boolean> =>
     Effect.gen(function* () {
@@ -337,6 +340,7 @@ export function createEmailVerificationModule(ctx: AuthContext) {
         outcome = won === true ? "verified" : won === false ? "replayed" : "unavailable";
       }
       metricEmailVerificationToken(outcome);
+      yield* Effect.annotateCurrentSpan({ outcome });
       return outcome === "verified";
     }).pipe(Effect.withSpan("auth.email_verification.verify"));
 

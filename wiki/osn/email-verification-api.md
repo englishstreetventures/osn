@@ -6,7 +6,8 @@ related:
   - "[[identity-model]]"
   - "[[email-links]]"
   - "[[account-recovery-factors]]"
-last-reviewed: 2026-11-14
+  - "[[dev-environment]]"
+last-reviewed: 2026-11-16
 ---
 
 # Email Verification API status
@@ -32,21 +33,31 @@ The mailbox provider is the issuer. When the person picks their address in a for
 
 ## Our origin trial
 
-Musubi is registered for Chrome's Email Verification Protocol origin trial (feature `EmailVerificationProtocol`).
+Musubi is registered for Chrome's Email Verification Protocol origin trial (feature `EmailVerificationProtocol`) twice, once per tier. Both tokens are first-party.
+
+| Token | Origin | Covers |
+|---|---|---|
+| Production | `https://musubi.social`, exactly: no subdomain matching | `musubi.social` |
+| Dev | `https://esv.tools`, the dev zone, with subdomain matching | `musubi.esv.tools`, the dev Musubi host (`musubi.<DEV_DOMAIN>`) |
 
 | | |
 |---|---|
-| Origin | `https://musubi.social` exactly: no subdomain matching, first-party only |
 | Chrome versions | Available in Chrome 150 to 160 |
-| Ends | With the rollout of the Chrome release after 160, and no later than 2 March 2027, the token's own expiry. Chrome may end it sooner |
-| Served from | The `Origin-Trial` header of the `/*` rule in [`musubi/social/public/_headers`](../../musubi/social/public/_headers), on every page |
-| Checked by | [`origin-trial.test.ts`](../../musubi/social/tests/origin-trial.test.ts): the token names that origin and feature and has not expired, so CI fails once it has |
+| Ends | With the rollout of the Chrome release after 160, and no later than 2 March 2027, both tokens' own expiry. Chrome may end it sooner |
+| Served from | Two `Origin-Trial` lines in the `/*` rule of [`musubi/social/public/_headers`](../../musubi/social/public/_headers), on every page of both tiers. Cloudflare joins the two lines into one header, the tokens separated by a comma, which Chrome reads as two tokens; it ignores the one whose origin does not match the page |
+| Checked by | [`origin-trial.test.ts`](../../musubi/social/tests/origin-trial.test.ts): one token for each origin above, each signed by Chrome's key, for this feature, first-party, matching subdomains only on the dev zone, and more than 14 days from its expiry, so CI fails while there is time to renew |
 
-A token matches one origin, so dev hosts and local stacks get none: there Chrome never fills the field, and sign-up takes the emailed link. When Chrome announces the trial's end, decide whether to renew the token or remove the header, and record the decision here.
+Local stacks get no token: there Chrome never fills the field, and sign-up takes the emailed link. The dev token names the zone, so a new `DEV_DOMAIN` needs a new token ([[dev-environment#4. Bootstrapping the dev account]]). When Chrome announces the trial's end, decide whether to renew the tokens or remove the lines, and record the decision here.
 
 ## Our code
 
-The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unless it reads `true`, `1`, `yes` or `on`. It is read in one place, `emailVerificationConfig` in [`build-deps.ts`](../../osn/api/src/build-deps.ts), which sets `AuthConfig.emailVerification`; every other part checks that. No tier's `wrangler.toml` sets it, so it is off everywhere deployed.
+The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unless it reads `true`, `1`, `yes` or `on`. It is read in one place, `emailVerificationConfig` in [`build-deps.ts`](../../osn/api/src/build-deps.ts), which sets `AuthConfig.emailVerification`; every other part checks that.
+
+| Tier | Flag | Set in |
+|---|---|---|
+| Dev | **On** from the dev deploy of the pull request that closes englishstreetventures/osn#2317, by the owner's decision, for the trial in [[#Testing on the dev tier]] | `musubiDeclaration` in [`musubi/infra/src/declaration.ts`](../../musubi/infra/src/declaration.ts), on stage `dev` only; investigation stages leave it off |
+| Production | **Off**: unset | Neither `musubiProductionApis` in the same file nor `[env.production.vars]` in [`osn/api/wrangler.toml`](../../osn/api/wrangler.toml), which `musubi/infra/tests/parity.test.ts` (PA1) holds equal |
+| Local E2E | On, for the second osn-api only | `tools/e2e/src/stack.ts` |
 
 | Part | File | What it does |
 |---|---|---|
@@ -74,20 +85,52 @@ The flag is **`OSN_EMAIL_VERIFICATION_API`**, an osn-api variable, **off** unles
 - `iss` may be the issuer's origin (draft-02) or its bare host (draft-00 deployments); the EVT's `typ` may be `evt+jwt` (the drafts) or `evp-sd-jwt` (the WICG explainer's example); `alg` may be `EdDSA`, `Ed25519` or `ES256`. We have not seen a real Gmail token.
 - DNSSEC is not required: the resolver is reached over HTTPS, and `gmail.com` is unsigned.
 
-**Observability.** Span `auth.email_verification.verify`; counter `osn.auth.email_verification.tokens{outcome}`, where `outcome` is `verified`, `malformed`, `issuer`, `signature`, `binding`, `email`, `expired`, `replayed` or `unavailable`. Neither the token, the address nor the issuer is logged or put in an attribute; `emailVerificationToken` and `nonceSecret` are on the log redaction list.
+**Observability.** Span `auth.email_verification.verify`, with the check's `outcome` as an attribute; counter `osn.auth.email_verification.tokens{outcome}`. `outcome` is `verified`, `malformed`, `issuer`, `signature`, `binding`, `email`, `expired`, `replayed` or `unavailable`. The counter reaches no exporter yet ([[metrics]]), so the dev tier's Workers traces are where an outcome can be read; production's API Workers trace nothing. Our code puts neither the token, the address nor the issuer in a log line or an attribute; `emailVerificationToken` and `nonceSecret` are on the log redaction list. Cloudflare's own outbound-fetch spans do record each lookup's URL ([[tracing]]), so on dev, where osn-api traces every request, a trace holds the issuer's host names and can hold the address's domain, which is in the resolver query; whether dev's `redactQueryString` also covers outbound fetches is unchecked. Cloudflare keeps traces for seven days.
 
 **What leaves our network.** See [[subprocessors#Outbound lookups (not processors)]]. The resolver learns the address's domain and the issuer's host names; the issuer's hosts get plain GETs of their public metadata and keys. Neither ever gets the address's local part or the token.
 
 **Tests.** The refusals: [`email-verification-token.test.ts`](../../osn/api/tests/services/auth/email-verification-token.test.ts) and [`email-verification-begin.test.ts`](../../osn/api/tests/routes/email-verification-begin.test.ts); the same store calls for a free, taken or held address in `begin-op-sequence.test.ts`. End to end, the E2E flow `musubi-email-verification` signs up through Musubi against the stack's second osn-api, which has the flag on and reaches an issuer stand-in (`tools/e2e/src/issuer.ts`) through `OSN_EMAIL_VERIFICATION_EMULATOR_URL`. That variable is honoured only when `OSN_ENV` is exactly `local` and it names a loopback origin; any other tier refuses to boot with it, and the production deploy refuses to run while a Worker secret of that name exists.
 
-## Before the flag goes on in any tier
+## Testing on the dev tier
+
+The dev tier has the flag on and serves the dev token, so a real Chrome can run the whole path against Gmail there. Nothing else has: the E2E flow uses a stand-in issuer under Bun and takes its audience from `OSN_ORIGIN`, so the real DNS-over-HTTPS lookup, the guarded fetch on workerd and the `OSN_AUTHORIZE_UI_URL` audience run for the first time here.
+
+You need desktop Chrome 150 or later, a Chrome profile signed in to a Gmail account, and a place on the dev Access policy ([[dev-environment#5. Access control on dev]]).
+
+1. Open `https://musubi.esv.tools` in that Chrome and pass the Access sign-in. Open DevTools on the Network tab before going on.
+2. Press **Create account**. The Network tab shows `POST https://id.musubi.esv.tools/register/email-verification-nonce` answering 200. A 404 means the flag is off: the dev deploy has not run.
+3. Click the email field and pick the Gmail address from Chrome's autofill list rather than typing it. Fill in the rest and submit.
+4. In the Network tab, open the `register/begin` request. Its body carries `emailVerificationToken`, a long `<EVT>~<KB-JWT>` string, beside `nonceSecret`.
+5. Expected: no email arrives. The account is made at the page's first status poll, and the passkey step comes next.
+
+**When the email arrives instead**, find which of three things went wrong.
+
+- **Chrome sent no token**: the begin body has no `emailVerificationToken`. Suspect first the `nonce` attribute. Musubi's `Content-Security-Policy` arrives in a header, so the HTML standard hides the hidden field's `nonce` attribute from the page once the field is in the document; DevTools' Elements tab then shows `nonce=""`. The WICG text has the browser read "the value of the `nonce` attribute". If Chrome reads the attribute as the page now sees it, empty, no token ever comes. Then check the trial itself: DevTools → Application → Frames → `top` lists the page's origin trials, and `EmailVerificationProtocol` should show the dev token as valid. Last, check the address came from the autofill list and the profile is signed in to that Gmail account.
+- **Chrome sent a token and the verifier refused it**: read the `outcome` attribute on the `auth.email_verification.verify` span in osn-api-dev's traces, in the dev account's Cloudflare dashboard (Workers Observability). The counter `osn.auth.email_verification.tokens{outcome}` records the same value but reaches no exporter yet.
+- **The begin failed outright**, with an error on the page and no email: read osn-api-dev's Workers Logs. Dev is on Workers Free, which allows 10 ms of CPU time a request ([[free-tier-limits#Cloudflare Workers]]), and a token with no `kid` makes the verifier try each of Gmail's keys in turn.
+
+| `outcome` | What it means |
+|---|---|
+| `verified` | Every check passed and the nonce was claimed: the address is proven, and no email goes |
+| `malformed` | The token's shape: not two parts, over 8 KiB, a part that does not decode, an EVT `alg` other than `EdDSA`, `Ed25519` or `ES256`, a `typ` not listed under the departures above, or no `iss`, `email`, `email_verified: true` or `cnf.jwk`. Gmail's real token differs from the drafts we read |
+| `email` | The token's address is not the one typed, compared lowercased, or either is not ASCII |
+| `binding` | The nonce secret was not minted here; the KB-JWT's `aud` is not `https://musubi.esv.tools`, its `nonce` is not the tab's, or its `sd_hash` does not match; or the KB-JWT's signature fails under the EVT's `cnf` key |
+| `expired` | The nonce is over 10 minutes old, an `iat` is more than 10 minutes back or 60 seconds ahead, or the EVT's `exp` has passed |
+| `issuer` | The lookup found no single `iss=` record for `gmail.com`, an issuer that disagrees with the token or its metadata, no key set, or a host it refused: not a public address, not plain `https:`, a redirect, a status other than 200, not JSON, or too large |
+| `signature` | No key in the issuer's key set verifies the EVT |
+| `replayed` | The nonce was used already: the same token came twice |
+| `unavailable` | A lookup or the whole check ran out of time (3 seconds a request, 5 in all), the resolver failed, or the coordination store did not answer |
+
+Never write a real address into an issue, a pull request or this page; a captured token holds one.
+
+## Before the flag goes on in production
 
 The owner's, in this order:
 
 1. Serve an origin-trial token on the sign-up origin. Done: see [[#Our origin trial]].
-2. Check with a real Chrome, signed in to Gmail, against a production build served with `_headers`, which now carries the `Origin-Trial` header. Musubi's `Content-Security-Policy` arrives in a header, and the HTML standard then hides a `nonce` attribute from the page once the element is in the document; the WICG text has the browser read "the value of the `nonce` attribute". If Chrome reads it empty, no token comes.
-3. Run one captured real Gmail token through the verifier, so the departures above are checked against a real issuer.
-4. Confirm the transfer basis for the DNS lookups ([[subprocessors#Outbound lookups (not processors)]]), then set `OSN_EMAIL_VERIFICATION_API` in the tier's `wrangler.toml` vars, through a pull request.
+2. Check with a real Chrome, signed in to Gmail, against a build served with `_headers`: [[#Testing on the dev tier]]. The `nonce` question there is the first unknown it settles.
+3. Check one real Gmail token against the verifier, so the departures above are tested against a real issuer: on dev, an `outcome` of `verified` does it.
+4. Confirm the transfer basis for the DNS lookups ([[subprocessors#Outbound lookups (not processors)]]), then set `OSN_EMAIL_VERIFICATION_API` for production through a pull request, in both places PA1 holds equal: `musubiProductionApis` in `musubi/infra/src/declaration.ts` and `[env.production.vars]` in `osn/api/wrangler.toml`.
 
 ## Exit test: turn the flag on by default
 

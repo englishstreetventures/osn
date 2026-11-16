@@ -183,15 +183,18 @@ describe("securityHeaders", () => {
 describe("Origin-Trial", () => {
   const sent = () => (securityHeaders()["Origin-Trial"] ?? "").split(", ");
 
-  it("sends the HTMLInCanvas token alone, which the invite uses", () => {
-    expect(sent()).toEqual([ORIGIN_TRIAL_TOKENS.htmlInCanvas]);
+  // Production's token and the dev zone's, in one header: Chrome uses the one
+  // whose origin matches the page and ignores the other.
+  it("sends the HTMLInCanvas tokens alone, which the invite uses", () => {
+    expect(sent()).toEqual([ORIGIN_TRIAL_TOKENS.htmlInCanvas, ORIGIN_TRIAL_TOKENS.htmlInCanvasDev]);
     expect(securityHeaders()["Origin-Trial"]).toBe(
-      originTrialHeader(ORIGIN_TRIAL_TOKENS.htmlInCanvas),
+      originTrialHeader(ORIGIN_TRIAL_TOKENS.htmlInCanvas, ORIGIN_TRIAL_TOKENS.htmlInCanvasDev),
     );
   });
 
-  it("never sends the WebMCP token, which only the organiser portal uses", () => {
+  it("never sends a WebMCP token, which only the organiser portal uses", () => {
     expect(sent()).not.toContain(ORIGIN_TRIAL_TOKENS.webmcp);
+    expect(sent()).not.toContain(ORIGIN_TRIAL_TOKENS.webmcpDev);
     expect(sent().map((token) => decodeOriginTrialToken(token).feature)).not.toContain("WebMCP");
   });
 

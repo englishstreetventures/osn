@@ -5,6 +5,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Origin-Trial: AqTqmLMcrKr8+PFVA23imFcvHCFMBd6YMZ/iBXRhxn58k+6P4bZux3kvpdoF//5ocQVlda6/bSRSYTOqAZrU9QcAAABgeyJvcmlnaW4iOiJodHRwczovL211c3ViaS5zb2NpYWw6NDQzIiwiZmVhdHVyZSI6IkVtYWlsVmVyaWZpY2F0aW9uUHJvdG9jb2wiLCJleHBpcnkiOjE4MDM5NDU2MDB9
+  Origin-Trial: Amg/3dXxbvQstYgNayED06q3SPrL+YZxbqpwtE4LrJSp4HIvgYXRmUyE9Di8Tuo40vN07lILVK23NoF4UD5K6AQAAABveyJvcmlnaW4iOiJodHRwczovL2Vzdi50b29sczo0NDMiLCJmZWF0dXJlIjoiRW1haWxWZXJpZmljYXRpb25Qcm90b2NvbCIsImV4cGlyeSI6MTgwMzk0NTYwMCwiaXNTdWJkb21haW4iOnRydWV9
 
 # Framing is the one thing a consent screen must never allow, so it is covered
 # twice (frame-ancestors + X-Frame-Options). object-src/base-uri/form-action are
@@ -20,13 +21,20 @@
 # HTML, so neither is written here, and the build fails if this line already
 # sets either directive.
 #
-# Origin-Trial enrols https://musubi.social (that exact origin: no subdomain, no
-# dev host) in Chrome's Email Verification Protocol trial, so Chrome fills the
-# sign-up form's email-verification-token field. The token expires on
+# The two Origin-Trial lines enrol Musubi in Chrome's Email Verification
+# Protocol trial, so Chrome fills the sign-up form's email-verification-token
+# field. Both tokens are first-party:
+# - the first is for https://musubi.social, that exact origin (production);
+# - the second is for the dev zone, https://esv.tools, with its subdomains, so
+#   it covers the dev Musubi host musubi.<DEV_DOMAIN>. A new DEV_DOMAIN needs a
+#   new token.
+# Chrome ignores a token whose origin does not match the page, so each tier
+# carries the other's harmlessly. The two lines go out as one header, the
+# values joined by a comma, a form Chrome reads. Both tokens expire on
 # 2027-03-02; the trial may end sooner, with the rollout of the Chrome release
-# after 160. Its renewal or removal is recorded in
-# wiki/osn/email-verification-api.md, and tests/origin-trial.test.ts fails once
-# the token has expired.
+# after 160. Their renewal or removal is recorded in
+# wiki/osn/email-verification-api.md, and tests/origin-trial.test.ts fails 14
+# days before either expires.
 
 # Apple requires the App Site Association file to be served as JSON, and the
 # file has no extension, so the static-asset layer would otherwise guess and

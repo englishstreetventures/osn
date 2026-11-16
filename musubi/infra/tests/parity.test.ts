@@ -50,6 +50,8 @@ const wrangler = Bun.TOML.parse(
 const DEV_ONLY: Readonly<Record<string, string>> = {
   DEV_LOGIN_RETURN_ORIGINS: "dev-login targets exist only off production",
   DEV_LOGIN_SECRET: "dev login is refused on production",
+  OSN_EMAIL_VERIFICATION_API:
+    "sign-up's browser Email Verification API path is on for the dev trial and off on production, which sets no value",
 };
 
 /** Names osn-api holds on production and not on dev, each with why. */

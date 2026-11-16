@@ -1,35 +1,44 @@
 /**
  * The Chrome origin-trial tokens cire serves, and a decoder for them.
  *
- * Each token was issued for `https://cireweddings.com:443` with subdomain
- * matching, so it is valid on `invite.`, `host.`, `vendor.` and `api.` there
- * and on no other zone. The dev tier runs on its own zone and gets none of
- * the features; Chrome ignores a token whose origin does not match, so the
- * header is sent there harmlessly.
+ * Each feature has two first-party tokens, both with subdomain matching: one
+ * for `https://cireweddings.com:443`, valid on `invite.`, `host.`, `vendor.`
+ * and `api.` there, and one for the dev zone, `https://esv.tools:443`
+ * (`DEV_DOMAIN`), valid on its `invite.cire.` and `host.cire.` hosts. A new
+ * dev zone needs new dev tokens. Every tier sends both tokens of a feature;
+ * Chrome ignores the one whose origin does not match the page.
  *
  * A token is public: it ships in a response header. Pure and free of
  * `node:fs`, so a Worker bundle can import it (the guest site does, for its
  * response headers).
  *
  * Where each token is served:
- * - `htmlInCanvas`: every guest-site response
+ * - `htmlInCanvas` and `htmlInCanvasDev`: every guest-site SSR response
  *   (`cire/invites/src/lib/security-headers.ts`).
- * - `webmcp`: every organiser-portal path (`cire/host/public/_headers`,
- *   which holds its own copy of the string; its test compares the two).
+ * - `webmcp` and `webmcpDev`: every organiser-portal path
+ *   (`cire/host/public/_headers`, which holds its own copy of each string;
+ *   its test compares them).
  *
  * Renewal: register the origin again for the feature on the Chrome
- * origin-trials site, replace the string here (and the host's copy), and keep
- * the expiry in `tests/origin-trial.test.ts` in step. That test fails once a
- * token is inside {@link ORIGIN_TRIAL_RENEWAL_WINDOW_MS} of its expiry.
+ * origin-trials site, replace the string here (and, for a WebMCP token, its
+ * line in the host's `_headers`), and keep the expiry in
+ * `tests/origin-trial.test.ts` in step. That test fails once a token is inside
+ * {@link ORIGIN_TRIAL_RENEWAL_WINDOW_MS} of its expiry.
  */
 
 export const ORIGIN_TRIAL_TOKENS = {
-  /** `HTMLInCanvas`: the guest site's envelope opening. Lapses 2 Mar 2027. */
+  /** `HTMLInCanvas` on cireweddings.com: the guest site's envelope opening. Lapses 2 Mar 2027. */
   htmlInCanvas:
     "AmzwHiFc5WrSZKP9N9WR31IhpARcOoAOPUsOZ/6VgK7kchGrsYYTkpBFN4iQwr4A3qoJh2E/QzRLT2/jNs53iQQAAABpeyJvcmlnaW4iOiJodHRwczovL2NpcmV3ZWRkaW5ncy5jb206NDQzIiwiZmVhdHVyZSI6IkhUTUxJbkNhbnZhcyIsImV4cGlyeSI6MTgwMzk0NTYwMCwiaXNTdWJkb21haW4iOnRydWV9",
-  /** `WebMCP`: the organiser portal's agent tools. Lapses 30 Mar 2027. */
+  /** `HTMLInCanvas` on the dev zone. Lapses 2 Mar 2027. */
+  htmlInCanvasDev:
+    "AuZqSFBbjSGA/j/Z88dHUh1AzfkOMOpCo93FILda6FPgpniC4zVf4J1RhQ4gEeiVcAVDRNBG6bkYzWEcpEor/gsAAABieyJvcmlnaW4iOiJodHRwczovL2Vzdi50b29sczo0NDMiLCJmZWF0dXJlIjoiSFRNTEluQ2FudmFzIiwiZXhwaXJ5IjoxODAzOTQ1NjAwLCJpc1N1YmRvbWFpbiI6dHJ1ZX0=",
+  /** `WebMCP` on cireweddings.com: the organiser portal's agent tools. Lapses 30 Mar 2027. */
   webmcp:
     "AgPxiGR6Xgoixpqap0KVAvRxTwIRut1C3PfF/TFDXNbFNBDbUMSFSFDajYg9B7YOFNynoj7zuZBXsxbDM4HK6AoAAABjeyJvcmlnaW4iOiJodHRwczovL2NpcmV3ZWRkaW5ncy5jb206NDQzIiwiZmVhdHVyZSI6IldlYk1DUCIsImV4cGlyeSI6MTgwNjM2NDgwMCwiaXNTdWJkb21haW4iOnRydWV9",
+  /** `WebMCP` on the dev zone. Lapses 30 Mar 2027. */
+  webmcpDev:
+    "Aj/0mHfPMWRpbAhyfluFH0k+xkh8sgIc3gBUaZemy8OszGFxZva9dicc6wC2PjXFJVcb51RR4idQUtbkCJSlaAUAAABceyJvcmlnaW4iOiJodHRwczovL2Vzdi50b29sczo0NDMiLCJmZWF0dXJlIjoiV2ViTUNQIiwiZXhwaXJ5IjoxODA2MzY0ODAwLCJpc1N1YmRvbWFpbiI6dHJ1ZX0=",
 } as const;
 
 /** How long before a token's expiry the tests start to fail: 14 days. */
