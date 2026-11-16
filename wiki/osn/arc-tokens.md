@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-16
 ---
 # ARC Tokens (S2S Auth)
 
@@ -253,22 +253,32 @@ and each app fetches the one a token names:
    the route's.
 
 **The key id.** `<uuid>.<expiry>.<MAC>`, the MAC the first 22 base64url
-characters of HMAC-SHA256 under `INTERNAL_SERVICE_SECRET` over the uuid and the
-expiry (`@shared/crypto/arc-kid`). An app holding the secret refuses a `kid`
-whose MAC fails, or whose expiry has passed, before it fetches anything, so a
-stream of tokens with made-up or scraped `kid`s costs it no request to osn-api.
-On the ARC path the MAC gates fetching only; a token is authenticated by its
-signature against the published key. But the same secret is the bearer of the
-key-registration routes (`POST /graph/internal/register-service` on osn-api,
+characters of HMAC-SHA256 over the uuid and the expiry, under a key derived
+from `INTERNAL_SERVICE_SECRET` with HKDF-SHA-256 (fixed salt
+`osn-arc-kid-salt`, `info` `osn-arc-kid-mac-v1`), never under the secret
+itself (`@shared/crypto/arc-kid`). osn-api and every app derive the key in
+that one module, so both sides change together. An app holding the secret
+refuses a `kid` whose MAC fails, or whose expiry has passed, before it fetches
+anything, so a stream of tokens with made-up or scraped `kid`s costs it no
+request to osn-api. On the ARC path the MAC gates fetching only; a token is
+authenticated by its signature against the published key.
+
+The same secret is the bearer of the key-registration routes
+(`POST /graph/internal/register-service` on osn-api,
 `POST /internal/register-service` on Zap) and of `GET /health/coordination`,
-and every kid in the public key set is a message and its MAC under it, so
-anyone can test a guess at the secret offline. A short or human-chosen secret
-could be found that way, and with it a key registered under any service id
-and scope. So a secret shorter than 32 characters never keys the MAC, on
-either side: osn-api mints kids without a MAC and logs
-`osn.arc outbound key id carries no MAC` once per key, and Pulse and Zap
-treat it as unset and skip the check. A dev deploy refuses a shorter
-`INTERNAL_SERVICE_SECRET` ([[infrastructure-as-code]]). A deployed osn-api
+and every kid in the public key set lets anyone test a guess at it offline:
+derive the key, compute the MAC, compare. The derivation keeps the bearer
+value itself out of the MAC, but HKDF is fast and adds no entropy, so it does
+not slow that search. A secret found that way would let anyone register a key
+under any service id and scope. Only the secret's own randomness stops it:
+generate it (`openssl rand -base64 32`), never choose it. A secret shorter
+than 32 characters never keys the MAC, on either side: osn-api mints kids
+without a MAC and logs `osn.arc outbound key id carries no MAC` once per key,
+and Pulse and Zap treat it as unset and skip the check. A dev deploy refuses a
+shorter `INTERNAL_SERVICE_SECRET` ([[infrastructure-as-code]]). The floor
+refuses a value too short to be random; it cannot tell a long generated value
+from a long guessable one. A secret held for the kid MAC alone, apart from the
+bearer, would keep a found MAC key from opening the registration routes. A deployed osn-api
 without the secret refuses to boot. Locally, osn-api and the app hold it both
 or neither: an app holding it refuses osn-api's kids minted without it.
 
