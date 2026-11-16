@@ -4,9 +4,10 @@ import { getTableConfig } from "drizzle-orm/sqlite-core";
 
 import * as schema from "../src/schema";
 
-// Every events read filters by wedding and orders by sort_order, so the schema
-// declares one composite index, events_wedding_id_sort_idx, and neither the
-// single-column events_sort_order_idx nor events_wedding_idx.
+// The reads that list a wedding's events filter by wedding and order by
+// sort_order, so the schema declares one composite index,
+// events_wedding_id_sort_idx, and neither the single-column
+// events_sort_order_idx nor events_wedding_idx.
 // cire/api/tests/db/ddl-lockstep.test.ts holds this schema, cire/api/src/db/setup.ts
 // and the migrations to the same index shapes but ignores index names, so this
 // test is what pins them.

@@ -125,6 +125,7 @@ describe("ENVELOPE_BOOT_SCRIPT", () => {
   it.each([
     ["there is no key", { key: null }],
     ["the link carries ?code=", { search: "?slug=envelope-wedding&code=ABC-DEF" }],
+    ["the guest has opened it", { stored: { [seenStorageKey(KEY)]: "1" } }],
     ["the opening failed here before", { stored: { [seenStorageKey(KEY)]: "failed" } }],
   ] as const)("is capable but does not seal when %s", (_name, world) => {
     const run = boot(world);

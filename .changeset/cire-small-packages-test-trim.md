@@ -8,4 +8,4 @@
 "@cire/theme": patch
 ---
 
-Tests only: 22 test cases that another test in the repository already checks are gone from seven small cire packages. Each remaining cover was seen failing with the deleted case's behaviour broken. `@cire/landing`'s mutation run now completes: its Stryker-only Vitest config lets the sandbox read `@cire/ui`.
+Tests only: 20 test cases that another test in the repository already checks are gone from seven small cire packages. Each remaining cover was seen failing with the deleted case's behaviour broken. `@cire/landing`'s mutation run now completes: its Stryker-only Vitest config lets the sandbox read `@cire/ui`.
