@@ -74,6 +74,14 @@ function checkDev(names: readonly string[]): Run {
 }
 
 describe("secrets:check-github -- --tier dev", () => {
+  test("R0: exits 0 when the dev Environment holds exactly what it must", () => {
+    const run = checkDev(githubExpectations("dev"));
+    expect(run.fakeRan).toBe(true);
+    expect(run.stderr).not.toContain("unexpected gh call");
+    expect(run.stdout).toBe("ok    GitHub Environment dev\n");
+    expect(run.exitCode).toBe(0);
+  });
+
   // Both names reach the production account, and the dev Environment has no
   // reviewer: a copy put back there would let any workflow on main write
   // production.
