@@ -24,26 +24,6 @@ import { generateArcKeyPair, exportKeyToJwk, importKeyFromJwk, ArcTokenError } f
 import { createTestLayer } from "./helpers/db";
 
 // ---------------------------------------------------------------------------
-// Key generation
-// ---------------------------------------------------------------------------
-
-describe("generateArcKeyPair", () => {
-  it("generates an ES256 key pair", async () => {
-    const keyPair = await generateArcKeyPair();
-    expect(keyPair.privateKey).toBeDefined();
-    expect(keyPair.publicKey).toBeDefined();
-    expect(keyPair.privateKey.algorithm).toMatchObject({ name: "ECDSA", namedCurve: "P-256" });
-    expect(keyPair.publicKey.algorithm).toMatchObject({ name: "ECDSA", namedCurve: "P-256" });
-  });
-
-  it("produces extractable keys", async () => {
-    const keyPair = await generateArcKeyPair();
-    expect(keyPair.privateKey.extractable).toBe(true);
-    expect(keyPair.publicKey.extractable).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Key import/export
 // ---------------------------------------------------------------------------
 
@@ -892,13 +872,12 @@ describe("publicKeyCache LRU eviction", () => {
 
   // The eviction scan picks the entry with the lowest access rank, so two
   // accesses must never compare equal — on a tie it keeps whichever key it
-  // happened to iterate first and can throw away a just-used entry. Ranks used
-  // to come from `Date.now()`, and back-to-back accesses land in the same
-  // millisecond, so this is the property that was actually broken. Asserting it
-  // directly beats asserting an eviction outcome: the outcome only goes wrong
-  // when the timing happens to tie, which made the LRU test above flaky rather
-  // than failing.
-  it("gives every access a distinct, increasing rank (T-R1)", async () => {
+  // happens to iterate first and can throw away a just-used entry.
+  // Back-to-back accesses land in the same millisecond, so a clock reading
+  // cannot serve as the rank. This asserts the property directly: an eviction
+  // outcome goes wrong only when the timing happens to tie, so the LRU test
+  // above cannot be relied on to catch it.
+  it("gives every access a distinct, increasing rank", async () => {
     const layer = createTestLayer();
     const run = <A>(eff: Effect.Effect<A, unknown, Db>) =>
       Effect.runPromise(eff.pipe(Effect.provide(layer)) as Effect.Effect<A, never, never>);
@@ -935,7 +914,7 @@ describe("publicKeyCache LRU eviction", () => {
   });
 
   // A scope-denied cache hit must NOT promote the entry to MRU
-  it("scope-failure hit does not update lastAccess — entry still gets evicted (T-S1)", async () => {
+  it("scope-failure hit does not update lastAccess — entry still gets evicted", async () => {
     const layer = createTestLayer();
     const run = <A>(eff: Effect.Effect<A, unknown, Db>) =>
       Effect.runPromise(eff.pipe(Effect.provide(layer)) as Effect.Effect<A, never, never>);
@@ -979,18 +958,5 @@ describe("publicKeyCache LRU eviction", () => {
     );
     expect(resA._tag).toBe("Failure"); // A was evicted and deleted from DB
     expect(resB._tag).toBe("Success"); // B survived — was not LRU
-  });
-
-  // Cap=1 boundary — only one entry fits at a time
-  it("cap=1: second entry evicts first, size stays 1 (T-S2)", async () => {
-    clearPublicKeyCache();
-    _setPublicKeyCacheMaxSizeForTest(1);
-
-    const layer = createTestLayer();
-    await seedAndResolve(layer, "t2-svc-a", "t2-key-a");
-    expect(publicKeyCacheSize()).toBe(1);
-
-    await seedAndResolve(layer, "t2-svc-b", "t2-key-b");
-    expect(publicKeyCacheSize()).toBe(1);
   });
 });

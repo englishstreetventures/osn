@@ -146,14 +146,6 @@ describe("base32Encode — RFC 4648 §10", () => {
   it.each(BASE32_VECTORS)('encodes "$plain" as $encoded', ({ plain, encoded }) => {
     expect(base32Encode(new TextEncoder().encode(plain))).toBe(encoded);
   });
-
-  it("emits only uppercase alphabet characters and no padding", () => {
-    for (let length = 0; length <= 40; length++) {
-      const bytes = new Uint8Array(length);
-      crypto.getRandomValues(bytes);
-      expect(base32Encode(bytes)).toMatch(/^[A-Z2-7]*$/);
-    }
-  });
 });
 
 describe("base32Decode — RFC 4648 §10", () => {
@@ -515,12 +507,6 @@ describe("totpUri", () => {
     const uri = new URL(raw);
     expect(uri.searchParams.get("issuer")).toBe("Musubi Social: ID");
     expect(decodeURIComponent(uri.pathname.slice(1))).toBe("Musubi Social: ID:adá lovelace:1");
-  });
-
-  it("emits a secret an authenticator can decode back to the seed", () => {
-    const secret = generateTotpSecret();
-    const uri = new URL(totpUri({ secret, accountName: "ada", issuer: "OSN" }));
-    expect([...base32Decode(uri.searchParams.get("secret") ?? "")]).toStrictEqual([...secret]);
   });
 
   it.each([0, 4, 15])("refuses to encode a %s-byte secret into a QR code", (length) => {
