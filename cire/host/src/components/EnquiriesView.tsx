@@ -79,10 +79,16 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
   // yields the PREVIOUS value — and since switching threads no longer unmounts
   // anything (see the keyed `Show` below), that value would render enquiry A's
   // messages under enquiry B's name and quote for the length of a round-trip.
-  const [messages, { mutate, refetch }] = createResource(selectedId, async (id) => ({
-    enquiryId: id,
-    items: await fetchMessages(authFetch, props.weddingId, id),
-  }));
+  // An expired session goes to sign-in, as the inbox's own reads do; any other
+  // failure stays on the resource and shows in the thread.
+  const [messages, { mutate, refetch }] = createResource(selectedId, async (id) => {
+    try {
+      return { enquiryId: id, items: await fetchMessages(authFetch, props.weddingId, id) };
+    } catch (err) {
+      if (isAuthExpired(err)) redirectToLogin();
+      throw err;
+    }
+  });
 
   /** Messages, but only ever the named enquiry's. A load in flight for a newly
    *  selected enquiry shows an empty thread with its loading line, never the

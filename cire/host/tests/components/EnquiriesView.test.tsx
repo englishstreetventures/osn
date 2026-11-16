@@ -110,6 +110,23 @@ describe("EnquiriesView", () => {
     await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
   });
 
+  it("sends an organiser whose session has expired to sign in from a thread", async () => {
+    const EnquiriesView = await importComponent();
+    // A cached inbox, so the only read that can fail is the thread's.
+    setCachedEnquiries("wed_1", [makeItem()]);
+    authFetch.mockRejectedValue(
+      Object.assign(new Error("boom"), {
+        toString: () => "(FiberFailure) AuthExpiredError: session gone",
+      }),
+    );
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(String(authFetch.mock.calls[0]![0])).toMatch(/\/enquiries\/enq_1\/messages$/);
+  });
+
   it("does not redirect on an unrelated load failure", async () => {
     const EnquiriesView = await importComponent();
     authFetch.mockRejectedValue(new Error("network down"));
