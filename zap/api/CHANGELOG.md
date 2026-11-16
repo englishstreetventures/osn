@@ -1,5 +1,15 @@
 # @zap/api
 
+## 0.10.4
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @zap/db@0.7.2
+  - @shared/rate-limit@0.4.1
+  - @shared/crypto@0.15.4
+  - @shared/osn-auth-client@0.5.4
+
 ## 0.10.3
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @zap/db
 
+## 0.7.2
+
+### Patch Changes
+
+- f040da3: Tests only: cases that a kept sibling already fails on are removed, each checked by breaking the source and watching both fail. Toast and dev-urls gain one case each, and four Toaster cases move to fake timers so they can fail on what they name.
+
 ## 0.7.1
 
 ### Patch Changes

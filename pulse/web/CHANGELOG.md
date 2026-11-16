@@ -1,5 +1,16 @@
 # @osn/pulse
 
+## 0.24.94
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @shared/design-tokens@0.9.1
+  - @shared/rp-auth@0.2.16
+  - @shared/toast@0.3.16
+  - @pulse/api@0.29.4
+  - @shared/ui@0.17.1
+
 ## 0.24.93
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @osn/social
 
+## 0.23.15
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @shared/design-tokens@0.9.1
+  - @shared/toast@0.3.16
+  - @shared/ui@0.17.1
+  - @osn/auth-ui@6.2.4
+
 ## 0.23.14
 
 ### Patch Changes

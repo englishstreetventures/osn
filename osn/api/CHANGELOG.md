@@ -1,5 +1,16 @@
 # @osn/osn
 
+## 3.42.6
+
+### Patch Changes
+
+- Updated dependencies [f040da3]
+  - @osn/db@0.28.2
+  - @shared/openapi-tools@0.1.9
+  - @shared/rate-limit@0.4.1
+  - @shared/turnstile@0.2.43
+  - @shared/crypto@0.15.4
+
 ## 3.42.5
 
 ### Patch Changes
