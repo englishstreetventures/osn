@@ -62,8 +62,10 @@ import { metricAccountDeletionWedding } from "../metrics";
 
 /**
  * What a column that cannot be NULL holds once the profile it named is erased,
- * and what a nullable one paired with a time that stays holds (a gift's
- * `thanked_by` beside `thanked_at`). Never a real OSN profile id, which starts
+ * and what a nullable one holds where NULL means something else: beside a
+ * time that stays (a gift's `thanked_by` beside `thanked_at`), or where NULL
+ * says the guest or household wrote it (`rsvps.recorded_by_osn_profile_id`,
+ * the two attestation columns). Never a real OSN profile id, which starts
  * `usr_`; the same value Zap writes for an erased sender.
  */
 export const DELETED_PROFILE = "deleted";
@@ -234,12 +236,14 @@ interface EraseInput {
 }
 
 /**
- * One wedding a profile of the account owns, in one batch: the profiles'
- * notice rows and seats go, and then, only if no owner is left, the wedding
- * is soft-deleted, with no one named as its deleter. The seat and the delete
- * commit together, so no wedding is ever left live without an owner. A
- * wedding already deleted only loses the seat. Each statement is guarded, so
- * a repeat changes nothing.
+ * One wedding a profile of the account owns, in one batch: the wedding is
+ * soft-deleted, with no one named as its deleter, only if no owner outside
+ * the account's profiles holds a seat; then the profiles' notice rows and
+ * seats go. The delete and the seats commit together on D1, and the delete
+ * comes first so that a driver running the statements one at a time still
+ * never leaves a live wedding without an owner. A wedding already deleted
+ * only loses the seats. Each statement is guarded, so a repeat changes
+ * nothing.
  */
 function eraseOwnedWedding(
   weddingId: string,
@@ -251,6 +255,17 @@ function eraseOwnedWedding(
     const results = yield* Effect.tryPromise({
       try: () =>
         commitBatchResults(db, [
+          db
+            .update(weddings)
+            .set({ deletedAt: now, deletedByOsnProfileId: null })
+            .where(
+              and(
+                eq(weddings.id, weddingId),
+                isNull(weddings.deletedAt),
+                sql`NOT ${otherOwnerOn(weddingId, profileIds)}`,
+              ),
+            )
+            .returning({ id: weddings.id }),
           db
             .delete(hostRsvpNotices)
             .where(
@@ -268,17 +283,6 @@ function eraseOwnedWedding(
               ),
             )
             .returning({ role: weddingHosts.role }),
-          db
-            .update(weddings)
-            .set({ deletedAt: now, deletedByOsnProfileId: null })
-            .where(
-              and(
-                eq(weddings.id, weddingId),
-                isNull(weddings.deletedAt),
-                sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${weddingHosts.weddingId} = ${weddingId} AND ${weddingHosts.role} = 'owner')`,
-              ),
-            )
-            .returning({ id: weddings.id }),
         ]),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
@@ -288,8 +292,8 @@ function eraseOwnedWedding(
         ),
       ),
     );
-    const removed = (results[1] as ReadonlyArray<{ role: string }>).length > 0;
-    const deleted = (results[2] as ReadonlyArray<{ id: string }>).length > 0;
+    const deleted = (results[0] as ReadonlyArray<{ id: string }>).length > 0;
+    const removed = (results[2] as ReadonlyArray<{ role: string }>).length > 0;
     if (!removed) return;
     const outcome = deleted ? "deleted" : "seat_removed";
     metricAccountDeletionWedding(outcome);
@@ -308,9 +312,10 @@ const clearedIn = (column: AnySQLiteColumn, profiles: ReadonlyArray<string>, to:
  * below owner and every notice row with no owner seat behind it, organiser
  * sessions, guest account links (by the account or a profile), Stripe OAuth
  * states, the profiles' budget rows, and every column that names a profile,
- * nullable ones to NULL (or {@link DELETED_PROFILE} beside a time that stays,
- * or `''` on the RSVP change log, where NULL means the household's own
- * change), and those that cannot be NULL to {@link DELETED_PROFILE}. An
+ * nullable ones to NULL (or {@link DELETED_PROFILE} where NULL means
+ * something else, or `''` on the RSVP change log, where NULL means the
+ * household's own change), and those that cannot be NULL to
+ * {@link DELETED_PROFILE}. An
  * enquiry the person opened that no chat ever took is deleted, which frees the
  * wedding to enquire with that vendor again. Then a count of the owner seats
  * the profiles still hold (one made owner since the call's first read), which
@@ -372,7 +377,7 @@ function eraseAccountRows(input: EraseInput) {
             ),
           db
             .update(guests)
-            .set({ emailAttestedByOsnProfileId: null })
+            .set({ emailAttestedByOsnProfileId: DELETED_PROFILE })
             .where(inProfiles(guests.emailAttestedByOsnProfileId, p)),
           // A claim the person was waiting on is cleared whole.
           db
@@ -428,11 +433,11 @@ function eraseAccountRows(input: EraseInput) {
           db
             .update(rsvps)
             .set({
-              recordedByOsnProfileId: clearedIn(rsvps.recordedByOsnProfileId, p, null),
+              recordedByOsnProfileId: clearedIn(rsvps.recordedByOsnProfileId, p, DELETED_PROFILE),
               dietaryAttestedByOsnProfileId: clearedIn(
                 rsvps.dietaryAttestedByOsnProfileId,
                 p,
-                null,
+                DELETED_PROFILE,
               ),
             })
             .where(

@@ -326,7 +326,7 @@ describe("the account-deletion calls", () => {
   // not atomic, and on D1 a failed batch writes nothing.
   it.each([
     ["the read of owned weddings", /^select .* from "wedding_hosts"/i],
-    ["a wedding's batch", /^delete from "host_rsvp_notices" where (?!.*NOT EXISTS)/i],
+    ["a wedding's batch", /^update "weddings" set "deleted_at"/i],
     ["the account's clean-up", /^delete from "host_rsvp_notices" where .*NOT EXISTS/i],
   ])("T-E1: a failure in %s answers 500, and the next call finishes", async (_step, pattern) => {
     const { db, app } = setup([P]);

@@ -299,7 +299,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
   it("F20: the other owner leaving before the batch makes the person the only owner: deleted", async () => {
     const db = makeDb();
     wedding(db, "w1", [P, OTHER]);
-    beforeStatement(db, /delete from "host_rsvp_notices"/i, () => {
+    beforeStatement(db, /update "weddings" set "deleted_at"/i, () => {
       db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, OTHER)).run();
     });
     expect(await erase(db).result).toEqual({ status: "done", kept: [] });
@@ -313,7 +313,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     wedding(db, "w1", [P, OTHER]);
     // The read finds the person's owner seat; another call removes it before
     // this call's batch.
-    beforeStatement(db, /delete from "host_rsvp_notices"/i, () => {
+    beforeStatement(db, /update "weddings" set "deleted_at"/i, () => {
       db.delete(weddingHosts).where(eq(weddingHosts.osnProfileId, P)).run();
     });
     const before = await weddingOutcomes();
@@ -383,7 +383,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
   // Each case fails a batch's first statement: on bun:sqlite a batch is not
   // atomic, and on D1 a failed batch writes nothing.
   it.each([
-    ["a wedding's batch", /delete from "host_rsvp_notices"/i],
+    ["a wedding's batch", /update "weddings" set "deleted_at"/i],
     ["the account's clean-up", /delete from "host_rsvp_notices" where .*NOT EXISTS/i],
     ["the read of owned weddings", /^select .* from "wedding_hosts"/i],
   ])("a failed statement in %s fails the call, and the next call finishes", async (_l, pattern) => {
@@ -402,6 +402,35 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(seatsOf(db, "w1")).toEqual([]);
     expect(weddingRow(db, "w1")?.deletedAt).toEqual(NOW);
   });
+
+  // bun:sqlite runs a batch one statement at a time, so a statement failing
+  // halfway leaves the ones before it written; the order alone must keep the
+  // owner rule. On D1 a failed batch writes nothing.
+  it.each([
+    ["the wedding's delete", /^update "weddings" set "deleted_at"/i],
+    ["the seat delete", /^delete from "wedding_hosts"/i],
+  ])(
+    "a wedding's batch failing at %s leaves no live wedding without an owner",
+    async (_step, pattern) => {
+      const db = makeDb();
+      wedding(db, "w1", [P]);
+      const failing = failStatements(db, (statement) => pattern.test(statement));
+      const exit = await Effect.runPromiseExit(
+        accountErasureService
+          .erase({ accountId: ACCOUNT, profileIds: [P], now: NOW })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(exit._tag).toBe("Failure");
+      expect(failing.failed()).toBeGreaterThan(0);
+      expect(liveWithNoOwner(db)).toEqual([]);
+
+      failing.restore();
+      expect(await erase(db).result).toEqual({ status: "done", kept: [] });
+      expect(seatsOf(db, "w1")).toEqual([]);
+      expect(weddingRow(db, "w1")?.deletedAt).toEqual(NOW);
+      expect(liveWithNoOwner(db)).toEqual([]);
+    },
+  );
 
   it("F28: a deleted wedding the person alone owned loses the seat and stays deleted from its own time", async () => {
     const db = makeDb();
@@ -476,7 +505,7 @@ const ATTRIBUTION: ReadonlyArray<
 > = [
   ["weddings", "updated_by_osn_profile_id", "id = 'wed_attr'", null],
   ["weddings", "deleted_by_osn_profile_id", "id = 'wed_attr'", null],
-  ["guests", "email_attested_by_osn_profile_id", "id = 'gst_wed_attr'", null],
+  ["guests", "email_attested_by_osn_profile_id", "id = 'gst_wed_attr'", DELETED],
   ["directory_vendors", "claimed_by_profile_id", "id = 'dv_wed_attr'", null],
   ["directory_vendors", "review_profile_id", "id = 'dv_wed_attr'", null],
   ["directory_vendors", "review_org_id", "id = 'dv_wed_attr'", null],
@@ -486,8 +515,8 @@ const ATTRIBUTION: ReadonlyArray<
   ["registry_claims", "note_hidden_by_osn_profile_id", "id = 'rclm_wed_attr'", DELETED],
   ["registry_contributions", "thanked_by", "id = 'rcon_wed_attr'", DELETED],
   ["registry_contributions", "note_hidden_by_osn_profile_id", "id = 'rcon_wed_attr'", DELETED],
-  ["rsvps", "recorded_by_osn_profile_id", "id = 'rsvp_wed_attr'", null],
-  ["rsvps", "dietary_attested_by_osn_profile_id", "id = 'rsvp_wed_attr'", null],
+  ["rsvps", "recorded_by_osn_profile_id", "id = 'rsvp_wed_attr'", DELETED],
+  ["rsvps", "dietary_attested_by_osn_profile_id", "id = 'rsvp_wed_attr'", DELETED],
   ["rsvp_changes", "actor_osn_profile_id", "wedding_id = 'wed_attr'", ""],
   ["unlock_code_redemptions", "redeemed_by_osn_profile_id", "id = 'ulr_wed_attr'", null],
   ["wedding_hosts", "added_by_osn_profile_id", "id = 'whost_wed_attr'", DELETED],

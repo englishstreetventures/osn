@@ -260,7 +260,8 @@ owners, each with an `owner` seat. Two consequences:
     the `actor:` rows of `owner_notice_budget`; an enquiry the person opened
     that never reached a chat; and every column that names a profile, cleared
     as the entries below say (`'deleted'` where the column cannot be NULL, or
-    beside a time that stays). cire answers that it keeps nothing.
+    beside a time that stays or where NULL would say the guest or household
+    wrote it). cire answers that it keeps nothing.
   - Leaving cire while keeping the account is not built (account-deletion
     design, phase 6). An operator handles such a request by hand, as an
     erasure request from an organiser.
@@ -395,13 +396,13 @@ owners, each with an `owner` seat. Two consequences:
   the record of who changed a guest's reply and who attested its consent
   (Art. 5(2), 7(1)), held as long as the row they sit on — the reply, or the
   change-log row's 90 days — and swept with it. An erasure request from that
-  organiser nulls them instead, in the same pass that removes the seat:
-  `UPDATE rsvps SET recorded_by_osn_profile_id = NULL WHERE recorded_by_osn_profile_id = ?`,
+  organiser replaces them instead, in the same pass that removes the seat:
+  `UPDATE rsvps SET recorded_by_osn_profile_id = 'deleted' WHERE recorded_by_osn_profile_id = ?`,
   the same for `dietary_attested_by_osn_profile_id`, and
   `UPDATE rsvp_changes SET actor_osn_profile_id = '' WHERE actor_osn_profile_id = ?`
-  — an empty string, not NULL, because a null actor is what marks a
-  household's own change, and the organisers' feed and digest would then show
-  the row. The consent record itself stays, as evidence an organiser attested;
+  — never NULL, because a null writer or attester is what marks the
+  household's own reply or consent, and a null actor its own change, which
+  the organisers' feed and digest would then show. The consent record itself stays, as evidence an organiser attested;
   an emptied change-log row still says an organiser set the status, by its kind.
   An organiser's access request finds these by profile id, not by seat, so a
   co-host whose seat was removed is answered too:
@@ -435,8 +436,9 @@ owners, each with an `owner` seat. Two consequences:
   an operator does it by hand on request. The same hand delete — by
   `(wedding_id, email_hash, guest_id)` — clears an opt-out another household
   made against someone's address the hosts had put on its seat, when the person whose address it is asks. An erasure request from the
-  attesting **organiser** nulls their id in the same pass that removes their
-  seat: `UPDATE guests SET email_attested_by_osn_profile_id = NULL WHERE email_attested_by_osn_profile_id = ?`;
+  attesting **organiser** replaces their id in the same pass that removes their
+  seat: `UPDATE guests SET email_attested_by_osn_profile_id = 'deleted' WHERE email_attested_by_osn_profile_id = ?`
+  (never NULL, which would read as the guest's own consent);
   the address and the rest of its record stay, as evidence an organiser
   attested. A revert never writes the id back: a restored record names its
   attester only while they hold a seat on the wedding.
