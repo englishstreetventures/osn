@@ -309,7 +309,10 @@ describe("PasskeysView", () => {
     // The read again says the passkey is gone: nothing opens.
     answerReread({ passkeys: [] });
     await waitFor(() => expect(screen.queryByText("Synced passkey")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByRole("dialog")).toBeNull();
+    // One step-up ran, for the first removal; none for the second.
+    expect(su.passkeyBegin).toHaveBeenCalledTimes(1);
   });
 
   it("asks before a removal in the step-up sheet, named and described by the removal, never window.confirm", async () => {

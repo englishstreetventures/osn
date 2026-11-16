@@ -13,8 +13,8 @@ import { afterEach, expect, it, vi } from "vitest";
  * a profile reset. The section stays mounted throughout, as `SettingsPage`
  * keeps it across a profile switch, so this fails if anything outside the page
  * cache's entries holds rows. And a delete that answers after its account has
- * gone writes nothing, and reads nothing, for the account after it (F14–F16 in
- * the branch's plan).
+ * gone never writes its outcome into the next account's list: that list is
+ * forgotten and read again (F14–F16 in the branch's plan).
  *
  * Each profile's passkey and authenticator carry its id, and its recovery
  * count its number, so a row of the wrong one is plain. The runtime is a fake

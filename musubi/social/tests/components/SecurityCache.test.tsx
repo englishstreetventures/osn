@@ -497,6 +497,24 @@ describe("the screen that wrote", () => {
     },
   );
 
+  it("F7: a rename with no answer forgets the rows, and its line moves under the heading", async () => {
+    mountTab();
+    await landed();
+    fireEvent.click(await screen.findByRole("button", { name: "Rename Work laptop" }));
+    fireEvent.input(screen.getByRole("textbox", { name: "Passkey name" }), {
+      target: { value: "Desk laptop" },
+    });
+    server.writeError = { error: new OsnApiError("lost", 503), commit: true };
+    server.hold.add("passkeys");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await passStepUp();
+    const alert = await screen.findByRole("alert");
+    // The field went with the rows; the line still says what happened.
+    expect(screen.queryByRole("textbox", { name: "Passkey name" })).toBeNull();
+    expect(screen.queryByText("Work laptop")).toBeNull();
+    expect(alert.textContent?.length).toBeGreaterThan(0);
+  });
+
   it("F8: a refused rename keeps the rows and its line under the field", async () => {
     mountTab();
     await landed();
@@ -553,6 +571,13 @@ describe("a failed read", () => {
     expect(screen.queryByRole("button", { name: "Add an authenticator app" })).toBeNull();
     expect(screen.queryByText(/You don't have any recovery codes yet/)).toBeNull();
     expect(screen.queryByRole("button", { name: /^Rename / })).toBeNull();
+
+    // Try again reads through the cache, and the rows land.
+    server.failRead.clear();
+    const passkeysLine = screen.getByText(/Your passkeys didn't load/);
+    fireEvent.click(within(passkeysLine).getByRole("button", { name: "Try again" }));
+    await screen.findByText("Work laptop");
+    expect(screen.queryByText(/Your passkeys didn't load/)).toBeNull();
   });
 
   it("F11: behind rows drawn from memory, takes them down", async () => {
@@ -616,6 +641,58 @@ describe("an action pressed while the tab reads behind its rows", () => {
     await release("recovery");
     expect(await screen.findByText("Generate a new set?")).toBeTruthy();
   });
+
+  it("F12: Save waits, and opens nothing for a passkey the read took off", async () => {
+    mountTab();
+    await landed();
+    server.passkeys = [key("pk_b", "Phone")];
+    server.hold.add("passkeys");
+    leave();
+    comeBack();
+    await settle();
+    fireEvent.click(await screen.findByRole("button", { name: "Rename Work laptop" }));
+    fireEvent.input(screen.getByRole("textbox", { name: "Passkey name" }), {
+      target: { value: "Desk laptop" },
+    });
+    const save = screen.getByRole("button", { name: "Save" });
+    fireEvent.click(save);
+    expect(save.getAttribute("aria-busy")).toBe("true");
+    await release("passkeys");
+    await waitFor(() => expect(screen.queryByText("Work laptop")).toBeNull());
+    await settle();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it.each([
+    ["Add an authenticator app", false, true],
+    ["Remove iPhone", true, false],
+  ])(
+    "F12: the authenticator's %s waits, and opens nothing the read says is already done",
+    async (button, enrolledBefore, enrolledAfter) => {
+      const enrolled = {
+        enrolled: true,
+        label: "iPhone",
+        lastUsedAt: null,
+        createdAt: 1_700_000_000,
+      };
+      const none = { enrolled: false, label: null, lastUsedAt: null, createdAt: null };
+      server.totp = enrolledBefore ? enrolled : none;
+      mountTab();
+      await landed();
+      server.totp = enrolledAfter ? enrolled : none;
+      server.hold.add("totp");
+      leave();
+      comeBack();
+      await settle();
+      const pressed = screen.getByRole("button", { name: button });
+      fireEvent.click(pressed);
+      expect(pressed.getAttribute("aria-busy")).toBe("true");
+      await release("totp");
+      await waitFor(() => expect(screen.queryByRole("button", { name: button })).toBeNull());
+      await settle();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
 
   it("F13: a second Remove while the first waits is refused, and the sheet names the first", async () => {
     mountTab();
