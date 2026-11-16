@@ -41,6 +41,7 @@
         "drizzle-orm": "1.0.0-rc.5",
         "effect": "4.1.4",
         "elysia": "^1.4.30",
+        "fflate": "0.8.3",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^5.20260903.1",
@@ -893,6 +894,7 @@
       "devDependencies": {
         "@playwright/test": "1.64.1",
         "@shared/typescript-config": "workspace:*",
+        "fflate": "0.8.3",
         "typescript": "7.1.0-beta",
       },
     },
