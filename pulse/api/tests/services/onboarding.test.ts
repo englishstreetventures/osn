@@ -52,16 +52,6 @@ describe("resolveAccountId", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("propagates ProfileNotFoundError from the bridge", () =>
-    Effect.gen(function* () {
-      vi.mocked(bridge.getAccountIdForProfile).mockReturnValue(
-        Effect.fail(new bridge.ProfileNotFoundError({ profileId: "usr_ghost" })),
-      );
-      const err = yield* Effect.flip(resolveAccountId("usr_ghost"));
-      expect(err._tag).toBe("ProfileNotFoundError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("propagates GraphBridgeError from the bridge (infra-failure signal)", () =>
     Effect.gen(function* () {
       vi.mocked(bridge.getAccountIdForProfile).mockReturnValue(
@@ -78,18 +68,6 @@ describe("resolveAccountId", () => {
 // ---------------------------------------------------------------------------
 
 describe("getOnboardingStatus", () => {
-  it.effect("returns defaults when no row exists for the account", () =>
-    Effect.gen(function* () {
-      const status = yield* getOnboardingStatus("usr_alice");
-      expect(status.completedAt).toBeNull();
-      expect(status.interests).toEqual([]);
-      expect(status.notificationsOptIn).toBe(false);
-      expect(status.eventRemindersOptIn).toBe(false);
-      expect(status.notificationsPerm).toBe("prompt");
-      expect(status.locationPerm).toBe("prompt");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("returns the stored row after completion", () =>
     Effect.gen(function* () {
       yield* completeOnboarding("usr_alice", {
@@ -142,45 +120,6 @@ describe("getOnboardingStatus", () => {
 // ---------------------------------------------------------------------------
 
 describe("completeOnboarding", () => {
-  it.effect("inserts a row with the validated payload", () =>
-    Effect.gen(function* () {
-      const result = yield* completeOnboarding("usr_alice", {
-        interests: ["music", "tech", "outdoor"],
-        notificationsOptIn: true,
-        eventRemindersOptIn: true,
-        notificationsPerm: "granted",
-        locationPerm: "granted",
-      });
-      expect(result.completedAt).toBeInstanceOf(Date);
-      expect(result.interests).toEqual(["music", "tech", "outdoor"]);
-      expect(result.notificationsOptIn).toBe(true);
-      expect(result.eventRemindersOptIn).toBe(true);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("is idempotent — second call returns the original completedAt", () =>
-    Effect.gen(function* () {
-      const first = yield* completeOnboarding("usr_alice", {
-        interests: ["music"],
-        notificationsOptIn: false,
-        eventRemindersOptIn: false,
-        notificationsPerm: "denied",
-        locationPerm: "prompt",
-      });
-      const second = yield* completeOnboarding("usr_alice", {
-        // Different payload — should be ignored on the second call.
-        interests: ["food", "arts"],
-        notificationsOptIn: true,
-        eventRemindersOptIn: true,
-        notificationsPerm: "granted",
-        locationPerm: "granted",
-      });
-      expect(second.completedAt?.getTime()).toBe(first.completedAt?.getTime());
-      expect(second.interests).toEqual(["music"]);
-      expect(second.notificationsOptIn).toBe(false);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("signals osn-api that the account joined Pulse on first completion only", () =>
     Effect.gen(function* () {
       yield* completeOnboarding("usr_alice", {

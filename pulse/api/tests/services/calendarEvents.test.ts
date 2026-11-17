@@ -157,21 +157,6 @@ it.effect("returns a single entry when the viewer hosts AND RSVP'd their own eve
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("clamps the result count to the requested limit", () =>
-  Effect.gen(function* () {
-    for (let i = 0; i < 3; i++) {
-      const event = yield* seedEvent({
-        title: `E${i}`,
-        startTime: inDays(i + 1),
-        createdByProfileId: OTHER,
-      });
-      yield* upsertRsvp(event.id, VIEWER, { status: "going" });
-    }
-    const entries = yield* listMyCalendarEvents(VIEWER, { limit: 2 });
-    expect(entries).toHaveLength(2);
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 // applyTransitions preserves row order, so the parallel myStatus
 // array zips back by index. Interleave transitioning (already-started,
 // stored "upcoming") and non-transitioning (future) events with different

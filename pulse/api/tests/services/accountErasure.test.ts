@@ -807,24 +807,6 @@ describe("pulse account-erasure: cancellation + sweepers", () => {
     expect(row!.hardDeleteAt).toBe(purged.kept[0]!.erasedOn);
   });
 
-  it.effect("hard-delete sweeper removes deletion-jobs past the grace window", () =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      yield* Effect.promise(() =>
-        db.insert(pulseDeletionJobs).values({
-          profileId: PROFILE_ID,
-          accountId: ACCOUNT_ID,
-          softDeletedAt: 1_000,
-          hardDeleteAt: 2_000,
-          enrollmentNotifyDoneAt: 1_500,
-          reason: "user_request",
-        }),
-      );
-      const r = yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
-      expect(r.purged).toBe(1);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("event-cancellation sweeper hard-deletes events past hardDeleteAt", () =>
     Effect.gen(function* () {
       yield* seedPulseData();

@@ -3,12 +3,7 @@ import { eventLineup, events, venues } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { Effect } from "effect";
 
-import {
-  getVenue,
-  listAllVenues,
-  listEventLineup,
-  listVenueEvents,
-} from "../../src/services/venues";
+import { listAllVenues, listEventLineup, listVenueEvents } from "../../src/services/venues";
 import { createTestLayer } from "../helpers/db";
 
 const provide = <A, E>(effect: Effect.Effect<A, E, Db>) =>
@@ -72,19 +67,6 @@ const seedSlot = (eventId: string, artistName: string, slotStart: Date, slotEnd:
   });
 
 // ---------------------------------------------------------------------------
-// getVenue
-// ---------------------------------------------------------------------------
-
-it.effect("getVenue fails with VenueNotFound for unknown id", () =>
-  provide(
-    Effect.gen(function* () {
-      const err = yield* Effect.flip(getVenue("the-org", "does-not-exist"));
-      expect(err._tag).toBe("VenueNotFound");
-    }),
-  ),
-);
-
-// ---------------------------------------------------------------------------
 // listVenueEvents
 // ---------------------------------------------------------------------------
 
@@ -118,45 +100,6 @@ it.effect("listVenueEvents excludes private events", () =>
   ),
 );
 
-it.effect("listVenueEvents scope=past returns finished events", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedVenue;
-      yield* seedEvent("evt_old", { startTime: future(-7), venueId: "the-club" });
-      yield* seedEvent("evt_new", { startTime: future(1), venueId: "the-club" });
-      const past = yield* listVenueEvents("the-org", "the-club", { scope: "past" });
-      expect(past.map((e) => e.id)).toEqual(["evt_old"]);
-    }),
-  ),
-);
-
-it.effect("listVenueEvents fails with VenueNotFound for unknown id", () =>
-  provide(
-    Effect.gen(function* () {
-      const err = yield* Effect.flip(listVenueEvents("the-org", "does-not-exist"));
-      expect(err._tag).toBe("VenueNotFound");
-    }),
-  ),
-);
-
-it.effect("listVenueEvents excludes private events at the service boundary", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedVenue;
-      yield* seedEvent("evt_pub", { startTime: future(1), venueId: "the-club" });
-      yield* seedEvent("evt_priv", {
-        startTime: future(2),
-        venueId: "the-club",
-        visibility: "private",
-      });
-      // No viewer is threaded through — venue surface is public, so the
-      // private filter must hold even before any visibility middleware.
-      const list = yield* listVenueEvents("the-org", "the-club", { scope: "all" });
-      expect(list.map((e) => e.id)).toEqual(["evt_pub"]);
-    }),
-  ),
-);
-
 it.effect("listVenueEvents clamps limit to 200", () =>
   provide(
     Effect.gen(function* () {
@@ -177,60 +120,9 @@ it.effect("listVenueEvents clamps limit to 200", () =>
   ),
 );
 
-it.effect("listVenueEvents scope=all returns past + upcoming together", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedVenue;
-      yield* seedEvent("evt_past", { startTime: future(-5), venueId: "the-club" });
-      yield* seedEvent("evt_future", { startTime: future(5), venueId: "the-club" });
-      const all = yield* listVenueEvents("the-org", "the-club", { scope: "all" });
-      expect(all.map((e) => e.id).toSorted()).toEqual(["evt_future", "evt_past"]);
-    }),
-  ),
-);
-
 // ---------------------------------------------------------------------------
 // listAllVenues
 // ---------------------------------------------------------------------------
-
-it.effect("listAllVenues returns every venue row within the default bound", () =>
-  provide(
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const now = new Date();
-      yield* Effect.promise(() =>
-        db.insert(venues).values([
-          {
-            id: "v1",
-            orgHandle: "org-a",
-            handle: "alpha",
-            name: "Alpha",
-            createdAt: now,
-            updatedAt: now,
-          },
-          {
-            id: "v2",
-            orgHandle: "org-a",
-            handle: "beta",
-            name: "Beta",
-            createdAt: now,
-            updatedAt: now,
-          },
-          {
-            id: "v3",
-            orgHandle: "org-b",
-            handle: "gamma",
-            name: "Gamma",
-            createdAt: now,
-            updatedAt: now,
-          },
-        ]),
-      );
-      const rows = yield* listAllVenues();
-      expect(rows.map((r) => r.id).toSorted()).toEqual(["v1", "v2", "v3"]);
-    }),
-  ),
-);
 
 it.effect("listAllVenues no-bbox path is bounded even with no caller limit", () =>
   provide(

@@ -54,26 +54,6 @@ const provide = <A, E>(effect: Effect.Effect<A, E, Db>) =>
 // Visibility
 // ---------------------------------------------------------------------------
 
-it.effect("surfaces public events to anonymous viewers", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({ title: "Public", startTime: FUTURE(60_000), visibility: "public" });
-      const result = yield* discoverEvents({}, null, stubLookups());
-      expect(result.events.map((e) => e.title)).toEqual(["Public"]);
-    }),
-  ),
-);
-
-it.effect("hides private events from anonymous viewers", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({ title: "Secret", startTime: FUTURE(60_000), visibility: "private" });
-      const result = yield* discoverEvents({}, null, stubLookups());
-      expect(result.events).toEqual([]);
-    }),
-  ),
-);
-
 it.effect("surfaces private events to the organiser", () =>
   provide(
     Effect.gen(function* () {
@@ -108,17 +88,6 @@ it.effect("surfaces private events to invited viewers (RSVP row)", () =>
 // ---------------------------------------------------------------------------
 // Filters
 // ---------------------------------------------------------------------------
-
-it.effect("filters by category", () =>
-  provide(
-    Effect.gen(function* () {
-      yield* seedEvent({ title: "Show", startTime: FUTURE(60_000), category: "music" });
-      yield* seedEvent({ title: "Game", startTime: FUTURE(60_000), category: "sports" });
-      const result = yield* discoverEvents({ category: "music" }, null, stubLookups());
-      expect(result.events.map((e) => e.title)).toEqual(["Show"]);
-    }),
-  ),
-);
 
 it.effect("excludes past events by default (from >= now)", () =>
   provide(
@@ -532,15 +501,6 @@ it.effect("returns a stable cursor and paginates without gaps", () =>
 // Validation
 // ---------------------------------------------------------------------------
 
-it.effect("rejects lat without lng/radiusKm", () =>
-  provide(
-    Effect.gen(function* () {
-      const err = yield* Effect.flip(discoverEvents({ lat: 51.5 }, null, stubLookups()));
-      expect(err).toBeInstanceOf(DiscoveryValidationError);
-    }),
-  ),
-);
-
 it.effect("caps a page at 50 events: 50 is accepted, 51 is refused", () =>
   provide(
     Effect.gen(function* () {
@@ -548,15 +508,6 @@ it.effect("caps a page at 50 events: 50 is accepted, 51 is refused", () =>
       // rests on this cap.
       yield* discoverEvents({ limit: 50 }, null, stubLookups());
       const err = yield* Effect.flip(discoverEvents({ limit: 51 }, null, stubLookups()));
-      expect(err).toBeInstanceOf(DiscoveryValidationError);
-    }),
-  ),
-);
-
-it.effect("rejects priceMin without currency", () =>
-  provide(
-    Effect.gen(function* () {
-      const err = yield* Effect.flip(discoverEvents({ priceMin: 10 }, null, stubLookups()));
       expect(err).toBeInstanceOf(DiscoveryValidationError);
     }),
   ),

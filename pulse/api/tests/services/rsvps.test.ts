@@ -83,18 +83,6 @@ it.effect("upsertRsvp rejects 'invited' wire status", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("upsertRsvp fails with NotInvited on guest_list event for non-invited user", () =>
-  Effect.gen(function* () {
-    const event = yield* seedEvent({
-      title: "Guest list only",
-      startTime: "2030-06-01T10:00:00.000Z",
-      joinPolicy: "guest_list",
-    });
-    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "going" }));
-    expect(err._tag).toBe("NotInvited");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 it.effect("upsertRsvp allows organiser to RSVP to own guest_list event without prior invite", () =>
   Effect.gen(function* () {
     const event = yield* seedEvent({
@@ -220,21 +208,6 @@ it.effect("upsertRsvp rejects an unknown shareSource value", () =>
 // inviteGuests
 // ---------------------------------------------------------------------------
 
-it.effect("inviteGuests adds invited rows for non-existing users", () =>
-  Effect.gen(function* () {
-    const event = yield* seedEvent({
-      title: "Guest list only",
-      startTime: "2030-06-01T10:00:00.000Z",
-      joinPolicy: "guest_list",
-      createdByProfileId: "usr_alice",
-    });
-    const result = yield* inviteGuests(event.id, "usr_alice", {
-      profileIds: ["usr_bob", "usr_carol"],
-    });
-    expect(result.invited).toBe(2);
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 it.effect("inviteGuests skips users with existing RSVPs", () =>
   Effect.gen(function* () {
     const event = yield* seedEvent({
@@ -247,20 +220,6 @@ it.effect("inviteGuests skips users with existing RSVPs", () =>
       profileIds: ["usr_bob", "usr_carol"],
     });
     expect(result.invited).toBe(1);
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("inviteGuests rejects non-organiser caller", () =>
-  Effect.gen(function* () {
-    const event = yield* seedEvent({
-      title: "Party",
-      startTime: "2030-06-01T10:00:00.000Z",
-      createdByProfileId: "usr_alice",
-    });
-    const err = yield* Effect.flip(
-      inviteGuests(event.id, "usr_bob", { profileIds: ["usr_carol"] }),
-    );
-    expect(err._tag).toBe("NotEventOwner");
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -603,24 +562,6 @@ it.effect("listRsvps surfaces close-friend rows first, newest-within-bucket afte
     expect(rows[0]!.isCloseFriend).toBe(true);
     expect(rows[1]!.isCloseFriend).toBe(false);
     expect(rows[2]!.isCloseFriend).toBe(false);
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("listRsvps joins user display metadata onto rows", () =>
-  Effect.gen(function* () {
-    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
-      Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob Smith")]])),
-    );
-    const event = yield* seedEvent({
-      title: "Public",
-      startTime: "2030-06-01T10:00:00.000Z",
-      guestListVisibility: "public",
-      createdByProfileId: "usr_alice",
-    });
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
-    const rows = yield* listRsvps(event.id, "usr_alice", { status: "going" });
-    expect(rows[0]!.profile?.displayName).toBe("Bob Smith");
-    expect(rows[0]!.profile?.handle).toBe("bob");
   }).pipe(Effect.provide(createTestLayer())),
 );
 

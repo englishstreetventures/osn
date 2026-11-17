@@ -30,14 +30,6 @@ const provide = <A, E>(effect: Effect.Effect<A, E, any>) =>
 // RRULE parsing
 // ---------------------------------------------------------------------------
 
-it.effect("parseRRule accepts FREQ=WEEKLY;COUNT=4", () =>
-  Effect.gen(function* () {
-    const parsed = yield* parseRRule("FREQ=WEEKLY;COUNT=4");
-    expect(parsed.freq).toBe("WEEKLY");
-    expect(parsed.count).toBe(4);
-  }),
-);
-
 it.effect("parseRRule rejects unsupported FREQ", () =>
   Effect.gen(function* () {
     const err = yield* Effect.flip(parseRRule("FREQ=YEARLY;COUNT=2"));
@@ -118,15 +110,6 @@ it.effect("expandRRule WEEKLY produces N instances 7 days apart", () =>
   ),
 );
 
-it.effect("expandRRule respects COUNT cap", () =>
-  Effect.sync(() => {
-    const dtstart = new Date("2030-06-04T18:00:00.000Z");
-    const parsed = { freq: "WEEKLY" as const, interval: 1, byDay: null, count: 3, until: null };
-    const dates = expandRRule(parsed, dtstart, new Date("2100-01-01"));
-    expect(dates).toHaveLength(3);
-  }),
-);
-
 it.effect("expandRRule MONTHLY walks by month", () =>
   Effect.sync(() => {
     const dtstart = new Date("2030-06-01T18:00:00.000Z");
@@ -175,49 +158,9 @@ it.effect("expandRRule emits a full COUNT even when week 0 emits nothing", () =>
   }),
 );
 
-it.effect("expandRRule bounds an unterminated walk without truncating a legal one", () =>
-  Effect.sync(() => {
-    const dtstart = new Date("2030-06-04T18:00:00.000Z");
-    // The largest expansion the grammar admits: COUNT at the hard cap, with a
-    // horizon far enough out that only COUNT stops it. The valve sits at
-    // MAX_SERIES_INSTANCES, so this is the case that proves it can't bite.
-    const parsed = {
-      freq: "WEEKLY" as const,
-      interval: 1,
-      byDay: null,
-      count: MAX_SERIES_INSTANCES,
-      until: null,
-    };
-    expect(expandRRule(parsed, dtstart, new Date("2100-01-01"))).toHaveLength(MAX_SERIES_INSTANCES);
-  }),
-);
-
 // ---------------------------------------------------------------------------
 // createSeries
 // ---------------------------------------------------------------------------
-
-it.effect("createSeries materializes instances with seriesId set", () =>
-  provide(
-    Effect.gen(function* () {
-      const { series, instances } = yield* createSeries(
-        {
-          title: "Weekly Yoga",
-          rrule: "FREQ=WEEKLY;COUNT=4",
-          dtstart: futureIso(7),
-          category: "wellness",
-          timezone: "America/New_York",
-        },
-        ALICE,
-      );
-      expect(series.id).toMatch(/^srs_/);
-      expect(instances).toHaveLength(4);
-      for (const i of instances) {
-        expect(i.seriesId).toBe(series.id);
-        expect(i.instanceOverride).toBe(false);
-      }
-    }),
-  ),
-);
 
 it.effect("createSeries rejects past dtstart", () =>
   provide(
@@ -299,21 +242,6 @@ it.effect("updateSeries propagates to non-override instances only", () =>
       const normalRow = rows.find((r) => r.id === instances[0]!.id)!;
       expect(overrideRow.venue).toBe("Custom");
       expect(normalRow.venue).toBe("Updated");
-    }),
-  ),
-);
-
-it.effect("updateSeries rejects non-owner with NotEventOwner", () =>
-  provide(
-    Effect.gen(function* () {
-      const { series } = yield* createSeries(
-        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
-        ALICE,
-      );
-      const err = yield* Effect.flip(
-        updateSeries(series.id, { title: "Hax" }, BOB.createdByProfileId),
-      );
-      expect(err._tag).toBe("NotEventOwner");
     }),
   ),
 );

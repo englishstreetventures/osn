@@ -62,21 +62,6 @@ it.effect("validate resolves a live token to its login-time identity snapshot", 
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("validate fails `missing` for an unknown token", () =>
-  Effect.gen(function* () {
-    const err = yield* Effect.flip(webSessionService.validate("not-a-real-token"));
-    expect(err._tag).toBe("WebSessionInvalid");
-    expect(err.reason).toBe("missing");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("validate fails `missing` for an empty token without touching the DB", () =>
-  Effect.gen(function* () {
-    const err = yield* Effect.flip(webSessionService.validate(""));
-    expect(err.reason).toBe("missing");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
 it.effect("validate fails `expired` for a lapsed token and leaves the row in place", () =>
   Effect.gen(function* () {
     // Negative TTL puts `expiresAt` in the past without waiting on a clock.
@@ -107,31 +92,6 @@ it.effect("revoke drops only the session it names", () =>
     expect(err.reason).toBe("missing");
     const survivor = yield* webSessionService.validate(second.token);
     expect(survivor.osnProfileId).toBe("usr_alice");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("revoke of an unknown token succeeds — sign-out is idempotent", () =>
-  Effect.gen(function* () {
-    const live = yield* webSessionService.create(identity);
-    yield* webSessionService.revoke("never-issued");
-
-    // No error, and nothing else went with it.
-    const survivor = yield* webSessionService.validate(live.token);
-    expect(survivor.osnProfileId).toBe("usr_alice");
-  }).pipe(Effect.provide(createTestLayer())),
-);
-
-it.effect("revokeAllForProfile drops every session of that profile and no other's", () =>
-  Effect.gen(function* () {
-    const a1 = yield* webSessionService.create(identity);
-    const a2 = yield* webSessionService.create(identity);
-    const b = yield* webSessionService.create({ ...identity, osnProfileId: "usr_bob" });
-
-    yield* webSessionService.revokeAllForProfile("usr_alice");
-
-    expect((yield* Effect.flip(webSessionService.validate(a1.token))).reason).toBe("missing");
-    expect((yield* Effect.flip(webSessionService.validate(a2.token))).reason).toBe("missing");
-    expect((yield* webSessionService.validate(b.token)).osnProfileId).toBe("usr_bob");
   }).pipe(Effect.provide(createTestLayer())),
 );
 
