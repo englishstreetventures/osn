@@ -29,7 +29,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { accounts, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { metricAppStepUpRequest } from "../../metrics";
@@ -302,34 +302,28 @@ export function createAppStepUpModule(ctx: AuthContext, stepUp: StepUpModule) {
       ) {
         return { ok: false } as const;
       }
-      const owner = yield* liveOwner(input.profileId);
-      if (owner !== entry.accountId) return { ok: false } as const;
-
+      // One read: every profile of the request's account, while that account
+      // is not pending deletion and the confirming family has a live,
+      // unrestricted, unexpired session. Empty when either fails; the
+      // profile asked about must be among them.
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      const live = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({ id: sessions.id })
-            .from(sessions)
-            .where(
-              and(
-                eq(sessions.accountId, entry.accountId),
-                eq(sessions.familyId, entry.familyId),
-                isNull(sessions.restrictedUntil),
-                gt(sessions.expiresAt, nowSec),
-              ),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      if (live.length === 0) return { ok: false } as const;
-
       const profiles = yield* Effect.tryPromise({
         try: () =>
-          db.select({ id: users.id }).from(users).where(eq(users.accountId, entry.accountId)),
+          db
+            .select({ id: users.id })
+            .from(users)
+            .innerJoin(accounts, eq(accounts.id, users.accountId))
+            .where(
+              and(
+                eq(users.accountId, entry.accountId),
+                isNull(accounts.deletedAt),
+                sql`EXISTS (SELECT 1 FROM ${sessions} WHERE ${sessions.accountId} = ${entry.accountId} AND ${sessions.familyId} = ${entry.familyId} AND ${sessions.restrictedUntil} IS NULL AND ${sessions.expiresAt} > ${nowSec})`,
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (!profiles.some((row) => row.id === input.profileId)) return { ok: false } as const;
       return {
         ok: true,
         accountId: entry.accountId,

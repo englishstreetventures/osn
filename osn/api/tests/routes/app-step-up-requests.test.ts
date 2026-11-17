@@ -323,6 +323,29 @@ describe("POST /internal/step-up/requests", () => {
 
     expect(callsOn(h.fake, "app_step_up")).toEqual([]);
   });
+
+  it("refuses a call with no ARC token, and a binding that is not a SHA-256, storing nothing", async () => {
+    const h = await harness();
+    const noToken = await h.app.handle(
+      new Request("http://localhost/internal/step-up/requests", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          purpose: "cire_app_delete",
+          profile_id: h.a.id,
+          binding: sha256(secret()),
+          return_to: RETURN_TO,
+        }),
+      }),
+    );
+    // Refused before the route runs: no ARC token, no request.
+    expect(noToken.ok).toBe(false);
+    for (const binding of ["", "z".repeat(64), sha256(secret()).toUpperCase(), "a".repeat(63)]) {
+      const res = await h.begin({ profile_id: h.a.id, binding });
+      expect({ binding, ok: res.ok }).toEqual({ binding, ok: false });
+    }
+    expect(callsOn(h.fake, "app_step_up")).toEqual([]);
+  });
 });
 
 describe("GET /step-up/requests/:id and POST …/confirm", () => {
@@ -396,6 +419,28 @@ describe("GET /step-up/requests/:id and POST …/confirm", () => {
     const spent = await h.confirm(id, h.a.accessToken, token);
     expect(spent.status).toBe(403);
 
+    expect((await h.read(id, h.a.accessToken)).status).toBe(200);
+  });
+
+  it("of two confirms at once, one wins and the other finds no pending request", async () => {
+    // Red on writing the confirmed state without comparing it to what was
+    // read: both would answer a code, and the second would replace the first.
+    const h = await harness();
+    const { id } = await h.begun();
+    const [first, second] = await Promise.all([
+      h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete")),
+      h.confirm(id, h.a.accessToken, await h.stepUpToken(h.a, "cire_app_delete")),
+    ]);
+    expect([first.status, second.status].toSorted()).toEqual([200, 404]);
+  });
+
+  it("refuse a missing or malformed access token", async () => {
+    const h = await harness();
+    const { id } = await h.begun();
+    for (const token of ["", "not-a-jwt"]) {
+      expect((await h.read(id, token)).status).toBe(401);
+      expect((await h.confirm(id, token, "x")).status).toBe(401);
+    }
     expect((await h.read(id, h.a.accessToken)).status).toBe(200);
   });
 
