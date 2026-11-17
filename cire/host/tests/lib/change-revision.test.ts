@@ -8,6 +8,7 @@ vi.mock("../../src/lib/api", async () => {
 import {
   isChangeInProgress,
   isHeadMoved,
+  HeadRefusedError,
   loadHeadRevision,
   revisionOf,
 } from "../../src/lib/change-revision";
@@ -32,11 +33,19 @@ describe("loadHeadRevision", () => {
     expect(redirectSpy).toHaveBeenCalled();
   });
 
+  it("rejects a refusal as one, so an editor drawn from cache drops its draft", async () => {
+    for (const status of [403, 404]) {
+      const authFetch = vi.fn().mockResolvedValue(jsonRes({ error: "read_only_role" }, status));
+      await expect(loadHeadRevision(authFetch, "wed_a")).rejects.toBeInstanceOf(HeadRefusedError);
+    }
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
   it("rejects on any other failure, so the editor shows a load error instead of a draft", async () => {
-    const authFetch = vi.fn().mockResolvedValue(jsonRes({ error: "read_only_role" }, 403));
-    await expect(loadHeadRevision(authFetch, "wed_a")).rejects.toThrow(
-      "Failed to load the change head",
-    );
+    const authFetch = vi.fn().mockResolvedValue(jsonRes({ error: "boom" }, 500));
+    const failed = loadHeadRevision(authFetch, "wed_a");
+    await expect(failed).rejects.toThrow("Failed to load the change head");
+    await expect(failed).rejects.not.toBeInstanceOf(HeadRefusedError);
     expect(redirectSpy).not.toHaveBeenCalled();
   });
 
