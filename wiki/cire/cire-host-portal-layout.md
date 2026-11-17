@@ -479,7 +479,9 @@ module or sub-tab switch remounts it. The caches below keep what each view read
 so a visit soon after draws at once and sends nothing. Each is a
 `createWeddingCache` (`cire/host/src/lib/wedding-cache.ts`): the contract above —
 stale but shown, generation-guarded, a refused read blanks, a closed wedding
-loads and keeps nothing — plus an age. A value read more than
+loads and keeps nothing — plus an age. A view that reads on its own and writes
+its answer in (co-hosts, the invite builder, the directory) calls `refuse` when
+its read is refused or fails, so nothing draws that value again. A value read more than
 `CACHE_MAX_AGE_MS` (one minute) ago counts as stale: the view draws it and reads
 again behind it. Guests, co-hosts and other organisers change this data, and
 only task and seat changes reach the portal as a push
@@ -500,10 +502,20 @@ patch) keeps it.
 **The RSVP table and its badges.** The table marks the guests' changes it shows
 as seen, from the badge rows it reads beside the replies
 ([[cire-rsvp-changes]]). Replies the Overview read came without them, so the
-table draws those at once and reads both again; replies the table itself read,
-still fresh, draw with nothing read and no badges, since what they held was
-marked seen then. The replies hold dietary answers: like every cache here they
+table draws those at once and reads both again as it mounts; replies the table
+itself read, still fresh, draw with nothing read, and both are read again once
+drawn (`after-paint.ts`), which brings any change since, badged. A refused read
+empties the table. The replies hold dietary answers: like every cache here they
 stay only while the dashboard is on screen ([[retention]]).
+
+**What a minute allows.** A seat removed or narrowed loses its cached rows at
+once while the wedding's socket is up: `members-changed` re-reads the wedding
+list and the dashboard unmounts ([[#Noticing a lost wedding]]). With the socket
+down, a view drawn from a fresh cache sends no read that would be refused, so
+the rows the tab already holds can show for up to a minute after the seat
+changed. The RSVP table and the change editors still read once drawn, and drop
+their rows on a refusal; an editor told its head is refused says the seat can no
+longer edit.
 
 **`guestListChanged`** (`guest-list-changed.ts`, beside `schedule-changed.ts`)
 drops the RSVP replies after any committed change to what they hold: an editor
@@ -516,7 +528,8 @@ per slice, the head an editor read and the exact rows array it then loaded. A
 later visit whose slices are still those arrays, fresh, under one head, draws
 the draft from them at once and reads `/changes/head` after the frame that drew
 it (`after-paint.ts`): a head that moved reloads an untouched draft and marks an
-edited one stale with the save bar's notice. Any reload or patch replaces an
+edited one stale with the save bar's notice, and a refused head (403 or 404)
+drops the draft. Any reload or patch replaces an
 array, which ends the basis; so does the wedding's drop.
 
 **Left reading on every visit:** the seating chart, which its page keeps only

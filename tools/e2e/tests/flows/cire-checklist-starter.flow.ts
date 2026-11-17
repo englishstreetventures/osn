@@ -39,7 +39,9 @@
  * what the portal asked cire-api before the view first drew
  * (`tests/support/request-log.ts`): the checklist, the starter checklist and
  * the budget; the Overview; the guest list, its editor and the RSVPs, each
- * twice; the events editor. A second visit inside a minute asks for nothing
+ * twice; Settings › Profile and Co-hosts and the invite builder, twice; the
+ * events editor. The page's time holds still meanwhile, so no cached value
+ * ages. A second visit inside a minute asks for nothing
  * before it draws; an editor checks its change head only after drawing. The
  * RSVP table reads its replies again with their badges after the Overview read
  * them without, marks Ada's reply New and seen, and the Overview's changes
@@ -70,7 +72,14 @@ import {
   SCREENSHOT_DIR,
 } from "../../src/config";
 import { buyGold, refundGold } from "../support/cire-upgrade";
-import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
+import {
+  expect,
+  onSuiteClock,
+  queryOne,
+  signInToCireHost,
+  suiteNow,
+  test,
+} from "../support/fixtures";
 import {
   logApiCalls,
   readsBeforeDraw,
@@ -720,6 +729,10 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   // the hash. Every visit is checked for the reads it sent before it drew.
   const cached = CIRE_ORGANISER.cache;
   const weddingApi = `/api/organiser/weddings/${cached.weddingId}/`;
+  // The page's time holds still for the section, timers still running: a
+  // value the caches read stays inside its minute however slow the run, so
+  // each check depends on what the portal did, not on how long it took.
+  await page.clock.setFixedTime(await page.evaluate(() => Date.now()));
   const visits: VisitLog[] = [];
   const logged = async (
     name: string,
@@ -822,7 +835,22 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     true,
     editorAgain.afterDraw.includes(`GET ${weddingApi}changes/head`),
   );
-  await logged("RSVPs, second visit", "", RSVPS, toTab("RSVPs"));
+  const tableAgain = await logged(
+    "RSVPs, second visit",
+    "",
+    RSVPS,
+    toTab("RSVPs"),
+    responseTo("GET", "rsvp-changes/rows"),
+  );
+  flow.check(
+    "RSVPs, second visit: reads the replies and their badges after it drew",
+    "GET rsvp-changes/rows · GET rsvps",
+    tableAgain.afterDraw
+      .filter((call) => call.startsWith("GET "))
+      .map((call) => call.replace(weddingApi, ""))
+      .toSorted()
+      .join(" · "),
+  );
   await logged("households, second visit", "", HOUSEHOLDS, toTab("Households"));
   await logged(
     "overview, after the RSVPs were seen",
@@ -835,6 +863,18 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     true,
     await page.getByText("Nothing new since your last visit.", { exact: true }).isVisible(),
   );
+
+  // Settings › Profile and Co-hosts, and the invite builder, each twice.
+  const PROFILE: ViewContent = { selector: "label", text: "Wedding name" };
+  const COHOSTS: ViewContent = { selector: "div", text: CIRE_ORGANISER.profileId };
+  const INVITE: ViewContent = { selector: '[aria-label="Invite design"]' };
+  await logged("settings profile, first visit", "", PROFILE, toModule("Settings"));
+  await logged("co-hosts, first visit", "hosts", COHOSTS, toTab("Co-hosts"));
+  await logged("settings profile, second visit", "", PROFILE, toTab("Profile"));
+  await logged("co-hosts, second visit", "", COHOSTS, toTab("Co-hosts"));
+  await logged("invite builder, first visit", "invite", INVITE, toModule("Invite"));
+  await logged("overview, between invite builder visits", "", OVERVIEW, toModule("Overview"));
+  await logged("invite builder, second visit", "", INVITE, toModule("Invite"));
 
   // The events editor, drawn from the rows the guest editor read after its
   // head, then a rename the Overview shows on its next visit.
@@ -923,6 +963,8 @@ test("cire-checklist-starter", async ({ page, flow }) => {
       .first()
       .isVisible(),
   );
+  // Time moves again, from the suite's clock, for the steps that follow.
+  await page.clock.setSystemTime(suiteNow());
   mkdirSync(resolve(ARTIFACT_DIR, "request-logs"), { recursive: true });
   writeFileSync(
     resolve(ARTIFACT_DIR, "request-logs", "cire-checklist-starter.json"),
