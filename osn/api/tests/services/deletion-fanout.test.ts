@@ -452,9 +452,12 @@ describe("the deletion fan-out", () => {
     () =>
       Effect.gen(function* () {
         const counted = vi.spyOn(metrics, "metricAccountDeletionFanout");
-        answer = (call) => (call.app === "zap" ? { delayMs: 500 } : undefined);
+        // The timeout is a real `AbortSignal.timeout`, shared by every app. It
+        // must outlast pulse's and cire's prompt answers on a loaded machine,
+        // where they can take more than 50 ms, and zap's answer must outlast it.
+        answer = (call) => (call.app === "zap" ? { delayMs: 10_000 } : undefined);
         const { accountId } = yield* dueAccount("slow");
-        yield* runFanOutRetrySweep({ config: apps.config({ fanoutTimeoutMs: 50 }), nowMs });
+        yield* runFanOutRetrySweep({ config: apps.config({ fanoutTimeoutMs: 1_000 }), nowMs });
         const job = yield* jobOf(accountId);
         expect(job.zapDoneAt).toBeNull();
         expect(job.fanoutFailedAt).toBe(NOW);
