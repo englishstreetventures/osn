@@ -32,7 +32,11 @@ vi.mock("../../../src/lib/osn", () => ({ CIRE_WEB_URL: "https://guests.test" }))
 
 import InviteMessageCopy from "../../../src/components/invite/InviteMessageCopy";
 import type { OrganiserHouseholdRow } from "../../../src/lib/households-store";
-import { __resetHouseholdsCache } from "../../../src/lib/households-store";
+import {
+  __resetHouseholdsCache,
+  ensureHouseholdsLoaded,
+  householdsAccessor,
+} from "../../../src/lib/households-store";
 import {
   authFetchMock,
   redirectSpy,
@@ -142,6 +146,19 @@ describe("InviteMessageCopy", () => {
       "Jones · JONES-BELL-12AB · sent",
     ]);
     expect(picker().value).toBe("");
+  });
+
+  it("draws a fresh cached list without reading the households again", async () => {
+    await ensureHouseholdsLoaded("wed_1", async () => HOUSEHOLDS);
+    mount();
+    await loaded();
+
+    expect(optionLabels()).toEqual([
+      "No household (placeholder code)",
+      "Sharma · SHARMA-KITE-77Q2",
+      "Jones · JONES-BELL-12AB · sent",
+    ]);
+    expect(authFetchMock).not.toHaveBeenCalled();
   });
 
   it("with no household chosen, copies the message with a placeholder and marks nothing", async () => {
@@ -261,6 +278,8 @@ describe("InviteMessageCopy", () => {
     );
     expect(picker().getAttribute("aria-describedby")).toBe(note.id);
     expect(optionLabels()).toEqual(["No household (placeholder code)"]);
+    // The refusal is not cached as the list the guest table and editor read.
+    expect(householdsAccessor("wed_1")()).toBeNull();
     fireEvent.click(copyButton());
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
   });

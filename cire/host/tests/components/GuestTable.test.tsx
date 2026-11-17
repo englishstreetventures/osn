@@ -38,9 +38,15 @@ vi.mock("../../src/lib/download", () => ({
 import GuestTable from "../../src/components/GuestTable";
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache, guestsAccessor } from "../../src/lib/guests-store";
-import { __resetInviteCache } from "../../src/lib/invite-store";
+import {
+  __resetHouseholdsCache,
+  ensureHouseholdsLoaded,
+  hasCachedHouseholds,
+} from "../../src/lib/households-store";
+import { __resetInviteCache, inviteAccessor } from "../../src/lib/invite-store";
 import {
   authFetchMock,
+  redirectSpy,
   resetOrganiserMocks,
   toastError,
   toastSuccess,
@@ -100,6 +106,7 @@ describe("GuestTable", () => {
     // them so each test starts cold and its mocked fetch sequence is honoured.
     __resetGuestsCache();
     __resetEventsCache();
+    __resetHouseholdsCache();
   });
 
   /** Mount once and unmount, leaving the guest and event caches warm the way
@@ -425,6 +432,28 @@ describe("GuestTable", () => {
     fireEvent.click(copy());
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0]![0]).toContain("You're invited to Nadia & Sam!");
+    // The refusal is not cached as the invite Getting started and the builder read.
+    expect(inviteAccessor("wed_a")()).toBeNull();
+  });
+
+  it("sends a signed-out organiser to sign in from the invite read", async () => {
+    await mountAndLeave();
+    __resetInviteCache();
+    authFetchMock.mockImplementation((url: string) =>
+      Promise.resolve(url.endsWith("/invite") ? json({ error: "unauthorised" }, 401) : json({})),
+    );
+
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(inviteAccessor("wed_a")()).toBeNull();
   });
 
   it("shows the invite-message links it is given under the introduction", async () => {
@@ -613,6 +642,35 @@ describe("GuestTable", () => {
     // …and surfaces the "Deactivated — code disabled" label optimistically.
     await waitFor(() => expect(screen.getByText(/Deactivated — code disabled/i)).toBeTruthy());
     expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("reopens a deactivated family muted from the cache, and drops the households list", async () => {
+    await ensureHouseholdsLoaded("wed_a", async () => []);
+    primeLoad();
+    authFetchMock.mockResolvedValueOnce(
+      json({ familyId: "fam_a", deactivatedAt: 1_700_000_900_000 }),
+    );
+    const table = () => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    );
+    const first = render(table);
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /^Deactivate$/i })[0]!);
+    fireEvent.click(await screen.findByRole("button", { name: /^Confirm$/i }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    // The invite message's household picker reads the list again.
+    expect(hasCachedHouseholds("wed_a")).toBe(false);
+    first.unmount();
+    authFetchMock.mockClear();
+
+    render(table);
+    await waitFor(() => expect(screen.getByText(/Deactivated — code disabled/i)).toBeTruthy());
+    expect(authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/guests"))).toBe(false);
   });
 
   it("reactivates an already-deactivated family directly (no confirm)", async () => {

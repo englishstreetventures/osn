@@ -22,6 +22,7 @@ import ChecklistView from "../../src/components/ChecklistView";
 import {
   __resetTasksCache,
   hasCachedTasks,
+  markTasksStale,
   setCachedTasks,
   type TaskRow,
 } from "../../src/lib/tasks-store";
@@ -186,6 +187,31 @@ describe("the starter's preview", () => {
     await dialog.findByRole("checkbox", { name: /agree on an overall budget/i });
     expect(dialog.queryByText("Loading…")).not.toBeInTheDocument();
     expect(list).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("reads the preview again when the tasks change while it loads", async () => {
+    setCachedTasks("wed_1", []);
+    let answerFirst!: (res: Response) => void;
+    let previewReads = 0;
+    authFetchMock.mockImplementation((url: string) => {
+      if (url !== PREVIEW_URL) return Promise.resolve(json({ tasks: [] }));
+      previewReads += 1;
+      if (previewReads === 1) return new Promise<Response>((r) => (answerFirst = r));
+      return Promise.resolve(preview(null, [BUDGET]));
+    });
+    renderChecklist();
+    const dialog = await openPreview();
+    await waitFor(() => expect(previewReads).toBe(1));
+
+    // A co-host's task write lands: the read in flight no longer counts.
+    markTasksStale("wed_1");
+    answerFirst(preview(null, [{ ...BUDGET, key: "stale", title: "From before the change" }]));
+
+    expect(
+      await dialog.findByRole("checkbox", { name: /agree on an overall budget/i }),
+    ).toBeInTheDocument();
+    expect(dialog.queryByText("From before the change")).not.toBeInTheDocument();
+    expect(previewReads).toBe(2);
   });
 
   it("says so when everything is already on the checklist, and offers nothing to add", async () => {

@@ -2,7 +2,7 @@
 import { derivePalette, PALETTE_PRESETS, typographyVar } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { createSignal } from "solid-js";
+import { createSignal, ErrorBoundary } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -94,6 +94,7 @@ import { confirmNavigation } from "../../src/lib/unsaved-guard";
 import { captureDeclaredStyles } from "../test-support/declared-style";
 import {
   authFetchMock,
+  redirectSpy,
   resetOrganiserMocks,
   toastError,
   toastSuccess,
@@ -1550,6 +1551,18 @@ describe("InviteBuilder UX guards", () => {
     expect(alert.textContent).toContain("Could not load the invite. Is the API running?");
     expect(screen.queryByText("Save invite")).toBeNull();
     expect(screen.queryByText("Loading invite…")).toBeNull();
+  });
+
+  it("sends a signed-out organiser to sign in from the first read", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ error: "unauthorised" }, 401));
+    // The read throws once it has sent the organiser away; nothing is drawn.
+    render(() => (
+      <ErrorBoundary fallback={null}>
+        <InviteBuilder {...WEDDING} />
+      </ErrorBoundary>
+    ));
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(inviteAccessor("wed_1")()).toBeNull();
   });
 
   it("stops anyone drawing the cached invite once its read is refused", async () => {
