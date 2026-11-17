@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-17
 ---
 
 # Social — Mobile UX analysis & plan
@@ -190,9 +190,10 @@ mobile shell; at and above it, today's rail is unchanged.
 
 - App-local `ResponsiveDialogContent` selects `DialogContent`'s
   `presentation="sheet"` variant: below `md` — pinned to bottom, full-width,
-  square bottom corners with the top ones reading `--ui-radius-sheet`,
-  `max-h-[85dvh] overflow-y-auto` and the bottom safe-area inset; at `md+` —
-  exactly the centered card. The anchor, the radius and the inset only mean
+  square bottom corners with the top ones reading `--ui-radius-sheet`, and
+  the bottom safe-area inset; at `md+` — exactly the centered card. Both are
+  capped at 85% of the window and scroll under a title row that stays put
+  ([[component-library]] §Kobalte components). The anchor, the radius and the inset only mean
   anything together, which is why they are one variant name rather than a class
   string each call site can get two-thirds right. musubi leaves
   `--ui-radius-sheet` unmapped, so it falls back through `--ui-radius-lg` to the

@@ -186,7 +186,7 @@ As built:
   (below), then one step at a time, each laid out by `ViewStep`
   (`src/ViewParts.tsx`, internal) for its host:
   - **In a dialog**: the step's body, a `flex-col gap-4` stack padded 16px
-    (`p-4`) under the header's hairline, with its ways back as links at its
+    (`p-4`) under the header, with its ways back as links at its
     foot; then `DialogActions` (`src/DialogActions.tsx`, exported): a
     `DialogFooter` (a hairline above, 16px in, right-aligned, `gap-2`)
     holding Cancel (`secondary`) first and the step's one action after it,
@@ -200,8 +200,10 @@ As built:
     has no footer, since the host closes the dialog; a body in which nothing
     shows (a step-up sheet given no line and offering no other factor) draws
     no empty padded band. A step with a `<form>`
-    wraps its footer too, so Enter in a field submits. A tall step scrolls
-    inside the sheet below `md`, footer included.
+    wraps its footer too, so Enter in a field submits. A step taller than
+    the dialog's 85% cap scrolls inside it, sheet or card, footer included,
+    under a header that stays at the top (`musubi/social/DESIGN.md`
+    §Responsive layout, Dialogs).
   - **On a page**: the same stack with no side padding, 24px under the
     header (`pt-6`), so `/authorize`'s column sets the width; the step's
     action spans the column under the body, at Button's own size, and its
@@ -340,7 +342,10 @@ As built:
 - **`AuthHeader`** is the title row of a sign-in or create-account view,
   and of every dialog the package draws; `SignIn` and `Register` each draw
   exactly one. In a dialog (`host="dialog"`) it is a `DialogHeader` — 16px
-  padding, a hairline under it — holding the `DialogTitle` alone, centred
+  padding, stuck to the top of the dialog as its body scrolls, with no line
+  under it and a 16px fade there once the body has passed under it (a
+  hairline in a browser that cannot read a scroll timeline) — holding the
+  `DialogTitle` alone, centred
   (`justify-center`, `text-center`), its lines centred as it wraps; the
   dialog's Cancel is its footer's, never the header's ([the owner's
   call](https://github.com/englishstreetventures/osn/issues/2045#issuecomment-6843934504),
@@ -1278,14 +1283,15 @@ only, beside the two `Button` draws, the orb and the press
 (`musubi/social/DESIGN.md` §Motion). Musubi's §Motion lists the wait fill
 among its exceptions. The host's
 `transition-ui-colors` utility fades colours and leaves the outline out, so a
-control's focus mark lands at once (§9). A view draws five motions from
+control's focus mark lands at once (§9). A view draws six motions from
 `@shared/ui` parts: the press, which scales a `Button` to 0.97 while it is
 held (not while disabled or busy, nor a link inside a sentence); a busy
 button's `Orb`; `Skeleton`, the loading
 placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
 `RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
-in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`, all three sheets; and the open and close of a
-popover, `Register`'s `InfoPopover` beside the email field. Below `md` the
+in `ProfileOnboarding`, `RecoveryCodesView` and `StepUpDialog`, all three sheets; the open and close of a
+popover, `Register`'s `InfoPopover` beside the email field; and the fade
+under a dialog's header as its body scrolls (below). Below `md` the
 three sheets slide up from the bottom edge and back down, as every
 `@shared/ui` sheet does (`musubi/social/DESIGN.md` §Motion, the owner's
 "B: slide up" on #2045); from `md` they are cards, and the cards and the
@@ -1296,7 +1302,11 @@ scales in Musubi too. Under reduced motion no button scales, the `Orb` and
 slide, and the cards and the popover show and hide at once. `StepUpDialog`
 hands its host the outcome once its exit has ended (§8), so the host's
 removal never cuts the slide or the fade short. `AuthHeader` adds no motion: a title it
-is given arrives at once, and it shows and hides with the dialog around it. What a skeleton
+is given arrives at once, and it shows and hides with the dialog around it.
+In a dialog its `DialogHeader` draws `@shared/ui`'s scroll edge: the fade
+under it comes in with the reader's own scroll over the first 16px and
+holds, changing only opacity, and under reduced motion it is whole from the
+first pixel scrolled (`musubi/social/DESIGN.md` §Motion). What a skeleton
 stands for, a refused code's line and a step that replaces another arrive at
 once, with no fade (`musubi/social/DESIGN.md` §Motion), and so do a list
 that lands in place of its placeholder, `CheckEmailView`'s junk-mail line and

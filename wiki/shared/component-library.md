@@ -1270,6 +1270,32 @@ slide is not on `translate`, is in [[design-tokens#Motion]];
 `shared/ui/tests/overlay-motion.browser.test.tsx` ("a sheet's slide") holds
 it, and the lab's `DialogSheetSlide` story shows it ([[component-lab]]).
 
+**A long dialog keeps its title in view.** The panel, sheet or card, is at
+most 85% of the window tall at every width and scrolls past that as one box,
+footer included. `DialogHeader` sticks to the top of the panel on the
+panel's own surface, and draws no line under it: its 1px edge stays,
+transparent, so the header is as tall as it was. Once the body has passed
+under it, a 16px fade from `--ui-surface` to clear sits there instead, coming
+in over the first 16px of scroll on a scroll timeline the panel names. At the
+top, and in a dialog whose body fits, nothing is drawn under the header. The
+owner chose it on #2034 (2026-11-14: "Take it" — sticky header, 16px fade,
+desktop card capped at 85% of the window, hairline fallback where scroll
+timelines are unsupported). The fade takes no pointer. The header measures
+itself with a `ResizeObserver` and writes `--ui-dialog-header-height` on the
+panel, whose `scroll-padding-top` is that height, the 16px fade and 4px for a
+focus mark, so focus never parks a control under the header or the fade, a
+wrapped title included ([[frontend-patterns]] §`position: sticky`).
+A browser that cannot read `animation-timeline: scroll()` (below Chrome 115
+and Safari 26, under this repository's floor of Chrome 111 and Safari 16.4)
+keeps the hairline and draws no fade. Under reduced motion the fade does not
+ramp: it is whole from the first pixel scrolled. Kobalte's focus-trap `span`s,
+one at each end of the panel, are pinned to its top, since the last would
+otherwise hang a pixel under the footer and let a body that fits scroll by
+it. A call site sets no `position`, `overflow` or `max-height` on the panel
+or the header. The CSS is in [[design-tokens#Motion]];
+`shared/ui/tests/dialog-scroll-edge.browser.test.tsx` holds it, and the
+lab's `DialogScrollEdge` story shows it.
+
 ### Choice controls — Checkbox, RadioGroup and Switch
 
 `Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.

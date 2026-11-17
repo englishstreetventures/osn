@@ -479,6 +479,15 @@ card show no transform, and the switcher, a sheet at 390px, sits its own
 height below the edge as it opens and part-way down half-way out, at full
 opacity and unscaled.
 
+**A dialog's scroll edge follows the scroll.** Under the header of a dialog
+taller than its 85% cap, the 16px fade (§Responsive layout, Dialogs) comes in
+with the scroll: its opacity rises from 0 at the top to whole over the first
+16px scrolled and holds to the end, so it moves only as the reader's own
+scroll does and changes nothing but opacity. Under reduced motion it does not
+ramp: it is whole from the first pixel scrolled. It is `@shared/ui`'s, on a
+scroll timeline rather than a `--ui-dur-*` token (`wiki/shared/design-tokens.md`
+§Motion).
+
 **A button presses.** While a pointer or a held Space presses one of
 `@shared/ui`'s `Button`s, it scales to 0.97 over `--ui-dur-fast` (120ms) on
 `--ui-ease-out`, and eases back the same way when let go: the owner's decision
@@ -645,8 +654,9 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   column pads with `pb-nav` so content clears the tab bar.
 - **Dialogs** = `ResponsiveDialogContent`, which is `@shared/ui`'s
   `DialogContent` with `presentation="sheet"`: a bottom sheet below `md`
-  (16px top corners, square bottom corners, `max-h-[85dvh]`, scrolling, padded
-  clear of the home indicator), the shared centred card at `md+`. All app
+  (16px top corners, square bottom corners, padded clear of the home
+  indicator), the shared centred card at `md+`, each at most 85% of the
+  window tall (`85dvh`) and scrolling past that. All app
   dialogs go through it; never mount a raw `DialogContent` in a screen. Below
   `md` the sheet is as wide as the screen. The card's cap at `md+` is the
   `width` prop: `"sm"`, 384px, the default, or `"xs"`, 320px, which the
@@ -662,8 +672,8 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   call](https://github.com/englishstreetventures/osn/issues/2045#issuecomment-6843934504),
   2026-11-13: "cancel in footer", "consistent across the board"): a header
   holding the title alone, centred, its lines centred as it wraps and
-  breaking anywhere, over a hairline (`AuthHeader` with `host="dialog"`, from
-  `@osn/auth-ui`); the body, padded 16px; then `DialogActions`, also from
+  breaking anywhere (`AuthHeader` with `host="dialog"`, from
+  `@osn/auth-ui`), with no line under it; the body, padded 16px; then `DialogActions`, also from
   `@osn/auth-ui`: a `DialogFooter` (16px padding, a hairline above,
   right-aligned, `gap-2`, wrapping rather than scrolling sideways) holding
   Cancel (`secondary`) first, then the commit, both `size="sm"` and 40px tall
@@ -672,8 +682,20 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   app and the auth views draw fits a 320px sheet's 288px on one line
   (`osn/auth-ui/DESIGN.md` §4 has the measure). A dialog that commits nothing
   of its own has Cancel alone: the profile switcher, whose rows are the
-  choice, puts it after them. Below `md` a tall sheet scrolls, footer
-  included; the scrim above the sheet and Escape stay as ways out.
+  choice, puts it after them. A dialog taller than its 85% cap, sheet or
+  card, scrolls, footer included, while the header stays at the top on the
+  sheet's colour; the scrim above the sheet and Escape stay as ways out. Once
+  the body has passed under the header, a 16px fade from `--card` to clear
+  sits under it in place of a line, and nothing is drawn there at the top or
+  in a dialog that fits: the owner's choice on #2034 (2026-11-14, "Take it":
+  sticky header, 16px fade, desktop card capped at 85% of the window).
+  Focus never stops a field under the header or the fade (the panel's scroll
+  padding follows the header's height). A browser that cannot read a scroll
+  timeline (below Chrome 115 or Safari 26) keeps a hairline under the header
+  instead, as every dialog drew before. `@shared/ui` draws all of it
+  (`wiki/shared/component-library.md` §Kobalte components), so a dialog adds
+  no class for it. `tests/components/AuthDialogs.browser.test.tsx` holds the
+  create-account sheet scrolled on a 390×480 phone, in light and dark.
   `tools/e2e` holds the shape (`musubi-surfaces.ts`): `dialogTitle` and
   `formDialog` read the create and edit organisation dialogs' centred title
   and footer order, `signInLinkSurfaces` the sign-in dialog's,
