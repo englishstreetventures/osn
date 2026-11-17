@@ -18,7 +18,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-13
+last-reviewed: 2026-11-17
 ---
 
 # Database Environments
@@ -226,8 +226,9 @@ at the top of the file is fine only because `skipLibCheck` skips that package's
 Unit tests use `createTestLayer()` / bun:sqlite `:memory:` exactly as before —
 see [[testing-patterns]]. The async D1 driver path gets one Miniflare-backed
 integration test per service, at `tests/d1/d1-integration.test.ts` (cire's at
-`tests/db/d1-integration.test.ts`). The vitest configs exclude that path, so the
-unit run skips it; run it explicitly:
+`tests/db/d1-integration.test.ts`). The vitest configs exclude that path, and
+cire's `test` script ignores it with `--path-ignore-patterns`, so the unit run
+skips it; run it explicitly:
 
 ```bash
 bun run --cwd zap/api test:d1     # bun test tests/d1/d1-integration.test.ts

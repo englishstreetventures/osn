@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # Cire development guide
@@ -263,10 +263,12 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
   beside their source. `cire/api/src/services/import.ts` pairs with
   `cire/api/tests/services/import.test.ts`, and test-only support code sits
   there too (`cire/api/tests/test-helpers/`, `cire/host/tests/test-support/`).
-  The Miniflare-backed D1 tier is cire's alone: `cire/api/tests/db/`, run on its
-  own with `bun run --cwd cire/api test:d1`. Unlike the vitest packages, which
-  exclude that tier by path, `@cire/api` runs on `bun test` and so picks it up in
-  the package's ordinary `test` script as well — expect workerd to boot there.
+  Cire's Miniflare-backed D1 tier is `cire/api/tests/db/d1-integration.test.ts`
+  and `migrate-wrapper.test.ts`, run on their own with
+  `bun run --cwd cire/api test:d1`. The package's ordinary `test` script leaves
+  the first out with `--path-ignore-patterns`, as the vitest packages exclude
+  theirs by path, but workerd still boots there for the index, D1 session, query
+  error, R2 reconcile and Worker entry tests.
 - **Exercising the upgrade checkout locally** needs TWO `stripe listen`
   forwarders, because there are two endpoints: `--forward-connect-to` for gift
   events (which happen on a couple's connected account) and `--forward-to` for
