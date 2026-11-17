@@ -134,11 +134,38 @@ An item outside the snapshot, such as a child of an epic, needs its id from Grap
 gh api graphql -f query='{repository(owner:"englishstreetventures",name:"<repo>"){issue(number:<n>){projectItems(first:5){nodes{fullDatabaseId project{number}}}}}}'
 ```
 
+The same query gives the card's current Status and its option id, which step 5 needs. Read them **before** the write, since after it the card says In Progress:
+
+```bash
+gh api graphql -f query='{repository(owner:"englishstreetventures",name:"<repo>"){issue(number:<n>){projectItems(first:5){nodes{fullDatabaseId project{number} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name optionId}}}}}}}'
+```
+
 Taking an epic claims every child it will build.
 
-**3. Record it** as `claimed: <repo>#<n> item <item>` in the task's block in `ORCHESTRATE.md`. The board says an issue is held, not by whom; that line is how a run knows its own claims after a compaction.
+**3. Record it**, with the card's Status from before the write: `claimed: <repo>#<n> item <item> from <Status name> <option id>` in the task's block in `ORCHESTRATE.md`, or, for a session `orchestrate` did not dispatch (its brief has no `CLAIMED:`), `Claimed: <repo>#<n> item <item> from <Status name> <option id>` under the `Issue:` line of `NEW-FEAT.md`. The board says an issue is held, not by whom; that line is how a run knows its own claims after a compaction, and what step 5 puts back.
 
-**4. Move it on.** PR opened → In Review, with the same `PATCH`. Task dropped → back to Up Next, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
+**4. Move it on.** PR opened → In Review, with the same `PATCH`. Task dropped → step 5, with the reason in `ORCHESTRATE.md`. Parked until a limit resets → it stays In Progress, and `next:` says why. Never set Done: merging closes the issue, and the board moves a closed issue's card.
+
+**5. Release it.** A claim ends in one of two ways: the merge closes the issue, or the session puts the card back. A merge closes only the issues its `Closes` lines name, so an issue the pull request only touched (`Part of`), an epic, a tracker close the classifier refused and a dropped task all stay In Progress with no session working on them, and step 1 then refuses them to the next session. When a pull request merges, is dropped or is parked, read each issue **this task or session** claimed (its `claimed:` or `Claimed:` lines, no one else's):
+
+```bash
+gh api repos/englishstreetventures/<repo>/issues/<n> --jq '"\(.state) \(.title)"'
+```
+
+Then read the card's current Status with step 2's query. Touch the card only while it still says In Progress: any other Status means the owner or another session has moved it, and it stays.
+
+- `closed`: nothing to do.
+- Open, and a pull request is open for it, this session's draft included: In Review.
+- Open and no pull request is open: put it back, with step 2's `PATCH` and the option id on the claim line (`from <Status name> <option id>`), and not the In Progress option id. A card that had no Status goes to Up Next. Write no comment.
+- Parked until a limit resets: it stays In Progress, and `next:` says why.
+
+Then print the reminder to the owner, one line per issue taken and what became of it. `orchestrate` prints it after each merge, not only at the end; a session without `orchestrate` prints it when the owner says the pull request has merged:
+
+```
+Issues taken
+osn#2364 — Musubi sign-up: turn on the browser email verification path in production — closed by the merge
+osn#2089 — OSN docs: record the browser Email Verification API's status — open, put back in Backlog (the pull request only touched it)
+```
 
 The claim is the Status, not an assignee: every session runs as the same GitHub user, and `new-feat` and the owner already read the board by Status.
 
@@ -150,5 +177,6 @@ The claim is the Status, not an assignee: every session runs as the same GitHub 
 | Two items that edit one file run in parallel, "the second one rebases" | One PR, or one after the other |
 | `gh issue edit --add-assignee @me` as the claim | The Status; an assignee cannot tell sessions apart |
 | Moving another session's In Progress card | A question to the owner |
+| A claimed issue left In Progress after its pull request merged | Step 5 |
 | An issue number without its repository | `osn#N` or `osn-tracker#N`; the numbers repeat |
 | A rate-limit error read as "not claimed" | Unknown: wait, then check again |

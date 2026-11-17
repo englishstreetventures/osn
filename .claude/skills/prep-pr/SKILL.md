@@ -745,6 +745,8 @@ with the lease pinned to it,
 touched, and add a `## Test plan` row naming the new commit and saying its tree
 postdates the reviews. Check again before reporting.
 
+Once the pull request is open, move each issue this branch's task claimed to In Review, as `next-batch` §Claim step 4 says: the `Claimed:` lines of this checkout's `NEW-FEAT.md`, and no one else's. When `orchestrate` dispatched the task (the brief carries `CLAIMED:`), it moves the card and this step leaves it. The report lists the issues as **Issues taken**, each with its Status now and whether the merge closes it: a `Closes` line does, a `Part of` line does not, and `next-batch` §Claim step 5 puts that one back after the merge.
+
 Report the PR number, its base branch, whether it can merge (each view's
 answer), whether it opened as a draft and what it waits on, whether the stack
 is registered, the issues it closes, and any close it could not make — a

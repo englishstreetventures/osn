@@ -75,7 +75,7 @@ worktree. One block per task:
 ```markdown
 ## task 3 — vendor enquiry weddingName
 issue:       englishstreetventures/osn#812
-claimed:     osn#812 item 264995573
+claimed:     osn#812 item 264995573 from <Status name> <option id>
 agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
 premises:    checked on origin/main 435c28f65
   - the route file is cire/api/src/routes/vendor-enquiries.ts
@@ -420,6 +420,7 @@ line and the shepherd report:
 - A check failure → first find out whose it is: a test or error line that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 4 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
 - A flake → not this branch's, but not nobody's: a check that fails for reasons the change does not cause, and ejects merge-queue groups, is fixed, not only rerun. The first time, rerun it once (`review-pr` Step 4). The second time this run sees the same flake, find its issue (`gh issue list --repo englishstreetventures/osn --state open --search "<job or test name>"`) or file one with `write-issue`, add this run's evidence — the job, the decisive line, the run link — and put its fix next in Step 0's order, ahead of the remaining feature work.
 - Once `MERGED`, **you** remove the worktree this run created and delete the local branch: `git -C <dir> status --porcelain` must print nothing first, since `--force` would take uncommitted work with it, then `git worktree remove --force <dir>`. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.
+- Once `MERGED`, run `next-batch` §Claim step 5 for each `claimed:` line of that task, and send the owner its **Issues taken** block at once, not only in the closing summary. A task dropped or parked gets the same step.
 - Once `MERGED`, carry into the closing summary every close the subagent reported it could not make — tracker lines the classifier refused, a stacked pull request's closes that never registered (`write-pr` Step 6). Those issues stay open until the owner closes them by hand.
 
 **Between dependent tasks:** fetch `main` with Step 2's refspec and fast-forward local `main` so the next worktree is cut from the updated tip. A later task's branch that already exists and now conflicts is reported, not rebased: its Step 5 takes the `DIRTY` rule.
@@ -477,7 +478,7 @@ holds the procedure; this run changes around it as follows.
   `git worktree list | grep -F "[<branch>]"`.
 - **The claim.** The open pull request already holds its issue in `next-batch`
   §Claim's terms; the owner's request is what lets you take it. Write
-  `claimed: <repo>#<n> (adopting PR #N at the owner's request)` and leave the
+  `claimed: <repo>#<n> item <item> from <Status name> <option id> (adopting PR #N at the owner's request)` and leave the
   card in, or move it to, In Review. If the issue is In Progress and you did
   not move it there, another session may be working on it: ask the owner.
 - **Step 2 is skipped.** The branch's own worktree replaces it; `review-pr`
@@ -506,7 +507,7 @@ tell them from the tree.
 2. Read the partial diff yourself. Decide one of three things and write the
    decision into `ORCHESTRATE.md`: finish it yourself, re-dispatch with a brief
    that names what is already done, or `git restore` and start the task over.
-   A task dropped for good goes back to Up Next (`next-batch` §Claim, step 4).
+   A task dropped for good gets `next-batch` §Claim step 5, which puts the card back where it was.
 3. Re-dispatching wins only when the remaining work is large and separable. Below
    roughly a file's worth, finishing it yourself is cheaper than writing a brief
    that describes someone else's half-finished tree.
