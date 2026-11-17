@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 import { createEventsRoutes } from "../../src/routes/events";
 import { createSettingsRoutes } from "../../src/routes/settings";
 import type { ProfileDisplay } from "../../src/services/graphBridge";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, seedCloseFriend } from "../helpers/db";
 
 vi.mock("../../src/services/graphBridge", () => ({
   GraphBridgeError: class GraphBridgeError {
@@ -761,12 +761,16 @@ describe("Private event visibility gate", () => {
     expect(body.rsvps[0]!.invitedByProfileId).toBe("usr_alice");
   });
 
-  // isCloseFriend stamp
-  it("GET /events/:id/rsvps stamps isCloseFriend = false on rows by default", async () => {
+  it("GET /events/:id/rsvps stamps isCloseFriend only on rows whose attendee marked the viewer", async () => {
+    const carolToken = await makeToken("usr_carol");
+    // Bob marked Alice as a close friend; Carol marked no one.
+    await Effect.runPromise(seedCloseFriend("usr_bob", "usr_alice").pipe(Effect.provide(layer)));
     await post(app, `/events/${publicEventId}/rsvps`, { status: "going" }, bobToken);
+    await post(app, `/events/${publicEventId}/rsvps`, { status: "going" }, carolToken);
     const res = await get(app, `/events/${publicEventId}/rsvps?status=going`, aliceToken);
-    const body = (await res.json()) as { rsvps: { isCloseFriend: boolean }[] };
-    expect(body.rsvps[0]!.isCloseFriend).toBe(false);
+    const body = (await res.json()) as { rsvps: { profileId: string; isCloseFriend: boolean }[] };
+    const flags = Object.fromEntries(body.rsvps.map((r) => [r.profileId, r.isCloseFriend]));
+    expect(flags).toEqual({ usr_bob: true, usr_carol: false });
   });
 });
 

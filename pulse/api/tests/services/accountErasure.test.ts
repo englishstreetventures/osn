@@ -180,6 +180,11 @@ describe("pulse account-erasure: requestErasure", () => {
           .where(eq(pulseProfileAccounts.profileId, PROFILE_ID)),
       );
       expect(pa).toHaveLength(0);
+      // The sweep deletes the job it has finished.
+      const jobs = yield* Effect.promise(() =>
+        db.select().from(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, PROFILE_ID)),
+      );
+      expect(jobs).toHaveLength(0);
       // Hosted event is still there (governed by its own 14-day window).
       const ev = yield* Effect.promise(() =>
         db.select().from(events).where(eq(events.id, eventId)),

@@ -104,18 +104,13 @@ it.effect("listVenueEvents clamps limit to 200", () =>
   provide(
     Effect.gen(function* () {
       yield* seedVenue;
-      // Seed 5 rows; ask for 9999. The clamp is the security-relevant
-      // contract — we just need to prove the service doesn't honour a
-      // caller-supplied unbounded limit. We can't realistically seed 200+
-      // rows here, so we sanity-check that the service still returns
-      // every seeded row (i.e. didn't crash on a large limit) and that
-      // the bounded path executed.
-      for (let i = 0; i < 5; i++) {
+      // One row more than the clamp, so a caller's limit of 9999 that the
+      // service honoured would return all 201.
+      for (let i = 0; i < 201; i++) {
         yield* seedEvent(`evt_${i}`, { startTime: future(i + 1), venueId: "the-club" });
       }
       const list = yield* listVenueEvents("the-org", "the-club", { limit: 9999 });
-      expect(list.length).toBe(5);
-      expect(list.length).toBeLessThanOrEqual(200);
+      expect(list).toHaveLength(200);
     }),
   ),
 );

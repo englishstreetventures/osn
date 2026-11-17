@@ -682,9 +682,9 @@ it.effect("propagates GraphBridgeError when friends lookup fails", () =>
       const err = yield* Effect.flip(
         discoverEvents({ friendsOnly: true }, "usr_alice", failingLookups),
       );
-      // The discover service tags GraphBridgeError; we confirm it didn't
-      // get swallowed into a success.
-      expect(err).toBeDefined();
+      // The route answers this tag with 502 and every other failure with
+      // 500, so the service passes it through unchanged.
+      expect(err._tag).toBe("GraphBridgeError");
     }),
   ),
 );

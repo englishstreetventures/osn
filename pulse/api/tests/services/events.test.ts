@@ -435,18 +435,18 @@ it.effect("maybe_finished is display-only — the DB row stays 'ongoing'", () =>
         startTime: ninehAgo,
         status: "ongoing",
       });
-      // First read projects maybe_finished in-memory.
+      // The read projects maybe_finished in memory.
       const fetched = yield* getEvent(seeded.id);
       expect(fetched.status).toBe("maybe_finished");
-      // But the DB row still says ongoing — a direct SELECT via a second
-      // getEvent re-derives from the stored ongoing row, not a persisted
-      // maybe_finished one. Count status_transitions: none should fire
-      // for maybe_finished (only ongoing → finished at 12h is persisted).
-      const spy = vi.spyOn(metrics, "metricEventStatusTransition");
-      const refetched = yield* getEvent(seeded.id);
-      expect(refetched.status).toBe("maybe_finished");
-      expect(spy).not.toHaveBeenCalled();
-      spy.mockRestore();
+      // The stored row still says ongoing: only ongoing → finished is written.
+      const { db } = yield* Db;
+      const stored = yield* Effect.promise(() =>
+        db
+          .select({ status: eventsTable.status })
+          .from(eventsTable)
+          .where(eq(eventsTable.id, seeded.id)),
+      );
+      expect(stored[0]!.status).toBe("ongoing");
     }),
   ),
 );
