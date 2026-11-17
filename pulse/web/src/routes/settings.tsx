@@ -66,16 +66,14 @@ export function SettingsPage() {
             setting. Choose your event visibility carefully when RSVPing.
           </p>
           <RadioGroup
-            class="mt-2 flex flex-col"
+            class="mt-2"
+            orientation="vertical"
             value={selected()}
             onChange={(v) => setSelected(v as Visibility)}
             name="attendanceVisibility"
           >
             {OPTIONS.map((opt) => (
-              <div class="flex items-start gap-2">
-                <RadioGroupItem value={opt.value} label={opt.label} />
-                <span class="text-muted-foreground block text-xs">{opt.description}</span>
-              </div>
+              <RadioGroupItem value={opt.value} label={opt.label} description={opt.description} />
             ))}
           </RadioGroup>
           <div class="mt-2 flex justify-end">

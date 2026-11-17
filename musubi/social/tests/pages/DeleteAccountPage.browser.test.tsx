@@ -25,7 +25,12 @@ import "../../src/App.css";
  * - the step's heading, not the page, has focus as a step opens;
  * - an unchosen radio's circle and box's edge clear 3:1 on the card in both
  *   themes, read from the painted colours (DESIGN.md §Choices);
- * - "Delete everything" dims each choice once, to 50%, words and circle alike.
+ * - "Delete everything" dims each choice once, to 50%, words and circle alike;
+ * - every radio and box is drawn on the one rule (`@shared/ui`'s §Choice
+ *   controls), at 390px and 1280px in both themes: the chosen dot in the centre
+ *   of its circle as painted at device pixel ratios 1 and 2, each control on
+ *   its words' first line, a radio as far from its words as a box, and an
+ *   organisation's three choices evenly apart though one wraps.
  *
  * Each case writes screenshots to `__screenshots__/` beside this file
  * (gitignored): every step and state in light and dark, at 390px and 1280px.
@@ -99,6 +104,7 @@ vi.mock("../../src/components/StepUpSheet", () => ({
 
 import { Layout } from "../../src/App";
 import { DeleteAccountPage } from "../../src/pages/DeleteAccountPage";
+import { dotOffset, picture } from "../test-support/painted";
 import { railChunks, topBarChunks } from "../test-support/shell-chunks";
 
 const SHOTS = "__screenshots__/DeleteAccountPage.browser.test.tsx";
@@ -251,6 +257,11 @@ function expectNoSideScroll(viewport: Viewport) {
   expect(main.scrollWidth).toBe(main.clientWidth);
 }
 
+const middle = (element: Element) => {
+  const r = element.getBoundingClientRect();
+  return r.top + r.height / 2;
+};
+
 function boxHeight(element: Element) {
   return element.getBoundingClientRect().height;
 }
@@ -287,6 +298,43 @@ function shownOpacity(element: Element): number {
   }
   return opacity;
 }
+
+/** The first text node in `root` that holds words. */
+function firstText(root: Element): Text {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, (node) =>
+    node.textContent!.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+  );
+  return walker.nextNode() as Text;
+}
+
+/** The first line box of a choice's words: the top of the block holding them, one line tall. */
+function firstLine(row: Element) {
+  const text = firstText(row);
+  let block = text.parentElement!;
+  while (getComputedStyle(block).display === "inline") block = block.parentElement!;
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  return {
+    top: block.getBoundingClientRect().top,
+    middle: block.getBoundingClientRect().top + parseFloat(getComputedStyle(block).lineHeight) / 2,
+    left: range.getClientRects()[0]!.left,
+  };
+}
+
+/** The bottom of the last line of words in `row`. */
+function lastLineBottom(row: Element): number {
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+  let bottom = -Infinity;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const r of range.getClientRects()) bottom = Math.max(bottom, r.bottom);
+  }
+  return bottom;
+}
+
+/** A drawn radio's circle, or a drawn box. */
+const drawnOf = (control: HTMLElement) => control.nextElementSibling as HTMLElement;
 
 async function shot(name: string, viewport: Viewport, theme: "light" | "dark") {
   await painted();
@@ -364,6 +412,60 @@ describe("the deletion flow, in the shell", () => {
       }
       expect(shownOpacity(screen.getByText(ORG.label))).toBe(1);
     }, 30_000);
+  }
+
+  for (const viewport of [PHONE, DESKTOP]) {
+    for (const theme of ["light", "dark"] as const) {
+      it(`draws every choice on one rule at ${viewport.width}px in ${theme}`, async () => {
+        if (theme === "dark") document.documentElement.classList.add("dark");
+        await open(viewport);
+        await toAnswers();
+        const radios = screen.getAllByRole("radio");
+        const boxes = screen.getAllByRole("checkbox");
+
+        for (const control of [...radios, ...boxes]) {
+          const row = control.closest("label")!;
+          const off = middle(drawnOf(control)) - firstLine(row).middle;
+          expect
+            .soft(
+              Math.abs(off),
+              `${control.getAttribute("value") ?? "box"}: ${off}px off its first line`,
+            )
+            .toBeLessThanOrEqual(0.5);
+        }
+
+        const gap = (control: HTMLElement) =>
+          firstLine(control.closest("label")!).left -
+          drawnOf(control).getBoundingClientRect().right;
+        expect(radios.map(gap)).toEqual(radios.map(() => gap(boxes[0]!)));
+
+        const org = screen
+          .getAllByRole("radiogroup")
+          .find((group) => group.closest(`[data-action="${ORG.id}"]`))!;
+        const rows = [...org.querySelectorAll("label")];
+        const gaps = rows.slice(1).map((row, i) => firstLine(row).top - lastLineBottom(rows[i]!));
+        expect(
+          Math.max(...gaps) - Math.min(...gaps),
+          `gaps ${gaps.join(", ")}`,
+        ).toBeLessThanOrEqual(1);
+
+        // The resting edge in the chosen edge's colour, so the two pictures
+        // differ by the dot alone.
+        org.style.setProperty("--ui-choice-edge", "var(--ui-accent)");
+        const transfer = screen.getByRole("radio", { name: "@bobwhite becomes the owner." });
+        for (const scale of [1, 2] as const) {
+          fireEvent.click(screen.getByRole("radio", { name: /organisation and its memberships/ }));
+          await painted();
+          const unchosen = await picture(drawnOf(transfer), scale);
+          fireEvent.click(transfer);
+          await painted();
+          const chosen = await picture(drawnOf(transfer), scale);
+          const { dx, dy } = dotOffset(unchosen, chosen);
+          expect.soft(Math.abs(dx), `dot across at ${scale}x: ${dx}`).toBeLessThanOrEqual(0.5);
+          expect.soft(Math.abs(dy), `dot down at ${scale}x: ${dy}`).toBeLessThanOrEqual(0.5);
+        }
+      }, 30_000);
+    }
   }
 
   it("draws the step buttons at sm's 32px from md", async () => {

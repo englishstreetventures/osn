@@ -89,7 +89,8 @@ describe("a contrast theme", () => {
       </RadioGroup>
     ));
     const circle = screen.getByRole("radio").nextElementSibling as HTMLElement;
-    const dot = getComputedStyle(circle.firstElementChild!, "::after");
+    const dot = getComputedStyle(circle.firstElementChild!);
+    expect([dot.width, dot.height]).toEqual(["8px", "8px"]);
     expect(dot.backgroundColor).not.toBe(getComputedStyle(circle).backgroundColor);
   });
 

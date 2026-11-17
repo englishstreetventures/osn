@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
-import { onMount, splitProps, type Component } from "solid-js";
+import { onMount, Show, splitProps, type Component } from "solid-js";
 
+import { FIRST_LINE } from "./choice";
 import type { SafeProps } from "./props";
 import { SWITCH_THUMB_CLASS, SWITCH_TRACK_CLASS } from "./switch-classes";
 
@@ -72,64 +73,72 @@ const Switch: Component<SwitchProps> = (props) => {
   onMount(() => {
     input.checked = local.checked;
   });
-  return (
-    <label class={clsx("base:inline-flex base:items-center base:gap-2", local.class)} {...others}>
-      {/* `peer` is a marker for the track's focus ring, not a utility. */}
-      <input
-        ref={input}
-        type="checkbox"
-        role="switch"
-        class="peer base:sr-only"
-        name={local.name}
-        checked={local.checked}
-        // Always equal to `checked`: the element is put back to the given value
-        // on every change, so the two cannot disagree.
-        aria-checked={local.checked}
-        disabled={local.disabled}
-        aria-readonly={inert() ? "true" : undefined}
-        aria-busy={local.busy ? "true" : undefined}
-        aria-describedby={local.describedBy}
-        onClick={(event) => {
-          // A read-only checkbox is not a thing the platform has: cancelling
-          // the click is what stops it toggling, from a pointer or from Space.
-          if (inert()) {
-            event.preventDefault();
-            return;
-          }
-          // A click on the label reaches the input without focusing it in
-          // every engine; focus it, so whatever the change opens hands focus
-          // back here.
-          event.currentTarget.focus();
-        }}
-        onChange={(event) => {
-          const next = event.currentTarget.checked;
-          // Controlled: put the element back to the value it was given, and let
-          // `checked` move it if the caller agrees.
-          event.currentTarget.checked = local.checked;
-          local.onChange?.(next);
-        }}
-      />
-      {/* A contrast theme repaints both the track and the thumb in the ground's
-          system colour, so there the thumb keeps the theme's text colour (its
-          `currentColor`) and its place still says on or off. */}
-      <span
-        aria-hidden="true"
-        data-checked={flag(local.checked)}
-        data-readonly={flag(inert())}
-        data-disabled={flag(local.disabled)}
-        class={SWITCH_TRACK_CLASS}
-      >
-        <span data-checked={flag(local.checked)} class={SWITCH_THUMB_CLASS} />
-      </span>
-      <span
-        class={
-          local.labelHidden
-            ? "base:sr-only"
-            : "base:text-ui-base base:leading-none base:text-ui-ink"
+  // `peer` is a marker for the track's focus outline, not a utility.
+  const element = (
+    <input
+      ref={input}
+      type="checkbox"
+      role="switch"
+      class="peer base:sr-only"
+      name={local.name}
+      checked={local.checked}
+      // Always equal to `checked`: the element is put back to the given value
+      // on every change, so the two cannot disagree.
+      aria-checked={local.checked}
+      disabled={local.disabled}
+      aria-readonly={inert() ? "true" : undefined}
+      aria-busy={local.busy ? "true" : undefined}
+      aria-describedby={local.describedBy}
+      onClick={(event) => {
+        // A read-only checkbox is not a thing the platform has: cancelling
+        // the click is what stops it toggling, from a pointer or from Space.
+        if (inert()) {
+          event.preventDefault();
+          return;
         }
-      >
-        {local.label}
-      </span>
+        // A click on the label reaches the input without focusing it in
+        // every engine; focus it, so whatever the change opens hands focus
+        // back here.
+        event.currentTarget.focus();
+      }}
+      onChange={(event) => {
+        const next = event.currentTarget.checked;
+        // Controlled: put the element back to the value it was given, and let
+        // `checked` move it if the caller agrees.
+        event.currentTarget.checked = local.checked;
+        local.onChange?.(next);
+      }}
+    />
+  );
+  // A contrast theme repaints both the track and the thumb in the ground's
+  // system colour, so there the thumb keeps the theme's text colour (its
+  // `currentColor`) and its place still says on or off.
+  const track = (
+    <span
+      aria-hidden="true"
+      data-checked={flag(local.checked)}
+      data-readonly={flag(inert())}
+      data-disabled={flag(local.disabled)}
+      class={SWITCH_TRACK_CLASS}
+    >
+      <span data-checked={flag(local.checked)} class={SWITCH_THUMB_CLASS} />
+    </span>
+  );
+  return (
+    // The row's type, at prose leading, so the track sits on the words' first
+    // line (`FIRST_LINE`) 8px from them, as a box or a radio does. A hidden
+    // label leaves the track alone in the row.
+    <label
+      class={clsx(
+        "base:text-ui-base base:leading-ui-normal base:text-ui-ink base:inline-flex base:items-start base:gap-2",
+        local.class,
+      )}
+      {...others}
+    >
+      <Show when={!local.labelHidden} fallback={[element, track]}>
+        <span class={FIRST_LINE}>{[element, track]}</span>
+      </Show>
+      <span class={local.labelHidden ? "base:sr-only" : "base:min-w-0"}>{local.label}</span>
     </label>
   );
 };

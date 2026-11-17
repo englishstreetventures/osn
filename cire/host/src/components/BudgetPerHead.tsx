@@ -206,7 +206,6 @@ export function PerHeadPanel(props: {
                   onChange={(next) => toggle(ev.id, next)}
                   // A long name with no space wraps, box against its first
                   // line: the panel this sits in clips what runs past its edge.
-                  align="start"
                   label={<span class="wrap-anywhere">{ev.name}</span>}
                 />
               )}

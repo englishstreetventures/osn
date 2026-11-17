@@ -90,13 +90,14 @@ describe("Switch", () => {
     expect(Number(getComputedStyle(partsOf("disabled").track).opacity)).toBeLessThan(1);
   });
 
-  it("rings the track when the hidden input takes keyboard focus", async () => {
+  it("outlines the track when the hidden input takes keyboard focus", async () => {
     render(() => <Switch checked={false} label="focus me" />);
     const { track } = partsOf("focus me");
-    expect(getComputedStyle(track).boxShadow).toBe("none");
+    expect(getComputedStyle(track).outlineStyle).toBe("none");
     await userEvent.tab();
     expect(document.activeElement).toBe(screen.getByRole("switch", { name: "focus me" }));
-    expect(getComputedStyle(track).boxShadow).not.toBe("none");
+    const s = getComputedStyle(track);
+    expect([s.outlineStyle, s.outlineWidth, s.outlineOffset]).toEqual(["solid", "2px", "2px"]);
   });
 
   it("toggles on Space from the keyboard", async () => {

@@ -640,7 +640,7 @@ function DeleteEverything(props: { on: boolean; onChange: (on: boolean) => void 
     <Card padding="md">
       <Checkbox
         size="sm"
-        align="start"
+        touch
         checked={props.on}
         onChange={props.onChange}
         label="Delete everything"

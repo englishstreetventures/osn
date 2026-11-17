@@ -342,7 +342,6 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
               <Checkbox
                 box="native"
                 size="sm"
-                align="start"
                 checked={consent()}
                 onChange={setConsent}
                 disabled={busy()}

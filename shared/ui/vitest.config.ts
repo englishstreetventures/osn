@@ -25,6 +25,7 @@ import { defineConfig } from "vitest/config";
 import {
   allowRequests,
   emulateMedia,
+  paintedBox,
   failRequests,
   holdKey,
   movePointer,
@@ -80,6 +81,7 @@ export default defineConfig({
             // dropped connection does.
             commands: {
               emulateMedia,
+              paintedBox,
               movePointer,
               pressPointer,
               releasePointer,

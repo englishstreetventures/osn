@@ -98,6 +98,7 @@ export function OpenActionCard(props: OpenActionCardProps) {
             onChange={choose}
             orientation="vertical"
             size="sm"
+            touch
             disabled={props.disabled}
             aria-labelledby={labelId}
             aria-describedby={lineMark() ? markId : undefined}
@@ -107,12 +108,6 @@ export function OpenActionCard(props: OpenActionCardProps) {
               {(choice) => (
                 <RadioGroupItem
                   value={choice.choice}
-                  align="start"
-                  // Below `md` each choice is at least 44px tall, its circle
-                  // and words centred in the row, so one-line and wrapped
-                  // choices sit evenly apart. From `md` the circle sits on
-                  // the first line.
-                  class="max-md:min-h-11 max-md:items-center"
                   label={
                     <ChoiceWords
                       description={choice.description}
@@ -129,8 +124,7 @@ export function OpenActionCard(props: OpenActionCardProps) {
           {(choice) => (
             <Checkbox
               size="sm"
-              align="start"
-              class="max-md:min-h-11"
+              touch
               checked={props.answer?.choice === choice().choice}
               onChange={(on) => props.onAnswer(on ? { choice: choice().choice } : null)}
               disabled={props.disabled}

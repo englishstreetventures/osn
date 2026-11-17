@@ -156,7 +156,6 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
     <li class="py-1">
       <Checkbox
         box="native"
-        align="start"
         checked={picked().has(item.key)}
         onChange={() => toggle(item.key)}
         label={

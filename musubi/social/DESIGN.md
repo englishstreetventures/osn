@@ -995,10 +995,14 @@ above.
 A choice among several is `@shared/ui`'s `RadioGroup` (`orientation="vertical"`,
 `size="sm"`); one choice to accept is a `Checkbox` (`size="sm"`). Both draw the
 drawn box, never `box="native"`, whose ticked state is the platform's blue.
-Their words are `text-body`, and words that wrap keep the box on their first
-line (`align="start"`). Below `md` each row is at least 44px tall
-(`max-md:min-h-11`), and a radio's circle and words sit centred in it
-(`max-md:items-center`), so one-line and wrapped choices sit evenly apart. A
+Both follow `@shared/ui`'s one rule for choice controls
+(`wiki/shared/component-library.md` §Choice controls), and no call site
+passes a class that moves a circle, a box or a row: the circle or box sits on
+its words' first line, 8px from them, the chosen dot is 8px in the centre of
+its 16px circle, and keyboard focus is the house outline 2px off (§Focus).
+Their words are `text-body`. Below `md` each choice is a 44px target
+(`touch`): one-line and wrapped choices sit the same distance apart, and the
+group sits where it would at `md`. A
 day a choice keeps something until is a `text-meta` line in the secondary ink
 under its words ("Deleted on 7 December 2026", `formatDay`, in the reader's
 locale and zone), drawn by one part (`ChoiceWords` in `OpenActionCard.tsx`)

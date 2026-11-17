@@ -258,8 +258,8 @@ As built:
   name for `Input` at `size="sm"` with Save and Cancel. `RecoveryCodesView` draws no heading; its host gives it
   one. Its new codes sit in a well, `Card variant="muted" radius="md"
   padding="sm"`, two columns of `font-ui-mono`; the "I've saved these
-  codes" `Checkbox` is the drawn 16px box at `size="sm"`, in a row 44px tall
-  below `md` (`max-md:min-h-11`). `TotpView`'s enrolment step is a
+  codes" `Checkbox` is the drawn 16px box at `size="sm"`, a 44px target
+  below `md` (`touch`) on `@shared/ui`'s one rule for choice controls. `TotpView`'s enrolment step is a
   `rounded-ui-md` box with the hairline edge and 16px inside at `md` and up,
   and drops the edge and padding below `md`, so its code boxes take the
   panel's whole column on a phone (`musubi/social/DESIGN.md` §Responsive
