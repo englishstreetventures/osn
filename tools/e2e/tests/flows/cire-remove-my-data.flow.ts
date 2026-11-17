@@ -211,7 +211,7 @@ test("cire-remove-my-data", async ({ page, context, browser, flow }) => {
     await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("menuitem", { name: "Remove my Cire data" }).click();
     await expect(
-      page.getByRole("heading", { level: 1, name: "Remove your Cire data" }),
+      page.getByRole("heading", { level: 2, name: "Remove your Cire data" }),
     ).toBeVisible();
     await expect(answer).toBeVisible();
   });
