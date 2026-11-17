@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-16
+last-reviewed: 2026-11-17
 ---
 
 # DSAR Runbook
@@ -303,7 +303,14 @@ owners, each with an `owner` seat. Two consequences:
     wrote it). cire answers that it keeps nothing.
   - Leaving cire while keeping the account is not built (account-deletion
     design, phase 6). An operator handles such a request by hand, as an
-    erasure request from an organiser.
+    erasure request from an organiser, by the same rules as the erasure
+    above, which the hosts' privacy notice
+    ([`hosts.astro`](../../cire/landing/src/pages/privacy/hosts.astro), "How
+    long we keep it") promises: tell the person which live weddings they
+    alone own and point them to each one's download; delete none of those
+    until they have added another owner or agreed to its deletion in writing;
+    then remove their seats and notice rows, soft-delete each wedding left
+    with no owner, and clear every column that names one of their profiles.
 - **Co-owners in an owner's export (Art. 15(4)).** An owner's own data
   includes the seats on their weddings, and those name other people: every
   other owner's and co-host's profile id, who added each seat
