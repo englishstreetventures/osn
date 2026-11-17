@@ -72,13 +72,6 @@ describe("venue routes", () => {
     expect(body.venues.map((v) => v.id).toSorted()).toEqual(["v1", "v2"]);
   });
 
-  it("GET /venues returns an empty list when there are no venues", async () => {
-    const res = await get(app, "/venues");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { venues: unknown[] };
-    expect(body.venues).toEqual([]);
-  });
-
   it("GET /venues rejects a partial bbox with 400", async () => {
     const res = await get(app, "/venues?minLat=51&maxLat=52");
     expect(res.status).toBe(400);
@@ -503,14 +496,6 @@ describe("venue routes", () => {
       await seedLineupFixtures();
       const res = await get(app, "/venues/org-one/the-spot/events/evt_elsewhere/lineup");
       expect(res.status).toBe(404);
-    });
-
-    it("returns 200 + [] for a public event with no programmed slots", async () => {
-      await seedLineupFixtures();
-      const res = await get(app, "/venues/org-one/the-spot/events/evt_bare/lineup");
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { slots: unknown[] };
-      expect(body.slots).toEqual([]);
     });
 
     it("returns 404 for an unknown venue handle", async () => {

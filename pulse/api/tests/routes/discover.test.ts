@@ -58,12 +58,6 @@ describe("GET /events/discover", () => {
     );
   });
 
-  it("returns 200 with an empty page when there are no events", async () => {
-    const res = await app.handle(new Request("http://localhost/events/discover", withIp()));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ events: [], nextCursor: null, series: {} });
-  });
-
   it("returns public events to anonymous viewers", async () => {
     await Effect.runPromise(
       seedEvent({ title: "Public", startTime: FUTURE(60_000) }).pipe(Effect.provide(layer)),

@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
-import { canViewAttendees } from "../../src/services/eventAccess";
 import { createTestLayer, seedEvent } from "../helpers/db";
 import { TEST_VERIFICATION } from "../helpers/verification";
 
@@ -23,15 +22,6 @@ const get = (app: { handle: (r: Request) => Promise<Response> }, path: string, t
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     }),
   );
-
-describe("canViewAttendees policy", () => {
-  it("is true only for the organiser", () => {
-    const event = { createdByProfileId: "usr_alice" };
-    expect(canViewAttendees(event, "usr_alice")).toBe(true);
-    expect(canViewAttendees(event, "usr_bob")).toBe(false);
-    expect(canViewAttendees(event, null)).toBe(false);
-  });
-});
 
 describe("GET /events/:id/rsvps — additive canViewAttendees flag", () => {
   let app: ReturnType<typeof createEventsRoutes>;

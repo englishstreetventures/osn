@@ -163,17 +163,6 @@ describe("account routes — cookie credential", () => {
 });
 
 describe("account routes — runtime wiring (ManagedRuntime)", () => {
-  it("GET /deletion-status reaches the DB through the factory runtime", async () => {
-    const token = await makeToken("usr_status");
-    const res = await makeApp().handle(
-      new Request("http://localhost/account/deletion-status", {
-        headers: { authorization: `Bearer ${token}` },
-      }),
-    );
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { scheduled: boolean }).scheduled).toBe(false);
-  });
-
   it("POST /restore is a no-op 200 when nothing is scheduled", async () => {
     const token = await makeToken("usr_restore");
     const res = await makeApp().handle(

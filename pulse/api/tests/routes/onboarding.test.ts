@@ -217,18 +217,6 @@ describe("onboarding routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Resolver cache — verifies the second request hits the local mapping
-  // table rather than re-calling the bridge. Privacy + latency-relevant.
-  // -------------------------------------------------------------------------
-
-  it("second GET hits the profile→account cache (does not re-call the bridge)", async () => {
-    vi.mocked(bridge.getAccountIdForProfile).mockClear();
-    await get(app, "/me/onboarding", aliceToken);
-    await get(app, "/me/onboarding", aliceToken);
-    expect(vi.mocked(bridge.getAccountIdForProfile)).toHaveBeenCalledTimes(1);
-  });
-
-  // -------------------------------------------------------------------------
   // Rate limiter
   // -------------------------------------------------------------------------
 

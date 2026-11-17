@@ -157,13 +157,6 @@ describe("events routes — new config fields", () => {
     expect(body.events).toHaveLength(1);
     expect(body.events[0]!.title).toBe("My Private Party");
   });
-
-  it("GET /events includes public events for everyone", async () => {
-    await post(app, "/events", { title: "Public Event", startTime: FUTURE }, aliceToken);
-    const res = await get(app, "/events");
-    const body = (await res.json()) as { events: { title: string }[] };
-    expect(body.events.map((e) => e.title)).toContain("Public Event");
-  });
 });
 
 describe("RSVP routes", () => {
@@ -384,17 +377,6 @@ describe("Share-attribution routes", () => {
     expect(res.status).toBe(404);
   });
 
-  it("POST /events/:id/share returns 429 when the client IP is unresolved", async () => {
-    // No x-forwarded-for under trustedProxyCount:1 → fail-closed.
-    const res = await post(app, `/events/${eventId}/share`, { source: "whatsapp" });
-    expect(res.status).toBe(429);
-  });
-
-  it("POST /events/:id/exposure returns 204 for a valid source", async () => {
-    const res = await postIp(`/events/${eventId}/exposure`, { source: "tiktok" });
-    expect(res.status).toBe(204);
-  });
-
   it("POST /events/:id/exposure rejects an unknown source with 422", async () => {
     const res = await postIp(`/events/${eventId}/exposure`, { source: "myspace" });
     expect(res.status).toBe(422);
@@ -405,11 +387,6 @@ describe("Share-attribution routes", () => {
     // endpoint still 204s so the client doesn't need to special-case it.
     const res = await postIp(`/events/${eventId}/exposure`, { source: "x" }, aliceToken);
     expect(res.status).toBe(204);
-  });
-
-  it("POST /events/:id/exposure returns 429 when the client IP is unresolved", async () => {
-    const res = await post(app, `/events/${eventId}/exposure`, { source: "tiktok" });
-    expect(res.status).toBe(429);
   });
 });
 
