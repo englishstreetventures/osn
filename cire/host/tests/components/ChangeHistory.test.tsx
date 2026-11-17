@@ -21,6 +21,7 @@ vi.mock("../../src/lib/api", async () => {
 });
 
 import ChangeHistory from "../../src/components/ChangeHistory";
+import { ensureRsvpsLoaded, hasTableRsvps } from "../../src/lib/rsvps-store";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -190,6 +191,23 @@ describe("ChangeHistory", () => {
     // No second (revert) fetch fired.
     expect(authFetchMock.mock.calls.length).toBe(1);
     expect(reloadMock).not.toHaveBeenCalled();
+  });
+
+  it("drops the cached RSVP replies once a revert lands, then reloads", async () => {
+    await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
+    authFetchMock
+      .mockResolvedValueOnce(jsonResponse({ imports: [EDITOR_APPLIED], nextCursor: null }))
+      .mockResolvedValueOnce(jsonResponse({ reverted: true }))
+      .mockResolvedValueOnce(jsonResponse({ imports: [], nextCursor: null }));
+
+    render(() => <ChangeHistory weddingId="wed_a" />);
+    openHistory();
+    await waitFor(() => expect(screen.getByRole("button", { name: /revert/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /revert/i }));
+
+    await waitFor(() => expect(reloadMock).toHaveBeenCalled());
+    // The revert moved households, guests or events the replies name.
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   /** Open the confirm for one entry and return the text it asked. */

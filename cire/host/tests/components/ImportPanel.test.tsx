@@ -57,6 +57,7 @@ vi.mock("../../src/lib/schedule-changed", () => ({ scheduleChanged: scheduleChan
 
 import ImportPanel from "../../src/components/ImportPanel";
 import { resetImportHelpSeen } from "../../src/lib/import-help";
+import { ensureRsvpsLoaded, hasTableRsvps } from "../../src/lib/rsvps-store";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
 // Capture the Blobs handed to URL.createObjectURL so we can read their text.
@@ -575,6 +576,7 @@ describe("ImportPanel — surfacing import failures", () => {
     });
 
     it("drops a preview whose head moved before it applied, and the cached rows with it", async () => {
+      await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
       await applyRefused(
         jsonResponse({ error: "State changed — re-preview", reason: "head_moved" }, 409),
       );
@@ -586,6 +588,7 @@ describe("ImportPanel — surfacing import failures", () => {
       expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
       expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
       expect(invalidateHouseholdsMock).toHaveBeenCalledWith("wed_a");
+      expect(hasTableRsvps("wed_a")).toBe(false);
     });
 
     it("drops a preview a 409 with no reason refused, since it cannot apply either", async () => {
@@ -681,6 +684,7 @@ describe("ImportPanel — surfacing import failures", () => {
   });
 
   it("renders the families-updated count in the applied summary (and 0 when absent)", async () => {
+    await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
     // `familiesUpdated` is new on ImportSummary (household renames); an apply
     // response from an older API omits it, and the line must fall back to ~0
     // rather than render "undefined".
@@ -749,6 +753,8 @@ describe("ImportPanel — surfacing import failures", () => {
     expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
     expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
     expect(invalidateHouseholdsMock).toHaveBeenCalledWith("wed_a");
+    // And the RSVP replies, which name the households and events it changed.
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   it("falls back to ~0 families updated when an older API omits the field", async () => {

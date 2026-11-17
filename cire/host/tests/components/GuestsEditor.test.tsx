@@ -38,6 +38,7 @@ import {
   hasCachedHouseholds,
   invalidateHouseholds,
 } from "../../src/lib/households-store";
+import { ensureRsvpsLoaded, hasTableRsvps } from "../../src/lib/rsvps-store";
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
 import {
   authFetchMock,
@@ -339,6 +340,7 @@ describe("GuestsEditor", () => {
 
   it("runs the save flow: preview → shared modal → apply → toast", async () => {
     primeLoad();
+    await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
     render(() => <GuestsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
 
@@ -409,6 +411,8 @@ describe("GuestsEditor", () => {
     // Exactly the id: an ordinary save's `clears` is null, and a `confirmClears:
     // null` would fail the API's decode and refuse every save.
     expect(JSON.parse(String((applyCall[1] as RequestInit).body))).toEqual({ changeId: "chg_1" });
+    // The replies the RSVP table and the Overview show are read again.
+    expect(hasTableRsvps("wed_a")).toBe(false);
   });
 
   it("adds a household and a guest", async () => {
@@ -1341,6 +1345,7 @@ describe("GuestsEditor", () => {
 
     it("closes a preview refused while writing, marks the draft stale and drops the cached rows", async () => {
       primeLoad();
+      await ensureRsvpsLoaded("wed_a", async () => ({ events: [], withBadges: true }));
       render(() => <GuestsEditor weddingId="wed_a" />);
       await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
       fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
@@ -1369,6 +1374,7 @@ describe("GuestsEditor", () => {
       // What the change saved is not in the shared caches the other views read.
       expect(hasCachedGuests("wed_a")).toBe(false);
       expect(hasCachedHouseholds("wed_a")).toBe(false);
+      expect(hasTableRsvps("wed_a")).toBe(false);
     });
 
     it("keeps a preview refused before writing open, and names the cap inside it", async () => {
