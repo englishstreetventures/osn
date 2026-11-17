@@ -262,7 +262,7 @@ describe("the account-deletion calls", () => {
           label: expect.any(String),
           choices: [{ choice: "delete", description: expect.any(String), erasedOn: null }],
           defaultChoice: null,
-          link: `${PORTAL}/#/w/w1/settings/hosts`,
+          link: `${PORTAL}/#/w/w1/settings/export`,
         },
       ],
     });

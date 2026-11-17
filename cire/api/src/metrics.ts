@@ -158,6 +158,9 @@ export const CIRE_METRICS = {
   accountDeletionPreviews: "cire.account_deletion.previews",
   accountDeletionErasures: "cire.account_deletion.erasures",
   accountDeletionWeddings: "cire.account_deletion.weddings",
+  // A host removing their own Cire data and keeping their Musubi account:
+  // each removal request, by how it ended.
+  accountRemovalRequests: "cire.account_removal.requests",
   // osn-api's account export: each call for a person's cire section.
   accountExportRequests: "cire.account_export.requests",
   // The whole-wedding archive: each download, and what became of each file
@@ -321,6 +324,18 @@ export type AccountDeletionErasureResult = "done" | "not_finished" | "error";
 /** What an erasure did to one wedding the person owned: deleted, no other
  *  owner being left, or only their seat removed, another owner remaining. */
 export type AccountDeletionWeddingOutcome = "deleted" | "seat_removed";
+/**
+ * How a host's request to remove their Cire data ended: all removed, part
+ * removed (the portal asks again), refused for an unanswered wedding, refused
+ * for want of a confirmation from Musubi, osn-api unavailable, or failed.
+ */
+export type AccountRemovalResult =
+  | "done"
+  | "not_finished"
+  | "open_actions"
+  | "confirmation_required"
+  | "unavailable"
+  | "error";
 /** How osn-api's account-export call for a person's cire section ended. */
 export type AccountExportResult = "ok" | "error";
 /** How a whole-wedding archive download ended: written to its end, or failed. */
@@ -333,7 +348,7 @@ export type WeddingArchiveFileStatus =
   | "unreadable"
   | "unavailable";
 /** Which owner notice was attempted. */
-export type OwnerNoticeKind = "owner_change" | "delete_started" | "upgrade_refund";
+export type OwnerNoticeKind = "owner_change" | "delete_started" | "upgrade_refund" | "owner_left";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
  *  throttle, or the lookup or send failed. */
 export type OwnerNoticeResult = "sent" | "no_recipients" | "throttled" | "failed";
@@ -834,6 +849,7 @@ type WeddingPurgedAttrs = { result: WeddingPurgedResult };
 type AccountDeletionPreviewAttrs = { result: AccountDeletionPreviewResult };
 type AccountDeletionErasureAttrs = { result: AccountDeletionErasureResult };
 type AccountDeletionWeddingAttrs = { outcome: AccountDeletionWeddingOutcome };
+type AccountRemovalAttrs = { result: AccountRemovalResult };
 type AccountExportAttrs = { result: AccountExportResult };
 type WeddingArchiveDownloadAttrs = { result: WeddingArchiveDownloadResult };
 type WeddingArchiveFileAttrs = { status: WeddingArchiveFileStatus };
@@ -1344,6 +1360,13 @@ const accountDeletionWeddings = createCounter<AccountDeletionWeddingAttrs>({
   unit: "{wedding}",
 });
 
+const accountRemovalRequests = createCounter<AccountRemovalAttrs>({
+  name: CIRE_METRICS.accountRemovalRequests,
+  description:
+    "Hosts' requests to remove their Cire data and keep their Musubi account, by outcome",
+  unit: "{request}",
+});
+
 const accountExportRequests = createCounter<AccountExportAttrs>({
   name: CIRE_METRICS.accountExportRequests,
   description: "osn-api's account-export calls for a person's cire section, by outcome",
@@ -1758,6 +1781,9 @@ export const metricAccountDeletionErasure = (result: AccountDeletionErasureResul
 
 export const metricAccountDeletionWedding = (outcome: AccountDeletionWeddingOutcome): void =>
   accountDeletionWeddings.inc({ outcome });
+
+export const metricAccountRemoval = (result: AccountRemovalResult): void =>
+  accountRemovalRequests.inc({ result });
 
 export const metricAccountExport = (result: AccountExportResult): void =>
   accountExportRequests.inc({ result });

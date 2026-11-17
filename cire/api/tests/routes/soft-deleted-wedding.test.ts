@@ -494,6 +494,12 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
     "the caller's own list; its live/deleted split is tests/services/weddings.test.ts",
   "POST /api/organiser/weddings": "creates a new wedding",
   "GET /api/organiser/handle-search": "profile autocomplete; names no wedding",
+  "POST /api/organiser/account/removal/preview":
+    "the caller's own seats, a deleted wedding's included by design: the removal takes its last seat; tests/routes/organiser-account.test.ts",
+  "POST /api/organiser/account/removal/confirmation":
+    "asks osn-api for a step-up request; names no wedding",
+  "DELETE /api/organiser/account":
+    "removes the caller's own seats on every wedding, a deleted one's included by design; tests/routes/organiser-account.test.ts",
   "POST /api/organiser/weddings/:weddingId/restore":
     "the one organiser route that must reach a deleted wedding; tests/routes/wedding-lifecycle.test.ts",
 };

@@ -42,6 +42,7 @@ import {
   createInviteResolveRoutes,
 } from "./routes/invite";
 import { createInviteFaqRoutes } from "./routes/invite-faq";
+import { createOrganiserAccountRoutes } from "./routes/organiser-account";
 import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
 import { createOrganiserEnquiriesRoutes } from "./routes/organiser-enquiries";
 import { createOrganiserHandleSearchRoutes } from "./routes/organiser-handle-search";
@@ -122,6 +123,7 @@ import type {
   OsnOrganiserEmailLookup,
   OsnProfileDisplayResolver,
   OsnProfileOrgsResolver,
+  OsnRemovalBridge,
 } from "./services/osn-bridge";
 import { cacheAccountResolver, cacheProfileDisplayResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
@@ -263,6 +265,14 @@ const defaultSeatingPlanLimiter = createRateLimiter({ maxRequests: 10, windowMs:
  * anyone deletes or restores weddings by hand.
  */
 const defaultWeddingLifecycleLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
+
+/**
+ * Default per-user limiter for a host's removal of their Cire data: its
+ * preview, its confirmation and the removal share it. A person removes their
+ * data once; a removal of more than three owned weddings calls again a few
+ * times, and the screen reads its preview twice. Each call can reach osn-api.
+ */
+const defaultAccountRemovalLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 
 /**
  * Default per-IP limiter for the co-host autocomplete, mounted ahead of
@@ -513,6 +523,8 @@ export interface AppOptions {
   hostLimiter?: RateLimiterBackend;
   /** Override the wedding delete + restore rate limiter (useful for testing). */
   weddingLifecycleLimiter?: RateLimiterBackend;
+  /** Override the removal-of-a-host's-data rate limiter (useful for testing). */
+  accountRemovalLimiter?: RateLimiterBackend;
   /** Override the organiser recorded-RSVP rate limiter (useful for testing). */
   organiserRsvpLimiter?: RateLimiterBackend;
   /** Override the checklist write rate limiter (useful for testing). */
@@ -631,6 +643,13 @@ export interface AppOptions {
    * one is passed: the log stand-in is not delivery, and would log addresses.
    */
   organiserEmailLookup?: OsnOrganiserEmailLookup;
+  /**
+   * osn-api's step-up request calls (server-to-server over ARC,
+   * `step-up:verify`, and `graph:resolve-account` for the account check), for
+   * a host's removal of their Cire data. KEY-OPTIONAL: when omitted, the
+   * removal routes answer 503 and nothing else changes. Tests inject a stub.
+   */
+  accountRemovalBridge?: OsnRemovalBridge;
   /** Override the owner-notice daily email budget per key (useful for testing). */
   ownerNoticeEmailsPerDay?: number;
   /**
@@ -867,6 +886,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     remintLimiter = defaultRemintLimiter,
     hostLimiter = defaultHostLimiter,
     weddingLifecycleLimiter = defaultWeddingLifecycleLimiter,
+    accountRemovalLimiter = defaultAccountRemovalLimiter,
     organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
     taskWriteLimiter = defaultTaskWriteLimiter,
     runSheetReadLimiter = defaultRunSheetReadLimiter,
@@ -890,6 +910,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     osnBlockCheck,
     resolveOsnProfileDisplays,
     organiserEmailLookup,
+    accountRemovalBridge,
     ownerNoticeEmailsPerDay,
     resolveOsnHandleSearch,
     resolveOsnConnectionSearch,
@@ -1536,6 +1557,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
         ),
       )
       .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
+      // A host removing their Cire data and keeping their Musubi account.
+      .use(
+        createOrganiserAccountRoutes(db, osnAuthOptions, {
+          limiter: accountRemovalLimiter,
+          bridge: accountRemovalBridge,
+          ownerNotices,
+          signals: weddingSignals,
+          organiserOrigin,
+          secureCookies: webOrigin.startsWith("https://"),
+        }),
+      )
       .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter))
       // The realtime fallback beacon.
       .use(createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }));

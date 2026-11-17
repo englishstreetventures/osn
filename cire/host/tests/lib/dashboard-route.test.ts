@@ -72,6 +72,56 @@ describe("dashboard-route", () => {
       });
     });
 
+    it("parses the remove-data view, with no code", () => {
+      expect(parseRoute("#/remove-data")).toEqual({
+        view: "remove-data",
+        weddingId: null,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+      });
+    });
+
+    it("reads the code Musubi sends a person back with, before the path is split", () => {
+      // Red on reading the query as part of the path: `remove-data?code=…`
+      // would match no view and land on the wedding list, losing the code.
+      expect(parseRoute("#/remove-data?code=abc_DEF-123")).toEqual({
+        view: "remove-data",
+        weddingId: null,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+        code: "abc_DEF-123",
+      });
+      expect(parseRoute("#/remove-data/?code=abc")).toMatchObject({
+        view: "remove-data",
+        code: "abc",
+      });
+    });
+
+    it("drops a code that is empty, or is not one osn-api makes", () => {
+      for (const hash of [
+        "#/remove-data?code=",
+        "#/remove-data?code=a%3Fb",
+        "#/remove-data?code=a?b",
+      ]) {
+        expect({ hash, route: parseRoute(hash) }).toEqual({
+          hash,
+          route: {
+            view: "remove-data",
+            weddingId: null,
+            module: DEFAULT_MODULE,
+            sub: defaultSub(DEFAULT_MODULE),
+          },
+        });
+      }
+    });
+
+    it("ignores a query on any other view", () => {
+      expect(parseRoute("#/security?code=abc")).toEqual(parseRoute("#/security"));
+      expect(parseRoute("#/w/wed_1/settings/export?code=abc")).toEqual(
+        parseRoute("#/w/wed_1/settings/export"),
+      );
+    });
+
     it("decodes a wedding id with reserved characters", () => {
       expect(parseRoute("#/w/wed%2F1/invite")).toEqual({
         view: "weddings",
@@ -276,7 +326,18 @@ describe("dashboard-route", () => {
         module: DEFAULT_MODULE,
         sub: defaultSub(DEFAULT_MODULE),
       },
+      {
+        view: "remove-data",
+        weddingId: null,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+      },
     ];
+
+    it("serialises the remove-data view without its code, which the screen has kept", () => {
+      // The canonical rewrite on load must take the code out of the address.
+      expect(serializeRoute(parseRoute("#/remove-data?code=abc"))).toBe("#/remove-data");
+    });
 
     it("parse(serialize(route)) === route for every producible route", () => {
       for (const route of routes) {

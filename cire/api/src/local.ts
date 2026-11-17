@@ -21,7 +21,10 @@ import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
-import { createOrganiserEmailLookupFromEnv } from "./services/osn-bridge";
+import {
+  createOrganiserEmailLookupFromEnv,
+  createRemovalBridgeFromEnv,
+} from "./services/osn-bridge";
 import { createR2Stub } from "./services/r2-imports";
 import { createStripeClientFromEnv } from "./services/stripe";
 import { stripeConnectOAuthFromEnv } from "./services/stripe-connect-oauth";
@@ -196,6 +199,15 @@ if (localResend) {
   });
   if (lookup) appOptions.organiserEmailLookup = lookup;
 }
+
+// A host's removal of their Cire data reaches osn-api with the same ARC key the
+// lookups above use; unset, its routes answer 503. The E2E stack sets it.
+const removalBridge = await createRemovalBridgeFromEnv({
+  osnApiUrl: process.env.OSN_API_URL,
+  arcPrivateKeyJwk: process.env.CIRE_API_ARC_PRIVATE_KEY,
+  arcKeyId: process.env.CIRE_API_ARC_KEY_ID,
+});
+if (removalBridge) appOptions.accountRemovalBridge = removalBridge;
 
 // The local D1 binding runs over the same bun connection as `db`, so the Effect
 // handle and the promise handle see one database, as they do in the test suite.

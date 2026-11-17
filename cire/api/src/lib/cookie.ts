@@ -6,15 +6,19 @@ import type { SessionCookieOptions } from "@shared/osn-auth-client/cookie";
  * — which is where the host-scoping and `SameSite=Lax` reasoning lives. Names
  * are fixed here so no caller passes one as a string.
  *
- * Three cookies:
+ * Four cookies:
  *
  * - `cire_session`  — the guest household session, minted by `POST /api/claim`.
  * - `cire_org_session` — the organiser session, minted by the OSN OIDC callback.
  * - `cire_oidc_tx`  — the short-lived OIDC transaction state (PKCE verifier,
  *                     `state`, `nonce`, return URL) held between `/start` and
  *                     `/callback`.
+ * - `cire_removal`  — a host's removal of their Cire data: the id of the
+ *                     step-up request osn-api began and the secret whose hash
+ *                     binds it to this browser (`<id>.<secret>`, both
+ *                     base64url), held while the person confirms on Musubi.
  *
- * All three are host-scoped: set by cire-api (`api.cireweddings.com`) and sent
+ * All four are host-scoped: set by cire-api (`api.cireweddings.com`) and sent
  * back only there. The organiser and guest sites are same-site with it, so
  * `Lax` costs nothing. Audited `feat/cire-assets-reconcile` — do NOT add
  * `Domain=` unless a subdomain genuinely needs to read one (none does today).
@@ -24,6 +28,7 @@ import type { SessionCookieOptions } from "@shared/osn-auth-client/cookie";
 const GUEST_COOKIE_NAME = "cire_session";
 const ORGANISER_COOKIE_NAME = "cire_org_session";
 const OIDC_TX_COOKIE_NAME = "cire_oidc_tx";
+const REMOVAL_COOKIE_NAME = "cire_removal";
 
 export function buildSessionCookie(token: string, opts: SessionCookieOptions): string {
   return buildCookie(GUEST_COOKIE_NAME, token, opts);
@@ -65,4 +70,16 @@ export function clearOidcTxCookie(opts: { secure: boolean }): string {
 
 export function parseOidcTxCookie(cookieHeader: string | null): string | null {
   return parseCookie(cookieHeader, OIDC_TX_COOKIE_NAME);
+}
+
+export function buildRemovalCookie(value: string, opts: SessionCookieOptions): string {
+  return buildCookie(REMOVAL_COOKIE_NAME, value, opts);
+}
+
+export function clearRemovalCookie(opts: { secure: boolean }): string {
+  return buildClearCookie(REMOVAL_COOKIE_NAME, opts);
+}
+
+export function parseRemovalCookie(cookieHeader: string | null): string | null {
+  return parseCookie(cookieHeader, REMOVAL_COOKIE_NAME);
 }

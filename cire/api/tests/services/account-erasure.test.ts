@@ -170,8 +170,8 @@ describe("accountErasureService.preview", () => {
     expect(actions.every((a) => a.kind === "wedding_sole_owner")).toBe(true);
   });
 
-  it.each([["http://localhost:4322"], ["not an origin"]])(
-    "an organiser portal that is not https (%s) gives no link",
+  it.each([["http://portal.example.test"], ["not an origin"]])(
+    "an organiser portal that is neither https nor on this machine (%s) gives no link",
     async (origin) => {
       const db = makeDb();
       wedding(db, "w1", [P]);
@@ -179,6 +179,13 @@ describe("accountErasureService.preview", () => {
       expect(action?.link).toBeNull();
     },
   );
+
+  it("a portal on this machine over plain http, as the local and E2E stacks run it, gives its link", async () => {
+    const db = makeDb();
+    wedding(db, "w1", [P]);
+    const [action] = await preview(db, [P], "http://localhost:4322");
+    expect(action?.link).toBe("http://localhost:4322/#/w/w1/settings/export");
+  });
 
   it("a long wedding name stays inside the contract's 500 characters", async () => {
     const db = makeDb();
@@ -697,5 +704,93 @@ describe("accountErasureService.erase — the account's own rows and its name on
     };
     expect(vendor("dv_pending")).toEqual([OTHER, null, null, null]);
     expect(vendor("dv_claimed")).toEqual([null, "org_other", OTHER, NOW]);
+  });
+});
+
+describe("accountErasureService.eraseWithOutcomes — a host leaving cire", () => {
+  it("keeps the person's vendor listing claim and their guest account link, and takes the rest", async () => {
+    // Red on the host scope reaching the vendor or guest side: leaving cire
+    // covers what the person holds as a host only.
+    const db = makeDb();
+    for (const statement of fullWeddingStatements("wed_a", { owner: OTHER, now: NOW })) {
+      db.run(statement);
+    }
+    db.run(
+      sql.raw(
+        `UPDATE guest_account_links SET osn_account_id = '${ACCOUNT}', osn_profile_id = '${P}' WHERE id = 'gal_wed_a'`,
+      ),
+    );
+    db.insert(directoryVendors)
+      .values({
+        id: "dv_mine",
+        name: "Florist",
+        claimedByProfileId: P,
+        reviewOrgId: "org_mine",
+        reviewProfileId: P,
+        reviewRequestedAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      })
+      .run();
+    wedding(db, "w_mine", [P]);
+    db.insert(organiserSessions)
+      .values({
+        id: "oss_mine",
+        token: "tok_mine",
+        osnProfileId: P,
+        osnSub: "sub",
+        expiresAt: new Date(NOW.getTime() + DAY_S * 1000),
+        createdAt: NOW,
+      })
+      .run();
+
+    const { result } = await run(
+      db,
+      accountErasureService.eraseWithOutcomes({
+        accountId: ACCOUNT,
+        profileIds: [P],
+        now: NOW,
+        scope: "host",
+      }),
+    );
+
+    expect(result).toEqual({ status: "done", kept: [] });
+    expect(valueOf(db, "guest_account_links", "count(*)", "id = 'gal_wed_a'")).toBe(1);
+    const [listing] = db
+      .select()
+      .from(directoryVendors)
+      .where(eq(directoryVendors.id, "dv_mine"))
+      .all();
+    expect([listing?.claimedByProfileId, listing?.reviewProfileId]).toEqual([P, P]);
+    // The host side went as for an account.
+    expect(weddingRow(db, "w_mine")?.deletedAt).toEqual(NOW);
+    expect(db.select().from(organiserSessions).all()).toEqual([]);
+  });
+
+  it("answers what it did to each wedding the person owned, on a call that finishes and on one that does not", async () => {
+    const db = makeDb();
+    wedding(db, "w_alone", [P]);
+    wedding(db, "w_shared", [P, OTHER]);
+    wedding(db, "w_theirs", [OTHER]);
+    const finished = await run(
+      db,
+      accountErasureService.eraseWithOutcomes({ accountId: ACCOUNT, profileIds: [P], now: NOW }),
+    );
+    expect(finished.result).toEqual({ status: "done", kept: [] });
+    expect(finished.owned.toSorted((a, b) => a.weddingId.localeCompare(b.weddingId))).toEqual([
+      { weddingId: "w_alone", outcome: "deleted" },
+      { weddingId: "w_shared", outcome: "seat_removed" },
+    ]);
+    // The other person's wedding is untouched.
+    expect(seatsOf(db, "w_theirs")).toEqual([{ profile: OTHER, role: "owner" }]);
+
+    const many = makeDb();
+    for (let i = 0; i <= MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(many, `w${i}`, [P]);
+    const partial = await run(
+      many,
+      accountErasureService.eraseWithOutcomes({ accountId: ACCOUNT, profileIds: [P], now: NOW }),
+    );
+    expect(partial.result).toEqual({ status: "not_finished" });
+    expect(partial.owned).toHaveLength(MAX_OWNED_WEDDINGS_PER_CALL);
   });
 });

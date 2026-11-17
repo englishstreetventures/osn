@@ -67,10 +67,12 @@ export async function generateCireArcKey(): Promise<CireArcKey> {
 }
 
 /**
- * The one scope cire-api's ARC tokens need on this stack: the owners'
- * addresses (`/internal/accounts/emails`), for its owner notices.
+ * The scopes cire-api's ARC tokens need on this stack: the owners' addresses
+ * (`/internal/accounts/emails`), for its owner notices; and, for a host's
+ * removal of their Cire data, the step-up request (`/internal/step-up/*`) and
+ * the account behind a profile (`/graph/internal/profile-account`).
  */
-const CIRE_API_ARC_SCOPES = "account:email-read";
+const CIRE_API_ARC_SCOPES = "account:email-read,step-up:verify,graph:resolve-account";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
