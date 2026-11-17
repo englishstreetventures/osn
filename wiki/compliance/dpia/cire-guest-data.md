@@ -447,8 +447,8 @@ final sign-off now turns only on the residual retention gaps below.
   past, and the sheets their `imports` rows name are reaped from R2 in the same
   sweep. The sweep reads a final event only from Starts and Ends that begin with
   their date: a wedding with any other value keeps its guest data past the year
-  until its host fixes the event, and each run logs how many such weddings there
-  are (a count, no id). A wedding its owners delete is purged whole 7–8 days later (later if
+  until its host fixes the event, and each run logs how many such weddings still
+  hold guest data with every dated event a year past (a count, no id). A wedding its owners delete is purged whole 7–8 days later (later if
   the daily purge cap or a payment still settling defers it): every row by
   cascade, and its sheet and image objects ([[cire-auth#Soft-deleted weddings]]).
 - **What outlives the sweep (2026-10-15).** The sweep leaves the couple a record

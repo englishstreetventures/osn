@@ -304,7 +304,11 @@ export const retentionService = {
           "guest-data retention sweep kept weddings whose event dates it cannot read",
         ).pipe(Effect.annotateLogs({ weddings: undatedWeddings }));
       }
-      // Due: every event dated, so finalEventAt is set.
+      // Due: every event dated, so finalEventAt is set. The delete below acts
+      // on this read: an event edit that commits while the run is under way
+      // does not stop it. Re-checking the dates in each delete would have to
+      // hold back the gift summary written in the same batch as well, or a
+      // later run would count its gifts twice.
       const expired = rows.flatMap((r) =>
         r.undated === 0 && r.finalEventAt !== null
           ? [{ weddingId: r.weddingId, finalEventAt: r.finalEventAt }]

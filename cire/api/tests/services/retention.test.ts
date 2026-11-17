@@ -320,8 +320,8 @@ interface StoredTimes {
 
 /**
  * A wedding with one household and one guest, whose events hold `times` as
- * given — including values no write door accepts today, which an older row can
- * still hold. {@link makeWedding} stores dated events only.
+ * given — including values neither write door accepts, which a stored row or a
+ * revert can still hold. {@link makeWedding} stores dated events only.
  */
 function makeWeddingWithTimes(
   db: TestDb,
@@ -688,9 +688,9 @@ describe("retentionService.sweepExpiredGuestData", () => {
   });
 
   // The sweep compares stored Starts and Ends as text against a `YYYY-MM-DD`
-  // cutoff, which is exact only for a value that begins with its date. A row
-  // written before the write doors checked that can hold anything, and a
-  // revert can restore it. Each row below seeds one wedding with a dated event
+  // cutoff, which is exact only for a value that begins with its date. A
+  // stored row can hold any text, and a revert can restore one. Each row below
+  // seeds one wedding with a dated event
   // long past and one event the sweep cannot date, on a day with nothing else
   // due: the wedding is kept, counted in one warning line, and neither its id
   // nor the stored value reaches the log. The values are distinctive so the
