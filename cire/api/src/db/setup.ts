@@ -1048,6 +1048,8 @@ function seedE2eGiftList(db: TestDb): void {
       slug: "gift-wedding",
       displayName: "Gift Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1295,6 +1297,9 @@ function seedE2eOrganiser(db: TestDb): void {
         slug,
         displayName,
         tier,
+        // A paid tier records how it was granted, as an operator's comp does.
+        tierSource: tier === "ivory" ? null : "comp",
+        tierGrantedBy: tier === "ivory" ? null : "script:e2e-seed",
         weddingDate: weddingDate ?? null,
         createdAt: now,
         updatedAt: now,
@@ -1904,6 +1909,8 @@ function seedE2eFund(db: TestDb, now: Date): void {
       slug: "fund-wedding",
       displayName: "Fund Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -2080,6 +2087,8 @@ function seedE2eLegacyEvent(db: TestDb, now: Date): void {
       slug: "legacy-event-wedding",
       displayName: "Legacy Event Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -2153,6 +2162,8 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
         slug,
         displayName: title,
         tier: envelope ? "crimson" : "gold",
+        tierSource: "comp",
+        tierGrantedBy: "script:e2e-seed",
         createdAt: now,
         updatedAt: now,
       })
@@ -2177,6 +2188,8 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
       slug: "envelope-wedding",
       displayName: "Envelope Wedding",
       tier: "crimson",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
@@ -2209,6 +2222,8 @@ function seedE2eSeating(db: TestDb, now: Date): void {
       slug: "seating-wedding",
       displayName: "Seating Wedding",
       tier: "gold",
+      tierSource: "comp",
+      tierGrantedBy: "script:e2e-seed",
       createdAt: now,
       updatedAt: now,
     })
