@@ -1279,7 +1279,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "submitRsvps commits a 51-pair batch over D1's per-batch ceiling (P-W2)",
+    "submitRsvps commits a 51-pair batch over D1's per-batch ceiling",
     async () => {
       // MAX_STATEMENTS_PER_BATCH is 50; a 51-statement submit must be chunked by
       // commitGroupedBatches rather than sent as one over-ceiling db.batch() call

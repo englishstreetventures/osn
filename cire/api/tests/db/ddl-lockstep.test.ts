@@ -355,7 +355,7 @@ function snapshotAndClose(db: Database): SchemaSnapshot {
 
 const migrated = snapshotAndClose(applyMigrations());
 
-describe("T-S1 lockstep: migrations chain", () => {
+describe("lockstep: migrations chain", () => {
   // Wrangler applies every `*.sql` directly in the directory and nothing
   // else, so anything beside them is a migration that would never run: a
   // drizzle-kit folder, a `meta/` journal, a stray file.
@@ -416,7 +416,7 @@ describe("lockstep: the baseline ↔ the archived chain", () => {
   });
 });
 
-describe("T-S1 lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
+describe("lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
   const mirror = snapshotAndClose(applyMirrorDdl());
 
   it("declares the same set of tables", () => {
@@ -459,7 +459,7 @@ function withoutUndeclared(table: string, shape: TableShape): TableShape {
   };
 }
 
-describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
+describe("lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
   it("declares the same set of tables", () => {
     expect(drizzleTables.map((t) => getTableConfig(t).name).toSorted()).toEqual(
       Object.keys(migrated.tables).toSorted(),

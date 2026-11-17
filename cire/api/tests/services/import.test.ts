@@ -548,7 +548,7 @@ describe("diff: wedding scoping (multi-tenant isolation)", () => {
     ).toHaveLength(1);
   });
 
-  it("does not match a same-named family/guest/event from another wedding (T-S1)", async () => {
+  it("does not match a same-named family/guest/event from another wedding", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db); // empty target wedding
 
@@ -593,7 +593,7 @@ describe("diff: wedding scoping (multi-tenant isolation)", () => {
     expect(touchedIds).not.toContain(other.eventId);
   });
 
-  it("scopes eventLinkRemoves to the wedding, ignoring another tenant's links (T-S2)", async () => {
+  it("scopes eventLinkRemoves to the wedding, ignoring another tenant's links", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);
     const other = seedOtherWedding(db);

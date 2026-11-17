@@ -1786,7 +1786,7 @@ describe("invite image transforms — Cache API short-circuit", () => {
     });
   });
 
-  it("a re-upload (fresh R2 key) creates a second cache entry and re-runs the binding (T-S1)", async () => {
+  it("a re-upload (fresh R2 key) creates a second cache entry and re-runs the binding", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();
@@ -1824,7 +1824,7 @@ describe("invite image transforms — Cache API short-circuit", () => {
     });
   });
 
-  it("ignores the client ?v= for cache keying — looping ?v= does NOT re-bill transforms (S-M1)", async () => {
+  it("ignores the client ?v= for cache keying — looping ?v= does NOT re-bill transforms", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();
@@ -1861,7 +1861,7 @@ describe("invite image transforms — Cache API short-circuit", () => {
   });
 });
 
-describe("invite write rate limiting (IB-S-L1)", () => {
+describe("invite write rate limiting", () => {
   it("429s once the per-IP limit is exceeded", async () => {
     const { app } = buildApp({
       inviteLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
@@ -2302,7 +2302,7 @@ describe("hero display sliders (migration 0018)", () => {
     expect(images.blurs).toEqual([7]);
   });
 
-  it("a copy-only save keeps the image URL version AND the transform cache warm (WT-P-I1)", async () => {
+  it("a copy-only save keeps the image URL version AND the transform cache warm", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();
@@ -2345,7 +2345,7 @@ describe("hero display sliders (migration 0018)", () => {
     });
   });
 
-  it("re-uploading one slot leaves the other slots' versions and caches untouched (P-I1)", async () => {
+  it("re-uploading one slot leaves the other slots' versions and caches untouched", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();
@@ -2392,7 +2392,7 @@ describe("hero display sliders (migration 0018)", () => {
     });
   });
 
-  it("a colour/font-only theme save (heroBlur unchanged) keeps the transform cache warm (WT-P-I1)", async () => {
+  it("a colour/font-only theme save (heroBlur unchanged) keeps the transform cache warm", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();

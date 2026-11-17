@@ -463,7 +463,7 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
   it("holds at full fidelity", assertFixpoint("full"));
 });
 
-describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
+describe("round trip: hostile + sparse inputs", () => {
   it(
     "survives events named after the fidelity columns and sparse optional fields, at both fidelities",
     withDb(
@@ -543,7 +543,7 @@ describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
   );
 });
 
-describe("defensive normalisation (T-S3)", () => {
+describe("defensive normalisation", () => {
   it(
     "strips palette delimiters and drops non-http(s) URLs so the export stays importable",
     withDb(
@@ -582,7 +582,7 @@ describe("defensive normalisation (T-S3)", () => {
   );
 });
 
-describe("empty wedding (T-S4)", () => {
+describe("empty wedding", () => {
   it(
     "exports header-only sheets for a wedding with no events or guests",
     withDb(

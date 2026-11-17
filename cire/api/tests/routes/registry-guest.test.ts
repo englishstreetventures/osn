@@ -1350,7 +1350,7 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     expect(plan).not.toMatch(/SCAN registry_items/);
   });
 
-  it("ignores the client ?v= for cache keying — looping ?v= re-bills nothing (S-M1)", async () => {
+  it("ignores the client ?v= for cache keying — looping ?v= re-bills nothing", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();

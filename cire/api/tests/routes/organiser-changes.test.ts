@@ -1361,7 +1361,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     expect(remaining.map((f) => f.familyName)).toEqual(["Editorhousehold"]);
   });
 
-  it("rejects a blank household name at the schema boundary (400, S-L2)", async () => {
+  it("rejects a blank household name at the schema boundary (400)", async () => {
     // The editor client validates non-blank names, but the client is not a
     // security boundary — the DesiredState JSON front door used to accept a
     // blank (or unbounded) familyName straight through to rows the guest

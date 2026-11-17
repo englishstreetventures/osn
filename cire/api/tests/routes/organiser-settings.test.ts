@@ -248,7 +248,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     expect(row.displayName).toBe("Aisha & Benjamin");
   });
 
-  describe("a deadline may not be set in the past (S-L3)", () => {
+  describe("a deadline may not be set in the past", () => {
     // A backdated deadline locks the invite for every guest the moment it
     // lands, and a guest turned away is told only that RSVPs closed — never
     // that the date moved. Refused for EVERY caller, owner included.
@@ -412,7 +412,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     expect(getWedding(db).weddingDate).toBeNull();
   });
 
-  it("never writes the slug — a slug in the body is ignored (S-M1)", async () => {
+  it("never writes the slug — a slug in the body is ignored", async () => {
     // Renaming would free the old slug for another organiser to claim while
     // printed invite links still point at it; the schema strips the field, so
     // even a hand-crafted body can't move it.
@@ -480,7 +480,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     expect(body.wedding.rsvpDeadlineTimezone).toBeNull();
   });
 
-  it("canonicalises the stored zone rather than storing it verbatim (S-L2)", async () => {
+  it("canonicalises the stored zone rather than storing it verbatim", async () => {
     // One zone must have one spelling in the column, or equal deadlines don't
     // compare equal and the value stops matching its documented type.
     const { app, db } = buildApp();

@@ -232,7 +232,7 @@ describe("POST /api/claim", () => {
 // The per-IP limiter must gate the real endpoint, not just exist as a
 // plugin — a refactor that drops `.use(rateLimitMiddleware(...))` from
 // `createClaimRoutes` should fail here.
-describe("POST /api/claim rate limiting (S-C2)", () => {
+describe("POST /api/claim rate limiting", () => {
   it("returns 429 with Retry-After once the per-IP limit is exhausted", async () => {
     const rlApp = createApp(db, {
       claimLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),

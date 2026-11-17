@@ -264,7 +264,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 403 when RSVPing to a valid-but-uninvited event (S-M1)",
+    "returns 403 when RSVPing to a valid-but-uninvited event",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -280,7 +280,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 403 (not-invited, not not-owned) for a guest with zero guest_events rows (P-W1 LEFT JOIN null case)",
+    "returns 403 (not-invited, not not-owned) for a guest with zero guest_events rows (LEFT JOIN null case)",
     eff(
       Effect.gen(function* () {
         // Ownership and invitation used to come off two separate queries;
@@ -321,7 +321,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 403 when RSVPing to another wedding's event UUID (S-M1)",
+    "returns 403 when RSVPing to another wedding's event UUID",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -363,7 +363,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 400 when dietary text exceeds the 500-char cap (S-L2)",
+    "returns 400 when dietary text exceeds the 500-char cap",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -386,7 +386,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 422 when dietary text is submitted without consent (C-H2)",
+    "returns 422 when dietary text is submitted without consent",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -688,7 +688,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 200 and persists a consent record when dietary is submitted WITH consent (C-H2)",
+    "returns 200 and persists a consent record when dietary is submitted WITH consent",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -725,7 +725,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 413 when Content-Length declares an oversized payload (S-L2)",
+    "returns 413 when Content-Length declares an oversized payload",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -858,7 +858,7 @@ describe("POST /api/rsvp — RSVP deadline", () => {
   );
 
   it(
-    "fails CLOSED when the family's wedding row is missing (S-L1)",
+    "fails CLOSED when the family's wedding row is missing",
     eff(
       Effect.gen(function* () {
         // Both gates on this route read the joined row, so a zero-row result

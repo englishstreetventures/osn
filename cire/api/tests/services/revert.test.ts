@@ -495,7 +495,7 @@ describe("revertImport", () => {
     expect(error).toBeInstanceOf(NoPriorImport);
   });
 
-  it("refuses to revert an import that belongs to another wedding (T-S3)", async () => {
+  it("refuses to revert an import that belongs to another wedding", async () => {
     const db = createDb(":memory:");
     seedBootstrapWedding(db);
 

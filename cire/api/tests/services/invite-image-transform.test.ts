@@ -103,7 +103,7 @@ describe("buildTransformCacheKey", () => {
     expect(a.url).toBe(b.url);
   });
 
-  it("differs by version so a re-upload (bumped updatedAt) mints a fresh entry (T-S1)", () => {
+  it("differs by version so a re-upload (bumped updatedAt) mints a fresh entry", () => {
     // The version is the server-side row `updatedAt` epoch ms, not the client
     // `?v=`. Two different versions must yield different keys so a re-uploaded
     // image isn't served the stale cached transform.
@@ -183,7 +183,7 @@ describe("transformAsset", () => {
     expect(new Uint8Array(out.bytes)).toEqual(new Uint8Array([9, 9, 9]));
   });
 
-  it("applies the server-side blur for the hero-bg backdrop variant (T-B1)", async () => {
+  it("applies the server-side blur for the hero-bg backdrop variant", async () => {
     const images = createImagesStub();
     await Effect.runPromise(transformAsset(images, ORIGINAL, "hero-bg", "image/webp"));
     // hero-bg renders at the hero width WITH the server-chosen blur radius.

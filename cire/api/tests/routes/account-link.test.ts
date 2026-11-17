@@ -555,7 +555,7 @@ describe("account-linking feature flag (cire.account-linking OFF)", () => {
   });
 });
 
-describe("account-link rate limiting (S-L1)", () => {
+describe("account-link rate limiting", () => {
   it("returns 429 once the per-IP budget is exhausted", async () => {
     const db = createDb(":memory:");
     seedDb(db);

@@ -447,7 +447,7 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(await jsonBody(res)).toEqual({ error: "OSN handle lookup failed" });
   });
 
-  it("429s once the per-IP host limit is exceeded (S-L1)", async () => {
+  it("429s once the per-IP host limit is exceeded", async () => {
     const { app } = buildApp({
       hostLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });

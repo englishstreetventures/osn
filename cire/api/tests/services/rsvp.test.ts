@@ -254,7 +254,7 @@ describe("rsvpService.submitRsvp", () => {
   );
 });
 
-describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
+describe("rsvpService.submitRsvps (batched upserts)", () => {
   it(
     "upserts multiple guests × events in one batch, preserving status + dietary",
     withDb(

@@ -227,7 +227,7 @@ describe("who may connect an account", () => {
 });
 
 describe("an account the couple connected through Stripe meanwhile", () => {
-  it("gets no onboarding link when it won the race (G-L1)", async () => {
+  it("gets no onboarding link when it won the race", async () => {
     const built: { db?: ReturnType<typeof buildApp>["db"] } = {};
     const stub = stripeStub({
       duringCreate: () => {

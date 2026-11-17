@@ -82,7 +82,7 @@ describe("invite-assets R2 round-trip", () => {
   });
 });
 
-describe("fetchAssetStream (IB-P-I2 — original-serve streaming)", () => {
+describe("fetchAssetStream (original-serve streaming)", () => {
   it("streams the stored bytes (via Response body) preserving content type", async () => {
     const stub = createAssetsStub();
     const { contentType, bytes } = await Effect.runPromise(

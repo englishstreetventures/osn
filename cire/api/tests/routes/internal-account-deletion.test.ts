@@ -328,7 +328,7 @@ describe("the account-deletion calls", () => {
     ["the read of owned weddings", /^select .* from "wedding_hosts"/i],
     ["a wedding's batch", /^update "weddings" set "deleted_at"/i],
     ["the account's clean-up", /^delete from "host_rsvp_notices" where .*NOT EXISTS/i],
-  ])("T-E1: a failure in %s answers 500, and the next call finishes", async (_step, pattern) => {
+  ])("a failure in %s answers 500, and the next call finishes", async (_step, pattern) => {
     const { db, app } = setup([P]);
     const token = await arc.token("account:erase");
     const failing = failStatements(db, (statement) => pattern.test(statement));
@@ -344,7 +344,7 @@ describe("the account-deletion calls", () => {
     expect(untouched(db)).toBe(false);
   });
 
-  it("T-E1: a failed preview answers 500", async () => {
+  it("a failed preview answers 500", async () => {
     const { db, app } = setup([P]);
     failStatements(db, (statement) => /from "wedding_hosts"/i.test(statement));
     const before = await previews("error");

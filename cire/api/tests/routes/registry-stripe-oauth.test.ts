@@ -780,7 +780,7 @@ describe("a revocation that predates a connection leaves it (25)", () => {
 });
 
 describe("credentials, tier and input the connect refuses", () => {
-  it("sends a dead session or a malformed token to sign in, keeping the state (T-E2)", async () => {
+  it("sends a dead session or a malformed token to sign in, keeping the state", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
@@ -806,7 +806,7 @@ describe("credentials, tier and input the connect refuses", () => {
     expect(stateRows(db)).toHaveLength(1);
   });
 
-  it("starts for a session cookie and refuses no credential (T-E2)", async () => {
+  it("starts for a session cookie and refuses no credential", async () => {
     const { app, db } = buildApp();
     expect((await post(app, `${base}/oauth`)).status).toBe(401);
     expect(stateRows(db)).toHaveLength(0);
@@ -819,7 +819,7 @@ describe("credentials, tier and input the connect refuses", () => {
     expect(stateRows(db)).toHaveLength(1);
   });
 
-  it("refuses a wedding below Gold at the start, and one lowered before the return (T-E3)", async () => {
+  it("refuses a wedding below Gold at the start, and one lowered before the return", async () => {
     const below = buildApp({ tier: "ivory" });
     expect((await post(below.app, `${base}/oauth`, OWNER)).status).toBe(402);
     expect(stateRows(below.db)).toHaveLength(0);
@@ -832,7 +832,7 @@ describe("credentials, tier and input the connect refuses", () => {
     expect(oauth.exchanged).toEqual([]);
   });
 
-  it("answers a return with no code, or one no Stripe code is, as rejected (T-E5)", async () => {
+  it("answers a return with no code, or one no Stripe code is, as rejected", async () => {
     const returns: Record<string, string>[] = [{}, { code: "a".repeat(257) }];
     for (const params of returns) {
       const oauth = oauthStub();
@@ -844,7 +844,7 @@ describe("credentials, tier and input the connect refuses", () => {
     }
   });
 
-  it("redirects a request with no address it can key the limiter on (T-S3)", async () => {
+  it("redirects a request with no address it can key the limiter on", async () => {
     const { app } = buildApp();
     const res = await app.fetch(new Request(`http://localhost${CALLBACK}?state=x&code=y`));
     expect(res.status).toBe(302);
@@ -855,7 +855,7 @@ describe("credentials, tier and input the connect refuses", () => {
   });
 });
 
-describe("an account Stripe connected that cire then cannot store (T-E4)", () => {
+describe("an account Stripe connected that cire then cannot store", () => {
   it("hands it back when the caller stops owning the wedding during the exchange", async () => {
     for (const change of ["demoted", "deleted"] as const) {
       const held: { db?: TestDb } = {};
@@ -905,7 +905,7 @@ describe("what the state review found (G-)", () => {
   const run = <A>(db: TestDb, effect: Effect.Effect<A, never, DbService>) =>
     Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
 
-  it("clears a revoked account whose row a refresh stamped after the event (G-H1)", async () => {
+  it("clears a revoked account whose row a refresh stamped after the event", async () => {
     const { app, db } = buildApp();
     const state = await start(app);
     await callback(app, { state, code: "ac_x" });
@@ -923,7 +923,7 @@ describe("what the state review found (G-)", () => {
     expect(settingsRow(db)?.stripeAccountId ?? null).toBeNull();
   });
 
-  it("refuses an account once the wedding's currency changed during the exchange (G-M2)", async () => {
+  it("refuses an account once the wedding's currency changed during the exchange", async () => {
     const held: { db?: TestDb } = {};
     const oauth = oauthStub({
       duringExchange: () =>
@@ -941,7 +941,7 @@ describe("what the state review found (G-)", () => {
     expect(oauth.deauthorized).toEqual([STANDARD.id]);
   });
 
-  it("clears a wedding that took the account while cire was handing it back (G-M1)", async () => {
+  it("clears a wedding that took the account while cire was handing it back", async () => {
     const held: { db?: TestDb } = {};
     const oauth = oauthStub({
       duringDeauthorize: () => {
@@ -979,7 +979,7 @@ describe("what the state review found (G-)", () => {
     expect(logs).toContain("stripe account handed back while a wedding connected it");
   });
 
-  it("names a deleted wedding that still holds the account, not other owners (G-L3)", async () => {
+  it("names a deleted wedding that still holds the account, not other owners", async () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     otherWeddingWith(db, STANDARD.id, "usr_someone", ["usr_someone"]);
