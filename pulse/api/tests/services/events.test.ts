@@ -184,10 +184,9 @@ it.effect("listTodayEvents returns only today's events", () =>
   ),
 );
 
-// The "today" feed shipped with no visibility predicate and an unauthenticated
-// route, so every private event starting today was readable by anyone. These
-// pin the same three cases `buildVisibilityFilter` covers, at the one call site
-// that was missing it.
+// The "today" feed sits behind an unauthenticated route, so it must apply the
+// same visibility predicate as every other list read: these pin each of its
+// cases (anonymous, a stranger, the organiser, an attendee) at that call site.
 
 it.effect("listTodayEvents hides private events from anonymous callers", () =>
   provide(
@@ -759,11 +758,9 @@ it.effect("updateEvent fails with ValidationError for invalid status", () =>
 
 // ── Discovery visibility filter ──────────────────────────────────────────────
 //
-// listEvents now hides `visibility = "private"` events from non-owners and
-// from unauthenticated callers. The viewer's own private events stay visible
-// so they can manage them. The route layer (events.new.test.ts) covers the
-// HTTP surface; these cases pin the invariant at the service layer so the
-// authorization check can't silently regress during a refactor.
+// listEvents hides `visibility = "private"` events from non-owners and from
+// unauthenticated callers. The viewer's own private events stay visible so
+// they can manage them.
 
 it.effect("listEvents hides private events from unauthenticated callers", () =>
   provide(

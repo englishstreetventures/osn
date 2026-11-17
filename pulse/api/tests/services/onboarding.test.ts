@@ -144,12 +144,11 @@ describe("completeOnboarding", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // With `onConflictDoNothing` two concurrent first-time completes
-  // both pass the "no row exists" check, both attempt to insert, one
-  // wins. The loser's payload was historically returned to the client
-  // even though it wasn't persisted. After re-selecting before return,
-  // the loser sees the winner's state — UI and DB stay consistent.
-  it.effect("race-loser receives the persisted (winner's) state, not their own input (S-L1)", () =>
+  // With `onConflictDoNothing` two concurrent first-time completes both
+  // pass the "no row exists" check, both attempt to insert, and one wins.
+  // The service re-reads the row before it answers, so the loser sees the
+  // winner's state, not a payload that was never stored.
+  it.effect("race-loser receives the persisted (winner's) state, not their own input", () =>
     Effect.gen(function* () {
       // Pre-seed the row directly to simulate the winner having already
       // committed by the time the loser's "no row exists" read fires.

@@ -91,7 +91,7 @@ describe("checkWriteRateLimit", () => {
 });
 
 describe("PULSE_WRITE_LIMITS", () => {
-  it("matches the locked W4 starting points", () => {
+  it("keeps the per-user write budgets at their set values", () => {
     expect(PULSE_WRITE_LIMITS.event_create).toEqual({ maxRequests: 20, windowMs: 5 * 60_000 });
     expect(PULSE_WRITE_LIMITS.event_update).toEqual({ maxRequests: 60, windowMs: 60_000 });
     expect(PULSE_WRITE_LIMITS.rsvp_upsert).toEqual({ maxRequests: 30, windowMs: 60_000 });

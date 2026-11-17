@@ -95,9 +95,8 @@ describe("events routes", () => {
     expect(res.status).toBe(401);
   });
 
-  // The pre-enforcement shape: tokens minted before osn-api stamped `iss`.
-  // Every one of those expired within five minutes of that rollout, so a
-  // token arriving without one today is a forgery or a misconfiguration.
+  // osn-api stamps `iss` on every token it mints, so a token without one is a
+  // forgery or a misconfiguration.
   it("POST /events returns 401 for a token carrying no issuer", async () => {
     const noIssuer = await signer.sign("usr_alice", { issuer: null });
     const res = await post(app, "/events", { title: "Concert", startTime: FUTURE }, noIssuer);

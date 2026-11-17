@@ -65,7 +65,7 @@ const buildApp = (
 ) =>
   createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey, allow, share, exposure, {}, PROXIED);
 
-describe("P4 — per-IP share / exposure rate limiting", () => {
+describe("per-IP share / exposure rate limiting", () => {
   let layer: ReturnType<typeof createTestLayer>;
   let eventId: string;
 

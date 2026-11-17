@@ -245,7 +245,7 @@ it.effect("friendsOnly includes RSVPs from users with default attendanceVisibili
   ),
 );
 
-it.effect("friendsOnly returns empty when viewer has no connections (S-L1: no JS fast path)", () =>
+it.effect("friendsOnly returns empty when viewer has no connections (no JS fast path)", () =>
   provide(
     Effect.gen(function* () {
       yield* seedEvent({

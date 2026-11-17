@@ -228,9 +228,10 @@ it.effect("listAllVenues bbox query drops NULL-coordinate venues; no-bbox path k
   provide(
     Effect.gen(function* () {
       // seedVenue never sets latitude/longitude, so "the-club" is NULL/NULL.
-      // gte/lte never match NULL, so a bbox query silently loses it — that
-      // asymmetry is intentional (see BRIEF-308) and pinned here rather
-      // than papered over with an IS NULL branch.
+      // gte/lte never match NULL, so a bbox query leaves it out. That is
+      // intended: a venue with no coordinates lies inside no map viewport,
+      // while the unbounded list still returns it. Pinned here rather than
+      // papered over with an IS NULL branch.
       yield* seedVenue;
       const withBbox = yield* listAllVenues({ minLat: -90, maxLat: 90, minLng: -180, maxLng: 180 });
       expect(withBbox.map((r) => r.id)).toEqual([]);

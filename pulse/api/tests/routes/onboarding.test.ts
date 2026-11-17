@@ -231,7 +231,7 @@ describe("onboarding routes", () => {
     expect(res.status).toBe(429);
   });
 
-  it("GET 429 when the status rate limiter rejects (S-M2)", async () => {
+  it("GET 429 when the status rate limiter rejects", async () => {
     const layer = createTestLayer();
     const allowAll = { check: () => Promise.resolve(true), reset: () => Promise.resolve() };
     const denyAll = { check: () => Promise.resolve(false), reset: () => Promise.resolve() };
@@ -246,7 +246,7 @@ describe("onboarding routes", () => {
     expect(res.status).toBe(429);
   });
 
-  it("GET 429 fail-closed when the status rate limiter throws (S-M2)", async () => {
+  it("GET 429 fail-closed when the status rate limiter throws", async () => {
     const layer = createTestLayer();
     const allowAll = { check: () => Promise.resolve(true), reset: () => Promise.resolve() };
     const throwing = {

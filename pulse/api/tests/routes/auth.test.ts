@@ -25,7 +25,7 @@ import { createTestLayer } from "../helpers/db";
  *
  * Per-IP limiting keys on `x-forwarded-for` here, with `trustedProxyCount: 1`:
  * under `app.handle(...)` there is no socket peer, and the policy is
- * fail-closed, so a request with no forwarded IP is denied (S-M34).
+ * fail-closed, so a request with no forwarded IP is denied.
  */
 
 const RETURN_ORIGIN = "https://pulse.test.invalid";

@@ -205,7 +205,7 @@ describe("RSVP routes", () => {
     const res = await post(
       app,
       `/events/${eventId}/rsvps`,
-      // "interested" was renamed to "maybe" and is no longer a valid wire value.
+      // "interested" is not an RSVP status the route accepts.
       { status: "interested" as unknown as "going" },
       bobToken,
     );
@@ -778,7 +778,7 @@ describe("Private event visibility gate", () => {
 // Text field length caps
 // ---------------------------------------------------------------------------
 
-describe("Event text field length caps (S-M3)", () => {
+describe("Event text field length caps", () => {
   let layer: ReturnType<typeof createTestLayer>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;

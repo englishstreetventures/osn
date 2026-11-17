@@ -1,7 +1,7 @@
 import { expect, it } from "@effect/vitest";
-import { events, eventSeries } from "@pulse/db/schema";
+import { events } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { vi } from "vitest";
 
@@ -297,14 +297,6 @@ it.effect("patching a series instance flips instanceOverride=true", () =>
     }),
   ),
 );
-
-// ---------------------------------------------------------------------------
-// Metadata smoke: series row is reachable and carries timezone + rrule
-// ---------------------------------------------------------------------------
-
-// Silence unused warning for eventSeries import (kept for type side-effect symmetry)
-void eventSeries;
-void and;
 
 // ---------------------------------------------------------------------------
 // cancelSeries lifecycle guards
