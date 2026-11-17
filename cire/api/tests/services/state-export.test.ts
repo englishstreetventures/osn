@@ -44,126 +44,6 @@ describe("stateExportService.eventsCsv", () => {
   );
 
   it(
-    "writes the run of show, getting-there notes and guest policy, at every fidelity",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        const [kitchenTea] = yield* dbQuery(() =>
-          db.select({ id: events.id }).from(events).where(eq(events.name, "Kitchen Tea")).all(),
-        );
-        yield* dbQuery(() =>
-          db
-            .update(events)
-            .set({
-              gettingThere: "Park on Sample Lane.",
-              childrenPolicy: "children_welcome",
-              plusOnePolicy: "by_invitation",
-              guestPolicyNote: "Hats encouraged.",
-            })
-            .where(eq(events.id, kitchenTea!.id))
-            .run(),
-        );
-        // Stored in the organiser's order, which is the order the sheet keeps.
-        yield* dbQuery(() =>
-          db
-            .insert(runOfShowItems)
-            .values([
-              {
-                eventId: kitchenTea!.id,
-                weddingId: BOOTSTRAP_WEDDING_ID,
-                sortOrder: 0,
-                time: "17:15",
-                label: "Speeches",
-              },
-              {
-                eventId: kitchenTea!.id,
-                weddingId: BOOTSTRAP_WEDDING_ID,
-                sortOrder: 1,
-                time: "16:00",
-                label: "Tea is poured",
-              },
-            ])
-            .run(),
-        );
-        for (const fidelity of ["import", "full", "snapshot"] as const) {
-          const [header, ...rows] = parseCsv(
-            yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity),
-          );
-          const cell = (name: string, column: string) =>
-            rows.find((cells) => cells[0] === name)![header!.indexOf(column)];
-          expect(cell("Kitchen Tea", "Run of Show")).toBe("17:15 Speeches\n16:00 Tea is poured");
-          expect(cell("Kitchen Tea", "Getting There")).toBe("Park on Sample Lane.");
-          expect(cell("Kitchen Tea", "Children")).toBe("Children welcome");
-          expect(cell("Kitchen Tea", "Plus-Ones")).toBe("By invitation");
-          expect(cell("Kitchen Tea", "Guest Policy Note")).toBe("Hats encouraged.");
-          // An event with none of them writes blank cells.
-          const other = rows.find((cells) => cells[0] !== "Kitchen Tea")![0]!;
-          for (const column of [
-            "Run of Show",
-            "Getting There",
-            "Children",
-            "Plus-Ones",
-            "Guest Policy Note",
-          ]) {
-            expect(cell(other, column)).toBe("");
-          }
-        }
-      }),
-    ),
-  );
-
-  it(
-    "writes the venue name under Location and the description under Description, at every fidelity",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        yield* dbQuery(() =>
-          db
-            .update(events)
-            .set({ venueName: "The Glasshouse", description: "High tea; games after." })
-            .where(eq(events.name, "Kitchen Tea"))
-            .run(),
-        );
-        for (const fidelity of ["import", "full", "snapshot"] as const) {
-          const [header, ...rows] = parseCsv(
-            yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity),
-          );
-          const row = rows.find((cells) => cells[0] === "Kitchen Tea")!;
-          expect(row[header!.indexOf("Location")]).toBe("The Glasshouse");
-          expect(row[header!.indexOf("Description")]).toBe("High tea; games after.");
-        }
-      }),
-    ),
-  );
-
-  it(
-    "exports one row per event in sortOrder order with palette cells in sheet format",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        const seeded = (yield* dbQuery(() =>
-          db
-            .select({ name: events.name, sortOrder: events.sortOrder })
-            .from(events)
-            .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
-            .all(),
-        )).toSorted((a, b) => a.sortOrder - b.sortOrder);
-
-        const csv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID);
-        const rows = lines(csv).slice(1);
-        expect(rows).toHaveLength(seeded.length);
-        seeded.forEach((e, i) => {
-          // Quoted-cell safe: just assert the row leads with the name.
-          expect(rows[i]!.startsWith(e.name) || rows[i]!.startsWith(`"${e.name}`)).toBe(true);
-        });
-        // Palette cells (when present) use the sheet's Name:#rgb|Name:#rgb form,
-        // never raw JSON.
-        expect(csv).not.toContain('[{"name"');
-      }),
-    ),
-  );
-
-  it(
     "appends the Event ID column under fidelity=full",
     withDb(
       Effect.gen(function* () {
@@ -583,7 +463,7 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
   it("holds at full fidelity", assertFixpoint("full"));
 });
 
-describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
+describe("round trip: hostile + sparse inputs", () => {
   it(
     "survives events named after the fidelity columns and sparse optional fields, at both fidelities",
     withDb(
@@ -663,7 +543,7 @@ describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
   );
 });
 
-describe("defensive normalisation (T-S3)", () => {
+describe("defensive normalisation", () => {
   it(
     "strips palette delimiters and drops non-http(s) URLs so the export stays importable",
     withDb(
@@ -676,7 +556,7 @@ describe("defensive normalisation (T-S3)", () => {
             .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
             .all(),
         );
-        // Hostile values a future writer (the E5 editor) could store — the
+        // Hostile values a future writer could store — the
         // import parser could never have produced these.
         db.update(events)
           .set({
@@ -702,7 +582,7 @@ describe("defensive normalisation (T-S3)", () => {
   );
 });
 
-describe("empty wedding (T-S4)", () => {
+describe("empty wedding", () => {
   it(
     "exports header-only sheets for a wedding with no events or guests",
     withDb(

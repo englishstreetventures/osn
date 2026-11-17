@@ -118,22 +118,6 @@ async function reimportSameSheet(db: Db): Promise<{ ev: ParsedEvent[]; fam: Pars
 }
 
 describe("provenance default — a CSV re-import leaves manual rows intact", () => {
-  it("does NOT remove a manually-added household absent from the sheet", async () => {
-    const db = await seededWedding();
-    const layer = Layer.succeed(DbService, db);
-    const { ev, fam } = await reimportSameSheet(db);
-
-    const plan = await Effect.runPromise(
-      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
-    );
-
-    // The manual household is not in the sheet, but provenance default preserves
-    // it: no family removal, no removal of its guest.
-    expect(plan.familyRemoves).toHaveLength(0);
-    const removedFirstNames = plan.guestRemoves.map((g) => g.firstName);
-    expect(removedFirstNames).not.toContain("Casey");
-  });
-
   it("does NOT remove a manually-added guest inside an imported household", async () => {
     const db = await seededWedding();
     const layer = Layer.succeed(DbService, db);

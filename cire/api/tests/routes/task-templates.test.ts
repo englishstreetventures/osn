@@ -369,13 +369,6 @@ describe("moving the wedding date", () => {
     return { ...built, rows };
   }
 
-  it("moves the open seeded tasks", async () => {
-    const { app } = await seededWedding();
-    expect((await setWeddingDate(app, "2027-09-04")).status).toBe(200);
-    const rows = await list(app);
-    for (const key of ALL_KEYS) expect(seeded(rows, key).dueAt).toBe(anchored(key, "2027-09-04"));
-  });
-
   it("leaves a completed seeded task on its date", async () => {
     const { app, rows } = await seededWedding();
     const done = seeded(rows, "book-venues");

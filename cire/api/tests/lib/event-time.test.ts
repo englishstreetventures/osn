@@ -51,12 +51,11 @@ describe("parseWallTime", () => {
     }
   });
 
-  it("accepts an over-long day, as the rule it replaced always did", () => {
+  it("accepts an over-long day such as 31 February", () => {
     // `Date` rolls 31 February into 3 March rather than rejecting it, so this
-    // gets through — exactly as it did under the old `isIsoTimestamp`. Left
-    // alone deliberately: the events editor can't produce one (its picker walks
-    // a real calendar), and tightening it here would start rejecting sheets that
-    // import today, which is a bigger change than this one is making.
+    // gets through. Left alone deliberately: the events editor can't produce one
+    // (its picker walks a real calendar), and tightening it here would reject
+    // sheets that import cleanly now.
     expect(parseWallTime("2026-02-31T10:00")).toEqual({
       date: "2026-02-31",
       time: "10:00",

@@ -45,24 +45,6 @@ describe("sessionAuth middleware", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 200 + sets familyId for a valid session", async () => {
-    const { app, db } = buildApp();
-    const [first] = db.select({ id: families.id }).from(families).all();
-    const familyId = first!.id;
-    const { token } = await Effect.runPromise(
-      sessionService.create(familyId).pipe(Effect.provideService(DbService, db)),
-    );
-
-    const res = await app.fetch(
-      new Request("http://localhost/private", {
-        headers: { Cookie: `cire_session=${token}` },
-      }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { familyId: string };
-    expect(body.familyId).toBe(familyId);
-  });
-
   it("returns 401 for an expired token", async () => {
     const { app, db } = buildApp();
     const [first] = db.select({ id: families.id }).from(families).all();

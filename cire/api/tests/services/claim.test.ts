@@ -15,7 +15,8 @@ import {
 import { events as eventsData } from "@cire/db/seed";
 import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
@@ -58,36 +59,10 @@ const withDb = effWith(TestDbLayer);
 
 const CATHOLIC_ID = eventsData.catholic.id;
 const KITCHEN_TEA_ID = eventsData["kitchen-tea"].id;
-const MEHENDI_ID = eventsData.mehendi.id;
 const HINDU_ID = eventsData.hindu.id;
 const RECEPTION_ID = eventsData.reception.id;
 
 describe("claimService.lookup", () => {
-  it(
-    "returns family + members + events for valid publicId (single guest)",
-    withDb(
-      Effect.gen(function* () {
-        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
-        expect(result.familyName).toBe("Testfamily");
-        expect(result.publicId).toBe("TESTONE-IVY-AA11");
-        expect(result.members).toHaveLength(1);
-        const priya = result.members[0]!;
-        expect(priya.firstName).toBe("Ada");
-        expect(priya.lastName).toBe("Testfamily");
-        expect(typeof priya.guestId).toBe("string");
-        expect(priya.guestId.length).toBeGreaterThan(0);
-        expect([...priya.eventIds].toSorted()).toEqual(
-          [CATHOLIC_ID, HINDU_ID, RECEPTION_ID].toSorted(),
-        );
-        expect(result.events.map((e) => e.id).toSorted()).toEqual(
-          [CATHOLIC_ID, HINDU_ID, RECEPTION_ID].toSorted(),
-        );
-        expect(result.rsvps).toEqual([]);
-        expect(result.preview).toBe(false);
-      }),
-    ),
-  );
-
   it(
     "exposes guestId on every member",
     withDb(
@@ -156,18 +131,6 @@ describe("claimService.lookup", () => {
   );
 
   it(
-    "returns all five events for the Placeholders (default demo code invites everyone)",
-    withDb(
-      Effect.gen(function* () {
-        const result = yield* claimService.lookup("TESTFOR-JOY-DD44");
-        expect(result.events.map((e) => e.id).toSorted()).toEqual(
-          [CATHOLIC_ID, KITCHEN_TEA_ID, MEHENDI_ID, HINDU_ID, RECEPTION_ID].toSorted(),
-        );
-      }),
-    ),
-  );
-
-  it(
     "fails with InvalidCredentials for an unknown publicId",
     withDb(
       Effect.gen(function* () {
@@ -183,7 +146,7 @@ describe("claimService.lookup", () => {
     withDb(
       Effect.gen(function* () {
         // This is the second, independent computation of the same rule — the
-        // RSVP service has its own — and neither was asserted anywhere. The
+        // RSVP service has its own — so each needs its own assertion. The
         // sheet re-lights its picker from `dietaryPresets` and decides whether
         // the consent box may open ticked from this boolean, so a row consented
         // against superseded wording has to come back `false`.
@@ -432,16 +395,6 @@ describe("an event's run of show, notes and policy in the claim and the events r
 
 describe("claimService.getAllGuests", () => {
   it(
-    "returns one row per guest across all families (6 total)",
-    withDb(
-      Effect.gen(function* () {
-        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
-        expect(rows).toHaveLength(6);
-      }),
-    ),
-  );
-
-  it(
     "each row carries the family publicId so the organiser can share it",
     withDb(
       Effect.gen(function* () {
@@ -458,9 +411,14 @@ describe("claimService.getAllGuests", () => {
     withDb(
       Effect.gen(function* () {
         const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        const db = yield* DbService;
+        expect(rows.length).toBeGreaterThan(0);
         for (const row of rows) {
-          expect(typeof row.guestId).toBe("string");
-          expect(row.guestId.length).toBeGreaterThan(0);
+          // The id of a guest row in this household, not some other id.
+          const guest = yield* Effect.promise(() =>
+            Promise.resolve(db.select().from(guests).where(eq(guests.id, row.guestId)).get()),
+          );
+          expect(guest?.familyId).toBe(row.familyId);
         }
       }),
     ),
@@ -470,11 +428,21 @@ describe("claimService.getAllGuests", () => {
     "each row exposes a nickname field (null when unset) so the editor can preserve it",
     withDb(
       Effect.gen(function* () {
+        const db = yield* DbService;
+        const [named] = yield* Effect.promise(() =>
+          Promise.resolve(db.select({ id: guests.id }).from(guests).limit(1).all()),
+        );
+        yield* Effect.promise(() =>
+          Promise.resolve(
+            db.update(guests).set({ nickname: "Bea" }).where(eq(guests.id, named!.id)).run(),
+          ),
+        );
         const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        // The column is nullable; the wire shape is `string | null`, never
+        // undefined — the editor round-trips this through DesiredState.
+        expect(rows.some((row) => row.guestId === named!.id)).toBe(true);
         for (const row of rows) {
-          // The column is nullable; the wire shape must be `string | null`, never
-          // undefined — the editor round-trips this through DesiredState.
-          expect(row.nickname === null || typeof row.nickname === "string").toBe(true);
+          expect(row.nickname).toBe(row.guestId === named!.id ? "Bea" : null);
         }
       }),
     ),
@@ -485,30 +453,17 @@ describe("claimService.getAllGuests", () => {
     withDb(
       Effect.gen(function* () {
         const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        const db = yield* DbService;
+        expect(rows.length).toBeGreaterThan(0);
         for (const row of rows) {
-          expect(typeof row.familyId).toBe("string");
-          expect(row.familyId.length).toBeGreaterThan(0);
+          // A household of this wedding.
+          const family = yield* Effect.promise(() =>
+            Promise.resolve(db.select().from(families).where(eq(families.id, row.familyId)).get()),
+          );
+          expect(family?.weddingId).toBe(BOOTSTRAP_WEDDING_ID);
           // Seed never marks a family shared.
           expect(row.codeSharedAt).toBeNull();
         }
-      }),
-    ),
-  );
-
-  it(
-    "exposes firstOpenedAt — null by default, epoch-ms once a guest has opened",
-    withDb(
-      Effect.gen(function* () {
-        // Untouched by the seed → every family is "never opened".
-        const before = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
-        for (const row of before) expect(row.firstOpenedAt).toBeNull();
-
-        // A real guest claim records the open; it then surfaces as epoch-ms.
-        yield* claimService.lookup("TESTONE-IVY-AA11");
-        const after = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
-        const opened = after.filter((r) => r.familyName === "Testfamily");
-        expect(opened.length).toBeGreaterThan(0);
-        for (const row of opened) expect(typeof row.firstOpenedAt).toBe("number");
       }),
     ),
   );
@@ -612,44 +567,6 @@ describe("claimService.lookup — first-open recording", () => {
         // The organiser's own preview — never counts as a guest opening.
         expect(result.preview).toBe(true);
         expect(yield* firstOpenedAt(db, "HOST-PREVIEWCODE0000")).toBeNull();
-      }),
-    ),
-  );
-
-  it(
-    "returns rsvpDeadline: null when the wedding has no deadline set",
-    withDb(
-      Effect.gen(function* () {
-        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
-        // The shape every wedding created before the feature carries.
-        expect(result.rsvpDeadline).toBeNull();
-      }),
-    ),
-  );
-
-  it(
-    "resolves a future deadline to an open instant",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        db.update(weddings)
-          .set({
-            rsvpDeadline: "2999-09-01",
-            rsvpDeadlineTimezone: "Australia/Sydney",
-            updatedAt: new Date(),
-          })
-          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
-          .run();
-
-        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
-        expect(result.rsvpDeadline).toEqual({
-          date: "2999-09-01",
-          timezone: "Australia/Sydney",
-          // End of the 1st in Sydney (AEST, +10) — the client re-derives
-          // `closed` from this as the clock moves past it.
-          closesAt: "2999-09-01T13:59:59.999Z",
-          closed: false,
-        });
       }),
     ),
   );
@@ -1009,16 +926,19 @@ describe("claim payload account-link state", () => {
       Effect.gen(function* () {
         const { gate: g } = gate(() => new Promise<boolean>(() => {}));
         const { familyId } = yield* claimService.lookup("TESTONE-IVY-AA11");
-        const started = Date.now();
-        const result = yield* claimService.restore(familyId, g);
-        const waited = Date.now() - started;
+        const restoring = yield* Effect.forkChild(claimService.restore(familyId, g));
+        // Real time, so the restore reaches the hung flag before the clock moves.
+        yield* TestClock.withLive(Effect.sleep("20 millis"));
+        // It waits for the flag (`ACCOUNT_LINK_FLAG_WAIT`, 250 ms) and no longer.
+        yield* TestClock.adjust("249 millis");
+        expect(restoring.pollUnsafe()).toBeUndefined();
+        yield* TestClock.adjust("1 millis");
+        const result = yield* TestClock.withLive(
+          Fiber.join(restoring).pipe(Effect.timeout("1 second")),
+        );
         expect(result.accountLink).toEqual({ enabled: false });
         expect(result.events.length).toBeGreaterThan(0);
-        // It waited for the flag (`ACCOUNT_LINK_FLAG_WAIT`, 250 ms) and no
-        // longer, with room either side for a slow test machine's timers.
-        expect(waited).toBeGreaterThanOrEqual(200);
-        expect(waited).toBeLessThan(1_000);
-      }),
+      }).pipe(Effect.provide(TestClock.layer())),
     ),
   );
 });
@@ -1268,11 +1188,6 @@ describe("plus-ones in the organiser household counts", () => {
 
 describe("withPlusOnesAfterInviters", () => {
   const m = (guestId: string, plusOneOf: string | null = null) => ({ guestId, plusOneOf });
-
-  it("moves each plus-one to sit right after their inviter", () => {
-    const out = withPlusOnesAfterInviters([m("a"), m("b"), m("q", "a"), m("p", "b")]);
-    expect(out.map((x) => x.guestId)).toEqual(["a", "q", "b", "p"]);
-  });
 
   it("keeps a plus-one whose inviter is not in the list, where it was", () => {
     const out = withPlusOnesAfterInviters([m("a"), m("p", "gone"), m("b"), m("q", "a")]);

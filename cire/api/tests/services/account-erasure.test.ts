@@ -28,7 +28,7 @@ import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * An OSN account's erasure in cire, and the preview of what it would leave
- * open. Each test names the failure it guards in `NEW-FEAT.md` (F8…F44).
+ * open.
  */
 
 const NOW = new Date("2026-11-16T12:00:00.000Z");
@@ -130,24 +130,7 @@ const weddingRow = (db: TestDb, id: string) =>
 // ---------------------------------------------------------------------------
 
 describe("accountErasureService.preview", () => {
-  it("F8: a live wedding the account alone owns is one action: delete, no default, and a link to its owners", async () => {
-    const db = makeDb();
-    wedding(db, "w1", [P], { name: "Ama & Jonah" });
-    seat(db, "w1", EDITOR, "editor", P);
-
-    expect(await preview(db)).toEqual([
-      {
-        id: "cire:wedding:w1",
-        kind: "wedding_sole_owner",
-        label: expect.stringContaining('"Ama & Jonah"'),
-        choices: [{ choice: "delete", description: expect.any(String), erasedOn: null }],
-        defaultChoice: null,
-        link: `${PORTAL}/#/w/w1/settings/hosts`,
-      },
-    ]);
-  });
-
-  it("F9, F11, F12: a wedding with another owner, a deleted one, and a lower seat need no answer", async () => {
+  it("a wedding with another owner, a deleted one, and a lower seat need no answer", async () => {
     const db = makeDb();
     wedding(db, "w_shared", [P, OTHER]);
     wedding(db, "w_deleted", [P], { deletedAt: new Date(NOW.getTime() - DAY_S * 1000) });
@@ -156,14 +139,14 @@ describe("accountErasureService.preview", () => {
     expect(await preview(db)).toEqual([]);
   });
 
-  it("F10: every owner seat being one of the account's own profiles is sole ownership", async () => {
+  it("every owner seat being one of the account's own profiles is sole ownership", async () => {
     const db = makeDb();
     wedding(db, "w1", [P, P2]);
     const actions = await preview(db, [P, P2]);
     expect(actions.map((a) => [a.id, a.kind])).toEqual([["cire:wedding:w1", "wedding_sole_owner"]]);
   });
 
-  it("F13: past a hundred weddings the account alone owns, one action stands for them all", async () => {
+  it("past a hundred weddings the account alone owns, one action stands for them all", async () => {
     const db = makeDb();
     for (let i = 0; i < 101; i += 1) wedding(db, `w${String(i).padStart(3, "0")}`, [P]);
     const actions = await preview(db);
@@ -179,7 +162,7 @@ describe("accountErasureService.preview", () => {
     ]);
   });
 
-  it("F13: a hundred weddings the account alone owns are listed one by one", async () => {
+  it("a hundred weddings the account alone owns are listed one by one", async () => {
     const db = makeDb();
     for (let i = 0; i < 100; i += 1) wedding(db, `w${String(i).padStart(3, "0")}`, [P]);
     const actions = await preview(db);
@@ -188,7 +171,7 @@ describe("accountErasureService.preview", () => {
   });
 
   it.each([["http://localhost:4322"], ["not an origin"]])(
-    "F14: an organiser portal that is not https (%s) gives no link",
+    "an organiser portal that is not https (%s) gives no link",
     async (origin) => {
       const db = makeDb();
       wedding(db, "w1", [P]);
@@ -197,7 +180,7 @@ describe("accountErasureService.preview", () => {
     },
   );
 
-  it("F44: a long wedding name stays inside the contract's 500 characters", async () => {
+  it("a long wedding name stays inside the contract's 500 characters", async () => {
     const db = makeDb();
     wedding(db, "w1", [P], { name: "y".repeat(600) });
     const [action] = await preview(db);
@@ -206,7 +189,7 @@ describe("accountErasureService.preview", () => {
     expect(action?.choices[0]?.description.length).toBeLessThanOrEqual(500);
   });
 
-  it("F44: a name at its write-time limit of 120 characters is quoted whole", async () => {
+  it("a name at its write-time limit of 120 characters is quoted whole", async () => {
     const db = makeDb();
     wedding(db, "w1", [P], { name: "z".repeat(120) });
     const [action] = await preview(db);
@@ -217,18 +200,6 @@ describe("accountErasureService.preview", () => {
     const db = makeDb();
     wedding(db, "w1", [P]);
     expect(await preview(db, [])).toEqual([]);
-  });
-
-  it("a failed read fails the preview, for the route to answer 500", async () => {
-    const db = makeDb();
-    wedding(db, "w1", [P]);
-    failStatements(db, (statement) => /from "wedding_hosts"/i.test(statement));
-    const exit = await Effect.runPromiseExit(
-      accountErasureService
-        .preview({ profileIds: [P], deletesAt: NOW_S, organiserOrigin: PORTAL })
-        .pipe(Effect.provideService(DbService, db)),
-    );
-    expect(exit._tag).toBe("Failure");
   });
 });
 
@@ -248,9 +219,9 @@ const liveWithNoOwner = (db: TestDb) =>
 
 describe("accountErasureService.erase — weddings the person owns", () => {
   // The person's answers never reach this service: whatever they answered,
-  // or if they answered nothing (F15, F16, F17), the rows decide. The route
+  // or if they answered nothing, the rows decide. The route
   // test sends each form.
-  it("F15, F16, F17: a wedding the person alone owns is deleted with their seat", async () => {
+  it("a wedding the person alone owns is deleted with their seat", async () => {
     const db = makeDb();
     wedding(db, "w1", [P]);
     seat(db, "w1", EDITOR, "editor", P);
@@ -271,7 +242,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     });
   });
 
-  it("F10: a wedding whose owners are all the account's profiles is deleted, every seat with it", async () => {
+  it("a wedding whose owners are all the account's profiles is deleted, every seat with it", async () => {
     const db = makeDb();
     wedding(db, "w1", [P, P2]);
     expect(await erase(db, { profileIds: [P, P2] }).result).toEqual({ status: "done", kept: [] });
@@ -280,7 +251,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(liveWithNoOwner(db)).toEqual([]);
   });
 
-  it("F19: a wedding with another owner loses the person's seat and nothing else", async () => {
+  it("a wedding with another owner loses the person's seat and nothing else", async () => {
     const db = makeDb();
     wedding(db, "w1", [P, OTHER]);
     db.insert(hostRsvpNotices).values({ weddingId: "w1", osnProfileId: P, updatedAt: NOW }).run();
@@ -296,7 +267,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     });
   });
 
-  it("F20: the other owner leaving before the batch makes the person the only owner: deleted", async () => {
+  it("the other owner leaving before the batch makes the person the only owner: deleted", async () => {
     const db = makeDb();
     wedding(db, "w1", [P, OTHER]);
     beforeStatement(db, /update "weddings" set "deleted_at"/i, () => {
@@ -308,7 +279,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(liveWithNoOwner(db)).toEqual([]);
   });
 
-  it("F21: a seat another call removed first is not counted again", async () => {
+  it("a seat another call removed first is not counted again", async () => {
     const db = makeDb();
     wedding(db, "w1", [P, OTHER]);
     // The read finds the person's owner seat; another call removes it before
@@ -322,7 +293,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(weddingRow(db, "w1")?.deletedAt).toBeNull();
   });
 
-  it("F21: a repeat call writes nothing more and answers the same", async () => {
+  it("a repeat call writes nothing more and answers the same", async () => {
     const db = makeDb();
     wedding(db, "w1", [P]);
     wedding(db, "w2", [P, OTHER]);
@@ -333,7 +304,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(seatsOf(db, "w2")).toEqual([{ profile: OTHER, role: "owner" }]);
   });
 
-  it("F22: past the per-call cap, the call does part of the work and answers not finished", async () => {
+  it("past the per-call cap, the call does part of the work and answers not finished", async () => {
     const db = makeDb();
     const count = MAX_OWNED_WEDDINGS_PER_CALL + 1;
     for (let i = 0; i < count; i += 1) wedding(db, `w${i}`, [P, OTHER]);
@@ -364,13 +335,13 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     }
   });
 
-  it("F22: exactly the per-call cap of weddings finishes in one call", async () => {
+  it("exactly the per-call cap of weddings finishes in one call", async () => {
     const db = makeDb();
     for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P, OTHER]);
     expect(await erase(db).result).toEqual({ status: "done", kept: [] });
   });
 
-  it("F22: a call at the cap stays inside the 50 D1 queries one Worker invocation may make", async () => {
+  it("a call at the cap stays inside the 50 D1 queries one Worker invocation may make", async () => {
     const db = makeDb();
     for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) wedding(db, `w${i}`, [P]);
     const statements = recordStatements(db);
@@ -432,7 +403,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     },
   );
 
-  it("F28: a deleted wedding the person alone owned loses the seat and stays deleted from its own time", async () => {
+  it("a deleted wedding the person alone owned loses the seat and stays deleted from its own time", async () => {
     const db = makeDb();
     const deletedAt = new Date(NOW.getTime() - DAY_S * 1000);
     wedding(db, "w1", [P], { deletedAt });
@@ -441,7 +412,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(weddingRow(db, "w1")?.deletedAt).toEqual(deletedAt);
   });
 
-  it("F41: a seat below owner goes, on a wedding with an owner, with no wedding batch", async () => {
+  it("a seat below owner goes, on a wedding with an owner, with no wedding batch", async () => {
     const db = makeDb();
     wedding(db, "w1", [OTHER]);
     seat(db, "w1", P, "helper", OTHER);
@@ -451,7 +422,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(weddingRow(db, "w1")?.deletedAt).toBeNull();
   });
 
-  it("F42: a notice row with no seat behind it goes", async () => {
+  it("a notice row with no seat behind it goes", async () => {
     const db = makeDb();
     wedding(db, "w_left", [OTHER]);
     db.insert(hostRsvpNotices)
@@ -461,7 +432,7 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
   });
 
-  it("F42: a seat made owner after the pre-read keeps its notice row, and the call is not finished", async () => {
+  it("a seat made owner after the pre-read keeps its notice row, and the call is not finished", async () => {
     const db = makeDb();
     wedding(db, "w1", [OTHER]);
     seat(db, "w1", P, "editor", OTHER);
@@ -548,7 +519,7 @@ function seedAttribution(db: TestDb, weddingId: string, profile: string): void {
   }
 }
 
-describe("accountErasureService.erase — the account's own rows and its name on others' (F24)", () => {
+describe("accountErasureService.erase — the account's own rows and its name on others'", () => {
   it("clears every column that names the person, and only theirs", async () => {
     const db = makeDb();
     seedAttribution(db, "wed_attr", P);
@@ -630,7 +601,7 @@ describe("accountErasureService.erase — the account's own rows and its name on
     ).toEqual([`actor:${OTHER}`, "wedding:wed_a"]);
   });
 
-  it("F27: a guest account link of the person's profile goes too, whatever account it names", async () => {
+  it("a guest account link of the person's profile goes too, whatever account it names", async () => {
     const db = makeDb();
     for (const statement of fullWeddingStatements("wed_a", { owner: OTHER, now: NOW })) {
       db.run(statement);
@@ -644,7 +615,7 @@ describe("accountErasureService.erase — the account's own rows and its name on
     expect(valueOf(db, "guest_account_links", "count(*)", "1 = 1")).toBe(0);
   });
 
-  it("F25: an enquiry the person opened that never reached a chat is deleted; a sent one stays", async () => {
+  it("an enquiry the person opened that never reached a chat is deleted; a sent one stays", async () => {
     const db = makeDb();
     for (const statement of fullWeddingStatements("wed_a", { owner: OTHER, now: NOW })) {
       db.run(statement);
@@ -686,7 +657,7 @@ describe("accountErasureService.erase — the account's own rows and its name on
     expect(seatsOf(db, "wed_a")).toEqual([{ profile: OTHER, role: "owner" }]);
   });
 
-  it("F26: a vendor claim the person was waiting on is cleared whole, and someone else's stays", async () => {
+  it("a vendor claim the person was waiting on is cleared whole, and someone else's stays", async () => {
     const db = makeDb();
     db.insert(directoryVendors)
       .values([

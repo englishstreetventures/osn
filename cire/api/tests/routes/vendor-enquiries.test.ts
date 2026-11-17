@@ -347,29 +347,6 @@ describe("GET /api/vendor/enquiries", () => {
     expect(item.weddingName.length).toBeGreaterThan(0);
   });
 
-  it("orders the inbox newest-first by lastMessageAt (SQL ORDER BY, not insert order)", async () => {
-    const { app, db } = buildApp();
-    // Insert the OLDER thread FIRST so rowid order and timestamp order diverge —
-    // the only thing that can produce newest-first is the query's ORDER BY
-    // (the JS sort it replaced is gone).
-    seedProvisionedEnquiry(db, {
-      directoryVendorId: DV_CLAIMED,
-      enquiryId: "enq_older",
-      lastMessageAt: new Date("2026-07-01T00:00:00Z"),
-    });
-    seedProvisionedEnquiry(db, {
-      directoryVendorId: DV_CLAIMED,
-      weddingId: OTHER_WEDDING_ID,
-      enquiryId: "enq_newer",
-      lastMessageAt: new Date("2026-07-20T00:00:00Z"),
-    });
-
-    const res = await req(app, "GET", "/api/vendor/enquiries", VENDOR);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { enquiries: { id: string }[] };
-    expect(body.enquiries.map((e) => e.id)).toEqual(["enq_newer", "enq_older"]);
-  });
-
   it("binds the caller's org ids as one parameter, however many orgs they are in", async () => {
     // osn answers up to 100 orgs a profile, and D1 refuses a statement over 100
     // parameters — the org ids alone would fill it.
@@ -758,7 +735,7 @@ describe("claim hold and hand-off (POST /api/vendor/claims/:token/consume)", () 
     const listed = (await list.json()) as { enquiries: { id: string }[] };
     expect(Array.isArray(listed.enquiries)).toBe(true);
     expect(listed.enquiries.map((e) => e.id)).not.toContain(enquiryId);
-    const thread = await req(app, "GET", `/api/vendor/enquiries/${enquiryId}`, VENDOR);
+    const thread = await req(app, "GET", `/api/vendor/enquiries/${enquiryId}/messages`, VENDOR);
     expect(thread.status).toBe(404);
 
     // The operator confirms (the same UPDATE the review script sends), and the

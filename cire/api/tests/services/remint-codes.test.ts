@@ -108,10 +108,12 @@ describe("remintCodesService.remint", () => {
   it("fails WeddingNotFound for an unknown wedding", async () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const exit = await Effect.runPromiseExit(
-      remintCodesService.remint("wed_nope", "simple").pipe(Effect.provideService(DbService, db)),
+    const error = await Effect.runPromise(
+      Effect.flip(
+        remintCodesService.remint("wed_nope", "simple").pipe(Effect.provideService(DbService, db)),
+      ),
     );
-    expect(exit._tag).toBe("Failure");
+    expect(error._tag).toBe("WeddingNotFound");
   });
 });
 

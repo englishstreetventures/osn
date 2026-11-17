@@ -131,14 +131,14 @@ describe("decodeCrop (read path defence-in-depth)", () => {
   });
 });
 
-describe("source dimensions (natW / natH) — the distortion fix, no migration", () => {
+describe("source dimensions (natW / natH)", () => {
   it("accepts a crop carrying positive-finite source dims", () => {
     expect(isValidCrop({ x: 0.1, y: 0.2, w: 0.4, h: 0.3, natW: 4000, natH: 3000 })).toBe(true);
   });
 
-  it("tolerates a legacy crop with NO dims (back-compat)", () => {
-    // The dims are optional — a value stored before this field existed is still
-    // valid, so legacy rows decode unchanged (no DB migration needed).
+  it("accepts a crop with NO dims", () => {
+    // The dims are optional: a stored crop without them is still valid, so
+    // rows written without dims decode unchanged and need no DB migration.
     expect(isValidCrop({ x: 0.1, y: 0.2, w: 0.4, h: 0.3 })).toBe(true);
   });
 

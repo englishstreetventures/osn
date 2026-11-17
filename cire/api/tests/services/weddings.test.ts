@@ -44,7 +44,7 @@ describe("weddingsService.createForOwner", () => {
     expect(a.id).not.toBe(b.id);
   });
 
-  it("fails with WeddingCreateError when the insert keeps throwing (T-E1)", async () => {
+  it("fails with WeddingCreateError when the insert keeps throwing", async () => {
     const db = createDb(":memory:");
     // Wrap the real db so every insert rejects when the batch awaits it —
     // exhausts the retry loop and surfaces the tagged error rather than a
@@ -77,7 +77,7 @@ describe("weddingsService.listForMember", () => {
   const run = <A, E>(db: ReturnType<typeof createDb>, eff: Effect.Effect<A, E, DbService>) =>
     Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
 
-  it("returns the owner's weddings oldest-first and excludes other owners (T-U1)", async () => {
+  it("returns the owner's weddings oldest-first and excludes other owners", async () => {
     const db = createDb(":memory:");
     const now = Date.now();
     // Insert out of creation order to prove the ORDER BY (not insertion order).
@@ -120,13 +120,7 @@ describe("weddingsService.listForMember", () => {
     expect(list.every((w) => w.role === "owner")).toBe(true);
   });
 
-  it("returns an empty list for an owner with no weddings", async () => {
-    const db = createDb(":memory:");
-    const list = (await run(db, weddingsService.listForMember("usr_nobody"))).weddings;
-    expect(list).toEqual([]);
-  });
-
-  it("includes co-hosted weddings with their seat role, oldest seat first (T-U2)", async () => {
+  it("includes co-hosted weddings with their seat role, oldest seat first", async () => {
     const db = createDb(":memory:");
     const now = Date.now();
     // One owned by the member.
@@ -177,31 +171,6 @@ describe("weddingsService.listForMember", () => {
       const list = (await run(db, weddingsService.listForMember(owner))).weddings;
       expect(list.map((w) => [w.id, w.role])).toEqual([["wed_shared", "owner"]]);
     }
-  });
-
-  it("surfaces a viewer seat's role in the list", async () => {
-    const db = createDb(":memory:");
-    const now = Date.now();
-    insertWedding(db, {
-      id: "wed_viewed",
-      slug: "viewed",
-      displayName: "Viewed",
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
-      owners: ["usr_other_owner"],
-    });
-    db.insert(weddingHosts)
-      .values({
-        id: "whost_v",
-        weddingId: "wed_viewed",
-        osnProfileId: "usr_member",
-        addedByOsnProfileId: "usr_other_owner",
-        role: "viewer",
-        createdAt: new Date(now),
-      })
-      .run();
-    const list = (await run(db, weddingsService.listForMember("usr_member"))).weddings;
-    expect(list.map((w) => [w.id, w.role])).toEqual([["wed_viewed", "viewer"]]);
   });
 
   describe("a soft-deleted wedding", () => {

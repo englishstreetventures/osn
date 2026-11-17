@@ -50,21 +50,21 @@ const target = (origin: string | undefined, toml = configToml()) =>
   readDevTarget({ origin, devDomain: DEV_DOMAIN }, toml);
 
 describe("readDevTarget", () => {
-  it("L1: refuses an unset or blank CIRE_API_ORIGIN, naming it", () => {
+  it("refuses an unset or blank CIRE_API_ORIGIN, naming it", () => {
     for (const origin of [undefined, "", "  "]) {
       expect(() => target(origin)).toThrow("CIRE_API_ORIGIN");
     }
   });
 
-  it("L2: refuses an origin that is not https", () => {
+  it("refuses an origin that is not https", () => {
     expect(() => target(`http://api.cire.${DEV_DOMAIN}`)).toThrow("https");
   });
 
-  it("L3: refuses an origin with a path", () => {
+  it("refuses an origin with a path", () => {
     expect(() => target(`${DEV_ORIGIN}/api`)).toThrow("bare origin");
   });
 
-  it("L7: refuses an unset or blank DEV_DOMAIN, naming it", () => {
+  it("refuses an unset or blank DEV_DOMAIN, naming it", () => {
     for (const devDomain of [undefined, "", "  "]) {
       expect(() => readDevTarget({ origin: DEV_ORIGIN, devDomain }, configToml())).toThrow(
         "DEV_DOMAIN is not set",
@@ -82,14 +82,14 @@ describe("readDevTarget", () => {
     `-${DEV_DOMAIN}`,
     // 254 characters: one past the longest DNS name.
     `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(62)}`,
-  ])("L7: refuses a DEV_DOMAIN that is not a bare lower-case domain: %p", (devDomain) => {
+  ])("refuses a DEV_DOMAIN that is not a bare lower-case domain: %p", (devDomain) => {
     expect(() => readDevTarget({ origin: DEV_ORIGIN, devDomain }, configToml())).toThrow(
       "not a bare lower-case domain",
     );
   });
 
   it.each(["cireweddings.com", "staging.cireweddings.com", "musubi.social", "dev.pulse.events"])(
-    "L7: refuses a DEV_DOMAIN that is a production zone or under one: %p",
+    "refuses a DEV_DOMAIN that is a production zone or under one: %p",
     (devDomain) => {
       expect(() =>
         readDevTarget({ origin: `https://api.cire.${devDomain}`, devDomain }, configToml()),
@@ -97,7 +97,7 @@ describe("readDevTarget", () => {
     },
   );
 
-  it("L7: refuses any host not under DEV_DOMAIN, every production host included", async () => {
+  it("refuses any host not under DEV_DOMAIN, every production host included", async () => {
     const toml = await committedToml();
     const production = Bun.TOML.parse(toml) as {
       env: { production: { routes: { pattern: string }[] } };
@@ -117,13 +117,13 @@ describe("readDevTarget", () => {
     }
   });
 
-  it("L7: refuses a host written with a trailing dot, which DNS reads as the same name", () => {
+  it("refuses a host written with a trailing dot, which DNS reads as the same name", () => {
     for (const origin of [`${DEV_ORIGIN}.`, "https://api.cireweddings.com."]) {
       expect(() => target(origin)).toThrow("trailing dot");
     }
   });
 
-  it("L7: its production zones are @shared/infra's PRODUCTION_ZONES", async () => {
+  it("its production zones are @shared/infra's PRODUCTION_ZONES", async () => {
     const hosts = await Bun.file(
       new URL("../../../../shared/infra/src/hosts.ts", import.meta.url),
     ).text();
@@ -184,7 +184,7 @@ describe("readDevTarget", () => {
     expect(pausesMs).toBeLessThanOrEqual(0.75 * Number(timeout) * 60_000);
   });
 
-  it("L5: refuses a config whose top level lacks the session-restore limiter", () => {
+  it("refuses a config whose top level lacks the session-restore limiter", () => {
     expect(() =>
       target(
         DEV_ORIGIN,
@@ -209,14 +209,14 @@ describe("readDevTarget", () => {
     "{ limit = 1.5, period = 60 }",
     '{ limit = "60", period = 60 }',
     "{ period = 60 }",
-  ])("L5: refuses a limiter whose limit is not a positive whole number: %s", (simple) => {
+  ])("refuses a limiter whose limit is not a positive whole number: %s", (simple) => {
     expect(() => target(DEV_ORIGIN, configToml({ limiter: limiterWith(simple) }))).toThrow(
       "simple.limit",
     );
   });
 
   it.each(["{ limit = 60, period = 0 }", "{ limit = 60, period = 1.5 }", "{ limit = 60 }"])(
-    "L5: refuses a limiter whose period is not a positive whole number: %s",
+    "refuses a limiter whose period is not a positive whole number: %s",
     (simple) => {
       expect(() => target(DEV_ORIGIN, configToml({ limiter: limiterWith(simple) }))).toThrow(
         "simple.period",
@@ -232,7 +232,7 @@ interface ProbeStep {
 }
 
 describe("the probe workflow", () => {
-  it("L6: runs in dev, installs from the lockfile, takes the origin from dev-hosts and passes DEV_DOMAIN", async () => {
+  it("runs in dev, installs from the lockfile, takes the origin from dev-hosts and passes DEV_DOMAIN", async () => {
     const workflow = Bun.YAML.parse(await workflowText()) as {
       jobs: { probe: { environment?: string; steps: readonly ProbeStep[] } };
     };

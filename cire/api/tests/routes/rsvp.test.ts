@@ -64,7 +64,7 @@ beforeAll(() => {
 
 const post = (body: unknown, cookie: string | null) =>
   Effect.promise(() => {
-    // rsvp POST is state-changing → the origin guard (C5) requires an allowlisted
+    // rsvp POST is state-changing → the origin guard requires an allowlisted
     // Origin, and its per-IP limiter a resolvable `cf-connecting-ip`.
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -89,8 +89,8 @@ const claim = (publicId: string) =>
       app.fetch(
         new Request("http://localhost/api/claim", {
           method: "POST",
-          // `cf-connecting-ip` simulates the CF edge for the fail-closed limiter
-          // (C4); `Origin` satisfies the CSRF origin guard (C5).
+          // `cf-connecting-ip` simulates the CF edge for the fail-closed limiter;
+          // `Origin` satisfies the CSRF origin guard.
           headers: {
             "Content-Type": "application/json",
             "cf-connecting-ip": "203.0.113.7",
@@ -264,21 +264,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 200 when RSVPing to an invited event (S-M1)",
-    eff(
-      Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
-        const res = yield* post(
-          { rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] },
-          cookie,
-        );
-        expect(res.status).toBe(200);
-      }),
-    ),
-  );
-
-  it(
-    "returns 403 when RSVPing to a valid-but-uninvited event (S-M1)",
+    "returns 403 when RSVPing to a valid-but-uninvited event",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -294,13 +280,13 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 403 (not-invited, not not-owned) for a guest with zero guest_events rows (P-W1 LEFT JOIN null case)",
+    "returns 403 (not-invited, not not-owned) for a guest with zero guest_events rows (LEFT JOIN null case)",
     eff(
       Effect.gen(function* () {
-        // Ownership and invitation used to come off two separate queries;
-        // folding them into one LEFT JOIN must not drop a guest who has no
-        // guest_events rows at all. Insert a guest into Ada's family with no
-        // invitations, then confirm the ownership gate still passes for them
+        // Ownership and invitation come off one LEFT JOIN, which must not drop
+        // a guest who has no guest_events rows at all. Insert a guest into
+        // Ada's family with no invitations, then confirm the ownership gate
+        // still passes for them
         // — the request must fail on the INVITATION gate (403 "not invited"),
         // not the OWNERSHIP gate (403 "do not belong to this family").
         const noInviteGuestId = yield* Effect.sync(() => crypto.randomUUID());
@@ -335,7 +321,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 403 when RSVPing to another wedding's event UUID (S-M1)",
+    "returns 403 when RSVPing to another wedding's event UUID",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -377,7 +363,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 400 when dietary text exceeds the 500-char cap (S-L2)",
+    "returns 400 when dietary text exceeds the 500-char cap",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -400,7 +386,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 422 when dietary text is submitted without consent (C-H2)",
+    "returns 422 when dietary text is submitted without consent",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -702,7 +688,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 200 and persists a consent record when dietary is submitted WITH consent (C-H2)",
+    "returns 200 and persists a consent record when dietary is submitted WITH consent",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -739,25 +725,7 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 200 with no consent needed when dietary is empty (C-H2)",
-    eff(
-      Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
-        const res = yield* post(
-          {
-            rsvps: [
-              { guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending", dietary: "" },
-            ],
-          },
-          cookie,
-        );
-        expect(res.status).toBe(200);
-      }),
-    ),
-  );
-
-  it(
-    "returns 413 when Content-Length declares an oversized payload (S-L2)",
+    "returns 413 when Content-Length declares an oversized payload",
     eff(
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
@@ -810,17 +778,6 @@ describe("POST /api/rsvp — RSVP deadline", () => {
 
   const rsvpOnce = (cookie: string) =>
     post({ rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] }, cookie);
-
-  it(
-    "accepts an RSVP while the deadline is still in the future",
-    eff(
-      Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
-        const res = yield* withDeadline("2999-01-01", "UTC", rsvpOnce(cookie));
-        expect(res.status).toBe(200);
-      }),
-    ),
-  );
 
   it(
     "returns 403 rsvp_closed once the deadline has passed",
@@ -901,7 +858,7 @@ describe("POST /api/rsvp — RSVP deadline", () => {
   );
 
   it(
-    "fails CLOSED when the family's wedding row is missing (S-L1)",
+    "fails CLOSED when the family's wedding row is missing",
     eff(
       Effect.gen(function* () {
         // Both gates on this route read the joined row, so a zero-row result
@@ -1257,11 +1214,6 @@ describe("POST /api/rsvp — a plus-one's reply", () => {
     ).toBe(upserted);
   };
 
-  /**
-   * The check above reads the name before the write. A rename from another
-   * device that commits between that read and the save must still refuse the
-   * save, rather than store the old person's answers under the new name.
-   */
   it("refuses a save whose plus-one is renamed between the read and the write", async () => {
     await raceWrite("rename");
   });

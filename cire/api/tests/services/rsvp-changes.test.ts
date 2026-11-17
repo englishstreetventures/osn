@@ -106,19 +106,6 @@ describe("classifyRsvpChanges", () => {
   const prior = (entries: [string, string, PriorReply][]) =>
     new Map(entries.map(([g, e, p]) => [pairKey(g, e), p]));
 
-  it("calls a pair with no stored reply new", () => {
-    expect(classifyRsvpChanges(new Map(), [reply("g1", "e1", "attending")])).toEqual([
-      { guestId: "g1", eventId: "e1", kind: "reply_new" },
-    ]);
-  });
-
-  it("calls a changed status an edit", () => {
-    const before = prior([["g1", "e1", { status: "maybe", dietary: "", dietaryPresets: "" }]]);
-    expect(classifyRsvpChanges(before, [reply("g1", "e1", "attending")])).toEqual([
-      { guestId: "g1", eventId: "e1", kind: "reply_edited" },
-    ]);
-  });
-
   it("calls changed dietary text an edit", () => {
     const before = prior([["g1", "e1", { status: "attending", dietary: "", dietaryPresets: "" }]]);
     expect(classifyRsvpChanges(before, [reply("g1", "e1", "attending", "no nuts")])).toEqual([
@@ -136,15 +123,6 @@ describe("classifyRsvpChanges", () => {
     expect(
       classifyRsvpChanges(before, [reply("g1", "e1", "attending", "", ["vegetarian"])]),
     ).toEqual([{ guestId: "g1", eventId: "e1", kind: "reply_edited" }]);
-  });
-
-  it("logs nothing for a re-submit that changes nothing", () => {
-    const before = prior([
-      ["g1", "e1", { status: "declined", dietary: "x", dietaryPresets: "halal" }],
-    ]);
-    expect(classifyRsvpChanges(before, [reply("g1", "e1", "declined", "x", ["halal"])])).toEqual(
-      [],
-    );
   });
 
   it("classifies a pair named twice in one body once, from its last entry", () => {

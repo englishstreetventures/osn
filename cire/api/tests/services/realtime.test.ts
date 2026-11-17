@@ -67,7 +67,12 @@ describe("wedding signals", () => {
   });
 
   it("hands the publish to waitUntil, so the write does not wait on a hung hub", async () => {
-    const { hub, calls } = recordingHub(() => new Promise(() => {}));
+    let published!: () => void;
+    const reachedHub = new Promise<void>((resolve) => (published = resolve));
+    const { hub, calls } = recordingHub(() => {
+      published();
+      return new Promise(() => {});
+    });
     const scheduled: Promise<unknown>[] = [];
     const req = request();
     setExecutionCtx(req, { waitUntil: (promise) => scheduled.push(promise) });
@@ -78,7 +83,7 @@ describe("wedding signals", () => {
     expect(Date.now() - started).toBeLessThan(500);
     expect(scheduled).toHaveLength(1);
     // The publish is under way in the background, not skipped.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await reachedHub;
     expect(calls).toHaveLength(1);
   });
 });

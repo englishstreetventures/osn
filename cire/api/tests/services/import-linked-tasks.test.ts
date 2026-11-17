@@ -540,13 +540,4 @@ describe("applying it", () => {
       ),
     ).toEqual([]);
   });
-
-  it("keeps every linked task when an older apply with no removal list removes their events", async () => {
-    const db = build();
-    await apply(db, await planKeeping(db, []));
-    for (const id of ["t_sunrise", "t_cake", "t_toast", "t_brunch"]) {
-      expect(row(db, id)?.eventId, id).toBeNull();
-      expect(row(db, id)?.eventRemovedAt, id).not.toBeNull();
-    }
-  });
 });

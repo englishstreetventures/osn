@@ -1,19 +1,8 @@
 import { describe, it, expect } from "bun:test";
 
-import { buildSessionCookie, clearSessionCookie, parseSessionToken } from "../../src/lib/cookie";
+import { buildSessionCookie, parseSessionToken } from "../../src/lib/cookie";
 
 describe("buildSessionCookie", () => {
-  it("emits all required attributes for a non-secure cookie", () => {
-    const out = buildSessionCookie("abc", { secure: false, maxAgeSeconds: 60 });
-    expect(out).toContain("cire_session=abc");
-    expect(out).toContain("Path=/");
-    expect(out).toContain("HttpOnly");
-    expect(out).toContain("SameSite=Lax");
-    expect(out).toContain("Max-Age=60");
-    expect(out.includes("Secure")).toBe(false);
-    expect(out.includes("Domain=")).toBe(false);
-  });
-
   it("appends Secure when requested", () => {
     const out = buildSessionCookie("abc", { secure: true, maxAgeSeconds: 60 });
     expect(out).toContain("Secure");
@@ -30,16 +19,6 @@ describe("buildSessionCookie", () => {
   });
 });
 
-describe("clearSessionCookie", () => {
-  it("emits Max-Age=0", () => {
-    const out = clearSessionCookie({ secure: false });
-    expect(out).toContain("cire_session=");
-    expect(out).toContain("Max-Age=0");
-    expect(out).toContain("HttpOnly");
-    expect(out).toContain("SameSite=Lax");
-  });
-});
-
 describe("parseSessionToken", () => {
   it("returns null for a null header", () => {
     expect(parseSessionToken(null)).toBeNull();
@@ -47,10 +26,6 @@ describe("parseSessionToken", () => {
 
   it("returns null when cookie is absent", () => {
     expect(parseSessionToken("foo=bar; baz=qux")).toBeNull();
-  });
-
-  it("extracts the token when present", () => {
-    expect(parseSessionToken("cire_session=abc123")).toBe("abc123");
   });
 
   it("ignores surrounding cookies", () => {

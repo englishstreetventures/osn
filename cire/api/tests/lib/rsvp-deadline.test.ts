@@ -22,7 +22,7 @@ describe("isValidTimeZone", () => {
     }
   });
 
-  it("rejects fixed-offset zones that Intl would otherwise accept (S-L2)", () => {
+  it("rejects fixed-offset zones that Intl would otherwise accept", () => {
     // These all construct an `Intl.DateTimeFormat` happily. An offset zone
     // never applies DST, so a deadline stored as one drifts an hour against the
     // organiser's real zone across a transition.

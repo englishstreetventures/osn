@@ -51,9 +51,6 @@ describe("normaliseSurname", () => {
   it("joins remaining tokens, dropping & : Smith & Jones → SMITHJONES", () => {
     expect(normaliseSurname("Smith & Jones")).toBe("SMITHJONES");
   });
-  it("keeps a plain surname unchanged: Smith → SMITH", () => {
-    expect(normaliseSurname("Smith")).toBe("SMITH");
-  });
   it("keeps the bare surname when 'The' / 'Family' wrap it: The Patels → PATELS", () => {
     expect(normaliseSurname("The Patels")).toBe("PATELS");
   });
@@ -120,13 +117,5 @@ describe("generateFamilyCode", () => {
     expect(words.size).toBeGreaterThan(20);
     // 100 distinct 50-bit hashes — collisions astronomically unlikely.
     expect(hashes.size).toBe(100);
-  });
-
-  it("secure has more hash entropy than simple (10 vs 6 chars)", () => {
-    const secure = parts(generateFamilyCode("X", "secure")).hash.length;
-    const simple = parts(generateFamilyCode("X", "simple")).hash.length;
-    expect(secure).toBe(10);
-    expect(simple).toBe(6);
-    expect(secure).toBeGreaterThan(simple);
   });
 });

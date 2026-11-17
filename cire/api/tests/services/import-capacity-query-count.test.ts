@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, families, guests } from "@cire/db";
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
@@ -224,12 +224,15 @@ describe("applyImport reuses diffAgainstDb's derivedCap", () => {
     };
     expect(plan.derivedCap).toBeUndefined();
 
-    const exit = await Effect.runPromiseExit(
-      applyImport("imp_absent_cap", plan, BOOTSTRAP_WEDDING_ID).pipe(
-        Effect.provideService(DbService, raw),
+    const error = await Effect.runPromise(
+      Effect.flip(
+        applyImport("imp_absent_cap", plan, BOOTSTRAP_WEDDING_ID).pipe(
+          Effect.provideService(DbService, raw),
+        ),
       ),
     );
-    expect(Exit.isFailure(exit)).toBe(true);
+    // The check before the write refuses, not only the one inside it.
+    expect(error._tag).toBe("CapacityExceeded");
     const n = (raw.$client.query("SELECT COUNT(*) AS n FROM guests").get() as { n: number }).n;
     expect(n).toBe(0);
   });

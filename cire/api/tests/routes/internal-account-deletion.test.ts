@@ -17,7 +17,7 @@ import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * osn-api's two account-deletion calls on cire-api: who may make them and
- * what they refuse. Each test names its failure mode in `NEW-FEAT.md`.
+ * what they refuse.
  */
 
 const PREVIEW = "/internal/account-deletion-preview";
@@ -91,7 +91,7 @@ const untouched = (db: TestDb) =>
   db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, P)).all().length === 1;
 
 describe("ARC on the account-deletion calls (refusals)", () => {
-  it("F1: no token is refused, and nothing is written", async () => {
+  it("no token is refused, and nothing is written", async () => {
     const { db, app } = setup();
     for (const [path, body] of [
       [PREVIEW, previewBody],
@@ -103,7 +103,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("F2: a token from an issuer other than osn-api is refused", async () => {
+  it("a token from an issuer other than osn-api is refused", async () => {
     const { db, app } = setup();
     const res = await post(
       app,
@@ -115,7 +115,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("F3: a token for another app's audience is refused", async () => {
+  it("a token for another app's audience is refused", async () => {
     const { db, app } = setup();
     const res = await post(
       app,
@@ -127,7 +127,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("F4: each call needs its own scope", async () => {
+  it("each call needs its own scope", async () => {
     const { db, app } = setup();
     const erase = await post(app, ERASE, await arc.token("account:deletion-preview"), eraseBody);
     expect(erase.status).toBe(401);
@@ -136,7 +136,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("F5: with no kid secret, a made-up kid costs one fetch of the public key set, then the cache", async () => {
+  it("with no kid secret, a made-up kid costs one fetch of the public key set, then the cache", async () => {
     const { app } = setup();
     const madeUp = await arc.token("account:erase", { kid: "made-up-kid" });
     expect((await post(app, ERASE, madeUp, eraseBody)).status).toBe(401);
@@ -144,7 +144,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(arc.fetches()).toBe(1);
   });
 
-  it("F2: a token signed by another key under osn-api's published kid is refused", async () => {
+  it("a token signed by another key under osn-api's published kid is refused", async () => {
     const { db, app } = setup();
     const other = await generateArcKeyPair();
     const forged = await arc.token("account:erase", { signWith: other.privateKey });
@@ -152,7 +152,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("F2: an expired token is refused", async () => {
+  it("an expired token is refused", async () => {
     const { db, app } = setup();
     const token = await arc.token("account:erase", { ttl: 1 });
     setSystemTime(new Date(Date.now() + 10 * 60 * 1000));
@@ -160,7 +160,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("F2: a valid token sent as a Bearer token is refused", async () => {
+  it("a valid token sent as a Bearer token is refused", async () => {
     const { db, app } = setup();
     const bearer = (await arc.token("account:erase")).replace(/^ARC /, "Bearer ");
     expect((await post(app, ERASE, bearer, eraseBody)).status).toBe(401);
@@ -174,7 +174,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     Array.from({ length: 101 }, (_, i) => `usr_${i}`),
   ];
 
-  it("F6: an erasure body outside the contract is refused before anything is written", async () => {
+  it("an erasure body outside the contract is refused before anything is written", async () => {
     const { db, app } = setup();
     const token = await arc.token("account:erase");
     for (const body of [
@@ -198,7 +198,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(untouched(db)).toBe(true);
   });
 
-  it("F6: five hundred answers are within the contract", async () => {
+  it("five hundred answers are within the contract", async () => {
     const { app } = setup();
     const choices = Object.fromEntries(
       Array.from({ length: 500 }, (_, i) => [`a${i}`, { choice: "delete" }]),
@@ -210,7 +210,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     expect(res.status).toBe(200);
   });
 
-  it("F6: a preview body outside the contract is refused", async () => {
+  it("a preview body outside the contract is refused", async () => {
     const { app } = setup();
     const token = await arc.token("account:deletion-preview");
     const { deletesAt } = previewBody;
@@ -232,7 +232,7 @@ describe("ARC on the account-deletion calls (refusals)", () => {
     }
   });
 
-  it("F7: osn-api's calls carry no browser Origin, and the origin guard does not stand in their way", async () => {
+  it("osn-api's calls carry no browser Origin, and the origin guard does not stand in their way", async () => {
     const { app } = setup();
     const token = await arc.token("account:deletion-preview");
     const res = await post(app, PREVIEW, token, previewBody, {
@@ -281,9 +281,9 @@ describe("the account-deletion calls", () => {
   });
 
   it.each([
-    ["answered delete (F15)", { choices: { "cire:wedding:w1": { choice: "delete" } } }],
-    ["deleting everything (F16)", { deleteEverything: true }],
-    ["with no answer stored (F17)", { choices: undefined, deleteEverything: undefined }],
+    ["answered delete", { choices: { "cire:wedding:w1": { choice: "delete" } } }],
+    ["deleting everything", { deleteEverything: true }],
+    ["with no answer stored", { choices: undefined, deleteEverything: undefined }],
     ["with an email address, which is ignored", { email: "person@example.test" }],
   ] as const)(
     "erase deletes a wedding the person alone owns, and keeps nothing, %s",
@@ -328,7 +328,7 @@ describe("the account-deletion calls", () => {
     ["the read of owned weddings", /^select .* from "wedding_hosts"/i],
     ["a wedding's batch", /^update "weddings" set "deleted_at"/i],
     ["the account's clean-up", /^delete from "host_rsvp_notices" where .*NOT EXISTS/i],
-  ])("T-E1: a failure in %s answers 500, and the next call finishes", async (_step, pattern) => {
+  ])("a failure in %s answers 500, and the next call finishes", async (_step, pattern) => {
     const { db, app } = setup([P]);
     const token = await arc.token("account:erase");
     const failing = failStatements(db, (statement) => pattern.test(statement));
@@ -344,7 +344,7 @@ describe("the account-deletion calls", () => {
     expect(untouched(db)).toBe(false);
   });
 
-  it("T-E1: a failed preview answers 500", async () => {
+  it("a failed preview answers 500", async () => {
     const { db, app } = setup([P]);
     failStatements(db, (statement) => /from "wedding_hosts"/i.test(statement));
     const before = await previews("error");
@@ -355,7 +355,7 @@ describe("the account-deletion calls", () => {
   });
 });
 
-describe("a seat the erased person created (F43)", () => {
+describe("a seat the erased person created", () => {
   it("is listed with no adder, and nobody is looked up for it", async () => {
     const db = createDb(":memory:");
     insertWedding(db, { id: "w1", slug: "slug-w1", displayName: "W", owners: ["usr_owner"] });

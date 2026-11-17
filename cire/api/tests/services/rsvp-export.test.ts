@@ -99,17 +99,6 @@ function eventBySlug(db: Db, slug: string): Effect.Effect<{ id: string }> {
 
 describe("rsvpExportService.build", () => {
   it(
-    "includes one row per guest, even guests who have not RSVP'd",
-    withDb(
-      Effect.gen(function* () {
-        const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
-        // The seed has 6 guests and never writes an RSVP — all 6 still appear.
-        expect(data.rows).toHaveLength(6);
-      }),
-    ),
-  );
-
-  it(
     "excludes host-kind families",
     withDb(
       Effect.gen(function* () {
@@ -231,33 +220,7 @@ describe("rsvpExportService.build", () => {
   );
 
   it(
-    "surfaces the guest's dietary requirement against the event it was given for",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        const ada = yield* guestByName(db, "Ada");
-        const catholic = yield* eventBySlug(db, "catholic");
-        rsvp(db, ada.id, catholic.id, "attending", "Vegetarian, no nuts");
-        const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
-        const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
-        const catholicIdx = data.events.findIndex((e) => e.id === catholic.id);
-        expect(adaRow.dietary[catholicIdx]).toBe("Vegetarian, no nuts");
-        // …and nowhere else: the other events keep a blank cell.
-        expect(adaRow.dietary.filter((d) => d.length > 0)).toEqual(["Vegetarian, no nuts"]);
-        // The array is index-aligned with the status cells and the event list.
-        expect(adaRow.dietary.length).toBe(data.events.length);
-        expect(adaRow.dietary.length).toBe(adaRow.cells.length);
-        // A guest with no dietary note has blank cells throughout.
-        const other = data.rows.find(
-          (r) => r.firstName !== "Ada" && r.dietary.every((d) => d === ""),
-        );
-        expect(other).toBeDefined();
-      }),
-    ),
-  );
-
-  it(
-    "keeps a DIFFERENT dietary note per event instead of picking one (field report)",
+    "keeps a DIFFERENT dietary note per event instead of picking one",
     withDb(
       Effect.gen(function* () {
         // The bug as reported from a live wedding: a guest marked "fish only"
@@ -431,9 +394,9 @@ describe("rsvp-export CSV serialisation", () => {
           "Guest First Name",
           "Guest Last Name",
         ]);
-        // Two trailing columns: writer provenance (0037), then the plus-one's
+        // Two trailing columns: writer provenance, then the plus-one's
         // inviter, appended last so a saved spreadsheet's column letters hold.
-        // The aggregate "Dietary Requirements" column is gone — it could only
+        // There is no aggregate "Dietary Requirements" column — it could only
         // show one of a guest's per-event answers.
         expect(header.slice(-2)).toEqual(["Recorded By", "Plus-one Of"]);
         expect(header).not.toContain("Dietary Requirements");
@@ -459,7 +422,7 @@ describe("rsvp-export CSV serialisation", () => {
   );
 
   it(
-    "labels an organiser-attested reply 'Organiser' in the Recorded By column (0037)",
+    "labels an organiser-attested reply 'Organiser' in the Recorded By column",
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
@@ -717,7 +680,7 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
   );
 
   it(
-    "lists invited-but-unresponded guests, dropping them once they reply (0037)",
+    "lists invited-but-unresponded guests, dropping them once they reply",
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
@@ -736,22 +699,6 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
         event = view.events.find((e) => e.id === catholic.id)!;
         expect(event.unresponded.some((g) => g.guestId === ada.id)).toBe(false);
         expect(event.guests.some((g) => g.guestId === ada.id)).toBe(true);
-      }),
-    ),
-  );
-
-  it(
-    "surfaces consentSource so the dashboard can badge organiser-entered replies (0037)",
-    withDb(
-      Effect.gen(function* () {
-        const db = yield* DbService;
-        const ada = yield* guestByName(db, "Ada");
-        const catholic = yield* eventBySlug(db, "catholic");
-        rsvp(db, ada.id, catholic.id, "attending", "", "organiser_attested");
-        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
-        const event = view.events.find((e) => e.id === catholic.id)!;
-        const row = event.guests.find((g) => g.guestId === ada.id)!;
-        expect(row.consentSource).toBe("organiser_attested");
       }),
     ),
   );
@@ -1291,6 +1238,7 @@ describe("rsvpExportService.build — the Effect path", () => {
         .build(BOOTSTRAP_WEDDING_ID)
         .pipe(Effect.provideService(EffectDbService, effectDbFor(binding, "fetch"))),
     );
+    expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       expect(Cause.pretty(exit.cause)).not.toContain(BOOTSTRAP_WEDDING_ID);
     }

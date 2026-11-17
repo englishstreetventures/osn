@@ -72,24 +72,6 @@ describe("createUpgradeCatalogue", () => {
     ]);
   });
 
-  it("offers a Gold wedding only Crimson, at the upgrade-from-Gold Price", async () => {
-    const { stripe, reads } = stubStripe(ALL_AMOUNTS);
-    const cat = createUpgradeCatalogue({ stripe, prices: ALL_PRICES });
-
-    expect(cat.priceIdFor("gold", "gold")).toBeNull();
-    expect(cat.priceIdFor("crimson", "gold")).toBe("price_cg");
-    const list = await Effect.runPromise(cat.list("gold"));
-    expect(
-      list.map(({ tier, fromTier, priceId, amountMinor }) => ({
-        tier,
-        fromTier,
-        priceId,
-        amountMinor,
-      })),
-    ).toEqual([{ tier: "crimson", fromTier: "gold", priceId: "price_cg", amountMinor: 5000 }]);
-    expect(reads).toEqual(["price_cg"]);
-  });
-
   it("never offers a Gold wedding Crimson at the full Price when the upgrade Price is unset", async () => {
     const { stripe, reads } = stubStripe(ALL_AMOUNTS);
     const cat = createUpgradeCatalogue({

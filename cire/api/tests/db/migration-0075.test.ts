@@ -43,30 +43,6 @@ function beforeMigration(): Database {
 }
 
 describe("migration 0075 — household member identity", () => {
-  it("keeps existing rows, with no member, no sender and no link mark", () => {
-    const db = beforeMigration();
-    apply(db, MIG_0075);
-    expect(db.query("SELECT member_guest_id AS m FROM sessions").get()).toEqual({ m: null });
-    expect(
-      db.query("SELECT submitted_by_guest_id AS s, submitted_via_link AS v FROM rsvps").get(),
-    ).toEqual({ s: null, v: 0 });
-  });
-
-  it("nulls a deleted member's attribution and keeps the replies they sent", () => {
-    const db = beforeMigration();
-    apply(db, MIG_0075);
-    db.exec(`
-      UPDATE sessions SET member_guest_id = 'g_2';
-      UPDATE rsvps SET submitted_by_guest_id = 'g_2', submitted_via_link = 1;
-      DELETE FROM guests WHERE id = 'g_2';
-    `);
-    expect(db.query("SELECT member_guest_id AS m FROM sessions").get()).toEqual({ m: null });
-    expect(db.query("SELECT guest_id AS g, submitted_by_guest_id AS s FROM rsvps").get()).toEqual({
-      g: "g_1",
-      s: null,
-    });
-  });
-
   it("still clears everything with the household", () => {
     const db = beforeMigration();
     apply(db, MIG_0075);

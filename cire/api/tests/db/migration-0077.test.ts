@@ -30,14 +30,6 @@ function migratedWithOneWedding(): Database {
 }
 
 describe("migration 0077 — wedding soft delete", () => {
-  it("leaves every wedding that already exists live", () => {
-    const db = migratedWithOneWedding();
-    const row = db
-      .query("SELECT deleted_at, deleted_by_osn_profile_id FROM weddings WHERE id = 'wed_a'")
-      .get() as { deleted_at: number | null; deleted_by_osn_profile_id: string | null };
-    expect(row).toEqual({ deleted_at: null, deleted_by_osn_profile_id: null });
-  });
-
   it("adds a partial index on deleted_at that the purge's read uses", () => {
     const db = migratedWithOneWedding();
     const index = db

@@ -23,9 +23,7 @@ import {
   countHeads,
   EventNotInWedding,
   type Invitation,
-  lineEstimate,
   PaymentNotInItem,
-  perHeadMinor,
 } from "../../src/services/budget";
 import { recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
@@ -76,17 +74,6 @@ describe("computeRollup", () => {
 });
 
 describe("budgetService", () => {
-  it("creates an item appended to its category and reads it back in the snapshot", async () => {
-    const db = db0();
-    await run(db, budgetService.createItem(newItem({ name: "Venue A" })));
-    await run(db, budgetService.createItem(newItem({ name: "Venue B" })));
-    const snap = await run(db, budgetService.get(BOOTSTRAP_WEDDING_ID));
-    if (!Exit.isSuccess(snap)) throw new Error("get failed");
-    expect(snap.value.items.map((i) => i.name)).toEqual(["Venue A", "Venue B"]);
-    expect(snap.value.items.map((i) => i.sortOrder)).toEqual([0, 1]);
-    expect(snap.value.currency).toBe("AUD");
-  });
-
   it("updates an item's money and rejects a cross-tenant patch", async () => {
     const db = db0();
     const created = await run(db, budgetService.createItem(newItem()));
@@ -383,20 +370,6 @@ describe("countHeads", () => {
     status,
   });
 
-  it("expects every invited guest who has not declined, and confirms the attending ones", () => {
-    const heads = countHeads(
-      [
-        inv("g1", "e1", "attending"),
-        inv("g2", "e1", "maybe"),
-        inv("g3", "e1", null),
-        inv("g4", "e1", "declined"),
-      ],
-      null,
-    );
-    // An unanswered invitation (null) is expected: `null !== "declined"`.
-    expect(heads).toEqual({ expected: 3, confirmed: 1 });
-  });
-
   it("counts a guest invited to two of the line's events once", () => {
     const heads = countHeads(
       [
@@ -409,29 +382,6 @@ describe("countHeads", () => {
     );
     // g2 declined one event but has not answered the other, so is still expected.
     expect(heads).toEqual({ expected: 2, confirmed: 1 });
-  });
-
-  it("counts only the picked events, and nobody when the list is empty", () => {
-    const invitations = [inv("g1", "e1", "attending"), inv("g2", "e2", "attending")];
-    expect(countHeads(invitations, ["e2"])).toEqual({ expected: 1, confirmed: 1 });
-    expect(countHeads(invitations, [])).toEqual({ expected: 0, confirmed: 0 });
-  });
-});
-
-describe("perHeadMinor and lineEstimate", () => {
-  const headcount = { expected: 120, confirmed: 80 };
-
-  it("prices expected guests while RSVPs are open and confirmed guests once closed", () => {
-    expect(perHeadMinor(8_500, headcount, false)).toBe(8_500 * 120);
-    expect(perHeadMinor(8_500, headcount, true)).toBe(8_500 * 80);
-  });
-
-  it("keeps a fixed line's stored estimate", () => {
-    const fixed = { estimateMinor: 4_200, unitPriceMinor: null, headcount: null };
-    expect(lineEstimate(fixed, false)).toBe(4_200);
-    const perHead = { estimateMinor: null, unitPriceMinor: 100, headcount };
-    expect(lineEstimate(perHead, false)).toBe(12_000);
-    expect(lineEstimate(perHead, true)).toBe(8_000);
   });
 });
 

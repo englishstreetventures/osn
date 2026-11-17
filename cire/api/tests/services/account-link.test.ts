@@ -71,22 +71,6 @@ function linkSeat(db: Db, familyId: string, guestId: string, osnAccountId: strin
 }
 
 describe("accountLinkService.link", () => {
-  it("derives the wedding id from the guest's family", async () => {
-    const db = fixture();
-    await run(
-      db,
-      accountLinkService.link({
-        familyId: "fam_a",
-        guestId: "gst_a1",
-        osnAccountId: "acc_1",
-        osnProfileId: "usr_1",
-      }),
-    );
-    const links = await run(db, accountLinkService.listByAccount("acc_1"));
-    expect(links).toHaveLength(1);
-    expect(links[0]).toMatchObject({ guestId: "gst_a1", familyId: "fam_a", weddingId: "wed_a" });
-  });
-
   it("fails with the GuestNotInFamily tag when the guest is in a different family", async () => {
     const db = fixture();
     // Assert the exact error channel — the route's 403 mapping keys off

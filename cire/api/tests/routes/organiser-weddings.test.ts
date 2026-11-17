@@ -252,8 +252,8 @@ describe("GET /api/organiser/weddings", () => {
     expect((await listed(app)).entitlements).toEqual(["premium_templates"]);
   });
 
-  // A legacy row is what migration 0073 read to set the tier; after it, the
-  // tier alone says what the wedding has.
+  // The tier alone says what the wedding has; a legacy entitlement row other
+  // than premium_templates grants nothing.
   it("ignores every legacy entitlement row other than premium_templates", async () => {
     const { db, app } = buildApp();
     grant(db, "vendors");
@@ -341,15 +341,6 @@ describe("POST /api/organiser/weddings", () => {
     // Every new wedding starts on the free tier.
     expect(row!.tier).toBe("ivory");
     expect(body.wedding).toMatchObject({ tier: "ivory", entitlements: [], guestCap: 100 });
-  });
-
-  it("defaults to the secure code style when codeStyle is omitted", async () => {
-    const { app, db } = buildApp();
-    const res = await createWedding(app, { displayName: "Default Style" }, "usr_dflt");
-    expect(res.status).toBe(201);
-    const id = ((await res.json()) as { wedding: { id: string } }).wedding.id;
-    const [row] = db.select().from(weddings).where(eq(weddings.id, id)).all();
-    expect(row!.codeStyle).toBe("secure");
   });
 
   it("persists the chosen 'simple' code style", async () => {

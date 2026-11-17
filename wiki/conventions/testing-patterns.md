@@ -993,7 +993,7 @@ How the fast tier avoids these files differs by runner, and the difference is wo
 | Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
 |---|---|---|
 | `osn/api`, `pulse/api`, `zap/api`, `shared/realtime`, `shared/coordination`, `shared/billing` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
-| `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. A workerd failure reddens cire's fast tier too, and a workerd timeout can stop it outright: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
+| `cire/api` | bare `bun test` | **No.** The `test` script passes `--path-ignore-patterns='tests/db/d1-integration.test.ts'`, which bun applies only to the files it discovers: `test:d1` names the file, so it still runs it, and a mutation run reaches it whenever `STRYKER_TESTS` lists it. Other files in the fast tier still boot workerd: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
 See [[realtime]] for what `hub.test.ts` covers.
 
@@ -1035,7 +1035,7 @@ Object path ([[coordination-store]]).
 
 ### Miniflare in cire's fast tier
 
-`@cire/api#test` boots workerd in more files than the D1 suite: `tests/index.test.ts`, `tests/db/d1-session.test.ts`, `tests/db/query-error.test.ts` and `tests/services/r2-reconcile.test.ts` as well. Two things about them are easy to miss.
+`@cire/api#test` leaves the D1 suite to `test:d1` but still boots workerd in `tests/index.test.ts`, `tests/db/d1-session.test.ts`, `tests/db/query-error.test.ts`, `tests/services/r2-reconcile.test.ts` and `tests/workerd/entry.test.ts`. Two things about them are easy to miss.
 
 - **Proxied reads block.** `mf.getD1Database()` and `mf.getR2Bucket()` return proxies. A property read on a proxied object, such as a listed R2 object's `key` or `uploaded`, or a D1 statement's `prepare` and `bind`, is a synchronous round trip to workerd: Miniflare makes it with `Atomics.wait` on the test's main thread. A test that makes thousands of them takes a second on a laptop and tens of seconds when CI runs many test files at once, as its `Unit tests (@cire/api)` job does with `--parallel`.
 - **A timeout is worse than a failure.** When a Miniflare-backed test outlives its budget, bun kills the file's workerd (the log says `killed 1 dangling process`), and the next proxied read waits forever. `bun test` never exits, and the CI job runs until its own timeout cancels it. Where the next read does return, it fails instead, and so does every later test in the file: osn/api's D1 file shows `The socket connection was closed unexpectedly` and `Attempted to use poisoned stub` after one timeout.

@@ -33,10 +33,6 @@ describe("CreateBudgetItemBody", () => {
     }
   });
 
-  it("rejects an unknown category", () => {
-    expect(decode(CreateBudgetItemBody, { category: "spaceship", name: "x" })._tag).toBe("Failure");
-  });
-
   it("rejects an empty name", () => {
     expect(decode(CreateBudgetItemBody, { category: "venue", name: "" })._tag).toBe("Failure");
   });

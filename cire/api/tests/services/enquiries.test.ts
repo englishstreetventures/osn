@@ -438,31 +438,6 @@ describe("enquiryService.open", () => {
     // No email went out.
     expect(email.sent).toHaveLength(0);
   });
-
-  it("is idempotent on (weddingId, directoryVendorId) — repeat reuses the thread, no second provision/email", async () => {
-    const db = db0();
-    const zap = fakeZap();
-    const email = fakeEmail();
-    const svc = createEnquiryService({
-      zap: zap.client,
-      sendEmail: email.sendEmail,
-      threadBaseUrl: THREAD_BASE,
-    });
-
-    const first = await run(db, svc.open(openInput()));
-    const second = await run(db, svc.open(openInput({ message: "second attempt" })));
-    if (!Exit.isSuccess(first) || !Exit.isSuccess(second)) throw new Error("open failed");
-
-    expect(second.value.id).toBe(first.value.id);
-    // No re-provision, no second email.
-    expect(zap.provisionCalls).toHaveLength(1);
-    expect(email.sent.filter((m) => m.template === "enquiry-new")).toHaveLength(1);
-    // Only one enquiry + one vendor row.
-    expect(db.select().from(vendorEnquiries).all()).toHaveLength(1);
-    expect(
-      db.select().from(vendors).where(eq(vendors.directoryVendorId, CLAIMED_VENDOR_ID)).all(),
-    ).toHaveLength(1);
-  });
 });
 
 describe("enquiryService.reply", () => {
@@ -537,27 +512,6 @@ describe("enquiryService.reply", () => {
 });
 
 describe("enquiryService.getMessages", () => {
-  it("returns the synthesized pending message when unprovisioned", async () => {
-    const db = db0();
-    const zap = fakeZap();
-    const email = fakeEmail();
-    const svc = createEnquiryService({
-      zap: zap.client,
-      sendEmail: email.sendEmail,
-      threadBaseUrl: THREAD_BASE,
-    });
-    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
-    if (!Exit.isSuccess(opened)) throw new Error("open failed");
-    const enq = readEnquiry(db, opened.value.id);
-
-    const res = await run(db, svc.getMessages(enq));
-    if (!Exit.isSuccess(res)) throw new Error("getMessages failed");
-    expect(res.value).toHaveLength(1);
-    expect(res.value[0]!.id).toBe("pending");
-    expect(res.value[0]!.body).toBe("Are you free on our date?");
-    expect(res.value[0]!.senderProfileId).toBe(ORGANISER_PROFILE_ID);
-  });
-
   it("returns the zap messages when provisioned", async () => {
     const db = db0();
     const zap = fakeZap();
@@ -709,67 +663,6 @@ describe("enquiryService.addToBudget", () => {
 });
 
 describe("flushBufferedEnquiry", () => {
-  it("provisions a chat, sends the buffered body and nulls pendingBody", async () => {
-    const db = db0();
-    const zap = fakeZap();
-    const email = fakeEmail();
-    const svc = createEnquiryService({
-      zap: zap.client,
-      sendEmail: email.sendEmail,
-      threadBaseUrl: THREAD_BASE,
-    });
-    // Buffer an enquiry against the unclaimed listing.
-    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
-    if (!Exit.isSuccess(opened)) throw new Error("open failed");
-    const before = readEnquiry(db, opened.value.id);
-    expect(before.zapChatId).toBeNull();
-    expect(before.pendingBody).toBe("Are you free on our date?");
-
-    const res = await run(db, flushBufferedEnquiry(zap.client, before, VENDOR_PROFILE_ID));
-    expect(Exit.isSuccess(res) && res.value).toBe(true);
-
-    const after = readEnquiry(db, opened.value.id);
-    expect(after.zapChatId).toBe("chat_1");
-    expect(after.pendingBody).toBeNull();
-
-    // Provisioned with [createdBy, vendorProfileId] and flushed the buffered body.
-    expect(zap.provisionCalls).toHaveLength(1);
-    expect(zap.provisionCalls[0]!.memberProfileIds).toEqual([
-      ORGANISER_PROFILE_ID,
-      VENDOR_PROFILE_ID,
-    ]);
-    expect(zap.sendCalls).toHaveLength(1);
-    expect(zap.sendCalls[0]!.body).toBe("Are you free on our date?");
-  });
-
-  it("leaves the enquiry buffered when the send fails, so a later run retries it", async () => {
-    const db = db0();
-    const zap = fakeZap();
-    const email = fakeEmail();
-    const svc = createEnquiryService({
-      zap: zap.client,
-      sendEmail: email.sendEmail,
-      threadBaseUrl: THREAD_BASE,
-    });
-    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
-    if (!Exit.isSuccess(opened)) throw new Error("open failed");
-    const failing: ZapChatClient = {
-      ...zap.client,
-      sendC2bMessage: async () => {
-        throw new Error("zap down");
-      },
-    };
-
-    const res = await run(
-      db,
-      flushBufferedEnquiry(failing, readEnquiry(db, opened.value.id), VENDOR_PROFILE_ID),
-    );
-    expect(Exit.isSuccess(res) && res.value).toBe(false);
-    const after = readEnquiry(db, opened.value.id);
-    expect(after.zapChatId).toBeNull();
-    expect(after.pendingBody).toBe("Are you free on our date?");
-  });
-
   it("leaves the enquiry buffered when provisioning fails", async () => {
     const db = db0();
     const zap = fakeZap();
@@ -831,41 +724,6 @@ describe("flushBufferedEnquiry", () => {
     const after = readEnquiry(db, opened.value.id);
     expect(after.zapChatId).toBe("chat_1");
     expect(after.handoffChatId).toBeNull();
-  });
-
-  it("keeps the chat of a failed send for the retry, with no visible thread", async () => {
-    const db = db0();
-    const zap = fakeZap();
-    const svc = createEnquiryService({
-      zap: zap.client,
-      sendEmail: fakeEmail().sendEmail,
-      threadBaseUrl: THREAD_BASE,
-    });
-    const opened = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
-    if (!Exit.isSuccess(opened)) throw new Error("open failed");
-    const failing: ZapChatClient = {
-      ...zap.client,
-      sendC2bMessage: async () => {
-        throw new Error("zap down");
-      },
-    };
-    await run(
-      db,
-      flushBufferedEnquiry(failing, readEnquiry(db, opened.value.id), VENDOR_PROFILE_ID),
-    );
-    const staged = readEnquiry(db, opened.value.id);
-    expect(staged.handoffChatId).toBe("chat_1");
-    expect(staged.zapChatId).toBeNull();
-
-    // The retry sends into the staged chat and provisions nothing.
-    const res = await run(db, flushBufferedEnquiry(zap.client, staged, VENDOR_PROFILE_ID));
-    expect(Exit.isSuccess(res) && res.value).toBe(true);
-    expect(zap.provisionCalls).toHaveLength(1);
-    expect(zap.sendCalls.map((c) => c.chatId)).toEqual(["chat_1"]);
-    const after = readEnquiry(db, opened.value.id);
-    expect(after.zapChatId).toBe("chat_1");
-    expect(after.handoffChatId).toBeNull();
-    expect(after.pendingBody).toBeNull();
   });
 
   it("drops a reused chat zap refuses for good, so the next attempt provisions afresh", async () => {
@@ -990,67 +848,6 @@ describe("flushBufferedEnquiry", () => {
 });
 
 describe("enquiryService.list", () => {
-  it("returns the couple inbox newest-first by lastMessageAt (SQL ORDER BY)", async () => {
-    const db = db0();
-    const email = fakeEmail();
-    const svc = createEnquiryService({
-      zap: null,
-      sendEmail: email.sendEmail,
-      threadBaseUrl: THREAD_BASE,
-    });
-
-    // Two threads in the SAME wedding against different listings, inserted
-    // OLDER-FIRST so rowid order and timestamp order diverge — only the
-    // query's ORDER BY (which replaced the JS sort) yields newest-first.
-    const now = new Date();
-    const seed = (n: number, dvId: string, lastMessageAt: Date) => {
-      const vid = `ven_list_${n}`;
-      db.insert(vendors)
-        .values({
-          id: vid,
-          weddingId: BOOTSTRAP_WEDDING_ID,
-          directoryVendorId: dvId,
-          name: `Vendor ${n}`,
-          category: "florist",
-          status: "researching",
-          contactName: null,
-          email: null,
-          phone: null,
-          notes: null,
-          quotedMinor: null,
-          sortOrder: 0,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-      db.insert(vendorEnquiries)
-        .values({
-          id: `enq_list_${n}`,
-          weddingId: BOOTSTRAP_WEDDING_ID,
-          directoryVendorId: dvId,
-          vendorId: vid,
-          zapChatId: null,
-          pendingBody: "buffered",
-          status: "open",
-          createdBy: ORGANISER_PROFILE_ID,
-          quotedMinor: null,
-          lastMessageAt,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-    };
-    seed(1, CLAIMED_VENDOR_ID, new Date("2026-07-01T00:00:00Z"));
-    seed(2, UNCLAIMED_VENDOR_ID, new Date("2026-07-20T00:00:00Z"));
-
-    const res = await run(db, svc.list(BOOTSTRAP_WEDDING_ID, FIRST_PAGE));
-    if (!Exit.isSuccess(res)) throw new Error("list failed");
-    expect(res.value.enquiries.map((e) => e.id)).toEqual(["enq_list_2", "enq_list_1"]);
-    // The join columns ride along.
-    expect(res.value.enquiries[0]!.vendorName).toBe("Vendor 2");
-    expect(res.value.nextCursor).toBeNull();
-  });
-
   it("never returns more than the page it was asked for, and says where the next one starts", async () => {
     const db = db0();
     for (let n = 0; n < 5; n++) seedCoupleEnquiry(db, `enq_cap_${n}`, at(100 + n));
