@@ -349,11 +349,16 @@ describe("a task's time on its row, painted", () => {
         await waitFor(() =>
           expect(dialog.textContent).toContain("Sat 20 Jun, 1:30 pm, on Ceremony's clock"),
         );
-        // The row's droplet: the same spring the holders' popover lands with.
+        // The row's droplet: the same growth the holders' popover opens with,
+        // on the portal's ease-out.
         expect(getComputedStyle(dialog).transitionProperty).toBe(
           "transform, opacity, border-radius",
         );
-        expect(getComputedStyle(dialog).transitionTimingFunction.startsWith("linear(")).toBe(true);
+        expect(
+          getComputedStyle(dialog).transitionTimingFunction.startsWith(
+            "cubic-bezier(0.23, 1, 0.32, 1)",
+          ),
+        ).toBe(true);
 
         expectPanelWhole(dialog, viewport);
         await page.screenshot({ path: shot(`editor-linked-${viewport.name}-${theme}`) });

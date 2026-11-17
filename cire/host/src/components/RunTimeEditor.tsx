@@ -12,7 +12,7 @@ import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show }
 import { redirectToLogin } from "../lib/api";
 import { splitIso } from "../lib/event-datetime";
 import type { EventRow } from "../lib/events-store";
-import { focusPanelOnOpen } from "../lib/popover-focus";
+import { createOpenedBy, focusPanelOnOpen } from "../lib/popover-open";
 import { type ZonedTime, zonedTime } from "../lib/run-sheet-display";
 import { type RunTimePatch, type RunTimeRefusal, saveTaskRunTime } from "../lib/run-time-write";
 import type { TaskRow } from "../lib/tasks-store";
@@ -162,6 +162,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
   let trigger: HTMLButtonElement | undefined;
 
   const [open, setOpen] = createSignal(false);
+  const openedBy = createOpenedBy();
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -321,6 +322,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
     >
       <Popover.Trigger
         ref={trigger}
+        {...openedBy.triggerProps}
         disabled={props.disabled}
         class={
           shown()
@@ -343,6 +345,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
       <Popover.Portal>
         <Popover.Content
           onOpenAutoFocus={focusPanelOnOpen}
+          data-instant={openedBy.instant() ? "" : undefined}
           class="droplet-popover border-border bg-surface-raised z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
         >
           <form

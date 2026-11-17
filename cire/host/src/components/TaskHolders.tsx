@@ -13,7 +13,7 @@ import {
 } from "solid-js";
 
 import { type HostSeat, type SeatFace, seatName } from "../lib/hosts-store";
-import { focusPanelOnOpen } from "../lib/popover-focus";
+import { createOpenedBy, focusPanelOnOpen } from "../lib/popover-open";
 import { ROLE_COPY } from "../lib/wedding-roles";
 
 /** One holder of a task, in stack order. `seat` is absent while the wedding's
@@ -168,6 +168,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
 /** The + trigger and its popover, for an owner or editor. */
 function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) => JSX.Element }) {
   const [open, setOpen] = createSignal(false);
+  const openedBy = createOpenedBy();
   /** The people list's answer to a key pressed on the panel itself. */
   let fromPanel: ((e: KeyboardEvent) => void) | undefined;
 
@@ -182,6 +183,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
       gutter={6}
     >
       <Popover.Trigger
+        {...openedBy.triggerProps}
         aria-label={`Assign people to ${props.title}`}
         class="group flex items-center -space-x-2 rounded-full outline-offset-2"
       >
@@ -208,6 +210,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
             no ring shows until the pointer or a key moves there. */}
         <Popover.Content
           onOpenAutoFocus={focusPanelOnOpen}
+          data-instant={openedBy.instant() ? "" : undefined}
           class="droplet-popover border-border bg-surface-raised z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
           onKeyDown={(e: KeyboardEvent) => {
             // On the panel itself, Tab and the list's keys move into the

@@ -541,7 +541,7 @@ the reader never aimed at, and a listbox that also starts with its first option
 active reads that option as chosen. Where nothing should look picked on
 opening, cancel `onOpenAutoFocus` and focus the panel itself — Kobalte gives
 `Popover.Content` and `Dialog.Content` `tabindex="-1"` — without scrolling
-(`cire/host`'s `lib/popover-focus.ts`, `musubi/social`'s `AuthDialogs`). Then
+(`cire/host`'s `lib/popover-open.ts`, `musubi/social`'s `AuthDialogs`). Then
 route Tab and the list's keys from the panel into the list, or a non-modal
 panel that closes on Tab has no way in. The unit tier parses no stylesheet,
 so only the browser tier sees the ring
