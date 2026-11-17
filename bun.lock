@@ -301,7 +301,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.6.5",
+      "version": "0.6.6",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.85",
         "@effect/platform-bun": "4.1.4",
@@ -338,7 +338,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.23.16",
+      "version": "0.24.0",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -370,7 +370,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.42.8",
+      "version": "3.43.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.17",
@@ -402,7 +402,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "6.3.0",
+      "version": "6.4.0",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -424,7 +424,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "4.1.2",
+      "version": "4.2.0",
       "dependencies": {
         "effect": "4.1.4",
       },
@@ -441,7 +441,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.28.3",
+      "version": "0.29.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5",
@@ -459,7 +459,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.29.5",
+      "version": "0.29.6",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -544,7 +544,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.95",
+      "version": "0.24.96",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -581,7 +581,7 @@
     },
     "shared/billing": {
       "name": "@shared/billing",
-      "version": "0.1.19",
+      "version": "0.1.20",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -617,7 +617,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.15.5",
+      "version": "0.15.6",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -647,7 +647,7 @@
     },
     "shared/design-tokens": {
       "name": "@shared/design-tokens",
-      "version": "0.9.1",
+      "version": "0.10.0",
       "dependencies": {
         "@shared/color": "workspace:*",
       },
@@ -669,7 +669,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.19.1",
+      "version": "0.20.0",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.1.4",
@@ -717,7 +717,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.26.2",
+      "version": "0.26.3",
       "dependencies": {
         "@effect/opentelemetry": "4.1.4",
         "@opentelemetry/api": "^1.9.1",
@@ -748,7 +748,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.5.5",
+      "version": "0.5.6",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "6.2.17",
@@ -772,7 +772,7 @@
     },
     "shared/realtime": {
       "name": "@shared/realtime",
-      "version": "0.2.26",
+      "version": "0.2.27",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.1.4",
@@ -859,7 +859,7 @@
     },
     "shared/ui": {
       "name": "@shared/ui",
-      "version": "0.17.1",
+      "version": "0.18.0",
       "dependencies": {
         "@kobalte/core": "^0.13.14",
         "class-variance-authority": "^0.7.1",
@@ -901,7 +901,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.78",
+      "version": "0.3.79",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@osn/auth-ui": "workspace:*",
@@ -927,7 +927,7 @@
     },
     "tools/metrics": {
       "name": "@tools/metrics",
-      "version": "0.2.58",
+      "version": "0.2.59",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",
@@ -972,7 +972,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.10.5",
+      "version": "0.10.6",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
