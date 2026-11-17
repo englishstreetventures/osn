@@ -31,7 +31,7 @@ import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/con
 import { STRIPE_CHECKOUT_HOST, type PaidCheckout, type StripeCalls } from "../../src/stripe";
 import { expect, queryOne, type Flow } from "./fixtures";
 
-const { weddingId, slug, accountId, household } = CIRE_ORGANISER.fund;
+const { weddingId, slug, accountId, connector, household } = CIRE_ORGANISER.fund;
 const ITEMS_URL = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/registry/items`;
 const LIST_URL = `${ORIGINS.cireApi}/api/invite/${slug}/registry`;
 const CONTRIBUTE_URL = `${LIST_URL}/contribute`;
@@ -99,6 +99,29 @@ const shoot = async (page: Page, name: string): Promise<void> => {
 };
 
 export async function giveToANewFund(flow: Flow, owner: Page, browser: Browser): Promise<void> {
+  // The wedding's other owner connected its account, so no other wedding of
+  // the dev profile is offered it (`cire-registry-money`'s Party Wedding
+  // steps count the accounts offered there).
+  const seeded = queryOne<{ connector: string | null; seat: string | null }>(
+    DB_FILES.cire,
+    `SELECT s.stripe_connected_by_osn_profile_id AS connector,
+            (SELECT h.osn_profile_id FROM wedding_hosts h
+              WHERE h.id = ? AND h.wedding_id = s.wedding_id AND h.role = 'owner') AS seat
+       FROM registry_settings s WHERE s.wedding_id = ?`,
+    connector.hostId,
+    weddingId,
+  );
+  flow.check(
+    "fund: the account was connected by the wedding's other owner",
+    connector.profileId,
+    seeded?.connector ?? "absent",
+  );
+  flow.check(
+    "fund: who holds an owner seat on the wedding",
+    connector.profileId,
+    seeded?.seat ?? "absent",
+  );
+
   const added = await flow.step(
     "Fund Wedding: add a cash fund through the gift list's form",
     async () => {

@@ -361,7 +361,6 @@ export const CIRE_ORGANISER = {
   fund: {
     weddingId: "wed_e2e_fund",
     slug: "fund-wedding",
-    name: "Fund Wedding",
     accountId: "acct_e2e_fund",
     connector: { hostId: "whost_e2e_fund_kit", profileId: "usr_e2e_kit" },
     household: { familyId: "fam_e2e_fund", code: "PARKES-E2E-FD01", guestName: "Pia" },
