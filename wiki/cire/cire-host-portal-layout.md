@@ -374,7 +374,8 @@ Ten `weddingId`-keyed SolidJS signal caches share this contract:
 `budget-store.ts`, `enquiries-store.ts`, `events-store.ts`, `guests-store.ts`,
 `hosts-store.ts`, `households-store.ts`, `registry-store.ts`,
 `run-sheet-store.ts`, `tasks-store.ts`, `vendors-store.ts` (all
-`cire/host/src/lib/`). One page for the mechanism they all share, rather than
+`cire/host/src/lib/`). The view caches added after them follow it too, built by
+one factory with a one-minute age on top ([[#View caches: one factory, one minute]]). One page for the mechanism they all share, rather than
 ten copies that drift — a module's own page
 (e.g. [[cire-checklist-tasks]]) documents only what is genuinely that
 module's. `hosts-store.ts` holds the wedding's seats for the checklist, which
@@ -471,12 +472,66 @@ of deleting the cache entry on invalidate) and PR #864 (this
 stale-while-revalidate contract, plus the failure-branch re-authorization
 check).
 
+### View caches: one factory, one minute
+
+Every view in the module shell sits behind a `<Show>` (`ModuleShell.tsx`), so a
+module or sub-tab switch remounts it. The caches below keep what each view read
+so a visit soon after draws at once and sends nothing. Each is a
+`createWeddingCache` (`cire/host/src/lib/wedding-cache.ts`): the contract above —
+stale but shown, generation-guarded, a refused read blanks, a closed wedding
+loads and keeps nothing — plus an age. A value read more than
+`CACHE_MAX_AGE_MS` (one minute) ago counts as stale: the view draws it and reads
+again behind it. Guests, co-hosts and other organisers change this data, and
+only task and seat changes reach the portal as a push
+([[realtime]]), so a reply or a co-host's edit shows within a minute of the next
+visit. `setFresh` (a server's whole answer) restarts the age; `setCached` (a
+patch) keeps it.
+
+| Cache | File | Read | Readers | Kept right by |
+|---|---|---|---|---|
+| Settings | `settings-store.ts` | `GET …/settings` | Overview, Settings › Profile | the profile save writes its answer; the budget total patches it |
+| RSVP replies | `rsvps-store.ts` | `GET …/rsvps` | Overview tallies, the RSVP table | `guestListChanged`; a reply the table records is written in |
+| RSVP changes card | `rsvps-store.ts` | `GET …/rsvp-changes` | Overview card | the digest switch writes in; the table's `seen` POST drops it once answered |
+| Invite | `invite-store.ts` | `GET …/invite` | guest list (message), Getting started, invite builder | the builder writes every body it holds, read or saved, with its FAQs; any tier change drops it (`WeddingCacheScope`) |
+| Starter preview | `starter-store.ts` | `GET …/tasks/templates/starter` | the starter checklist dialog | every change `tasks-store.ts` learns of drops it |
+| Co-hosts panel | `hosts-store.ts` (beside the seats) | `GET …/hosts` | Settings › Co-hosts | `invalidateHosts` drops it; so does the panel's run-sheet scope write |
+| Directory first page | `directory-store.ts` | `GET …/directory`, unfiltered | Vendors › Browse | an add patches the listing; a vendor deleted drops it |
+
+**The RSVP table and its badges.** The table marks the guests' changes it shows
+as seen, from the badge rows it reads beside the replies
+([[cire-rsvp-changes]]). Replies the Overview read came without them, so the
+table draws those at once and reads both again; replies the table itself read,
+still fresh, draw with nothing read and no badges, since what they held was
+marked seen then. The replies hold dietary answers: like every cache here they
+stay only while the dashboard is on screen ([[retention]]).
+
+**`guestListChanged`** (`guest-list-changed.ts`, beside `schedule-changed.ts`)
+drops the RSVP replies after any committed change to what they hold: an editor
+save, a spreadsheet import, a revert, a re-mint (the replies carry each
+household's code) and a plus-one removal.
+
+**The change editors reuse rows under a basis.** An editor reads the change head
+before its rows ([[cire-guest-event-editor]] §3.2). `change-basis.ts` records,
+per slice, the head an editor read and the exact rows array it then loaded. A
+later visit whose slices are still those arrays, fresh, under one head, draws
+the draft from them at once and reads `/changes/head` after the frame that drew
+it (`after-paint.ts`): a head that moved reloads an untouched draft and marks an
+edited one stale with the save bar's notice. Any reload or patch replaces an
+array, which ends the basis; so does the wedding's drop.
+
+**Left reading on every visit:** the seating chart, which its page keeps only
+while on screen ([[cire-seating]]); the re-mint warning's count, which guests
+change by opening their invitation; the budget's per-head refetch
+([[cire-budget]]); and reads a person asks for — a thread, a filtered directory
+page, a later page of gifts, a download.
+
 ### Lifetime: one wedding on screen, one wedding in memory
 
 The caches hold guest names, vendor emails and phone numbers, budget figures
 and the gift log. A wedding keeps them only while its dashboard is mounted.
-This covers the ten caches above, the seats among them, and the upgrade catalogue
-(`upgrade-store.ts`), which keeps prices and has no stale mark.
+This covers the ten caches above, the seats among them, the view caches, the
+change editors' basis, and the upgrade catalogue (`upgrade-store.ts`), which
+keeps prices and has no stale mark.
 
 - **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell,
   and for a helper the run-sheet seat in its place. Its body calls

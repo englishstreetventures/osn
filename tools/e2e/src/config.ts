@@ -410,6 +410,8 @@ export const CIRE_ORGANISER = {
   cache: {
     weddingId: "wed_e2e_cache",
     household: "Alpha",
+    /** Alpha's claim code, which the guest list prints. */
+    code: "TESTCACHE-ALP-0001",
     ada: "Ada",
     bo: "Bo",
     ceremony: "Ceremony",
