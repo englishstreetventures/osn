@@ -9,12 +9,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import "../../src/styles/global.css";
 
 /*
- * The chosen glass stands apart from what it sits on by 3:1 in the light
- * theme (WCAG 1.4.11, englishstreetventures/osn#2356): a strip's glass against
- * its track, and a chosen `glass` pill against the ground beside it, on the
- * page and on a card. The fill cannot carry it there — the gold word on the
- * glass needs a pale fill to read at 4.5:1, and the light track is pale too —
- * so the glass's ring does: `--glass-ring`, readable gold at 1px. A ring under
+ * The chosen glass stands apart from what it sits on by 3:1 in the light theme
+ * (WCAG 1.4.11, englishstreetventures/osn#2356): a strip's glass against its
+ * track, and a chosen `glass` pill against the ground beside it, on the page
+ * and on a card. The fill cannot carry it there — the gold word on the glass
+ * needs a pale fill to read at 4.5:1, and the light track is pale too — so the
+ * glass's ring does: `--glass-ring`, readable gold at 80% and 1px. A ring under
  * 1px paints at part coverage on a 1x screen, so it is held to 1px as well as
  * to its colour.
  */

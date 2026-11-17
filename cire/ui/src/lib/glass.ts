@@ -2,14 +2,14 @@
  * The portals' glass: the chosen choice's look in `SegmentedTabs`, and a lone
  * glass pill that wears it (the invite builder's place on a phone).
  *
- * The raised surface at 55% under the accent at 14%, composited into one
- * colour (accent 22.8% into raised, at 61.3%) so the colour a label sits on can
- * be read back and measured; an inner lip (`--inner-lip`), a light inner edge
+ * The raised surface at 55% under the accent at 14%, composited into one colour
+ * (accent 22.8% into raised, at 61.3%) so the colour a label sits on can be
+ * read back and measured; an inner lip (`--inner-lip`), a light inner edge
  * (`--glass-edge`), an outer ring (`--glass-ring`: the portals' hairline at
- * 0.5px in dark and readable gold at 1px in light, where it is what sets the
- * glass 3:1 apart from its track; the hairline at 0.5px where an app sets
- * none), the app's first lift and a 12px frosted backdrop. A contrast theme
- * drops the fill, so a lone pill draws its own outline there.
+ * 0.5px in dark and readable gold at 80% and 1px in light, where it is what
+ * sets the glass 3:1 apart from its track; the hairline at 0.5px where an app
+ * sets none), the app's first lift and a 12px frosted backdrop. A contrast
+ * theme drops the fill, so a lone pill draws its own outline there.
  *
  * Its own module, not `segmented-tabs.tsx`'s, so a part other than the strip
  * can wear it without importing the strip: `Button`'s `glass`

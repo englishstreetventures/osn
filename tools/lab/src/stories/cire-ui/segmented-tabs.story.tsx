@@ -32,7 +32,7 @@ const PORTAL = {
     "--inner-lip": "inset 0 1px 0 oklch(100% 0 0 / 0.6)",
     "--elev-1": "0 1px 2px oklch(30% 0.02 340 / 0.12)",
     "--glass-edge": "oklch(100% 0 0 / 0.7)",
-    "--glass-ring": "0 0 0 1px var(--ui-accent-ink)",
+    "--glass-ring": "0 0 0 1px color-mix(in srgb, var(--ui-accent-ink) 80%, transparent)",
   },
 } satisfies Record<CireTheme, JSX.CSSProperties>;
 

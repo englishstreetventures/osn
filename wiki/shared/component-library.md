@@ -1877,9 +1877,9 @@ one sits on glass: the raised surface at 55% under the accent at 14%
 inner lip, a light inner edge (`--glass-edge`, an app token; white at 10% when
 unset), an outer ring (`--glass-ring`, an app token; the hairline at 0.5px when
 unset), the first lift and a 12px frosted backdrop. In the portals' light theme
-the ring is readable gold at 1px, and it is what sets the glass 3:1 apart from
-its track: the gold word needs a pale glass to read at 4.5:1, so on a pale
-track the fill alone cannot (host `DESIGN.md` §7,
+the ring is readable gold at 80% and 1px, and it is what sets the glass 3:1
+apart from its track: the gold word needs a pale glass to read at 4.5:1, so on
+a pale track the fill alone cannot (host `DESIGN.md` §7,
 `cire/host/tests/styles/glass-contrast.browser.test.tsx`). The glass glides at
 `--dur-slow`: its place on `--ease-glide`, a spring that goes 3% past (falling
 back to the app's ease-out, never to the bouncier `--ease-spring`), its size on
