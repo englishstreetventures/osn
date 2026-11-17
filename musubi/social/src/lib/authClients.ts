@@ -1,6 +1,5 @@
 import {
   createAccountClient,
-  createAppStepUpClient,
   createConnectionsClient,
   createEmailLinkClient,
   createLoginClient,
@@ -34,5 +33,3 @@ export const totpClient = createTotpClient(authenticated);
 // its undo. The download, the status and the undo answer a pending-deletion
 // session too; the link, the deletion and its preview do not.
 export const accountClient = createAccountClient(authenticated);
-// An app's step-up request: the confirm page reads it and confirms it.
-export const appStepUpClient = createAppStepUpClient(authenticated);

@@ -14,7 +14,7 @@ import { createResource, createSignal, Match, Show, Switch, type JSX } from "sol
 
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SignedOutNote } from "../components/SignedOutNote";
-import { appStepUpClient } from "../lib/authClients";
+import { appStepUpClient } from "../lib/app-step-up-client";
 import { usePageTitle } from "../lib/page-title";
 import { returnTo } from "../lib/return-to";
 import { createStepUp } from "../lib/step-up";

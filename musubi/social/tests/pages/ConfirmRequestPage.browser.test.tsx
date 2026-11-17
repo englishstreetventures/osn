@@ -84,6 +84,8 @@ vi.mock("../../src/lib/authClients", () => ({
   stepUpClient: {},
   totpClient: {},
   accountClient: {},
+}));
+vi.mock("../../src/lib/app-step-up-client", () => ({
   appStepUpClient: { read: mocks.read, confirm: mocks.confirm },
 }));
 vi.mock("../../src/components/StepUpSheet", () => ({
