@@ -299,7 +299,7 @@ describe("a host's removal of their Cire data: refusals", () => {
     untouched(h.db);
   });
 
-  it("C2b: a body outside the removal's shape is refused 400 before osn-api is asked", async () => {
+  it("C2b: a body outside the removal's or the preview's shape is refused 400 before osn-api is asked", async () => {
     const h = await setup();
     const cookie = await confirmation(h);
     for (const body of [
@@ -309,6 +309,15 @@ describe("a host's removal of their Cire data: refusals", () => {
       { code: CODE, deleteEverything: "yes" },
     ]) {
       const res = await call(h, "DELETE", "/account", { removal: cookie, body });
+      expect({ body, status: res.status, answer: await jsonBody(res) }).toEqual({
+        body,
+        status: 400,
+        answer: { error: "invalid_body" },
+      });
+    }
+    expect(h.log.verified).toEqual([]);
+    for (const body of [{ code: 5 }, { code: "x".repeat(65) }]) {
+      const res = await call(h, "POST", "/account/removal/preview", { removal: cookie, body });
       expect({ body, status: res.status, answer: await jsonBody(res) }).toEqual({
         body,
         status: 400,
@@ -551,14 +560,17 @@ describe("a host's removal of their Cire data: what it removes", () => {
       owners: [P2, O],
       createdAt: new Date(Date.now() - 86_400_000),
     });
+    // The signed-in profile holds a lower seat there too: it left no owner's
+    // seat, so no notice names it.
+    seat(h.db, "w_sibling_shared", P, "editor");
     const cookie = await confirmation(h);
     // Four owned weddings: a second call finishes.
     expect((await remove(h, cookie, ANSWERS)).status).toBe(202);
     expect((await remove(h, cookie, ANSWERS)).status).toBe(200);
-    const told = h.mail.recorded().find((m) => m.text?.includes("Sibling Shared"));
-    expect(told?.to).toBe("other@example.test");
-    expect(told?.text).toContain("Sam Second (@second) left Sibling Shared");
-    expect(told?.text).not.toContain("Pat Person");
+    const told = h.mail.recorded().filter((m) => m.text?.includes("Sibling Shared"));
+    expect(told.map((m) => m.to)).toEqual(["other@example.test"]);
+    expect(told[0]?.text).toContain("Sam Second (@second) left Sibling Shared");
+    expect(told[0]?.text).not.toContain("Pat Person");
   });
 
   it("C13: the worst case, three owned weddings each told to another owner, stays inside 50 D1 statements", async () => {
@@ -718,6 +730,10 @@ describe("a host's removal of their Cire data: the preview and the confirmation"
     ]) {
       expect(cleared).toMatch(attribute);
     }
+    // A clear without `Secure` cannot replace the session cookie set with it.
+    const session = removed.headers.getSetCookie().find((c) => c.startsWith("cire_org_session=;"));
+    expect(session).toMatch(/; Secure/);
+    expect(session).toMatch(/Max-Age=0/);
   });
 
   it("C11: the confirmation keeps its secret in an HttpOnly cookie and sends osn-api only its hash, and the portal's own return address", async () => {

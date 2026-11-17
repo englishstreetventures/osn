@@ -1241,8 +1241,10 @@ describe("createArcRemovalBridge", () => {
     expect(await b.begin(begin)).toEqual({ ok: false, reason: "refused" });
     answer(503, { error: "unavailable" });
     await expect(b.begin(begin)).rejects.toThrow();
-    answer(200, {});
-    await expect(b.begin(begin)).rejects.toThrow();
+    for (const body of [{}, { request_id: "" }, { request_id: 5 }]) {
+      answer(200, body);
+      await expect(b.begin(begin)).rejects.toThrow();
+    }
   });
 
   it("verifies a request and maps a refusal to an answer, a fault or a bad shape to a throw", async () => {
@@ -1265,8 +1267,14 @@ describe("createArcRemovalBridge", () => {
     expect(await b.verify(verify)).toEqual({ ok: false });
     answer(401, { error: "Unauthorized" });
     expect(await b.verify(verify)).toEqual({ ok: false });
-    answer(200, { ok: true, account_id: "acc_1", profile_ids: [1] });
-    await expect(b.verify(verify)).rejects.toThrow();
+    for (const body of [
+      { ok: true, account_id: "acc_1", profile_ids: [1] },
+      { ok: true, account_id: "acc_1", profile_ids: ["usr_1", 2] },
+      { ok: true, account_id: 5, profile_ids: ["usr_1"] },
+    ]) {
+      answer(200, body);
+      await expect(b.verify(verify)).rejects.toThrow();
+    }
     answer(500, { error: "internal_error" });
     await expect(b.verify(verify)).rejects.toThrow();
   });
@@ -1281,5 +1289,23 @@ describe("createArcRemovalBridge", () => {
     ]) {
       expect(await createRemovalBridgeFromEnv(env)).toBeNull();
     }
+    expect(
+      await createRemovalBridgeFromEnv({
+        osnApiUrl: "https://osn.example",
+        arcPrivateKeyJwk: jwk,
+        arcKeyId: "kid-1",
+      }),
+    ).not.toBeNull();
+  });
+
+  it("bounds the account lookup in time when the caller passes no signal", async () => {
+    const b = await bridge();
+    let signal: AbortSignal | null | undefined;
+    globalThis.fetch = mockFetch(async (_url: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal;
+      return new Response(JSON.stringify({ accountId: "acc_1" }), { status: 200 });
+    });
+    expect(await b.resolveAccount("usr_1")).toEqual({ ok: true, accountId: "acc_1" });
+    expect(signal).toBeInstanceOf(AbortSignal);
   });
 });
