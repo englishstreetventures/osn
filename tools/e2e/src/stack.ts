@@ -125,6 +125,13 @@ export function baseEnv(
   };
 }
 
+/**
+ * Where every API listens, as the stand-ins do: the secrets the stack hands
+ * the APIs are committed placeholders, so no other machine may reach them.
+ * Clients still name `localhost`, which reaches it.
+ */
+const API_HOSTNAME = "127.0.0.1";
+
 /** The Stripe key both cire-apis hold. Not a real key: it only ever reaches the stand-in. */
 const CIRE_STRIPE_KEY = "e2e-placeholder-no-stripe-account";
 
@@ -153,6 +160,7 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.osnApi}/.well-known/jwks.json`,
       env: {
         PORT: String(PORTS.osnApi),
+        OSN_LOCAL_HOSTNAME: API_HOSTNAME,
         OSN_ENV: "local",
         OSN_DATABASE_URL: DB_FILES.osn,
         OSN_ISSUER_URL: ORIGINS.osnApi,
@@ -199,6 +207,7 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.osnApiEvt}/.well-known/jwks.json`,
       env: {
         PORT: String(PORTS.osnApiEvt),
+        OSN_LOCAL_HOSTNAME: API_HOSTNAME,
         OSN_ENV: "local",
         OSN_DATABASE_URL: DB_FILES.osnEvt,
         OSN_ISSUER_URL: ORIGINS.osnApiEvt,
@@ -222,6 +231,7 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.pulseApi}/`,
       env: {
         PORT: String(PORTS.pulseApi),
+        PULSE_LOCAL_HOSTNAME: API_HOSTNAME,
         OSN_ENV: "local",
         PULSE_DATABASE_URL: DB_FILES.pulse,
         OSN_API_URL: ORIGINS.osnApi,
@@ -242,8 +252,7 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.cireApi}/`,
       env: {
         PORT: String(PORTS.cireApi),
-        // Loopback only: the webhook secrets below are committed placeholders.
-        CIRE_LOCAL_HOSTNAME: "127.0.0.1",
+        CIRE_LOCAL_HOSTNAME: API_HOSTNAME,
         CIRE_LOCAL_DB_PATH: DB_FILES.cire,
         CIRE_E2E_RSVP_DEADLINE: CIRE_RSVP_DEADLINE,
         // Adds the gift-list wedding (`CIRE_GIFT_LIST`) to cire-api's seed.
@@ -306,7 +315,7 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
       readyUrl: `${ORIGINS.cireApiKeyOnly}/`,
       env: {
         PORT: String(PORTS.cireApiKeyOnly),
-        CIRE_LOCAL_HOSTNAME: "127.0.0.1",
+        CIRE_LOCAL_HOSTNAME: API_HOSTNAME,
         CIRE_LOCAL_DB_PATH: DB_FILES.cireKeyOnly,
         CIRE_E2E_REGISTRY: "1",
         WEB_ORIGIN: CIRE_WEB_ORIGINS,

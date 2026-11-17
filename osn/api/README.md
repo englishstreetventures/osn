@@ -1,7 +1,8 @@
 # @osn/api
 
 OSN identity server binary. A Bun/Elysia process that listens on **port 4000**
-(configurable via `PORT`) and exposes:
+(configurable via `PORT`) on every interface (or on the address
+`OSN_LOCAL_HOSTNAME` names, as the E2E suite does) and exposes:
 
 - All auth routes from `@osn/core` (passkey, OTP, magic link, PKCE, JWT,
   registration, `/login/*`, hosted `/authorize` HTML for third-party OAuth)

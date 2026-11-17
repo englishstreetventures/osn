@@ -7,16 +7,19 @@
  *  4. Seed fresh databases.
  *  5. Start the mail, Stripe and issuer stand-ins, then every app: osn-api before
  *     pulse-api, the rest alongside them.
- *  6. Run Playwright, which writes traces, screenshots and `results.json`.
- *  7. Stop every process group, the runner's included, whatever happened above
+ *  6. Stop the run if any API answers at this machine's network address.
+ *  7. Run Playwright, which writes traces, screenshots and `results.json`.
+ *  8. Stop every process group, the runner's included, whatever happened above
  *     and on SIGINT or SIGTERM.
  *
- * Exits with Playwright's code, or 1 when the stack never came up.
+ * Exits with Playwright's code, or 1 when the stack never came up or an API
+ * listens beyond loopback.
  */
 
 import { Database } from "bun:sqlite";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { resolve } from "node:path";
 
 import {
@@ -33,7 +36,7 @@ import {
 } from "./config";
 import { startIssuerServer, type IssuerServer } from "./issuer";
 import { startMailServer, type MailServer } from "./mail";
-import { takenPorts } from "./ports";
+import { answeringAt, networkAddress, takenPorts } from "./ports";
 import {
   httpAnswers,
   startProcess,
@@ -211,6 +214,34 @@ async function bootStack(realStart: number, procs: Started[]): Promise<void> {
   ]);
 }
 
+/**
+ * Every API the stack starts holds secrets committed to the repository as
+ * placeholders, so each must listen on loopback alone (`API_HOSTNAME` in
+ * `stack.ts`). Throws, naming each API that accepts a connection at this
+ * machine's network address. A machine with no such address has nothing on
+ * the network to refuse, and the check says it was skipped.
+ */
+async function apisOnLoopbackAlone(): Promise<void> {
+  const address = networkAddress(networkInterfaces());
+  if (address === null) {
+    say(
+      "no network address on this machine; skipped the check that the APIs listen on loopback alone",
+    );
+    return;
+  }
+  const apis = Object.fromEntries(
+    appSpecs()
+      .filter((spec) => spec.command === API_COMMAND)
+      .map((spec) => [spec.name, PORTS[spec.name]]),
+  );
+  const open = await answeringAt(address, apis);
+  if (open.length > 0) {
+    const named = open.map(({ name, port }) => `${name} (port ${port})`).join(", ");
+    throw new Error(`listening beyond loopback, at this machine's network address: ${named}`);
+  }
+  say(`all ${Object.keys(apis).length} APIs refuse a connection at this machine's network address`);
+}
+
 async function main(): Promise<number> {
   const realStart = Date.now();
   const taken = await prepareRun(PORTS, ARTIFACT_DIR, [
@@ -246,6 +277,7 @@ async function main(): Promise<number> {
     });
     issuer = await startIssuerServer(PORTS.issuer, () => CLOCK_T0 + (Date.now() - realStart));
     await bootStack(realStart, procs);
+    await apisOnLoopbackAlone();
     say("stack ready; running flows");
     // In `procs` like every server, so a signal or a failure stops it too.
     const runner = startProcess({
