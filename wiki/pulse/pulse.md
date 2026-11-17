@@ -15,7 +15,7 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-15
+last-reviewed: 2026-11-17
 ---
 
 # Pulse
@@ -221,9 +221,14 @@ Beyond 1000 guests, events belong to a future verified-organisation tier (Pulse 
 bun run --cwd pulse/api test:run   # Run Pulse API tests once
 bun run --cwd pulse/db test:run    # Run Pulse DB tests once
 bun run --cwd pulse/api test       # Watch mode
+bun run --cwd pulse/web test:run   # Pulse web unit tier
+bun run --cwd pulse/web test:browser  # Pulse web real-Chromium tier
+bun run --cwd tools/e2e e2e pulse-event-rsvp  # The Pulse end-to-end flow
 ```
 
 Route tests use `createEventsRoutes(createTestLayer())` in `beforeEach` for full isolation.
+
+The web app's screens are proved end to end by `pulse-event-rsvp` ([[testing-patterns#The end-to-end suite]]), on its host's and guest's sign-ins: onboarding (the host skips, the guest walks all six steps), the explore page's layout, search, chips and More filters, creating events through the form (open, guest-list and private), an RSVP from a shared link with its counts and guest list, the calendar, a refused RSVP on a guest-list event, a private event hidden from a stranger, cancelling events and a series, and the attendance setting; each write is read back from pulse-api's database. A web unit test stays only for what that flow cannot reach: refusals and role gates, error and denied-permission paths, the venue pages (no production code writes a venue, so the suite seeds none), close friends and the map.
 
 ## Related
 

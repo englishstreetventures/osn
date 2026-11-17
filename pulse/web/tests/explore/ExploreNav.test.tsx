@@ -1,10 +1,10 @@
-import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
+import { render as _baseRender, cleanup } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
 import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 
-import { authState, fakeSession, mockSignIn } from "../helpers/auth";
+import { authState, fakeSession } from "../helpers/auth";
 import { wrapRouter } from "../helpers/router";
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -36,14 +36,6 @@ describe("ExploreNav — unauthenticated", () => {
     expect(getByText("Home")).toBeTruthy();
     expect(queryByText("Calendar")).toBeNull();
     expect(queryByText("Hosting")).toBeNull();
-  });
-
-  it("renders a sign-in button that leaves for the issuer", () => {
-    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    const button = getByText("Continue with musubi");
-    expect(button).toBeTruthy();
-    fireEvent.click(button);
-    expect(mockSignIn).toHaveBeenCalled();
   });
 
   it("does not render Host button or notification bell", () => {
@@ -82,39 +74,11 @@ describe("ExploreNav — authenticated", () => {
   });
   afterEach(cleanup);
 
-  it("shows Calendar and Hosting tabs", () => {
-    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    expect(getByText("Home")).toBeTruthy();
-    expect(getByText("Calendar")).toBeTruthy();
-    expect(getByText("Hosting")).toBeTruthy();
-  });
-
   it("has a disabled Hosting tab with aria-disabled and tabindex", () => {
     const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
     const hostingTab = getByText("Hosting").closest("button");
     expect(hostingTab).toHaveAttribute("aria-disabled", "true");
     expect(hostingTab).toHaveAttribute("tabindex", "-1");
-  });
-
-  it("clicking the disabled Hosting tab does not navigate", () => {
-    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    const before = window.location.pathname;
-    fireEvent.click(getByText("Hosting"));
-    expect(window.location.pathname).toBe(before);
-  });
-
-  it("every enabled tab resolves to a real route", () => {
-    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    for (const label of ["Home", "Calendar"]) {
-      const tab = getByText(label).closest("button");
-      expect(tab).not.toHaveAttribute("aria-disabled");
-    }
-  });
-
-  it("renders Host button and notification bell", () => {
-    const { getByText, container } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    expect(getByText("Host")).toBeTruthy();
-    expect(container.querySelector("[title='Notifications']")).toBeTruthy();
   });
 
   it("does not render the sign-in button", () => {

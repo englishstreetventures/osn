@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatDayLabel,
-  formatRailDate,
   formatTimeRange,
   groupEntriesByDay,
   type CalendarEntry,
@@ -74,14 +73,5 @@ describe("formatTimeRange", () => {
         new Date(2026, 4, 28, 21, 0).toISOString(),
       ),
     ).toBe("7:30 PM – 9 PM");
-  });
-});
-
-describe("formatRailDate", () => {
-  it("returns uppercase month, day number, and weekday", () => {
-    const parts = formatRailDate(new Date(2026, 4, 28));
-    expect(parts.month).toBe("MAY");
-    expect(parts.day).toBe(28);
-    expect(parts.weekday).toBe("THU");
   });
 });

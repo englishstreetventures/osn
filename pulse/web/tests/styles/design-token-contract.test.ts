@@ -33,8 +33,7 @@ const WAIVED = {
     "`--input` measures 1.13-1.27:1 in light and 1.10-1.31:1 in dark against",
     "pulse's own grounds, versus a 3:1 floor. Same class of defect as",
     "@musubi/social's and the same decision: darken the border and lose the",
-    "hairline, or give controls a perceivable fill and keep it. Tracked as",
-    "osn-tracker#653.",
+    "hairline, or give controls a perceivable fill and keep it.",
   ].join(" "),
 } as const;
 

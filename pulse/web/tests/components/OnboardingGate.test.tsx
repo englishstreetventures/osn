@@ -1,6 +1,6 @@
 import { createMemoryHistory, MemoryRouter, Route, useLocation } from "@solidjs/router";
 // @vitest-environment happy-dom
-import { cleanup, render as _baseRender, waitFor } from "@solidjs/testing-library";
+import { cleanup, render as _baseRender } from "@solidjs/testing-library";
 import { createEffect } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ---------------------------------------------------------------------------
@@ -75,6 +75,13 @@ const renderAt = (initialPath: string) => {
   return mountWithHistory(history);
 };
 
+/**
+ * Runs every timer and promise callback due in the next `ms` of fake time, so
+ * a "does not" check reads the gate after it has had its chance to act. The
+ * calling test turns fake timers on before it mounts.
+ */
+const settle = (ms: number) => vi.advanceTimersByTimeAsync(ms);
+
 describe("OnboardingGate", () => {
   beforeEach(() => {
     authState.session = fakeSession();
@@ -86,18 +93,20 @@ describe("OnboardingGate", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it("does not fetch and does not navigate when there is no session", async () => {
+    vi.useFakeTimers();
     authState.session = null;
     renderAt("/");
-    // Give the resource a tick to settle.
-    await new Promise((r) => setTimeout(r, 10));
+    await settle(10);
     expect(mockFetchStatus).not.toHaveBeenCalled();
     expect(lastPathname).toBe("/");
   });
 
   it("does NOT redirect when already on /welcome even if onboarding incomplete (avoids loop)", async () => {
+    vi.useFakeTimers();
     mockFetchStatus.mockResolvedValue({
       completedAt: null,
       interests: [],
@@ -110,12 +119,13 @@ describe("OnboardingGate", () => {
     // The gate's fetch resource is keyed on the token, not the path, but
     // the redirect effect short-circuits because we're already at the
     // destination.
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
+    await settle(20);
     expect(lastPathname).toBe("/welcome");
   });
 
-  it("fetches at most once per session even when the user navigates between routes (P-W1)", async () => {
+  it("fetches at most once per session even when the user navigates between routes", async () => {
+    vi.useFakeTimers();
     mockFetchStatus.mockResolvedValue({
       completedAt: new Date().toISOString(),
       interests: [],
@@ -127,11 +137,11 @@ describe("OnboardingGate", () => {
     const history = createMemoryHistory();
     history.set({ value: "/", replace: true });
     mountWithHistory(history);
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalledTimes(1));
     history.set({ value: "/welcome" });
-    await new Promise((r) => setTimeout(r, 20));
+    await settle(20);
     history.set({ value: "/" });
-    await new Promise((r) => setTimeout(r, 20));
+    await settle(20);
     // Token didn't change, so the resource source value didn't change,
     // so the fetcher must not have re-run. The resource source must not
     // include `pathname`, or it would re-fetch every time the user
@@ -140,28 +150,16 @@ describe("OnboardingGate", () => {
   });
 
   it("does not fetch when the session-skip flag is set", async () => {
+    vi.useFakeTimers();
     mockIsSkipped.mockReturnValue(true);
     renderAt("/");
-    await new Promise((r) => setTimeout(r, 10));
+    await settle(10);
     expect(mockFetchStatus).not.toHaveBeenCalled();
     expect(lastPathname).toBe("/");
   });
 
-  it("redirects to /welcome when on a non-welcome path and onboarding is incomplete", async () => {
-    mockFetchStatus.mockResolvedValue({
-      completedAt: null,
-      interests: [],
-      notificationsOptIn: false,
-      eventRemindersOptIn: false,
-      notificationsPerm: "prompt",
-      locationPerm: "prompt",
-    });
-    renderAt("/");
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
-    await waitFor(() => expect(lastPathname).toBe("/welcome"));
-  });
-
   it("does NOT redirect when onboarding is already complete", async () => {
+    vi.useFakeTimers();
     mockFetchStatus.mockResolvedValue({
       completedAt: new Date().toISOString(),
       interests: ["music"],
@@ -171,17 +169,18 @@ describe("OnboardingGate", () => {
       locationPerm: "granted",
     });
     renderAt("/");
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
     // Give the redirect effect a chance to fire if it were going to.
-    await new Promise((r) => setTimeout(r, 20));
+    await settle(20);
     expect(lastPathname).toBe("/");
   });
 
   it("does NOT redirect when fetch returns null (auth or transport error)", async () => {
+    vi.useFakeTimers();
     mockFetchStatus.mockResolvedValue(null);
     renderAt("/");
-    await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
+    await settle(20);
     expect(lastPathname).toBe("/");
   });
 });

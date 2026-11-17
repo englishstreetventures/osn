@@ -34,14 +34,6 @@ describe("Step4Location", () => {
     expect(onPrimary).not.toHaveBeenCalled();
   });
 
-  it("granted: banner shows enabled copy and primary becomes 'Continue' → onPrimary", () => {
-    const { view, onPrimary, onRequest } = setup("granted");
-    expect(view.getByText(/Location enabled/)).toBeTruthy();
-    fireEvent.click(view.getByText("Continue"));
-    expect(onPrimary).toHaveBeenCalled();
-    expect(onRequest).not.toHaveBeenCalled();
-  });
-
   it("denied: banner shows declined copy + 'Try again' affordance routes to onRequest", () => {
     const { view, onRequest } = setup("denied");
     expect(view.getByText(/Location declined/)).toBeTruthy();

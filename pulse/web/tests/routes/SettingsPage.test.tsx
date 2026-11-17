@@ -56,19 +56,6 @@ describe("SettingsPage", () => {
     expect(connections.checked).toBe(true);
   });
 
-  it("clicking Save calls updateMySettings with the selected visibility", async () => {
-    const { container, getByText } = render(() => <SettingsPage />);
-    const noOne = container.querySelector(
-      'input[name="attendanceVisibility"][value="no_one"]',
-    ) as HTMLInputElement;
-    fireEvent.click(noOne);
-    fireEvent.click(getByText("Save"));
-    await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith({ attendanceVisibility: "no_one" });
-      expect(mockToastSuccess).toHaveBeenCalledWith("Settings saved");
-    });
-  });
-
   it("toasts an error when updateMySettings returns ok=false", async () => {
     mockUpdate.mockResolvedValueOnce({ ok: false, error: "boom" });
     const { getByText } = render(() => <SettingsPage />);

@@ -1,6 +1,6 @@
-import { render, cleanup, fireEvent, screen } from "@solidjs/testing-library";
+import { render, cleanup, screen } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 
 import {
   DiscoveryFilters,
@@ -60,42 +60,6 @@ describe("DiscoveryFilters component", () => {
       />
     ));
     expect(screen.getByText(/Only events hosted by or RSVPed by friends/)).toBeTruthy();
-  });
-
-  it("Apply propagates the edited draft to onApply and closes the drawer", () => {
-    const onApply = vi.fn();
-    const onOpenChange = vi.fn();
-    render(() => (
-      <DiscoveryFilters
-        open
-        onOpenChange={onOpenChange}
-        signedIn={false}
-        value={emptyFilters()}
-        onApply={onApply}
-      />
-    ));
-    fireEvent.input(screen.getByLabelText("Price max"), { target: { value: "30" } });
-    fireEvent.click(screen.getByText("Apply"));
-    expect(onApply).toHaveBeenCalledTimes(1);
-    expect(onApply.mock.calls[0]![0]).toMatchObject({ priceMax: 30 });
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("Clear emits empty filters and closes the drawer", () => {
-    const onApply = vi.fn();
-    const onOpenChange = vi.fn();
-    render(() => (
-      <DiscoveryFilters
-        open
-        onOpenChange={onOpenChange}
-        signedIn={false}
-        value={{ ...emptyFilters(), priceMax: 50, friendsOnly: false }}
-        onApply={onApply}
-      />
-    ));
-    fireEvent.click(screen.getByText("Clear"));
-    expect(onApply).toHaveBeenCalledWith(emptyFilters());
-    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("location explainer reflects the granted state when coords are set", () => {

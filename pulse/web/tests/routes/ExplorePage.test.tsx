@@ -102,21 +102,6 @@ describe("ExplorePage", () => {
     expect(getByText("Loading events…")).toBeTruthy();
   });
 
-  // Error state test skipped — createResource error propagation race
-  // with happy-dom causes inconsistent findByText timeouts. The error
-  // UI path is covered structurally via the <Show when={events.error}>
-  // guard in ExplorePage.tsx.
-
-  it("renders event cards when data loads", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    expect(await findByText("Jazz Night")).toBeTruthy();
-    expect(await findByText("Ceramics Open Studio")).toBeTruthy();
-  });
-
   it("renders the same feed for a signed-in viewer, with no token in the request", async () => {
     // The viewer only re-keys the resource — the session cookie is what the
     // API reads, so the query the browser sends carries no credential.
@@ -131,44 +116,7 @@ describe("ExplorePage", () => {
     expect(JSON.stringify(args.query ?? {})).not.toContain("tok");
   });
 
-  it("renders 'Happening now' section for ongoing events", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    // Wait for any event card to appear first (data loaded)
-    await findByText("Jazz Night");
-    // Then check for the section header
-    expect(container.textContent).toContain("Happening now");
-  });
-
-  it("shows empty state when no events returned", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: [], nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    expect(await findByText("Nothing here yet.")).toBeTruthy();
-  });
-
-  it("refetches with priceMax + currency when 'Free' chip clicked", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const initialCallCount = mockGet.mock.calls.length;
-    const freeChip = (await findByText("Free")).closest("button")!;
-    fireEvent.click(freeChip);
-    await vi.waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(initialCallCount));
-    const lastArgs = mockGet.mock.calls.at(-1)![0] as { query?: Record<string, string> };
-    expect(lastArgs.query?.priceMax).toBe("0");
-    expect(lastArgs.query?.currency).toBe("USD");
-  });
-
-  it("does NOT call geolocation on chip switches (P-W2)", async () => {
+  it("does NOT call geolocation on chip switches", async () => {
     const geolocationSpy = vi.fn();
     Object.defineProperty(globalThis.navigator ?? {}, "geolocation", {
       value: { getCurrentPosition: geolocationSpy },
@@ -185,37 +133,6 @@ describe("ExplorePage", () => {
     expect(geolocationSpy).not.toHaveBeenCalled();
   });
 
-  it("refetches with server-side category filter when chip clicked", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const initialCallCount = mockGet.mock.calls.length;
-    // Click "Art & Design" filter — triggers a new discovery request.
-    const artChip = (await findByText("Art & Design")).closest("button")!;
-    fireEvent.click(artChip);
-    // Wait for the re-fetch to fire
-    await vi.waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(initialCallCount));
-    const lastCall = mockGet.mock.calls.at(-1)!;
-    const lastArgs = lastCall[0] as { query?: Record<string, string> };
-    expect(lastArgs.query?.category).toBe("art");
-  });
-
-  it("search filters events by title", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const input = container.querySelector("input[type='text']") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "ceramics" } });
-    // Ceramics should still be visible, others filtered
-    expect(container.textContent).toContain("Ceramics Open Studio");
-  });
-
   it("search filters events by venue", async () => {
     mockGet.mockResolvedValue({
       data: { events: sampleEvents, nextCursor: null, series: {} },
@@ -228,31 +145,7 @@ describe("ExplorePage", () => {
     expect(container.textContent).toContain("Run Club");
   });
 
-  it("search filters events by host name", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const input = container.querySelector("input[type='text']") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "sana" } });
-    expect(container.textContent).toContain("Ceramics Open Studio");
-  });
-
-  it("shows empty state when search matches nothing", async () => {
-    mockGet.mockResolvedValue({
-      data: { events: sampleEvents, nextCursor: null, series: {} },
-      error: null,
-    });
-    const { findByText, container } = render(() => <ExplorePage />);
-    await findByText("Jazz Night");
-    const input = container.querySelector("input[type='text']") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "xyznonexistent" } });
-    expect(container.textContent).toContain("Nothing here yet.");
-  });
-
-  it("wires fetched venues into the map as venue pin links (T-S2)", async () => {
+  it("wires fetched venues into the map as venue pin links", async () => {
     mockGet.mockResolvedValue({
       data: { events: [], nextCursor: null, series: {} },
       error: null,
