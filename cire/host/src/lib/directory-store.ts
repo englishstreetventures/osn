@@ -47,7 +47,9 @@ export function markDirectoryListingAdded(weddingId: string, listingId: string):
   if (!page) return;
   cache.setCached(weddingId, {
     ...page,
-    listings: page.listings.map((l) => (l.id === listingId ? { ...l, inWedding: true } : l)),
+    listings: page.listings.map((l) =>
+      l.id === listingId ? Object.assign({}, l, { inWedding: true }) : l,
+    ),
   });
 }
 

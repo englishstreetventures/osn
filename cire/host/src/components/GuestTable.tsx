@@ -574,7 +574,10 @@ export default function GuestTable(props: GuestTableProps) {
         const deactivatedAt = deactivate ? Date.now() : null;
         setCachedGuests(
           props.weddingId,
-          rows.map((row) => (row.familyId === family.familyId ? { ...row, deactivatedAt } : row)),
+          // New row objects: the cache's readers compare rows by identity.
+          rows.map((row) =>
+            row.familyId === family.familyId ? Object.assign({}, row, { deactivatedAt }) : row,
+          ),
         );
       }
       invalidateHouseholds(props.weddingId);

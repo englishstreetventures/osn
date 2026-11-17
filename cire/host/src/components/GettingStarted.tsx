@@ -117,16 +117,17 @@ export default function GettingStarted(props: {
   const [settled, setSettled] = createSignal(
     untrack(() => events() !== null && guests() !== null && invite() !== null),
   );
-  void Promise.allSettled([
-    ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
-    ensureGuestsLoaded(props.weddingId, () => read<OrganiserGuestRow[]>("/guests")),
-    ensureInviteLoaded(props.weddingId, () => read<InviteCustomisation>("/invite")),
-  ]).then((results) => {
+  void (async () => {
+    const results = await Promise.allSettled([
+      ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
+      ensureGuestsLoaded(props.weddingId, () => read<OrganiserGuestRow[]>("/guests")),
+      ensureInviteLoaded(props.weddingId, () => read<InviteCustomisation>("/invite")),
+    ]);
     for (const result of results) {
       if (result.status === "rejected" && isAuthExpired(result.reason)) redirectToLogin();
     }
     setSettled(true);
-  });
+  })();
 
   // Nullable on purpose: the panel hides itself until the reads settle (the
   // `<Show when={snapshot()}>` below), rather than pretending to a snapshot

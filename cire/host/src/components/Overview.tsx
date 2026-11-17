@@ -269,8 +269,8 @@ export default function Overview(props: {
 
   const settings = settingsAccessor(props.weddingId);
   const replies = rsvpsAccessor(props.weddingId);
-  const events = eventsAccessor(props.weddingId);
-  const guests = guestsAccessor(props.weddingId);
+  const eventRows = eventsAccessor(props.weddingId);
+  const guestRows = guestsAccessor(props.weddingId);
 
   /** A read's 401 sends the organiser to sign in; anything else it reports. */
   const read = async <T,>(path: string): Promise<T> => {
@@ -286,60 +286,62 @@ export default function Overview(props: {
   // Every read, each through its cache, so one that is fresh sends nothing and
   // one that is stale reads again behind what is shown. Settled together, each
   // failure kept to its own card.
-  const loads = Promise.allSettled([
-    // The card's read first: it waits on none of the others.
-    ensureRsvpChangesLoaded(props.weddingId, async () => {
-      const changes = await fetchRsvpChanges(authFetch, props.weddingId);
-      if (!changes) throw new Error("rsvp-changes unavailable");
-      return changes;
-    }),
-    ensureSettingsLoaded(props.weddingId, async () => {
-      return (await read<{ wedding: WeddingSettings }>("/settings")).wedding;
-    }),
-    ensureRsvpsLoaded(props.weddingId, async () => ({
-      events: (await read<{ events: RsvpEvent[] }>("/rsvps")).events,
-      withBadges: false,
-    })),
-    ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
-    ensureGuestsLoaded(props.weddingId, () => read<OrganiserGuestRow[]>("/guests")),
-    // Tasks and budget — not fetched at all while their module is locked:
-    // the API refuses both reads below Gold, and nothing on this page that
-    // reads them is shown.
-    checklistLocked() ? Promise.resolve() : ensureTasksLoaded(props.weddingId, loadTasks),
-    budgetLocked()
-      ? Promise.resolve()
-      : ensureBudgetLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
-          if (res.status === 401) {
-            redirectToLogin();
-            return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-          }
-          // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
-          if (!res.ok) {
-            return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
-          }
-          return (await res.json()) as BudgetSnapshot;
-        }),
-    // Vendors — not fetched at all while the module is locked: the only
-    // thing that reads the count is a card this wedding does not get. A
-    // failed read leaves the count unknown rather than caching an empty
-    // list, which would read as "0 vendors".
-    vendorsLocked()
-      ? Promise.resolve()
-      : ensureVendorsLoaded(props.weddingId, async () => {
-          return (await read<{ vendors: VendorRow[] }>("/vendors")).vendors;
-        }),
-  ]).then((results) => {
+  const loads = (async () => {
+    const results = await Promise.allSettled([
+      // The card's read first: it waits on none of the others.
+      ensureRsvpChangesLoaded(props.weddingId, async () => {
+        const changes = await fetchRsvpChanges(authFetch, props.weddingId);
+        if (!changes) throw new Error("rsvp-changes unavailable");
+        return changes;
+      }),
+      ensureSettingsLoaded(props.weddingId, async () => {
+        return (await read<{ wedding: WeddingSettings }>("/settings")).wedding;
+      }),
+      ensureRsvpsLoaded(props.weddingId, async () => ({
+        events: (await read<{ events: RsvpEvent[] }>("/rsvps")).events,
+        withBadges: false,
+      })),
+      ensureEventsLoaded(props.weddingId, () => read<EventRow[]>("/events")),
+      ensureGuestsLoaded(props.weddingId, () => read<OrganiserGuestRow[]>("/guests")),
+      // Tasks and budget — not fetched at all while their module is locked:
+      // the API refuses both reads below Gold, and nothing on this page that
+      // reads them is shown.
+      checklistLocked() ? Promise.resolve() : ensureTasksLoaded(props.weddingId, loadTasks),
+      budgetLocked()
+        ? Promise.resolve()
+        : ensureBudgetLoaded(props.weddingId, async () => {
+            const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/budget")));
+            if (res.status === 401) {
+              redirectToLogin();
+              return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+            }
+            // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
+            if (!res.ok) {
+              return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+            }
+            return (await res.json()) as BudgetSnapshot;
+          }),
+      // Vendors — not fetched at all while the module is locked: the only
+      // thing that reads the count is a card this wedding does not get. A
+      // failed read leaves the count unknown rather than caching an empty
+      // list, which would read as "0 vendors".
+      vendorsLocked()
+        ? Promise.resolve()
+        : ensureVendorsLoaded(props.weddingId, async () => {
+            return (await read<{ vendors: VendorRow[] }>("/vendors")).vendors;
+          }),
+    ]);
     for (const result of results) {
       if (result.status === "rejected" && isAuthExpired(result.reason)) redirectToLogin();
     }
-  });
+  })();
 
   // The placeholders wait for the reads only when a value the page is built
   // from is not cached at all; a stale one is shown while it is read again.
   const [settled, setSettled] = createSignal(
     untrack(
-      () => settings() !== null && replies() !== null && events() !== null && guests() !== null,
+      () =>
+        settings() !== null && replies() !== null && eventRows() !== null && guestRows() !== null,
     ),
   );
   void loads.finally(() => setSettled(true));
@@ -377,8 +379,8 @@ export default function Overview(props: {
       profile: settings(),
       rsvps,
       rsvpEvents,
-      events: events() ?? [],
-      guests: guests() ?? [],
+      events: eventRows() ?? [],
+      guests: guestRows() ?? [],
     };
   });
 
