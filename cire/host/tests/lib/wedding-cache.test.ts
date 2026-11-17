@@ -85,6 +85,82 @@ describe("createWeddingCache", () => {
     expect(cache.accessor("wed_1")()).toBeNull();
   });
 
+  it("reads again on the next load after a refused refetch, inside the max age", async () => {
+    await cache.ensureLoaded("wed_1", async () => "rows");
+    cache.invalidate("wed_1");
+    await expect(
+      cache.ensureLoaded("wed_1", async () => {
+        throw new Error("403");
+      }),
+    ).rejects.toThrow("403");
+    const fetcher = vi.fn(async () => "read again");
+    await expect(cache.ensureLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(cache.accessor("wed_1")()).toBe("read again");
+  });
+
+  it("rejects with the read's own error when a first load fails", async () => {
+    await expect(
+      cache.ensureLoaded("wed_1", async () => {
+        throw new Error("403");
+      }),
+    ).rejects.toThrow("403");
+    expect(cache.peek("wed_1")).toBeNull();
+  });
+
+  it("reads again on the next load after refuse drops a load in flight", async () => {
+    const inFlight = deferred<string>();
+    const old = cache.ensureLoaded("wed_1", () => inFlight.promise);
+    cache.refuse("wed_1");
+    const fetcher = vi.fn(async () => "read again");
+    const next = cache.ensureLoaded("wed_1", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    inFlight.resolve("read before the refusal");
+    await expect(old).resolves.toBe(false);
+    await expect(next).resolves.toBe(true);
+    expect(cache.accessor("wed_1")()).toBe("read again");
+  });
+
+  it("keeps a newer load shared when an older one settles after an invalidate", async () => {
+    const first = deferred<string>();
+    const firstLoad = cache.ensureLoaded("wed_1", () => first.promise);
+    cache.invalidate("wed_1");
+    const second = deferred<string>();
+    const secondFetcher = vi.fn(() => second.promise);
+    const secondLoad = cache.ensureLoaded("wed_1", secondFetcher);
+    first.resolve("before the invalidate");
+    await expect(firstLoad).resolves.toBe(false);
+    const thirdFetcher = vi.fn(async () => "third");
+    const thirdLoad = cache.ensureLoaded("wed_1", thirdFetcher);
+    expect(thirdLoad).toBe(secondLoad);
+    expect(thirdFetcher).not.toHaveBeenCalled();
+    expect(secondFetcher).toHaveBeenCalledTimes(1);
+    second.resolve("after the invalidate");
+    await expect(thirdLoad).resolves.toBe(true);
+    expect(cache.accessor("wed_1")()).toBe("after the invalidate");
+  });
+
+  it("counts a write's answer after an invalidate as fresh", async () => {
+    await cache.ensureLoaded("wed_1", async () => "rows");
+    cache.invalidate("wed_1");
+    cache.setFresh("wed_1", "the write's answer");
+    expect(cache.has("wed_1")).toBe(true);
+  });
+
+  it("reads again for a wedding dropped and reopened while its old load is out", async () => {
+    const old = deferred<string>();
+    const oldLoad = cache.ensureLoaded("wed_1", () => old.promise);
+    cache.drop("wed_1");
+    const fetcher = vi.fn(async () => "reopened");
+    const reopened = cache.ensureLoaded("wed_1", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await expect(reopened).resolves.toBe(true);
+    expect(cache.accessor("wed_1")()).toBe("reopened");
+    old.resolve("before the drop");
+    await expect(oldLoad).resolves.toBe(false);
+    expect(cache.accessor("wed_1")()).toBe("reopened");
+  });
+
   it("lets a failed load from before a newer invalidate touch nothing", async () => {
     await cache.ensureLoaded("wed_1", async () => "rows");
     cache.invalidate("wed_1");

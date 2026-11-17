@@ -59,6 +59,25 @@ describe("basisFor", () => {
     expect(basisFor("wed_1", { events: fresh(events) })).toBe("7");
   });
 
+  it("gives nothing for a slice no editor recorded", () => {
+    // The events editor opened first; the guests editor then asks for all three.
+    recordBasis("wed_1", "7", { events });
+    expect(
+      basisFor("wed_1", {
+        events: fresh(events),
+        guests: fresh(guests),
+        households: fresh(households),
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps the other slices' basis when an editor records its own again", () => {
+    recordBasis("wed_1", "7", { events, guests });
+    const reloaded = [{ id: "evt_1" }];
+    recordBasis("wed_1", "7", { events: reloaded });
+    expect(basisFor("wed_1", { events: fresh(reloaded), guests: fresh(guests) })).toBe("7");
+  });
+
   it("gives nothing after the wedding is dropped", () => {
     recordBasis("wed_1", "7", { events });
     dropBasis("wed_1");
