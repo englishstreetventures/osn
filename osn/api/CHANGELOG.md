@@ -1,5 +1,11 @@
 # @osn/osn
 
+## 3.42.8
+
+### Patch Changes
+
+- 7ca19be: The account-deletion fan-out names only the deleted account's own profiles to each app.
+
 ## 3.42.7
 
 ### Patch Changes
