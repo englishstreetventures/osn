@@ -972,7 +972,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.10.6",
+      "version": "0.10.7",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
