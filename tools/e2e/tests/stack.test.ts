@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { appSpecs, baseEnv, INHERITED_ENV } from "../src/stack";
+
+const REPO_ROOT = join(import.meta.dirname, "..", "..", "..");
 
 describe("baseEnv", () => {
   const shell = {
@@ -57,5 +61,35 @@ describe("appSpecs", () => {
   test("Musubi is the first allowed origin, where osn-api sends an /authorize that needs the user", () => {
     const osn = appSpecs().find((s) => s.name === "osnApi");
     expect(osn?.env["OSN_ORIGIN"]?.split(",")[0]).toBe("http://localhost:1422");
+  });
+
+  // The APIs hold secrets committed to the repository as placeholders, so
+  // nothing another machine sends may reach them. Each package's `src/local.ts`
+  // reads its own variable for the address to listen on; unset, it listens on
+  // every interface. An API package new to the stack needs an entry here.
+  test("every API the stack starts listens on loopback alone", () => {
+    const hostnameVariable: Readonly<Record<string, string>> = {
+      "osn/api": "OSN_LOCAL_HOSTNAME",
+      "pulse/api": "PULSE_LOCAL_HOSTNAME",
+      "cire/api": "CIRE_LOCAL_HOSTNAME",
+    };
+    const apis = appSpecs().filter((s) => s.dir.endsWith("/api"));
+    expect(apis.map((s) => s.name).toSorted()).toEqual([
+      "cireApi",
+      "cireApiKeyOnly",
+      "osnApi",
+      "osnApiEvt",
+      "pulseApi",
+    ]);
+    for (const spec of apis) {
+      const variable = hostnameVariable[spec.dir];
+      expect(variable, `${spec.dir} has a hostname variable`).toBeDefined();
+      expect(spec.env[variable ?? ""], `${spec.name} ${variable}`).toBe("127.0.0.1");
+      const local = readFileSync(join(REPO_ROOT, spec.dir, "src", "local.ts"), "utf8");
+      expect(
+        local.includes(`process.env.${variable}`),
+        `${spec.dir}/src/local.ts reads ${variable}`,
+      ).toBe(true);
+    }
   });
 });

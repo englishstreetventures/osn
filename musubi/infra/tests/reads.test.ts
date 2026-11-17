@@ -27,6 +27,8 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   OSN_DELETION_SWEEPER_INTERVAL_MS:
     "read only by src/local.ts; the Worker sweeps on its cron instead",
   OSN_E2E_CLIENT_ADDRESS: "read only by src/local.ts, the Bun dev server, for the E2E suite",
+  OSN_LOCAL_HOSTNAME:
+    "read only by src/local.ts, the Bun dev server, which listens on the address it names; the E2E suite sets it to loopback",
   OSN_EMAIL_VERIFICATION_EMULATOR_URL:
     "the local E2E issuer stand-in's origin; osn-api refuses to boot with it unless OSN_ENV is local (build-deps.ts), and the inventory forbids it on dev",
   OSN_REFRESH_TOKEN_TTL: "defaults to 30 days (build-deps.ts); production sets none either",

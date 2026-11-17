@@ -1,8 +1,9 @@
 # @pulse/api
 
 Pulse events HTTP server. Bun/Elysia process that listens on **port 3001**
-(configurable via `PORT`) and serves `/events` and `/events/:id/rsvp`
-routes backed by `@pulse/db`.
+(configurable via `PORT`) on every interface (or on the address
+`PULSE_LOCAL_HOSTNAME` names, as the E2E suite does) and serves `/events`
+and `/events/:id/rsvp` routes backed by `@pulse/db`.
 
 ## Platform limits
 

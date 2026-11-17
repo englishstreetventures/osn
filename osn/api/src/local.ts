@@ -94,7 +94,11 @@ export function startBunServer(
 ): void {
   const { observabilityLayer, jwtEphemeral, envNonLocal, trustedProxyCountUnconfigured } = built;
 
-  app.listen({ port, reusePort: false });
+  // Unset, the server listens on every interface, as under `bun run dev`. The
+  // E2E stack names a loopback address: the secrets it hands this server are
+  // committed placeholders, so no other machine may reach it.
+  const hostname = process.env.OSN_LOCAL_HOSTNAME || undefined;
+  app.listen({ hostname, port, reusePort: false });
   // Only the E2E stack sets this, and only on a local server: the routes'
   // per-address limiters then key on a `cf-connecting-ip` the request sends,
   // so a flow can spend its own windows (`keepSentClientAddress`).
