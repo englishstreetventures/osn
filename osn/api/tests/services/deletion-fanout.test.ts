@@ -168,6 +168,43 @@ describe("the deletion fan-out", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("names the account's own profiles to every app, and no other account's", () =>
+    // Red on a profile read whose correlation binds to its own table: every
+    // profile in the database would be sent, and each app would erase what
+    // every other account has there.
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const now = new Date();
+      yield* Effect.promise(() =>
+        db.insert(accounts).values({
+          id: "acc_bystander",
+          email: "bystander@example.com",
+          passkeyUserId: crypto.randomUUID(),
+          maxProfiles: 5,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+      yield* Effect.promise(() =>
+        db.insert(users).values({
+          id: "usr_bystander",
+          accountId: "acc_bystander",
+          handle: "bystander",
+          isDefault: true,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+      const { accountId, profileId } = yield* dueAccount("own");
+
+      yield* runFanOutRetrySweep({ config: apps.config(), nowMs });
+
+      const calls = erasures(accountId);
+      expect(calls.map((call) => call.app).toSorted()).toEqual(["cire", "pulse", "zap"]);
+      for (const call of calls) expect(call.body.profileIds).toEqual([profileId]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("sends delete everything to every app", () =>
     Effect.gen(function* () {
       answer = () => undefined;
