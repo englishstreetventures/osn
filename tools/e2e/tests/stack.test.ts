@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { appSpecs, baseEnv, INHERITED_ENV } from "../src/stack";
+import { API_COMMAND, appSpecs, baseEnv, INHERITED_ENV } from "../src/stack";
 
 const REPO_ROOT = join(import.meta.dirname, "..", "..", "..");
 
@@ -66,14 +66,16 @@ describe("appSpecs", () => {
   // The APIs hold secrets committed to the repository as placeholders, so
   // nothing another machine sends may reach them. Each package's `src/local.ts`
   // reads its own variable for the address to listen on; unset, it listens on
-  // every interface. An API package new to the stack needs an entry here.
-  test("every API the stack starts listens on loopback alone", () => {
+  // every interface. An API package new to the stack needs an entry here. That
+  // each server binds what it reads, the launcher checks on every run
+  // (`apisOnLoopbackAlone` in `src/launcher.ts`).
+  test("every API the stack starts is told to listen on loopback alone", () => {
     const hostnameVariable: Readonly<Record<string, string>> = {
       "osn/api": "OSN_LOCAL_HOSTNAME",
       "pulse/api": "PULSE_LOCAL_HOSTNAME",
       "cire/api": "CIRE_LOCAL_HOSTNAME",
     };
-    const apis = appSpecs().filter((s) => s.dir.endsWith("/api"));
+    const apis = appSpecs().filter((s) => s.command === API_COMMAND);
     expect(apis.map((s) => s.name).toSorted()).toEqual([
       "cireApi",
       "cireApiKeyOnly",
@@ -85,9 +87,12 @@ describe("appSpecs", () => {
       const variable = hostnameVariable[spec.dir];
       expect(variable, `${spec.dir} has a hostname variable`).toBeDefined();
       expect(spec.env[variable ?? ""], `${spec.name} ${variable}`).toBe("127.0.0.1");
-      const local = readFileSync(join(REPO_ROOT, spec.dir, "src", "local.ts"), "utf8");
+      // Code only: a name left in a comment is no read. The `:` keeps a URL's `//`.
+      const code = readFileSync(join(REPO_ROOT, spec.dir, "src", "local.ts"), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
       expect(
-        local.includes(`process.env.${variable}`),
+        new RegExp(`\\bprocess\\.env\\.${variable}\\b`).test(code),
         `${spec.dir}/src/local.ts reads ${variable}`,
       ).toBe(true);
     }
