@@ -1,12 +1,14 @@
 import { DbLive } from "@osn/db/service";
 import { initObservability, PrettyLoggerLive } from "@shared/observability";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
 import { createInMemoryCoordination } from "./lib/coordination/memory";
 import { selectEmailLayer } from "./lib/email-layer";
+import { keepSentClientAddress, type RequestAddress } from "./lib/local-client-address";
 import { DELETION_SWEEP_DEFAULT_MAX_JOBS, deletionSweepMaxJobs } from "./services/account-erasure";
+import { frontendOrigin } from "./services/auth/helpers";
 import { runLocalSweeps } from "./services/sweeps";
 
 export { SERVICE_NAME };
@@ -93,6 +95,19 @@ export function startBunServer(
   const { observabilityLayer, jwtEphemeral, envNonLocal, trustedProxyCountUnconfigured } = built;
 
   app.listen({ port, reusePort: false });
+  // Only the E2E stack sets this, and only on a local server: the routes'
+  // per-address limiters then key on a `cf-connecting-ip` the request sends,
+  // so a flow can spend its own windows (`keepSentClientAddress`).
+  const keepSentAddress = process.env.OSN_E2E_CLIENT_ADDRESS === "1" && !envNonLocal;
+  if (keepSentAddress && app.server) {
+    const server = app.server;
+    // The socket peer, read through the server's own method as it stands
+    // before the swap below (a closure over `server.requestIP` would call the
+    // swapped one and never return).
+    const socketPeer = server.requestIP.bind(server);
+    const peer = (request: Request): RequestAddress => socketPeer(request);
+    server.requestIP = keepSentClientAddress(peer);
+  }
   void Effect.runPromise(
     Effect.gen(function* () {
       if (jwtEphemeral) {
@@ -106,6 +121,11 @@ export function startBunServer(
       if (envNonLocal && trustedProxyCountUnconfigured) {
         yield* Effect.logWarning(
           "TRUSTED_PROXY_COUNT is unset — rate limiting will key off the socket peer (direct mode). If @osn/api sits behind a reverse proxy / load balancer, set TRUSTED_PROXY_COUNT to the number of trusted hops so x-forwarded-for is honoured spoof-safely.",
+        );
+      }
+      if (keepSentAddress) {
+        yield* Effect.logWarning(
+          "OSN_E2E_CLIENT_ADDRESS=1: rate limits key on a sent cf-connecting-ip. For the E2E stack only.",
         );
       }
       yield* Effect.logInfo("osn-app listening");
@@ -126,15 +146,34 @@ export function startBunServer(
   // The apps the fan-out reaches come from the same settings the app was
   // built from (`buildAppDeps`), so the sweep and the routes agree.
   const maxJobs = deletionSweepMaxJobs(process.env.OSN_DELETION_FANOUT_MAX_JOBS);
+  // Where the hard delete's emails point, as the routes' own emails do.
+  const notices = {
+    appUrl: frontendOrigin(built.deps.authConfig),
+    instanceName: built.deps.authConfig.instanceName,
+  };
   // Each sweep's failure, a defect included, is logged and the next sweep
-  // still runs (`runLocalSweeps`).
+  // still runs (`runLocalSweeps`). The sweeps run on the app's runtime, built
+  // once at boot with the database, the email transport and observability:
+  // one connection for every pass. A tick that finds the last pass still
+  // running skips: two passes over one account would race each other.
+  const sweepRuntime =
+    built.deps.appRuntime ?? ManagedRuntime.make(Layer.merge(DbLive, observabilityLayer));
+  let sweeping = false;
   const runSweep = (): void => {
-    void Effect.runPromise(
-      runLocalSweeps(
-        built.deps.deletionApps,
-        maxJobs === "invalid" ? DELETION_SWEEP_DEFAULT_MAX_JOBS : maxJobs,
-      ).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)),
-    ).catch(() => undefined);
+    if (sweeping) return;
+    sweeping = true;
+    void sweepRuntime
+      .runPromise(
+        runLocalSweeps(
+          built.deps.deletionApps,
+          maxJobs === "invalid" ? DELETION_SWEEP_DEFAULT_MAX_JOBS : maxJobs,
+          notices,
+        ),
+      )
+      .catch(() => undefined)
+      .finally(() => {
+        sweeping = false;
+      });
   };
   setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
 }

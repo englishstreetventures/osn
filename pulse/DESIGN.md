@@ -128,6 +128,22 @@ Built on oklch for perceptual uniformity. Extends the base shadcn token system w
 
 Light and dark modes use **warm-tinted greys** (hue 60–80) instead of pure neutral. This gives the app warmth without explicit color.
 
+### Choice controls
+
+Radios, boxes and switches are `@shared/ui`'s, drawn on its one rule
+(`wiki/shared/component-library.md` §Choice controls). An unchosen one's
+edge is `--ui-choice-edge`, which pulse maps to `--subtle`, not `--input`:
+`--input` gave it 1.10–1.31:1 on pulse's grounds, so an unchosen circle on a
+dark card could not be seen. `--subtle` gives it 4.29:1 on a card and 4.11:1
+on the page in light, 4.38:1 and 4.84:1 in dark, and at least 3.82:1 on
+every ground. Text fields keep `--input`'s lighter edge.
+`tests/styles/design-token-contract.test.ts` holds it at 3:1 on every ground
+in both themes, with no waiver.
+
+*Measured 2026-11-17 — `checkContractConformance` from
+`@shared/design-tokens/conformance` over `src/app.css`, `--ui-choice-edge`
+against each ground and surface, light (`:root`) and dark (`.dark`).*
+
 ### Shadows
 
 Three tiers: `--shadow-sm`, `--shadow-md`, `--shadow-lg` — warm-tinted in light mode, deep black in dark mode.

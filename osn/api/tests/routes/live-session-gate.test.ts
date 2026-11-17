@@ -166,7 +166,7 @@ function makeApp(overrides: Partial<AuthConfig> = {}) {
   const appFor = (path: string) =>
     path === "/account/export"
       ? exporter
-      : path === "/account" || path === "/account/restore"
+      : path === "/account" || path === "/account/restore" || path === "/account/data-link"
         ? erasure
         : app;
   return { app, appFor, auth, db, svc, recorded: () => recorder.recorded() };
@@ -1412,6 +1412,10 @@ const GATED: readonly GatedCall[] = [
     }),
   },
   {
+    endpoint: "account_data_link",
+    prepare: async () => ({ path: "/account/data-link", ok: 202, served: { sent: true } }),
+  },
+  {
     endpoint: "security_event_ack",
     prepare: async (h, profile) => {
       const id = "sev_" + "a".repeat(12);
@@ -1629,6 +1633,7 @@ describe("every gated route, for a logged-out session's token", () => {
       account_delete: true,
       account_restore: true,
       account_export: true,
+      account_data_link: true,
       security_event_ack: true,
       security_event_ack_all: true,
       totp_disable: true,

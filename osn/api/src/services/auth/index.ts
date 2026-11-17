@@ -151,6 +151,9 @@ export function createAuthService(config: AuthConfig) {
     // production it is only invoked internally by the passkey add/remove
     // and cross-device-login flows.
     notifySecurityEventByAccountId: securityEvents.notifySecurityEventByAccountId,
+    // For a route that already holds the account's address: the account
+    // deletion's scheduled and cancelled notices.
+    notifySecurityEventTo: securityEvents.notifySecurityEventTo,
     beginStepUpPasskey: stepUp.beginStepUpPasskey,
     completeStepUpPasskey: stepUp.completeStepUpPasskey,
     // Step-up by a link to the account's own address. The link's page only

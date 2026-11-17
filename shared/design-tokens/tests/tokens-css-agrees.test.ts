@@ -144,6 +144,14 @@ describe("tokens.css agrees with the exported token list", () => {
     expect(CSS).toMatch(/@theme\s+inline\s*\{/);
   });
 
+  it("choice edge falls back to the control boundary", () => {
+    // An app that maps only `--ui-hairline-strong` must see its radios,
+    // boxes and switch tracks keep the edge its fields draw: a new role must
+    // not change the look of an app that never asked for it.
+    const declared = CSS.match(/--color-ui-choice-edge:\s*([^;]+);/)?.[1].trim();
+    expect(declared).toBe("var(--ui-choice-edge, var(--ui-hairline-strong, #a1a1aa))");
+  });
+
   it("field falls back through control, not past it", () => {
     // An app that maps only `--ui-radius-control` must see its text fields
     // follow its buttons, and a subtree that scopes only `control` must reach

@@ -4,7 +4,8 @@ import type { JSX } from "solid-js";
  * A button that reads as part of the sentence it ends — "Lost your passkey?"
  * in a sign-in error, "Try again" in a failed load. It keeps the line's ink
  * and is told apart by its underline, so the line stays one tone and the
- * action never relies on colour alone. Internal to this package.
+ * action never relies on colour alone. Exported as `@osn/auth-ui/InlineAction`,
+ * so a host app's own error lines end the same way.
  */
 export function InlineAction(props: { onClick: () => void; children: JSX.Element }) {
   return (

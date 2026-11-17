@@ -953,7 +953,6 @@ export function RsvpPanel(props: RsvpPanelProps) {
           <Checkbox
             box="native"
             size="sm"
-            align="start"
             checked={consent.checked()}
             onChange={consent.setChecked}
             disabled={locked()}
@@ -987,7 +986,6 @@ export function RsvpPanel(props: RsvpPanelProps) {
           <Checkbox
             box="native"
             size="sm"
-            align="start"
             checked={attestation.checked()}
             onChange={attestation.setChecked}
             disabled={locked()}

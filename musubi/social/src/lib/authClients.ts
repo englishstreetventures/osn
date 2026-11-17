@@ -1,4 +1,5 @@
 import {
+  createAccountClient,
   createConnectionsClient,
   createEmailLinkClient,
   createLoginClient,
@@ -28,3 +29,7 @@ export const stepUpClient = createStepUpClient(authenticated);
 export const connectionsClient = createConnectionsClient(authenticated);
 export const securityEventsClient = createSecurityEventsClient(authenticated);
 export const totpClient = createTotpClient(authenticated);
+// The data download, the emailed link to it, and the account's deletion and
+// its undo. The download, the status and the undo answer a pending-deletion
+// session too; the link, the deletion and its preview do not.
+export const accountClient = createAccountClient(authenticated);

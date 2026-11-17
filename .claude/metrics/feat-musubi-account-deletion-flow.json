@@ -1,0 +1,217 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "feat/musubi-account-deletion-flow",
+    "base_sha": "0ce0782a41d56ff6849fe74ec13a75769cac1264",
+    "head_sha": "6271392766e81c83fa53de0468ed469e270597f3",
+    "generated_at": "2026-11-16T13:32:42.769Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2336,
+    "type": null,
+    "labels": [
+      "complexity:8",
+      "complexity:unconfirmed",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 8,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-11-16T08:53:20.035Z",
+    "last_ts": "2026-11-16T13:32:34.954Z",
+    "span_seconds": 16755,
+    "active_seconds": 14691,
+    "compactions": 1
+  },
+  "spend": {
+    "usd_equivalent": 301.2440534,
+    "tokens": {
+      "input": 3292,
+      "output": 1348656,
+      "thinking": 541870,
+      "cache_write_5m": 10312225,
+      "cache_write_1h": 0,
+      "cache_read": 556741601
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 3292,
+          "output": 1348656,
+          "thinking": 541870,
+          "cache_write_5m": 10312225,
+          "cache_write_1h": 0,
+          "cache_read": 556741601
+        },
+        "usd_equivalent": 301.2440534,
+        "messages": 1595
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 3292,
+          "output": 1348656,
+          "thinking": 541870,
+          "cache_write_5m": 10312225,
+          "cache_write_1h": 0,
+          "cache_read": 556741601
+        },
+        "usd_equivalent": 301.2440534,
+        "messages": 1597
+      }
+    },
+    "effort": {
+      "high": 390,
+      "xhigh": 1205
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 5,
+      "test": 43,
+      "docs": 15,
+      "config": 2,
+      "source": 64
+    },
+    "loc": {
+      "generated": {
+        "added": 39,
+        "deleted": 0
+      },
+      "test": {
+        "added": 5134,
+        "deleted": 19
+      },
+      "docs": {
+        "added": 276,
+        "deleted": 48
+      },
+      "config": {
+        "added": 490,
+        "deleted": 0
+      },
+      "source": {
+        "added": 4162,
+        "deleted": 192
+      }
+    },
+    "packages": [
+      "cire/api",
+      "musubi/social",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "osn/db",
+      "shared/design-tokens",
+      "shared/email",
+      "shared/observability",
+      "shared/openapi",
+      "shared/ui",
+      "tools/e2e",
+      "tools/lab"
+    ],
+    "touches_migration": true,
+    "commits": 21
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 1342,
+      "Read": 199,
+      "Edit": 103,
+      "Write": 49,
+      "Skill": 30,
+      "SubagentHandback": 9,
+      "Agent": 8,
+      "ToolSearch": 4,
+      "SendMessage": 2,
+      "WebFetch": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 11,
+      "max_edits_one_file": 30
+    },
+    "skills": {
+      "new-feat": 3,
+      "stress-plan": 1,
+      "design-system": 2,
+      "write-wiki": 3,
+      "obsidian:obsidian-markdown": 3,
+      "emil-design-eng": 2,
+      "apple-design": 2,
+      "find-animation-opportunities": 2,
+      "animation-vocabulary": 1,
+      "animate": 1,
+      "web-design-guidelines": 2,
+      "review-tests": 1,
+      "review-state": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "review-design": 1,
+      "write-issue": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "designer": 2,
+      "reviewer": 5
+    },
+    "requests": {
+      "main": 0,
+      "subagent": 1595,
+      "with_tools": 1570,
+      "with_one_tool": 1447,
+      "context_median": 294045,
+      "context_p90": 750908
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 14,
+    "located": 13,
+    "acted_on": 11,
+    "paired": 13,
+    "acted_on_paired": 11,
+    "control_changed": 0,
+    "acted_on_by_test": 6,
+    "acted_on_paired_by_test": 6
+  }
+}

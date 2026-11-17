@@ -258,8 +258,8 @@ As built:
   name for `Input` at `size="sm"` with Save and Cancel. `RecoveryCodesView` draws no heading; its host gives it
   one. Its new codes sit in a well, `Card variant="muted" radius="md"
   padding="sm"`, two columns of `font-ui-mono`; the "I've saved these
-  codes" `Checkbox` is the drawn 16px box at `size="sm"`, in a row 44px tall
-  below `md` (`max-md:min-h-11`). `TotpView`'s enrolment step is a
+  codes" `Checkbox` is the drawn 16px box at `size="sm"`, a 44px target
+  below `md` (`touch`) on `@shared/ui`'s one rule for choice controls. `TotpView`'s enrolment step is a
   `rounded-ui-md` box with the hairline edge and 16px inside at `md` and up,
   and drops the edge and padding below `md`, so its code boxes take the
   panel's whole column on a phone (`musubi/social/DESIGN.md` §Responsive
@@ -399,7 +399,8 @@ besides the default:
 **Drawn by hand.** Besides those parts, the views draw these controls
 themselves:
 
-- `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
+- `InlineAction` (`src/InlineAction.tsx`, exported as `./InlineAction`, so
+  Musubi ends its own error lines with it): the button that ends an
   error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
   in a failed load, a settings list's or the verification challenge's. It keeps the line's ink and is underlined, so the action
   never relies on colour alone, and takes Button's focus ring (§9).

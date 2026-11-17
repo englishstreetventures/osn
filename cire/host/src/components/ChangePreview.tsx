@@ -224,7 +224,6 @@ export function LinkedTasksChoice(props: {
         <Checkbox
           box="native"
           size="sm"
-          align="start"
           checked={props.remove}
           onChange={props.onChange}
           label={`Also remove ${count() === 1 ? "this task" : `these ${count()} ${noun()}`} from the checklist`}

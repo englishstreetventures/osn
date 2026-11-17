@@ -41,6 +41,8 @@ const CIRE_COLOR = {
     "--ui-surface-sunk": "oklch(14.4% 0.022 148)",
     "--ui-hairline": "oklch(85% 0.06 145 / 0.11)",
     "--ui-hairline-strong": "oklch(85% 0.06 145 / 0.44)",
+    // cire maps no choice edge: it falls back to the boundary.
+    "--ui-choice-edge": "oklch(85% 0.06 145 / 0.44)",
     "--ui-ink": "oklch(94.6% 0.011 90)",
     "--ui-ink-secondary": "oklch(94.6% 0.011 90 / 0.58)",
     "--ui-ink-tertiary": "oklch(94.6% 0.011 90 / 0.4)",
@@ -64,6 +66,8 @@ const CIRE_COLOR = {
     "--ui-surface-sunk": "oklch(85.8% 0.013 92)",
     "--ui-hairline": "oklch(44% 0.022 340 / 0.18)",
     "--ui-hairline-strong": "oklch(44% 0.022 340 / 0.74)",
+    // cire maps no choice edge: it falls back to the boundary.
+    "--ui-choice-edge": "oklch(44% 0.022 340 / 0.74)",
     "--ui-ink": "oklch(27% 0.018 340)",
     "--ui-ink-secondary": "oklch(44% 0.022 340)",
     "--ui-ink-tertiary": "oklch(44% 0.022 340 / 0.74)",

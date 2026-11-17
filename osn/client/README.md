@@ -27,13 +27,13 @@ takes an access token (the step-up gated ones take a `stepUpToken`).
 | `createPasskeysClient` | `passkeys.ts` | `PasskeysError` | list, rename, delete and add passkeys |
 | `createTotpClient` | `totp.ts` | `TotpError` | add, remove and read the authenticator app |
 | `createRecoveryClient` | `recovery.ts` | `RecoveryError` | recovery codes, sign-in by recovery code, emailed code or authenticator app, and undoing a recovery the owner did not start (`disown`) |
-| `createAccountClient` | `account.ts` | `AccountError` | change the email; delete the account, cancel the deletion or read its state |
+| `createAccountClient` | `account.ts` | `AccountError` | change the email; read what deleting the account would leave open (`getAccountDeletionPreview`), delete it (`deleteAccount`, whose refusals that name something to look at again are an `AccountDeletionRefusedError`), cancel the deletion or read its state; download the account's data (`exportAccount`) or mail the account a link to its download page (`sendDataLink`) |
 | `createSessionsClient` | `sessions.ts` | `SessionsError` | list and revoke signed-in sessions |
 | `createSecurityEventsClient` | `security-events.ts` | `SecurityEventsError` | list and acknowledge security events |
 | `createConnectionsClient` | `connections.ts` | `ConnectionsError` | list and revoke the apps the account has authorised |
 | `createAuthorizeClient` | `authorize.ts` | `AuthorizeError` | the OIDC consent screen: read the request, post the answer |
 | `createGraphClient` | `graph.ts` | `GraphClientError` | connections, requests and blocks between profiles |
-| `createOrgClient` | `organisations.ts` | `OrgClientError` | organisations and their members |
+| `createOrgClient` | `organisations.ts` | `OrgClientError` | organisations and their members; hand back one received by succession (`declineOwnership`) |
 | `createRecommendationClient` | `recommendations.ts` | `RecommendationClientError` | suggested connections and search |
 
 A client that sends through `authFetch` lets a rejection about the session
@@ -48,8 +48,13 @@ A client that sends through `authFetch` lets a rejection about the session
   auth runtime: a `ManagedRuntime` over a single `OsnAuthService`. Its
   `authFetch` sends the active profile's access token and renews it before
   it expires and on a 401, naming the active profile in the grant;
-  `onSessionChange` tells listeners when it ended the session or reset the
-  active profile. Build it once per page.
+  `onSessionChange` tells listeners when it ended the session, reset the
+  active profile, or renewed onto the other audience (`pending-deletion`).
+  A 401 answered to a token of an account whose deletion is pending, after a
+  renewal that minted one too, reaches the caller and ends nothing: that
+  session reaches only the deletion status, the download and the restore
+  (`isPendingDeletionToken(accessToken)` reads the audience). Build it once
+  per page.
 - `OsnAuthService` (via `createOsnAuthLive`) — the Effect-based service
   behind the runtime: the persisted account, the single-flight `/token`
   grant, `authFetch`, and profile management
@@ -72,7 +77,11 @@ A client that sends through `authFetch` lets a rejection about the session
 
 - `<AuthProvider auth={runtime}>` + `useAuth()` — `session`, `logout`,
   `adoptSession`, `authFetch`, and the profile management methods. It
-  signs itself out when the runtime ends the session.
+  signs itself out when the runtime ends the session. `pendingDeletion()`
+  says the session belongs to an account whose deletion is pending (it then
+  lists no profiles); `renewSession({ pending? })` renews the token now, after
+  a deletion is asked for or cancelled, and with `pending: true` reads as
+  pending at once, and stays so if the renewal fails.
 - `profiles` never throws when read. A list that fails to load keeps the
   last list it had (null before the first) and sets `profilesError`, which
   goes to `describeAuthError`; `refetchProfiles()` tries again. Losing the

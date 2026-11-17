@@ -44,6 +44,27 @@ describe("design-token contract", () => {
     expect(failures.map((f) => `[${f.scope}] ${f.fg} on ${f.bg} — ${f.reason}`)).toEqual([]);
   });
 
+  it("holds an unchosen choice's edge at 3:1 on every ground, in both themes, with no waiver", () => {
+    // A radio, box or switch track at rest has only its edge to say it is
+    // there (WCAG 1.4.11). The full check above waives `--ui-hairline-strong`,
+    // and an unmapped `--ui-choice-edge` is drawn as it, so the waiver would
+    // hide an edge nobody can see. This pair has none.
+    const grounds = [
+      "--ui-ground",
+      "--ui-ground-deep",
+      "--ui-surface",
+      "--ui-surface-raised",
+      "--ui-surface-sunk",
+    ];
+    const failures = checkContractConformance({
+      css: CSS,
+      scopes: SCOPES,
+      pairs: grounds.map((bg) => ({ fg: "--ui-choice-edge", bg, min: 3 })),
+    });
+    expect(failures.map((f) => `[${f.scope}] ${f.fg} on ${f.bg} — ${f.reason}`)).toEqual([]);
+    expect(CSS).toMatch(/--ui-choice-edge:\s*var\(--subtle\)/);
+  });
+
   it("sends the coral to nothing — `--ui-accent` is the neutral `--primary`", () => {
     // Pulse has two accents. The contract has one, and it means "the ground of
     // a primary button", which here is the near-black. Mapping the coral would

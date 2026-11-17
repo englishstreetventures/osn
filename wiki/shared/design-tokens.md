@@ -101,7 +101,7 @@ which name a new package, token or identifier takes.
 | Grounds  | `ground`, `ground-deep`                                             |
 | Scrim    | `scrim`                                                             |
 | Surfaces | `surface`, `surface-raised`, `surface-sunk`                         |
-| Edges    | `hairline`, `hairline-strong`                                       |
+| Edges    | `hairline`, `hairline-strong`, `choice-edge`                        |
 | Ink      | `ink`, `ink-secondary`, `ink-tertiary`                              |
 | Accent   | `accent`, `accent-strong`, `accent-soft`, `accent-ink`, `on-accent` |
 | Status   | `success`, `warn`, `danger`, `on-danger`                            |
@@ -496,13 +496,28 @@ cire apps each declare `@source "../../../ui/src"` for it in their own global
 CSS. A path to it in the shared contract would instead make musubi and pulse
 scan cire's components on every build.
 
+`choice-edge` is the edge of a drawn choice at rest, unchosen: `@shared/ui`'s
+radio circle, checkbox box, switch track and unticked native box. It owes
+3:1, as `hairline-strong` does, and falls back to it, so an app that maps only
+the boundary draws its choices as it draws its fields. Musubi and pulse map it
+apart (each to its own `--subtle`), since their field edge is lighter than a
+choice's may be: a field has a label above it and words inside it, while an
+unchosen circle has only its edge (`musubi/social/DESIGN.md` §Choices,
+`pulse/DESIGN.md` §Choice controls). Both apps waive `hairline-strong`, so
+each contract test holds `choice-edge` at 3:1 on every ground in a case of its
+own, with no waiver. Cire's apps map neither and need not: their
+`hairline-strong` clears 3:1 unwaived, and the guest site's is walked to 3:1
+on every surface of every palette (`@cire/theme`'s `derivePalette`).
+
 ## The conformance harness
 
 `@shared/design-tokens` exports `contrastPairs()` and
 `assertContractConformance()`. Every app calls it from its own suite: the
 harness resolves the app's mapping and checks each foreground/background pair
 against WCAG 2.2 — 4.5:1 for text (SC 1.4.3), 3:1 for non-text and focus
-indicators (SC 1.4.11).
+indicators (SC 1.4.11). A token an app need not map (`COLOR_FALLBACKS`:
+`--ui-choice-edge`) is measured, unmapped, as the token it falls back to,
+under that token's waiver.
 
 This is not ceremony. Deriving the first four mappings surfaced **13 pre-existing
 contrast defects**, including cire's primary button at 2.42:1 with a light label

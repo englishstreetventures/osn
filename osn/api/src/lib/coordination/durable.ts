@@ -303,6 +303,7 @@ export function createDurableCoordination(
     accountDelete: named(OSN_RATE_LIMITS.accountDelete),
     accountRestore: named(OSN_RATE_LIMITS.accountRestore),
     accountDeletionStatus: named(OSN_RATE_LIMITS.accountDeletionStatus),
+    accountDataLink: named(OSN_RATE_LIMITS.accountDataLink),
   };
 
   const recoveryLockout = { threshold: RECOVERY_LOCKOUT_THRESHOLD, lockoutMs: RECOVERY_LOCKOUT_MS };

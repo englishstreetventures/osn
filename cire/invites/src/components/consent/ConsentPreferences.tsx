@@ -119,7 +119,6 @@ function SwitchRow(props: {
     <div class="border-border/60 bg-surface-raised/40 rounded-sm border px-4 py-3.5">
       <Checkbox
         box="native"
-        align="start"
         checked={props.checked}
         onChange={props.onChange}
         label={props.title}

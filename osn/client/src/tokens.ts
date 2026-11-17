@@ -162,9 +162,18 @@ export const decodeDeleteProfileResponse = Schema.decodeUnknownOption(DeleteProf
 /** The claims this package reads from a JWT, unverified and untyped until checked. */
 interface JwtClaims {
   readonly sub?: unknown;
+  readonly aud?: unknown;
   readonly iat?: unknown;
   readonly exp?: unknown;
 }
+
+/**
+ * The audience osn-api gives the access tokens of an account whose deletion
+ * is pending. Mirrors `PENDING_DELETION_TOKEN_AUDIENCE` in `@osn/api`
+ * (`src/services/auth/constants.ts`); `tests/pending-deletion-session.test.ts`
+ * reads it from tokens the way osn-api writes them.
+ */
+const PENDING_DELETION_AUDIENCE = "osn-pending-deletion";
 
 /** Decode a JWT's payload without cryptographic verification; null when it will not decode. */
 function decodeJwtPayload(jwt: string): JwtClaims | null {
@@ -184,6 +193,21 @@ function decodeJwtPayload(jwt: string): JwtClaims | null {
 export function extractJwtSub(jwt: string): string | null {
   const sub = decodeJwtPayload(jwt)?.sub;
   return typeof sub === "string" ? sub : null;
+}
+
+/**
+ * Whether an access token belongs to an account whose deletion is pending:
+ * its `aud` is `osn-pending-deletion`. Such a session reaches only the
+ * deletion status, the data download and the restore; every other route
+ * answers it 401 without the session having ended. Read without
+ * verification: the issuer decides what the token reaches, and this only
+ * decides what the page shows.
+ */
+export function isPendingDeletionToken(jwt: string): boolean {
+  const aud = decodeJwtPayload(jwt)?.aud;
+  return Array.isArray(aud)
+    ? aud.includes(PENDING_DELETION_AUDIENCE)
+    : aud === PENDING_DELETION_AUDIENCE;
 }
 
 /**

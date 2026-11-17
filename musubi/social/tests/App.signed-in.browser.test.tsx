@@ -38,6 +38,7 @@ vi.mock("@osn/client/solid", async () => {
     session: resource({ accessToken: "not-a-jwt", expiresAt: Date.now() + 300_000 }),
     profiles: resource(profiles),
     activeProfileId: () => "usr_alice",
+    pendingDeletion: () => false,
     login: () => undefined,
     logout: () => Promise.resolve(),
     handleCallback: () => Promise.resolve(),

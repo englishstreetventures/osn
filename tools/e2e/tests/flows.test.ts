@@ -221,6 +221,24 @@ describe("flow sources", () => {
     expect(local).toContain("localClientAddress(");
   });
 
+  // `musubi-account-deletion` reaches osn-api from its own address
+  // (`callOsnApiFrom`), so its sign-ins, step-ups and profile lists leave the
+  // suite's windows to the other Musubi flows, which run inside one minute and
+  // between them come close to `/profiles/list`'s ten. That holds only while
+  // the stack's osn-api keeps the address a request sends; what keeping it
+  // does is tested beside the function, in
+  // osn/api/tests/lib/local-client-address.test.ts.
+  test("the stack's osn-api keeps the client address a request sends", () => {
+    const osnApi = appSpecs().find((spec) => spec.name === "osnApi");
+    expect(osnApi?.env?.OSN_E2E_CLIENT_ADDRESS).toBe("1");
+    const local = readFileSync(
+      join(import.meta.dirname, "..", "..", "..", "osn", "api", "src", "local.ts"),
+      "utf8",
+    );
+    expect(local).toContain('process.env.OSN_E2E_CLIENT_ADDRESS === "1"');
+    expect(local).toContain("keepSentClientAddress(");
+  });
+
   // `musubi-passkey` moves the page clock to a second before the step-up's
   // deadline, then past it, by its own copy of `STEP_UP_DEADLINE_MS`. With a
   // copy above the client's, Cancel comes back before the "a second before"

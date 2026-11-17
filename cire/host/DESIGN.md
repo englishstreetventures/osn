@@ -476,8 +476,9 @@ box (by default the parts draw pulse's own). Its label is body ink — a consent
 statement too, which reads more easily than the secondary ink did — at
 `text-ui-sm`, or `text-ui-base` where the row is a form's own line (the
 checklist starter, the gift list's visibility and "Let guests give money"),
-8px from the box, at prose leading; a label that wraps takes `align="start"`,
-the box on its first line. Radios sit 16px apart in a row, so each reads with
+8px from the box, at prose leading, the box on its first line whatever the
+label's length (`@shared/ui`'s one rule, `wiki/shared/component-library.md`
+§Choice controls). Radios sit 16px apart in a row, so each reads with
 its own word, and 8px apart in a column (the owner's choice). A line under a
 box that says what ticking does is the box's `description`, inside the label
 in the secondary ink; a line about the box that holds a link — the notice an

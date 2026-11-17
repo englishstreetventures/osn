@@ -309,9 +309,11 @@ export const accountDeletionStatusResponse = t.Union([
  * deletion); an action with no choices is shown for information only.
  * `default_choice` is what happens with no answer, and null on an action with
  * choices means the deletion waits for one. `link` is where the person can
- * deal with it in the app. `organisation` and `successor` come with an
- * organisation only: `successor` is the member it passes to with no successor
- * named, null when no one from another account is a member.
+ * deal with it in the app. `organisation`, `successor` and `candidates` come
+ * with an organisation only: `successor` is the member it passes to with no
+ * successor named, null when no one from another account is a member;
+ * `candidates` are the members a `successor` answer may name, in succession
+ * order, at most 50.
  */
 export const accountDeletionOpenAction = t.Object({
   id: t.String(),
@@ -338,6 +340,16 @@ export const accountDeletionOpenAction = t.Object({
       }),
       t.Null(),
     ]),
+  ),
+  candidates: t.Optional(
+    t.Array(
+      t.Object({
+        profile_id: t.String(),
+        handle: t.String(),
+        display_name: t.Union([t.String(), t.Null()]),
+        role: t.Union([t.Literal("admin"), t.Literal("member")]),
+      }),
+    ),
   ),
 });
 

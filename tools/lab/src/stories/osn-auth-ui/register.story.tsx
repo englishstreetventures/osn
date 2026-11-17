@@ -35,6 +35,8 @@ function signedOut(): AuthValue {
     profilesError: () => undefined,
     refetchProfiles: () => never(),
     activeProfileId: () => null,
+    pendingDeletion: () => false,
+    renewSession: () => never(),
     logout: () => never(),
     adoptSession: () => never(),
     refreshHeldSession: () => never(),

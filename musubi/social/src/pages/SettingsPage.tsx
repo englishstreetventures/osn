@@ -1,13 +1,15 @@
 import { ProfileOnboarding } from "@osn/auth-ui/ProfileOnboarding";
 import { useAuth } from "@osn/client/solid";
+import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Button } from "@shared/ui/ui/button";
+import { buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
-import { useLocation, useNavigate } from "@solidjs/router";
+import { A, useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
+import { AccountDataActions } from "../components/AccountDataActions";
 import { AppRowsLoading } from "../components/AppRowsLoading";
 import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SectionTabs } from "../components/SectionTabs";
@@ -169,15 +171,31 @@ export function SettingsPage() {
               <Input value={claims().profileId ?? ""} disabled face="code" />
             </div>
 
-            <div class="border-border border-t pt-4">
-              <h3 class="text-foreground text-title font-medium">Danger zone</h3>
-              <p class="text-muted-foreground text-meta mt-1 mb-3">
-                Account deletion is permanent and cannot be undone.
+            <section aria-labelledby="settings-your-data" class="border-t pt-4">
+              <h3 id="settings-your-data" class="text-foreground text-title font-medium">
+                Your data
+              </h3>
+              <p class="text-muted-foreground text-body mt-1 mb-3">
+                Download a copy of your account's data, or we email you a link to download it later.
+                The email carries the link, not your data.
               </p>
-              <Button variant="ghostDanger" size="sm" disabled>
-                Delete account (coming soon)
-              </Button>
-            </div>
+              <AccountDataActions />
+            </section>
+
+            <section aria-labelledby="settings-danger-zone" class="border-t pt-4">
+              <h3 id="settings-danger-zone" class="text-foreground text-title font-medium">
+                Danger zone
+              </h3>
+              <p class="text-muted-foreground text-body mt-1 mb-3">
+                Delete your account, its profiles and handles. You have 7 days to change your mind.
+              </p>
+              <A
+                href="/settings/delete-account"
+                class={clsx(buttonVariants({ variant: "ghostDanger", size: "sm" }), "max-md:h-10")}
+              >
+                Delete account…
+              </A>
+            </section>
           </Card>
         </Show>
 

@@ -1,5 +1,6 @@
 import { clsx } from "clsx";
 import {
+  children,
   createContext,
   createUniqueId,
   onMount,
@@ -11,13 +12,20 @@ import {
 } from "solid-js";
 
 import {
+  DESCRIPTION,
+  DRAWN_FADE,
+  DRAWN_FOCUS,
+  DRAWN_HOVER,
+  DRAWN_ROW,
   DRAWN_TEXT,
   FIRST_LINE,
+  idList,
   NATIVE_RADIO,
   NATIVE_ROW,
   NATIVE_TEXT,
-  ROW_ALIGN,
-  type ChoiceAlign,
+  present,
+  TOUCH_PULL,
+  TOUCH_ROW,
   type ChoiceBox,
   type ChoiceSize,
 } from "./choice";
@@ -48,6 +56,12 @@ type RadioGroupProps = Omit<SafeProps<"div">, "onChange"> & {
    * class would otherwise announce the wrong one.
    */
   orientation?: RadioOrientation;
+  /**
+   * Below `md`, every radio a 44px target: each row padded to it, the rows
+   * abutting, and the group pulled in by the same amount, so it sits where it
+   * would without and its options stay evenly apart whatever their length.
+   */
+  touch?: boolean;
 };
 
 type RadioContextValue = {
@@ -57,26 +71,24 @@ type RadioContextValue = {
   disabled: () => boolean;
   box: () => ChoiceBox;
   size: () => ChoiceSize;
+  touch: () => boolean;
 };
 
 const RadioContext = createContext<RadioContextValue>();
 
 /**
- * Root gap and direction. Native: 16px between radios in a row, twice the
- * box-to-label gap so each radio reads with its own word, and 8px in a column.
- * Drawn keeps pulse's 8px either way. A column lays each radio out at its own
- * width, so only the radio and its words answer a click, as a `Checkbox` does.
+ * Root gap and direction, either box: 16px between radios in a row, twice the
+ * radio-to-words gap so each radio reads with its own words, and 8px in a
+ * column. A column lays each radio out at its own width, so only the radio and
+ * its words answer a click, as a `Checkbox` does. With `touch`, below `md`, the
+ * rows' own padding spaces them, so they abut.
  */
 const ROOT = {
-  native: {
-    horizontal: "base:flex base:flex-wrap base:gap-x-4 base:gap-y-2",
-    vertical: "base:flex base:flex-col base:items-start base:gap-2",
-  },
-  drawn: {
-    horizontal: "base:flex base:gap-2 base:text-ui-base",
-    vertical: "base:flex base:flex-col base:items-start base:gap-2 base:text-ui-base",
-  },
-} satisfies Readonly<Record<ChoiceBox, Readonly<Record<RadioOrientation, string>>>>;
+  horizontal: "base:flex base:flex-wrap base:gap-x-4 base:gap-y-2",
+  vertical: "base:flex base:flex-col base:items-start base:gap-2",
+} satisfies Readonly<Record<RadioOrientation, string>>;
+
+const ROOT_TOUCH = `max-md:base:gap-y-0 ${TOUCH_PULL}`;
 
 /**
  * One choice among several, collected into a form.
@@ -96,6 +108,7 @@ const RadioGroup: Component<RadioGroupProps> = (props) => {
     "box",
     "size",
     "orientation",
+    "touch",
     "children",
   ]);
   const fallbackName = createUniqueId();
@@ -131,12 +144,19 @@ const RadioGroup: Component<RadioGroupProps> = (props) => {
         disabled: () => local.disabled === true,
         box: () => local.box ?? "drawn",
         size: () => local.size ?? "md",
+        touch: () => local.touch === true,
       }}
     >
       <div
         ref={root}
         role="radiogroup"
-        class={clsx(ROOT[local.box ?? "drawn"][local.orientation ?? "horizontal"], local.class)}
+        class={clsx(
+          ROOT[local.orientation ?? "horizontal"],
+          // The rows' own step and leading, so the pull-in's `lh` is a row's line.
+          DRAWN_TEXT[local.size ?? "md"],
+          local.touch && ROOT_TOUCH,
+          local.class,
+        )}
         {...others}
       >
         {local.children}
@@ -150,9 +170,11 @@ type RadioGroupItemProps = Omit<SafeProps<"label">, "children"> & {
   /** The words beside the radio, inside its `<label>`. JSX, so a second line or
    *  a link is the caller's to put here. */
   label: JSX.Element;
+  /** A line under the words, inside the label: what choosing this does. The
+   *  radio is then named by `label` alone and described by this. */
+  description?: JSX.Element;
   disabled?: boolean;
-  /** {@link ChoiceAlign}. `center` by default; `start` for a label that wraps. */
-  align?: ChoiceAlign;
+  /** Joined with the description's id, never replaced by it. */
   "aria-describedby"?: string;
 };
 
@@ -161,28 +183,32 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
     "class",
     "value",
     "label",
+    "description",
     "disabled",
-    "align",
     "aria-describedby",
   ]);
   const group = useContext(RadioContext);
   if (!group) throw new Error("RadioGroupItem renders inside a RadioGroup");
+  const titleId = createUniqueId();
+  const descriptionId = createUniqueId();
+  const description = children(() => local.description);
+  const hasDescription = () => present(description());
   const chosen = () => group.value() === local.value;
   const off = () => local.disabled === true || group.disabled();
   const native = () => group.box() === "native";
-  const align = () => local.align ?? "center";
   const flag = (on: boolean) => (on ? "" : undefined);
 
   const input = (
     <input
       type="radio"
-      // `peer` marks the drawn circle's focus ring; it is not a utility.
+      // `peer` marks the drawn circle's focus outline; it is not a utility.
       class={native() ? NATIVE_RADIO : "peer base:sr-only"}
       name={group.name()}
       value={local.value}
       checked={chosen()}
       disabled={off()}
-      aria-describedby={local["aria-describedby"]}
+      aria-labelledby={hasDescription() ? titleId : undefined}
+      aria-describedby={idList(local["aria-describedby"], hasDescription() && descriptionId)}
       onClick={(event) => {
         // A click on the label reaches the input without focusing it in every
         // engine; focus it, so the arrow keys carry on from here.
@@ -192,19 +218,25 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
     />
   );
 
-  // The dot is drawn only while chosen, as Kobalte's indicator was. A contrast
-  // theme would repaint it in the circle's own colour, so there it keeps the
-  // theme's text colour (its `currentColor`); and focus, whose ring is a shadow the theme drops,
-  // draws an outline.
+  // The dot is drawn only while chosen, as Kobalte's indicator was: an 8px
+  // disc in the circle's one grid cell, so it is centred by layout, not by
+  // arithmetic, and 3px of ground ring it inside the edge. A contrast theme
+  // would repaint it in the circle's own colour, so there it keeps the theme's
+  // text colour (its `currentColor`).
   const circle = (
     <span
       aria-hidden="true"
       data-checked={flag(chosen())}
       data-disabled={flag(off())}
-      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:peer-focus-visible:ring-ui-focus base:aspect-square base:h-4 base:w-4 base:rounded-ui-pill base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
+      class={clsx(
+        "base:border-ui-choice-edge base:bg-ui-ground base:data-[checked]:border-ui-accent base:grid base:size-4 base:shrink-0 base:place-items-center base:rounded-ui-pill base:border base:data-[disabled]:opacity-50",
+        DRAWN_FADE,
+        DRAWN_HOVER,
+        DRAWN_FOCUS,
+      )}
     >
       <Show when={chosen()}>
-        <span class="base:after:bg-ui-accent base:flex base:items-center base:justify-center base:after:block base:after:h-2.5 base:after:w-2.5 base:after:rounded-full base:forced-colors:after:forced-color-adjust-none base:forced-colors:after:bg-current" />
+        <span class="base:bg-ui-accent base:size-2 base:rounded-full base:forced-colors:forced-color-adjust-none base:forced-colors:bg-current" />
       </Show>
     </span>
   );
@@ -215,24 +247,29 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
   return (
     <label
       class={clsx(
-        native()
-          ? NATIVE_ROW
-          : "base:flex base:cursor-pointer base:gap-1 base:data-[disabled]:cursor-not-allowed",
-        // The type is the row's, so the first-line box and the words share one line.
-        native() ? NATIVE_TEXT[group.size()] : DRAWN_TEXT[align()][group.size()],
-        ROW_ALIGN[align()],
+        native() ? NATIVE_ROW : DRAWN_ROW,
+        // The type is the row's, so the first-line slot and the words share one line.
+        native() ? NATIVE_TEXT[group.size()] : DRAWN_TEXT[group.size()],
+        group.touch() && TOUCH_ROW,
         local.class,
       )}
       data-disabled={flag(off())}
       {...others}
     >
-      <Show when={align() === "start"} fallback={box()}>
-        <span class={FIRST_LINE}>{box()}</span>
-      </Show>
-      <span class={native() ? "base:min-w-0" : undefined}>{local.label}</span>
+      <span class={FIRST_LINE}>{box()}</span>
+      <span class="base:min-w-0">
+        <Show when={hasDescription()} fallback={local.label}>
+          <span id={titleId} class="base:block">
+            {local.label}
+          </span>
+          <span id={descriptionId} class={DESCRIPTION}>
+            {description()}
+          </span>
+        </Show>
+      </span>
     </label>
   );
 };
 
 export { RadioGroup, RadioGroupItem };
-export type { RadioGroupProps, RadioGroupItemProps, ChoiceAlign, ChoiceBox, ChoiceSize };
+export type { RadioGroupProps, RadioGroupItemProps, ChoiceBox, ChoiceSize };

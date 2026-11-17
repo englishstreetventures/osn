@@ -239,7 +239,19 @@ export function createApp(deps: AppDeps) {
     // `maxAge` is in seconds. A waiting sign-up tab polls the same URL every few
     // seconds; a cached preflight halves its requests. A narrowed allow-list
     // reaches a browser within ten minutes.
-    .use(cors({ origin: corsOrigins, credentials: true, maxAge: 600 }))
+    //
+    // `exposeHeaders` names every response header an app reads across the
+    // origin: the export's file name (`@osn/client`'s `exportAccount`) and a
+    // refused grant's `Retry-After` (`@osn/client`'s renewal pause). The
+    // plugin's default exposes only the names of the request's headers.
+    .use(
+      cors({
+        origin: corsOrigins,
+        credentials: true,
+        maxAge: 600,
+        exposeHeaders: ["Content-Disposition", "Retry-After"],
+      }),
+    )
     .onBeforeHandle(originGuard);
 
   // The per-request observability plugin is gated behind a deps flag: the Bun
@@ -341,7 +353,7 @@ export function createApp(deps: AppDeps) {
     .use(
       createOrganisationRoutes(
         sharedAuthConfig,
-        DbLive,
+        dbAndEmailLayer,
         observabilityLayer,
         orgRateLimiter,
         appRuntime,

@@ -556,7 +556,6 @@ function CheckboxStates(props: { box: ChoiceBox }) {
       <Checkbox
         box={props.box}
         size="sm"
-        align="start"
         class="max-w-72"
         checked={remove()}
         onChange={setRemove}
@@ -572,7 +571,6 @@ function CheckboxStates(props: { box: ChoiceBox }) {
       />
       <Checkbox
         box={props.box}
-        align="start"
         checked={maps()}
         onChange={setMaps}
         label="Google Maps"
@@ -589,7 +587,6 @@ function CheckboxStates(props: { box: ChoiceBox }) {
       <Checkbox
         box={props.box}
         size="sm"
-        align="start"
         checked={attest()}
         onChange={setAttest}
         label="I confirm the plus-one consented to their dietary requirements being stored and shared with the caterers."
@@ -608,10 +605,10 @@ function CheckboxStates(props: { box: ChoiceBox }) {
 
 /**
  * `Checkbox`, every state: checked, unchecked, disabled both ways, named only
- * by `aria-label`, a two-line label holding a link (`align="start"`, the box on
- * its first line), a `description` inside the label, and a `note` under it,
- * outside the label. The drawn box under the lab's mapping, as pulse draws it;
- * the native box under cire's, light and dark.
+ * by `aria-label`, a two-line label holding a link (the box on its first line,
+ * as always), a `description` inside the label, and a `note` under it,
+ * outside the label. The drawn box under the lab's mapping, as Musubi and
+ * pulse draw it; the native box under cire's, light and dark.
  */
 export const CheckboxBoxes = () => (
   <div class="flex flex-wrap items-start gap-6">
@@ -630,6 +627,7 @@ export const CheckboxBoxes = () => (
 function RadioStates(props: { box: ChoiceBox }) {
   const [scope, setScope] = createSignal("every");
   const [shown, setShown] = createSignal("guests");
+  const [owner, setOwner] = createSignal("successor");
   return (
     <div class="flex flex-col gap-5">
       <div class="flex flex-col gap-2">
@@ -667,15 +665,41 @@ function RadioStates(props: { box: ChoiceBox }) {
           <RadioGroupItem value="b" label="Not chosen" />
         </RadioGroup>
       </div>
+      <div class="flex max-w-72 flex-col gap-2">
+        <span class="text-ui-xs text-ui-ink-secondary">
+          Column, touch: long words and a description; 44px rows below md
+        </span>
+        <RadioGroup
+          box={props.box}
+          size="sm"
+          orientation="vertical"
+          touch
+          value={owner()}
+          onChange={setOwner}
+          aria-label="Who owns the club"
+        >
+          <RadioGroupItem value="transfer" label="@bobwhite becomes the owner." />
+          <RadioGroupItem
+            value="successor"
+            label="The member you name becomes the owner, once they accept."
+            description="They get an email to accept."
+          />
+          <RadioGroupItem
+            value="delete"
+            label="The organisation and its memberships are deleted when your account is."
+          />
+        </RadioGroup>
+      </div>
     </div>
   );
 }
 
 /**
- * `RadioGroup`, every state: a row (16px apart in the native box, 8px in the
- * drawn) with one radio disabled, a column (8px apart), and a whole group
- * disabled. The drawn circle under the lab's mapping; the native radio under
- * cire's, light and dark.
+ * `RadioGroup`, every state: a row (16px apart) with one radio disabled, a
+ * column (8px apart), a whole group disabled, and a `touch` column of long
+ * labels, one with a `description`: each circle on its words' first line, the
+ * options evenly apart. The drawn circle under the lab's mapping; the native
+ * radio under cire's, light and dark.
  */
 export const RadioBoxes = () => (
   <div class="flex flex-wrap items-start gap-6">

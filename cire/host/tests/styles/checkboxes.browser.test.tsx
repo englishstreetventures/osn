@@ -277,7 +277,6 @@ describe("@shared/ui's Checkbox and RadioGroup with box=native", () => {
         <Checkbox
           box="native"
           size="sm"
-          align="start"
           checked={false}
           label="I confirm each guest agreed to get emails about this wedding."
           description="They can stop them at any time."

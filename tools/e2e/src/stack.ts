@@ -170,6 +170,14 @@ export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
         CIRE_API_URL: ORIGINS.cireApi,
         CIRE_INTERNAL_REVOKE_SECRET,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
+        // `musubi-account-deletion` moves its deletion job past its window
+        // and waits for the sweeps (`osn/api/src/local.ts`): every 2 s here,
+        // not 6 h. A pass finds nothing to do unless a job is due, and no
+        // other flow writes one.
+        OSN_DELETION_SWEEPER_INTERVAL_MS: "2000",
+        // Keeps the client address a request sends, so `musubi-account-deletion`
+        // (`callOsnApiFrom`) spends its own limiter windows.
+        OSN_E2E_CLIENT_ADDRESS: "1",
       },
     },
     {

@@ -1,8 +1,13 @@
 import { Effect } from "effect";
 import { createRoot } from "solid-js";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AuthExpiredError, ProfileManagementError, StorageError } from "../../src/errors";
+import {
+  ActiveProfileResetError,
+  AuthExpiredError,
+  ProfileManagementError,
+  StorageError,
+} from "../../src/errors";
 import type { OsnAuthRuntime, SessionChange } from "../../src/runtime";
 import { OsnAuth, type OsnAuthService } from "../../src/service";
 import { AuthProvider, useAuth } from "../../src/solid/context";
@@ -461,4 +466,202 @@ it("adopting a session over another lists the profiles again", async () => {
   expect(listProfiles.mock.calls.length - before).toBe(1);
   expect(auth().profiles()).toEqual([alice, bob]);
   dispose();
+});
+
+/** An unsigned JWT on audience `aud`: the provider reads it without verifying. */
+const tokenOn = (aud: string) => {
+  const enc = (o: object) =>
+    btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${enc({ alg: "none" })}.${enc({ sub: DEFAULT, aud })}.sig`;
+};
+
+/**
+ * A session of an account whose deletion is pending reaches only the deletion
+ * status, the download and the restore: the provider says so, and lists no
+ * profiles, whose route would refuse it.
+ */
+it("a pending-deletion session lists no profiles, and the provider follows a change of audience", async () => {
+  const listeners = new Set<(change: SessionChange) => void>();
+  let aud = "osn-access";
+  const listProfiles = vi.fn(() => Effect.succeed([]));
+  const service = {
+    loadSession: () =>
+      Effect.sync(() => ({
+        accessToken: tokenOn(aud),
+        idToken: null,
+        expiresAt: Date.now() + 60_000,
+        scopes: [],
+      })),
+    listProfiles,
+    getActiveProfile: () => Effect.succeed(DEFAULT),
+  } as unknown as OsnAuthService;
+  const runtime: OsnAuthRuntime = {
+    authFetch: vi.fn(),
+    run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+    onSessionChange: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().pendingDeletion()).toBe(false);
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+
+  // Another tab asked for the deletion: a renewal here brought a pending token.
+  aud = "osn-pending-deletion";
+  for (const listener of listeners) listener({ kind: "pending-deletion", pending: true });
+  await settle();
+
+  expect(auth().pendingDeletion()).toBe(true);
+  expect(auth().profiles()).toBeNull();
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+
+  // Kept: the next renewal is ordinary again, and the list comes back.
+  aud = "osn-access";
+  for (const listener of listeners) listener({ kind: "pending-deletion", pending: false });
+  await settle();
+
+  expect(auth().pendingDeletion()).toBe(false);
+  expect(listProfiles).toHaveBeenCalledTimes(2);
+  dispose();
+});
+
+/**
+ * `renewSession` after a deletion is asked for: the page reads as pending
+ * before the renewal answers, so nothing the shell would send goes out; a
+ * pending account renews to its default profile, which is not a failure; and
+ * a renewal that fails leaves the page as its token says, not as pending.
+ */
+describe("renewSession", () => {
+  /** A provider whose service renews by `refresh` and loads `token()` as its session. */
+  function renewing(refresh: () => Effect.Effect<unknown, unknown>, token: () => string) {
+    const service = {
+      loadSession: () =>
+        Effect.sync(() => ({
+          accessToken: token(),
+          idToken: null,
+          expiresAt: Date.now() + 60_000,
+          scopes: [],
+        })),
+      refreshSession: refresh,
+      listProfiles: () => Effect.succeed([]),
+      getActiveProfile: () => Effect.succeed(DEFAULT),
+    } as unknown as OsnAuthService;
+    const runtime: OsnAuthRuntime = {
+      authFetch: vi.fn(),
+      run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+      onSessionChange: () => () => undefined,
+    };
+    return mount(runtime);
+  }
+
+  it("reads as pending while the renewal is still out", async () => {
+    let answer!: () => void;
+    const out = new Promise<void>((resolve) => (answer = resolve));
+    let aud = "osn-access";
+    const { auth, dispose } = renewing(
+      () => Effect.promise(() => out),
+      () => tokenOn(aud),
+    );
+    await settle();
+    expect(auth().pendingDeletion()).toBe(false);
+
+    const renewal = auth().renewSession({ pending: true });
+    expect(auth().pendingDeletion()).toBe(true);
+
+    aud = "osn-pending-deletion";
+    answer();
+    await renewal;
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("resolves when a pending account renews to its default profile", async () => {
+    let aud = "osn-access";
+    const { auth, dispose } = renewing(
+      () =>
+        Effect.suspend(() => {
+          aud = "osn-pending-deletion";
+          return Effect.fail(
+            new ActiveProfileResetError({ profileId: DEFAULT, message: "reset to default" }),
+          );
+        }),
+      () => tokenOn(aud),
+    );
+    await settle();
+
+    await auth().renewSession({ pending: true });
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("after a deletion, stays pending when the renewal fails: the deletion stands", async () => {
+    // Red on a page that puts the shell back, on a session it can no longer
+    // serve, the moment a renewal fails after the deletion was scheduled.
+    const { auth, dispose } = renewing(
+      () => Effect.fail(new StorageError({ cause: "PLANTED" })),
+      () => tokenOn("osn-access"),
+    );
+    await settle();
+
+    await expect(auth().renewSession({ pending: true })).rejects.toBeDefined();
+    expect(auth().pendingDeletion()).toBe(true);
+    dispose();
+  });
+
+  it("lists no profiles while the renewal that brought a pending token lands", async () => {
+    // Red on clearing the page's "pending soon" mark when the runtime says
+    // the audience changed, before the session refetch holds the new token:
+    // for that moment the old token reads as ordinary, the shell's profile
+    // list goes out on the pending session, and `/profiles/list` refuses it.
+    const listeners = new Set<(change: SessionChange) => void>();
+    let aud = "osn-access";
+    const listProfiles = vi.fn(() => Effect.succeed([]));
+    const service = {
+      loadSession: () =>
+        Effect.sync(() => ({
+          accessToken: tokenOn(aud),
+          idToken: null,
+          expiresAt: Date.now() + 60_000,
+          scopes: [],
+        })),
+      refreshSession: () =>
+        Effect.sync(() => {
+          aud = "osn-pending-deletion";
+          for (const listener of listeners) listener({ kind: "pending-deletion", pending: true });
+        }),
+      listProfiles,
+      getActiveProfile: () => Effect.succeed(DEFAULT),
+    } as unknown as OsnAuthService;
+    const runtime: OsnAuthRuntime = {
+      authFetch: vi.fn(),
+      run: (effect) => Effect.runPromise(Effect.provideService(effect, OsnAuth, service)),
+      onSessionChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const { auth, dispose } = mount(runtime);
+    await settle();
+    expect(listProfiles).toHaveBeenCalledTimes(1);
+
+    await auth().renewSession({ pending: true });
+    await settle();
+    expect(auth().pendingDeletion()).toBe(true);
+    expect(listProfiles).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it("otherwise rejects, and the page reads as its token says", async () => {
+    const { auth, dispose } = renewing(
+      () => Effect.fail(new StorageError({ cause: "PLANTED" })),
+      () => tokenOn("osn-access"),
+    );
+    await settle();
+
+    await expect(auth().renewSession()).rejects.toBeDefined();
+    expect(auth().pendingDeletion()).toBe(false);
+    dispose();
+  });
 });

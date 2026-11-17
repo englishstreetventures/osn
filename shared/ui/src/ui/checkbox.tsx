@@ -11,6 +11,10 @@ import {
 
 import {
   DESCRIPTION,
+  DRAWN_FADE,
+  DRAWN_FOCUS,
+  DRAWN_HOVER,
+  DRAWN_ROW,
   DRAWN_TEXT,
   FIRST_LINE,
   idList,
@@ -19,9 +23,9 @@ import {
   NATIVE_TEXT,
   NOTE_INDENT,
   present,
-  ROW_ALIGN,
+  TOUCH_PULL,
+  TOUCH_ROW,
   WRAP,
-  type ChoiceAlign,
   type ChoiceBox,
   type ChoiceSize,
 } from "./choice";
@@ -47,8 +51,12 @@ type CheckboxProps = Omit<SafeProps<"div">, "onChange" | "children"> & {
   box?: ChoiceBox;
   /** {@link ChoiceSize} — the label's type step. `md` by default. */
   size?: ChoiceSize;
-  /** {@link ChoiceAlign}. `center` by default; `start` for a label that wraps. */
-  align?: ChoiceAlign;
+  /**
+   * Below `md`, the row a 44px target: padded to it above and below, and
+   * pulled back by the same amount, so it sits where it would without and only
+   * what answers a tap grows.
+   */
+  touch?: boolean;
   name?: string;
   value?: string;
   /** The input's own id, for a `<label for>` elsewhere. */
@@ -81,7 +89,7 @@ type CheckboxProps = Omit<SafeProps<"div">, "onChange" | "children"> & {
 const Checkbox: Component<CheckboxProps> = (props) => {
   const [local, field, others] = splitProps(
     props,
-    ["class", "checked", "onChange", "label", "description", "note", "box", "size", "align"],
+    ["class", "checked", "onChange", "label", "description", "note", "box", "size", "touch"],
     [
       "name",
       "value",
@@ -103,7 +111,7 @@ const Checkbox: Component<CheckboxProps> = (props) => {
   const hasNote = () => present(note());
   const native = () => local.box === "native";
   const size = () => local.size ?? "md";
-  const align = () => local.align ?? "center";
+  const hasWords = () => local.label !== undefined || hasDescription();
   const flag = (on: boolean | undefined) => (on ? "" : undefined);
 
   let input!: HTMLInputElement;
@@ -119,7 +127,7 @@ const Checkbox: Component<CheckboxProps> = (props) => {
     <input
       ref={input}
       type="checkbox"
-      // `peer` marks the drawn box's focus ring; it is not a utility.
+      // `peer` marks the drawn box's focus outline; it is not a utility.
       class={native() ? NATIVE_CHECKBOX : "peer base:sr-only"}
       checked={local.checked}
       name={field.name}
@@ -153,30 +161,32 @@ const Checkbox: Component<CheckboxProps> = (props) => {
     />
   );
 
-  // The tick is drawn only while ticked, as Kobalte's indicator was. A contrast
-  // theme drops the ring, a shadow, so focus there draws an outline instead.
+  // The tick is drawn only while ticked, as Kobalte's indicator was.
   const drawnBox = (
     <span
       aria-hidden="true"
       data-checked={flag(local.checked)}
       data-disabled={flag(field.disabled)}
-      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:peer-focus-visible:ring-ui-focus base:h-4 base:w-4 base:shrink-0 base:rounded-ui-sm base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
+      class={clsx(
+        "base:border-ui-choice-edge base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:data-[checked]:border-ui-accent base:grid base:size-4 base:shrink-0 base:place-items-center base:rounded-ui-sm base:border base:data-[disabled]:opacity-50",
+        DRAWN_FADE,
+        DRAWN_HOVER,
+        DRAWN_FOCUS,
+      )}
     >
       <Show when={local.checked}>
-        <span class="base:flex base:items-center base:justify-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="3"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="base:h-3 base:w-3"
-          >
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-        </span>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="base:h-3 base:w-3"
+        >
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
       </Show>
     </span>
   );
@@ -187,19 +197,20 @@ const Checkbox: Component<CheckboxProps> = (props) => {
   return (
     <div class={clsx(WRAP, local.class)} {...others}>
       <label
-        // The type is the row's, so the first-line box and the words share one
-        // line height.
-        class={
-          native()
-            ? clsx(NATIVE_ROW, NATIVE_TEXT[size()], ROW_ALIGN[align()])
-            : clsx("base:flex base:gap-2", DRAWN_TEXT[align()][size()], ROW_ALIGN[align()])
-        }
+        // The type is the row's, so the first-line slot and the words share
+        // one line height.
+        class={clsx(
+          native() ? NATIVE_ROW : DRAWN_ROW,
+          native() ? NATIVE_TEXT[size()] : DRAWN_TEXT[size()],
+          local.touch && [TOUCH_ROW, TOUCH_PULL],
+        )}
       >
-        <Show when={align() === "start"} fallback={box()}>
+        {/* A box with no words beside it, as in a table cell, is the row. */}
+        <Show when={hasWords()} fallback={box()}>
           <span class={FIRST_LINE}>{box()}</span>
         </Show>
-        <Show when={local.label !== undefined || hasDescription()}>
-          <span class={native() ? "base:min-w-0" : undefined}>
+        <Show when={hasWords()}>
+          <span class="base:min-w-0">
             <Show when={hasDescription()} fallback={local.label}>
               <span id={titleId} class="base:block">
                 {local.label}
@@ -221,4 +232,4 @@ const Checkbox: Component<CheckboxProps> = (props) => {
 };
 
 export { Checkbox };
-export type { CheckboxProps, ChoiceAlign, ChoiceBox, ChoiceSize };
+export type { CheckboxProps, ChoiceBox, ChoiceSize };

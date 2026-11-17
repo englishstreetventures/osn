@@ -124,3 +124,101 @@ describe("the cron's deletion sweeps on D1", () => {
     expect(marked?.cire).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The cron hands the hard delete its email transport and where its links
+ * point: the account-deleted email reaches the provider, and an
+ * organisation's heir is mailed a link on the app's first `OSN_ORIGIN`. A
+ * transport that cannot be built never holds up an erasure.
+ */
+describe("the cron's hard delete mails, on D1", () => {
+  /** A stand-in for Resend's `/emails` and `/emails/batch`, keeping what it was sent. */
+  function mailStandIn() {
+    const sent: Array<{ to: string[]; subject: string; text: string }> = [];
+    const keep = (payload: { to?: string | string[]; subject?: string; text?: string }) =>
+      sent.push({
+        to: typeof payload.to === "string" ? [payload.to] : [...(payload.to ?? [])],
+        subject: payload.subject ?? "",
+        text: payload.text ?? "",
+      });
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const path = new URL(request.url).pathname;
+        if (path === "/emails") {
+          keep((await request.json()) as Parameters<typeof keep>[0]);
+          return Response.json({ id: `mail-${sent.length}` });
+        }
+        if (path === "/emails/batch") {
+          const batch = (await request.json()) as Array<Parameters<typeof keep>[0]>;
+          return Response.json({
+            data: batch.map((m) => (keep(m), { id: `mail-${sent.length}` })),
+          });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    return { sent, url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+  }
+
+  /** `acc_<name>`'s profile owns `org_<name>`, whose other member, from `acc_<name>_heir`, is an admin. */
+  async function ownsOrganisationWithHeir(name: string): Promise<void> {
+    await d1.batch([
+      d1
+        .prepare(
+          `INSERT INTO users (id, account_id, handle, is_default, created_at, updated_at) VALUES (?1, ?2, ?3, 1, 0, 0)`,
+        )
+        .bind(`usr_${name}`, `acc_${name}`, `deleted_${name}`),
+      d1
+        .prepare(
+          `INSERT INTO accounts (id, email, passkey_user_id, created_at, updated_at) VALUES (?1, ?2, ?3, 0, 0)`,
+        )
+        .bind(`acc_${name}_heir`, `${name}.heir@example.com`, `pku_${name}_heir`),
+      d1
+        .prepare(
+          `INSERT INTO users (id, account_id, handle, is_default, created_at, updated_at) VALUES (?1, ?2, ?3, 1, 0, 0)`,
+        )
+        .bind(`usr_${name}_heir`, `acc_${name}_heir`, `${name}_heir`),
+      d1
+        .prepare(
+          `INSERT INTO organisations (id, handle, name, owner_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 0, 0)`,
+        )
+        .bind(`org_${name}`, `${name}org`, `Org ${name}`, `usr_${name}`),
+      d1
+        .prepare(
+          `INSERT INTO organisation_members (id, organisation_id, profile_id, role, created_at) VALUES (?1, ?2, ?3, 'admin', 1)`,
+        )
+        .bind(`orgm_${name}_heir`, `org_${name}`, `usr_${name}_heir`),
+    ]);
+  }
+
+  it("mails the account's old address and the heir, with the heir's link on the app's origin", async () => {
+    const mail = mailStandIn();
+    try {
+      await dueAccount("mailed", true);
+      await ownsOrganisationWithHeir("mailed");
+      await runCron({
+        RESEND_API_KEY: "re_test",
+        RESEND_API_URL: mail.url,
+        OSN_EMAIL_FROM: "Acme <no-reply@example.test>",
+        OSN_ORIGIN: "https://app.example.test,https://other.example.test",
+      });
+      expect(await accountsLeft()).toBe(1);
+      const deleted = mail.sent.filter((m) => m.to.includes("mailed@example.com"));
+      expect(deleted.map((m) => m.subject)).toEqual(["Your Musubi account has been deleted"]);
+      const heir = mail.sent.filter((m) => m.to.includes("mailed.heir@example.com"));
+      expect(heir).toHaveLength(1);
+      expect(heir[0]!.text).toContain("https://app.example.test/organisations/mailedorg?decline=1");
+    } finally {
+      mail.stop();
+    }
+  });
+
+  it("erases the account when the email transport cannot be built", async () => {
+    await dueAccount("nomail", true);
+    // Not a loopback origin: building the transport refuses it.
+    await runCron({ RESEND_API_KEY: "re_test", RESEND_API_URL: "https://mail.example.test" });
+    expect(await accountsLeft()).toBe(0);
+  });
+});

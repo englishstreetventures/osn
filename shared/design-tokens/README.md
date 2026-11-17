@@ -75,6 +75,7 @@ token or identifier takes.
 | Surfaces  | `--ui-surface`, `--ui-surface-raised`, `--ui-surface-sunk` | also grounds, for contrast                      |
 | Edges     | `--ui-hairline`                                              | decoration, **no floor**                        |
 |           | `--ui-hairline-strong`                                       | 3:1                                             |
+|           | `--ui-choice-edge`                                           | 3:1 — falls back to `--ui-hairline-strong`      |
 | Ink       | `--ui-ink`, `--ui-ink-secondary`                            | 4.5:1 against every ground and surface          |
 |           | `--ui-ink-tertiary`                                          | 3:1 — large text, ornament, disabled only       |
 | Accent    | `--ui-accent`, `--ui-accent-strong`                         | fills; what sits on them is what is measured    |

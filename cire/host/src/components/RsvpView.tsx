@@ -1491,7 +1491,6 @@ export default function RsvpView(props: RsvpViewProps) {
           <Checkbox
             box="native"
             size="sm"
-            align="start"
             checked={formConsent()}
             onChange={setFormConsent}
             disabled={saving()}

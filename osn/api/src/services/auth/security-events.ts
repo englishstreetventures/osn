@@ -31,6 +31,8 @@ import type { SecurityEventSummary } from "./types";
  * an OTP template and mail a code.
  */
 type SecurityNoticeTemplate =
+  | "account-deletion-scheduled"
+  | "account-deletion-cancelled"
   | "passkey-added"
   | "passkey-removed"
   | "totp-enrolled"
@@ -105,7 +107,7 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
         catch: (cause) => new DatabaseError({ cause }),
       });
       const seen = new Set(page.map((row) => row.id));
-      const rows = [...page, ...heldRows.filter((row) => !seen.has(row.id))].sort(
+      const rows = [...page, ...heldRows.filter((row) => !seen.has(row.id))].toSorted(
         (a, b) => b.createdAt - a.createdAt,
       );
       return {

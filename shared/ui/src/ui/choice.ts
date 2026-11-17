@@ -1,18 +1,27 @@
 /**
- * What `Checkbox` and `RadioGroupItem` share: the two ways their box is drawn,
- * the label's two type steps, and the row's layout.
+ * What `Checkbox`, `RadioGroupItem` and `Switch` share: the two ways a box is
+ * drawn, the label's two type steps, and the one rule for a row
+ * (`wiki/shared/component-library.md` §Choice controls).
+ *
+ * ## One row
+ *
+ * The control sits on its words' first line, whatever their length, 8px from
+ * them, and the words are set at prose leading. `touch` makes the row a 44px
+ * target below `md` without moving anything (`TOUCH_ROW`).
  *
  * ## Two boxes
  *
  * `drawn` paints its own box beside a visually hidden input: 16px, the small
  * corner, the ground for a fill, the accent and a tick (or a dot) when chosen,
- * and a ring from the input's `:focus-visible`. Pulse draws its forms this way.
+ * and the house focus outline from the input's `:focus-visible`. Musubi and
+ * pulse draw their forms this way.
  *
  * `native` is the browser's own input, visible. Ticked, it is the browser's
  * box — the platform's blue and tick, which reads as a form control. Unticked,
  * this module draws it so it sits on its surface rather than standing out as a
- * white square: no fill, the strong hairline for an edge, 2px corners (a radio
- * round), the secondary ink for the edge under the pointer, 40% when disabled.
+ * white square: no fill, the choice edge (`--ui-choice-edge`) for an edge, 2px
+ * corners (a radio round), the secondary ink for the edge under the pointer,
+ * 40% when disabled.
  * Both states keep the native box's 13px, so ticking moves nothing. Cire draws
  * every checkbox and radio this way, and its apps draw any bare native box
  * with the same values in a base-layer rule (`cire/host/DESIGN.md` §4,
@@ -30,12 +39,6 @@ export type ChoiceBox = "drawn" | "native";
 export type ChoiceSize = "sm" | "md";
 
 /**
- * Where the box sits beside a label that wraps: `center` on the whole label,
- * `start` on its first line. One line of label reads the same either way.
- */
-export type ChoiceAlign = "center" | "start";
-
-/**
  * The native box, either kind. The unticked look is gated on `not-checked:`,
  * so a ticked box is left entirely to the browser (`appearance: auto`).
  *
@@ -46,7 +49,7 @@ export type ChoiceAlign = "center" | "start";
 const NATIVE_BOX =
   "base:m-0 base:size-[13px] base:shrink-0 base:cursor-pointer base:disabled:cursor-not-allowed " +
   "base:not-checked:appearance-none base:not-checked:border " +
-  "base:not-checked:border-ui-hairline-strong base:not-checked:bg-transparent " +
+  "base:not-checked:border-ui-choice-edge base:not-checked:bg-transparent " +
   "base:not-checked:enabled:hover:border-ui-ink-secondary " +
   "base:not-checked:disabled:opacity-40 " +
   "base:transition-[border-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] " +
@@ -63,40 +66,75 @@ export const NATIVE_TEXT = {
 } satisfies Readonly<Record<ChoiceSize, string>>;
 
 /**
- * The drawn label: pulse's, which takes the ink of whatever it sits in. Beside
- * a centred box it sits at leading 1, pulse's one-line look. A label set to
- * wrap (`align="start"`) takes prose leading, so its second line reads and the
- * first-line slot ({@link FIRST_LINE}) is tall enough for the 16px box.
+ * The drawn label, which takes the ink of whatever it sits in, at prose
+ * leading: a second line reads, and the first-line slot ({@link FIRST_LINE})
+ * is tall enough for the 16px box. A radio group sets it on itself too, so a
+ * length in `lh` on the group is one of its rows' lines ({@link TOUCH_PULL}).
  */
 export const DRAWN_TEXT = {
-  center: {
-    sm: "base:text-ui-sm base:leading-none",
-    md: "base:text-ui-base base:leading-none",
-  },
-  start: {
-    sm: "base:text-ui-sm base:leading-ui-normal",
-    md: "base:text-ui-base base:leading-ui-normal",
-  },
-} satisfies Readonly<Record<ChoiceAlign, Readonly<Record<ChoiceSize, string>>>>;
+  sm: "base:text-ui-sm base:leading-ui-normal",
+  md: "base:text-ui-base base:leading-ui-normal",
+} satisfies Readonly<Record<ChoiceSize, string>>;
 
 /**
  * A native row: the label is the whole hit area, so it says so under the
  * pointer, and says otherwise when its input is disabled.
  */
 export const NATIVE_ROW =
-  "base:flex base:gap-2 base:cursor-pointer base:has-disabled:cursor-not-allowed";
-
-/** Box against the label's middle, or against its first line. */
-export const ROW_ALIGN = {
-  center: "base:items-center",
-  start: "base:items-start",
-} satisfies Readonly<Record<ChoiceAlign, string>>;
+  "base:flex base:items-start base:gap-2 base:cursor-pointer base:has-disabled:cursor-not-allowed";
 
 /**
- * For `align="start"`: a box one line of the label tall that centres the
- * input, so the box sits on the first line whatever the label's size.
+ * A slot one line of the label tall that centres the control in it, so the
+ * control sits on the first line whatever the label's size or length. The row
+ * aligns its items to the start, so the slot is the first line.
  */
 export const FIRST_LINE = "base:flex base:h-lh base:shrink-0 base:items-center";
+
+/**
+ * The drawn row: the words beside the slot, 8px off, the row the whole hit
+ * area. `group/choice` is a marker for the drawn box's hover edge, not a
+ * utility.
+ */
+export const DRAWN_ROW =
+  "group/choice base:flex base:items-start base:gap-2 base:cursor-pointer base:has-disabled:cursor-not-allowed";
+
+/**
+ * `touch`: below `md`, a row padded above and below by half of what one line
+ * of its words falls short of 44px, so a one-line row is a 44px target and a
+ * longer one grows by its lines. `lh` is the row's own line, so the padding
+ * is right at either type step.
+ */
+export const TOUCH_ROW = "max-md:base:py-[max(0px,calc((var(--spacing)*11_-_1lh)/2))]";
+
+/**
+ * The same amount taken back outside, so a `touch` row or group sits where it
+ * would without `touch` and only its hit area grows. On a group it pulls in
+ * the first row's top and the last row's bottom; its rows abut, so one
+ * option's target ends where the next begins and none overlap.
+ */
+export const TOUCH_PULL = "max-md:base:-my-[max(0px,calc((var(--spacing)*11_-_1lh)/2))]";
+
+/**
+ * The drawn box, circle and track's focus: the house outline, 2px of
+ * `--ui-focus` 2px off, drawn from the hidden input's `:focus-visible`. An
+ * outline, so a contrast theme keeps it, and it arrives at once: the
+ * transition below fades colours, never the outline.
+ */
+export const DRAWN_FOCUS =
+  "base:peer-focus-visible:outline-2 base:peer-focus-visible:outline-offset-2 base:peer-focus-visible:outline-ui-focus";
+
+/**
+ * The drawn box's fade: its fill and edge, on Tailwind's default duration and
+ * curve (each cire app sets the curve to its own), and not the outline.
+ */
+export const DRAWN_FADE = "base:transition-[color,background-color,border-color]";
+
+/**
+ * The drawn box's resting edge under the pointer: the secondary ink while the
+ * row is hovered, unless the box is chosen or disabled, as the native box's.
+ */
+export const DRAWN_HOVER =
+  "base:group-hover/choice:not-data-[checked]:not-data-[disabled]:border-ui-ink-secondary";
 
 /**
  * A description inside the label, under it: what the choice does, in the

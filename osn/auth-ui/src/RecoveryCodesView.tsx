@@ -376,7 +376,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           </div>
           <Checkbox
             size="sm"
-            class="max-md:min-h-11 max-md:justify-center"
+            touch
             checked={acknowledged()}
             onChange={setAcknowledged}
             label="I've saved these codes somewhere safe."

@@ -463,8 +463,12 @@ test("musubi-org-detail", async ({ page, flow }) => {
   flow.check("no stale roster refusal while the roster loads", 0, staleRefusals);
 
   await flow.step("delete the organisation", async () => {
-    page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Delete", exact: true }).click();
+    // The app's own dialog asks first, and its Delete commits.
+    await page
+      .getByRole("dialog", { name: "Delete this organisation?" })
+      .getByRole("button", { name: "Delete", exact: true })
+      .click();
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations`);
   });
   flow.check(

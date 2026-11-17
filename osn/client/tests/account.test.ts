@@ -84,7 +84,11 @@ describe("createAccountClient", () => {
     fetchMock.mockResolvedValue(ok({ error: "open_actions", open_actions: [] }, 409));
     await expect(
       client.deleteAccount({ confirmHandle: "alice", stepUpToken: "eyJtok" }),
-    ).rejects.toMatchObject({ name: "AccountError", status: 409, code: "open_actions" });
+    ).rejects.toMatchObject({
+      name: "AccountDeletionRefusedError",
+      status: 409,
+      code: "open_actions",
+    });
   });
 
   it("cancelAccountDeletion's 403 carries step_up_required", async () => {

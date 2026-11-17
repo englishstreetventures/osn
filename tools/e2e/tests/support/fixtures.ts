@@ -8,9 +8,10 @@
  * stack does not run (`standInForCireHub`), and, in a flow that asks for it,
  * for Cloudflare Turnstile (`standInForTurnstile`); and it collects every
  * Content-Security-Policy message a page logs. Flows touch the stack only through
- * the browser, the API request context and the read-only helpers here. The one
- * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
- * not part of the stack.
+ * the browser, the API request context and the read-only helpers here, with two
+ * exceptions: `refuseNextMailTo` writes to the mail stand-in, which is not part
+ * of the stack, and `writeRow` writes one row to a stack database, for a state
+ * no route or clock reaches.
  */
 
 import { createHmac } from "node:crypto";
@@ -587,7 +588,9 @@ export function queryOne<T>(
 
 /**
  * Writes to a stack database, for a state the browser cannot reach: a race the
- * servers refuse from any page. Waits out the server's own write lock.
+ * servers refuse from any page, or a deadline the suite's real-time clock does
+ * not reach (`musubi-account-deletion` moves its deletion job past its window).
+ * Waits out the server's own write lock, and throws unless one row changed.
  */
 export function writeRow(dbPath: string, sql: string, ...params: Array<string | number>): void {
   const db = new DatabaseSync(dbPath);
@@ -624,6 +627,24 @@ export async function claimFromOrganiserAddress(context: BrowserContext): Promis
       headers: { ...(await request.allHeaders()), "cf-connecting-ip": ORGANISER_ADDRESS },
     });
   });
+}
+
+/**
+ * Sends every osn-api request `context` makes from `address` rather than from
+ * the machine the suite runs on, as `claimFromOrganiserAddress` does for
+ * cire-api's claims: the stack's osn-api keeps a sent `cf-connecting-ip`
+ * (`OSN_E2E_CLIENT_ADDRESS`), so the context's sign-ins, step-ups and profile
+ * lists spend that address's limiter windows, not the suite's. The headers are
+ * the request's own (`allHeaders`, which keeps `Origin` for CORS) plus the
+ * address. The route stays for the rest of the flow, for the reason
+ * `claimFromOrganiserAddress` gives.
+ */
+export async function callOsnApiFrom(context: BrowserContext, address: string): Promise<void> {
+  await context.route(`${ORIGINS.osnApi}/**`, async (route: Route) =>
+    route.continue({
+      headers: { ...(await route.request().allHeaders()), "cf-connecting-ip": address },
+    }),
+  );
 }
 
 /**

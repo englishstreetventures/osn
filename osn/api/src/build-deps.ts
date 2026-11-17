@@ -31,6 +31,19 @@ import { deletionAppsConfig } from "./services/deletion-apps";
 export const SERVICE_NAME = "osn-api";
 
 /**
+ * The identity instance's name, as its emails and passkey prompts say it.
+ * Hard-coded until englishstreetventures/osn#1549 lands.
+ */
+export const INSTANCE_NAME = "Musubi";
+
+/** The app origins `OSN_ORIGIN` lists, comma-separated: the WebAuthn origins, the first of them the app. */
+export const appOrigins = (env: { readonly OSN_ORIGIN?: string }): string[] =>
+  (env.OSN_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+
+/**
  * Every secret + var this composition root reads, named. Nothing else on the
  * caller's env is touched, so both entries can hand their whole env over: the
  * Bun dev path passes `process.env`; the Cloudflare Workers `fetch`/`scheduled`
@@ -459,17 +472,13 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
 
   const totpEncryptionKeys = createTotpKeyRing(totpEncryptionKey, totpPreviousEncryptionKey);
 
-  // Hard-coded until englishstreetventures/osn#1549 lands.
-  const instanceName = "Musubi";
+  const instanceName = INSTANCE_NAME;
 
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
     rpName: env.OSN_RP_NAME || instanceName,
     instanceName,
-    origin: (env.OSN_ORIGIN || "http://localhost:5173")
-      .split(",")
-      .map((o) => o.trim())
-      .filter((o) => o.length > 0),
+    origin: appOrigins(env),
     issuerUrl,
     jwtPrivateKey,
     jwtPublicKey,

@@ -79,6 +79,17 @@ export const CIRE_GIFT_LIST = {
 export const ORGANISER_ADDRESS = "192.0.2.10";
 
 /**
+ * The client address `musubi-account-deletion` reaches osn-api from
+ * (TEST-NET-1, never routed). Every osn-api limiter that keys on the client
+ * address — `/profiles/list` takes ten a minute — is shared by the whole run
+ * from the suite's own address, and the Musubi flows run inside one minute:
+ * this flow's sign-ins, step-ups and profile lists spend their own windows.
+ * The stack's osn-api keeps a `cf-connecting-ip` the request sends
+ * (`OSN_E2E_CLIENT_ADDRESS`, `keepSentClientAddress` in osn/api).
+ */
+export const ACCOUNT_DELETION_ADDRESS = "192.0.2.11";
+
+/**
  * The fixed ports `PORTLESS=0` uses. Written out rather than imported because
  * Playwright loads this file under Node, which cannot run a workspace package's
  * TypeScript; `tests/config.test.ts` holds them equal to `DEV_APPS` in
@@ -595,6 +606,55 @@ export const RECOVERY_PERSON = {
   name: "Recover E2E",
   // base64url of "e2e lost phone credential".
   lostPasskey: { id: "pk_e2e_lost", credentialId: "ZTJlIGxvc3QgcGhvbmUgY3JlZGVudGlhbA" },
+} as const;
+
+/**
+ * The account `musubi-account-deletion` deletes, keeps and deletes again. Rows
+ * `seedOsn` writes: the account, its one profile, an open Pulse enrolment (as
+ * Pulse's onboarding writes one) and one live session, whose raw token the
+ * flow puts in its browser's cookie jar, as a sign-in would, so it spends none
+ * of the run's sign-up or sign-in windows; and an organisation it owns, with an
+ * heir who also holds a seeded session. Its token is readable on purpose:
+ * it is a fixture of a local stack, like `DEV_LOGIN_SECRET`, and grants
+ * nothing anywhere else. cire's `wed_e2e_leaver` (`seedE2eOrganiser` in
+ * `cire/api/src/db/setup.ts`) has this profile as its only owner.
+ */
+export const DELETION_PERSON = {
+  accountId: "acc_e2e_leaver",
+  profileId: "usr_e2e_leaver",
+  email: "leaver@e2e.test",
+  passkeyUserId: "pku_e2e_leaver",
+  handle: "e2e_leaver",
+  name: "Leaver E2E",
+  enrolmentId: "aenr_e2e_leaver_pulse",
+  session: {
+    token: "e2e-deletion-person-session",
+    familyId: "sfam_e2e_leaver",
+  },
+  wedding: { id: "wed_e2e_leaver", name: "Leaver Wedding", seatId: "whost_e2e_leaver_owner" },
+  /**
+   * An organisation the person owns. `heir`, an admin from another account,
+   * receives it at the hard delete and declines it from the email's link,
+   * signed in through its own seeded session; it then passes to `member`.
+   */
+  organisation: { id: "org_e2e_leaver", handle: "e2e_leaver_org", name: "Leaver Org E2E" },
+  heir: {
+    accountId: "acc_e2e_heir",
+    profileId: "usr_e2e_heir",
+    email: "heir@e2e.test",
+    passkeyUserId: "pku_e2e_heir",
+    handle: "e2e_heir",
+    name: "Heir E2E",
+    session: { token: "e2e-deletion-heir-session", familyId: "sfam_e2e_heir" },
+  },
+  member: {
+    accountId: "acc_e2e_next",
+    profileId: "usr_e2e_next",
+    email: "next@e2e.test",
+    passkeyUserId: "pku_e2e_next",
+    handle: "e2e_next",
+    name: "Next E2E",
+  },
 } as const;
 
 /**

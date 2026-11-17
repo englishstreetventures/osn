@@ -1205,8 +1205,12 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * `wed_e2e_enquiries`, on Crimson, and the two upgrade weddings, on Ivory, plus
  * three with no seat whose guests open an envelope (`seedE2eEnvelope`). The dev
  * profile, which osn-api's `/dev/login` signs in as, owns every seated one but
- * `wed_e2e_rs_helper`, where it is a helper:
+ * `wed_e2e_rs_helper`, where it is a helper, and `wed_e2e_leaver`:
  *
+ * - `wed_e2e_leaver`: owned by `usr_e2e_leaver` alone, the profile of the
+ *   account the account-deletion flow deletes (`DELETION_PERSON` in
+ *   `tools/e2e/src/config.ts`), so its deletion preview lists the wedding and
+ *   its erasure deletes it.
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
  * - `wed_e2e_holders`: one open task nobody holds, an editor and a viewer, for
@@ -1297,6 +1301,18 @@ function seedE2eOrganiser(db: TestDb): void {
 
   wedding("wed_e2e_checklist", "checklist-wedding", "Checklist Wedding", "2099-06-20");
   seatDevOwner(db, "wed_e2e_checklist", "whost_e2e_checklist_owner", now);
+
+  wedding("wed_e2e_leaver", "leaver-wedding", "Leaver Wedding");
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_leaver_owner",
+      weddingId: "wed_e2e_leaver",
+      osnProfileId: "usr_e2e_leaver",
+      addedByOsnProfileId: "usr_e2e_leaver",
+      role: "owner",
+      createdAt: now,
+    })
+    .run();
 
   wedding("wed_e2e_holders", "holders-wedding", "Holders Wedding");
   seatDevOwner(db, "wed_e2e_holders", "whost_e2e_holders_owner", now);
