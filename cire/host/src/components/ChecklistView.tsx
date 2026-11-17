@@ -94,6 +94,16 @@ export default function ChecklistView(props: ChecklistViewProps) {
   const [newTitle, setNewTitle] = createSignal("");
   const [newBucket, setNewBucket] = createSignal<TimeframeBucket>(TIMEFRAME_BUCKETS[0]!.key);
   const [newDue, setNewDue] = createSignal("");
+  /** Tasks the organiser has just added here, fading in where they land, as a
+   *  task Undo puts back does. A task another session added arrives at once. */
+  const [arriving, setArriving] = createSignal<ReadonlySet<string>>(new Set());
+  const arrived = (taskId: string) =>
+    setArriving((ids) => {
+      if (!ids.has(taskId)) return ids;
+      const rest = new Set(ids);
+      rest.delete(taskId);
+      return rest;
+    });
 
   const listUrl = () => apiUrl(weddingPath(props.weddingId, "/tasks"));
 
@@ -328,6 +338,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`create ${res.status}`);
       const task = readTaskRow(((await res.json()) as { task: TaskWire }).task);
+      // Marked before the row mounts, so it mounts fading.
+      setArriving((ids) => new Set(ids).add(task.id));
       const added = patchTasks((rows) => [...rows, task]);
       done();
       // No list to add it to: load one, which will carry the new task.
@@ -608,11 +620,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                           sortable.isActiveDraggable(),
                                         "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                           dndState.dragging() && !sortable.isActiveDraggable(),
-                                        "row-return": isReturning(taskKey(task.id)),
+                                        "row-return":
+                                          isReturning(taskKey(task.id)) || arriving().has(task.id),
                                       }}
                                       onAnimationEnd={(e) => {
-                                        if (e.target === e.currentTarget)
-                                          returned(taskKey(task.id));
+                                        if (e.target !== e.currentTarget) return;
+                                        returned(taskKey(task.id));
+                                        arrived(task.id);
                                       }}
                                     >
                                       <Show when={props.canEdit}>

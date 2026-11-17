@@ -624,7 +624,7 @@ describe("the search threshold, measured", () => {
 });
 
 describe("the popover's motion", () => {
-  it("grows from the trigger on a spring, and simply appears for a reader who asked for no motion", async () => {
+  it("grows from the trigger on the portal's ease-out, and simply appears for a reader who asked for no motion", async () => {
     await page.viewport(1280, 800);
     answering(FOUR);
     seedTasks([row({ id: "a", title: "Book venue" })]);
@@ -639,7 +639,7 @@ describe("the popover's motion", () => {
     // Transitions, so a close or a reopening caught mid-flight goes on from
     // where the panel is (`ChecklistView.popovers.browser.test.tsx`).
     expect(style.transitionProperty).toBe("transform, opacity, border-radius");
-    expect(style.transitionTimingFunction.startsWith("linear(")).toBe(true);
+    expect(style.transitionTimingFunction.startsWith("cubic-bezier(0.23, 1, 0.32, 1)")).toBe(true);
     await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
     // The drop leaves from the panel's corner at the trigger: its right edge,
     // and its top when it opened below the trigger or its bottom when above.

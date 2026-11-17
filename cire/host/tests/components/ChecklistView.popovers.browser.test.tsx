@@ -18,7 +18,11 @@ import "../../src/styles/global.css";
  * The panel grows and shrinks on transitions, so a close caught mid-growth
  * shrinks from where it is, and a reopening caught mid-close grows from
  * there; keyframes would jump to their own first frame. Measured at a
- * twentieth of the speed (`--motion-scale`), frame by frame.
+ * twentieth of the speed (`--motion-scale`), frame by frame. At full speed it
+ * grows without a jump or a wobble: every frame larger than the last, never
+ * past full size, at most 45px a frame, its corners squaring as it grows. A
+ * popover opened from the keyboard is whole on its first frame. A task the
+ * organiser adds fades in where it lands; one read from the server does not.
  *
  * Leaves `open-*` screenshots of both popovers at 390 and 1280px in both ramps
  * in the gitignored `__screenshots__/` beside this file.
@@ -120,6 +124,10 @@ function answering(seats: HostSeat[]) {
     if (url.endsWith("/events")) return json(EVENTS);
     if (url.endsWith("/hosts"))
       return json({ hosts: seats, total: seats.length, peopleLimit: null });
+    if (url.endsWith("/tasks") && init?.method === "POST") {
+      const { title } = JSON.parse(String(init.body)) as { title: string };
+      return json({ task: row({ id: "added", title, sortOrder: 9 }) });
+    }
     const holder = /\/tasks\/([^/]+)\/assignees\/([^/]+)$/.exec(url);
     if (holder) {
       const task = TASKS.find((t) => t.id === holder[1])!;
@@ -403,6 +411,17 @@ describe("the droplet, caught mid-flight", () => {
     return { scale: matrix, opacity: Number(style.opacity) };
   };
   const frame = () => new Promise<number>((done) => requestAnimationFrame(done));
+  /** A corner's radius as painted, in px, from `10px`, `50%` or a
+   *  `calc(a% ± bpx)` mid-transition: a percentage is of the width. */
+  const radiusPx = (el: HTMLElement) =>
+    getComputedStyle(el)
+      .borderTopLeftRadius.replace(/^calc\((.*)\)$/, "$1")
+      .replace(/ - /g, " + -")
+      .split(" + ")
+      .reduce((sum, term) => {
+        const n = Number.parseFloat(term);
+        return sum + (term.trim().endsWith("%") ? (n / 100) * el.offsetWidth : n);
+      }, 0);
   /** Every frame's scale for `ms` of page time. */
   async function scales(dialog: HTMLElement, ms: number) {
     const seen: number[] = [];
@@ -428,10 +447,10 @@ describe("the droplet, caught mid-flight", () => {
     const caught = painted(dialog).scale;
     expect(caught).toBeLessThan(0.97);
     // Still rounder than the panel's 10px: the drop's corners are settling.
-    expect(Number.parseFloat(getComputedStyle(dialog).borderTopLeftRadius)).toBeGreaterThan(10.5);
+    expect(radiusPx(dialog)).toBeGreaterThan(10.5);
     await userEvent.keyboard("{Escape}");
     await frame();
-    const radii = [Number.parseFloat(getComputedStyle(dialog).borderTopLeftRadius)];
+    const radii = [radiusPx(dialog)];
     const closing = await scales(dialog, 300);
     expect(closing.length).toBeGreaterThan(3);
     // Never back up to full size: it goes on from where it was.
@@ -452,29 +471,52 @@ describe("the droplet, caught mid-flight", () => {
     expect(reopening.at(-1)!).toBeGreaterThan(before);
   });
 
-  it("caught before it reaches 60%, eases to 60% as it fades, never jumping", async () => {
+  it("grows at full speed with no jump and no wobble, its corners squaring as it grows", async () => {
     await page.viewport(1280, 800);
-    document.documentElement.style.setProperty("--motion-scale", "20");
     checklist();
-    await userEvent.click(await screen.findByRole("button", { name: `Assign people to ${TITLE}` }));
+    const trigger = await screen.findByRole("button", { name: `Assign people to ${TITLE}` });
+    trigger.click();
     const dialog = await screen.findByRole("dialog", { name: "Assign people" });
-    await waitFor(() => expect(painted(dialog).scale).toBeGreaterThan(0.2), { interval: 16 });
-    const caught = painted(dialog).scale;
-    expect(caught).toBeLessThan(0.5);
-    await userEvent.keyboard("{Escape}");
-    const opacities: number[] = [];
-    const seen: number[] = [];
-    const end = performance.now() + 300;
-    while (performance.now() < end && dialog.isConnected) {
+    const frames: { scale: number; radius: number }[] = [];
+    while (frames.length < 40) {
       await frame();
-      if (!dialog.isConnected) break;
-      seen.push(painted(dialog).scale);
-      opacities.push(painted(dialog).opacity);
+      frames.push({ scale: painted(dialog).scale, radius: radiusPx(dialog) });
+      if (frames.length > 3 && frames.at(-1)!.scale === 1 && frames.at(-2)!.scale === 1) break;
     }
-    expect(seen.length).toBeGreaterThan(3);
-    expect(Math.min(...seen)).toBeGreaterThanOrEqual(caught - 0.05);
-    expect(Math.max(...seen)).toBeLessThanOrEqual(0.6 + 0.01);
-    expect(opacities.at(-1)!).toBeLessThan(opacities[0]!);
+    const growth = frames.map((f, i) => (i === 0 ? 0 : f.scale - frames[i - 1]!.scale));
+    // Larger every frame until full size, and never past it.
+    expect(growth.every((g) => g >= -0.0005)).toBe(true);
+    expect(Math.max(...frames.map((f) => f.scale))).toBeLessThanOrEqual(1);
+    // At most 45px of the panel's width a frame: no frame where it leaps.
+    expect(Math.max(...growth) * dialog.offsetWidth).toBeLessThanOrEqual(45);
+    // The corners square while it grows, not after it: from round (half the
+    // width) to 10px, as far along on every frame as the growth from 60%.
+    const round = 0.5 * dialog.offsetWidth;
+    for (const f of frames) {
+      const squared = (round - f.radius) / (round - 10);
+      const grown = (f.scale - 0.6) / 0.4;
+      expect(Math.abs(squared - grown), `at ${f.scale}: corners ${f.radius}px`).toBeLessThan(0.1);
+    }
+  });
+
+  it("is whole on its first frame when the keyboard opened it, and grows again for a click", async () => {
+    await page.viewport(1280, 800);
+    checklist();
+    (await screen.findByRole("button", { name: `Assign people to ${TITLE}` })).focus();
+    await userEvent.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    expect(dialog.hasAttribute("data-instant")).toBe(true);
+    expect(painted(dialog)).toEqual({ scale: 1, opacity: 1 });
+    expect(radiusPx(dialog)).toBe(10);
+    const body = dialog.querySelector(".droplet-popover-body")!;
+    expect(getComputedStyle(body).animationName).toBe("none");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(dialog.isConnected).toBe(false));
+
+    await userEvent.click(screen.getByRole("button", { name: `Assign people to ${TITLE}` }));
+    const again = await screen.findByRole("dialog", { name: "Assign people" });
+    expect(again.hasAttribute("data-instant")).toBe(false);
+    expect(painted(again).scale).toBeLessThan(1);
   });
 
   it("simply appears and goes for a reader who asked for no motion", async () => {
@@ -493,5 +535,27 @@ describe("the droplet, caught mid-flight", () => {
     expect(moving.filter((p) => ["transform", "opacity", "border-radius"].includes(p))).toEqual([]);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(dialog.isConnected).toBe(false));
+  });
+});
+
+describe("a task the organiser adds", () => {
+  it("fades in where it lands, opacity alone, while the rows read before it arrive at once", async () => {
+    await page.viewport(1280, 800);
+    checklist();
+    await screen.findByTestId("tasks-12m");
+    for (const li of screen.getByTestId("tasks-12m").querySelectorAll("li")) {
+      expect(getComputedStyle(li).animationName).toBe("none");
+    }
+    await userEvent.fill(screen.getByLabelText("Task"), "Book the photographer");
+    await userEvent.click(screen.getByRole("button", { name: "Add task" }));
+    const added = (await screen.findByRole("checkbox", { name: "Book the photographer" })).closest(
+      "li",
+    )!;
+    expect(getComputedStyle(added).animationName).toBe("row-return");
+    expect(Number(getComputedStyle(added).opacity)).toBeLessThan(1);
+    expect(getComputedStyle(added).transform).toBe("none");
+    await Promise.all(added.getAnimations().map((a) => a.finished));
+    await waitFor(() => expect(getComputedStyle(added).animationName).toBe("none"));
+    expect(Number(getComputedStyle(added).opacity)).toBe(1);
   });
 });
