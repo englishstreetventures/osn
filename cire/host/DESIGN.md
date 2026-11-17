@@ -1675,9 +1675,10 @@ two steps and a trip to Musubi between them; the decisions:
 
 - **One column at 48rem** (`max-w-3xl`), on the page's left edge as Security
   sits, so the rows read as a list and not as bands across a 1280px page.
-- **The step is the eyebrow.** "Step 1 of 2" or "Step 2 of 2" over the display
-  heading "Remove your Cire data", then one muted line saying what to do on
-  this step (§3: an eyebrow carries what the heading does not).
+- **The step is the eyebrow.** "Step 1 of 2" or "Step 2 of 2", in readable
+  gold as every eyebrow over a heading is, over the display heading "Remove
+  your Cire data", then one muted line saying what to do on this step (§3: an
+  eyebrow carries what the heading does not).
 - **What happens, first and on both steps.** An `lg` card, "What happens", in
   body ink at the prose measure: every promise the removal makes, so the person
   reads them again on the step that removes.
@@ -1698,7 +1699,10 @@ two steps and a trip to Musubi between them; the decisions:
 - **"Delete every wedding only you own"** is a box on an `sm` card with the
   `accent` tone, first in its group, when there are two or more such weddings,
   one the list leaves out, or more than 100. Ticked, it disables each box
-  below it.
+  below it. It answers only a list that draws it: when a later list hides it
+  (the rounds already taken left one such wedding, or the weddings changed
+  between visits), the answer is dropped, so no box shows ticked where it
+  cannot be unticked.
 - **One line about the whole screen**, a `Notice` at `sm`, under the list and
   over the buttons the person pressed: an answer missing (`danger`), the list
   changed under them (`warn`), the confirmation run out (`warn`), a failure
@@ -1713,16 +1717,31 @@ two steps and a trip to Musubi between them; the decisions:
   answers. A removal of more than three weddings the person owns takes
   several rounds; `Loading`'s line says so under the buttons.
 - **Done** is not the dashboard: the person is signed out, so the page takes
-  the sign-in page's shape — "Cire · Host portal" over a display heading, "Your
-  Cire data is removed", and one opaque `xl` card with two lines and two
-  `outline` pills, "Sign in again" and "Go to Musubi". Focus goes to the
-  heading.
+  the sign-in page's shape, from the frame, header and heading classes
+  `@cire/ui` exports beside the card's (`sign-in-card-class.ts`) — "Cire · Host
+  portal" over a display heading, "Your Cire data is removed" at
+  `leading-ui-tight`, since it wraps on a phone, and one opaque `xl` card with
+  two lines and two `outline` pills, "Sign in again" and "Go to Musubi". Focus
+  goes to the heading, which shows the house ring after keyboard use. "Go to
+  Musubi" opens in the same tab, where every other portal pill that leaves the
+  portal opens a new one (§7, `Button`): the person has just been signed out
+  of Cire, and the page has nothing left to keep open.
+- **The code Musubi sends back** is kept in the tab and taken out of the
+  address before the portal checks the session, so a sign-in bounce carries
+  `#/remove-data` and never the code (`lib/removal-code.ts`).
+- **A chunk of its own.** The screen is a `lazy()` view behind `PanelLoading`,
+  as the portal's other occasional screens are; the done page is a small module
+  of its own (`RemovalDone.tsx`).
 - **No motion of its own.** Every state arrives at once, as every `Notice`
   does; the loaders pulse as every loader does.
 
 `tests/components/RemoveCireData.browser.test.tsx` paints every state at 390
 and 1280px in both ramps and fails if anything runs past the page or the
 column, a 90-letter wedding name with no space included.
+`tests/components/RemoveCireData.test.tsx` holds the removal's rounds (a 429
+between them waited out, a failure after one) and the dropped answer;
+`tests/components/OrganiserApp.removal-code.test.tsx` holds the code out of a
+sign-in bounce.
 
 ### Two rules that apply to all of them
 

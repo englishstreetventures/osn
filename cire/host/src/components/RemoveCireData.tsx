@@ -1,8 +1,7 @@
-import Button, { buttonClass, proseLinkClass } from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
-import { signInCardClass } from "@cire/ui/sign-in-card-class";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Checkbox } from "@shared/ui/ui/checkbox";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -40,7 +39,6 @@ import {
 import { isAuthExpired, navigateTo, redirectToLogin } from "../lib/api";
 import { serializeRoute } from "../lib/dashboard-route";
 import { followInApp, type InAppLink } from "../lib/link-click";
-import { OSN_ACCOUNT_URL } from "../lib/osn";
 import { haptic } from "../lib/touch-feedback";
 
 /** What the screen is doing. */
@@ -99,6 +97,30 @@ const PARTLY_DONE = "Part of your data is removed already.";
 
 const failureOf = (err: unknown): RemovalFailure =>
   err instanceof RemovalError ? err.reason : "server";
+
+/**
+ * The weddings a plan lists one by one with an answer of their own: live,
+ * owned by the person alone, and named by an open action. Past 100 there are
+ * none: one action stands for them all.
+ */
+function soleRowsOf(plan: RemovalPlan): RemovalWedding[] {
+  if (plan.openActions.some((action) => action.weddingId === null)) return [];
+  const named = new Set(plan.openActions.map((action) => action.weddingId));
+  return plan.weddings.filter((w) => !w.deleted && w.soleOwner && named.has(w.weddingId));
+}
+
+/** The plan's actions no row answers: the one past 100, or a wedding past the list's 200. */
+function unlistedOf(plan: RemovalPlan): RemovalAction[] {
+  const rows = new Set(soleRowsOf(plan).map((w) => w.weddingId));
+  return plan.openActions.filter(
+    (action) => action.weddingId === null || !rows.has(action.weddingId),
+  );
+}
+
+/** Whether a plan draws "Delete every wedding only you own": an action no row answers, or two rows. */
+function offersEverything(plan: RemovalPlan): boolean {
+  return unlistedOf(plan).length > 0 || soleRowsOf(plan).length >= 2;
+}
 
 const textClass = "font-body text-text text-ui-sm leading-ui-normal";
 const hintClass = "font-body text-text-muted text-ui-sm leading-ui-normal";
@@ -172,9 +194,10 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
   const actionFor = (weddingId: string): RemovalAction | undefined =>
     actions().find((action) => action.weddingId === weddingId);
 
-  const soleRows = createMemo(() =>
-    many() ? [] : weddings().filter((w) => !w.deleted && w.soleOwner && actionFor(w.weddingId)),
-  );
+  const soleRows = createMemo(() => {
+    const p = plan();
+    return p ? soleRowsOf(p) : [];
+  });
   const ownRows = createMemo(() =>
     many() ? weddings().filter((w) => !w.deleted && w.role === "owner") : [],
   );
@@ -185,10 +208,13 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
 
   /** Actions no row on screen answers: the one past 100, or a wedding past the list's 200. */
   const unlisted = createMemo(() => {
-    const rows = new Set(soleRows().map((w) => w.weddingId));
-    return actions().filter((action) => action.weddingId === null || !rows.has(action.weddingId));
+    const p = plan();
+    return p ? unlistedOf(p) : [];
   });
-  const showEverything = () => unlisted().length > 0 || soleRows().length >= 2;
+  const showEverything = () => {
+    const p = plan();
+    return p !== null && offersEverything(p);
+  };
 
   /** The actions still without an answer. */
   const missing = (): string[] =>
@@ -256,17 +282,28 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
     return true;
   }
 
-  /** Puts a plan on screen with the answers that still apply to it. */
+  /**
+   * Puts a plan on screen with the answers that still apply to it. "Delete
+   * every wedding only you own" applies only to a plan that offers it: on one
+   * that hides it (the rounds already taken left one such wedding, say), the
+   * answer would tick that wedding's box where it cannot be unticked, so it
+   * is dropped, here and where it is kept.
+   */
   function show(next: RemovalPlan, restore: KeptAnswers | null) {
     const open = new Set(next.openActions.map((action) => action.id));
+    const offered = offersEverything(next);
+    const answers = restore ? new Set(restore.answered.filter((id) => open.has(id))) : answered();
+    const before = everything();
+    const all = offered && (restore ? restore.deleteEverything : before);
     batch(() => {
       setPlan(next);
-      if (restore) {
-        setAnswered(new Set(restore.answered.filter((id) => open.has(id))));
-        setEverything(restore.deleteEverything);
-      }
+      setAnswered(answers);
+      setEverything(all);
       setMarks((current) => new Set([...current].filter((id) => open.has(id))));
     });
+    if (restore || all !== before) {
+      keepAnswers({ answered: [...answers], deleteEverything: all });
+    }
   }
 
   /** The code no longer confirms anything: forget it, and keep the answers. */
@@ -437,7 +474,7 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
     <div ref={root} class="flex w-full max-w-3xl flex-col gap-6" data-remove-cire-data>
       <header class="flex flex-col gap-1.5">
         {/* The step is what the heading does not say (DESIGN.md §3). */}
-        <Eyebrow tone="muted">{confirmed() ? "Step 2 of 2" : "Step 1 of 2"}</Eyebrow>
+        <Eyebrow>{confirmed() ? "Step 2 of 2" : "Step 1 of 2"}</Eyebrow>
         <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">
           Remove your Cire data
         </h2>
@@ -682,8 +719,8 @@ export default function RemoveCireData(props: RemoveCireDataProps) {
             >
               <Show when={line() === null && phase().kind !== "removing"}>
                 <Notice tone="success" size="sm" class="max-w-prose">
-                  Confirmed on Musubi. The list above now covers every profile of your Musubi
-                  account. Remove your data within 5 minutes of confirming, or confirm again.
+                  Confirmed on Musubi. Remove your data within 5 minutes of confirming, or confirm
+                  again.
                 </Notice>
               </Show>
             </Show>
@@ -795,46 +832,5 @@ function RemovingStatus(props: { phase: Phase }) {
         </div>
       )}
     </Show>
-  );
-}
-
-/**
- * After the removal: the person is signed out of Cire, so the page drops the
- * dashboard and its chrome and stands as the sign-in page does, with the
- * product's name over a heading and one card (DESIGN.md §7, Remove my Cire
- * data). Focus goes to the heading, so a screen reader hears where it is.
- */
-export function RemovalDone() {
-  let heading: HTMLHeadingElement | undefined;
-  onMount(() => heading?.focus());
-  return (
-    <main class="page-frame py-24 [--page-max:30rem]" data-removal-done>
-      <header class="mb-8 flex flex-col gap-1.5 text-center">
-        <Eyebrow>Cire · Host portal</Eyebrow>
-        <h1
-          ref={heading}
-          tabIndex={-1}
-          class="font-display text-text leading-ui-tight text-[clamp(1.9rem,5cqi,2.6rem)] font-light focus:outline-none"
-        >
-          Your Cire data is removed
-        </h1>
-      </header>
-      <div class={`${signInCardClass} gap-5`}>
-        <div class="flex flex-col gap-2">
-          <p class={textClass}>You're signed out of Cire. Your Musubi account stays as it was.</p>
-          <p class={hintClass}>
-            You can sign in to Cire again whenever you like, and start fresh with no weddings.
-          </p>
-        </div>
-        <div class="flex flex-wrap gap-3">
-          <a href="/login/" class={buttonClass({ variant: "outline" })}>
-            Sign in again
-          </a>
-          <a href={OSN_ACCOUNT_URL} class={buttonClass({ variant: "outline" })}>
-            Go to Musubi
-          </a>
-        </div>
-      </div>
-    </main>
   );
 }

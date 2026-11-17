@@ -22,7 +22,6 @@ import {
   untrack,
 } from "solid-js";
 
-import { keepCode } from "../lib/account-removal";
 import { apiUrl, isAuthExpired, redirectToLogin, signOutToLogin } from "../lib/api";
 import { reloadOnRestore } from "../lib/bfcache";
 import { createCommandShortcut } from "../lib/command-shortcut";
@@ -44,6 +43,7 @@ import { moduleDef } from "../lib/module-nav";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
+import { takeRemovalCode } from "../lib/removal-code";
 import { markRunSheetStale } from "../lib/run-sheet-store";
 import {
   clearStripeConnectParam,
@@ -71,7 +71,7 @@ import type { DeletedWeddingSummary, WeddingSummary } from "./CreateWeddingForm"
 import LeaveWedding from "./LeaveWedding";
 import ModuleShell from "./ModuleShell";
 import PanelLoading from "./PanelLoading";
-import RemoveCireData, { RemovalDone } from "./RemoveCireData";
+import RemovalDone from "./RemovalDone";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
 import { OwnerOnlyNote } from "./WeddingExport";
@@ -91,6 +91,10 @@ const CommandPalette = lazy(() => import("./CommandPalette"));
  *  loads the same chunk. Split out so an organiser who never opens it never
  *  pays for it. */
 const RunSheetView = lazy(() => import("./RunSheetView"));
+
+/** "Remove my Cire data": a screen a host opens once in the life of their
+ *  account, so it is a chunk of its own, fetched when they open it. */
+const RemoveCireData = lazy(() => import("./RemoveCireData"));
 
 /**
  * How long after the last check the portal asks the API again, when the tab
@@ -323,17 +327,7 @@ function RunSheetSeat(props: {
 
 function initialRoute(): DashboardRoute {
   if (typeof window === "undefined") return LIST_ROUTE;
-  return keepRemovalCode(parseRoute(window.location.hash));
-}
-
-/**
- * Keeps the code Musubi sent the person back with (`#/remove-data?code=…`)
- * before anything rewrites the address: the canonical hash leaves it out, so
- * it is kept here, as the route is first read, and the screen finds it after.
- */
-function keepRemovalCode(route: DashboardRoute): DashboardRoute {
-  if (route.view === "remove-data" && route.code !== undefined) keepCode(route.code);
-  return route;
+  return parseRoute(window.location.hash);
 }
 
 /**
@@ -351,6 +345,8 @@ function whenNoModalOpen(show: () => void): void {
 }
 
 function Dashboard(props: {
+  /** The code Musubi sent the person back with, taken from the address on the way in. */
+  removalCode: string | undefined;
   /** The person removed their Cire data: their sessions are gone. */
   onRemoved: () => void;
 }) {
@@ -592,17 +588,9 @@ function Dashboard(props: {
   // is the source of truth for render; the listener just mirrors external hash
   // changes back into it (it never writes the hash, so no feedback loop).
   function onHashChange() {
-    const next = keepRemovalCode(parseRoute(window.location.hash));
-    setRouteSignal(next);
-    // A code typed or pasted into the address goes as it came in on load.
-    const canonical = serializeRoute(next);
-    if (next.view === "remove-data" && window.location.hash !== canonical) {
-      history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${window.location.search}${canonical}`,
-      );
-    }
+    // A code typed or pasted into the address goes as it does on the way in.
+    takeRemovalCode();
+    setRouteSignal(parseRoute(window.location.hash));
   }
   onMount(() => {
     window.addEventListener("hashchange", onHashChange);
@@ -1076,10 +1064,16 @@ function Dashboard(props: {
         ? "Your Cire data"
         : "All weddings";
 
-  /** The code the address carried on the way in, for the removal screen. */
-  const removalCode = () => {
-    const r = route();
-    return r.view === "remove-data" ? r.code : undefined;
+  /**
+   * The code the address carried on the way in, for the removal screen's
+   * first mount only: a screen opened again after Cancel reads what is kept,
+   * which Cancel cleared.
+   */
+  let arrivedCode = props.removalCode;
+  const takeArrivedCode = () => {
+    const code = arrivedCode;
+    arrivedCode = undefined;
+    return code;
   };
 
   return (
@@ -1132,13 +1126,15 @@ function Dashboard(props: {
               </Show>
 
               <Show when={view() === "remove-data"}>
-                <RemoveCireData
-                  code={untrack(removalCode)}
-                  canOpen={(weddingId) => weddings()?.some((w) => w.id === weddingId) ?? false}
-                  onOpen={openWeddingSettings}
-                  onCancel={backToList}
-                  onDone={props.onRemoved}
-                />
+                <Suspense fallback={<PanelLoading />}>
+                  <RemoveCireData
+                    code={takeArrivedCode()}
+                    canOpen={(weddingId) => weddings()?.some((w) => w.id === weddingId) ?? false}
+                    onOpen={openWeddingSettings}
+                    onCancel={backToList}
+                    onDone={props.onRemoved}
+                  />
+                </Suspense>
               </Show>
 
               <Show when={view() === "weddings"}>
@@ -1237,12 +1233,16 @@ export default function OrganiserApp() {
   // dashboard, which would ask the API again and be sent to sign in, gives way
   // to the page that says so.
   const [removed, setRemoved] = createSignal(false);
+  // Before the session is known: a sign-in bounce copies the address into
+  // `/login/?returnTo=…`, so the code Musubi sent back is kept and taken out
+  // of the address first (`lib/removal-code.ts`).
+  const removalCode = takeRemovalCode();
 
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>
       <Show when={!removed()} fallback={<RemovalDone />}>
         <RequireAuth>
-          <Dashboard onRemoved={() => setRemoved(true)} />
+          <Dashboard removalCode={removalCode} onRemoved={() => setRemoved(true)} />
         </RequireAuth>
       </Show>
       {/* `topLayer` because this app's dialogs are `showModal()` dialogs

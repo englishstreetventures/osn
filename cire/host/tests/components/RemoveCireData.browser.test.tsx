@@ -33,7 +33,8 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
   navigateTo,
 }));
 
-import RemoveCireData, { RemovalDone } from "../../src/components/RemoveCireData";
+import RemovalDone from "../../src/components/RemovalDone";
+import RemoveCireData from "../../src/components/RemoveCireData";
 import TopBar from "../../src/components/TopBar";
 import type { RemovalAction, RemovalPlan, RemovalWedding } from "../../src/lib/account-removal";
 import { forgetRemoval, keepAnswers } from "../../src/lib/account-removal";
