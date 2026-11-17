@@ -1959,10 +1959,12 @@ describe("realtime subscribe at the Worker entry", () => {
       // response for. The limit is 1.8 s, not tighter: this handler took 1,073 ms
       // on a loaded CI runner, and a publish held inline never returns at all, so
       // a generous limit still catches the regression.
-      const timedOut = new Promise<"timed out">((resolve) =>
-        setTimeout(() => resolve("timed out"), 1800),
-      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timedOut = new Promise<"timed out">((resolve) => {
+        timer = setTimeout(() => resolve("timed out"), 1800);
+      });
       const first = await Promise.race([response, timedOut]);
+      clearTimeout(timer);
 
       expect(first).not.toBe("timed out");
       expect((first as Response).status).toBe(200);

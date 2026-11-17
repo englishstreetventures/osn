@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect, beforeAll, setSystemTime } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
@@ -3154,8 +3154,11 @@ describe("PUT /invite/envelope (organiser)", () => {
         .from(weddingInviteCustomisations)
         .all()[0]!.imagesUpdatedAt;
     storeEnvelope(db, WAX_SEAL);
+    // A version from long ago, so a save that stamps a new one cannot match it.
+    db.update(weddingInviteCustomisations)
+      .set({ imagesUpdatedAt: new Date("2026-01-01T00:00:00.000Z") })
+      .run();
     const before = imageVersion();
-    await new Promise((r) => setTimeout(r, 1100));
     const res = await putEnvelope(app, { envelopeId: null });
     expect(res.status).toBe(200);
     expect(imageVersion()).toEqual(before);
@@ -3508,6 +3511,10 @@ describe("PUT /invite/visibility (organiser, migrations 0063 + 0064)", () => {
   it("bumps updatedAt but never the image version", async () => {
     const { app, db } = buildApp();
     await putText(app, { heroTitle: "A & B" });
+    // A version from long ago, so a save that stamps a new one cannot match it.
+    db.update(weddingInviteCustomisations)
+      .set({ imagesUpdatedAt: new Date("2026-01-01T00:00:00.000Z") })
+      .run();
     const before = db
       .select({
         updatedAt: weddingInviteCustomisations.updatedAt,
@@ -3515,8 +3522,13 @@ describe("PUT /invite/visibility (organiser, migrations 0063 + 0064)", () => {
       })
       .from(weddingInviteCustomisations)
       .all()[0]!;
-    await new Promise((r) => setTimeout(r, 1100));
-    await putVisibility(app, { hero: false });
+    // updatedAt is stored in whole seconds: the save lands two seconds later.
+    setSystemTime(new Date(Date.now() + 2_000));
+    try {
+      await putVisibility(app, { hero: false });
+    } finally {
+      setSystemTime();
+    }
     const after = db
       .select({
         updatedAt: weddingInviteCustomisations.updatedAt,

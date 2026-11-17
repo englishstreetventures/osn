@@ -549,15 +549,20 @@ describe("createArcBlockCheck", () => {
   });
 
   it("starts each call's time bound afresh", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
     globalThis.fetch = mockFetch(async (_url, init) => {
-      if (init?.signal?.aborted) throw init.signal.reason;
+      signals.push(init?.signal);
       return new Response(JSON.stringify({ blocked: false }), { status: 200 });
     });
     const check = createArcBlockCheck(await config(20));
 
     expect(await check("usr_a", "usr_b")).toBe(false);
-    await Bun.sleep(60);
     expect(await check("usr_a", "usr_b")).toBe(false);
+    // A bound made once would hand both calls the one signal, spent 20 ms in.
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).not.toBe(signals[0]);
   });
 });
 

@@ -15,7 +15,8 @@ import {
 import { events as eventsData } from "@cire/db/seed";
 import { ORGANISER_DIETARY_ATTESTATION, PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
 import { and, eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
@@ -905,16 +906,19 @@ describe("claim payload account-link state", () => {
       Effect.gen(function* () {
         const { gate: g } = gate(() => new Promise<boolean>(() => {}));
         const { familyId } = yield* claimService.lookup("TESTONE-IVY-AA11");
-        const started = Date.now();
-        const result = yield* claimService.restore(familyId, g);
-        const waited = Date.now() - started;
+        const restoring = yield* Effect.forkChild(claimService.restore(familyId, g));
+        // Real time, so the restore reaches the hung flag before the clock moves.
+        yield* TestClock.withLive(Effect.sleep("20 millis"));
+        // It waits for the flag (`ACCOUNT_LINK_FLAG_WAIT`, 250 ms) and no longer.
+        yield* TestClock.adjust("249 millis");
+        expect(restoring.pollUnsafe()).toBeUndefined();
+        yield* TestClock.adjust("1 millis");
+        const result = yield* TestClock.withLive(
+          Fiber.join(restoring).pipe(Effect.timeout("1 second")),
+        );
         expect(result.accountLink).toEqual({ enabled: false });
         expect(result.events.length).toBeGreaterThan(0);
-        // It waited for the flag (`ACCOUNT_LINK_FLAG_WAIT`, 250 ms) and no
-        // longer, with room either side for a slow test machine's timers.
-        expect(waited).toBeGreaterThanOrEqual(200);
-        expect(waited).toBeLessThan(1_000);
-      }),
+      }).pipe(Effect.provide(TestClock.layer())),
     ),
   );
 });

@@ -471,8 +471,12 @@ describe("return visit: the account the box may show", () => {
     expect(state).not.toHaveProperty("account");
   });
 
-  it("reads a resolver that never answers as a mismatch, within the wait", async () => {
-    const stalled = buildApp(true, () => new Promise(() => {}));
+  it("reads a resolver that never answers as a mismatch within the wait, and aborts its request", async () => {
+    const seen: { signal?: AbortSignal } = {};
+    const stalled = buildApp(true, (_profileId, options) => {
+      seen.signal = options?.signal;
+      return new Promise(() => {});
+    });
     const a = await claim(stalled.app, SAMPLETON);
     await call(stalled.app, "POST", "/api/claim/member", a.cookie, {
       guestId: guestId(stalled.db, "Bo"),
@@ -483,6 +487,7 @@ describe("return visit: the account the box may show", () => {
     const state = await linkState(stalled.app, `${a.cookie}; ${org}`);
     expect(Date.now() - started).toBeLessThan(3000);
     expect(state).not.toHaveProperty("account");
+    expect(seen.signal?.aborted).toBe(true);
   });
 
   it("asks osn-api once for a profile across repeat restores", async () => {
@@ -500,22 +505,6 @@ describe("return visit: the account the box may show", () => {
     expect((await linkState(app, `${cookie}; ${org}`)).account?.["matchesMember"]).toBe(true);
     expect((await linkState(app, `${cookie}; ${org}`)).account?.["matchesMember"]).toBe(true);
     expect(asked).toEqual(["usr_alice"]);
-  });
-
-  it("aborts the lookup's request once the wait is over", async () => {
-    const seen: { signal?: AbortSignal } = {};
-    const stalled = buildApp(true, (_profileId, options) => {
-      seen.signal = options?.signal;
-      return new Promise(() => {});
-    });
-    const a = await claim(stalled.app, SAMPLETON);
-    await call(stalled.app, "POST", "/api/claim/member", a.cookie, {
-      guestId: guestId(stalled.db, "Bo"),
-    });
-    linkRow(stalled.db, guestId(stalled.db, "Bo"), "usr_bob");
-    const org = await signIn(stalled.db, "usr_alice");
-    await linkState(stalled.app, `${a.cookie}; ${org}`);
-    expect(seen.signal?.aborted).toBe(true);
   });
 
   it("shows no account when signed out", async () => {
