@@ -124,8 +124,18 @@ export type ErasureResult =
 /** What one call did to a wedding a profile of the account owned. */
 export interface OwnedOutcome {
   readonly weddingId: string;
-  /** `deleted`: no other owner was left; `seat_removed`: another owner keeps it. */
+  /**
+   * `deleted`: this call deleted it, no other owner being left;
+   * `seat_removed`: this call did not delete it — another owner keeps it, or
+   * it was deleted already and stays so.
+   */
   readonly outcome: "deleted" | "seat_removed";
+  /**
+   * The account's profiles whose owner seat on it went: the only profiles a
+   * notice to its other owners may name, since naming another would tell
+   * them two profiles are one person.
+   */
+  readonly leavers: ReadonlyArray<string>;
 }
 
 class AccountErasureError extends Data.TaggedError("AccountErasureError")<{
@@ -292,7 +302,7 @@ function eraseOwnedWedding(
                 inProfiles(weddingHosts.osnProfileId, profileIds),
               ),
             )
-            .returning({ role: weddingHosts.role }),
+            .returning({ role: weddingHosts.role, osnProfileId: weddingHosts.osnProfileId }),
         ]),
       catch: (e) => new AccountErasureError({ reason: String(e) }),
     }).pipe(
@@ -303,14 +313,15 @@ function eraseOwnedWedding(
       ),
     );
     const deleted = (results[0] as ReadonlyArray<{ id: string }>).length > 0;
-    const removed = (results[2] as ReadonlyArray<{ role: string }>).length > 0;
-    if (!removed) return null;
+    const seats = results[2] as ReadonlyArray<{ role: string; osnProfileId: string }>;
+    if (seats.length === 0) return null;
+    const leavers = seats.filter((seat) => seat.role === "owner").map((seat) => seat.osnProfileId);
     const outcome = deleted ? "deleted" : "seat_removed";
     metricAccountDeletionWedding(outcome);
     yield* Effect.logInfo("account erasure: a wedding the person owned").pipe(
       Effect.annotateLogs({ weddingId, outcome }),
     );
-    return { weddingId, outcome } as const;
+    return { weddingId, outcome, leavers } as const;
   }).pipe(Effect.withSpan("cire.account_deletion.wedding", { attributes: { weddingId } }));
 }
 
@@ -353,8 +364,19 @@ function eraseAccountRows(input: EraseInput) {
             .where(and(inProfiles(hostRsvpNotices.osnProfileId, p), sql`NOT ${ownerSeatOfRow}`)),
           db
             .delete(weddingHosts)
-            .where(and(inProfiles(weddingHosts.osnProfileId, p), ne(weddingHosts.role, "owner"))),
-          db.delete(organiserSessions).where(inProfiles(organiserSessions.osnProfileId, p)),
+            .where(and(inProfiles(weddingHosts.osnProfileId, p), ne(weddingHosts.role, "owner")))
+            .returning({ weddingId: weddingHosts.weddingId }),
+          // Only once no owner seat of the profiles is left: a seat made owner
+          // since the call's first read answers not finished, and the person
+          // keeps a session to call again with.
+          db
+            .delete(organiserSessions)
+            .where(
+              and(
+                inProfiles(organiserSessions.osnProfileId, p),
+                sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} WHERE ${inProfiles(weddingHosts.osnProfileId, p)} AND ${weddingHosts.role} = 'owner')`,
+              ),
+            ),
           // A guest's link to their account: guest data, not the host's, so a
           // host leaving cire keeps it.
           ...(host
@@ -510,7 +532,11 @@ function eraseAccountRows(input: EraseInput) {
       ),
     );
     const [owned] = results[results.length - 1] as ReadonlyArray<{ owned: number }>;
-    return { ownerSeatsLeft: Number(owned?.owned ?? 0) };
+    const lower = results[1] as ReadonlyArray<{ weddingId: string }>;
+    return {
+      ownerSeatsLeft: Number(owned?.owned ?? 0),
+      lowerSeatWeddings: [...new Set(lower.map((row) => row.weddingId))],
+    };
   }).pipe(Effect.withSpan("cire.account_deletion.cleanup"));
 }
 
@@ -525,10 +551,13 @@ function eraseAccountRows(input: EraseInput) {
  * the result, what the call did to each wedding the person owned, for the
  * notices a removal sends.
  */
-function eraseWithOutcomes(
-  input: EraseInput,
-): Effect.Effect<
-  { readonly result: ErasureResult; readonly owned: ReadonlyArray<OwnedOutcome> },
+function eraseWithOutcomes(input: EraseInput): Effect.Effect<
+  {
+    readonly result: ErasureResult;
+    readonly owned: ReadonlyArray<OwnedOutcome>;
+    /** Weddings a seat below owner went from, on the call that ran the clean-up. */
+    readonly lowerSeatWeddings: ReadonlyArray<string>;
+  },
   AccountErasureError,
   DbService
 > {
@@ -560,12 +589,20 @@ function eraseWithOutcomes(
       const outcome = yield* eraseOwnedWedding(weddingId, input.profileIds, now);
       if (outcome) outcomes.push(outcome);
     }
-    const notFinished = { result: { status: "not_finished" } as const, owned: outcomes };
-    if (owned.length > MAX_OWNED_WEDDINGS_PER_CALL) return notFinished;
+    const notFinished = (lowerSeatWeddings: ReadonlyArray<string>) => ({
+      result: { status: "not_finished" } as const,
+      owned: outcomes,
+      lowerSeatWeddings,
+    });
+    if (owned.length > MAX_OWNED_WEDDINGS_PER_CALL) return notFinished([]);
 
-    const { ownerSeatsLeft } = yield* eraseAccountRows(input);
-    if (ownerSeatsLeft > 0) return notFinished;
-    return { result: { status: "done", kept: [] } as const, owned: outcomes };
+    const { ownerSeatsLeft, lowerSeatWeddings } = yield* eraseAccountRows(input);
+    if (ownerSeatsLeft > 0) return notFinished(lowerSeatWeddings);
+    return {
+      result: { status: "done", kept: [] } as const,
+      owned: outcomes,
+      lowerSeatWeddings,
+    };
   }).pipe(
     Effect.withSpan("cire.account_deletion.erase", {
       attributes: { scope: input.scope ?? "account" },

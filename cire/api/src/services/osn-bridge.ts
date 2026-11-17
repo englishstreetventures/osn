@@ -1239,7 +1239,14 @@ export function createArcRemovalBridge(config: ArcResolverConfig): OsnRemovalBri
       }
       return { ok: true, accountId: data.account_id, profileIds: data.profile_ids };
     },
-    resolveAccount: createArcAccountResolver(config),
+    resolveAccount: (() => {
+      const resolve = createArcAccountResolver(config);
+      // The lookup's own bound, as `begin` and `verify` have.
+      return (profileId: string, options?: { signal?: AbortSignal }) =>
+        resolve(profileId, {
+          signal: options?.signal ?? AbortSignal.timeout(OSN_LOOKUP_TIMEOUT_MS),
+        });
+    })(),
   };
 }
 

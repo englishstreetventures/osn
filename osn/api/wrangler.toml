@@ -335,6 +335,11 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 # (musubi/infra/tests/deletion-apps.test.ts).
 ZAP_API_URL = "https://zap.cireweddings.com"
 OSN_DELETION_ABSENT_APPS = "pulse"
+# cire's organiser portal: the one place Musubi sends a host back to after they
+# confirm removing their Cire data (src/services/auth/app-step-up.ts,
+# `appStepUpReturnConfig`). The musubi stack declares the same value from
+# `hosts.cireHost` (musubi/infra/tests/deletion-apps.test.ts).
+CIRE_ORGANISER_ORIGIN = "https://host.cireweddings.com"
 # Deletion jobs one fan-out pass reaches, and accounts one hard-delete pass
 # erases (src/index.ts `scheduled`). Unset, as on dev (Workers Free), it is 4.
 OSN_DELETION_FANOUT_MAX_JOBS = "50"

@@ -17,6 +17,8 @@ import type { SessionCookieOptions } from "@shared/osn-auth-client/cookie";
  *                     step-up request osn-api began and the secret whose hash
  *                     binds it to this browser (`<id>.<secret>`, both
  *                     base64url), held while the person confirms on Musubi.
+ *                     `__Host-cire_removal` on an https tier, so no other
+ *                     cireweddings.com origin can set one cire-api would read.
  *
  * All four are host-scoped: set by cire-api (`api.cireweddings.com`) and sent
  * back only there. The organiser and guest sites are same-site with it, so
@@ -28,7 +30,8 @@ import type { SessionCookieOptions } from "@shared/osn-auth-client/cookie";
 const GUEST_COOKIE_NAME = "cire_session";
 const ORGANISER_COOKIE_NAME = "cire_org_session";
 const OIDC_TX_COOKIE_NAME = "cire_oidc_tx";
-const REMOVAL_COOKIE_NAME = "cire_removal";
+/** `__Host-` needs `Secure`, so the http local stack keeps the plain name. */
+const removalCookieName = (secure: boolean) => (secure ? "__Host-cire_removal" : "cire_removal");
 
 export function buildSessionCookie(token: string, opts: SessionCookieOptions): string {
   return buildCookie(GUEST_COOKIE_NAME, token, opts);
@@ -73,13 +76,13 @@ export function parseOidcTxCookie(cookieHeader: string | null): string | null {
 }
 
 export function buildRemovalCookie(value: string, opts: SessionCookieOptions): string {
-  return buildCookie(REMOVAL_COOKIE_NAME, value, opts);
+  return buildCookie(removalCookieName(opts.secure), value, opts);
 }
 
 export function clearRemovalCookie(opts: { secure: boolean }): string {
-  return buildClearCookie(REMOVAL_COOKIE_NAME, opts);
+  return buildClearCookie(removalCookieName(opts.secure), opts);
 }
 
-export function parseRemovalCookie(cookieHeader: string | null): string | null {
-  return parseCookie(cookieHeader, REMOVAL_COOKIE_NAME);
+export function parseRemovalCookie(cookieHeader: string | null, secure: boolean): string | null {
+  return parseCookie(cookieHeader, removalCookieName(secure));
 }

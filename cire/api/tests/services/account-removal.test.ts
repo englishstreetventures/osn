@@ -86,4 +86,43 @@ describe("accountRemovalService.seats", () => {
     expect(seats.find((s) => s.weddingId === "w_shared")?.soleOwner).toBe(false);
     expect(more).toBe(0);
   });
+
+  it("lists 200 weddings and counts the rest; with no seat at all, nothing and no more", async () => {
+    const db = createDb(":memory:");
+    for (let i = 0; i < 201; i += 1) wedding(db, `w${String(i).padStart(3, "0")}`, [P]);
+    const many = await run(db, accountRemovalService.seats([P]));
+    expect(many.seats).toHaveLength(MAX_LISTED_SEATS);
+    expect(many.more).toBe(1);
+
+    expect(await run(createDb(":memory:"), accountRemovalService.seats([P]))).toEqual({
+      seats: [],
+      more: 0,
+    });
+  });
+
+  it("reads a legacy host seat as an editor's and a helper's as a helper's", async () => {
+    const db = createDb(":memory:");
+    wedding(db, "w_host", [O]);
+    wedding(db, "w_helper", [O]);
+    for (const [weddingId, role] of [
+      ["w_host", "host"],
+      ["w_helper", "helper"],
+    ] as const) {
+      db.insert(weddingHosts)
+        .values({
+          id: `whost_${weddingId}`,
+          weddingId,
+          osnProfileId: P,
+          addedByOsnProfileId: O,
+          role,
+          createdAt: new Date(),
+        })
+        .run();
+    }
+    const { seats } = await run(db, accountRemovalService.seats([P]));
+    expect(seats.map((s) => [s.weddingId, s.role, s.soleOwner])).toEqual([
+      ["w_helper", "helper", false],
+      ["w_host", "editor", false],
+    ]);
+  });
 });

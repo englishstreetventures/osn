@@ -1,18 +1,29 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
 
-import { organiserSessions, ownerNoticeBudget, weddingHosts, weddings } from "@cire/db";
+import {
+  directoryVendors,
+  guestAccountLinks,
+  organiserSessions,
+  ownerNoticeBudget,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
+import type { HubNamespace } from "@shared/realtime/server";
+import { eq, sql } from "drizzle-orm";
 
 import type { AppOptions } from "../../src/app";
 import { createApp } from "../../src/app";
 import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { MAX_OWNED_WEDDINGS_PER_CALL } from "../../src/services/account-erasure";
 import type { OsnRemovalBridge } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody, recordStatements } from "../test-helpers";
+import { fullWeddingStatements } from "../test-helpers/full-wedding";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -45,6 +56,7 @@ const ACCOUNT_OF: Readonly<Record<string, string>> = {
 };
 const ADDRESSES: Readonly<Record<string, string>> = {
   [P]: "person@example.test",
+  [P2]: "person-second@example.test",
   [O]: "other@example.test",
 };
 
@@ -120,6 +132,18 @@ function seat(
 async function setup(
   overrides: Partial<AppOptions> & { bridgeOverrides?: Partial<OsnRemovalBridge> } = {},
 ) {
+  // Every members-changed signal the removal sends: its wedding topic, and
+  // the profiles whose sockets it closes.
+  const signalled: { topic: string; revoked: readonly string[] }[] = [];
+  const realtimeHub: HubNamespace = {
+    getByName: (topic) => ({
+      publish: async (_signal, targets) => {
+        signalled.push({ topic, revoked: [...(targets?.revoke ?? [])].toSorted() });
+        return 1;
+      },
+      fetch: async () => new Response(null, { status: 426 }),
+    }),
+  };
   const db = createDb(":memory:");
   const wedding = (id: string, owners: string[], name = id) =>
     insertWedding(db, {
@@ -147,6 +171,7 @@ async function setup(
     organiserOrigin: PORTAL,
     accountRemovalLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
     accountRemovalBridge: stubBridge(log, bridgeOverrides),
+    realtimeHub,
     emailLayer: mail.layer,
     organiserEmailLookup: async (ids) => ({
       answered: true,
@@ -154,13 +179,16 @@ async function setup(
     }),
     resolveOsnProfileDisplays: async (ids) =>
       new Map(
-        ids.includes(P)
-          ? [[P, { handle: "person", displayName: "Pat Person", avatarUrl: null }]]
-          : [],
+        (
+          [
+            [P, { handle: "person", displayName: "Pat Person", avatarUrl: null }],
+            [P2, { handle: "second", displayName: "Sam Second", avatarUrl: null }],
+          ] as const
+        ).filter(([id]) => ids.includes(id)),
       ),
     ...appOverrides,
   });
-  return { db, app, sessions, log, mail };
+  return { db, app, sessions, log, mail, signalled };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -169,7 +197,7 @@ const call = (
   h: Setup,
   method: string,
   path: string,
-  opts: { session?: string | null; removal?: string | null; body?: unknown } = {},
+  opts: { session?: string | null; removal?: string | null; body?: unknown; origin?: string } = {},
 ) => {
   const cookies = [
     opts.session === null ? null : `cire_org_session=${opts.session ?? h.sessions.person}`,
@@ -177,6 +205,7 @@ const call = (
   ].filter((c): c is string => c !== null);
   const headers: Record<string, string> = {};
   if (cookies.length > 0) headers.cookie = cookies.join("; ");
+  if (opts.origin) headers.origin = opts.origin;
   const init: RequestInit = { method, headers };
   if (opts.body !== undefined) {
     headers["content-type"] = "application/json";
@@ -248,12 +277,44 @@ describe("a host's removal of their Cire data: refusals", () => {
 
   it("C2: no confirmation cookie, or one that is not this browser's shape, is refused before osn-api is asked", async () => {
     const h = await setup();
-    for (const removal of [null, "cire_removal=not-a-pair", "cire_removal=a.b.c"]) {
+    const refusedBefore = await counterValue(CIRE_METRICS.accountRemovalRequests, {
+      result: "confirmation_required",
+    });
+    for (const removal of [
+      null,
+      "cire_removal=not-a-pair",
+      "cire_removal=a.b.c",
+      `cire_removal=${REQUEST}.${"s".repeat(43)}.${"x".repeat(20)}`,
+      `cire_removal=${REQUEST}.${"s".repeat(20)} ${"s".repeat(20)}`,
+    ]) {
       const res = await remove(h, removal, ANSWERS);
       expect({ removal, status: res.status, body: await jsonBody(res) }).toEqual({
         removal,
         status: 403,
         body: { error: "confirmation_required" },
+      });
+    }
+    expect(h.log.verified).toEqual([]);
+    expect(
+      await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "confirmation_required" }),
+    ).toBe(refusedBefore + 5);
+    untouched(h.db);
+  });
+
+  it("C2b: a body outside the removal's shape is refused 400 before osn-api is asked", async () => {
+    const h = await setup();
+    const cookie = await confirmation(h);
+    for (const body of [
+      undefined,
+      {},
+      { code: CODE, choices: { "cire:wedding:w_alone": "keep" } },
+      { code: CODE, deleteEverything: "yes" },
+    ]) {
+      const res = await call(h, "DELETE", "/account", { removal: cookie, body });
+      expect({ body, status: res.status, answer: await jsonBody(res) }).toEqual({
+        body,
+        status: 400,
+        answer: { error: "invalid_body" },
       });
     }
     expect(h.log.verified).toEqual([]);
@@ -311,13 +372,73 @@ describe("a host's removal of their Cire data: refusals", () => {
     expect(body.openActions.map((a) => a.weddingId).toSorted()).toEqual(["w_alone", "w_sibling"]);
     expect(body.weddings.find((w) => w.weddingId === "w_sibling")?.soleOwner).toBe(true);
     expect(body.weddings.some((w) => w.weddingId === "w_theirs")).toBe(false);
+    // No answers at all is the same refusal, never an error.
+    expect((await remove(h, cookie, {})).status).toBe(409);
     untouched(h.db);
+  });
+
+  it("C14: the routes share one per-person limit, and a refused call asks osn-api nothing", async () => {
+    const h = await setup({
+      accountRemovalLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    expect((await call(h, "POST", "/account/removal/preview", { body: {} })).status).toBe(200);
+    expect((await call(h, "POST", "/account/removal/confirmation")).status).toBe(429);
+    expect(h.log.begun).toEqual([]);
+    expect(h.log.verified).toEqual([]);
+  });
+
+  it("C15: a database fault answers 500 on the preview and the removal, and removes nothing", async () => {
+    const h = await setup();
+    const cookie = await confirmation(h);
+    const before = await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "error" });
+    h.db.run(sql`DROP TABLE host_rsvp_notices`);
+    const preview = await call(h, "POST", "/account/removal/preview", { body: {} });
+    expect(preview.status).toBe(200);
+    const removal = await remove(h, cookie, ANSWERS);
+    expect({ status: removal.status, body: await jsonBody(removal) }).toEqual({
+      status: 500,
+      body: { error: "Internal error" },
+    });
+    expect(await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "error" })).toBe(
+      before + 1,
+    );
+    h.db.run(sql`DROP TABLE wedding_hosts`);
+    const broken = await call(h, "POST", "/account/removal/preview", { body: {} });
+    expect({ status: broken.status, body: await jsonBody(broken) }).toEqual({
+      status: 500,
+      body: { error: "Internal error" },
+    });
   });
 });
 
 describe("a host's removal of their Cire data: what it removes", () => {
   it("C6: removes every seat of both profiles, deletes the weddings left with no owner, ends the person's sessions, and touches no one else's", async () => {
     const h = await setup();
+    // What a host keeps when they leave: a vendor listing they claimed, and
+    // their link as a guest to their account.
+    h.db
+      .insert(directoryVendors)
+      .values({
+        id: "dv_mine",
+        name: "Florist",
+        claimedByProfileId: P,
+        reviewProfileId: P,
+        reviewOrgId: "org_mine",
+        reviewRequestedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    // A wedding of someone else's where the person is a guest, linked.
+    for (const statement of fullWeddingStatements("wed_guest", { owner: O, now: new Date() })) {
+      h.db.run(statement);
+    }
+    h.db.run(
+      sql.raw(
+        `UPDATE guest_account_links SET osn_account_id = '${ACCOUNT}', osn_profile_id = '${P}' WHERE id = 'gal_wed_guest'`,
+      ),
+    );
+    const doneBefore = await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "done" });
     const cookie = await confirmation(h);
     const res = await remove(h, cookie, ANSWERS);
 
@@ -328,6 +449,24 @@ describe("a host's removal of their Cire data: what it removes", () => {
       true,
     );
     expect(cleared.some((c) => c.startsWith("cire_removal=;") && /Max-Age=0/i.test(c))).toBe(true);
+    expect(await counterValue(CIRE_METRICS.accountRemovalRequests, { result: "done" })).toBe(
+      doneBefore + 1,
+    );
+    // The host scope: the vendor listing's claim and review stay.
+    const listing = h.db
+      .select()
+      .from(directoryVendors)
+      .where(eq(directoryVendors.id, "dv_mine"))
+      .get();
+    expect([listing?.claimedByProfileId, listing?.reviewProfileId]).toEqual([P, P]);
+    expect(
+      h.db.select().from(guestAccountLinks).where(eq(guestAccountLinks.osnProfileId, P)).all(),
+    ).toHaveLength(1);
+    // Each wedding a seat went from is signalled, closing both profiles' sockets.
+    expect(h.signalled.map((sig) => sig.topic).toSorted()).toEqual(
+      ["w_alone", "w_shared", "w_sibling", "w_theirs_edit"].map((id) => `cire:wedding:${id}`),
+    );
+    expect(h.signalled.every((sig) => sig.revoked.join() === [P, P2].toSorted().join())).toBe(true);
 
     expect(deletedAt(h.db, "w_alone")).not.toBeNull();
     expect(deletedAt(h.db, "w_sibling")).not.toBeNull();
@@ -371,9 +510,13 @@ describe("a host's removal of their Cire data: what it removes", () => {
     expect(first.status).toBe(202);
     expect(await jsonBody(first)).toEqual({ status: "not_finished" });
     expect(sessionsOf(h.db, P)).toBe(1);
+    // Only the weddings this call took are signalled; the lower seat waits.
+    expect(h.signalled).toHaveLength(MAX_OWNED_WEDDINGS_PER_CALL);
+    expect(h.signalled.some((sig) => sig.topic === "cire:wedding:w_theirs_edit")).toBe(false);
 
     const second = await remove(h, cookie, ANSWERS);
     expect(second.status).toBe(200);
+    expect(h.signalled.some((sig) => sig.topic === "cire:wedding:w_theirs_edit")).toBe(true);
     for (let i = 0; i < MAX_OWNED_WEDDINGS_PER_CALL; i += 1) {
       expect(seatsOf(h.db, `w_more_${i}`)).toEqual([{ profile: O, role: "owner" }]);
     }
@@ -396,6 +539,28 @@ describe("a host's removal of their Cire data: what it removes", () => {
       .all()
       .map((r) => r.key);
     expect(keys.filter((key) => key.includes(P))).toEqual([]);
+    expect(keys).toContain("wedding:w_shared");
+  });
+
+  it("C9b: a wedding a sibling profile shared is told that profile left, never the signed-in one", async () => {
+    // Red on naming the profile that asked: the other owners would learn the
+    // two profiles are one person.
+    const h = await setup();
+    insertWedding(h.db, {
+      id: "w_sibling_shared",
+      slug: "slug-w_sibling_shared",
+      displayName: "Sibling Shared",
+      owners: [P2, O],
+      createdAt: new Date(Date.now() - 86_400_000),
+    });
+    const cookie = await confirmation(h);
+    // Four owned weddings: a second call finishes.
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(202);
+    expect((await remove(h, cookie, ANSWERS)).status).toBe(200);
+    const told = h.mail.recorded().find((m) => m.text?.includes("Sibling Shared"));
+    expect(told?.to).toBe("other@example.test");
+    expect(told?.text).toContain("Sam Second (@second) left Sibling Shared");
+    expect(told?.text).not.toContain("Pat Person");
   });
 
   it("C13: the worst case, three owned weddings each told to another owner, stays inside 50 D1 statements", async () => {
@@ -453,6 +618,108 @@ describe("a host's removal of their Cire data: the preview and the confirmation"
       "cire:wedding:w_alone",
       "cire:wedding:w_sibling",
     ]);
+  });
+
+  it("C10b: a code osn-api refuses, or a code with no cookie, lists only the signed-in profile's weddings; osn-api down is 503", async () => {
+    // Red on the preview widening to every profile before a confirmation holds.
+    const h = await setup();
+    const cookie = await confirmation(h);
+    for (const opts of [
+      { removal: cookie, body: { code: "code_not_the_one_confirmed" } },
+      { body: { code: CODE } },
+    ]) {
+      const res = await call(h, "POST", "/account/removal/preview", opts);
+      const answer = (await jsonBody(res)) as {
+        weddings: { weddingId: string }[];
+        confirmed: boolean;
+      };
+      expect(answer.confirmed).toBe(false);
+      expect(answer.weddings.map((w) => w.weddingId)).toEqual([
+        "w_alone",
+        "w_shared",
+        "w_theirs_edit",
+      ]);
+    }
+    const down = await setup({
+      bridgeOverrides: {
+        verify: async () => {
+          throw new Error("osn-api unreachable");
+        },
+      },
+    });
+    const downCookie = await confirmation(down);
+    const res = await call(down, "POST", "/account/removal/preview", {
+      removal: downCookie,
+      body: { code: CODE },
+    });
+    expect({ status: res.status, body: await jsonBody(res) }).toEqual({
+      status: 503,
+      body: { error: "unavailable" },
+    });
+  });
+
+  it("C11b: a confirmation osn-api will not begin binds nothing to the browser", async () => {
+    for (const [begin, status, error] of [
+      [async () => ({ ok: false, reason: "not_found" }) as const, 409, "account_unavailable"],
+      [async () => ({ ok: false, reason: "refused" }) as const, 503, "unavailable"],
+      [
+        async () => {
+          throw new Error("osn-api unreachable");
+        },
+        503,
+        "unavailable",
+      ],
+      [async () => ({ ok: true, requestId: "bad id!" }) as const, 503, "unavailable"],
+    ] as const) {
+      const h = await setup({ bridgeOverrides: { begin } });
+      const res = await call(h, "POST", "/account/removal/confirmation");
+      expect({
+        status: res.status,
+        body: await jsonBody(res),
+        cookie: res.headers.get("set-cookie"),
+      }).toEqual({
+        status,
+        body: { error },
+        cookie: null,
+      });
+    }
+  });
+
+  it("C11c: on an https tier the cookie is __Host-prefixed and Secure, lasts 15 minutes, and is cleared the same way", async () => {
+    // The origin guard admits the app's own web origin.
+    const SITE = "https://invites.example.test";
+    const h = await setup({ webOrigin: SITE });
+    const res = await call(h, "POST", "/account/removal/confirmation", { origin: SITE });
+    const set = res.headers.get("set-cookie") ?? "";
+    expect(set).toMatch(/^__Host-cire_removal=/);
+    for (const attribute of [
+      /; Secure/,
+      /; HttpOnly/,
+      /; SameSite=Lax/,
+      /; Path=\//,
+      /; Max-Age=900/,
+    ]) {
+      expect(set).toMatch(attribute);
+    }
+    // The plain name is not read on an https tier.
+    const plain = `cire_removal=${set.split(";")[0]!.split("=")[1]}`;
+    const removeFrom = (removal: string) =>
+      call(h, "DELETE", "/account", { removal, body: { code: CODE, ...ANSWERS }, origin: SITE });
+    expect((await removeFrom(plain)).status).toBe(403);
+    const removed = await removeFrom(set.split(";")[0]!);
+    expect(removed.status).toBe(200);
+    const cleared = removed.headers
+      .getSetCookie()
+      .find((c) => c.startsWith("__Host-cire_removal=;"));
+    for (const attribute of [
+      /; Secure/,
+      /; HttpOnly/,
+      /; SameSite=Lax/,
+      /; Path=\//,
+      /Max-Age=0/,
+    ]) {
+      expect(cleared).toMatch(attribute);
+    }
   });
 
   it("C11: the confirmation keeps its secret in an HttpOnly cookie and sends osn-api only its hash, and the portal's own return address", async () => {

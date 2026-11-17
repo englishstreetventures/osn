@@ -462,6 +462,66 @@ describe("accountErasureService.erase — weddings the person owns", () => {
     expect(seatsOf(db, "w1")).toEqual([{ profile: OTHER, role: "owner" }]);
     expect(db.select().from(hostRsvpNotices).all()).toEqual([]);
   });
+
+  it("a seat made owner after the pre-read keeps the person's organiser sessions, so the next call can run", async () => {
+    // Red on ending the sessions in a call that answers not finished: a host
+    // removing their own data would be signed out with a seat left behind
+    // and no way to finish. Another person's session stays either way.
+    const db = makeDb();
+    wedding(db, "w1", [OTHER]);
+    seat(db, "w1", P, "editor", OTHER);
+    for (const profile of [P, OTHER]) {
+      db.insert(organiserSessions)
+        .values({
+          id: `oss_${profile}`,
+          token: `tok_${profile}`,
+          osnProfileId: profile,
+          osnSub: "sub",
+          expiresAt: new Date(NOW.getTime() + DAY_S * 1000),
+          createdAt: NOW,
+        })
+        .run();
+    }
+    beforeStatement(db, /delete from "host_rsvp_notices"/i, () => {
+      db.update(weddingHosts).set({ role: "owner" }).where(eq(weddingHosts.osnProfileId, P)).run();
+    });
+
+    expect(await erase(db).result).toEqual({ status: "not_finished" });
+    const sessions = () =>
+      db
+        .select({ p: organiserSessions.osnProfileId })
+        .from(organiserSessions)
+        .all()
+        .map((r) => r.p)
+        .toSorted();
+    expect(sessions()).toEqual([OTHER, P].toSorted());
+
+    expect((await erase(db).result).status).toBe("done");
+    expect(sessions()).toEqual([OTHER]);
+  });
+
+  it("names, for each wedding, the profiles whose owner seat went: never a profile that held none there", async () => {
+    // Red on a notice naming whichever profile asked: on a wedding only a
+    // sibling profile sat on, that would tell its other owners the two
+    // profiles are one person.
+    const db = makeDb();
+    wedding(db, "w_mine", [P, OTHER]);
+    wedding(db, "w_sibling", [P2, OTHER]);
+    wedding(db, "w_theirs", [OTHER]);
+    const { owned } = await run(
+      db,
+      accountErasureService.eraseWithOutcomes({
+        accountId: ACCOUNT,
+        profileIds: [P, P2],
+        now: NOW,
+      }),
+    );
+    expect(owned.toSorted((a, b) => a.weddingId.localeCompare(b.weddingId))).toEqual([
+      { weddingId: "w_mine", outcome: "seat_removed", leavers: [P] },
+      { weddingId: "w_sibling", outcome: "seat_removed", leavers: [P2] },
+    ]);
+    expect(seatsOf(db, "w_theirs")).toEqual([{ profile: OTHER, role: "owner" }]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -778,8 +838,8 @@ describe("accountErasureService.eraseWithOutcomes — a host leaving cire", () =
     );
     expect(finished.result).toEqual({ status: "done", kept: [] });
     expect(finished.owned.toSorted((a, b) => a.weddingId.localeCompare(b.weddingId))).toEqual([
-      { weddingId: "w_alone", outcome: "deleted" },
-      { weddingId: "w_shared", outcome: "seat_removed" },
+      { weddingId: "w_alone", outcome: "deleted", leavers: [P] },
+      { weddingId: "w_shared", outcome: "seat_removed", leavers: [P] },
     ]);
     // The other person's wedding is untouched.
     expect(seatsOf(db, "w_theirs")).toEqual([{ profile: OTHER, role: "owner" }]);

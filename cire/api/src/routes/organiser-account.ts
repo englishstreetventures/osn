@@ -56,8 +56,12 @@ import type { WeddingSignals } from "../services/realtime";
 
 const PREFIX = "/api/organiser";
 
-/** How long the browser holds the request: osn-api's own 10 minutes for a pending one. */
-const REMOVAL_COOKIE_SECONDS = 10 * 60;
+/**
+ * How long the browser holds the request: osn-api's 10 minutes for a pending
+ * one and its 5 for a confirmed one, so the cookie outlasts every request it
+ * can still spend.
+ */
+const REMOVAL_COOKIE_SECONDS = 15 * 60;
 
 /** A request id or secret as made here and by osn-api: base64url. */
 const TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
@@ -81,9 +85,12 @@ const sha256Hex = (value: string): string => createHash("sha256").update(value).
 const randomToken = (): string =>
   Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
 
-/** The request id and secret the `cire_removal` cookie holds, or null. */
-function readRemovalCookie(header: string | null): { requestId: string; secret: string } | null {
-  const value = parseRemovalCookie(header);
+/** The request id and secret the removal cookie holds, or null. */
+function readRemovalCookie(
+  header: string | null,
+  secure: boolean,
+): { requestId: string; secret: string } | null {
+  const value = parseRemovalCookie(header, secure);
   if (!value) return null;
   const [requestId, secret, extra] = value.split(".");
   if (extra !== undefined || !requestId || !secret) return null;
@@ -100,22 +107,25 @@ function wireAction(action: OpenAction) {
   };
 }
 
+/** The weddings the account alone owns, as the removal refuses on: the deletion preview's rule. */
+const soleOwned = (profileIds: ReadonlyArray<string>, organiserOrigin: string) =>
+  accountErasureService.preview({
+    profileIds,
+    deletesAt: Math.floor(Date.now() / 1000),
+    organiserOrigin,
+  });
+
 /** What a removal would do, for `profileIds`: the screen's list and the actions to answer. */
 const plan = (profileIds: ReadonlyArray<string>, organiserOrigin: string) =>
   Effect.gen(function* () {
-    const [listed, actions] = yield* Effect.all([
-      accountRemovalService.seats(profileIds),
-      accountErasureService.preview({
-        profileIds,
-        deletesAt: Math.floor(Date.now() / 1000),
-        organiserOrigin,
-      }),
-    ]);
+    const [listed, actions] = yield* Effect.all(
+      [accountRemovalService.seats(profileIds), soleOwned(profileIds, organiserOrigin)],
+      { concurrency: "unbounded" },
+    );
     return {
       weddings: listed.seats,
       more: listed.more,
       openActions: actions.map(wireAction),
-      actions,
     };
   });
 
@@ -164,20 +174,22 @@ export const createOrganiserAccountRoutes = (
     | { readonly ok: true; readonly accountId: string; readonly profileIds: string[] }
     | { readonly ok: false; readonly reason: "refused" | "unavailable" }
   > => {
-    const held = readRemovalCookie(cookieHeader);
+    const held = readRemovalCookie(cookieHeader, secureCookies);
     if (!held || !code || !TOKEN.test(code)) return { ok: false, reason: "refused" };
     if (!bridge) return { ok: false, reason: "unavailable" };
     try {
-      const verified = await bridge.verify({
-        profileId: osnProfileId,
-        requestId: held.requestId,
-        binding: sha256Hex(held.secret),
-        code,
-      });
+      // The cross-check, cire's own lookup of the account behind the
+      // signed-in profile, asked beside osn-api's verify of the request.
+      const [verified, own] = await Promise.all([
+        bridge.verify({
+          profileId: osnProfileId,
+          requestId: held.requestId,
+          binding: sha256Hex(held.secret),
+          code,
+        }),
+        bridge.resolveAccount(osnProfileId),
+      ]);
       if (!verified.ok) return { ok: false, reason: "refused" };
-      // The brief's cross-check: osn-api's answer against cire's own lookup
-      // of the account behind the signed-in profile.
-      const own = await bridge.resolveAccount(osnProfileId);
       if (!own.ok || own.accountId !== verified.accountId) {
         await runCire(Effect.logWarning("account removal: confirmed account is not the profile's"));
         return { ok: false, reason: "refused" };
@@ -315,12 +327,14 @@ export const createOrganiserAccountRoutes = (
         return runCire(
           Effect.gen(function* () {
             // Every wedding the account alone owns needs its answer, on the
-            // rows as they stand now, over every profile of the account.
-            const current = yield* plan(profileIds, origin);
-            const unanswered = current.actions.filter(
+            // rows as they stand now, over every profile of the account. The
+            // full list is read only for the refusal, which shows it.
+            const actions = yield* soleOwned(profileIds, origin);
+            const unanswered = actions.filter(
               (action) => !body.deleteEverything && body.choices?.[action.id] !== "delete",
             );
             if (unanswered.length > 0) {
+              const current = yield* plan(profileIds, origin);
               set.status = 409;
               return counted("open_actions", {
                 error: "open_actions",
@@ -330,31 +344,33 @@ export const createOrganiserAccountRoutes = (
               });
             }
 
-            const { result, owned } = yield* accountErasureService.eraseWithOutcomes({
-              accountId,
-              profileIds,
-              scope: "host",
-            });
+            const { result, owned, lowerSeatWeddings } =
+              yield* accountErasureService.eraseWithOutcomes({
+                accountId,
+                profileIds,
+                scope: "host",
+              });
 
-            // The owners who remain on each wedding the person left are told.
+            // The owners who remain on each wedding the person left are told,
+            // naming the profile that held the seat there and no other, so no
+            // notice says two profiles are one person.
             if (options.ownerNotices) {
-              for (const { weddingId, outcome } of owned) {
+              for (const { weddingId, outcome, leavers } of owned) {
                 if (outcome !== "seat_removed") continue;
-                yield* dispatchNotice(
-                  request,
-                  options.ownerNotices
-                    .ownerLeft({ weddingId, leaverOsnProfileId: osnProfileId })
-                    .pipe(Effect.provideService(DbService, db)),
-                );
+                for (const leaver of leavers) {
+                  yield* dispatchNotice(
+                    request,
+                    options.ownerNotices
+                      .ownerLeft({ weddingId, leaverOsnProfileId: leaver })
+                      .pipe(Effect.provideService(DbService, db)),
+                  );
+                }
               }
             }
             // Each wedding a seat went from: its open tabs re-read their
             // members, and the person's own sockets close.
             if (options.signals) {
-              const touched = new Set(owned.map((o) => o.weddingId));
-              if (result.status === "done") {
-                for (const seat of current.weddings) touched.add(seat.weddingId);
-              }
+              const touched = new Set([...owned.map((o) => o.weddingId), ...lowerSeatWeddings]);
               for (const weddingId of touched) {
                 yield* options.signals.membersChanged(weddingId, request, profileIds);
               }
