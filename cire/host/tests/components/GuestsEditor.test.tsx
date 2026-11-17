@@ -787,6 +787,8 @@ describe("GuestsEditor", () => {
         return Promise.resolve(fallback(url));
       });
       render(() => <GuestsEditor weddingId="wed_a" />);
+      // Not drawn from the caches first either: nothing vouches for their age.
+      expect(screen.queryByDisplayValue("Stale")).toBeNull();
 
       await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
       expect(screen.queryByDisplayValue("Stale")).toBeNull();
@@ -849,6 +851,67 @@ describe("GuestsEditor", () => {
       expect(screen.getByDisplayValue("Ada")).toBeTruthy();
       await waitFor(() => expect(screen.queryByDisplayValue("Ada")).toBeNull());
       expect(screen.getByText(/You can no longer edit the guest list/i)).toBeTruthy();
+    });
+
+    it("keeps the edits and says the list is stale when the head moved under a dirty draft", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockClear();
+      let answerHead!: (res: Response) => void;
+      authFetchMock.mockImplementation((url: string) => {
+        if (String(url).endsWith("/changes/head")) {
+          return new Promise<Response>((resolve) => {
+            answerHead = resolve;
+          });
+        }
+        return Promise.resolve(fallback(url));
+      });
+
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+      answerHead(json({ revision: "rev_moved" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("Someone else changed the guest list since you opened the editor."),
+        ).toBeTruthy(),
+      );
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+      // The edits stay: no row is read to replace them.
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads nothing more when the editor closed before the head answered", async () => {
+      primeLoad();
+      const first = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      first.unmount();
+      authFetchMock.mockClear();
+      let answerHead: ((res: Response) => void) | undefined;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head") && !answerHead) {
+          return new Promise<Response>((resolve) => {
+            answerHead = resolve;
+          });
+        }
+        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: "rev_moved" }));
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+        return Promise.resolve(fallback(url));
+      });
+
+      const second = render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+      second.unmount();
+      answerHead!(json({ revision: "rev_moved" }));
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(authFetchMock).toHaveBeenCalledTimes(1);
     });
 
     it("records no head for the rows when one slice failed to load", async () => {

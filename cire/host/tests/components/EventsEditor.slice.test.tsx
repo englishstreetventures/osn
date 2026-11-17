@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 /**
@@ -184,4 +184,86 @@ it("reads the schedule again when the cached events changed since the head was r
     urls.findIndex((u) => u.endsWith("/events")),
   );
   expect(urls.some((u) => u.endsWith("/events"))).toBe(true);
+});
+
+/** Open the editor once so its events are cached under a recorded head, then
+ *  unmount it; the next mount reopens on those rows. */
+async function openOnceAndClose() {
+  authFetchMock.mockImplementation((url: string) => {
+    const u = String(url);
+    if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+    return Promise.resolve(fallback(url));
+  });
+  const first = render(() => <EventsEditor weddingId="wed_a" />);
+  await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+  first.unmount();
+  authFetchMock.mockClear();
+}
+
+/** Route the next `/changes/head` read to a promise the test answers; every
+ *  later request gets `fallback` (and `/events` the schedule). */
+function holdHead() {
+  const held: { answer?: (res: Response) => void } = {};
+  authFetchMock.mockImplementation((url: string) => {
+    const u = String(url);
+    if (u.endsWith("/changes/head") && !held.answer) {
+      return new Promise<Response>((resolve) => {
+        held.answer = resolve;
+      });
+    }
+    if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+    return Promise.resolve(fallback(url));
+  });
+  return held;
+}
+
+it("keeps the edits and says the schedule is stale when the head moved under a dirty draft", async () => {
+  await openOnceAndClose();
+  const head = holdHead();
+
+  render(() => <EventsEditor weddingId="wed_a" />);
+  fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+  await waitFor(() => expect(screen.getByRole("dialog", { name: /Edit event/i })).toBeTruthy());
+  fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Wedding Ceremony" } });
+  await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+  head.answer!(json({ revision: "rev_moved" }));
+
+  await waitFor(() =>
+    expect(
+      screen.getByText("Someone else changed the schedule since you opened the editor."),
+    ).toBeTruthy(),
+  );
+  expect(screen.getByDisplayValue("Wedding Ceremony")).toBeTruthy();
+  // The edits stay: the schedule is not read again to replace them.
+  expect(authFetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("stops showing a cached schedule when the head is refused once drawn", async () => {
+  await openOnceAndClose();
+  // The seat lost its edit rights: the editor-only head is refused.
+  authFetchMock.mockImplementation(async (url: string) =>
+    String(url).endsWith("/changes/head") ? json({ error: "Forbidden" }, 403) : fallback(url),
+  );
+
+  render(() => <EventsEditor weddingId="wed_a" />);
+  expect(screen.getByText("Ceremony")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByText("Ceremony")).toBeNull());
+  expect(
+    screen.getByText(
+      "You can no longer edit the schedule. Reload the page to see your current access.",
+    ),
+  ).toBeTruthy();
+});
+
+it("reads nothing more when the editor closed before the head answered", async () => {
+  await openOnceAndClose();
+  const head = holdHead();
+
+  const second = render(() => <EventsEditor weddingId="wed_a" />);
+  await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(1));
+  second.unmount();
+  head.answer!(json({ revision: "rev_moved" }));
+  await new Promise((r) => setTimeout(r, 20));
+
+  expect(authFetchMock).toHaveBeenCalledTimes(1);
 });
