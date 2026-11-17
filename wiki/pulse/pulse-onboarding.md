@@ -6,7 +6,7 @@ related:
   - "[[identity-model]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-17
 ---
 
 # Pulse Onboarding
@@ -88,6 +88,7 @@ ARC-protected with the **dedicated `graph:resolve-account` scope** (audience `os
 - Step components: `Step1Welcome` … `Step6Finish` — one file per step, each composes the shared `StepShell`.
 - First-run gate: `OnboardingGate` in `pulse/web/src/components/OnboardingGate.tsx` — fetches status when an access token is available; if `completedAt === null` and the user isn't on `/welcome` and the session isn't already resolved, redirects to `/welcome`. **Fetch source is keyed only on the access token** (not the pathname) so the resource fires once per session and never re-fetches when the user navigates between routes — the pathname check moved into the redirect effect.
 - Resolved-this-session: `markOnboardingResolvedThisSession()` / `isOnboardingResolvedThisSession()` in `pulse/web/src/lib/onboarding.ts`, backed by `sessionStorage` (key `pulse:onboarding-resolved`). Set on BOTH skip and completion — the gate's `createResource` is token-keyed and caches the pre-complete status, so without this flag a successful `POST /me/onboarding/complete` followed by `navigate("/")` would bounce the user back to `/welcome` (the redirect-loop fix). Server-side state stays authoritative — next session boot fetches fresh and sees `completedAt` set.
+- End to end: `pulse-event-rsvp` ([[testing-patterns#The end-to-end suite]]) has the host press "Skip for now" and the guest walk all six steps with location and notifications granted, then reads the guest's `pulse_account_onboarding` row (interests, both opt-ins, both permission outcomes) and checks the host has none. Back, the step-2 skip, denied or unsupported permissions, the eight-interest cap and the failure toast stay with the web unit tests.
 
 ## Themed illustrations
 
