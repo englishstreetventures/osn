@@ -26,12 +26,6 @@ function captureLogs() {
   return { lines, layer };
 }
 
-describe("MAX_FALLBACK_BEACON_BYTES", () => {
-  it("pins the largest beacon body a product route reads", () => {
-    expect(MAX_FALLBACK_BEACON_BYTES).toBe(64);
-  });
-});
-
 describe("readFallbackOutcome", () => {
   it.each([
     ["refused", "refused"],

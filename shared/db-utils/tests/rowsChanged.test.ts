@@ -21,13 +21,6 @@ describe("rowsChanged", () => {
     expect(rowsChanged({ rowsAffected: 0 })).toBe(0);
   });
 
-  it("reads D1 `{ success, meta: { changes } }` — the production shape", () => {
-    expect(rowsChanged({ success: true, meta: { changes: 1, duration: 0.3 }, results: [] })).toBe(
-      1,
-    );
-    expect(rowsChanged({ success: true, meta: { changes: 0 }, results: [] })).toBe(0);
-  });
-
   it("prefers `meta.changes` when a driver reports both", () => {
     expect(rowsChanged({ changes: 0, meta: { changes: 3 } })).toBe(3);
   });

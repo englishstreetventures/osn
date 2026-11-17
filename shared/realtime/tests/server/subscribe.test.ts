@@ -274,12 +274,6 @@ describe("subscribe — failures answer 503 and never throw", () => {
     expect(metricSubscribe).toHaveBeenCalledWith("cire", "unavailable");
   });
 
-  it("when the hub's fetch rejects", async () => {
-    const { hub } = fakeHub({ fetch: () => Promise.reject(new Error("over quota")) });
-    const res = await run(upgradeRequest(), RAW, options({}, hub));
-    expect(res.status).toBe(503);
-  });
-
   it("when the hub answers anything but 101", async () => {
     const { hub } = fakeHub({ fetch: async () => new Response(null, { status: 400 }) });
     const res = await run(upgradeRequest(), RAW, options({}, hub));

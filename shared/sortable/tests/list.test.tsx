@@ -7,7 +7,8 @@ import { createSortableList } from "../src/list";
 
 afterEach(() => cleanup());
 
-function setup(initial = ["Ceremony", "Reception", "Brunch"]) {
+/** `labels` names a row by its id; a row it leaves out is named by its id. */
+function setup(initial = ["Ceremony", "Reception", "Brunch"], labels: Record<string, string> = {}) {
   const [ids, setIds] = createSignal(initial);
   const onPhase = vi.fn();
   let list!: ReturnType<typeof createSortableList>;
@@ -15,7 +16,7 @@ function setup(initial = ["Ceremony", "Reception", "Brunch"]) {
   function Harness() {
     list = createSortableList({
       ids,
-      labelFor: (id) => String(id),
+      labelFor: (id) => labels[String(id)] ?? String(id),
       noun: "event",
       onMove: (from, to) => {
         const next = [...ids()];
@@ -155,19 +156,28 @@ describe("announcements", () => {
   });
 
   it("re-announces an identical consecutive move", () => {
-    // A live region only speaks when its text CHANGES, and walking one row down
-    // the list repeatedly produces the same sentence every time. The clear-then-
-    // set is what keeps the second press from being silent — this asserts the
-    // empty write really happened.
-    const { list } = setup(["A", "B", "C", "D"]);
-    const seen: string[] = [];
-    // Re-read after every set by subscribing through the accessor.
-    fireEvent.keyDown(grip("A"), { key: "ArrowDown" });
-    seen.push(list().announcement());
-    fireEvent.keyDown(grip("A"), { key: "ArrowDown" });
-    seen.push(list().announcement());
-    expect(seen[0]).toBe("A moved to position 2 of 4.");
-    expect(seen[1]).toBe("A moved to position 3 of 4.");
+    // A live region only speaks when its text CHANGES, and a signal set to the
+    // value it already holds writes nothing to the DOM. Two rows that share a
+    // label make the same sentence twice in a row: x moves down, then y (now
+    // first) moves down. The clear-then-set is what makes the second press
+    // write to the region at all.
+    setup(["x", "y", "z"], { x: "Reception", y: "Reception", z: "Brunch" });
+    const region = document.querySelector('[aria-live="polite"]')!;
+    const observer = new MutationObserver(() => {});
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+    // `takeRecords()` straight after each press: happy-dom hands queued
+    // records to the callback on a microtask, which would empty the queue.
+    fireEvent.keyDown(grip("x"), { key: "ArrowDown" });
+    observer.takeRecords();
+    expect(region.textContent).toBe("Reception moved to position 2 of 3.");
+
+    fireEvent.keyDown(grip("y"), { key: "ArrowDown" });
+    const secondPress = observer.takeRecords();
+    observer.disconnect();
+
+    expect(secondPress.length, "the second, identical sentence wrote nothing").toBeGreaterThan(0);
+    expect(region.textContent).toBe("Reception moved to position 2 of 3.");
   });
 
   it("clears rather than re-announcing, for an undo", () => {

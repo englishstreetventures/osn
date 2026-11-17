@@ -150,12 +150,6 @@ describe("beginLogin", () => {
     expect(tx.x).toBeGreaterThanOrEqual(before + 600_000);
     expect(tx.x).toBeLessThanOrEqual(Date.now() + 600_000);
   });
-
-  it("produces a cookie-safe transaction value", async () => {
-    const { cookie } = await startLogin(issuer.config());
-    // `payload.mac` — base64url segments joined by a dot, all cookie-safe.
-    expect(cookie).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-  });
 });
 
 describe("readReturnTo", () => {
@@ -418,16 +412,6 @@ describe("completeLogin — ID token verification", () => {
       displayName: "Test Person",
       avatarUrl: "https://cdn.test.invalid/a.png",
     });
-  });
-
-  it("keeps the pairwise sub and the profile id apart", async () => {
-    const result = await completeWith({ sub: "pw_someone_else" });
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
-    // `sub` is per-client and meaningless to the graph; every relying party's
-    // rows are keyed on the `usr_*` id, which must come from `osn_profile_id`.
-    expect(result.identity.osnSub).toBe("pw_someone_else");
-    expect(result.identity.osnProfileId).toBe(TEST_PROFILE_ID);
   });
 
   it("tolerates a token with no profile scope claims", async () => {

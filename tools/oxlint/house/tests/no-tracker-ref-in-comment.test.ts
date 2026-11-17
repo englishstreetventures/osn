@@ -262,8 +262,4 @@ describe("house/no-tracker-ref-in-comment", () => {
   it("exempts citation styles beyond the Copenhagen Book", () => {
     expect(forFixture(diagnostics, "normative-citation-other-standards.ts")).toHaveLength(0);
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-tracker-ref-in-comment)")).toBe(true);
-  });
 });

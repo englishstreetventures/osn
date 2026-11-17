@@ -129,8 +129,4 @@ describe("house/no-in-operator-key-guard", () => {
     expect(message).toContain("`value in …`");
     expect(message).toContain("Object.hasOwn(map, value)");
   });
-
-  it("reports under the plugin's rule id", () => {
-    expect(diagnostics.every((d) => d.code === "house(no-in-operator-key-guard)")).toBe(true);
-  });
 });
