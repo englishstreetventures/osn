@@ -408,9 +408,12 @@ These rules govern `pulse/web`. The landing site's motion is in
   from the first pixel scrolled. The owner took it on #2034 (2026-11-14). A
   browser that cannot read a scroll timeline keeps a hairline under the
   header. The share sheet, More filters and the guest list draw it with no
-  class of their own; the guest list scrolls its list inside a panel that
-  fits, so nothing is drawn under its title (`wiki/shared/component-library.md`
-  §Kobalte components).
+  class of their own; the guest list lays its panel out as a column whose
+  list scrolls, so the panel fits and nothing is drawn under its title
+  (`wiki/shared/component-library.md` §Kobalte components). The title row and
+  the fade both paint `--ui-surface` opaque, so a translucent sheet (the
+  owner's "Pulse only" on #2034) has to give the row and the fade its
+  material too, or an opaque strip crosses its top.
 
 Where the app does not follow this yet: these controls fade their focus mark
 with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,

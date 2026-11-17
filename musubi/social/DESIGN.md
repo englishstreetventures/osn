@@ -689,8 +689,10 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   sits under it in place of a line, and nothing is drawn there at the top or
   in a dialog that fits: the owner's choice on #2034 (2026-11-14, "Take it":
   sticky header, 16px fade, desktop card capped at 85% of the window).
-  Focus never stops a field under the header or the fade (the panel's scroll
-  padding follows the header's height). A browser that cannot read a scroll
+  A field reached with Shift+Tab arrives with its label clear of the header
+  and the fade (the panel's scroll padding follows the header's height), and
+  a title row taller than a third of the sheet, such as a very long name,
+  scrolls away with the body rather than cover it. A browser that cannot read a scroll
   timeline (below Chrome 115 or Safari 26) keeps a hairline under the header
   instead, as every dialog drew before. `@shared/ui` draws all of it
   (`wiki/shared/component-library.md` §Kobalte components), so a dialog adds

@@ -326,9 +326,12 @@ of the hairline (the owner's choice on #2034, 2026-11-14;
 [[component-library]] §Kobalte components). It is the one animation here
 that runs on a scroll timeline, not on time, so no duration or easing token
 applies: `scroll-edge-timeline` on the panel names its block scroll
-`--ui-scroll-edge`, and `scroll-edge-fade` on the header's `::after` runs
-`ui-scroll-edge` (opacity 0 to 1) on it, `linear` so the band keeps level
-with the distance scrolled, over `animation-range: 0px 1rem`. Its 1ms
+`--ui-scroll-edge` and declares the band's length, `--ui-scroll-edge-size`
+(1rem), once; `scroll-edge-fade` on the header's `::after` is that tall, paints
+`--theme(--color-ui-surface)` (the header's own fill, fallback included) to
+clear, and runs `ui-scroll-edge` (opacity 0 to 1) on the timeline, `linear` so
+the band keeps level with the distance scrolled, over the same length.
+`Dialog`'s scroll padding reads the length too. Its 1ms
 duration only scales to the scroll range; MDN's scroll-driven examples set
 one for Firefox, which runs nothing at `auto` or 0s. The band's own
 `opacity: 0` is what shows at rest in a panel whose body fits: such a panel

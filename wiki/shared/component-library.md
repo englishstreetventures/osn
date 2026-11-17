@@ -1282,9 +1282,16 @@ owner chose it on #2034 (2026-11-14: "Take it" — sticky header, 16px fade,
 desktop card capped at 85% of the window, hairline fallback where scroll
 timelines are unsupported). The fade takes no pointer. The header measures
 itself with a `ResizeObserver` and writes `--ui-dialog-header-height` on the
-panel, whose `scroll-padding-top` is that height, the 16px fade and 4px for a
-focus mark, so focus never parks a control under the header or the fade, a
-wrapped title included ([[frontend-patterns]] §`position: sticky`).
+panel, whose `scroll-padding-top` is that height, the 16px fade and 1.5rem for
+a field's label and focus mark, so a field reached with Shift+Tab arrives with
+its label clear of the header and the fade, a wrapped title included
+([[frontend-patterns]] §`position: sticky`). A header taller than a third of
+the panel — a long name someone else chose — stops sticking and scrolls away
+with the body, so no title can cover the dialog's words or its buttons. Kobalte
+wraps focus from one end of the panel to the other without scrolling
+(Shift+Tab off the first control lands on the footer's action), so focus that
+arrives from one of its trap `span`s scrolls the panel itself, never the page,
+to bring the control into view.
 A browser that cannot read `animation-timeline: scroll()` (below Chrome 115
 and Safari 26, under this repository's floor of Chrome 111 and Safari 16.4)
 keeps the hairline and draws no fade. Under reduced motion the fade does not
